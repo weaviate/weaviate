@@ -5911,9 +5911,9 @@
       },
       "x-doc-only": true
     },
-    "CommonQueryParams": {
+    "FetchQueryRequest": {
       "type": "object",
-      "description": "Parameters common to every query endpoint: pagination (limit/offset/autocut/after), sorting, filtering (filters or where), returned fields (properties/metadata), groupBy, generative, rerank, consistency and tenant. The collection comes from the URL path.",
+      "description": "Fetch request — common query parameters only, no search method.",
       "properties": {
         "collection": {
           "type": "string",
@@ -6022,200 +6022,1258 @@
       },
       "x-doc-only": true
     },
-    "FetchQueryRequest": {
-      "description": "Fetch request — common query parameters only, no search method.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
-        }
-      ],
-      "x-doc-only": true
-    },
     "BM25QueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `bm25Search` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "bm25Search": {
-              "$ref": "#/definitions/BM25"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "bm25Search": {
+          "$ref": "#/definitions/BM25"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "HybridQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `hybridSearch` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "hybridSearch": {
-              "$ref": "#/definitions/Hybrid"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "hybridSearch": {
+          "$ref": "#/definitions/Hybrid"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearVectorQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearVector` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearVector": {
-              "$ref": "#/definitions/NearVector"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearVector": {
+          "$ref": "#/definitions/NearVector"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearTextQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearText` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearText": {
-              "$ref": "#/definitions/NearTextSearch"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearText": {
+          "$ref": "#/definitions/NearTextSearch"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearObjectQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearObject` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearObject": {
-              "$ref": "#/definitions/NearObject"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearObject": {
+          "$ref": "#/definitions/NearObject"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearImageQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearImage` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearImage": {
-              "$ref": "#/definitions/NearImageSearch"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearImage": {
+          "$ref": "#/definitions/NearImageSearch"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearAudioQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearAudio` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearAudio": {
-              "$ref": "#/definitions/NearAudioSearch"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearAudio": {
+          "$ref": "#/definitions/NearAudioSearch"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearVideoQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearVideo` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearVideo": {
-              "$ref": "#/definitions/NearVideoSearch"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearVideo": {
+          "$ref": "#/definitions/NearVideoSearch"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearDepthQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearDepth` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearDepth": {
-              "$ref": "#/definitions/NearDepthSearch"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearDepth": {
+          "$ref": "#/definitions/NearDepthSearch"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearThermalQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearThermal` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearThermal": {
-              "$ref": "#/definitions/NearThermalSearch"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearThermal": {
+          "$ref": "#/definitions/NearThermalSearch"
         }
-      ],
+      },
       "x-doc-only": true
     },
     "NearImuQueryRequest": {
+      "type": "object",
       "description": "Common query parameters plus the `nearImu` search field.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/CommonQueryParams"
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
         },
-        {
-          "type": "object",
-          "properties": {
-            "nearImu": {
-              "$ref": "#/definitions/NearIMUSearch"
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ],
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
             }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
           }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        },
+        "nearImu": {
+          "$ref": "#/definitions/NearIMUSearch"
         }
-      ],
+      },
       "x-doc-only": true
     }
   },

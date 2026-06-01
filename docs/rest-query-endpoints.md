@@ -89,13 +89,17 @@ predictability invariant holds: any per-method body is also a valid gRPC `Search
 `/aggregate` is left single (search method in the body) but could be split the
 same way.
 
-In the OpenAPI spec each route advertises only its relevant fields via `allOf`
-composition: a shared `CommonQueryParams` (the `SearchRequest` fields minus the
-search methods) plus the one search field for that route — e.g.
-`NearVectorQueryRequest = allOf[CommonQueryParams, {nearVector}]`. This limits the
-*documented* body per endpoint without changing the runtime (still one
-`SearchRequest`) and without duplicating the common fields. These schemas are
-`x-doc-only`, so they don't reach go-swagger codegen.
+In the OpenAPI spec each route advertises only its relevant fields via a flat
+per-route request schema that inlines the common query parameters plus the one
+search field — e.g. `NearVectorQueryRequest` lists the common params + `nearVector`.
+This limits the *documented* body per endpoint without changing the runtime
+(still one `SearchRequest`). `allOf` composition would avoid duplicating the
+common fields, but the docs renderer (Scalar 1.49) does not render properties
+across an `allOf` boundary — neither merged members nor a sibling field next to a
+`$ref` show up in the body list — so the fields are inlined instead. The
+duplication is generated from a single source (the `SearchRequest` fields), not
+hand-maintained, and the schemas are `x-doc-only`, so they don't reach go-swagger
+codegen.
 
 ## Request conveniences
 
