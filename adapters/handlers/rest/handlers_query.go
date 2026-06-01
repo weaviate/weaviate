@@ -35,16 +35,18 @@ import (
 )
 
 // restQueryHandler serves the pure-REST search/aggregate endpoints that mirror
-// the gRPC Search/Aggregate RPCs:
+// the gRPC Search/Aggregate RPCs and the client-library query methods:
 //
-//	POST /v1/{collection}/query      → Search
-//	POST /v1/{collection}/aggregate  → Aggregate
+//	POST /v1/{collection}/query/{method}  → Search  (fetch|bm25|hybrid|near-vector|near-text|...)
+//	POST /v1/{collection}/aggregate       → Aggregate
 //
 // The JSON request body is the protojson encoding of the gRPC SearchRequest /
 // AggregateRequest message, and the response is the protojson encoding of the
-// corresponding reply. An empty body is treated as an empty request (i.e. a
-// default search/aggregate over the collection). The collection name is taken
-// from the path and always overrides any value carried in the body.
+// corresponding reply. Every /query/{method} route parses into the same
+// SearchRequest and runs the same pipeline; the path only adds a per-endpoint
+// assertion (validateSearchForKind) that the body carries exactly the matching
+// search method. An empty body is treated as an empty request. The collection
+// name is taken from the path and always overrides any value carried in the body.
 //
 // These endpoints are the GraphQL replacement. Unlike GraphQL they are
 // namespace-compatible, because they delegate to the same gRPC pipeline
@@ -69,11 +71,10 @@ type restQueryHandler struct {
 type restQueryKind int
 
 const (
-	kindAggregate      restQueryKind = iota
-	kindQueryUniversal               // POST /v1/{collection}/query — any (or no) search method
-	kindQueryFetch                   // /query/fetch — no search method
-	kindQueryBM25                    // /query/bm25
-	kindQueryHybrid                  // /query/hybrid
+	kindAggregate   restQueryKind = iota
+	kindQueryFetch                // /query/fetch — no search method
+	kindQueryBM25                 // /query/bm25
+	kindQueryHybrid               // /query/hybrid
 	kindQueryNearVector
 	kindQueryNearText
 	kindQueryNearObject
@@ -169,8 +170,6 @@ func matchRESTQueryPath(path string) (collection string, kind restQueryKind, ok 
 		col = decoded
 	}
 	switch {
-	case len(parts) == 2 && parts[1] == "query":
-		return col, kindQueryUniversal, true
 	case len(parts) == 2 && parts[1] == "aggregate":
 		return col, kindAggregate, true
 	case len(parts) == 3 && parts[1] == "query":
@@ -292,9 +291,6 @@ func searchMethodsSet(req *pbv1.SearchRequest) []string {
 // the gRPC SearchRequest (an agent can still construct any of these from the
 // proto) while giving each endpoint clear validation.
 func validateSearchForKind(req *pbv1.SearchRequest, kind restQueryKind) error {
-	if kind == kindQueryUniversal {
-		return nil
-	}
 	set := searchMethodsSet(req)
 	if kind == kindQueryFetch {
 		if len(set) > 0 {

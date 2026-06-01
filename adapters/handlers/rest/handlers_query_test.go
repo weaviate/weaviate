@@ -83,9 +83,9 @@ func TestMatchRESTQueryPath(t *testing.T) {
 		wantKind restQueryKind
 		wantOK   bool
 	}{
-		{"/v1/Article/query", "Article", kindQueryUniversal, true},
+		{"/v1/Article/query", "", 0, false}, // universal /query removed
 		{"/v1/Article/aggregate", "Article", kindAggregate, true},
-		{"/v1/My%20Class/query", "My Class", kindQueryUniversal, true},
+		{"/v1/My%20Class/query/near-vector", "My Class", kindQueryNearVector, true}, // url-decode
 		{"/v1/Article/query/near-vector", "Article", kindQueryNearVector, true},
 		{"/v1/Article/query/near-text", "Article", kindQueryNearText, true},
 		{"/v1/Article/query/bm25", "Article", kindQueryBM25, true},
@@ -156,7 +156,7 @@ func TestRESTQuery_SearchHappyPath_CollectionFromPathOverridesBody(t *testing.T)
 	h := newTestQueryHandler(q)
 
 	// Body sets a different collection and a limit; path must win for collection.
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/RightName/query", `{"collection":"WrongName","limit":7}`)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/RightName/query/fetch", `{"collection":"WrongName","limit":7}`)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
@@ -170,7 +170,7 @@ func TestRESTQuery_EmptyBodyIsEmptyRequest(t *testing.T) {
 	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
 	h := newTestQueryHandler(q)
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", "")
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", "")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.True(t, q.calledSearch)
@@ -193,7 +193,7 @@ func TestRESTQuery_MalformedBody(t *testing.T) {
 	q := &fakeQuerier{}
 	h := newTestQueryHandler(q)
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{not valid json`)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", `{not valid json`)
 
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.False(t, q.calledSearch, "querier must not be called on parse failure")
@@ -204,7 +204,7 @@ func TestRESTQuery_Disabled(t *testing.T) {
 	h := newTestQueryHandler(q)
 	h.disabled = true
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", `{}`)
 
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.Contains(t, rec.Body.String(), "rest query api is disabled")
@@ -215,7 +215,7 @@ func TestRESTQuery_ErrorMappingFromPipeline(t *testing.T) {
 	q := &fakeQuerier{searchErr: authzerrors.NewForbidden(&models.Principal{Username: "u"}, "read", "Article")}
 	h := newTestQueryHandler(q)
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", `{}`)
 
 	require.Equal(t, http.StatusForbidden, rec.Code)
 }
@@ -224,7 +224,7 @@ func TestRESTQuery_AnonymousAllowed_PassesNilPrincipal(t *testing.T) {
 	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
 	h := newTestQueryHandler(q)
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", `{}`)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.True(t, q.calledSearch)
@@ -236,7 +236,7 @@ func TestRESTQuery_AnonymousDisabled_RejectsMissingToken(t *testing.T) {
 	h := newTestQueryHandler(q)
 	h.allowAnonymousAccess = false // composer will reject the empty token
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", `{}`)
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.False(t, q.calledSearch)
@@ -253,7 +253,7 @@ func TestRESTQuery_BearerTokenIsValidated(t *testing.T) {
 	}
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Fatal("should not fall through") })
-	req := httptest.NewRequest(http.MethodPost, "/v1/Article/query", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/v1/Article/query/fetch", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer s3cret")
 	rec := httptest.NewRecorder()
 	h.middleware(next).ServeHTTP(rec, req)
@@ -268,7 +268,7 @@ func TestRESTQuery_WhereFilterParsedAndPassed(t *testing.T) {
 	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
 	h := newTestQueryHandler(q)
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query",
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch",
 		`{"limit":5,"where":{"operator":"Equal","path":["category"],"valueText":"fantasy"}}`)
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -302,7 +302,7 @@ func TestRESTQuery_WhereAndFiltersConflict(t *testing.T) {
 	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
 	h := newTestQueryHandler(q)
 
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", `{
 		"where":{"operator":"Equal","path":["category"],"valueText":"fantasy"},
 		"filters":{"operator":"OPERATOR_EQUAL","valueText":"fantasy","target":{"property":"category"}}
 	}`)
@@ -317,7 +317,7 @@ func TestRESTQuery_MalformedWhere(t *testing.T) {
 	h := newTestQueryHandler(q)
 
 	// `where` must be an object; a scalar fails to parse into a WhereFilter.
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{"where":123}`)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch", `{"where":123}`)
 
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.False(t, q.calledSearch)
@@ -337,7 +337,7 @@ func TestRESTQuery_ConsistencyLevelShorthand(t *testing.T) {
 		t.Run(tc.in, func(t *testing.T) {
 			q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
 			h := newTestQueryHandler(q)
-			rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query",
+			rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query/fetch",
 				`{"consistencyLevel":"`+tc.in+`"}`)
 			require.Equal(t, http.StatusOK, rec.Code)
 			require.True(t, q.calledSearch)
@@ -392,15 +392,6 @@ func TestRESTQuery_PerMethodEndpoints_RejectMismatch(t *testing.T) {
 	}
 }
 
-func TestRESTQuery_UniversalAcceptsAnyMethod(t *testing.T) {
-	// The universal /query endpoint imposes no per-method constraint.
-	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
-	h := newTestQueryHandler(q)
-	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{"bm25Search":{"query":"x"}}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.True(t, q.calledSearch)
-}
-
 func TestRESTQuery_NonMatchingRequestsFallThrough(t *testing.T) {
 	q := &fakeQuerier{}
 	h := newTestQueryHandler(q)
@@ -409,10 +400,11 @@ func TestRESTQuery_NonMatchingRequestsFallThrough(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v1/Article/query"},   // right path, wrong method
-		{http.MethodPost, "/v1/objects"},        // unrelated route
-		{http.MethodPost, "/v1/Article/get"},    // wrong verb
-		{http.MethodPost, "/v1/schema/Article"}, // unrelated route
+		{http.MethodPost, "/v1/Article/query"},            // universal /query removed
+		{http.MethodGet, "/v1/Article/query/near-vector"}, // right path, wrong method
+		{http.MethodPost, "/v1/objects"},                  // unrelated route
+		{http.MethodPost, "/v1/Article/get"},              // wrong verb
+		{http.MethodPost, "/v1/schema/Article"},           // unrelated route
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {

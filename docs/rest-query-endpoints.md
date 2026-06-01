@@ -4,16 +4,16 @@ REST endpoints expose search and aggregation over HTTP as the replacement for
 GraphQL data queries:
 
 ```
-POST /v1/{collection}/query              → gRPC Search (universal — any search method)
 POST /v1/{collection}/query/{method}     → gRPC Search, scoped to one method
 POST /v1/{collection}/aggregate          → gRPC Aggregate
 ```
 
-The `{method}` variants mirror the client-library query methods so the surface is
+The `{method}` routes mirror the client-library query methods so the surface is
 discoverable and self-validating: `fetch`, `bm25`, `hybrid`, `near-vector`,
 `near-text`, `near-object`, `near-image`, `near-audio`, `near-video`,
-`near-depth`, `near-thermal`, `near-imu`. They are sugar over the universal
-`/query` — same body, same pipeline — see "Per-method query endpoints" below.
+`near-depth`, `near-thermal`, `near-imu`. They all parse into the same gRPC
+`SearchRequest` and run the same pipeline — see "Per-method query endpoints"
+below. (There is no catch-all `/query`; each search type has its own route.)
 
 GraphQL is being deprecated (it is incompatible with Namespaces — schema
 leakage, no per-namespace RBAC — and introspection exposes the schema). Every
@@ -74,21 +74,28 @@ Consequences of being outside go-swagger:
 (`fetch`, `bm25`, `hybrid`, `near-vector`, `near-text`, `near-object`, and the
 multi-modal `near-image`/`near-audio`/`near-video`/`near-depth`/`near-thermal`/
 `near-imu`). They are **not** a second API — each one parses into the same
-`pb.SearchRequest` and calls the same `SearchWithPrincipal`. The only difference
-from the universal `/query` is a per-path assertion (`validateSearchForKind`):
+`pb.SearchRequest` and calls the same `SearchWithPrincipal`. The path only adds a
+per-route assertion (`validateSearchForKind`):
 
 - `/query/{method}` requires exactly its own search field set (e.g.
   `/query/near-vector` ⇒ `nearVector`), and rejects any other search method with
   a 422.
 - `/query/fetch` requires *no* search method (filter / sort / paginate only).
-- `/query` (universal) imposes no constraint.
 
-This keeps the body identical to the gRPC `SearchRequest`, so the predictability
-invariant holds: anything valid at `/query/bm25` is also a valid `/query` body and
-a valid gRPC `Search` — the path just adds an additive constraint and clearer
-errors/docs. Routing lives in `matchRESTQueryPath` (`querySubKinds`), validation
-in `validateSearchForKind`. `/aggregate` is left single (search method in the
-body) but could be split the same way.
+This keeps the runtime body identical to the gRPC `SearchRequest`, so the
+predictability invariant holds: any per-method body is also a valid gRPC `Search`
+— the path just adds an additive constraint and clearer errors. Routing lives in
+`matchRESTQueryPath` (`querySubKinds`), validation in `validateSearchForKind`.
+`/aggregate` is left single (search method in the body) but could be split the
+same way.
+
+In the OpenAPI spec each route advertises only its relevant fields via `allOf`
+composition: a shared `CommonQueryParams` (the `SearchRequest` fields minus the
+search methods) plus the one search field for that route — e.g.
+`NearVectorQueryRequest = allOf[CommonQueryParams, {nearVector}]`. This limits the
+*documented* body per endpoint without changing the runtime (still one
+`SearchRequest`) and without duplicating the common fields. These schemas are
+`x-doc-only`, so they don't reach go-swagger codegen.
 
 ## Request conveniences
 
