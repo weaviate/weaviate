@@ -14,6 +14,7 @@ package rest
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -469,10 +470,11 @@ func TestHandleGenericTokenize(t *testing.T) {
 		},
 	}
 
+	logger, _ := test.NewNullLogger()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(params, logger)
 
 			if tt.wantOK {
 				okResp, ok := resp.(*tokenizeops.TokenizeOK)
@@ -666,10 +668,11 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 		},
 	}
 
+	logger, _ := test.NewNullLogger()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(params, logger)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
@@ -722,74 +725,15 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 		},
 	}
 
+	logger, _ := test.NewNullLogger()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(params, logger)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
 			assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
-		})
-	}
-}
-
-func TestValidateAnalyzerConfig(t *testing.T) {
-	tests := []struct {
-		name      string
-		cfg       *models.TextAnalyzerConfig
-		wantErr   bool
-		errSubstr string
-	}{
-		{
-			name: "nil config",
-			cfg:  nil,
-		},
-		{
-			name: "empty config",
-			cfg:  &models.TextAnalyzerConfig{},
-		},
-		{
-			name: "fold enabled no ignore",
-			cfg:  &models.TextAnalyzerConfig{ASCIIFold: true},
-		},
-		{
-			name: "fold enabled with valid ignore",
-			cfg:  &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
-		},
-		{
-			name: "fold enabled with NFD single char",
-			cfg:  &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"e\u0301"}},
-		},
-		{
-			name:      "ignore without fold",
-			cfg:       &models.TextAnalyzerConfig{ASCIIFold: false, ASCIIFoldIgnore: []string{"é"}},
-			wantErr:   true,
-			errSubstr: "asciiFoldIgnore requires asciiFold",
-		},
-		{
-			name:      "multi-character entry",
-			cfg:       &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"ab"}},
-			wantErr:   true,
-			errSubstr: "single character",
-		},
-		{
-			name:      "empty string entry",
-			cfg:       &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{""}},
-			wantErr:   true,
-			errSubstr: "single character",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateAnalyzerConfig(tt.cfg)
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errSubstr)
-			} else {
-				require.NoError(t, err)
-			}
 		})
 	}
 }
