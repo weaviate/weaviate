@@ -1661,6 +1661,17 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
+	// Stamp UpdateTime once on the coordinator so both replicas apply the
+	// same LastUpdateTime under 2PC; otherwise each replica calls time.Now()
+	// locally and the resulting hash divergence triggers spurious
+	// async-replication repairs even when the content has converged.
+	// Idempotent: keep any pre-set value (e.g. from a forwarded batch).
+	nowMs := time.Now().UnixMilli()
+	for idx := range refs {
+		if refs[idx].UpdateTime == 0 {
+			refs[idx].UpdateTime = nowMs
+		}
+	}
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(refs))

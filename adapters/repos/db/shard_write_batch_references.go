@@ -311,10 +311,17 @@ func (b *referencesBatcher) setErrorAtIndex(err error, i int) {
 }
 
 func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocument {
+	// Prefer the coordinator-assigned UpdateTime so both replicas write the
+	// same LastUpdateTime. Fall back to time.Now() only when an older
+	// coordinator omitted the field during a rolling upgrade.
+	updateTime := ref.UpdateTime
+	if updateTime == 0 {
+		updateTime = time.Now().UnixMilli()
+	}
 	return objects.MergeDocument{
 		Class:      ref.From.Class.String(),
 		ID:         ref.From.TargetID,
-		UpdateTime: time.Now().UnixMilli(),
+		UpdateTime: updateTime,
 		References: objects.BatchReferences{ref},
 	}
 }

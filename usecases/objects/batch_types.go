@@ -57,6 +57,11 @@ type BatchReference struct {
 	From          *crossref.RefSource `json:"from"`
 	To            *crossref.Ref       `json:"to"`
 	Tenant        string              `json:"tenant"`
+	// UpdateTime is assigned by the coordinator and propagated to all
+	// replicas so every replica applies the same LastUpdateTime. Zero means
+	// the coordinator hasn't set it (rolling-upgrade path from an older
+	// version) and the replica falls back to time.Now().
+	UpdateTime int64 `json:"updateTime,omitempty"`
 }
 
 // BatchReferences groups many Reference items together. The order matches the
