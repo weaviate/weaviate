@@ -83,10 +83,17 @@ func TestMatchRESTQueryPath(t *testing.T) {
 		wantKind restQueryKind
 		wantOK   bool
 	}{
-		{"/v1/Article/query", "Article", restQueryKindSearch, true},
-		{"/v1/Article/aggregate", "Article", restQueryKindAggregate, true},
-		{"/v1/My%20Class/query", "My Class", restQueryKindSearch, true},
-		{"/v1/Article/query/extra", "", 0, false},
+		{"/v1/Article/query", "Article", kindQueryUniversal, true},
+		{"/v1/Article/aggregate", "Article", kindAggregate, true},
+		{"/v1/My%20Class/query", "My Class", kindQueryUniversal, true},
+		{"/v1/Article/query/near-vector", "Article", kindQueryNearVector, true},
+		{"/v1/Article/query/near-text", "Article", kindQueryNearText, true},
+		{"/v1/Article/query/bm25", "Article", kindQueryBM25, true},
+		{"/v1/Article/query/hybrid", "Article", kindQueryHybrid, true},
+		{"/v1/Article/query/fetch", "Article", kindQueryFetch, true},
+		{"/v1/Article/query/near-imu", "Article", kindQueryNearImu, true},
+		{"/v1/Article/query/bogus", "", 0, false},             // unknown sub-method
+		{"/v1/Article/query/near-vector/extra", "", 0, false}, // too deep
 		{"/v1/Article", "", 0, false},
 		{"/v1/Article/get", "", 0, false},
 		{"/v1//query", "", 0, false},
@@ -338,6 +345,60 @@ func TestRESTQuery_ConsistencyLevelShorthand(t *testing.T) {
 			assert.Equal(t, tc.want, *q.gotSearchReq.ConsistencyLevel)
 		})
 	}
+}
+
+func TestRESTQuery_PerMethodEndpoints_Accept(t *testing.T) {
+	cases := []struct {
+		path string
+		body string
+		want func(*pbv1.SearchRequest) bool
+	}{
+		{"/v1/Article/query/near-vector", `{"nearVector":{"vector":[1,0,0]}}`, func(r *pbv1.SearchRequest) bool { return r.NearVector != nil }},
+		{"/v1/Article/query/bm25", `{"bm25Search":{"query":"x"}}`, func(r *pbv1.SearchRequest) bool { return r.Bm25Search != nil }},
+		{"/v1/Article/query/hybrid", `{"hybridSearch":{"query":"x"}}`, func(r *pbv1.SearchRequest) bool { return r.HybridSearch != nil }},
+		{"/v1/Article/query/near-object", `{"nearObject":{"id":"abc"}}`, func(r *pbv1.SearchRequest) bool { return r.NearObject != nil }},
+		{"/v1/Article/query/fetch", `{"limit":3}`, func(r *pbv1.SearchRequest) bool { return r.Limit == 3 }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+			h := newTestQueryHandler(q)
+			rec := doQueryRequest(t, h, http.MethodPost, tc.path, tc.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.True(t, q.calledSearch)
+			assert.True(t, tc.want(q.gotSearchReq), "request did not carry the expected field")
+		})
+	}
+}
+
+func TestRESTQuery_PerMethodEndpoints_RejectMismatch(t *testing.T) {
+	cases := []struct {
+		name, path, body string
+	}{
+		{"bm25 body on near-vector", "/v1/Article/query/near-vector", `{"bm25Search":{"query":"x"}}`},
+		{"nearVector body on bm25", "/v1/Article/query/bm25", `{"nearVector":{"vector":[1,0,0]}}`},
+		{"search method on fetch", "/v1/Article/query/fetch", `{"nearVector":{"vector":[1,0,0]}}`},
+		{"empty body on near-vector (missing field)", "/v1/Article/query/near-vector", `{}`},
+		{"two methods on hybrid", "/v1/Article/query/hybrid", `{"hybridSearch":{"query":"x"},"bm25Search":{"query":"x"}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+			h := newTestQueryHandler(q)
+			rec := doQueryRequest(t, h, http.MethodPost, tc.path, tc.body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+			assert.False(t, q.calledSearch, "querier must not be called when body doesn't match the endpoint")
+		})
+	}
+}
+
+func TestRESTQuery_UniversalAcceptsAnyMethod(t *testing.T) {
+	// The universal /query endpoint imposes no per-method constraint.
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{"bm25Search":{"query":"x"}}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, q.calledSearch)
 }
 
 func TestRESTQuery_NonMatchingRequestsFallThrough(t *testing.T) {

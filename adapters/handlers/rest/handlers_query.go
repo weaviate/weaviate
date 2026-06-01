@@ -69,9 +69,55 @@ type restQueryHandler struct {
 type restQueryKind int
 
 const (
-	restQueryKindSearch restQueryKind = iota
-	restQueryKindAggregate
+	kindAggregate      restQueryKind = iota
+	kindQueryUniversal               // POST /v1/{collection}/query — any (or no) search method
+	kindQueryFetch                   // /query/fetch — no search method
+	kindQueryBM25                    // /query/bm25
+	kindQueryHybrid                  // /query/hybrid
+	kindQueryNearVector
+	kindQueryNearText
+	kindQueryNearObject
+	kindQueryNearImage
+	kindQueryNearAudio
+	kindQueryNearVideo
+	kindQueryNearDepth
+	kindQueryNearThermal
+	kindQueryNearImu
 )
+
+// querySubKinds maps the /v1/{collection}/query/{sub} suffix to its kind. These
+// mirror the client-library query methods.
+var querySubKinds = map[string]restQueryKind{
+	"fetch":        kindQueryFetch,
+	"bm25":         kindQueryBM25,
+	"hybrid":       kindQueryHybrid,
+	"near-vector":  kindQueryNearVector,
+	"near-text":    kindQueryNearText,
+	"near-object":  kindQueryNearObject,
+	"near-image":   kindQueryNearImage,
+	"near-audio":   kindQueryNearAudio,
+	"near-video":   kindQueryNearVideo,
+	"near-depth":   kindQueryNearDepth,
+	"near-thermal": kindQueryNearThermal,
+	"near-imu":     kindQueryNearImu,
+}
+
+// kindExpectedSearchField is the SearchRequest proto-JSON field a specialized
+// query endpoint requires. Universal (any) and fetch (none) are handled
+// separately in validateSearchForKind.
+var kindExpectedSearchField = map[restQueryKind]string{
+	kindQueryBM25:        "bm25Search",
+	kindQueryHybrid:      "hybridSearch",
+	kindQueryNearVector:  "nearVector",
+	kindQueryNearText:    "nearText",
+	kindQueryNearObject:  "nearObject",
+	kindQueryNearImage:   "nearImage",
+	kindQueryNearAudio:   "nearAudio",
+	kindQueryNearVideo:   "nearVideo",
+	kindQueryNearDepth:   "nearDepth",
+	kindQueryNearThermal: "nearThermal",
+	kindQueryNearImu:     "nearImu",
+}
 
 // makeAddRESTQueryHandlers builds the middleware that intercepts the REST
 // query/aggregate routes and falls through to next for everything else.
@@ -100,40 +146,39 @@ func (h *restQueryHandler) middleware(next http.Handler) http.Handler {
 	})
 }
 
-// matchRESTQueryPath returns the (url-decoded) collection and the query kind for
-// paths of the exact shape /v1/{collection}/query or /v1/{collection}/aggregate.
+// matchRESTQueryPath returns the (url-decoded) collection and the endpoint kind
+// for the REST query/aggregate routes:
+//
+//	/v1/{collection}/query              universal search
+//	/v1/{collection}/query/{method}     fetch | bm25 | hybrid | near-vector | near-text | ...
+//	/v1/{collection}/aggregate          aggregation
+//
 // ok is false for anything else so the caller falls through to the next handler.
-// No existing REST route has the {x}/query or {x}/aggregate shape, so this never
-// shadows another endpoint.
+// No existing REST route has these shapes, so this never shadows another endpoint.
 func matchRESTQueryPath(path string) (collection string, kind restQueryKind, ok bool) {
 	const prefix = "/v1/"
 	if !strings.HasPrefix(path, prefix) {
 		return "", 0, false
 	}
-	rest := strings.TrimPrefix(path, prefix)
-	slash := strings.IndexByte(rest, '/')
-	if slash < 0 {
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) < 2 || parts[0] == "" {
 		return "", 0, false
 	}
-	col, verb := rest[:slash], rest[slash+1:]
-	// Require exactly two segments: a non-empty collection and a verb with no
-	// further path elements.
-	if col == "" || verb == "" || strings.ContainsRune(verb, '/') {
-		return "", 0, false
+	col := parts[0]
+	if decoded, err := url.PathUnescape(col); err == nil {
+		col = decoded
 	}
-	switch verb {
-	case "query":
-		kind = restQueryKindSearch
-	case "aggregate":
-		kind = restQueryKindAggregate
-	default:
-		return "", 0, false
+	switch {
+	case len(parts) == 2 && parts[1] == "query":
+		return col, kindQueryUniversal, true
+	case len(parts) == 2 && parts[1] == "aggregate":
+		return col, kindAggregate, true
+	case len(parts) == 3 && parts[1] == "query":
+		if k, found := querySubKinds[parts[2]]; found {
+			return col, k, true
+		}
 	}
-	decoded, err := url.PathUnescape(col)
-	if err != nil {
-		decoded = col
-	}
-	return decoded, kind, true
+	return "", 0, false
 }
 
 func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collection string, kind restQueryKind) {
@@ -170,26 +215,7 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		return
 	}
 
-	switch kind {
-	case restQueryKindSearch:
-		req := &pbv1.SearchRequest{}
-		if err := unmarshalRequestBody(reqBody, req); err != nil {
-			h.writeError(w, http.StatusUnprocessableEntity, principal,
-				fmt.Errorf("parse request body: %w", err))
-			return
-		}
-		req.Collection = collection
-		if where != nil && req.Filters != nil {
-			h.writeError(w, http.StatusUnprocessableEntity, principal, errWhereAndFilters)
-			return
-		}
-		reply, err := h.querier.SearchWithPrincipal(r.Context(), principal, req, where)
-		if err != nil {
-			h.writeError(w, httpStatusForQueryError(err), principal, err)
-			return
-		}
-		h.writeProto(w, principal, reply)
-	case restQueryKindAggregate:
+	if kind == kindAggregate {
 		req := &pbv1.AggregateRequest{}
 		if err := unmarshalRequestBody(reqBody, req); err != nil {
 			h.writeError(w, http.StatusUnprocessableEntity, principal,
@@ -207,10 +233,85 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 			return
 		}
 		h.writeProto(w, principal, reply)
+		return
 	}
+
+	// Query family: universal /query and the per-method /query/{method} routes.
+	req := &pbv1.SearchRequest{}
+	if err := unmarshalRequestBody(reqBody, req); err != nil {
+		h.writeError(w, http.StatusUnprocessableEntity, principal,
+			fmt.Errorf("parse request body: %w", err))
+		return
+	}
+	req.Collection = collection
+	if where != nil && req.Filters != nil {
+		h.writeError(w, http.StatusUnprocessableEntity, principal, errWhereAndFilters)
+		return
+	}
+	if err := validateSearchForKind(req, kind); err != nil {
+		h.writeError(w, http.StatusUnprocessableEntity, principal, err)
+		return
+	}
+	reply, err := h.querier.SearchWithPrincipal(r.Context(), principal, req, where)
+	if err != nil {
+		h.writeError(w, httpStatusForQueryError(err), principal, err)
+		return
+	}
+	h.writeProto(w, principal, reply)
 }
 
 var errWhereAndFilters = errors.New("set either `where` or `filters` in the body, not both")
+
+// searchMethodsSet returns the proto-JSON names of the mutually-exclusive search
+// methods present on the request.
+func searchMethodsSet(req *pbv1.SearchRequest) []string {
+	var set []string
+	add := func(present bool, name string) {
+		if present {
+			set = append(set, name)
+		}
+	}
+	add(req.HybridSearch != nil, "hybridSearch")
+	add(req.Bm25Search != nil, "bm25Search")
+	add(req.NearVector != nil, "nearVector")
+	add(req.NearText != nil, "nearText")
+	add(req.NearObject != nil, "nearObject")
+	add(req.NearImage != nil, "nearImage")
+	add(req.NearAudio != nil, "nearAudio")
+	add(req.NearVideo != nil, "nearVideo")
+	add(req.NearDepth != nil, "nearDepth")
+	add(req.NearThermal != nil, "nearThermal")
+	add(req.NearImu != nil, "nearImu")
+	return set
+}
+
+// validateSearchForKind enforces that the request body matches the specialized
+// query endpoint it was sent to. The universal /query accepts anything;
+// /query/fetch must carry no search method; every other endpoint must carry
+// exactly its own search method and no other. This keeps the body identical to
+// the gRPC SearchRequest (an agent can still construct any of these from the
+// proto) while giving each endpoint clear validation.
+func validateSearchForKind(req *pbv1.SearchRequest, kind restQueryKind) error {
+	if kind == kindQueryUniversal {
+		return nil
+	}
+	set := searchMethodsSet(req)
+	if kind == kindQueryFetch {
+		if len(set) > 0 {
+			return fmt.Errorf("this endpoint takes no search method, but %q was set; use the matching /query/<method> endpoint", set[0])
+		}
+		return nil
+	}
+	want := kindExpectedSearchField[kind]
+	switch {
+	case len(set) == 1 && set[0] == want:
+		return nil
+	case len(set) == 0:
+		return fmt.Errorf("this endpoint requires the %q search field to be set", want)
+	default:
+		return fmt.Errorf("this endpoint accepts only the %q search field, got %v", want, set)
+	}
+}
 
 // unmarshalRequestBody decodes a protojson request body, treating an empty or
 // whitespace-only body as an empty (zero-value) request.

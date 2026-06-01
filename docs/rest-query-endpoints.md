@@ -1,12 +1,19 @@
 # REST query & aggregate endpoints
 
-Two REST endpoints expose search and aggregation over HTTP as the replacement
-for GraphQL data queries:
+REST endpoints expose search and aggregation over HTTP as the replacement for
+GraphQL data queries:
 
 ```
-POST /v1/{collection}/query       → gRPC Search
-POST /v1/{collection}/aggregate   → gRPC Aggregate
+POST /v1/{collection}/query              → gRPC Search (universal — any search method)
+POST /v1/{collection}/query/{method}     → gRPC Search, scoped to one method
+POST /v1/{collection}/aggregate          → gRPC Aggregate
 ```
+
+The `{method}` variants mirror the client-library query methods so the surface is
+discoverable and self-validating: `fetch`, `bm25`, `hybrid`, `near-vector`,
+`near-text`, `near-object`, `near-image`, `near-audio`, `near-video`,
+`near-depth`, `near-thermal`, `near-imu`. They are sugar over the universal
+`/query` — same body, same pipeline — see "Per-method query endpoints" below.
 
 GraphQL is being deprecated (it is incompatible with Namespaces — schema
 leakage, no per-namespace RBAC — and introspection exposes the schema). Every
@@ -60,6 +67,28 @@ Consequences of being outside go-swagger:
 - **Operational mode**: these POSTs are classified as reads (`isRESTQueryReadPath`
   in `middlewares.go`) — allowed in read-only/scale-out, blocked in write-only —
   consistent with `IsGRPCRead` for the equivalent RPCs.
+
+## Per-method query endpoints
+
+`/v1/{collection}/query/{method}` mirrors the client-library query methods
+(`fetch`, `bm25`, `hybrid`, `near-vector`, `near-text`, `near-object`, and the
+multi-modal `near-image`/`near-audio`/`near-video`/`near-depth`/`near-thermal`/
+`near-imu`). They are **not** a second API — each one parses into the same
+`pb.SearchRequest` and calls the same `SearchWithPrincipal`. The only difference
+from the universal `/query` is a per-path assertion (`validateSearchForKind`):
+
+- `/query/{method}` requires exactly its own search field set (e.g.
+  `/query/near-vector` ⇒ `nearVector`), and rejects any other search method with
+  a 422.
+- `/query/fetch` requires *no* search method (filter / sort / paginate only).
+- `/query` (universal) imposes no constraint.
+
+This keeps the body identical to the gRPC `SearchRequest`, so the predictability
+invariant holds: anything valid at `/query/bm25` is also a valid `/query` body and
+a valid gRPC `Search` — the path just adds an additive constraint and clearer
+errors/docs. Routing lives in `matchRESTQueryPath` (`querySubKinds`), validation
+in `validateSearchForKind`. `/aggregate` is left single (search method in the
+body) but could be split the same way.
 
 ## Request conveniences
 
