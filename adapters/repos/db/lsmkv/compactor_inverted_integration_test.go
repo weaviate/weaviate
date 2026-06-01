@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -804,7 +804,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		i := 0
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 			i++
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
@@ -894,7 +894,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithStrategy(StrategyInverted))
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -970,7 +970,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
 
@@ -1151,7 +1151,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 					t.Run("check entries during compaction", func(t *testing.T) {
 						res, err := bucket.MapList(ctx, key)
 						assert.Nil(t, err)

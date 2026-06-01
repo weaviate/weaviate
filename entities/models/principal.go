@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,12 @@ type Principal struct {
 
 	// groups
 	Groups []string `json:"groups"`
+
+	// True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.
+	IsGlobalOperator bool `json:"isGlobalOperator,omitempty"`
+
+	// The namespace this principal is bound to. Empty for global principals (e.g. static API keys).
+	Namespace string `json:"namespace,omitempty"`
 
 	// user type
 	UserType UserTypeInput `json:"userType,omitempty"`

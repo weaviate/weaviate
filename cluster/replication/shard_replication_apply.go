@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -139,6 +139,27 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	status.ChangeState(c.State)
 	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
+	return nil
+}
+
+// NodeReachedState records (c.NodeId → c.State) for op c.Id. Monotonic per
+// peer via StateRank — safe against re-broadcasts from log replay.
+func (s *ShardReplicationFSM) NodeReachedState(c *api.ReplicationNodeReachedStateRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	status, ok := s.statusById[c.Id]
+	if !ok {
+		// Stale broadcast for an op that's been pruned — silent no-op.
+		return nil
+	}
+	if status.PerNodeState == nil {
+		status.PerNodeState = make(map[string]api.ShardReplicationState)
+	}
+	if api.StateRank(c.State) > api.StateRank(status.PerNodeState[c.NodeId]) {
+		status.PerNodeState[c.NodeId] = c.State
+		s.statusById[c.Id] = status
+	}
 
 	return nil
 }

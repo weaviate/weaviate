@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ const (
 	maxNewTokensProperty    = "maxNewTokens"
 	systemPromptProperty    = "systemPrompt"
 	avoidCommentaryProperty = "avoidCommentary"
+	knowledgeProperty       = "knowledge"
 )
 
 var (
@@ -97,4 +98,8 @@ func (ic *classSettings) SystemPrompt() string {
 
 func (ic *classSettings) AvoidCommentary() *bool {
 	return ic.getBoolProperty(avoidCommentaryProperty, DefaultContextualAIAvoidCommentary)
+}
+
+func (ic *classSettings) Knowledge() []string {
+	return ic.propertyValuesHelper.GetPropertyAsListOfStrings(ic.cfg, knowledgeProperty, nil)
 }

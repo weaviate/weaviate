@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,7 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -186,5 +188,76 @@ func TestUpdatePropertyDescription(t *testing.T) {
 		if errors.As(err, &parsed) {
 			require.Contains(t, parsed.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
 		}
+	})
+}
+
+func TestUpdateClassWithTTL(t *testing.T) {
+	collectionName := "CollectionWithTTL"
+	initialTtl := int64(3600)
+	initialDeleteOn := filters.InternalPropCreationTimeUnix
+	updatedTtl := int64(7200)
+	updatedDeleteOn := filters.InternalPropLastUpdateTimeUnix
+
+	t.Run("delete class if exists", func(t *testing.T) {
+		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(collectionName)
+		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("initially creating the collection", func(t *testing.T) {
+		c := &models.Class{
+			Class: collectionName,
+			ObjectTTLConfig: &models.ObjectTTLConfig{
+				Enabled:    true,
+				DeleteOn:   initialDeleteOn,
+				DefaultTTL: initialTtl,
+			},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "customPropertyDate",
+					DataType: schema.DataTypeDate.PropString(),
+				},
+			},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+		assert.Nil(t, err)
+	})
+
+	t.Run("update collection", func(t *testing.T) {
+		getParams := clschema.NewSchemaObjectsGetParams().
+			WithClassName(collectionName)
+
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(getParams, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, initialTtl, res.Payload.ObjectTTLConfig.DefaultTTL)
+		assert.Equal(t, initialDeleteOn, res.Payload.ObjectTTLConfig.DeleteOn)
+
+		collection := res.Payload
+		collection.ObjectTTLConfig.DefaultTTL = updatedTtl
+		collection.ObjectTTLConfig.DeleteOn = updatedDeleteOn
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
+			WithClassName(collectionName).
+			WithObjectClass(collection)
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("assert updated", func(t *testing.T) {
+		getParams := clschema.NewSchemaObjectsGetParams().
+			WithClassName(collectionName)
+
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(getParams, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, updatedTtl, res.Payload.ObjectTTLConfig.DefaultTTL)
+		assert.Equal(t, updatedDeleteOn, res.Payload.ObjectTTLConfig.DeleteOn)
 	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,6 +60,12 @@ func (o *ObjectsCreateReader) ReadResponse(response runtime.ClientResponse, cons
 		return nil, result
 	case 422:
 		result := NewObjectsCreateUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 429:
+		result := NewObjectsCreateTooManyRequests()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -394,6 +400,74 @@ func (o *ObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 func (o *ObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewObjectsCreateTooManyRequests creates a ObjectsCreateTooManyRequests with default headers values
+func NewObjectsCreateTooManyRequests() *ObjectsCreateTooManyRequests {
+	return &ObjectsCreateTooManyRequests{}
+}
+
+/*
+ObjectsCreateTooManyRequests describes a response with status code 429, with default header values.
+
+The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.
+*/
+type ObjectsCreateTooManyRequests struct {
+	Payload *models.UsageLimitExceededResponse
+}
+
+// IsSuccess returns true when this objects create too many requests response has a 2xx status code
+func (o *ObjectsCreateTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects create too many requests response has a 3xx status code
+func (o *ObjectsCreateTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects create too many requests response has a 4xx status code
+func (o *ObjectsCreateTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects create too many requests response has a 5xx status code
+func (o *ObjectsCreateTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects create too many requests response a status code equal to that given
+func (o *ObjectsCreateTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the objects create too many requests response
+func (o *ObjectsCreateTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *ObjectsCreateTooManyRequests) Error() string {
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *ObjectsCreateTooManyRequests) String() string {
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *ObjectsCreateTooManyRequests) GetPayload() *models.UsageLimitExceededResponse {
+	return o.Payload
+}
+
+func (o *ObjectsCreateTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.UsageLimitExceededResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

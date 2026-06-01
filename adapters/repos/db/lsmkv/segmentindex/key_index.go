@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,4 +20,11 @@ type Key struct {
 	SecondaryKeys [][]byte
 	ValueStart    int
 	ValueEnd      int
+}
+
+// KeyRedux that only contains the primary key and the value end position.
+// This is used for the compactor to avoid using more heap than needed.
+type KeyRedux struct {
+	Key      []byte
+	ValueEnd int
 }

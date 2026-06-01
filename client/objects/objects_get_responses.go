@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,6 +60,12 @@ func (o *ObjectsGetReader) ReadResponse(response runtime.ClientResponse, consume
 		return nil, result
 	case 404:
 		result := NewObjectsGetNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 410:
+		result := NewObjectsGetGone()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -387,6 +393,74 @@ func (o *ObjectsGetNotFound) String() string {
 }
 
 func (o *ObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsGetGone creates a ObjectsGetGone with default headers values
+func NewObjectsGetGone() *ObjectsGetGone {
+	return &ObjectsGetGone{}
+}
+
+/*
+ObjectsGetGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ObjectsGetGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects get gone response has a 2xx status code
+func (o *ObjectsGetGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects get gone response has a 3xx status code
+func (o *ObjectsGetGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects get gone response has a 4xx status code
+func (o *ObjectsGetGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects get gone response has a 5xx status code
+func (o *ObjectsGetGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects get gone response a status code equal to that given
+func (o *ObjectsGetGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the objects get gone response
+func (o *ObjectsGetGone) Code() int {
+	return 410
+}
+
+func (o *ObjectsGetGone) Error() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsGetGone) String() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsGetGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsGetGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

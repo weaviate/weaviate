@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -137,6 +137,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 
 	flushGroup := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	cyclemanager.NewManager(
+		"flush",
 		cyclemanager.NewFixedTicker(5*time.Millisecond),
 		flushGroup.CycleCallback,
 		nullLogger()).Start()
@@ -231,6 +232,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 
 	flushGroup := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	cyclemanager.NewManager(
+		"flush",
 		cyclemanager.NewFixedTicker(5*time.Millisecond),
 		flushGroup.CycleCallback,
 		logger).Start()
@@ -320,6 +322,7 @@ func TestConcurrentWriting_RoaringSetRange(t *testing.T) {
 
 	flushGroup := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	cyclemanager.NewManager(
+		"flush",
 		cyclemanager.NewFixedTicker(5*time.Millisecond),
 		flushGroup.CycleCallback,
 		nullLogger()).Start()

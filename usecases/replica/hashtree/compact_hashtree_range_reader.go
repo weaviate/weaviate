@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,11 +16,15 @@ type CompactHashTreeDiffReader struct {
 	rangeReader AggregatedHashTreeRangeReader
 }
 
-func (ht *CompactHashTree) NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader {
+func (ht *CompactHashTree) NewRangeReader(discriminant *Bitset) (AggregatedHashTreeRangeReader, error) {
+	rr, err := ht.hashtree.NewRangeReader(discriminant)
+	if err != nil {
+		return nil, err
+	}
 	return &CompactHashTreeDiffReader{
 		ht:          ht,
-		rangeReader: ht.hashtree.NewRangeReader(discriminant),
-	}
+		rangeReader: rr,
+	}, nil
 }
 
 func (r *CompactHashTreeDiffReader) Next() (uint64, uint64, error) {

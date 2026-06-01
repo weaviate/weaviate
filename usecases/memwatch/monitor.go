@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,9 @@ package memwatch
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"runtime"
@@ -22,8 +24,10 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -40,11 +44,6 @@ const (
 	mappingsEntries = 60 + MappingDelayInS
 )
 
-var (
-	ErrNotEnoughMemory   = fmt.Errorf("not enough memory")
-	ErrNotEnoughMappings = fmt.Errorf("not enough memory mappings")
-)
-
 // Monitor allows making statements about the memory ratio used by the application
 type Monitor struct {
 	metricsReader     metricsReader
@@ -53,13 +52,14 @@ type Monitor struct {
 	maxMemoryMappings int64
 
 	// state
-	mu                     sync.Mutex
+	mu                     sync.RWMutex
 	limit                  int64
 	usedMemory             int64
 	usedMappings           int64
 	reservedMappings       int64
 	reservedMappingsBuffer []int64
 	lastReservationsClear  time.Time
+	mappingsBuf            []byte
 }
 
 // Refresh retrieves the current memory stats from the runtime and stores them
@@ -91,17 +91,18 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		maxMemoryMappings:      getMaxMemoryMappings(),
 		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
 		lastReservationsClear:  time.Now(),
+		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)
 	return m
 }
 
 func (m *Monitor) CheckAlloc(sizeInBytes int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if float64(m.usedMemory+sizeInBytes)/float64(m.limit) > m.maxRatio {
-		return ErrNotEnoughMemory
+		return enterrors.ErrNotEnoughMemory
 	}
 
 	return nil
@@ -124,7 +125,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	m.reservedMappings -= clearReservedMappings(m.lastReservationsClear, now, m.reservedMappingsBuffer)
 
 	if m.usedMappings+numberMappings+m.reservedMappings > m.maxMemoryMappings {
-		return ErrNotEnoughMappings
+		return enterrors.ErrNotEnoughMappings
 	}
 	if reservationTimeInS > 0 {
 		m.reservedMappings += numberMappings
@@ -178,42 +179,47 @@ func (m *Monitor) obtainCurrentUsage() {
 }
 
 func (m *Monitor) obtainCurrentMappings() {
-	used := getCurrentMappings()
+	used := getCurrentMappings(m.mappingsBuf)
 	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.usedMappings = used
 }
 
-func getCurrentMappings() int64 {
+func getCurrentMappings(buf []byte) int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsLinux()
+		filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
+		return currentMappingsLinux(filePath, buf)
 	default:
 		return 0
 	}
 }
 
 // Counts the number of mappings by counting the number of lines within the maps file
-func currentMappingsLinux() int64 {
-	filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
+// Optimized version that counts newlines in chunks without string allocation
+func currentMappingsLinux(filePath string, buf []byte) int64 {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return 0
 	}
 	defer file.Close()
 
-	var mappings int64
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		mappings++
+	var count int64
+
+	for {
+		n, err := file.Read(buf[:])
+		count += int64(bytes.Count(buf[:n], []byte{'\n'}))
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return 0
-	}
-
-	return mappings
+	return count
 }
 
 func getMaxMemoryMappings() int64 {
@@ -292,6 +298,7 @@ func NewDummyMonitor() *Monitor {
 		maxMemoryMappings:      10000000,
 		reservedMappingsBuffer: make([]int64, mappingsEntries),
 		lastReservationsClear:  time.Now(),
+		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)
 	return m
@@ -325,6 +332,23 @@ func EstimateStorObjectMemory(object *storobj.Object) int64 {
 	// (30 Bytes from the data field models.Object + 16 Bytes from
 	// remaining data fields of storobj.Object).
 	return int64(len(object.Vector)*4 + 46)
+}
+
+func EstimateBatchObjectMemory(object *protocol.BatchObject) int64 {
+	if len(object.Vector) > 0 {
+		return int64(len(object.Vector)*4 + 30)
+	}
+	if len(object.VectorBytes) > 0 {
+		return int64(len(object.VectorBytes) + 30)
+	}
+	if len(object.Vectors) > 0 {
+		size := 0
+		for _, vec := range object.Vectors {
+			size += len(vec.VectorBytes)
+		}
+		return int64(size + 30)
+	}
+	return 0
 }
 
 func EstimateObjectDeleteMemory() int64 {

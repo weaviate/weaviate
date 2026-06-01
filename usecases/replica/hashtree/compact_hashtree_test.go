@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,7 +39,7 @@ func TestCompactHashTree(t *testing.T) {
 
 	var rootLevel [1]Digest
 
-	n, err := ht.Level(0, NewBitset(NodesCount(ht.Height())).Set(0), rootLevel[:])
+	n, err := ht.Level(0, NewBitset(nodesAtLevel(0)).Set(0), rootLevel[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 
@@ -90,7 +90,7 @@ func TestCompactBigHashTree(t *testing.T) {
 
 	var rootLevel [1]Digest
 
-	n, err := ht.Level(0, NewBitset(ht.Height()).Set(0), rootLevel[:])
+	n, err := ht.Level(0, NewBitset(nodesAtLevel(0)).Set(0), rootLevel[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 }
@@ -109,7 +109,8 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, diff)
 
-	rangeReader := ht1.NewRangeReader(diff)
+	rangeReader, err := ht1.NewRangeReader(diff)
+	require.NoError(t, err)
 
 	_, _, err = rangeReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreRanges)
@@ -120,7 +121,8 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
 
-	rangeReader = ht1.NewRangeReader(diff)
+	rangeReader, err = ht1.NewRangeReader(diff)
+	require.NoError(t, err)
 
 	diff1, diff2, err := rangeReader.Next()
 	require.NoError(t, err)
@@ -136,7 +138,8 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
 
-	rangeReader = ht1.NewRangeReader(diff)
+	rangeReader, err = ht1.NewRangeReader(diff)
+	require.NoError(t, err)
 
 	_, _, err = rangeReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreRanges)
@@ -212,7 +215,8 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, diff)
 
-	rangeReader := ht1.NewRangeReader(diff)
+	rangeReader, err := ht1.NewRangeReader(diff)
+	require.NoError(t, err)
 
 	_, _, err = rangeReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreRanges) // no differences should be found
@@ -246,7 +250,8 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		diff, err := ht1.Diff(ht2)
 		require.NoError(t, err)
 
-		rangeReader := ht1.NewRangeReader(diff)
+		rangeReader, err := ht1.NewRangeReader(diff)
+		require.NoError(t, err)
 
 		diffCount = 0
 

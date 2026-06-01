@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,7 +77,7 @@ func NewBackupsCancelNoContent() *BackupsCancelNoContent {
 /*
 BackupsCancelNoContent describes a response with status code 204, with default header values.
 
-Backup deleted successfully.
+Backup canceled successfully.
 */
 type BackupsCancelNoContent struct {
 }
@@ -257,7 +257,7 @@ func NewBackupsCancelUnprocessableEntity() *BackupsCancelUnprocessableEntity {
 /*
 BackupsCancelUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid backup deletion request.
+Invalid backup cancellation request.
 */
 type BackupsCancelUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -325,7 +325,7 @@ func NewBackupsCancelInternalServerError() *BackupsCancelInternalServerError {
 /*
 BackupsCancelInternalServerError describes a response with status code 500, with default header values.
 
-An internal server error occurred during backup deletion. Check the ErrorResponse for details.
+An internal server error occurred during backup cancellation. Check the ErrorResponse for details.
 */
 type BackupsCancelInternalServerError struct {
 	Payload *models.ErrorResponse

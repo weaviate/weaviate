@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,9 +47,9 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", logger, 1)
 	compactionCallbacks := cyclemanager.NewCallbackGroup("compaction", logger, 1)
-	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
-	compactionCycle := cyclemanager.NewManager(cyclemanager.CompactionCycleTicker(), compactionCallbacks.CycleCallback, logger)
+	compactionCycle := cyclemanager.NewManager("compaction", cyclemanager.CompactionCycleTicker(), compactionCallbacks.CycleCallback, logger)
 	compactionCycle.Start()
 
 	bucket, err := c.NewBucket(ctx, filepath.Join(dir, "my-bucket"), "", logger, nil,

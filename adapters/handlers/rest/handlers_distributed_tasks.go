@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,9 +26,9 @@ import (
 	distributedtaskUC "github.com/weaviate/weaviate/usecases/distributedtask"
 )
 
-func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, tasksLister distributedtask.TasksLister) {
+func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, taskLister distributedtask.TaskLister) {
 	h := distributedTasksHandlers{
-		handler: distributedtaskUC.NewHandler(authorizer, tasksLister),
+		handler: distributedtaskUC.NewHandler(authorizer, taskLister),
 	}
 
 	api.DistributedTasksDistributedTasksGetHandler = distributed_tasks.DistributedTasksGetHandlerFunc(h.getTasks)
@@ -45,7 +45,7 @@ func (h *distributedTasksHandlers) getTasks(params distributed_tasks.Distributed
 			return distributed_tasks.NewDistributedTasksGetForbidden()
 		}
 		return nodes.NewNodesGetClassInternalServerError().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	return distributed_tasks.NewDistributedTasksGetOK().WithPayload(tasks)

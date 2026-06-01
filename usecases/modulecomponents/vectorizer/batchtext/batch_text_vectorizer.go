@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,8 +45,7 @@ type Client[T dto.Embedding] interface {
 }
 
 type batchObject struct {
-	index   int
-	isEmpty bool
+	index int
 }
 
 type BatchTextVectorizer[T dto.Embedding] struct {
@@ -106,9 +105,7 @@ func (v *BatchTextVectorizer[T]) objects(ctx context.Context, objects []*models.
 	inputIndex := 0
 	for i := range objects {
 		corpi, _, isEmpty := v.objectVectorizer.TextsWithTitleProperty(ctx, objects[i], icheck, titleProperty)
-		if isEmpty {
-			batchObjects[i] = &batchObject{isEmpty: true}
-		} else {
+		if !isEmpty {
 			inputs = append(inputs, corpi)
 			batchObjects[i] = &batchObject{index: inputIndex}
 			inputIndex++
@@ -129,9 +126,7 @@ func (v *BatchTextVectorizer[T]) objects(ctx context.Context, objects []*models.
 
 	results := make([]T, len(batchObjects))
 	for i := range batchObjects {
-		if batchObjects[i].isEmpty {
-			results[i] = nil
-		} else {
+		if batchObjects[i] != nil {
 			results[i] = res.Vector[batchObjects[i].index]
 		}
 	}

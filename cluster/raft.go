@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,12 +13,14 @@ package cluster
 
 import (
 	"context"
+	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication"
-
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -31,6 +33,14 @@ type Raft struct {
 	store        *Store
 	cl           client
 	log          *logrus.Logger
+
+	// homeNodeIterator persists across AddNamespace calls so home-node
+	// selection rotates through the cluster. Built lazily and rebuilt
+	// whenever the candidate set changes (node join/leave) so newly added
+	// nodes become eligible and removed ones drop out.
+	homeNodeIteratorMu sync.Mutex
+	homeNodeIterator   *cluster.NodeIterator
+	homeNodeCandidates []string
 }
 
 // client to communicate with remote services
@@ -56,17 +66,41 @@ func (s *Raft) Open(ctx context.Context, db schema.Indexer) error {
 
 func (s *Raft) Close(ctx context.Context) (err error) {
 	s.log.Info("shutting down raft sub-system ...")
-
-	// non-voter can be safely removed, as they don't partake in RAFT elections
-	if !s.store.IsVoter() {
-		s.log.Info("removing this node from cluster prior to shutdown ...")
-		if err := s.Remove(ctx, s.store.ID()); err != nil {
-			s.log.WithError(err).Error("remove this node from cluster")
-		} else {
-			s.log.Info("successfully removed this node from the cluster.")
-		}
-	}
 	return s.store.Close(ctx)
+}
+
+// SetDistributedTaskSchedulerNotifier installs the wake-up notifier on
+// the underlying distributed task FSM Manager. Called once at startup
+// from MakeAppState, after both Raft and the Scheduler exist. See
+// [distributedtask.SchedulerNotifier] for the contract.
+func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	s.store.SetDistributedTaskSchedulerNotifier(notifier)
+}
+
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the underlying distributed task FSM
+// Manager. Called once at startup from MakeAppState, after the
+// providers are registered. See [distributedtask.ConflictDetector] for
+// the FSM-determinism contract.
+func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	s.store.SetDistributedTaskConflictDetectors(detectors)
+}
+
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// schema-mutation detectors consulted from the schema FSM's
+// UpdateProperty apply path. Called once at startup from MakeAppState,
+// after the providers are registered. See
+// [distributedtask.SchemaMutationDetector] for the contract and
+// motivating failure mode.
+func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
+}
+
+// RegisterDistributedTaskCollectionExtractor opts a task namespace into
+// the DELETE_CLASS cascade. See [distributedtask.CollectionExtractor]
+// and weaviate/0-weaviate-issues#231.
+func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
+	s.store.RegisterDistributedTaskCollectionExtractor(namespace, extractor)
 }
 
 func (s *Raft) Ready() bool {
@@ -85,10 +119,18 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
 }
 
+func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
+	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target), nil
+}
+
 func (s *Raft) NodeSelector() cluster.NodeSelector {
 	return s.nodeSelector
 }
 
 func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
 	return s.store.replicationManager.GetReplicationFSM()
+}
+
+func (s *Raft) IsLeader() bool {
+	return s.store.IsLeader()
 }

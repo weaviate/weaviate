@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,19 +14,33 @@ package schema
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddClassProperty it is upsert operation. it adds properties to a class and updates
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, className string, merge bool, newProps ...*models.Property,
+	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, newProps); err != nil {
+		return nil, 0, err
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
@@ -34,6 +48,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
+	// DataType is pre-qualified; used as-is for authz + schema lookup.
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
@@ -41,12 +56,18 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
+	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return nil, 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+		return nil, 0, fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if len(newProps) == 0 {
 		return nil, 0, nil
+	}
+
+	existingLowerNames := make(map[string]bool, len(class.Properties))
+	for _, prop := range class.Properties {
+		existingLowerNames[strings.ToLower(prop.Name)] = true
 	}
 
 	// validate new props
@@ -58,6 +79,14 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		if prop.DataType == nil {
 			return nil, 0, fmt.Errorf("property must contain dataType")
 		}
+		// Skip the suffix check when merging an already-existing property so
+		// legacy schemas created before the restriction remain upsert-able.
+		if merge && existingLowerNames[strings.ToLower(prop.Name)] {
+			continue
+		}
+		if err := schema.ValidateReservedPropertyNameSuffix(prop.Name); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
@@ -66,9 +95,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 	existingNames := make(map[string]bool, len(class.Properties))
 	if !merge {
-		for _, prop := range class.Properties {
-			existingNames[strings.ToLower(prop.Name)] = true
-		}
+		existingNames = existingLowerNames
 	}
 
 	if err := h.validateProperty(class, existingNames, false, classGetterWithAuth, newProps...); err != nil {
@@ -92,12 +119,194 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
+// DeleteClassPropertyIndex deletes collection's property index
+func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
+	className, propertyName, indexName string,
+) error {
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return err
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	class := h.schemaReader.ReadOnlyClass(className)
+	if class == nil {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+
+	if propertyName == "" {
+		return fmt.Errorf("property name cannot be empty")
+	}
+
+	// [SchemaReader.ReadOnlyClass] returns a SHALLOW clone of the live
+	// FSM class — the class.Properties slice contains pointers to the
+	// FSM's actual *models.Property structs. Mutating the index flags
+	// through that pointer would change FSM state OUTSIDE RAFT, so a
+	// later apply-time rejection (e.g. the in-flight-reindex
+	// MutationGuard, or any existing rejection like a RAFT timeout)
+	// would leave the local node's in-memory schema diverged from the
+	// cluster-wide RAFT state.
+	//
+	// Defensive copy: copy the located property struct by value, then
+	// take the address of the local copy. *models.Property has nested
+	// pointer fields (IndexFilterable, IndexSearchable, etc.) — those
+	// inner pointers are SHARED with the FSM, but the index-flag
+	// mutations below replace the pointer outright
+	// (`prop.IndexFilterable = &notExists`) instead of writing
+	// through the existing one, so the FSM's pointer values stay
+	// untouched. Same pattern applyPerPropertySchemaUpdate
+	// (adapters/repos/db/inverted_reindex_strategy.go) uses for the
+	// reindex strategies' schema flips.
+	var prop *models.Property
+	for i := range class.Properties {
+		if class.Properties[i].Name == propertyName {
+			propCopy := *class.Properties[i]
+			prop = &propCopy
+			break
+		}
+	}
+	if prop == nil {
+		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
+	}
+
+	// We track the *single* field being mutated so we can pass a
+	// field mask to UpdateProperty below. Without the mask, the RAFT
+	// FSM falls back to "replace every field" semantics
+	// (MergePropsMasked with no mask), which means a read-modify-write
+	// off a follower whose local FSM lags one RAFT entry behind the
+	// leader will clobber the leader's value of OTHER index flags on
+	// commit.
+	//
+	// Concrete failure shape (reproduces in
+	// test/acceptance/alter_schema/delete_property_index_empty_test.go
+	// on a 3-node cluster):
+	//
+	//   t=0  delete title.filterable on node A
+	//        → RAFT replicates, all FSMs converge IndexFilterable=false
+	//   t=1  delete title.searchable hits node B before B applies t=0
+	//        → propCopy reads IndexFilterable=true off B's stale FSM
+	//        → propCopy.IndexSearchable=false (local mutation)
+	//        → UpdateProperty(prop) with NO mask
+	//        → RAFT commits a property-replace command that carries
+	//          IndexFilterable=true forward, undoing t=0 on every node
+	//
+	// The mask scopes the RAFT merge to only the flag this REST call
+	// touched, so the leader's current value of unmasked flags is
+	// preserved. See cluster/proto/api.PropertyField* constants.
+	var updateFields []string
+	switch indexName {
+	case "filterable":
+		if prop.IndexFilterable != nil && *prop.IndexFilterable {
+			notExists := false
+			prop.IndexFilterable = &notExists
+			updateFields = []string{command.PropertyFieldIndexFilterable}
+		} else {
+			// nothing to do
+			return nil
+		}
+	case "searchable":
+		if prop.IndexSearchable != nil && *prop.IndexSearchable {
+			notExists := false
+			prop.IndexSearchable = &notExists
+			updateFields = []string{command.PropertyFieldIndexSearchable}
+		} else {
+			// nothing to do
+			return nil
+		}
+	case "rangeFilters":
+		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+			notExists := false
+			prop.IndexRangeFilters = &notExists
+			updateFields = []string{command.PropertyFieldIndexRangeFilters}
+		} else {
+			// nothing to do
+			return nil
+		}
+	default:
+		return fmt.Errorf("invalid property index type: %s", indexName)
+	}
+
+	if err := h.validatePropertyIndexing(prop); err != nil {
+		return err
+	}
+	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop, updateFields...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
+	className, vectorIndexName string,
+) error {
+	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
+		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
+	}
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	if vectorIndexName == "" {
+		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
+	}
+
+	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	if err != nil {
+		return fmt.Errorf("querying class %q: %w", className, err)
+	}
+	vcls, ok := vclasses[className]
+	if !ok {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+	class := vcls.Class
+	if class == nil {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+
+	if len(class.VectorConfig) == 0 {
+		return fmt.Errorf("%w: class %q has no named vector configurations", ErrValidation, className)
+	}
+
+	cfg, exists := class.VectorConfig[vectorIndexName]
+	if !exists {
+		return fmt.Errorf("%w: vector index %q not found in class %q", ErrNotFound, vectorIndexName, className)
+	}
+
+	if modelsext.IsVectorIndexDropped(cfg) {
+		// Already dropped, nothing to do.
+		return nil
+	}
+
+	// Keep the vector entry in the schema but set VectorIndexType to "none".
+	// This signals that the vector data still exists in the objects bucket but
+	// the search index has been removed. The executor's UpdateClass will detect
+	// the "none" type and call the migrator to drop the index from disk.
+	class.VectorConfig[vectorIndexName] = models.VectorConfig{
+		Vectorizer:      cfg.Vectorizer,
+		VectorIndexType: vectorindex.VectorIndexTypeNone,
+	}
+
+	_, err = h.schemaManager.UpdateClass(ctx, class, nil)
+	return err
+}
+
 // DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
+		return err
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
 	}
 

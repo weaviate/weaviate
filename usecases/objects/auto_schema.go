@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,14 +31,13 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type AutoSchemaManager struct {
 	mutex         sync.RWMutex
-	authorizer    authorization.Authorizer
 	schemaManager schemaManager
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
@@ -50,7 +49,7 @@ type AutoSchemaManager struct {
 }
 
 func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
-	config *config.WeaviateConfig, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	reg prometheus.Registerer,
 ) *AutoSchemaManager {
 	r := promauto.With(reg)
@@ -75,7 +74,6 @@ func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 		vectorRepo:    vectorRepo,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
-		authorizer:    authorizer,
 		tenantsCount:  tenantsCount,
 		opsDuration:   opDuration,
 	}
@@ -113,44 +111,34 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		if schemaClass == nil && !allowCreateClass {
 			return 0, ErrInvalidUserInput{"given class does not exist"}
 		}
-		properties, err := m.getProperties(object)
+		properties, err := m.getProperties(object, principal)
 		if err != nil {
 			return 0, err
 		}
 
 		if schemaClass == nil {
-			err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
-			if err != nil {
-				return 0, fmt.Errorf("auto schema can't create objects because can't create collection: %w", err)
-			}
-
 			// it returns the newly created class and version
-			schemaClass, schemaVersion, err = m.createClass(ctx, principal, object.Class, properties)
+			schemaClass, schemaVersion, err = m.createClass(ctx, principal, namespacing.StripOwnNamespace(principal, object.Class), properties)
 			if err != nil {
-				return 0, err
+				return 0, fmt.Errorf("auto-schema: create collection: %w", err)
 			}
 
 			classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
-				err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
-				if err != nil {
-					return 0, fmt.Errorf("auto schema can't create objects because can't update collection: %w", err)
-				}
+				var err error
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
-					principal, schemaClass, schemaClass.Class, true, newProperties...)
+					principal, namespacing.StripOwnNamespace(principal, schemaClass.Class), true, newProperties...)
 				if err != nil {
-					return 0, err
+					return 0, fmt.Errorf("auto-schema: update collection: %w", err)
 				}
 				classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 				classcache.RemoveClassFromContext(ctx, object.Class)
 			}
 		}
 
-		if schemaVersion > maxSchemaVersion {
-			maxSchemaVersion = schemaVersion
-		}
+		maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 	}
 	return maxSchemaVersion, nil
 }
@@ -171,7 +159,7 @@ func (m *AutoSchemaManager) createClass(ctx context.Context, principal *models.P
 	return newClass, schemaVersion, err
 }
 
-func (m *AutoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
+func (m *AutoSchemaManager) getProperties(object *models.Object, principal *models.Principal) ([]*models.Property, error) {
 	properties := []*models.Property{}
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
@@ -203,6 +191,16 @@ func (m *AutoSchemaManager) getProperties(object *models.Object) ([]*models.Prop
 				NestedProperties: nestedProperties,
 			}
 			properties = append(properties, property)
+		}
+	}
+	// asRef's beacon-without-class path resolves the target via ObjectByID
+	// and returns res.ClassName, which is the qualified storage key on
+	// NS-enabled clusters. The downstream QualifyPropertyDataTypes rejects
+	// already-qualified entries, so strip the own-NS prefix. No-op for every
+	// other DataType (primitive, nested, short class from beacons-with-class).
+	for _, p := range properties {
+		for i, dt := range p.DataType {
+			p.DataType[i] = namespacing.StripOwnNamespace(principal, dt)
 		}
 	}
 	return properties, nil
@@ -538,7 +536,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 
 	totalTenants := 0
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
-	var maxSchemaVersion uint64
+	maxSchemaVersion := fetchedClasses[objects[0].Class].Version
 	for className, tenantNames := range classTenants {
 		vclass, exists := fetchedClasses[className]
 		if !exists || // invalid class
@@ -551,32 +549,21 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 			!vclass.Class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
 			continue
 		}
-		names := make([]string, len(tenantNames))
-		tenants := make([]*models.Tenant, len(tenantNames))
-		i := 0
+		tenants := make([]*models.Tenant, 0, len(tenantNames))
 		for name := range tenantNames {
-			names[i] = name
-			tenants[i] = &models.Tenant{Name: name}
-			i++
+			tenants = append(tenants, &models.Tenant{Name: name})
 		}
-		err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
-		if err != nil {
-			return 0, totalTenants, fmt.Errorf("add tenants because can't create collection: %w", err)
-		}
-
 		addStart := time.Now()
-		version, err := m.addTenants(ctx, principal, className, tenants)
+		autoTenantVersion, err := m.addTenants(ctx, principal, className, tenants)
 		if err != nil {
-			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
+			return 0, totalTenants, fmt.Errorf("auto-tenant: add tenants to collection %q: %w", className, err)
 		}
 		m.tenantsCount.Add(float64(len(tenants)))
 		m.opsDuration.With(prometheus.Labels{
 			"operation": "add",
 		}).Observe(time.Since(addStart).Seconds())
 
-		if version > maxSchemaVersion {
-			maxSchemaVersion = version
-		}
+		maxSchemaVersion = max(maxSchemaVersion, autoTenantVersion)
 	}
 
 	if totalTenants == 0 {
@@ -594,7 +581,7 @@ func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return 0, fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	version, err := m.schemaManager.AddTenants(ctx, principal, class, tenants)
+	version, err := m.schemaManager.AddTenants(ctx, principal, namespacing.StripOwnNamespace(principal, class), tenants)
 	if err != nil {
 		return 0, err
 	}

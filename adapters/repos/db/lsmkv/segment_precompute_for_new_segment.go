@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
+			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 		})
 	if err != nil {
 		return nil, fmt.Errorf("init and pre-compute new segment %s: %w", path, err)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,71 +13,46 @@ package hashtree
 
 import "fmt"
 
-func (ht *HashTree) Diff(ht2 AggregatedHashTree) (discriminant *Bitset, err error) {
+// Diff returns a leaf-level discriminant; bit i is set when leaf i differs.
+func (ht *HashTree) Diff(ht2 AggregatedHashTree) (*Bitset, error) {
 	_, isHashTree := ht2.(*HashTree)
-
 	if ht2 == nil || !isHashTree {
 		return nil, ErrIllegalArguments
 	}
 
-	if ht.Height() != ht2.Height() {
+	height := ht.Height()
+	if height != ht2.Height() {
 		return nil, fmt.Errorf("%w: hash trees of different heights are non-comparable", ErrIllegalArguments)
 	}
 
-	// init for comparison
-	discriminant = NewBitset(NodesCount(ht.Height()))
-
-	leavesCount := LeavesCount(ht.Height())
+	leavesCount := LeavesCount(height)
 	digests1 := make([]Digest, leavesCount)
 	digests2 := make([]Digest, leavesCount)
 
-	err = ht.DiffUsing(ht2, discriminant, digests1, digests2)
-	if err != nil {
-		return nil, err
-	}
+	walk := NewBitset(1)
+	walk.Set(0) // root
 
-	return discriminant, nil
-}
+	for l := 0; l <= height; l++ {
+		if _, err := ht.Level(l, walk, digests1); err != nil {
+			return nil, err
+		}
+		if _, err := ht2.Level(l, walk, digests2); err != nil {
+			return nil, err
+		}
 
-func (ht *HashTree) DiffUsing(ht2 AggregatedHashTree, discriminant *Bitset, digests1, digests2 []Digest) error {
-	_, isHashTree := ht2.(*HashTree)
-
-	if ht2 == nil || !isHashTree {
-		return ErrIllegalArguments
-	}
-
-	if discriminant == nil {
-		return ErrIllegalArguments
-	}
-
-	if ht.Height() != ht2.Height() {
-		return fmt.Errorf("%w: hash trees of different heights are non-comparable", ErrIllegalArguments)
-	}
-
-	if discriminant.Size() != NodesCount(ht.Height()) {
-		return fmt.Errorf("%w: diff bitset size should mismatch", ErrIllegalArguments)
-	}
-
-	discriminant.Reset().Set(0) // init comparison at root level
-
-	for l := 0; l <= ht.Height(); l++ {
-		_, err := ht.Level(l, discriminant, digests1)
+		nextWalk, levelDiffCount, err := LevelDiff(l, height, walk, digests1, digests2)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		_, err = ht2.Level(l, discriminant, digests2)
-		if err != nil {
-			return err
+		if l == height {
+			return walk, nil
 		}
-
-		LevelDiff(l, discriminant, digests1, digests2)
-
-		if discriminant.SetCount() == 0 {
-			// no difference found
-			break
+		if levelDiffCount == 0 {
+			return NewBitset(leavesCount), nil
 		}
+		walk = nextWalk
 	}
 
-	return nil
+	return NewBitset(leavesCount), nil
 }

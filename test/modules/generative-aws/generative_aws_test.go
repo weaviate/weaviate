@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -70,19 +70,10 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				generativeModel: "amazon.nova-pro-v1:0",
 				withImages:      true,
 			},
-			// Amazon Titan
-			{
-				name:            "amazon.titan-text-lite-v1",
-				generativeModel: "amazon.titan-text-lite-v1",
-			},
-			{
-				name:            "amazon.titan-text-express-v1",
-				generativeModel: "amazon.titan-text-express-v1",
-			},
 			// Anthropic
 			{
-				name:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
-				generativeModel: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				name:            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+				generativeModel: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				maxTokens:       4000,
 			},
 			{

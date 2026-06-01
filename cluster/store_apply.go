@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -129,13 +130,20 @@ func (st *Store) Apply(l *raft.Log) any {
 
 		if ret.Error != nil {
 			st.metrics.applyFailures.Inc()
+			_, leaderID := st.LeaderWithID()
+			nodeState := ""
+			if st.raft != nil {
+				nodeState = st.raft.State().String()
+			}
 			st.log.WithFields(logrus.Fields{
-				"log_type":      l.Type,
-				"log_name":      l.Type.String(),
-				"log_index":     l.Index,
-				"cmd_type":      cmd.Type,
-				"cmd_type_name": cmd.Type.String(),
-				"cmd_class":     cmd.Class,
+				"log_type":        l.Type,
+				"log_name":        l.Type.String(),
+				"log_index":       l.Index,
+				"cmd_type":        cmd.Type,
+				"cmd_type_name":   cmd.Type.String(),
+				"cmd_class":       cmd.Class,
+				"raft_leader":     string(leaderID),
+				"raft_node_state": nodeState,
 			}).WithError(ret.Error).Error("apply command")
 			return
 		}
@@ -170,11 +178,19 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
@@ -210,12 +226,34 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
+	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
+		f = func() {
+			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, !catchingUp)
+		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
+			req := &api.CreateAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.CreateAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
 		f = func() {
+			req := &api.ReplaceAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
@@ -260,10 +298,6 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
 		}
 
-	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
-		f = func() {
-			ret.Error = st.StoreSchemaV1()
-		}
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
@@ -309,6 +343,28 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
 		}
+
+	case api.ApplyRequest_TYPE_ADD_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Add(&cmd)
+		}
+	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Update(&cmd)
+		}
+	case api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:
+		f = func() {
+			ret.Error = st.namespaceManager.ChangeState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:
+		f = func() {
+			ret.Error = st.namespaceManager.RemoveEntity(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:
+		f = func() {
+			ret.Error = st.dynUserManager.DeleteUsersInNamespace(&cmd)
+		}
+
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
@@ -320,6 +376,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.NodeReachedState(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:
 		f = func() {
@@ -382,10 +442,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.AddTask(&cmd, l.Index)
 		}
-	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:
-		f = func() {
-			ret.Error = st.distributedTasksManager.RecordNodeCompletion(&cmd, st.numberOfNodesInTheCluster())
-		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
 		f = func() {
 			ret.Error = st.distributedTasksManager.CancelTask(&cmd)
@@ -393,6 +449,26 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordUnitCompletion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS:
+		f = func() {
+			ret.Error = st.distributedTasksManager.UpdateUnitProgress(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFinalized(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordPreparationCompleteAck(&cmd)
 		}
 
 	default:
@@ -418,8 +494,4 @@ func (st *Store) Apply(l *raft.Log) any {
 	wg.Wait()
 
 	return ret
-}
-
-func (st *Store) numberOfNodesInTheCluster() int {
-	return len(st.raft.GetConfiguration().Configuration().Servers)
 }

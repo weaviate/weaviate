@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -164,6 +164,24 @@ func (s *Shard) setFallbackToSearchable(fallback bool) {
 
 func (s *Shard) addJobToQueue(job job) {
 	s.centralJobQueue <- job
+}
+
+// ForEachGeoQueue iterates through each geo index queue initialized in the shard.
+// Iteration stops at the first return of non-nil error.
+func (s *Shard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	for propName, q := range s.geoQueues {
+		if q == nil {
+			continue
+		}
+
+		if err := f(propName, q); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Shard) hasGeoIndex() bool {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,6 @@ import (
 	"errors"
 
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -26,6 +25,8 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type batchObjectHandlers struct {
@@ -41,45 +42,50 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	objs, err := h.manager.AddObjects(ctx, principal,
 		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return batch.NewBatchObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchObjectsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return batch.NewBatchObjectsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsCreateOK().
-		WithPayload(h.objectsResponse(objs))
+		WithPayload(h.objectsResponse(principal, objs))
 }
 
-func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
+func (h *batchObjectHandlers) objectsResponse(principal *models.Principal, input objects.BatchObjects) []*models.ObjectsGetResponse {
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
 		var errorResponse *models.ErrorResponse
 		status := models.ObjectsGetResponseAO2ResultStatusSUCCESS
 		if object.Err != nil {
-			errorResponse = errPayloadFromSingleErr(object.Err)
+			errorResponse = errPayloadFromSingleErr(principal, object.Err)
 			status = models.ObjectsGetResponseAO2ResultStatusFAILED
 		}
 
 		object.Object.ID = object.UUID
+		namespacing.StripObjectResponseClass(principal, object.Object)
 		response[i] = &models.ObjectsGetResponse{
 			Object: *object.Object,
 			Result: &models.ObjectsGetResponseAO2Result{
@@ -100,7 +106,7 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchReferencesCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	references, err := h.manager.AddReferences(ctx, principal, params.Body, repl)
@@ -109,37 +115,42 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchReferencesCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return batch.NewBatchReferencesCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchReferencesCreateOK().
-		WithPayload(h.referencesResponse(references))
+		WithPayload(h.referencesResponse(principal, references))
 }
 
-func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) []*models.BatchReferenceResponse {
+func (h *batchObjectHandlers) referencesResponse(principal *models.Principal, input objects.BatchReferences) []*models.BatchReferenceResponse {
 	response := make([]*models.BatchReferenceResponse, len(input))
 	for i, ref := range input {
 		var errorResponse *models.ErrorResponse
 		var reference models.BatchReference
 
+		// Echo beacons on every row so clients can correlate failures back
+		// to the input. Strip helpers tolerate nil inputs (return ""), so
+		// unconditional invocation is safe when the upstream rejected the
+		// row before populating From/To. resolveNS qualifies the From class
+		// upstream; To strip is defense in depth.
+		reference.From = namespacing.StripRefSourceBeacon(principal, ref.From)
+		reference.To = namespacing.StripRefBeacon(principal, ref.To)
+
 		status := models.BatchReferenceResponseAO1ResultStatusSUCCESS
 		if ref.Err != nil {
-			errorResponse = errPayloadFromSingleErr(ref.Err)
+			errorResponse = errPayloadFromSingleErr(principal, ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
-		} else {
-			reference.From = strfmt.URI(ref.From.String())
-			reference.To = strfmt.URI(ref.To.String())
 		}
 
 		response[i] = &models.BatchReferenceResponse{
@@ -162,7 +173,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchObjectsDeleteBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	tenant := getTenant(params.Tenant)
@@ -173,25 +184,25 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 		h.metricRequestsTotal.logError("", err)
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &objects.ErrMultiTenancy{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
 			return batch.NewBatchObjectsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else {
 			return batch.NewBatchObjectsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsDeleteOK().
-		WithPayload(h.objectsDeleteResponse(res))
+		WithPayload(h.objectsDeleteResponse(principal, res))
 }
 
-func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteResponse) *models.BatchDeleteResponse {
+func (h *batchObjectHandlers) objectsDeleteResponse(principal *models.Principal, input *objects.BatchDeleteResponse) *models.BatchDeleteResponse {
 	var successful, failed int64
 	output := input.Output
 	var objects []*models.BatchDeleteResponseResultsObjectsItems0
@@ -203,7 +214,7 @@ func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteRe
 			status = models.BatchDeleteResponseResultsObjectsItems0StatusDRYRUN
 		} else if obj.Err != nil {
 			status = models.BatchDeleteResponseResultsObjectsItems0StatusFAILED
-			errorResponse = errPayloadFromSingleErr(obj.Err)
+			errorResponse = errPayloadFromSingleErr(principal, obj.Err)
 			failed += 1
 		} else {
 			successful += 1
@@ -227,7 +238,7 @@ func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteRe
 
 	response := &models.BatchDeleteResponse{
 		Match: &models.BatchDeleteResponseMatch{
-			Class: input.Match.Class,
+			Class: namespacing.StripOwnNamespace(principal, input.Match.Class),
 			Where: input.Match.Where,
 		},
 		DeletionTimeUnixMilli: &deletionTimeUnixMilli,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,6 +48,12 @@ func (o *ObjectsReferencesCreateReader) ReadResponse(response runtime.ClientResp
 		return nil, result
 	case 403:
 		result := NewObjectsReferencesCreateForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 410:
+		result := NewObjectsReferencesCreateGone()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -238,6 +244,74 @@ func (o *ObjectsReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewObjectsReferencesCreateGone creates a ObjectsReferencesCreateGone with default headers values
+func NewObjectsReferencesCreateGone() *ObjectsReferencesCreateGone {
+	return &ObjectsReferencesCreateGone{}
+}
+
+/*
+ObjectsReferencesCreateGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ObjectsReferencesCreateGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects references create gone response has a 2xx status code
+func (o *ObjectsReferencesCreateGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references create gone response has a 3xx status code
+func (o *ObjectsReferencesCreateGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references create gone response has a 4xx status code
+func (o *ObjectsReferencesCreateGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references create gone response has a 5xx status code
+func (o *ObjectsReferencesCreateGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references create gone response a status code equal to that given
+func (o *ObjectsReferencesCreateGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the objects references create gone response
+func (o *ObjectsReferencesCreateGone) Code() int {
+	return 410
+}
+
+func (o *ObjectsReferencesCreateGone) Error() string {
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsReferencesCreateGone) String() string {
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsReferencesCreateGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsReferencesCreateGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

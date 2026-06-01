@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,6 +54,12 @@ func (o *ClassificationsGetReader) ReadResponse(response runtime.ClientResponse,
 		return nil, result
 	case 404:
 		result := NewClassificationsGetNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 410:
+		result := NewClassificationsGetGone()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -313,6 +319,74 @@ func (o *ClassificationsGetNotFound) String() string {
 }
 
 func (o *ClassificationsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewClassificationsGetGone creates a ClassificationsGetGone with default headers values
+func NewClassificationsGetGone() *ClassificationsGetGone {
+	return &ClassificationsGetGone{}
+}
+
+/*
+ClassificationsGetGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ClassificationsGetGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this classifications get gone response has a 2xx status code
+func (o *ClassificationsGetGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this classifications get gone response has a 3xx status code
+func (o *ClassificationsGetGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this classifications get gone response has a 4xx status code
+func (o *ClassificationsGetGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this classifications get gone response has a 5xx status code
+func (o *ClassificationsGetGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this classifications get gone response a status code equal to that given
+func (o *ClassificationsGetGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the classifications get gone response
+func (o *ClassificationsGetGone) Code() int {
+	return 410
+}
+
+func (o *ClassificationsGetGone) Error() string {
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetGone  %+v", 410, o.Payload)
+}
+
+func (o *ClassificationsGetGone) String() string {
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetGone  %+v", 410, o.Payload)
+}
+
+func (o *ClassificationsGetGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ClassificationsGetGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

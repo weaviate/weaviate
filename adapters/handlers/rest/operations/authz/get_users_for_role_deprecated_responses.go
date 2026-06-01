@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -210,6 +210,51 @@ func (o *GetUsersForRoleDeprecatedNotFound) WriteResponse(rw http.ResponseWriter
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// GetUsersForRoleDeprecatedGoneCode is the HTTP code returned for type GetUsersForRoleDeprecatedGone
+const GetUsersForRoleDeprecatedGoneCode int = 410
+
+/*
+GetUsersForRoleDeprecatedGone Endpoint not available in the current cluster configuration.
+
+swagger:response getUsersForRoleDeprecatedGone
+*/
+type GetUsersForRoleDeprecatedGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetUsersForRoleDeprecatedGone creates GetUsersForRoleDeprecatedGone with default headers values
+func NewGetUsersForRoleDeprecatedGone() *GetUsersForRoleDeprecatedGone {
+
+	return &GetUsersForRoleDeprecatedGone{}
+}
+
+// WithPayload adds the payload to the get users for role deprecated gone response
+func (o *GetUsersForRoleDeprecatedGone) WithPayload(payload *models.ErrorResponse) *GetUsersForRoleDeprecatedGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get users for role deprecated gone response
+func (o *GetUsersForRoleDeprecatedGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetUsersForRoleDeprecatedGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // GetUsersForRoleDeprecatedInternalServerErrorCode is the HTTP code returned for type GetUsersForRoleDeprecatedInternalServerError

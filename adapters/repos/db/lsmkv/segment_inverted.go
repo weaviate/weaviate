@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,14 +12,13 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"math"
 	"sync"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -105,12 +104,22 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	if err := s.copyNode(buffer, nodeOffset{propertyLengthsStart, propertyLengthsEnd}); err != nil {
 		return nil, fmt.Errorf("copy node: %w", err)
 	}
-	e := gob.NewDecoder(bytes.NewReader(buffer))
-
-	propLengths := map[uint64]uint32{}
-	err := e.Decode(&propLengths)
+	propLengths, err := gobenc.Decode(buffer)
 	if err != nil {
 		return s.invertedData.propertyLengths, fmt.Errorf("decode property lengths: %w", err)
+	}
+
+	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
+		// recompute property lengths average
+		var totalLength uint64
+		for _, length := range propLengths {
+			totalLength += uint64(length)
+		}
+		if s.invertedData.avgPropertyLengthsCount > 0 && len(propLengths) > 0 {
+			s.invertedData.avgPropertyLengthsAvg = float64(totalLength) / float64(len(propLengths))
+		} else {
+			s.invertedData.avgPropertyLengthsAvg = 0
+		}
 	}
 
 	s.invertedData.propertyLengthsLoaded = true

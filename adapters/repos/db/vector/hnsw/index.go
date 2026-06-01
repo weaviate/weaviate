@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,9 +21,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -35,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -102,14 +105,16 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID               common.VectorForID[float32]
-	TempVectorForIDThunk      common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	multiVectorForID          common.MultiVectorForID
-	trackDimensionsOnce       sync.Once
-	trackMuveraOnce           sync.Once
-	trackRQOnce               sync.Once
-	dims                      int32
+	vectorForID                       common.VectorForID[float32]
+	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
+	GetViewThunk                      common.GetViewThunk
+	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
+	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	multiVectorForID                  common.MultiVectorForID
+	trackDimensionsOnce               sync.Once
+	trackMuveraOnce                   sync.Once
+	trackRQOnce                       sync.Once
+	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -176,7 +181,7 @@ type hnsw struct {
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
 	rqConfig   ent.RQConfig
-	rqActive   bool
+	rqActive   atomic.Bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -190,10 +195,13 @@ type hnsw struct {
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
-	allocChecker            memwatch.AllocChecker
-	tombstoneCleanupRunning atomic.Bool
+	allocChecker              memwatch.AllocChecker
+	tombstoneMemCheckInterval time.Duration
+	tombstoneCleanupRunning   atomic.Bool
 
 	visitedListPoolMaxSize int
+
+	asyncIndexingEnabled bool
 
 	// only used for multivector mode
 	multivector       atomic.Bool
@@ -214,6 +222,21 @@ func (h *hnsw) Get(id uint64) ([]float32, error) {
 	return h.compressor.Get(id)
 }
 
+// GetCompressedVector retrieves the compressed vector for a given ID.
+// The index must be compressed, otherwise an error is returned.
+func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
+	if !h.compressed.Load() {
+		return nil, errors.New("index is not compressed")
+	}
+
+	v, err := h.compressor.GetCompressed(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]T), nil
+}
+
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error
@@ -230,12 +253,12 @@ type CommitLogger interface {
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
-	SwitchCommitLogs(bool) error
-	AddPQCompression(compressionhelpers.PQData) error
-	AddSQCompression(compressionhelpers.SQData) error
+	PrepareForBackup(bool) error
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
-	AddRQCompression(compressionhelpers.RQData) error
-	AddBRQCompression(compressionhelpers.BRQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -344,32 +367,41 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
 		shardName: cfg.ShardName,
 
-		randFunc:                  rand.Float64,
-		compressActionLock:        &sync.RWMutex{},
-		className:                 cfg.ClassName,
-		VectorForIDThunk:          cfg.VectorForIDThunk,
-		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
-		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
-		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
-		pqConfig:                  uc.PQ,
-		bqConfig:                  uc.BQ,
-		sqConfig:                  uc.SQ,
-		rqConfig:                  uc.RQ,
-		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
+		randFunc:                          rand.Float64,
+		compressActionLock:                &sync.RWMutex{},
+		className:                         cfg.ClassName,
+		VectorForIDThunk:                  cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:             cfg.MultiVectorForIDThunk,
+		TempMultiVectorForIDThunk:         cfg.TempMultiVectorForIDThunk,
+		GetViewThunk:                      cfg.GetViewThunk,
+		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
+		TempMultiVectorForIDWithViewThunk: cfg.TempMultiVectorForIDWithViewThunk,
+		pqConfig:                          uc.PQ,
+		bqConfig:                          uc.BQ,
+		sqConfig:                          uc.SQ,
+		rqConfig:                          uc.RQ,
+		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
-		store:                  store,
-		allocChecker:           cfg.AllocChecker,
-		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+		store:                     store,
+		allocChecker:              cfg.AllocChecker,
+		tombstoneMemCheckInterval: 500 * time.Millisecond,
+		visitedListPoolMaxSize:    cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:      cfg.AsyncIndexingEnabled,
 
 		docIDVectors:      make(map[uint64][]uint64),
 		muveraEncoder:     muveraEncoder,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
+	index.logger = cfg.Logger.WithFields(logrus.Fields{
+		"shard":        cfg.ShardName,
+		"class":        cfg.ClassName,
+		"targetVector": index.getTargetVector(),
+	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
@@ -380,11 +412,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err
@@ -395,7 +427,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.RQ.Enabled {
-		index.rqActive = true
+		index.rqActive.Store(true)
 	}
 
 	if uc.Multivector.Enabled {
@@ -549,12 +581,12 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
-			continue
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
+				continue
+			}
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
@@ -882,6 +914,9 @@ func (h *hnsw) Upgraded() bool {
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
+	if h.compressed.Load() {
+		return uint64(h.compressor.CountVectors())
+	}
 	return uint64(h.cache.CountVectors())
 }
 
@@ -899,6 +934,15 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+// normalizeVecInPlace normalizes the vector in-place without allocating.
+// Use this only when the caller owns the vector and doesn't need to preserve
+// the original (e.g., pooled temporary vectors).
+func (h *hnsw) normalizeVecInPlace(vec []float32) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		distancer.NormalizeInPlace(vec)
+	}
 }
 
 func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
@@ -1026,19 +1070,20 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	}
 
 	stats := HnswStats{
-		Dimensions:         h.dims,
+		Dimensions:         h.dims.Load(),
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
-		CacheSize:          h.cache.Len(),
 		Compressed:         h.compressed.Load(),
 	}
 
 	if stats.Compressed {
 		stats.CompressorStats = h.compressor.Stats()
+		stats.CacheSize = h.compressor.Len()
 	} else {
 		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+		stats.CacheSize = h.cache.Len()
 	}
 
 	stats.CompressionType = stats.CompressorStats.CompressionType()

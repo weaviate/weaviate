@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,8 +21,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -163,12 +163,12 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, className string, merge bool, newProps ...*models.Property,
+	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
-		if c.Class == class.Class {
+		if c.Class == className {
 			existedClass = c
 			for idx, p := range c.Properties {
 				existing[strings.ToLower(p.Name)] = idx
@@ -188,7 +188,7 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return class, f.AutoSchemaVersion, nil
+	return existedClass, f.AutoSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,
@@ -213,6 +213,10 @@ func (f *fakeSchemaManager) StorageCandidates() []string {
 
 func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 	return f.resolveAliasTo
+}
+
+func (f *fakeSchemaManager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
+	return 0, nil
 }
 
 type fakeVectorRepo struct {

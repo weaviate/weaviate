@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -140,6 +140,14 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
 
 	if renameBucket {
+		// Check if old bucket is already symlinked to target vector bucket
+		vectorsCompressedIsAlreadySymlinked, err := m.isVectorsCompressedFolderAlreadySymlinked(vectorsCompressedPath, targetVectorBucket)
+		if err != nil {
+			return err
+		}
+		if vectorsCompressedIsAlreadySymlinked {
+			return nil
+		}
 		// We might have restored files from a backup, we need to redo the migration
 		if _, err := os.Stat(targetVectorBucketPath); !os.IsNotExist(err) {
 			m.logger.Infof("restored data from backup, we need to recreate the vectors compressed folder for target vector: %s", targetVector)
@@ -278,19 +286,9 @@ func (m compressedVectorsMigrator) isVectorsCompressedFolderSymlink(lsmDir strin
 }
 
 func (m compressedVectorsMigrator) createVectorsCompressedFolderSymlink(lsmDir, targetVectorBucket string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
-	}
-	if err := os.Chdir(lsmDir); err != nil {
-		return fmt.Errorf("failed to set the current working directory to %s: %w", lsmDir, err)
-	}
-	err = os.Symlink(targetVectorBucket, helpers.VectorsCompressedBucketLSM)
-	if err != nil {
+	linkPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+	if err := os.Symlink(targetVectorBucket, linkPath); err != nil {
 		return fmt.Errorf("failed to create a symlink: %w", err)
-	}
-	if err := os.Chdir(cwd); err != nil {
-		return fmt.Errorf("failed to set the current working back to %s: %w", cwd, err)
 	}
 	return nil
 }
@@ -317,4 +315,22 @@ func (m compressedVectorsMigrator) tryToCreateVectorCompressedFolder(lsmDir stri
 		}
 	}
 	return nil
+}
+
+func (m compressedVectorsMigrator) isVectorsCompressedFolderAlreadySymlinked(
+	vectorsCompressedPath, targetVectorBucket string,
+) (bool, error) {
+	fi, err := os.Lstat(vectorsCompressedPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to get file info for path: %s", vectorsCompressedPath)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		// directory is not a symlink
+		return false, nil
+	}
+	target, err := os.Readlink(vectorsCompressedPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read a symlink for path: %s", vectorsCompressedPath)
+	}
+	return target == targetVectorBucket, nil
 }

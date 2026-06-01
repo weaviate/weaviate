@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -76,6 +76,11 @@ func ValidatePQConfig(cfg PQConfig) error {
 	if !cfg.Enabled {
 		return nil
 	}
+
+	if cfg.Segments < 0 {
+		return fmt.Errorf("pq segments must be non-negative")
+	}
+
 	err := validEncoder(cfg.Encoder.Type)
 	if err != nil {
 		return err

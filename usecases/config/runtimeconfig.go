@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,39 +29,83 @@ import (
 // WeaviateRuntimeConfig is the collection all the supported configs that is
 // managed dynamically and can be overridden during runtime.
 type WeaviateRuntimeConfig struct {
-	MaximumAllowedCollectionsCount       *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	AutoschemaEnabled                    *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
-	AsyncReplicationDisabled             *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
-	RevectorizeCheckDisabled             *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
-	ReplicaMovementMinimumAsyncWait      *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_async_wait" yaml:"replica_movement_minimum_async_wait"`
-	TenantActivityReadLogLevel           *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
-	TenantActivityWriteLogLevel          *runtime.DynamicValue[string]        `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
-	QuerySlowLogEnabled                  *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
-	QuerySlowLogThreshold                *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
-	InvertedSorterDisabled               *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
-	UsageGCSBucket                       *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
-	UsageGCSPrefix                       *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
-	UsageS3Bucket                        *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
-	UsageS3Prefix                        *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
-	UsageScrapeInterval                  *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
-	UsageShardJitterInterval             *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
-	UsagePolicyVersion                   *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
-	UsageVerifyPermissions               *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
-	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
+	MaximumAllowedCollectionsCount            *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedObjectsCount                *runtime.DynamicValue[int]           `json:"maximum_allowed_objects_count" yaml:"maximum_allowed_objects_count"`
+	MaximumAllowedTenantsPerCollection        *runtime.DynamicValue[int]           `json:"maximum_allowed_tenants_per_collection" yaml:"maximum_allowed_tenants_per_collection"`
+	MaximumAllowedShardsPerCollection         *runtime.DynamicValue[int]           `json:"maximum_allowed_shards_per_collection" yaml:"maximum_allowed_shards_per_collection"`
+	UsageLimitsErrorMessage                   *runtime.DynamicValue[string]        `json:"usage_limits_error_message" yaml:"usage_limits_error_message"`
+	AutoschemaEnabled                         *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
+	AsyncReplicationDisabled                  *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	AsyncReplicationSchedulerWorkers          *runtime.DynamicValue[int]           `json:"async_replication_scheduler_workers" yaml:"async_replication_scheduler_workers"`
+	AsyncReplicationHashtreeInitConcurrency   *runtime.DynamicValue[int]           `json:"async_replication_hashtree_init_concurrency" yaml:"async_replication_hashtree_init_concurrency"`
+	AsyncReplicationHashtreeHeight            *runtime.DynamicValue[int]           `json:"async_replication_hashtree_height" yaml:"async_replication_hashtree_height"`
+	AsyncReplicationFrequency                 *runtime.DynamicValue[time.Duration] `json:"async_replication_frequency" yaml:"async_replication_frequency"`
+	AsyncReplicationFrequencyWhilePropagating *runtime.DynamicValue[time.Duration] `json:"async_replication_frequency_while_propagating" yaml:"async_replication_frequency_while_propagating"`
+	AsyncReplicationLoggingFrequency          *runtime.DynamicValue[time.Duration] `json:"async_replication_logging_frequency" yaml:"async_replication_logging_frequency"`
+	AsyncReplicationDiffBatchSize             *runtime.DynamicValue[int]           `json:"async_replication_diff_batch_size" yaml:"async_replication_diff_batch_size"`
+	AsyncReplicationDiffPerNodeTimeout        *runtime.DynamicValue[time.Duration] `json:"async_replication_diff_per_node_timeout" yaml:"async_replication_diff_per_node_timeout"`
+	AsyncReplicationPrePropagationTimeout     *runtime.DynamicValue[time.Duration] `json:"async_replication_pre_propagation_timeout" yaml:"async_replication_pre_propagation_timeout"`
+	AsyncReplicationPropagationTimeout        *runtime.DynamicValue[time.Duration] `json:"async_replication_propagation_timeout" yaml:"async_replication_propagation_timeout"`
+	AsyncReplicationPropagationLimit          *runtime.DynamicValue[int]           `json:"async_replication_propagation_limit" yaml:"async_replication_propagation_limit"`
+	AsyncReplicationPropagationConcurrency    *runtime.DynamicValue[int]           `json:"async_replication_propagation_concurrency" yaml:"async_replication_propagation_concurrency"`
+	AsyncReplicationPropagationBatchSize      *runtime.DynamicValue[int]           `json:"async_replication_propagation_batch_size" yaml:"async_replication_propagation_batch_size"`
+	AsyncReplicationPropagationDelay          *runtime.DynamicValue[time.Duration] `json:"async_replication_propagation_delay" yaml:"async_replication_propagation_delay"`
+	RevectorizeCheckDisabled                  *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+	TenantActivityReadLogLevel                *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	TenantActivityWriteLogLevel               *runtime.DynamicValue[string]        `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+	QuerySlowLogEnabled                       *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold                     *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
+	InvertedSorterDisabled                    *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	UsageGCSBucket                            *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	UsageGCSPrefix                            *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	UsageS3Bucket                             *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
+	UsageS3Prefix                             *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
+	UsageScrapeInterval                       *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	UsageShardJitterInterval                  *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
+	UsagePolicyVersion                        *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
+	UsageVerifyPermissions                    *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
+	ReplicationGRPCEnabled                    *runtime.DynamicValue[bool]          `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
+	ReplicatedIndicesRequestQueueEnabled      *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
+	OperationalMode                           *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
+	DefaultQuantization                       *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
+	DefaultVectorIndexType                    *runtime.DynamicValue[string]        `yaml:"default_vector_index" json:"default_vector_index"`
+	DefaultShardingCount                      *runtime.DynamicValue[int]           `yaml:"default_sharding_count" json:"default_sharding_count"`
+	AllowedVectorIndexTypes                   *runtime.DynamicValue[[]string]      `yaml:"allowed_vector_index_types" json:"allowed_vector_index_types"`
+	AllowedCompressionTypes                   *runtime.DynamicValue[[]string]      `yaml:"allowed_compression_types" json:"allowed_compression_types"`
+	RestrictionsErrorMessage                  *runtime.DynamicValue[string]        `yaml:"restrictions_error_message" json:"restrictions_error_message"`
+
+	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
+
+	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
+	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
+	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// Export settings
+	ExportEnabled       *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
+	ExportDefaultBucket *runtime.DynamicValue[string] `json:"export_default_bucket" yaml:"export_default_bucket"`
+	ExportDefaultPath   *runtime.DynamicValue[string] `json:"export_default_path" yaml:"export_default_path"`
+	ExportParallelism   *runtime.DynamicValue[int]    `json:"export_parallelism" yaml:"export_parallelism"`
 
 	// RAFT specific configs
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
 	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`
 
-	// Experimental configs. Will be removed in the future.
-	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
-	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
-	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`
-	OIDCUsernameClaim     *runtime.DynamicValue[string]   `yaml:"exp_oidc_username_claim" json:"exp_oidc_username_claim"`
-	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
-	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
-	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
-	DefaultQuantization   *runtime.DynamicValue[string]   `yaml:"default_quantization" json:"default_quantization"`
+	// Authentication OIDC settings
+	OIDCIssuer            *runtime.DynamicValue[string]   `json:"authentication_oidc_issuer" yaml:"authentication_oidc_issuer"`
+	OIDCClientID          *runtime.DynamicValue[string]   `json:"authentication_oidc_client_id" yaml:"authentication_oidc_client_id"`
+	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_skip_client_id_check" json:"authentication_oidc_skip_client_id_check"`
+	OIDCUsernameClaim     *runtime.DynamicValue[string]   `yaml:"authentication_oidc_username_claim" json:"authentication_oidc_username_claim"`
+	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_groups_claim" json:"authentication_oidc_groups_claim"`
+	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"authentication_oidc_scopes" json:"authentication_oidc_scopes"`
+	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_certificate" json:"authentication_oidc_certificate"`
+	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
+	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
+
+	// MCP Server settings
+	MCPEnabled            *runtime.DynamicValue[bool] `json:"mcp_server_enabled" yaml:"mcp_server_enabled"`
+	MCPWriteAccessEnabled *runtime.DynamicValue[bool] `json:"mcp_server_write_access_enabled" yaml:"mcp_server_write_access_enabled"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
@@ -158,7 +202,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[int])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[float64]:
@@ -168,7 +212,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[float64])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[bool]:
@@ -178,7 +222,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[bool])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[time.Duration]:
@@ -188,7 +232,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[time.Duration])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[string]:
@@ -198,7 +242,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[string])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[[]string]:
@@ -208,27 +252,32 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[[]string])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		default:
 			panic(fmt.Sprintf("not recognized type: %#v, %#v", pi, si))
 		}
 
-		if !reflect.DeepEqual(r.newV, r.oldV) {
+		if r.err != nil || !reflect.DeepEqual(r.newV, r.oldV) {
 			logRecords = append(logRecords, r)
 		}
 
 	}
 
 	// log the changes made as INFO for auditing.
-	for _, v := range logRecords {
-		log.WithFields(logrus.Fields{
+	for _, r := range logRecords {
+		logger := log.WithFields(logrus.Fields{
 			"action":    "runtime_overrides_changed",
-			"field":     v.field,
-			"old_value": v.oldV,
-			"new_value": v.newV,
-		}).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", v.field, v.oldV, v.newV)
+			"field":     r.field,
+			"old_value": r.oldV,
+		})
+
+		if r.err != nil {
+			logger.WithError(r.err).Errorf("runtime overrides: config '%v' change failed", r.field)
+			continue
+		}
+		logger.WithField("new_value", r.newV).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", r.field, r.oldV, r.newV)
 	}
 
 	for match, f := range hooks {
@@ -252,12 +301,13 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 // updateLogRecord is used to record changes during updating runtime config.
 type updateLogRecord struct {
 	field      string
+	err        error
 	oldV, newV any
 }
 
 func matchUpdatedFields(match string, records []updateLogRecord) bool {
 	for _, v := range records {
-		if strings.Contains(v.field, match) {
+		if strings.HasPrefix(v.field, match) {
 			return true
 		}
 	}

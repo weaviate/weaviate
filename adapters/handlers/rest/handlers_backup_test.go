@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
@@ -24,66 +25,50 @@ func TestCompressionBackupCfg(t *testing.T) {
 		cfg                 *models.BackupConfig
 		expectedCompression ubak.CompressionLevel
 		expectedCPU         int
-		expectedChunkSize   int
 		expectedBucket      string
 		expectedPath        string
 	}{
 		"without config": {
 			cfg:                 nil,
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 		},
 		"with config": {
 			cfg: &models.BackupConfig{
 				CPUPercentage:    25,
-				ChunkSize:        512,
 				CompressionLevel: models.BackupConfigCompressionLevelBestSpeed,
 			},
-			expectedCompression: ubak.BestSpeed,
+			expectedCompression: ubak.GzipBestSpeed,
 			expectedCPU:         25,
-			expectedChunkSize:   512,
 		},
 		"with partial config [CPU]": {
 			cfg: &models.BackupConfig{
 				CPUPercentage: 25,
 			},
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         25,
-			expectedChunkSize:   ubak.DefaultChunkSize,
-		},
-		"with partial config [ChunkSize]": {
-			cfg: &models.BackupConfig{
-				ChunkSize: 125,
-			},
-			expectedCompression: ubak.DefaultCompression,
-			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   125,
 		},
 		"with partial config [Compression]": {
 			cfg: &models.BackupConfig{
 				CompressionLevel: models.BackupConfigCompressionLevelBestSpeed,
 			},
-			expectedCompression: ubak.BestSpeed,
+			expectedCompression: ubak.GzipBestSpeed,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 		},
 		"with partial config [Bucket]": {
 			cfg: &models.BackupConfig{
 				Bucket: "a bucket name",
 			},
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 			expectedBucket:      "a bucket name",
 		},
 		"with partial config [Path]": {
 			cfg: &models.BackupConfig{
 				Path: "a path",
 			},
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 			expectedPath:        "a path",
 		},
 	}
@@ -93,7 +78,6 @@ func TestCompressionBackupCfg(t *testing.T) {
 			ccfg := compressionFromBCfg(tc.cfg)
 			assert.Equal(t, tc.expectedCompression, ccfg.Level)
 			assert.Equal(t, tc.expectedCPU, ccfg.CPUPercentage)
-			assert.Equal(t, tc.expectedChunkSize, ccfg.ChunkSize)
 		})
 	}
 }
@@ -103,13 +87,11 @@ func TestCompressionRestoreCfg(t *testing.T) {
 		cfg                 *models.RestoreConfig
 		expectedCompression ubak.CompressionLevel
 		expectedCPU         int
-		expectedChunkSize   int
 	}{
 		"without config": {
 			cfg:                 nil,
-			expectedCompression: ubak.DefaultCompression,
+			expectedCompression: ubak.GzipDefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
-			expectedChunkSize:   ubak.DefaultChunkSize,
 		},
 		"with config": {
 			cfg: &models.RestoreConfig{
@@ -123,6 +105,34 @@ func TestCompressionRestoreCfg(t *testing.T) {
 		t.Run(n, func(t *testing.T) {
 			ccfg := compressionFromRCfg(tc.cfg)
 			assert.Equal(t, tc.expectedCPU, ccfg.CPUPercentage)
+		})
+	}
+}
+
+// TestIsRequestFromRootUser verifies that the base backup ID gate passed to the
+// list manager is only set for root users (by username or group membership).
+func TestIsRequestFromRootUser(t *testing.T) {
+	h := &backupHandlers{
+		rbacConfig: rbacconf.Config{
+			RootUsers:  []string{"root-user"},
+			RootGroups: []string{"root-group"},
+		},
+	}
+
+	tcs := map[string]struct {
+		principal *models.Principal
+		expectGet bool
+	}{
+		"root user":            {principal: &models.Principal{Username: "root-user"}, expectGet: true},
+		"member of root group": {principal: &models.Principal{Username: "alice", Groups: []string{"root-group"}}, expectGet: true},
+		"non-root user":        {principal: &models.Principal{Username: "alice"}, expectGet: false},
+		"non-root group":       {principal: &models.Principal{Username: "alice", Groups: []string{"other-group"}}, expectGet: false},
+		"nil principal":        {principal: nil, expectGet: false},
+	}
+
+	for n, tc := range tcs {
+		t.Run(n, func(t *testing.T) {
+			assert.Equal(t, tc.expectGet, h.isRequestFromRootUser(tc.principal))
 		})
 	}
 }

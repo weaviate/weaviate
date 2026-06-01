@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,9 +45,8 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// Ensure Raft starts and a leader is elected
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
+	assert.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
-	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
-	assert.True(t, srv.store.IsLeader())
 
 	// DeleteClass
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()

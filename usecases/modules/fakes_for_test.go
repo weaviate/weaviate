@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,6 +45,7 @@ func newDummyText2VecModule(name string, mediaProperties []string) dummyText2Vec
 type dummyText2VecModuleNoCapabilities struct {
 	name            string
 	mediaProperties []string
+	vectorizeText   *bool // nil defaults to true
 }
 
 func (m dummyText2VecModuleNoCapabilities) Name() string {
@@ -68,7 +69,11 @@ func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 }
 
 func (m dummyText2VecModuleNoCapabilities) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
-	return true, m.mediaProperties, nil
+	vectorizeText := true
+	if m.vectorizeText != nil {
+		vectorizeText = *m.vectorizeText
+	}
+	return vectorizeText, m.mediaProperties, nil
 }
 
 func (m dummyText2VecModuleNoCapabilities) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {

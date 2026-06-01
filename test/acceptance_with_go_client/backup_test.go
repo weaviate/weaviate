@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,10 +25,12 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestBackupWithConcurrentDelete(t *testing.T) {
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.NoError(t, err)
 
 	baseName := t.Name()
@@ -44,6 +46,18 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 			Properties: []*models.Property{
 				{Name: "num", DataType: schema.DataTypeText.PropString()},
 				{Name: "int", DataType: schema.DataTypeInt.PropString()},
+				{
+					Name:     "cars",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:            "make",
+							DataType:        schema.DataTypeText.PropString(),
+							Tokenization:    models.NestedPropertyTokenizationField,
+							IndexFilterable: &vTrue,
+						},
+					},
+				},
 			},
 			Vectorizer:         "none",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -52,13 +66,27 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 		classNames[i] = className
 
 		require.NoError(t, c.Schema().TenantsCreator().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant}).Do(ctx))
-		objs := make([]*models.Object, 100+i)
+		numObjects := 100 + i
+		objs := make([]*models.Object, numObjects)
 		for j := range objs {
+			// Two cars per object: cars[0]=Toyota for even j, Honda for odd j.
+			// Used post-restore to verify both the nested filterable value bucket
+			// (cars.make = X) and the nested meta bucket / arr[N] (_idx.cars.0)
+			// survive the backup-restore cycle.
+			carToyota := "Toyota"
+			carHonda := "Honda"
+			if j%2 == 1 {
+				carToyota, carHonda = carHonda, carToyota
+			}
 			objs[j] = &models.Object{
 				Class: className,
 				Properties: map[string]interface{}{
 					"num": string(rune(j)),
 					"int": j,
+					"cars": []any{
+						map[string]any{"make": carToyota},
+						map[string]any{"make": carHonda},
+					},
 				},
 				Tenant: tenant,
 			}
@@ -126,6 +154,8 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 	}
 
 	for i, name := range classNames {
+		numObjects := 100 + i
+
 		exists, err := c.Schema().ClassExistenceChecker().WithClassName(name).Do(ctx)
 		require.NoError(t, err)
 		require.True(t, exists, "class %s should exist after restore", name)
@@ -140,8 +170,7 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 
 		classData := data.Data["Aggregate"].(map[string]interface{})[name].([]interface{})[0].(map[string]interface{})
 		count := classData["meta"].(map[string]interface{})["count"].(float64)
-		expectedCount := float64(100 + i)
-		require.Equal(t, expectedCount, count, "class %s should have %d objects after restore", name, int(expectedCount))
+		require.Equal(t, float64(numObjects), count, "class %s should have %d objects after restore", name, numObjects)
 
 		// filter work
 		filter := filters.Where()
@@ -156,6 +185,39 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 
 		objects := result.Data["Get"].(map[string]interface{})[name].([]interface{})
 		require.Len(t, objects, 5, "class %s should have 5 objects with int < 5 after restore", name)
+
+		// Nested filter post-restore — verifies that the nested filterable
+		// value bucket and the meta bucket were both included in the backup
+		// and rebuilt on restore. Every object owns a Toyota (cars[0] or
+		// cars[1]), so the existential cars.make=Toyota matches all docs.
+		// The pinned cars[0].make=Toyota narrows to the half-with-Toyota-at-
+		// position-0 subset, exercising _idx.{cars}.0 in the meta bucket.
+		nestedAnyFilter := filters.Where().
+			WithOperator(filters.Equal).
+			WithValueText("Toyota").
+			WithPath([]string{"cars.make"})
+		nestedAnyResult, err := c.GraphQL().Get().WithClassName(name).WithTenant(tenant).
+			WithWhere(nestedAnyFilter).WithLimit(numObjects).
+			WithFields(graphql.Field{Name: "num"}).Do(ctx)
+		require.NoError(t, err)
+		require.Nil(t, nestedAnyResult.Errors)
+		nestedAnyObjects := nestedAnyResult.Data["Get"].(map[string]any)[name].([]any)
+		require.Len(t, nestedAnyObjects, numObjects,
+			"class %s: cars.make=Toyota must match all %d objects after restore (nested filterable value bucket)", name, numObjects)
+
+		nestedPinnedFilter := filters.Where().
+			WithOperator(filters.Equal).
+			WithValueText("Toyota").
+			WithPath([]string{"cars[0].make"})
+		nestedPinnedResult, err := c.GraphQL().Get().WithClassName(name).WithTenant(tenant).
+			WithWhere(nestedPinnedFilter).WithLimit(numObjects).
+			WithFields(graphql.Field{Name: "num"}).Do(ctx)
+		require.NoError(t, err)
+		require.Nil(t, nestedPinnedResult.Errors)
+		nestedPinnedObjects := nestedPinnedResult.Data["Get"].(map[string]any)[name].([]any)
+		expectedPinned := (numObjects + 1) / 2 // even j → cars[0]=Toyota
+		require.Len(t, nestedPinnedObjects, expectedPinned,
+			"class %s: cars[0].make=Toyota must match %d objects after restore (nested meta bucket / _idx.{cars}.0)", name, expectedPinned)
 	}
 
 	// verify usage stats to ensure no data loss and all data is correctly restored

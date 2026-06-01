@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -276,4 +276,100 @@ func TestListNoDynamic(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 	require.Len(t, parsed.Payload, 0)
+}
+
+// TestListUsers_Namespaces — per-item response stripping: short id (no
+// Namespace) for a namespaced caller; full id (with Namespace) for a global op.
+func TestListUsers_Namespaces(t *testing.T) {
+	storedUser := &apikey.User{Id: "customer1:bob", Namespace: "customer1", Active: true}
+
+	tests := []struct {
+		name             string
+		principalNS      string
+		isGlobalOperator bool
+		wantUserID       string
+		wantNamespace    string
+	}{
+		{
+			name:          "namespaced caller sees short id, no namespace field",
+			principalNS:   "customer1",
+			wantUserID:    "bob",
+			wantNamespace: "",
+		},
+		{
+			name:             "global operator sees qualified id and namespace field",
+			isGlobalOperator: true,
+			wantUserID:       "customer1:bob",
+			wantNamespace:    "customer1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator, Namespace: tt.principalNS}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(storedUser.Id)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers").Return(map[string]*apikey.User{storedUser.Id: storedUser}, nil)
+			dynUser.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				namespacesEnabled: true,
+			}
+
+			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, principal)
+			parsed, ok := res.(*users.ListAllUsersOK)
+			require.True(t, ok)
+			require.Len(t, parsed.Payload, 1)
+			require.Equal(t, tt.wantUserID, *parsed.Payload[0].UserID)
+			require.Equal(t, tt.wantNamespace, parsed.Payload[0].Namespace)
+		})
+	}
+}
+
+// TestListUsers_CrossNamespaceIsolation pins that a namespaced caller sees only
+// users in its own namespace: both customer1:bob and customer2:bob exist in
+// storage, but the resource filter (driven by the matcher's users/<id>
+// specialization, exercised here via FilterAuthorizedResources) returns only
+// the caller's customer1:bob, stripped to the short name.
+func TestListUsers_CrossNamespaceIsolation(t *testing.T) {
+	stored := map[string]*apikey.User{
+		"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true},
+		"customer2:bob": {Id: "customer2:bob", Namespace: "customer2", Active: true},
+	}
+	principal := &models.Principal{Namespace: "customer1"}
+	nullLogger, _ := test.NewNullLogger()
+
+	authorizer := authorization.NewMockAuthorizer(t)
+	// Wildcard-parent shortcut path fails (no users/* grant), forcing the
+	// filter to fall through to per-item filtering.
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, "users/*").Return(errors.New("not allowed on wildcard"))
+	// Per-item filter returns only the caller's own-ns resource — what the
+	// matcher's users/<id> specialization produces in production.
+	authorizer.On("FilterAuthorizedResources", mock.Anything, principal, authorization.READ, mock.Anything, mock.Anything).
+		Return([]string{"users/customer1:bob"}, nil)
+
+	dynUser := NewMockDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers").Return(stored, nil)
+	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+
+	h := dynUserHandler{
+		dbUsers:           dynUser,
+		authorizer:        authorizer,
+		dbUserEnabled:     true,
+		namespacesEnabled: true,
+		rbacConfig:        rbacconf.Config{Enabled: true},
+		logger:            nullLogger,
+	}
+
+	res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, principal)
+	parsed, ok := res.(*users.ListAllUsersOK)
+	require.True(t, ok)
+	require.Len(t, parsed.Payload, 1)
+	require.Equal(t, "bob", *parsed.Payload[0].UserID, "expected short id, no namespace prefix")
+	require.Empty(t, parsed.Payload[0].Namespace, "namespace field must be hidden for non-operator")
 }

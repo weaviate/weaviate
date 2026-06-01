@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 const (
@@ -33,12 +34,6 @@ type ScalarQuantizer struct {
 	ib2        float32
 	distancer  distancer.Provider
 	dimensions int
-}
-
-type SQData struct {
-	A          float32
-	B          float32
-	Dimensions uint16
 }
 
 func (sq *ScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
@@ -197,7 +192,7 @@ func (sq *ScalarQuantizer) FromCompressedBytes(compressed []byte) []byte {
 }
 
 func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddSQCompression(SQData{
+	logger.AddSQCompression(compression.SQData{
 		A:          sq.a,
 		B:          sq.b,
 		Dimensions: uint16(sq.dimensions),

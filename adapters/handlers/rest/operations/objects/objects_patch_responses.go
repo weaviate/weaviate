@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -167,6 +167,51 @@ func (o *ObjectsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// ObjectsPatchGoneCode is the HTTP code returned for type ObjectsPatchGone
+const ObjectsPatchGoneCode int = 410
+
+/*
+ObjectsPatchGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsPatchGone
+*/
+type ObjectsPatchGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsPatchGone creates ObjectsPatchGone with default headers values
+func NewObjectsPatchGone() *ObjectsPatchGone {
+
+	return &ObjectsPatchGone{}
+}
+
+// WithPayload adds the payload to the objects patch gone response
+func (o *ObjectsPatchGone) WithPayload(payload *models.ErrorResponse) *ObjectsPatchGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects patch gone response
+func (o *ObjectsPatchGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsPatchGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // ObjectsPatchUnprocessableEntityCode is the HTTP code returned for type ObjectsPatchUnprocessableEntity

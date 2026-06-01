@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -161,6 +161,44 @@ func TestClassSettingsAvoidCommentary(t *testing.T) {
 
 			avoidCommentary := settings.AvoidCommentary()
 			assert.Equal(t, tt.expected, *avoidCommentary)
+		})
+	}
+}
+
+func TestClassSettingsKnowledge(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      map[string]any
+		expected []string
+	}{
+		{
+			name:     "default knowledge",
+			cfg:      map[string]any{},
+			expected: nil,
+		},
+		{
+			name: "custom knowledge as []any",
+			cfg: map[string]any{
+				"knowledge": []any{"a", "b"},
+			},
+			expected: []string{"a", "b"},
+		},
+		{
+			name: "custom knowledge as []string",
+			cfg: map[string]any{
+				"knowledge": []string{"a", "b"},
+			},
+			expected: []string{"a", "b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeConfig := fakeClassConfig{classConfig: tt.cfg}
+			settings := NewClassSettings(fakeConfig)
+
+			knowledge := settings.Knowledge()
+			assert.Equal(t, tt.expected, knowledge)
 		})
 	}
 }

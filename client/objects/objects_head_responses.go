@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,6 +54,12 @@ func (o *ObjectsHeadReader) ReadResponse(response runtime.ClientResponse, consum
 		return nil, result
 	case 404:
 		result := NewObjectsHeadNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 410:
+		result := NewObjectsHeadGone()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -301,6 +307,74 @@ func (o *ObjectsHeadNotFound) String() string {
 }
 
 func (o *ObjectsHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsHeadGone creates a ObjectsHeadGone with default headers values
+func NewObjectsHeadGone() *ObjectsHeadGone {
+	return &ObjectsHeadGone{}
+}
+
+/*
+ObjectsHeadGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ObjectsHeadGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects head gone response has a 2xx status code
+func (o *ObjectsHeadGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects head gone response has a 3xx status code
+func (o *ObjectsHeadGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects head gone response has a 4xx status code
+func (o *ObjectsHeadGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects head gone response has a 5xx status code
+func (o *ObjectsHeadGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects head gone response a status code equal to that given
+func (o *ObjectsHeadGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the objects head gone response
+func (o *ObjectsHeadGone) Code() int {
+	return 410
+}
+
+func (o *ObjectsHeadGone) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsHeadGone) String() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsHeadGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsHeadGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

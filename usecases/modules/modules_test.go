@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -345,8 +345,8 @@ func TestModulesProvider(t *testing.T) {
 
 		fmt.Printf("provider: %v\n", provider)
 
-		backendByName, err1 := provider.BackupBackend("SomeBackend")
-		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName")
+		backendByName, err1 := provider.BackupBackend("SomeBackend", modulecapabilities.BackendUseCaseBackup)
+		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName", modulecapabilities.BackendUseCaseBackup)
 
 		assert.NotNil(t, backendByName)
 		assert.Nil(t, err1)
@@ -521,7 +521,7 @@ func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupI
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	return 0, nil
 }
 

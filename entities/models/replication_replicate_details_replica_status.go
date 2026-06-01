@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,7 @@ type ReplicationReplicateDetailsReplicaStatus struct {
 	Errors []*ReplicationReplicateDetailsReplicaStatusError `json:"errors"`
 
 	// The current operational state of the replica during the replication process.
-	// Enum: [REGISTERED HYDRATING FINALIZING DEHYDRATING READY CANCELLED]
+	// Enum: [REGISTERED HYDRATING FINALIZING INTEGRATING DEHYDRATING READY CANCELLED]
 	State string `json:"state,omitempty"`
 
 	// The UNIX timestamp in ms when this state was first entered. This is an approximate time and so should not be used for precise timing.
@@ -91,7 +91,7 @@ var replicationReplicateDetailsReplicaStatusTypeStatePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["REGISTERED","HYDRATING","FINALIZING","DEHYDRATING","READY","CANCELLED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["REGISTERED","HYDRATING","FINALIZING","INTEGRATING","DEHYDRATING","READY","CANCELLED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -109,6 +109,9 @@ const (
 
 	// ReplicationReplicateDetailsReplicaStatusStateFINALIZING captures enum value "FINALIZING"
 	ReplicationReplicateDetailsReplicaStatusStateFINALIZING string = "FINALIZING"
+
+	// ReplicationReplicateDetailsReplicaStatusStateINTEGRATING captures enum value "INTEGRATING"
+	ReplicationReplicateDetailsReplicaStatusStateINTEGRATING string = "INTEGRATING"
 
 	// ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING captures enum value "DEHYDRATING"
 	ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING string = "DEHYDRATING"

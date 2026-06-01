@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -78,7 +78,6 @@ func TestSetCursorConsistentView(t *testing.T) {
 				"key2": {[]byte("value2")},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	// Active memtable contains key3->{3}

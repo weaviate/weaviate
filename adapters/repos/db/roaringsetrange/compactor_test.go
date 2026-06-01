@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package roaringsetrange
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -527,7 +528,7 @@ func cursorCompactor(t *testing.T, leftCursor, rightCursor SegmentCursor, maxNew
 	require.NoError(t, err)
 
 	c := NewCompactor(f, leftCursor, rightCursor, 5, cleanup, checkSum, maxNewFileSize)
-	if err := c.Do(); err != nil {
+	if err := c.Do(context.Background()); err != nil {
 		require.NoError(t, f.Close())
 		return nil, err
 	}

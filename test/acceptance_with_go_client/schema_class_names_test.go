@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,18 +19,20 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestSchemaClassNames(t *testing.T) {
 	ctx := context.Background()
 	config := client.Config{
-		Scheme: "http", Host: "localhost:8080",
-		GrpcConfig: &grpc.Config{Host: "localhost:50051", Secured: false},
+		Scheme: "http", Host: wvhost.REST(),
+		GrpcConfig: &grpc.Config{Host: wvhost.GRPC(), Secured: false},
 	}
 	client, err := client.NewClient(config)
 	require.Nil(t, err)

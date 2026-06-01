@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,7 +63,6 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
@@ -82,8 +81,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": shardsCount}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
@@ -259,7 +257,6 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
@@ -275,8 +272,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 
 	t.Run("create schema (multi-tenant)", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,

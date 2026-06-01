@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -23,7 +24,26 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
 )
+
+// classifyCanCommitErr maps a free-form canCommit error to a
+// [CanCommitErrorKind]. nil err returns the empty kind so callers can keep
+// using empty-string semantics when nothing went wrong.
+//
+// Classification uses errors.Is against the shared
+// [backup.ErrBackupBlockedByInFlightReindex] sentinel rather than substring
+// comparison; the storage layer's Backupable() wraps that sentinel inside
+// errors.Join when multiple shards refuse, and errors.Is walks the join.
+func classifyCanCommitErr(err error) CanCommitErrorKind {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+		return CanCommitErrInFlightReindex
+	}
+	return CanCommitErrCannotCommit
+}
 
 // Version of backup structure
 const (
@@ -42,7 +62,7 @@ const (
 var regExpID = regexp.MustCompile("^[a-z0-9_-]+$")
 
 type BackupBackendProvider interface {
-	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
+	BackupBackend(backend string, useCase modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error)
 	EnabledBackupBackends() []modulecapabilities.BackupBackend
 }
 
@@ -62,11 +82,13 @@ type NodeResolver interface {
 }
 
 type Status struct {
-	Path        string
-	StartedAt   time.Time
-	CompletedAt time.Time
-	Status      backup.Status
-	Err         string
+	Path         string
+	StartedAt    time.Time
+	CompletedAt  time.Time
+	Status       backup.Status
+	Err          string
+	Size         float64
+	BaseBackupID string
 }
 
 type Handler struct {
@@ -81,6 +103,7 @@ type Handler struct {
 
 func NewHandler(
 	logger logrus.FieldLogger,
+	cfg config.Backup,
 	authorizer authorization.Authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
@@ -94,7 +117,7 @@ func NewHandler(
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
-		backupper: newBackupper(node, logger,
+		backupper: newBackupper(node, logger, cfg,
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
@@ -107,14 +130,8 @@ func NewHandler(
 
 // Compression is the compression configuration.
 type Compression struct {
-	// Level is one of DefaultCompression, BestSpeed, BestCompression
+	// Level is one of GzipDefaultCompression, GzipBestSpeed, GzipBestCompression
 	Level CompressionLevel
-
-	// ChunkSize represents the desired size for chunks between 1 - 512  MB
-	// However, during compression, the chunk size might
-	// slightly deviate from this value, being either slightly
-	// below or above the specified size
-	ChunkSize int
 
 	// CPUPercentage desired CPU core utilization (1%-80%), default: 50%
 	CPUPercentage int
@@ -149,6 +166,8 @@ type BackupRequest struct {
 
 	RbacRestoreOption string
 	UserRestoreOption string
+
+	BaseBackupID string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -170,6 +189,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
+		ret.ErrKind = CanCommitErrCannotCommit
 		return ret
 	}
 
@@ -177,15 +197,18 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	case OpCreate:
 		if err := m.backupper.sourcer.Backupable(ctx, req.Classes); err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = classifyCanCommitErr(err)
 			return ret
 		}
 		if err = store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		res, err := m.backupper.backup(store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = classifyCanCommitErr(err)
 			return ret
 		}
 		ret.Timeout = res.Timeout
@@ -193,16 +216,19 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		res, err := m.restorer.restore(req, meta, store)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		ret.Timeout = res.Timeout
 	default:
 		ret.Err = fmt.Sprintf("unknown backup operation: %s", req.Method)
+		ret.ErrKind = CanCommitErrCannotCommit
 		return ret
 	}
 
@@ -274,11 +300,11 @@ func validateID(backupID string) error {
 }
 
 func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucket, path string) (nodeStore, error) {
-	caps, err := provider.BackupBackend(backend)
+	caps, err := provider.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return nodeStore{}, err
 	}
-	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path}}
+	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path, node: node}}
 	return ns, nil
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -75,5 +75,11 @@ func (ic *classSettings) Properties() ([]string, error) {
 }
 
 func (ic *classSettings) Validate() error {
-	return ic.base.ValidateMultiModal(fields)
+	if err := ic.base.ValidateMultiModal(fields); err != nil {
+		return err
+	}
+	if err := ic.base.ValidateBaseURL(ic.BaseURL()); err != nil {
+		return err
+	}
+	return nil
 }

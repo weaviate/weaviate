@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -179,6 +179,51 @@ func (o *TenantsCreateUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 func (o *TenantsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// TenantsCreateTooManyRequestsCode is the HTTP code returned for type TenantsCreateTooManyRequests
+const TenantsCreateTooManyRequestsCode int = 429
+
+/*
+TenantsCreateTooManyRequests The configured tenant-per-collection usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.
+
+swagger:response tenantsCreateTooManyRequests
+*/
+type TenantsCreateTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.UsageLimitExceededResponse `json:"body,omitempty"`
+}
+
+// NewTenantsCreateTooManyRequests creates TenantsCreateTooManyRequests with default headers values
+func NewTenantsCreateTooManyRequests() *TenantsCreateTooManyRequests {
+
+	return &TenantsCreateTooManyRequests{}
+}
+
+// WithPayload adds the payload to the tenants create too many requests response
+func (o *TenantsCreateTooManyRequests) WithPayload(payload *models.UsageLimitExceededResponse) *TenantsCreateTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the tenants create too many requests response
+func (o *TenantsCreateTooManyRequests) SetPayload(payload *models.UsageLimitExceededResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *TenantsCreateTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

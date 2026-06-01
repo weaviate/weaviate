@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,13 +22,14 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
+
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	bolt "go.etcd.io/bbolt"
-	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 var (
@@ -503,16 +504,4 @@ func (r *store) LoadLegacySchema() (map[string]types.ClassState, error) {
 		res[c.Class] = types.ClassState{Class: *c, Shards: *legacySchema.ShardingState[c.Class]}
 	}
 	return res, nil
-}
-
-func (r *store) SaveLegacySchema(cluster map[string]types.ClassState) error {
-	states := ucs.NewState(len(cluster))
-
-	for _, s := range cluster {
-		currState := s // new var to avoid passing pointer to s
-		states.ObjectSchema.Classes = append(states.ObjectSchema.Classes, &currState.Class)
-		states.ShardingState[s.Class.Class] = &currState.Shards
-	}
-
-	return r.Save(context.Background(), states)
 }

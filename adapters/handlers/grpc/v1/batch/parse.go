@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const BEACON_START = "weaviate://localhost/"
@@ -33,7 +34,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
+func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (string, *models.Class, error), principal *models.Principal, namespacesEnabled bool) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -44,15 +45,15 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		var props map[string]interface{}
 
 		collection := schema.UppercaseClassName(obj.Collection)
-		class, err := authorizedGetClass(collection, obj.Tenant)
+		resolved, class, err := authorizedGetClass(collection, obj.Tenant)
 		if err != nil {
 			objectErrors[i] = err
 			continue
 		}
-		obj.Collection = collection
+		// resolved is namespace-qualified even before the class exists, so an
+		// auto-schema create and the object write agree on the qualified name.
+		obj.Collection = resolved
 		if class != nil {
-			// class is nil when we are relying on auto schema to create a collection
-			// aliases cannot be created for non-existent classes
 			obj.Collection = class.Class
 		}
 
@@ -73,7 +74,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 					objectErrors[i] = err
 					continue
 				}
-				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props); err != nil {
+				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props, principal, namespacesEnabled); err != nil {
 					objectErrors[i] = err
 					continue
 				}
@@ -145,7 +146,8 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 		if len(prop.DataType) > 1 {
 			return fmt.Errorf("target is a multi-target reference, need single target %v", prop.DataType)
 		}
-		toClass := prop.DataType[0]
+		// Storage-shape rule: short class in the beacon.
+		toClass := namespacing.StripQualification(prop.DataType[0])
 		beacons := make([]interface{}, len(refSingle.Uuids))
 		for j, uuid := range refSingle.Uuids {
 			beacons[j] = map[string]interface{}{"beacon": BEACON_START + toClass + "/" + uuid}
@@ -155,7 +157,7 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 	return nil
 }
 
-func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}) error {
+func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}, principal *models.Principal, namespacesEnabled bool) error {
 	for _, refMulti := range properties {
 		propName := refMulti.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
@@ -165,10 +167,17 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 		if len(prop.DataType) < 2 {
 			return fmt.Errorf("target is a single-target reference, need multi-target %v", prop.DataType)
 		}
+		// TargetCollection is user-supplied; route through QualifyRefTarget
+		// for cross-NS policy + storage-shape rule.
+		targetCollection := schema.UppercaseClassName(refMulti.TargetCollection)
+		_, shortTarget, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, class.Class, targetCollection)
+		if err != nil {
+			return err
+		}
+		refMulti.TargetCollection = shortTarget
 		beacons := make([]interface{}, len(refMulti.Uuids))
-		refMulti.TargetCollection = schema.UppercaseClassName(refMulti.TargetCollection)
 		for j, uid := range refMulti.Uuids {
-			beacons[j] = map[string]interface{}{"beacon": BEACON_START + refMulti.TargetCollection + "/" + uid}
+			beacons[j] = map[string]interface{}{"beacon": BEACON_START + shortTarget + "/" + uid}
 		}
 		if props[propName] == nil {
 			props[propName] = beacons

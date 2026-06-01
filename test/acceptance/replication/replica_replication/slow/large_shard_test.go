@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,13 +25,14 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
+func (suite *ReplicationTestSuiteSlow) TestReplicationReplicateOfLargeShard() {
 	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE", "10485760"). // 10 MB
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {

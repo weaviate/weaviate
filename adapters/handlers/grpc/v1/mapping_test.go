@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -135,11 +135,12 @@ func TestNewPrimitiveValue(t *testing.T) {
 			name: "string",
 			in:   "a string",
 			tests: makeTestList(map[schema.DataType]*pb.Value{
-				schema.DataTypeDate:   {Kind: &pb.Value_DateValue{DateValue: "a string"}},
-				schema.DataTypeString: {Kind: &pb.Value_TextValue{TextValue: "a string"}},
-				schema.DataTypeText:   {Kind: &pb.Value_TextValue{TextValue: "a string"}},
-				schema.DataTypeUUID:   {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
-				schema.DataTypeBlob:   {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
+				schema.DataTypeDate:     {Kind: &pb.Value_DateValue{DateValue: "a string"}},
+				schema.DataTypeString:   {Kind: &pb.Value_TextValue{TextValue: "a string"}},
+				schema.DataTypeText:     {Kind: &pb.Value_TextValue{TextValue: "a string"}},
+				schema.DataTypeUUID:     {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
+				schema.DataTypeBlob:     {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
+				schema.DataTypeBlobHash: {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
 			}),
 		},
 		{

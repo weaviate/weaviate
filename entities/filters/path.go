@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -75,6 +76,28 @@ func appendNestedPath(p *Path, omitClass bool) []string {
 // [0] ClassName -> The root class name we're drilling down from
 // [1] propertyName -> The property name we're interested in.
 func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
+	// Single-element nested path: a dotted name like "cars.make" or an indexed
+	// name like "cars[1].make" is a nested-property filter target, not a
+	// reference-following path. ValidatePropertyName rejects dots and brackets
+	// (they're not valid in flat property names), but those are the standard
+	// nested filter path syntax — the gRPC ingress and the downstream
+	// validator/searcher already accept this shape. Build the Path directly;
+	// the nested filter validator performs the schema lookup downstream.
+	//
+	// Detection is delegated to nested.HasNestedSyntax so the syntactic
+	// conventions (separator, index brackets) stay localized in the nested
+	// package. Backward compatible: existing flat / reference-following
+	// queries never emit dots or brackets in their path elements, so the
+	// short-circuit only triggers for genuinely nested filter input.
+	if len(pathElements) == 1 {
+		if s, ok := pathElements[0].(string); ok && nested.HasNestedSyntax(s) {
+			return &Path{
+				Class:    schema.ClassName(rootClass),
+				Property: schema.PropertyName(s),
+			}, nil
+		}
+	}
+
 	// we need to manually insert the root class, as that is omitted from the user
 	pathElements = append([]interface{}{rootClass}, pathElements...)
 
@@ -104,7 +127,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 			return nil, fmt.Errorf("element %v is not a string", i+2)
 		}
 
-		className, err := schema.ValidateClassName(rawClassName)
+		className, err := schema.ValidateQualifiedClassName(rawClassName)
 		if err != nil {
 			return nil, fmt.Errorf("expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
 		}
@@ -121,7 +144,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 		} else {
 			propertyName, err = schema.ValidatePropertyName(rawPropertyName)
 			// Invalid property name?
-			// Try to parse it as as a reference or a length.
+			// Try to parse it as a reference or a length.
 			if err != nil {
 				untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:]
 				propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)

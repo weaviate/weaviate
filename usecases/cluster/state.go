@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,36 +25,48 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// NodeSelector is an interface to select a portion of the available nodes in memberlist
-type NodeSelector interface {
+// NodeResolver provides read-only access to cluster nodes and their addresses.
+type NodeResolver interface {
+	// NodeCount returns the current number of nodes in the cluster.
+	NodeCount() int
+	// AllHostnames returns the hostnames of all known cluster nodes.
+	AllHostnames() []string
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeHostname resolves a node id into an ip address with internal cluster api port.
+	NodeHostname(nodeName string) (string, bool)
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses.
+	// This is useful for bootstrap when the join config is incomplete.
+	AllOtherClusterMembers(port int) map[string]string
+}
+
+// NodeSelector builds on NodeResolver and adds selection, health and lifecycle operations.
+// It is used to select a portion of the available nodes in memberlist.
+type NodeSelector interface {
+	NodeResolver
+
 	// NodeGRPCPort returns the gRPC port for a specific node id.
 	NodeGRPCPort(id string) (int, error)
 	// StorageCandidates returns list of storage nodes (names)
-	// sorted by the free amount of disk space in descending orders
+	// sorted by the free amount of disk space in descending order.
 	StorageCandidates() []string
 	// NonStorageNodes return nodes from member list which
-	// they are configured not to be voter only
+	// they are configured not to be voter only.
 	NonStorageNodes() []string
-	// SortCandidates Sort passed nodes names by the
-	// free amount of disk space in descending order
+	// SortCandidates sorts passed node names by the
+	// free amount of disk space in descending order.
 	SortCandidates(nodes []string) []string
-	// LocalName() return local node name
+	// ClusterHealthScore returns an aggregate health score for the cluster.
+	ClusterHealthScore() int
+	// LocalName returns the local node name.
 	LocalName() string
-	// NodeHostname return hosts address for a specific node name
-	NodeHostname(name string) (string, bool)
-	AllHostnames() []string
-	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
-	// This is useful for bootstrap when the join config is incomplete
-	// TODO-RAFT: shall be removed once unifying with raft package
-	AllOtherClusterMembers(port int) map[string]string
-	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	// Leave marks the node as leaving the cluster (still visible but shutting down).
 	Leave() error
-	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+	// Shutdown is called when leaving the cluster gracefully and shutting down the memberlist instance.
 	Shutdown() error
 }
 
@@ -171,7 +183,8 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 			dataPath: dataPath,
 			log:      logger,
 			metadata: NodeMetadata{
-				DataPort: userConfig.DataBindPort,
+				RestPort: userConfig.DataBindPort,
+				GrpcPort: userConfig.DataBindPort,
 			},
 		},
 	}
@@ -218,7 +231,8 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+		joinHost := extractHost(joinAddr[0])
+		_, err := net.LookupIP(joinHost)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
@@ -238,6 +252,17 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		}
 	}
 
+	// Start periodic rejoin if we have join addresses and an expected cluster size.
+	// This handles the case where a node gets network-isolated long enough for
+	// memberlist to purge all knowledge of it (and vice versa). Without periodic
+	// rejoin, such a node can never re-discover the cluster because memberlist only
+	// calls Join() once at startup.
+	if len(joinAddr) > 0 && userConfig.RaftBootstrapExpect > 1 {
+		enterrors.GoWrapper(func() {
+			state.periodicRejoin(cfg.PushPullInterval, joinAddr, userConfig.RaftBootstrapExpect, logger)
+		}, logger)
+	}
+
 	return &state, nil
 }
 
@@ -253,7 +278,7 @@ func (s *State) Hostnames() []string {
 			continue
 		}
 
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
+		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
 		i++
 	}
 
@@ -284,7 +309,7 @@ func (s *State) dataPort(m *memberlist.Node) int {
 		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
 	}
 
-	return meta.DataPort
+	return meta.RestPort
 }
 
 // AllHostnames for live members, including self.
@@ -297,7 +322,7 @@ func (s *State) AllHostnames() []string {
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
+		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
 	}
 
 	return out
@@ -305,6 +330,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -365,7 +393,7 @@ func (s *State) NodeCount() int {
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	return s.list.LocalNode().Name
+	return s.config.Hostname
 }
 
 // LocalAddr() returns local address
@@ -391,14 +419,24 @@ func (s *State) ClusterHealthScore() int {
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), s.dataPort(mem)), true
+			return net.JoinHostPort(mem.Addr.String(), fmt.Sprintf("%d", s.dataPort(mem))), true
 		}
 	}
 
 	return "", false
 }
 
-// NodeAddress is used to resolve the node name into an ip address without the port
+// extractHost extracts the host portion from an address string,
+// correctly handling IPv6 bracket notation (e.g., "[2001:db8::1]:7946" → "2001:db8::1").
+// Falls back to the original string if it doesn't contain a port.
+func extractHost(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
+}
+
+// NodeAddress resolves a node name to its IP address without the port.
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	addr, ok := s.NodeHostname(id)
@@ -406,7 +444,7 @@ func (s *State) NodeAddress(id string) string {
 		return ""
 	}
 
-	return strings.Split(addr, ":")[0] // get address without port
+	return extractHost(addr)
 }
 
 // AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
@@ -424,7 +462,7 @@ func (s *State) AllOtherClusterMembers(port int) map[string]string {
 			// skip self
 			continue
 		}
-		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), port)
+		result[m.Name] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", port))
 	}
 
 	return result
@@ -518,6 +556,49 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	return slices.Contains(s.config.MaintenanceNodes, node)
 }
 
+// periodicRejoin attempts to rejoin the cluster when the number of known
+// members drops below the expected count. This handles the scenario where a
+// network partition lasts long enough for memberlist to fully purge dead nodes
+// (after GossipToTheDeadTime). Without this, the isolated node and the rest of
+// the cluster lose all knowledge of each other and can never reconnect because
+// memberlist only calls Join() at startup.
+func (s *State) periodicRejoin(pushPullInterval time.Duration, joinAddr []string, expectedNodes int, logger logrus.FieldLogger) {
+	ticker := time.NewTicker(pushPullInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if s.list == nil {
+			return
+		}
+
+		currentMembers := s.list.NumMembers()
+		if currentMembers >= expectedNodes {
+			continue
+		}
+
+		logger.WithFields(logrus.Fields{
+			"action":           "periodic_rejoin",
+			"current_members":  currentMembers,
+			"expected_members": expectedNodes,
+			"join_addresses":   joinAddr,
+		}).Debug("member count below expected, attempting rejoin")
+
+		n, err := s.list.Join(joinAddr)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"action":         "periodic_rejoin",
+				"join_addresses": joinAddr,
+			}).Errorf("rejoin attempt failed (will retry): %v", err)
+		} else if n > 0 {
+			logger.WithFields(logrus.Fields{
+				"action":         "periodic_rejoin",
+				"nodes_joined":   n,
+				"join_addresses": joinAddr,
+			}).Debug("successfully rejoined cluster")
+		}
+	}
+}
+
 // validateClusterConfig validates the cluster configuration
 func validateClusterConfig(userConfig Config) error {
 	// Validate port ranges
@@ -606,7 +687,7 @@ func configureMemberlistSettings(cfg *memberlist.Config, userConfig Config, raft
 	// Configure timeouts and failure detection
 	if userConfig.MemberlistFastFailureDetection {
 		cfg.SuspicionMult = 1
-		cfg.DeadNodeReclaimTime = 5 * time.Second
+		cfg.DeadNodeReclaimTime = 1 * time.Second
 	}
 
 	// Set TCP timeout based on configuration type

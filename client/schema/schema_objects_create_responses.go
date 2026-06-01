@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,6 +54,12 @@ func (o *SchemaObjectsCreateReader) ReadResponse(response runtime.ClientResponse
 		return nil, result
 	case 422:
 		result := NewSchemaObjectsCreateUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 429:
+		result := NewSchemaObjectsCreateTooManyRequests()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -272,7 +278,7 @@ SchemaObjectsCreateUnprocessableEntity describes a response with status code 422
 Invalid collection definition provided. Check the definition structure and properties.
 */
 type SchemaObjectsCreateUnprocessableEntity struct {
-	Payload *models.ErrorResponse
+	Payload *models.RestrictionViolationResponse
 }
 
 // IsSuccess returns true when this schema objects create unprocessable entity response has a 2xx status code
@@ -313,13 +319,81 @@ func (o *SchemaObjectsCreateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
-func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.RestrictionViolationResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorResponse)
+	o.Payload = new(models.RestrictionViolationResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSchemaObjectsCreateTooManyRequests creates a SchemaObjectsCreateTooManyRequests with default headers values
+func NewSchemaObjectsCreateTooManyRequests() *SchemaObjectsCreateTooManyRequests {
+	return &SchemaObjectsCreateTooManyRequests{}
+}
+
+/*
+SchemaObjectsCreateTooManyRequests describes a response with status code 429, with default header values.
+
+A configured usage limit (collections/shards) was exceeded. See the `UsageLimitExceededResponse` body for which limit and the configured value.
+*/
+type SchemaObjectsCreateTooManyRequests struct {
+	Payload *models.UsageLimitExceededResponse
+}
+
+// IsSuccess returns true when this schema objects create too many requests response has a 2xx status code
+func (o *SchemaObjectsCreateTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects create too many requests response has a 3xx status code
+func (o *SchemaObjectsCreateTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects create too many requests response has a 4xx status code
+func (o *SchemaObjectsCreateTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects create too many requests response has a 5xx status code
+func (o *SchemaObjectsCreateTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects create too many requests response a status code equal to that given
+func (o *SchemaObjectsCreateTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the schema objects create too many requests response
+func (o *SchemaObjectsCreateTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *SchemaObjectsCreateTooManyRequests) Error() string {
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *SchemaObjectsCreateTooManyRequests) String() string {
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *SchemaObjectsCreateTooManyRequests) GetPayload() *models.UsageLimitExceededResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsCreateTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.UsageLimitExceededResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

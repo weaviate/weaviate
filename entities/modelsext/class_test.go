@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,47 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+func TestIsVectorIndexDropped(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cfg  models.VectorConfig
+		want bool
+	}{
+		{
+			name: "none type is dropped",
+			cfg:  models.VectorConfig{VectorIndexType: VectorIndexTypeNone},
+			want: true,
+		},
+		{
+			name: "hnsw type is not dropped",
+			cfg:  models.VectorConfig{VectorIndexType: "hnsw"},
+			want: false,
+		},
+		{
+			name: "flat type is not dropped",
+			cfg:  models.VectorConfig{VectorIndexType: "flat"},
+			want: false,
+		},
+		{
+			name: "empty type is not dropped",
+			cfg:  models.VectorConfig{VectorIndexType: ""},
+			want: false,
+		},
+		{
+			name: "none with other fields set",
+			cfg: models.VectorConfig{
+				VectorIndexType: VectorIndexTypeNone,
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+			want: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, IsVectorIndexDropped(tt.cfg))
+		})
+	}
+}
 
 func TestClassHasLegacyVectorIndex(t *testing.T) {
 	for _, tt := range []struct {

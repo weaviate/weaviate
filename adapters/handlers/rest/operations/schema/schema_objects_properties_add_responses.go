@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -152,7 +152,7 @@ type SchemaObjectsPropertiesAddUnprocessableEntity struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
+	Payload *models.RestrictionViolationResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsPropertiesAddUnprocessableEntity creates SchemaObjectsPropertiesAddUnprocessableEntity with default headers values
@@ -162,13 +162,13 @@ func NewSchemaObjectsPropertiesAddUnprocessableEntity() *SchemaObjectsProperties
 }
 
 // WithPayload adds the payload to the schema objects properties add unprocessable entity response
-func (o *SchemaObjectsPropertiesAddUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *SchemaObjectsPropertiesAddUnprocessableEntity {
+func (o *SchemaObjectsPropertiesAddUnprocessableEntity) WithPayload(payload *models.RestrictionViolationResponse) *SchemaObjectsPropertiesAddUnprocessableEntity {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects properties add unprocessable entity response
-func (o *SchemaObjectsPropertiesAddUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+func (o *SchemaObjectsPropertiesAddUnprocessableEntity) SetPayload(payload *models.RestrictionViolationResponse) {
 	o.Payload = payload
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,22 +24,20 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// fileChunkSize defines the size of each file chunk sent over gRPC.
-// Currently set to 64 KB, which is a reasonable size for network transmission.
-// It can be made configurable in the future if needed.
-const fileChunkSize = 64 * 1024 // 64 KB
-
 type FileReplicationService struct {
 	pb.UnimplementedFileReplicationServiceServer
 
 	repo   sharding.RemoteIncomingRepo
 	schema sharding.RemoteIncomingSchema
+
+	fileChunkSize int
 }
 
-func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema) *FileReplicationService {
+func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema, fileChunkSize int) *FileReplicationService {
 	return &FileReplicationService{
-		repo:   repo,
-		schema: schema,
+		repo:          repo,
+		schema:        schema,
+		fileChunkSize: fileChunkSize,
 	}
 }
 
@@ -105,100 +103,188 @@ func (fps *FileReplicationService) ListFiles(ctx context.Context, req *pb.ListFi
 	}, nil
 }
 
-func (fps *FileReplicationService) GetFileMetadata(stream pb.FileReplicationService_GetFileMetadataServer) error {
+func (fps *FileReplicationService) GetFileMetadata(ctx context.Context, req *pb.GetFileMetadataRequest) (*pb.FileMetadata, error) {
+	indexName := req.GetIndexName()
+	shardName := req.GetShardName()
+	fileName := req.GetFileName()
+
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
+	}
+
+	md, err := index.IncomingGetFileMetadata(ctx, shardName, fileName)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get file metadata for %q in shard %q: %v", fileName, shardName, err)
+	}
+
+	return &pb.FileMetadata{
+		IndexName: indexName,
+		ShardName: shardName,
+		FileName:  fileName,
+		Size:      md.Size,
+		Crc32:     md.CRC32,
+	}, nil
+}
+
+func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.FileReplicationService_GetFileServer) error {
+	if req.GetCompression() != pb.CompressionType_COMPRESSION_TYPE_UNSPECIFIED {
+		return status.Errorf(codes.Unimplemented, "compression type %q is not supported", req.GetCompression())
+	}
+
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	reader, err := index.IncomingGetFile(stream.Context(), req.ShardName, req.FileName)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get file %q: %v", req.FileName, err)
+	}
+	defer reader.Close()
+
+	buf := make([]byte, fps.fileChunkSize)
+	offset := 0
+
 	for {
-		req, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return status.Errorf(codes.Internal, "failed to receive request: %v", err)
+		n, err := reader.Read(buf)
+		eof := errors.Is(err, io.EOF)
+
+		if err != nil && !eof {
+			return status.Errorf(codes.Internal, "failed to read file %q: %v", req.FileName, err)
 		}
 
-		indexName := req.GetIndexName()
-		shardName := req.GetShardName()
-		fileName := req.GetFileName()
-
-		index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-		if index == nil {
-			return status.Errorf(codes.Internal, "local index %q not found", indexName)
+		if n == 0 && !eof {
+			return status.Errorf(codes.Internal,
+				"unexpected zero-byte read without EOF for file %q in shard %q", req.FileName, req.ShardName)
 		}
 
-		md, err := index.IncomingGetFileMetadata(stream.Context(), shardName, fileName)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to get file metadata for %q in shard %q: %v", fileName, shardName, err)
-		}
-
-		if err := stream.Send(&pb.FileMetadata{
-			IndexName: indexName,
-			ShardName: shardName,
-			FileName:  fileName,
-			Size:      md.Size,
-			Crc32:     md.CRC32,
+		if err := stream.Send(&pb.FileChunk{
+			Offset: int64(offset),
+			Data:   buf[:n],
+			Eof:    eof,
 		}); err != nil {
-			return status.Errorf(codes.Internal, "failed to send file metadata response: %v", err)
+			return err
+		}
+		offset += n
+
+		if eof {
+			return nil
 		}
 	}
 }
 
-func (fps *FileReplicationService) GetFile(stream pb.FileReplicationService_GetFileServer) error {
+func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *pb.StartChangeCaptureRequest) (*pb.StartChangeCaptureResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	if err := index.IncomingStartChangeCapture(ctx, req.ShardName, req.OpId); err != nil {
+		return nil, status.Errorf(codes.Internal, "start change capture for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.StartChangeCaptureResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+	}, nil
+}
+
+func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, stream pb.FileReplicationService_GetChangeLogServer) error {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	tailer, err := index.IncomingGetChangeLog(stream.Context(), req.ShardName, req.OpId, req.UntilLsn)
+	if err != nil {
+		return status.Errorf(codes.Internal, "open change-log tailer for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+	defer tailer.Close()
+
 	for {
-		req, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return status.Errorf(codes.Internal, "failed to receive request: %v", err)
-		}
-
-		if req.GetCompression() != pb.CompressionType_COMPRESSION_TYPE_UNSPECIFIED {
-			return status.Errorf(codes.Unimplemented, "compression type %q is not supported", req.GetCompression())
-		}
-
-		indexName := req.GetIndexName()
-		shardName := req.GetShardName()
-		fileName := req.GetFileName()
-
-		index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-		if index == nil {
-			return status.Errorf(codes.Internal, "local index %q not found", indexName)
-		}
-
-		if err := func() error {
-			fileReader, err := index.IncomingGetFile(stream.Context(), shardName, fileName)
-			if err != nil {
-				return status.Errorf(codes.Internal, "failed to get file %q in shard %q: %v", fileName, shardName, err)
-			}
-			defer fileReader.Close()
-
-			buf := make([]byte, fileChunkSize)
-
-			offset := 0
-
-			for {
-				n, err := fileReader.Read(buf)
-				eof := err != nil && errors.Is(err, io.EOF)
-
-				if err := stream.Send(&pb.FileChunk{
-					Offset: int64(offset),
-					Data:   buf[:n],
-					Eof:    eof,
-				}); err != nil {
-					return status.Errorf(codes.Internal, "failed to send file chunk: %v", err)
-				}
-
-				if eof {
-					break
-				}
-
-				offset += n
-			}
-
+		entry, err := tailer.Next(stream.Context())
+		if errors.Is(err, io.EOF) {
 			return nil
-		}(); err != nil {
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return status.Errorf(codes.Canceled, "change-log stream cancelled for index %q, shard %q, op %q: %v", req.IndexName, req.ShardName, req.OpId, err)
+			}
+			return status.Errorf(codes.Internal, "next change-log entry for op %q: %v", req.OpId, err)
+		}
+
+		if err := stream.Send(&pb.ChangeLogStreamEntry{
+			Lsn:              entry.LSN,
+			IsDelete:         entry.IsDelete,
+			UpdateTimeMillis: entry.UpdateTimeMillis,
+			Uuid:             entry.UUID[:],
+			Payload:          entry.Payload,
+		}); err != nil {
 			return err
 		}
 	}
+}
+
+func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req *pb.SnapshotChangeLogLSNRequest) (*pb.SnapshotChangeLogLSNResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	lsn, err := index.IncomingSnapshotChangeLogLSN(ctx, req.ShardName, req.OpId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "snapshot change-log LSN for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.SnapshotChangeLogLSNResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+		Lsn:       lsn,
+	}, nil
+}
+
+func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *pb.FinalizeChangeLogRequest) (*pb.FinalizeChangeLogResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	finalLSN, err := index.IncomingFinalizeChangeLog(ctx, req.ShardName, req.OpId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "finalize change log for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.FinalizeChangeLogResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+		FinalLsn:  finalLSN,
+	}, nil
+}
+
+func (fps *FileReplicationService) StopChangeCapture(ctx context.Context, req *pb.StopChangeCaptureRequest) (*pb.StopChangeCaptureResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	if err := index.IncomingStopChangeCapture(ctx, req.ShardName, req.OpId); err != nil {
+		return nil, status.Errorf(codes.Internal, "stop change capture for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.StopChangeCaptureResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+	}, nil
 }
 
 func (fps *FileReplicationService) indexForIncomingWrite(ctx context.Context, indexName string,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -100,9 +100,9 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"virtualPerPhysical":  float64(128),
 				},
 				"replicationConfig": map[string]interface{}{
-					"asyncEnabled":     false,
 					"factor":           float64(1),
-					"deletionStrategy": "NoAutomatedResolution",
+					"deletionStrategy": "TimeBasedResolution",
+					"asyncEnabled":     false,
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{

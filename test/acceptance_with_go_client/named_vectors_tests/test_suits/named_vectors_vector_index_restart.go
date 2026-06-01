@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -434,8 +434,8 @@ func testLegacyAndNamedVectorRestart(compose *docker.DockerCompose) func(t *test
 							})
 						require.EventuallyWithT(t, func(ct *assert.CollectT) {
 							resp, err := get.Do(context.Background())
-							require.NoError(t, err)
-							require.NotNil(t, resp)
+							require.NoError(ct, err)
+							require.NotNil(ct, resp)
 							if len(resp.Data) == 0 {
 								return
 							}
@@ -534,6 +534,5 @@ func testLegacyAndNamedVectorRestart(compose *docker.DockerCompose) func(t *test
 				})
 			})
 		}
-
 	}
 }

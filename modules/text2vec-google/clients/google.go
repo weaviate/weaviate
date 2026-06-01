@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -79,21 +79,21 @@ type google struct {
 	apiKey        string
 	googleApiKey  *apikey.GoogleApiKey
 	useGoogleAuth bool
+	rpm           int
 	httpClient    *http.Client
 	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
 	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *google {
+func New(apiKey string, useGoogleAuth bool, rpm int, timeout time.Duration, logger logrus.FieldLogger) *google {
 	return &google{
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
+		rpm:           rpm,
 		googleApiKey:  apikey.NewGoogleApiKey(),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		urlBuilderFn: buildURL,
-		logger:       logger,
+		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilderFn:  buildURL,
+		logger:        logger,
 	}
 }
 
@@ -130,9 +130,9 @@ func (v *google) GetVectorizerRateLimit(ctx context.Context, config moduletools.
 			return
 		}
 
-		limits.LimitRequests = 30000
+		limits.LimitRequests = v.rpm
 		limits.LimitTokens = 1000000
-		limits.RemainingRequests = 30000
+		limits.RemainingRequests = v.rpm
 		limits.RemainingTokens = 1000000
 		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
 		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)
@@ -207,22 +207,20 @@ func (v *google) getPayload(useGenerativeAI bool, input []string,
 		if v.isLegacy(config) {
 			return batchEmbedTextRequestLegacy{Texts: input}
 		}
-		parts := make([]part, len(input))
+		requests := make([]embedContentRequest, len(input))
 		for i := range input {
-			parts[i] = part{Text: input[i]}
+			requests[i] = embedContentRequest{
+				Model: fmt.Sprintf("models/%s", config.Model),
+				Content: content{
+					Parts: []part{{Text: input[i]}},
+				},
+				TaskType:             taskType,
+				Title:                title,
+				OutputDimensionality: config.Dimensions,
+			}
 		}
 		req := batchEmbedContents{
-			Requests: []embedContentRequest{
-				{
-					Model: fmt.Sprintf("models/%s", config.Model),
-					Content: content{
-						Parts: parts,
-					},
-					TaskType:             taskType,
-					Title:                title,
-					OutputDimensionality: config.Dimensions,
-				},
-			},
+			Requests: requests,
 		}
 		return req
 	}
@@ -256,7 +254,7 @@ func (v *google) parseGenerativeAIApiResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody batchEmbedTextResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
@@ -288,7 +286,7 @@ func (v *google) parseEmbeddingsResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,7 +63,8 @@ func TestShardFileSanitize(t *testing.T) {
 
 	// now read a valid file
 	ret := &backup.ShardDescriptor{}
-	require.NoError(t, shd.ListBackupFiles(ctx, ret))
+	_, err = shd.ListBackupFiles(ctx, ret)
+	require.NoError(t, err)
 
 	file, err = shd.GetFile(ctx, ret.ShardVersionPath)
 	require.NoError(t, err)

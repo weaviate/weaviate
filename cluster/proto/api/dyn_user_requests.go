@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,6 +28,7 @@ type CreateUsersRequest struct {
 	SecureHash         string
 	UserIdentifier     string
 	ApiKeyFirstLetters string
+	Namespace          string
 	CreatedAt          time.Time
 	Version            int
 }
@@ -52,6 +53,12 @@ type RotateUserApiKeyRequest struct {
 type DeleteUsersRequest struct {
 	UserId  string
 	Version int
+}
+
+// DeleteUsersInNamespaceRequest deletes every DB user bound to Namespace.
+type DeleteUsersInNamespaceRequest struct {
+	Namespace string
+	Version   int
 }
 
 type ActivateUsersRequest struct {

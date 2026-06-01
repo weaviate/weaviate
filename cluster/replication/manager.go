@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,21 +12,26 @@
 package replication
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -36,6 +41,12 @@ type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
+	logger         logrus.FieldLogger
+
+	// localNodeID is embedded in node-reached-state broadcasts so peers
+	// know who reported.
+	localNodeID       string
+	submitNodeReached func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
 }
 
 func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
@@ -45,6 +56,51 @@ func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelec
 		schemaReader:   schemaReader,
 		nodeSelector:   nodeSelector,
 	}
+}
+
+func (m *Manager) SetLogger(logger logrus.FieldLogger) {
+	m.logger = logger
+}
+
+func (m *Manager) SetNodeReachedStateSubmitter(
+	localNodeID string,
+	submit func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error,
+) {
+	m.localNodeID = localNodeID
+	m.submitNodeReached = submit
+}
+
+// broadcastNodeReachedState submits a node-reached-state command async so
+// the FSM apply that triggered it can't block on RAFT. Bounded backoff;
+// idempotent on receipt (monotonic per peer).
+func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicationState) {
+	if m.submitNodeReached == nil || m.localNodeID == "" {
+		return
+	}
+	logger := m.logger
+	if logger == nil {
+		logger = logrus.New()
+	}
+	enterrors.GoWrapper(func() {
+		req := &cmd.ReplicationNodeReachedStateRequest{
+			Version: cmd.ReplicationCommandVersionV0,
+			Id:      opID,
+			NodeId:  m.localNodeID,
+			State:   state,
+		}
+		bo := backoff.NewExponentialBackOff()
+		bo.MaxElapsedTime = 30 * time.Second
+		err := backoff.Retry(func() error {
+			return m.submitNodeReached(context.Background(), req)
+		}, bo)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"op_id":   opID,
+				"node_id": m.localNodeID,
+				"state":   state,
+			}).Error(fmt.Errorf("broadcast node-reached-state exhausted retries: %w", err))
+		}
+	}, logger)
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
@@ -87,9 +143,12 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 			if err != nil {
 				return fmt.Errorf("failed to get op uuid from id %d: %w", req.Id, err)
 			}
-			return m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
+			if err := m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
 				Uuid: uuid,
-			})
+			}); err != nil {
+				return err
+			}
+			return nil
 		}
 		return err
 	}
@@ -106,8 +165,19 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Store the updated shard replication op in the FSM
-	return m.replicationFSM.UpdateReplicationOpStatus(req)
+	if err := m.replicationFSM.UpdateReplicationOpStatus(req); err != nil {
+		return err
+	}
+	m.broadcastNodeReachedState(req.Id, req.State)
+	return nil
+}
+
+func (m *Manager) NodeReachedState(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationNodeReachedStateRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.NodeReachedState(req)
 }
 
 func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
@@ -525,9 +595,10 @@ func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	// Trigger cancellation of the replication operation in the FSM
-	return m.replicationFSM.CancelReplication(req)
+	if err := m.replicationFSM.CancelReplication(req); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
@@ -535,9 +606,10 @@ func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	// Trigger deletion of the replication operation in the FSM
-	return m.replicationFSM.DeleteReplication(req)
+	if err := m.replicationFSM.DeleteReplication(req); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) DeleteAllReplications(c *cmd.ApplyRequest) error {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,6 +28,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
@@ -91,17 +92,43 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
-	// Object bucket must be available, initAsyncReplication depends on it
-	if s.index.asyncReplicationEnabled() {
-		s.asyncReplicationRWMux.Lock()
-		defer s.asyncReplicationRWMux.Unlock()
+	if s.index.AsyncReplicationEnabled() {
+		config := s.index.AsyncReplicationConfig()
 
-		err = s.initAsyncReplication()
+		// Compute the effective config (needed for hashtreeHeight) before taking
+		// the write lock so we can load the cached hashtree from disk outside it.
+		// tryLoadHashtreeFromDisk does synchronous I/O (ReadDir, OpenFile, Remove,
+		// Fsync); holding the write lock for its duration would block all concurrent
+		// RLock callers (hashbeat readers, object writes, commit handlers).
+		effectiveConfig := config
+		if s.index.globalreplicationConfig != nil {
+			effectiveConfig = config.Effective(*s.index.globalreplicationConfig)
+		}
+		var cached hashtree.AggregatedHashTree
+		cached, err = s.tryLoadHashtreeFromDisk(effectiveConfig.hashtreeHeight)
+		if err != nil {
+			return fmt.Errorf("load hashtree from disk on shard %q: %w", s.ID(), err)
+		}
+
+		func() {
+			s.asyncReplicationRWMux.Lock()
+			defer s.asyncReplicationRWMux.Unlock()
+			err = s.initAsyncReplication(config, cached)
+		}()
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
-	} else if s.index.replicationEnabled() {
-		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+	} else {
+		// Discard any .ht left by a previous async-enabled shutdown: the shard
+		// will serve writes with async off, which would invalidate the
+		// snapshot, and a later runtime enable would otherwise load it stale.
+		// See disableAsyncReplication for the symmetric rationale.
+		if err := s.removePersistedHashtree(); err != nil {
+			return fmt.Errorf("discard stale hashtree on shard %q: %w", s.ID(), err)
+		}
+		if s.index.replicationEnabled() {
+			s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
+		}
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
@@ -132,7 +159,7 @@ func (s *Shard) initLSMStore() error {
 		}
 	}
 
-	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
+	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics, s.index.bucketLoadLimiter,
 		s.cycleCallbacks.compactionCallbacks,
 		s.cycleCallbacks.compactionAuxCallbacks,
 		s.cycleCallbacks.flushCallbacks)
@@ -147,10 +174,11 @@ func (s *Shard) initLSMStore() error {
 
 func (s *Shard) initObjectBucket(ctx context.Context) error {
 	opts := s.makeDefaultBucketOptions(lsmkv.StrategyReplace,
-		lsmkv.WithSecondaryIndices(2),
+		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithKeepTombstones(true),
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
+		lsmkv.WithClassName(s.index.Config.ClassName.String()),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,8 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/classcache"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -30,12 +28,13 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	className := schema.UppercaseClassName(obj.Class)
-	className, _ = m.resolveAlias(className)
+	className, _, err := m.resolveNS(principal, obj.Class)
+	if err != nil {
+		return NewErrInvalidUserInput("%v", err)
+	}
 	obj.Class = className
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
-	if err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID)); err != nil {
 		return err
 	}
 
@@ -47,7 +46,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	err = m.validateObjectAndNormalizeNames(ctx, repl, obj, nil, fetchedClasses)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil, fetchedClasses)
 	if err != nil {
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,6 +64,81 @@ func TestAuthzRolesForUsers(t *testing.T) {
 		var targetErr *authz.GetRolesForUserNotFound
 		require.True(t, errors.As(err, &targetErr))
 		require.Equal(t, 404, targetErr.Code())
+	})
+
+	// A delegate holding only assign_and_revoke_users must not be able to assign
+	// itself a higher-privileged role (e.g. admin). Role setup stays in this
+	// subtest so its t.Cleanup runs before the parent's container teardown.
+	t.Run("assign_and_revoke_users alone cannot escalate privileges", func(t *testing.T) {
+		all := "*"
+		assignUsers := authorization.AssignAndRevokeUsers
+		helper.CreateRoleAndAssign(t, adminKey, customUser, "delegate", &models.Permission{
+			Action: &assignUsers,
+			Users:  &models.PermissionUsers{Users: &all},
+		})
+		helper.WaitForOwnRole(t, customKey, "delegate")
+
+		t.Run("cannot assign built-in admin to itself", func(t *testing.T) {
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(
+					authz.AssignRoleToUserBody{Roles: []string{authorization.Admin}, UserType: models.UserTypeInputDb}),
+				helper.CreateAuth(customKey),
+			)
+			require.Error(t, err)
+			var forbidden *authz.AssignRoleToUserForbidden
+			require.True(t, errors.As(err, &forbidden), "expected 403, got %T", err)
+			require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+		})
+
+		t.Run("cannot assign a custom role granting permissions it lacks", func(t *testing.T) {
+			powerful := "powerful-role"
+			helper.DeleteRole(t, adminKey, powerful)
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name: &powerful,
+				Permissions: []*models.Permission{
+					helper.NewCollectionsPermission().WithAction(authorization.DeleteCollections).WithCollection("*").Permission(),
+				},
+			})
+			defer helper.DeleteRole(t, adminKey, powerful)
+
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(
+					authz.AssignRoleToUserBody{Roles: []string{powerful}, UserType: models.UserTypeInputDb}),
+				helper.CreateAuth(customKey),
+			)
+			require.Error(t, err)
+			var forbidden *authz.AssignRoleToUserForbidden
+			require.True(t, errors.As(err, &forbidden), "expected 403, got %T", err)
+			require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+		})
+
+		t.Run("can assign a role whose permissions it already holds", func(t *testing.T) {
+			readCollectionA := func() *models.Permission {
+				return helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection("CollectionA").Permission()
+			}
+			// Also grant the delegate read_data on CollectionA, so it now holds
+			// exactly what assignable-role grants (identical builder => identical
+			// policy) and the guard is satisfied.
+			helper.CreateRoleAndAssign(t, adminKey, customUser, "data-reader", readCollectionA())
+			helper.WaitForOwnRole(t, customKey, "data-reader")
+
+			assignable := "assignable-role"
+			helper.DeleteRole(t, adminKey, assignable)
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name:        &assignable,
+				Permissions: []*models.Permission{readCollectionA()},
+			})
+			defer helper.DeleteRole(t, adminKey, assignable)
+
+			resp, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(
+					authz.AssignRoleToUserBody{Roles: []string{assignable}, UserType: models.UserTypeInputDb}),
+				helper.CreateAuth(customKey),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			helper.RevokeRoleFromUser(t, adminKey, assignable, customUser)
+		})
 	})
 }
 
@@ -173,19 +248,21 @@ func TestUserPermissions(t *testing.T) {
 		require.True(t, errors.As(err, &errType))
 
 		helper.AssignRoleToUser(t, adminKey, roleNameUpdate, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
+		// grant otherRoleName up front so the assign guard (caller must
+		// already hold the role's permissions) is satisfied below
+		helper.AssignRoleToUser(t, adminKey, otherRoleName, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, otherRoleName, customUser)
 
 		// assigning works after user has appropriate rights
 		helper.AssignRoleToUser(t, customKey, otherRoleName, customUser)
-
-		// clean up
-		helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
-		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
-		helper.RevokeRoleFromUser(t, adminKey, otherRoleName, customUser)
 	})
 
 	t.Run("revoke users", func(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, otherRoleName, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, otherRoleName, customUser)
 
 		_, err := helper.Client(t).Authz.RevokeRoleFromUser(
 			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{otherRoleName}}),
@@ -196,7 +273,9 @@ func TestUserPermissions(t *testing.T) {
 		require.True(t, errors.As(err, &errType))
 
 		helper.AssignRoleToUser(t, adminKey, roleNameUpdate, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
 
 		// revoking works after user has appropriate rights
 		roles := helper.GetRolesForUser(t, customUser, customKey, true)
@@ -204,9 +283,6 @@ func TestUserPermissions(t *testing.T) {
 		helper.RevokeRoleFromUser(t, customKey, otherRoleName, customUser)
 		roles = helper.GetRolesForUser(t, customUser, customKey, true)
 		require.Len(t, roles, 2)
-
-		helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
-		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
 	})
 }
 

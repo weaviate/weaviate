@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
@@ -78,8 +79,6 @@ type Compactor struct {
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
 
-	scratchSpacePath string
-
 	enableChecksumValidation bool
 
 	maxNewFileSize int64
@@ -121,7 +120,7 @@ type Compactor struct {
 // is no additional cost to using the fully-in-memory approach.
 func NewCompactor(w io.WriteSeeker,
 	left, right SegmentCursor, level uint16,
-	scratchSpacePath string, cleanupDeletions bool,
+	cleanupDeletions bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *Compactor {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -142,15 +141,15 @@ func NewCompactor(w io.WriteSeeker,
 		mw:                       mw,
 		currentLevel:             level,
 		cleanupDeletions:         cleanupDeletions,
-		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
 		maxNewFileSize:           maxNewFileSize,
 		allocChecker:             allocChecker,
 	}
 }
 
-// Do starts a compaction. See [Compactor] for an explanation of this process.
-func (c *Compactor) Do() error {
+// Do starts a compaction. See [Compactor]. Cancelling ctx aborts the
+// in-flight merge.
+func (c *Compactor) Do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return fmt.Errorf("init: %w", err)
 	}
@@ -160,7 +159,7 @@ func (c *Compactor) Do() error {
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
-	kis, err := c.writeNodes(segmentFile)
+	kis, err := c.writeNodes(ctx, segmentFile)
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
 	}
@@ -220,7 +219,7 @@ type nodeCompactor struct {
 	emptyBitmap      *sroar.Bitmap
 }
 
-func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (c *Compactor) writeNodes(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	nc := &nodeCompactor{
 		left:             c.left,
 		right:            c.right,
@@ -231,7 +230,7 @@ func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) ([]segmentindex.Key,
 
 	nc.init()
 
-	if err := nc.loopThroughKeys(); err != nil {
+	if err := nc.loopThroughKeys(ctx); err != nil {
 		return nil, err
 	}
 
@@ -246,8 +245,13 @@ func (c *nodeCompactor) init() {
 	c.offset = segmentindex.HeaderSize
 }
 
-func (c *nodeCompactor) loopThroughKeys() error {
-	for {
+func (c *nodeCompactor) loopThroughKeys(ctx context.Context) error {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("merge keys: %w", err)
+			}
+		}
 		if c.keyLeft == nil && c.keyRight == nil {
 			return nil
 		}
@@ -364,13 +368,8 @@ func (c *Compactor) writeIndexes(f *segmentindex.SegmentFile,
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: 0,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  "roaringset",
-			"operation": "writeIndices",
-		}),
-		AllocChecker: c.allocChecker,
+		AllocChecker:        c.allocChecker,
 	}
-	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
+	_, err := f.WriteIndexes(indexes)
 	return err
 }

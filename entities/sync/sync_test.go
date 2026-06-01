@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -310,6 +310,32 @@ func TestKeyRWLockerLockUnlock(t *testing.T) {
 	lock, _ = s.m.Load("t2")
 	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
 	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+}
+
+func TestKeyRWLockerTryRLock(t *testing.T) {
+	s := NewKeyRWLocker()
+
+	t.Run("succeeds when unlocked", func(t *testing.T) {
+		require.True(t, s.TryRLock("k1"))
+		s.RUnlock("k1")
+	})
+
+	t.Run("succeeds multiple times (shared read lock)", func(t *testing.T) {
+		require.True(t, s.TryRLock("k2"))
+		require.True(t, s.TryRLock("k2"))
+		s.RUnlock("k2")
+		s.RUnlock("k2")
+	})
+
+	t.Run("fails when write-locked", func(t *testing.T) {
+		s.Lock("k3")
+		require.False(t, s.TryRLock("k3"))
+		s.Unlock("k3")
+
+		// succeeds again after unlock
+		require.True(t, s.TryRLock("k3"))
+		s.RUnlock("k3")
+	})
 }
 
 func TestContextMutex(t *testing.T) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,16 +25,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
+
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
-	"golang.org/x/sync/errgroup"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestTenantStatusChanges(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := t.Name() + "Class"
@@ -81,16 +85,14 @@ func TestTenantStatusChanges(t *testing.T) {
 			require.NotNil(t, usage)
 			require.Equal(t, len(usage.Shards), len(tenants))
 
-			require.NotNil(t, usage.UniqueShardCount)
-			require.Equal(t, len(usage.Shards), *usage.UniqueShardCount)
+			require.Equal(t, len(usage.Shards), usage.UniqueShardCount)
 
 			names := make(map[string]struct{})
 			for _, shard := range usage.Shards {
-				require.NotNil(t, shard.Name)
-				if _, ok := names[*shard.Name]; ok {
+				if _, ok := names[shard.Name]; ok {
 					require.Fail(t, "duplicate shard name found")
 				}
-				names[*shard.Name] = struct{}{}
+				names[shard.Name] = struct{}{}
 			}
 			require.Equal(t, len(names), len(tenants))
 		}
@@ -116,7 +118,7 @@ func TestTenantStatusChanges(t *testing.T) {
 
 func TestUsageTenantDelete(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := t.Name() + "Class"
@@ -170,17 +172,15 @@ func TestUsageTenantDelete(t *testing.T) {
 			require.GreaterOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsAfterCall)-1)
 
 			if len(usage.Shards) > 0 {
-				require.NotNil(t, usage.UniqueShardCount)
-				require.Equal(t, len(usage.Shards), *usage.UniqueShardCount)
+				require.Equal(t, len(usage.Shards), usage.UniqueShardCount)
 			}
 
 			names := make(map[string]struct{})
 			for _, shard := range usage.Shards {
-				require.NotNil(t, shard.Name)
-				if _, ok := names[*shard.Name]; ok {
+				if _, ok := names[shard.Name]; ok {
 					require.Fail(t, "duplicate shard name found")
 				}
-				names[*shard.Name] = struct{}{}
+				names[shard.Name] = struct{}{}
 			}
 		}
 	}()
@@ -195,7 +195,7 @@ func TestUsageTenantDelete(t *testing.T) {
 
 func TestCollectionDeletion(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	getClassName := func(t *testing.T, i int) string {
@@ -250,13 +250,228 @@ func TestCollectionDeletion(t *testing.T) {
 	endUsage.Store(true)
 }
 
+func TestAlterSchemaDropPropertyIndex(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
+	require.NoError(t, err)
+
+	className := t.Name() + "Class"
+	textProp := "title"
+	numberProp := "count"
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:            textProp,
+				DataType:        []string{schema.DataTypeText.String()},
+				IndexFilterable: new(true),
+				IndexSearchable: new(true),
+			},
+			{
+				Name:              numberProp,
+				DataType:          []string{schema.DataTypeNumber.String()},
+				IndexFilterable:   new(true),
+				IndexRangeFilters: new(true),
+			},
+		},
+		Vectorizer: "none",
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	// Insert 100 objects
+	const numObjects = 100
+	objs := make([]*models.Object, numObjects)
+	for i := range numObjects {
+		objs[i] = &models.Object{
+			Class: className,
+			ID:    strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{
+				textProp:   fmt.Sprintf("title number %d", i),
+				numberProp: float64(i),
+			},
+		}
+	}
+	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+	require.NoError(t, err)
+	for _, r := range batchResp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+
+	// Record initial shard storage
+	colUsageBefore, err := GetDebugUsageForCollection(className)
+	require.NoError(t, err)
+	require.Len(t, colUsageBefore.Shards, 1)
+	initialStorage := colUsageBefore.Shards[0].FullShardStorageBytes
+	require.Greater(t, initialStorage, uint64(0))
+
+	// Concurrently poll shard usage while dropping property indices
+	endUsage := atomic.Bool{}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			if endUsage.Load() {
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+			if endUsage.Load() {
+				return
+			}
+			usage, err := GetDebugUsageForCollection(className)
+			require.NoError(t, err)
+			require.Len(t, usage.Shards, 1)
+			require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
+			assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
+		}
+	}()
+
+	// Drop all property indices using the Go client
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(textProp).WithFilterable().Do(ctx))
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(textProp).WithSearchable().Do(ctx))
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(numberProp).WithFilterable().Do(ctx))
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(numberProp).WithRangeFilters().Do(ctx))
+
+	endUsage.Store(true)
+	wg.Wait()
+
+	// Verify that storage dropped after removing all property indices
+	colUsageAfter, err := GetDebugUsageForCollection(className)
+	require.NoError(t, err)
+	require.Len(t, colUsageAfter.Shards, 1)
+	assert.Less(t, colUsageAfter.Shards[0].FullShardStorageBytes, initialStorage)
+}
+
+func TestAlterSchemaDropVectorIndex(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.NoError(t, err)
+
+	className := t.Name() + "Class"
+	vector1 := "vector1"
+	vector2 := "vector2"
+	dimensions := 128
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{schema.DataTypeText.String()},
+			},
+			{
+				Name:     "description",
+				DataType: []string{schema.DataTypeText.String()},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			vector1: {
+				Vectorizer: map[string]any{
+					"none": map[string]any{},
+				},
+				VectorIndexType: "hnsw",
+			},
+			vector2: {
+				Vectorizer: map[string]any{
+					"none": map[string]any{},
+				},
+				VectorIndexType: "flat",
+			},
+		},
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	// Insert 100 objects with both named vectors
+	const numObjects = 100
+	objs := make([]*models.Object, numObjects)
+	for i := range numObjects {
+		objs[i] = &models.Object{
+			Class: className,
+			ID:    strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{
+				"name":        fmt.Sprintf("name %d", i),
+				"description": fmt.Sprintf("description %d", i),
+			},
+			Vectors: models.Vectors{
+				vector1: generateRandomVector(dimensions),
+				vector2: generateRandomVector(dimensions),
+			},
+		}
+	}
+	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+	require.NoError(t, err)
+	for _, r := range batchResp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+
+	testAllObjectsIndexed(t, c, className)
+
+	// Verify both named vectors appear in usage
+	colUsageBefore, err := GetDebugUsageForCollection(className)
+	require.NoError(t, err)
+	require.Len(t, colUsageBefore.Shards, 1)
+	shard := colUsageBefore.Shards[0]
+	require.Equal(t, int64(numObjects), shard.ObjectsCount)
+	require.Len(t, shard.NamedVectors, 2)
+
+	vectorNames := map[string]bool{}
+	for _, v := range shard.NamedVectors {
+		vectorNames[v.Name] = true
+		require.NotEmpty(t, v.Dimensionalities)
+		require.Equal(t, dimensions, v.Dimensionalities[0].Dimensions)
+		require.Equal(t, numObjects, v.Dimensionalities[0].Count)
+	}
+	require.True(t, vectorNames[vector1], "expected vector1 in usage report")
+	require.True(t, vectorNames[vector2], "expected vector2 in usage report")
+
+	initialFullStorage := shard.FullShardStorageBytes
+	initialVectorStorage := shard.VectorStorageBytes
+	require.Greater(t, initialFullStorage, uint64(0))
+	require.Greater(t, initialVectorStorage, uint64(0))
+
+	// Drop vector1's index
+	require.NoError(t, c.Schema().VectorIndexDeleter().
+		WithClassName(className).WithVectorIndexName(vector1).Do(ctx))
+
+	// Verify vector1 is no longer in the usage metrics, vector2 remains,
+	// and storage bytes have decreased
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsageAfter, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsageAfter.Shards, 1)
+		shardAfter := colUsageAfter.Shards[0]
+		require.Equal(ct, int64(numObjects), shardAfter.ObjectsCount)
+		require.Len(ct, shardAfter.NamedVectors, 1)
+		require.Equal(ct, vector2, shardAfter.NamedVectors[0].Name)
+		require.NotEmpty(ct, shardAfter.NamedVectors[0].Dimensionalities)
+		require.Equal(ct, dimensions, shardAfter.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(ct, numObjects, shardAfter.NamedVectors[0].Dimensionalities[0].Count)
+		assert.Less(ct, shardAfter.FullShardStorageBytes, initialFullStorage)
+		assert.Less(ct, shardAfter.VectorStorageBytes, initialVectorStorage)
+	}, 30*time.Second, 500*time.Millisecond)
+}
+
 func TestRestart(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
-		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true"). // lazy shards are shown as inactive, which would break the test
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -398,7 +613,6 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
-		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true"). // lazy shards are shown as inactive, which would break the test
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		Start(ctx)
@@ -482,17 +696,15 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		require.Len(t, colUsage.Shards, 1)
 		shard := colUsage.Shards[0]
-		require.Equal(t, &objectCount1, shard.ObjectsCount)
+		require.Equal(t, int64(objectCount1), shard.ObjectsCount)
 		require.Len(t, shard.NamedVectors, 1)
-		require.Equal(t, dynamic1024, *shard.NamedVectors[0].Name)
-		require.Equal(t, flat, *shard.NamedVectors[0].VectorIndexType)
-		require.Equal(t, bq, *shard.NamedVectors[0].Compression)
-		require.NotEmpty(t, shard.NamedVectors[0].IsDynamic)
+		require.Equal(t, dynamic1024, shard.NamedVectors[0].Name)
+		require.Equal(t, flat, shard.NamedVectors[0].VectorIndexType)
+		require.Equal(t, bq, shard.NamedVectors[0].Compression)
+		require.True(t, shard.NamedVectors[0].IsDynamic)
 		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Count)
-		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, shard.NamedVectors[0].Dimensionalities[0].Count)
 
 		insertObjects(t, 1000, c, className, "", models.Vectors{
 			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
@@ -506,22 +718,15 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 			require.Len(ct, colUsageHnsw.Shards, 1)
 			shardHnsw := colUsageHnsw.Shards[0]
-			require.NotNil(ct, shardHnsw.ObjectsCount)
-			require.Equal(ct, objectCount2, *shardHnsw.ObjectsCount)
+			require.Equal(ct, int64(objectCount2), shardHnsw.ObjectsCount)
 			require.Len(ct, shardHnsw.NamedVectors, 1)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Name)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].VectorIndexType)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Compression)
-			require.Equal(ct, dynamic1024, *shardHnsw.NamedVectors[0].Name)
-			require.Equal(ct, hnsw, *shardHnsw.NamedVectors[0].VectorIndexType)
-			require.NotEmpty(ct, shardHnsw.NamedVectors[0].IsDynamic)
-			require.True(ct, *shardHnsw.NamedVectors[0].IsDynamic)
-			require.Equal(ct, pq, *shardHnsw.NamedVectors[0].Compression)
+			require.Equal(ct, dynamic1024, shardHnsw.NamedVectors[0].Name)
+			require.Equal(ct, hnsw, shardHnsw.NamedVectors[0].VectorIndexType)
+			require.True(ct, shardHnsw.NamedVectors[0].IsDynamic)
+			require.Equal(ct, pq, shardHnsw.NamedVectors[0].Compression)
 			require.NotEmpty(ct, shardHnsw.NamedVectors[0].Dimensionalities)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
-			require.Equal(ct, dimensions, *shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
-			require.Equal(ct, objectCount2, *shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
+			require.Equal(ct, dimensions, shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
+			require.Equal(ct, objectCount2, shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
 		}, 5*time.Minute, 500*time.Millisecond)
 	})
 
@@ -560,17 +765,15 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		require.Len(t, colHot.Shards, 1)
 		shardHot := colHot.Shards[0]
-		require.Equal(t, &objectCount1, shardHot.ObjectsCount)
+		require.Equal(t, int64(objectCount1), shardHot.ObjectsCount)
 		require.Len(t, shardHot.NamedVectors, 1)
-		require.Equal(t, dynamic1024, *shardHot.NamedVectors[0].Name)
-		require.Equal(t, flat, *shardHot.NamedVectors[0].VectorIndexType)
-		require.Equal(t, bq, *shardHot.NamedVectors[0].Compression)
-		require.NotEmpty(t, shardHot.NamedVectors[0].IsDynamic)
+		require.Equal(t, dynamic1024, shardHot.NamedVectors[0].Name)
+		require.Equal(t, flat, shardHot.NamedVectors[0].VectorIndexType)
+		require.Equal(t, bq, shardHot.NamedVectors[0].Compression)
+		require.True(t, shardHot.NamedVectors[0].IsDynamic)
 		require.NotEmpty(t, shardHot.NamedVectors[0].Dimensionalities)
-		require.NotNil(t, shardHot.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.NotNil(t, shardHot.NamedVectors[0].Dimensionalities[0].Count)
-		require.Equal(t, dimensions, *shardHot.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, *shardHot.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, shardHot.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, shardHot.NamedVectors[0].Dimensionalities[0].Count)
 
 		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
 
@@ -581,17 +784,14 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.Len(t, colCold.Shards, 1)
 		shardCold := colCold.Shards[0]
 		require.Len(t, shardCold.NamedVectors, 1)
-		require.Equal(t, dynamic1024, *shardCold.NamedVectors[0].Name)
+		require.Equal(t, dynamic1024, shardCold.NamedVectors[0].Name)
 		// cold dynamic indices cannot easily determine the index type and compression
-		require.Nil(t, shardCold.NamedVectors[0].VectorIndexType)
-		require.Nil(t, shardCold.NamedVectors[0].Compression)
-		require.NotNil(t, shardCold.NamedVectors[0].IsDynamic)
-		require.True(t, *shardCold.NamedVectors[0].IsDynamic)
+		require.Empty(t, shardCold.NamedVectors[0].VectorIndexType)
+		require.Empty(t, shardCold.NamedVectors[0].Compression)
+		require.True(t, shardCold.NamedVectors[0].IsDynamic)
 		require.NotEmpty(t, shardCold.NamedVectors[0].Dimensionalities)
-		require.NotNil(t, shardCold.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.NotNil(t, shardCold.NamedVectors[0].Dimensionalities[0].Count)
-		require.Equal(t, dimensions, *shardCold.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, *shardCold.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, shardCold.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, shardCold.NamedVectors[0].Dimensionalities[0].Count)
 	})
 
 	t.Run("legacy vectorConfig", func(t *testing.T) {
@@ -626,16 +826,14 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		require.Len(t, colUsage.Shards, 1)
 		shard := colUsage.Shards[0]
-		require.Equal(t, &objectCount1, shard.ObjectsCount)
+		require.Equal(t, int64(objectCount1), shard.ObjectsCount)
 		require.Len(t, shard.NamedVectors, 1)
-		require.Equal(t, flat, *shard.NamedVectors[0].VectorIndexType)
-		require.Equal(t, bq, *shard.NamedVectors[0].Compression)
-		require.NotEmpty(t, shard.NamedVectors[0].IsDynamic)
+		require.Equal(t, flat, shard.NamedVectors[0].VectorIndexType)
+		require.Equal(t, bq, shard.NamedVectors[0].Compression)
+		require.True(t, shard.NamedVectors[0].IsDynamic)
 		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Count)
-		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, shard.NamedVectors[0].Dimensionalities[0].Count)
 	})
 
 	t.Run("storage size", func(t *testing.T) {
@@ -740,7 +938,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.NotNil(t, colFlat)
 		require.Len(t, colFlat.Shards, 1)
 		shardFlat := colFlat.Shards[0]
-		require.Equal(t, &objectCount1, shardFlat.ObjectsCount)
+		require.Equal(t, int64(objectCount1), shardFlat.ObjectsCount)
 		require.Len(t, shardFlat.NamedVectors, 1)
 		vectorFlat := shardFlat.NamedVectors[0]
 
@@ -748,12 +946,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, colDynamic)
 		shardDynamic := colDynamic.Shards[0]
-		require.Equal(t, &objectCount1, shardDynamic.ObjectsCount)
+		require.Equal(t, int64(objectCount1), shardDynamic.ObjectsCount)
 		require.Len(t, shardDynamic.NamedVectors, 1)
 		vectorDynamic := shardDynamic.NamedVectors[0]
 
-		require.InDelta(t, *shardDynamic.ObjectsStorageBytes, *shardFlat.ObjectsStorageBytes, float64(*shardDynamic.ObjectsStorageBytes)*0.05)
-		require.Equal(t, *shardDynamic.VectorStorageBytes, *shardFlat.VectorStorageBytes)
+		require.InDelta(t, shardDynamic.ObjectsStorageBytes, shardFlat.ObjectsStorageBytes, float64(shardDynamic.ObjectsStorageBytes)*0.05)
+		require.Equal(t, shardDynamic.VectorStorageBytes, shardFlat.VectorStorageBytes)
 		require.Equal(t, vectorDynamic.Dimensionalities, vectorFlat.Dimensionalities)
 
 		// now upgrade to hnsw and compare again
@@ -780,11 +978,8 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			require.Len(ct, colUsageHnsw.Shards, 1)
 			shardHnsw := colUsageHnsw.Shards[0]
 			require.Len(ct, shardHnsw.NamedVectors, 1)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Name)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].VectorIndexType)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Compression)
-			require.Equal(ct, dynamic1024, *shardHnsw.NamedVectors[0].Name)
-			require.Equal(ct, hnsw, *shardHnsw.NamedVectors[0].VectorIndexType)
+			require.Equal(ct, dynamic1024, shardHnsw.NamedVectors[0].Name)
+			require.Equal(ct, hnsw, shardHnsw.NamedVectors[0].VectorIndexType)
 		}, 5*time.Minute, 500*time.Millisecond)
 
 		// deactivate and activate to flush data to disk and have it comparable
@@ -802,24 +997,20 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.NotNil(t, colHNSW)
 		require.Len(t, colHNSW.Shards, 1)
 		shardHNSW := colHNSW.Shards[0]
-		require.Equal(t, objectCount2+10, *shardHNSW.ObjectsCount)
+		require.Equal(t, int64(objectCount2+10), shardHNSW.ObjectsCount)
 		require.Len(t, shardHNSW.NamedVectors, 1)
-		require.NotNil(t, shardHNSW.ObjectsStorageBytes)
-		require.NotNil(t, shardHNSW.VectorStorageBytes)
 		vectorHNSW := shardHNSW.NamedVectors[0]
 
 		colDynamicHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
 		require.NoError(t, err)
 		require.NotNil(t, colDynamicHNSW)
 		shardDynamicHNSW := colDynamicHNSW.Shards[0]
-		require.Equal(t, objectCount2+10, *shardDynamicHNSW.ObjectsCount)
+		require.Equal(t, int64(objectCount2+10), shardDynamicHNSW.ObjectsCount)
 		require.Len(t, shardDynamicHNSW.NamedVectors, 1)
-		require.NotNil(t, shardDynamicHNSW.ObjectsStorageBytes)
-		require.NotNil(t, shardDynamicHNSW.VectorStorageBytes)
 		vectorDynamicHNSW := shardDynamicHNSW.NamedVectors[0]
 
 		// there might be some small differences in the object storage due to class
-		require.InDelta(t, *shardDynamicHNSW.ObjectsStorageBytes, *shardHNSW.ObjectsStorageBytes, float64(*shardDynamicHNSW.ObjectsStorageBytes)*0.1)
+		require.InDelta(t, shardDynamicHNSW.ObjectsStorageBytes, shardHNSW.ObjectsStorageBytes, float64(shardDynamicHNSW.ObjectsStorageBytes)*0.1)
 		require.Equal(t, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
 	})
 
@@ -871,18 +1062,15 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		require.Len(t, colUsage.Shards, 1)
 		shard := colUsage.Shards[0]
-		require.Equal(t, &objectCount1, shard.ObjectsCount)
+		require.Equal(t, int64(objectCount1), shard.ObjectsCount)
 		require.Len(t, shard.NamedVectors, 1)
-		require.Equal(t, dynamic1024, *shard.NamedVectors[0].Name)
-		require.Equal(t, flat, *shard.NamedVectors[0].VectorIndexType)
-		require.NotNil(t, shard.NamedVectors[0].Compression)
-		require.Equal(t, "standard", *shard.NamedVectors[0].Compression)
-		require.NotEmpty(t, shard.NamedVectors[0].IsDynamic)
+		require.Equal(t, dynamic1024, shard.NamedVectors[0].Name)
+		require.Equal(t, flat, shard.NamedVectors[0].VectorIndexType)
+		require.Equal(t, "standard", shard.NamedVectors[0].Compression)
+		require.True(t, shard.NamedVectors[0].IsDynamic)
 		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Count)
-		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, shard.NamedVectors[0].Dimensionalities[0].Count)
 
 		insertObjects(t, 1000, c, className, "", models.Vectors{
 			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
@@ -896,24 +1084,17 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 			require.Len(ct, colUsageHnsw.Shards, 1)
 			shardHnsw := colUsageHnsw.Shards[0]
-			require.NotNil(ct, shardHnsw.ObjectsCount)
-			require.Equal(ct, objectCount2, *shardHnsw.ObjectsCount)
+			require.Equal(ct, int64(objectCount2), shardHnsw.ObjectsCount)
 			require.Len(ct, shardHnsw.NamedVectors, 1)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Name)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].VectorIndexType)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Compression)
-			require.Equal(ct, dynamic1024, *shardHnsw.NamedVectors[0].Name)
-			require.Equal(ct, hnsw, *shardHnsw.NamedVectors[0].VectorIndexType)
-			require.NotEmpty(ct, shardHnsw.NamedVectors[0].IsDynamic)
-			require.True(ct, *shardHnsw.NamedVectors[0].IsDynamic)
-			require.Equal(ct, "rq", *shardHnsw.NamedVectors[0].Compression)
+			require.Equal(ct, dynamic1024, shardHnsw.NamedVectors[0].Name)
+			require.Equal(ct, hnsw, shardHnsw.NamedVectors[0].VectorIndexType)
+			require.True(ct, shardHnsw.NamedVectors[0].IsDynamic)
+			require.Equal(ct, "rq", shardHnsw.NamedVectors[0].Compression)
 			require.NotNil(ct, shardHnsw.NamedVectors[0].Bits)
-			require.Equal(ct, 8, *shardHnsw.NamedVectors[0].Bits)
+			require.Equal(ct, int16(8), shardHnsw.NamedVectors[0].Bits)
 			require.NotEmpty(ct, shardHnsw.NamedVectors[0].Dimensionalities)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
-			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
-			require.Equal(ct, dimensions, *shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
-			require.Equal(ct, objectCount2, *shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
+			require.Equal(ct, dimensions, shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
+			require.Equal(ct, objectCount2, shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
 		}, 5*time.Minute, 500*time.Millisecond)
 	})
 
@@ -966,19 +1147,16 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		require.Len(t, colUsage.Shards, 1)
 		shard := colUsage.Shards[0]
-		require.Equal(t, &objectCount1, shard.ObjectsCount)
+		require.Equal(t, int64(objectCount1), shard.ObjectsCount)
 		require.Len(t, shard.NamedVectors, 1)
-		require.Equal(t, flatRQ, *shard.NamedVectors[0].Name)
-		require.Equal(t, flat, *shard.NamedVectors[0].VectorIndexType)
-		require.NotNil(t, shard.NamedVectors[0].Compression)
-		require.Equal(t, "rq", *shard.NamedVectors[0].Compression)
+		require.Equal(t, flatRQ, shard.NamedVectors[0].Name)
+		require.Equal(t, flat, shard.NamedVectors[0].VectorIndexType)
+		require.Equal(t, "rq", shard.NamedVectors[0].Compression)
 		require.NotNil(t, shard.NamedVectors[0].Bits)
-		require.Equal(t, 8, *shard.NamedVectors[0].Bits)
+		require.Equal(t, int16(8), shard.NamedVectors[0].Bits)
 		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Count)
-		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, shard.NamedVectors[0].Dimensionalities[0].Count)
 	})
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,10 +21,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -40,12 +43,47 @@ type replicationFSM interface {
 	SetUnCancellable(id uint64) error
 }
 
+// MutationGuard is consulted at RAFT-apply time for cross-FSM conflicts
+// before a destructive schema mutation merges. Prevents bucket↔schema
+// inversion when a schema mutation lands mid-reindex (DELETE searchable,
+// UPDATE tokenization, DELETE class, DELETE/UPDATE tenants). See
+// weaviate/0-weaviate-issues#218.
+//
+// FSM-determinism: implementations MUST be pure functions of their
+// arguments + RAFT-replicated FSM state.
+type MutationGuard interface {
+	// CheckPropertyUpdate gates UpdateProperty. The migration completion
+	// path bypasses this by setting FromInFlightMigration=true on its
+	// own scheduled flip, since the task is still FINALIZING when the
+	// flip lands.
+	CheckPropertyUpdate(className, propertyName string) error
+
+	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
+	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
+	// class blocks the mutation.
+	CheckClassMutation(className string) error
+
+	// CheckTenantMutation gates tenant transitions that make shards
+	// locally unavailable. Transitions toward available are not a
+	// conflict — callers must filter via
+	// [tenantsTransitioningAwayFromActive] before invoking.
+	CheckTenantMutation(className string, tenants []string) error
+}
+
+// Narrow slice of *cluster/distributedtask.Manager so schema doesn't
+// depend on the full Manager surface and tests can stub it. nil-safe.
+type distributedTaskCascadeDeleter interface {
+	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
+}
+
 type SchemaManager struct {
-	schema         *schema
-	db             Indexer
-	parser         Parser
-	log            *logrus.Logger
-	replicationFSM replicationFSM
+	schema                 *schema
+	db                     Indexer
+	parser                 Parser
+	log                    *logrus.Logger
+	replicationFSM         replicationFSM
+	mutationGuard          MutationGuard
+	distributedTaskManager distributedTaskCascadeDeleter
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -55,6 +93,51 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 		parser: parser,
 		log:    log,
 	}
+}
+
+// SetMutationGuard installs the [MutationGuard] consulted by
+// [SchemaManager.UpdateProperty] before merging a property update.
+// Pass nil to remove the guard. Safe to call once at startup after
+// both this manager and the guard's backing FSM exist (today: the
+// distributed-task FSM Manager, wired in cluster/store.go's NewFSM).
+//
+// Subsequent calls overwrite the previous registration. The setter
+// itself is not synchronized — it must run during single-threaded
+// FSM bootstrap, before any apply path can read the field.
+func (s *SchemaManager) SetMutationGuard(g MutationGuard) {
+	s.mutationGuard = g
+}
+
+// tenantsTransitioningAwayFromActive returns the names of tenants in
+// the UpdateTenants payload that would transition AWAY from
+// locally-available state (INACTIVE / OFFLOADED / FROZEN /
+// transitional aliases). Returns an empty slice if every tenant is
+// transitioning to a locally-available state (ACTIVE / HOT /
+// ONLOADING / UNFREEZING) — in that case no MutationGuard check
+// fires, matching the "transitions toward available are safe"
+// semantics.
+//
+// Used by [SchemaManager.UpdateTenants] to narrow the guard
+// invocation to tenants whose data would actually become locally
+// unavailable mid-reindex (the only case where the bucket↔schema
+// inversion family of bugs is reachable).
+func tenantsTransitioningAwayFromActive(tenants []*command.Tenant) []string {
+	if len(tenants) == 0 {
+		return nil
+	}
+	var affected []string
+	for _, t := range tenants {
+		switch t.GetStatus() {
+		case models.TenantActivityStatusINACTIVE,
+			models.TenantActivityStatusOFFLOADED,
+			models.TenantActivityStatusOFFLOADING,
+			models.TenantActivityStatusFROZEN,
+			models.TenantActivityStatusFREEZING,
+			models.TenantActivityStatusCOLD:
+			affected = append(affected, t.GetName())
+		}
+	}
+	return affected
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -86,6 +169,12 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
+}
+
+// Wires the cascade-delete used by [SchemaManager.DeleteClass]. nil-safe;
+// the cascade is a no-op when unset (bootstrap / partial-harness tests).
+func (s *SchemaManager) SetDistributedTaskManager(m distributedTaskCascadeDeleter) {
+	s.distributedTaskManager = m
 }
 
 func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
@@ -176,6 +265,26 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	if req.State == nil {
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
+	// Validate xref existence. DataType is pre-qualified on NS clusters.
+	for _, prop := range req.Class.Properties {
+		if !entSchema.IsRefDataType(prop.DataType) {
+			// don't need to validate non-xref data types
+			continue
+		}
+		for _, dt := range prop.DataType {
+			if dt == req.Class.Class {
+				// self-references are always allowed
+				continue
+			}
+			if s.schema.classExists(dt) {
+				// class exists, all good
+				continue
+			}
+			// class does not exist, error out
+			return fmt.Errorf("%w: %w", ErrBadRequest, entSchema.ErrRefToNonexistentClass)
+		}
+
+	}
 	if err := s.parser.ParseClass(req.Class); err != nil {
 		return fmt.Errorf("%w: parsing class: %w", ErrBadRequest, err)
 	}
@@ -248,37 +357,55 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// Ensure that if non-default values for properties is stored in raft we fix them before processing an update to
 		// avoid triggering diff on properties and therefore discarding a legitimate update.
 		migratePropertiesIfNecessary(&meta.Class)
+
 		u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
 		}
+
+		// Capture previous and updated replication factors
+		var initialRF int64
+		if meta.Class.ReplicationConfig != nil {
+			initialRF = meta.Class.ReplicationConfig.Factor
+		}
+
+		var updatedRF int64
+		if u.ReplicationConfig != nil {
+			updatedRF = u.ReplicationConfig.Factor
+		}
+
+		// validate replication factor increase
+		if initialRF < updatedRF {
+			for _, physical := range meta.Sharding.Physical {
+				if int64(len(physical.BelongsToNodes)) < updatedRF {
+					return fmt.Errorf(
+						"not enough replicas in shard %q to increase replication factor to %d for class %q",
+						physical.Name,
+						updatedRF,
+						meta.Class.Class,
+					)
+				}
+			}
+		}
+
+		// Apply updates
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
+		meta.Class.ObjectTTLConfig = u.ObjectTTLConfig
 		meta.Class.Description = u.Description
 		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
+
 		if req.State != nil {
 			meta.Sharding = *req.State
 		}
 
-		// validate replication factor change
-		if meta.Class.ReplicationConfig != nil && u.ReplicationConfig != nil {
-			initialRF := meta.Class.ReplicationConfig.Factor
-			updatedRF := u.ReplicationConfig.Factor
-
-			if initialRF < updatedRF {
-				for _, physical := range meta.Sharding.Physical {
-					if int64(len(physical.BelongsToNodes)) < updatedRF {
-						return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, meta.Class.Class)
-					}
-				}
-			}
-
-			// set the updated replication factor
-			meta.Sharding.ReplicationFactor = u.ReplicationConfig.Factor
+		// update sharding replication factor
+		if u.ReplicationConfig != nil {
+			meta.Sharding.ReplicationFactor = updatedRF
 		}
 
 		return nil
@@ -296,6 +423,13 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
+	// Cross-FSM mutation guard — see [MutationGuard.CheckClassMutation].
+	if s.mutationGuard != nil {
+		if err := s.mutationGuard.CheckClassMutation(cmd.Class); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+	}
+
 	var hasFrozen bool
 	tenants, err := s.schema.getTenants(cmd.Class, nil)
 	if err != nil {
@@ -312,8 +446,17 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { s.schema.deleteClass(cmd.Class); return nil },
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				s.schema.deleteClass(cmd.Class)
+				// Cascade lives in updateSchema (not updateStore) so it
+				// also runs on schemaOnly catchup replay: DTM is in-memory
+				// FSM state, rebuilt from RAFT log on restart, and the
+				// DELETE_CLASS apply MUST drop tasks the replay just
+				// re-added. weaviate/0-weaviate-issues#231.
+				s.cascadeDeleteDistributedTasks(cmd.Class)
+				return nil
+			},
 			updateStore: func() error {
 				if s.replicationFSM == nil {
 					return fmt.Errorf("replication deleter is not set, this should never happen")
@@ -327,6 +470,31 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+func (s *SchemaManager) cascadeDeleteDistributedTasks(class string) {
+	if s.distributedTaskManager == nil {
+		s.log.WithField("class", class).
+			Debug("distributed-task manager not set; skipping cascade-delete on class delete")
+		return
+	}
+	removed := s.distributedTaskManager.DeleteTasksForCollection(class)
+	if len(removed) == 0 {
+		return
+	}
+	s.log.WithField("class", class).
+		WithField("removed_count", len(removed)).
+		Info("cascade-deleted distributed-task records for dropped class")
+	// IsLevelEnabled gates the allocation, not just the emit.
+	if s.log.IsLevelEnabled(logrus.DebugLevel) {
+		ids := make([]string, 0, len(removed))
+		for _, d := range removed {
+			ids = append(ids, fmt.Sprintf("%s/%d", d.ID, d.Version))
+		}
+		s.log.WithField("class", class).
+			WithField("removed_tasks", ids).
+			Debug("cascade-deleted distributed-task IDs (full list)")
+	}
 }
 
 func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
@@ -343,6 +511,38 @@ func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, 
 			op:                   cmd.GetType().String(),
 			updateSchema:         func() error { return s.schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
 			updateStore:          func() error { return s.db.AddProperty(cmd.Class, req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
+		},
+	)
+}
+
+func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
+	req := command.UpdatePropertyRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if req.Property == nil {
+		return fmt.Errorf("%w: empty property", ErrBadRequest)
+	}
+
+	// Cross-FSM mutation guard — see [MutationGuard.CheckPropertyUpdate].
+	// FromInFlightMigration=true bypasses the guard for the migration's
+	// own scheduled schema flip; see the bypass clause in that godoc.
+	if s.mutationGuard != nil && !req.FromInFlightMigration {
+		if err := s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+	}
+
+	return s.apply(
+		applyOp{
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				_, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
+				return err
+			},
+			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
@@ -431,15 +631,29 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// Cross-FSM mutation guard — see [MutationGuard.CheckTenantMutation].
+	// Per the asymmetric-semantics clause in that godoc, narrow to
+	// tenants whose transition would make shards locally unavailable
+	// before invoking; transitions toward available are skipped.
+	if s.mutationGuard != nil {
+		affectedTenants := tenantsTransitioningAwayFromActive(req.GetTenants())
+		if len(affectedTenants) > 0 {
+			if err := s.mutationGuard.CheckTenantMutation(cmd.Class, affectedTenants); err != nil {
+				return fmt.Errorf("%w: %w", ErrBadRequest, err)
+			}
+		}
+	}
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
-			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
+			updateSchema:          func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
+			schemaOnly:            schemaOnly,
+			allowPartialSchemaErr: true,
 		},
 	)
 }
@@ -448,6 +662,15 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.DeleteTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Cross-FSM mutation guard — see [MutationGuard.CheckTenantMutation].
+	// Deleting tenants destroys their shard state unconditionally, so
+	// no toward-available filtering applies here (cf. UpdateTenants).
+	if s.mutationGuard != nil && len(req.Tenants) > 0 {
+		if err := s.mutationGuard.CheckTenantMutation(cmd.Class, req.Tenants); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
 	}
 
 	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)
@@ -507,53 +730,55 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 		return nil
 	}
 
+	var physical *sharding.Physical
+	var partitioningEnabled bool
+	err := s.NewSchemaReader().Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
+		partitioningEnabled = state.PartitioningEnabled
+		p, ok := state.Physical[req.Shard]
+		if !ok {
+			// no physical, leave var as nil
+			return nil
+		}
+		physical = &p
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("read schema for sync shard: %w", err)
+	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore: func() error {
-				return s.schema.Read(req.Collection, true, func(class *models.Class, state *sharding.State) error {
-					physical, ok := state.Physical[req.Shard]
-					// shard does not exist in the sharding state
-					if !ok {
-						// TODO: can we guarantee that the shard is not in use?
-						// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
-						// For now, to be safe and avoid data loss, we just shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// if shard doesn't belong to this node
-					if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
-						// shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// collection is single-tenant, shard is present, replica belongs to node
-					if !state.PartitioningEnabled {
-						// load it
-						s.db.LoadShard(cmd.Class, req.Shard)
-						// return early
-						return nil
-					}
-					// collection is multi-tenant, shard is present, replica belongs to node
-					switch physical.ActivityStatus() {
-					// tenant is active
-					case models.TenantActivityStatusACTIVE:
-						// load it
-						s.db.LoadShard(cmd.Class, req.Shard)
-					// tenant is inactive
-					case models.TenantActivityStatusINACTIVE:
-						// shut it down
-						s.db.ShutdownShard(cmd.Class, req.Shard)
-					// tenant is in some other state
-					default:
-						// do nothing
-
-					}
+				// shard does not exist in the sharding state
+				if physical == nil {
+					// TODO: can we guarantee that the shard is not in use?
+					// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
+					// For now, to be safe and avoid data loss, we just shut it down
+					s.db.ShutdownShard(cmd.Class, req.Shard)
 					return nil
-				})
+				}
+				// shard is present but replica doesn't belong to this node
+				if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
+					s.db.ShutdownShard(cmd.Class, req.Shard)
+					return nil
+				}
+				// collection is ST, shard is present, and replica belongs to node
+				if !partitioningEnabled {
+					s.db.LoadShard(cmd.Class, req.Shard)
+					return nil
+				}
+				// collection is MT, shard is present, and replica belongs to node
+				switch physical.ActivityStatus() {
+				case models.TenantActivityStatusACTIVE:
+					s.db.LoadShard(cmd.Class, req.Shard)
+				case models.TenantActivityStatusINACTIVE:
+					s.db.ShutdownShard(cmd.Class, req.Shard)
+				default:
+					// do nothing
+				}
+				return nil
 			},
 			schemaOnly: schemaOnly,
 		},
@@ -593,6 +818,13 @@ type applyOp struct {
 	updateStore          func() error
 	schemaOnly           bool
 	enableSchemaCallback bool
+	// allowPartialSchemaErr, when true, allows updateStore to proceed when
+	// updateSchema returns a *PartialUpdateError. This is used for operations
+	// where the schema layer filters out invalid entries (e.g. missing or
+	// transitional-state tenants) and the DB must still be updated for the
+	// entries that were successfully applied.
+	// The schema error is returned to the caller after updateStore completes.
+	allowPartialSchemaErr bool
 }
 
 func (op applyOp) validate() error {
@@ -615,8 +847,12 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db
-	if err := op.updateSchema(); err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
+	schemaErr := op.updateSchema()
+	if schemaErr != nil {
+		var partialErr *PartialUpdateError
+		if !op.allowPartialSchemaErr || !errors.As(schemaErr, &partialErr) {
+			return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
+		}
 	}
 
 	if op.enableSchemaCallback && s.db != nil {
@@ -627,8 +863,20 @@ func (s *SchemaManager) apply(op applyOp) error {
 
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
+			if schemaErr != nil {
+				// Both the schema update (partial) and the DB update failed.
+				// Return both so the caller is informed of what was skipped
+				// and what failed.
+				return fmt.Errorf("%w: %s: %w; %w: %s: %w",
+					ErrSchema, op.op, schemaErr,
+					errDB, op.op, err)
+			}
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
+	}
+
+	if schemaErr != nil {
+		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
 	}
 
 	return nil

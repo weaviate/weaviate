@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,7 +22,7 @@ type basicComparatorProvider struct{}
 
 func (bcp *basicComparatorProvider) provide(dataType schema.DataType, order string) basicComparator {
 	switch dataType {
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return newStringComparator(order)
 	case schema.DataTypeText:
 		return newStringComparator(order)

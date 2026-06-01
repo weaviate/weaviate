@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,7 +72,7 @@ type embeddings struct {
 type Client struct {
 	apiKey     string
 	httpClient *http.Client
-	urlBuilder *cohereUrlBuilder
+	urlBuilder UrlBuilder
 	logger     logrus.FieldLogger
 }
 
@@ -98,11 +98,9 @@ type Settings struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *Client {
 	return &Client{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		urlBuilder: newCohereUrlBuilder(),
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilder: NewCohereUrlBuilder("/v2/embed"),
 		logger:     logger,
 	}
 }
@@ -141,7 +139,7 @@ func (c *Client) Vectorize(ctx context.Context,
 	}
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 {
@@ -195,7 +193,7 @@ func (c *Client) getCohereUrl(ctx context.Context, baseURL string) string {
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return c.urlBuilder.url(passedBaseURL)
+	return c.urlBuilder.URL(passedBaseURL)
 }
 
 func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {

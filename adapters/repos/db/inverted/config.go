@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,11 +39,35 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 		return err
 	}
 
+	err = validateStopwordPresets(conf.StopwordPresets)
+	if err != nil {
+		return err
+	}
+
 	err = validateTokenizerUserDictConfig(conf.TokenizerUserDict)
 	if err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func validateStopwordPresets(presets map[string][]string) error {
+	for name, words := range presets {
+		if strings.TrimSpace(name) == "" {
+			return errors.Errorf("stopwordPresets: preset name must not be empty or whitespace-only")
+		}
+		// Names that match a built-in preset are allowed: the user-defined
+		// list overrides the built-in for properties of this collection.
+		if len(words) == 0 {
+			return errors.Errorf("stopwordPresets: preset %q must have at least one word", name)
+		}
+		for _, w := range words {
+			if strings.TrimSpace(w) == "" {
+				return errors.Errorf("stopwordPresets: preset %q contains empty or whitespace-only word", name)
+			}
+		}
+	}
 	return nil
 }
 
@@ -72,6 +96,8 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 		conf.Stopwords.Removals = iicm.Stopwords.Removals
 	}
 
+	conf.StopwordPresets = iicm.StopwordPresets
+
 	if iicm.TokenizerUserDict != nil {
 		conf.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(iicm.TokenizerUserDict))
 		for i, tudc := range iicm.TokenizerUserDict {
@@ -96,7 +122,7 @@ func validateBM25Config(conf *models.BM25Config) error {
 		return errors.Errorf("BM25.k1 must be >= 0")
 	}
 	if conf.B < 0 || conf.B > 1 {
-		return errors.Errorf("BM25.b must be <= 0 and <= 1")
+		return errors.Errorf("BM25.b must be >= 0 and <= 1")
 	}
 
 	return nil

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,14 +95,12 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
 		}
 		helper.CreateClass(t, articleClass)
 	})

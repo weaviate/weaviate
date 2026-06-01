@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,8 +14,10 @@ package queue
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func TestScheduler(t *testing.T) {
@@ -30,7 +33,7 @@ func TestScheduler(t *testing.T) {
 		s := makeScheduler(t)
 		s.Start()
 		time.Sleep(100 * time.Millisecond)
-		err := s.Close()
+		err := s.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -38,17 +41,17 @@ func TestScheduler(t *testing.T) {
 		s := makeScheduler(t)
 		s.Start()
 		s.Start()
-		err := s.Close()
+		err := s.Close(t.Context())
 		require.NoError(t, err)
 	})
 
 	t.Run("commands before start", func(t *testing.T) {
 		s := makeScheduler(t)
-		err := s.Close()
+		err := s.Close(t.Context())
 		require.NoError(t, err)
 		s.PauseQueue("test")
 		s.ResumeQueue("test")
-		s.Wait("test")
+		_ = s.Wait(t.Context(), "test")
 	})
 
 	t.Run("paused queue should not process tasks", func(t *testing.T) {
@@ -80,7 +83,7 @@ func TestScheduler(t *testing.T) {
 		require.EqualValues(t, 500, <-ch)
 		require.EqualValues(t, 600, <-ch)
 
-		err := q.Close()
+		err := q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -106,7 +109,7 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 0)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -159,7 +162,7 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 0)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -184,7 +187,7 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 2)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -212,7 +215,7 @@ func TestScheduler(t *testing.T) {
 			t.Fatal("should not have been called")
 		}
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -250,18 +253,12 @@ func TestScheduler(t *testing.T) {
 
 		s.Schedule(t.Context())
 		<-started
-		s.Wait(q.ID())
-
+		_ = s.Wait(t.Context(), q.ID())
 		for i := 0; i < 30; i++ {
-			if i == 3 {
-				require.Equal(t, 3, called[uint64(i)])
-				continue
-			}
-
 			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)
 		}
 
-		err := q.Close()
+		err := q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -282,7 +279,7 @@ func TestScheduler(t *testing.T) {
 
 				called[t.key]++
 				if t.key == 3 && called[t.key] < 3 {
-					return errors.New("invalid task")
+					return enterrors.NewNotEnoughMemory("transient OOM")
 				}
 
 				return nil
@@ -299,7 +296,7 @@ func TestScheduler(t *testing.T) {
 
 		s.Schedule(t.Context())
 		<-started
-		s.Wait(q.ID())
+		_ = s.Wait(t.Context(), q.ID())
 
 		for i := 0; i < 30; i++ {
 			if i == 3 {
@@ -310,7 +307,7 @@ func TestScheduler(t *testing.T) {
 			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)
 		}
 
-		err := q.Close()
+		err := q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -348,13 +345,98 @@ func TestScheduler(t *testing.T) {
 
 		s.Schedule(t.Context())
 		<-started
-		s.Wait(q.ID())
+		_ = s.Wait(t.Context(), q.ID())
 
 		for i := 0; i < 30; i++ {
 			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)
 		}
 
-		err := q.Close()
+		err := q.Close(t.Context())
+		require.NoError(t, err)
+	})
+
+	t.Run("should use any available worker", func(t *testing.T) {
+		s := makeScheduler(t, 3 /* workers */)
+		s.Start()
+
+		ch1, e1 := streamExecutor()
+		q1 := makeQueue(t, s, e1)
+		q1.w.maxSize = 1000 // about 75 records per chunk
+		ch2, e2 := streamExecutor()
+		q2 := makeQueue(t, s, e2)
+		q2.w.maxSize = 1000
+
+		// q1 uses only one worker
+		for range 100 {
+			pushMany(t, q1, 1, 1, 1, 1) // 1 partition
+		}
+		// q2 uses all
+		for range 100 {
+			pushMany(t, q2, 1, 3, 4, 5) // 3 partitions
+		}
+
+		// do not read from ch1 yet to simulate a busy worker.
+
+		// instead read from ch2 first.
+		res := make([]uint64, 300)
+		for i := range 300 {
+			res[i] = <-ch2
+		}
+		slices.Sort(res)
+		for i, v := range res {
+			if i < 100 {
+				require.EqualValues(t, 3, v)
+			} else if i < 200 {
+				require.EqualValues(t, 4, v)
+			} else {
+				require.EqualValues(t, 5, v)
+			}
+		}
+
+		// now read from ch1
+		for range 300 {
+			require.EqualValues(t, 1, <-ch1)
+		}
+
+		err := q1.Close(t.Context())
+		require.NoError(t, err)
+		err = q2.Close(t.Context())
+		require.NoError(t, err)
+	})
+
+	t.Run("notify scheduler when batch is done", func(t *testing.T) {
+		s := makeScheduler(t, 3 /* workers */)
+		s.ScheduleInterval = 10 * time.Minute // use a long interval to ensure we rely on the done notification
+		s.Start()
+
+		ch, e := streamExecutor()
+		q := makeQueue(t, s, e)
+		q.w.maxSize = 100 // about 8 records per chunk
+		q.staleTimeout = 0
+
+		for i := range 100 {
+			pushMany(t, q, 1, uint64(i))
+		}
+
+		s.triggerSchedule()
+
+		tm := time.After(30 * time.Second)
+		values := make([]uint64, 0, 100)
+		for range 100 {
+			select {
+			case v := <-ch:
+				values = append(values, v)
+			case <-tm:
+				t.Fatal("timeout waiting for tasks to be processed")
+			}
+		}
+
+		slices.Sort(values)
+		for i, v := range values {
+			require.EqualValues(t, i, v)
+		}
+
+		err := q.Close(t.Context())
 		require.NoError(t, err)
 	})
 }
@@ -378,6 +460,8 @@ func makeScheduler(t testing.TB, workers ...int) *Scheduler {
 	})
 }
 
+var queueIDCounter atomic.Int32
+
 func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64, dir string) *DiskQueue {
 	t.Helper()
 
@@ -385,7 +469,7 @@ func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize ui
 	logger.SetLevel(logrus.DebugLevel)
 
 	q, err := NewDiskQueue(DiskQueueOptions{
-		ID:           "test_queue",
+		ID:           fmt.Sprintf("test_queue_%d", queueIDCounter.Add(1)),
 		Scheduler:    s,
 		Logger:       newTestLogger(),
 		Dir:          dir,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,6 +60,12 @@ func (o *GetRolesForUserDeprecatedReader) ReadResponse(response runtime.ClientRe
 		return nil, result
 	case 404:
 		result := NewGetRolesForUserDeprecatedNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 410:
+		result := NewGetRolesForUserDeprecatedGone()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -391,6 +397,74 @@ func (o *GetRolesForUserDeprecatedNotFound) String() string {
 }
 
 func (o *GetRolesForUserDeprecatedNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewGetRolesForUserDeprecatedGone creates a GetRolesForUserDeprecatedGone with default headers values
+func NewGetRolesForUserDeprecatedGone() *GetRolesForUserDeprecatedGone {
+	return &GetRolesForUserDeprecatedGone{}
+}
+
+/*
+GetRolesForUserDeprecatedGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type GetRolesForUserDeprecatedGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this get roles for user deprecated gone response has a 2xx status code
+func (o *GetRolesForUserDeprecatedGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get roles for user deprecated gone response has a 3xx status code
+func (o *GetRolesForUserDeprecatedGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get roles for user deprecated gone response has a 4xx status code
+func (o *GetRolesForUserDeprecatedGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this get roles for user deprecated gone response has a 5xx status code
+func (o *GetRolesForUserDeprecatedGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get roles for user deprecated gone response a status code equal to that given
+func (o *GetRolesForUserDeprecatedGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the get roles for user deprecated gone response
+func (o *GetRolesForUserDeprecatedGone) Code() int {
+	return 410
+}
+
+func (o *GetRolesForUserDeprecatedGone) Error() string {
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedGone  %+v", 410, o.Payload)
+}
+
+func (o *GetRolesForUserDeprecatedGone) String() string {
+	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserDeprecatedGone  %+v", 410, o.Payload)
+}
+
+func (o *GetRolesForUserDeprecatedGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetRolesForUserDeprecatedGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

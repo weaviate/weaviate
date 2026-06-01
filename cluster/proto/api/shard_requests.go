@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,9 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/go-openapi/strfmt"
 )
 
@@ -29,6 +32,7 @@ const (
 	REGISTERED  ShardReplicationState = "REGISTERED"
 	HYDRATING   ShardReplicationState = "HYDRATING"
 	FINALIZING  ShardReplicationState = "FINALIZING"
+	INTEGRATING ShardReplicationState = "INTEGRATING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
 	CANCELLED   ShardReplicationState = "CANCELLED" // The operation has been cancelled. It cannot be resumed.
@@ -69,6 +73,38 @@ type ReplicationUpdateOpStateRequest struct {
 }
 
 type ReplicationUpdateOpStateResponse struct{}
+
+// ReplicationNodeReachedStateRequest reports that NodeId has applied State
+// for op Id; recorded into op.PerNodeState on every peer for local
+// convergence checks.
+type ReplicationNodeReachedStateRequest struct {
+	Version int
+	Id      uint64
+	NodeId  string
+	State   ShardReplicationState
+}
+
+// StateRank orders states along the happy-path lifecycle so monotonic and
+// "at least X" comparisons work. CANCELLED ranks below every happy-path
+// state — it never satisfies a convergence check.
+func StateRank(s ShardReplicationState) int {
+	switch s {
+	case REGISTERED:
+		return 1
+	case HYDRATING:
+		return 2
+	case FINALIZING:
+		return 3
+	case INTEGRATING:
+		return 4
+	case DEHYDRATING:
+		return 5
+	case READY:
+		return 6
+	default:
+		return 0
+	}
+}
 
 type ReplicationRegisterErrorRequest struct {
 	Version int
@@ -114,6 +150,47 @@ type ReplicationDetailsState struct {
 	State           string
 	Errors          []ReplicationDetailsError
 	StartTimeUnixMs int64 // Unix timestamp in milliseconds when the state was first entered
+}
+
+func (r *ReplicationDetailsState) UnmarshalJSON(data []byte) error {
+	type rawReplicationDetailsState struct {
+		State           string
+		Errors          json.RawMessage
+		StartTimeUnixMs int64
+	}
+	var raw rawReplicationDetailsState
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	r.State = raw.State
+	r.StartTimeUnixMs = raw.StartTimeUnixMs
+	// no errors in the message
+	if len(raw.Errors) == 0 || string(raw.Errors) == "null" || string(raw.Errors) == "[]" {
+		r.Errors = nil
+		return nil
+	}
+
+	// try to unmarshal as []ReplicationDetailsError
+	var replicationDetailsErrors []ReplicationDetailsError
+	if err := json.Unmarshal(raw.Errors, &replicationDetailsErrors); err == nil {
+		r.Errors = replicationDetailsErrors
+		return nil
+	}
+
+	// try to unmarshal as []string (legacy format)
+	var errors []string
+	if err := json.Unmarshal(raw.Errors, &errors); err == nil {
+		if len(errors) > 0 {
+			r.Errors = make([]ReplicationDetailsError, len(errors))
+			for i, msg := range errors {
+				r.Errors[i] = ReplicationDetailsError{Message: msg}
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("cannot unmarshal ReplicationDetailsState.Errors field neither to []ReplicationDetailsError or []string: %v", string(raw.Errors))
 }
 
 type ReplicationDetailsResponse struct {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,7 +29,7 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 		// Define class
 		vectorizerName := "multi2vec-cohere"
 		className := "CohereClipTest"
-		class := multimodal.BaseClass(className, false)
+		class := multimodal.BaseClass(className, false, false)
 		class.VectorConfig = map[string]models.VectorConfig{
 			"clip": {
 				Vectorizer: map[string]any{
@@ -72,7 +72,7 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 		defer helper.DeleteClass(t, class.Class)
 
 		t.Run("import data", func(t *testing.T) {
-			multimodal.InsertObjects(t, dataFolderPath, class.Class, false)
+			multimodal.InsertObjects(t, dataFolderPath, class.Class, false, false)
 		})
 
 		t.Run("nearImage", func(t *testing.T) {

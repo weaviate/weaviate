@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -38,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -64,7 +66,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 ) error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 
-	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
+	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj, clusterapi.MethodPut)
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
@@ -78,7 +80,23 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
+	_, err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, nil, successCode)
+	return rehydrateUsageLimit(err)
+}
+
+// rehydrateUsageLimit returns a *LimitExceededError when err is a 429
+// carrying the USAGE_LIMIT_EXCEEDED payload, else err unchanged.
+func rehydrateUsageLimit(err error) error {
+	if err == nil {
+		return nil
+	}
+	he, ok := AsHTTPError(err)
+	if !ok || he.Code != http.StatusTooManyRequests {
+		return err
+	}
+	if le, ok := usagelimits.FromBodyJSON(he.Body); ok {
+		return le
+	}
 	return err
 }
 
@@ -94,7 +112,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
-	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs)
+	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs, clusterapi.MethodPut)
 	if err != nil {
 		return duplicateErr(fmt.Errorf("encode request: %w", err), len(objs))
 	}
@@ -114,7 +132,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, decode, successCode, MAX_RETRIES); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 
@@ -222,7 +240,7 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "read body")
 	}
 
-	obj, err := clusterapi.IndicesPayloads.SingleObject.Unmarshal(objBytes)
+	obj, err := clusterapi.IndicesPayloads.SingleObject.Unmarshal(objBytes, clusterapi.MethodGet)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal body")
 	}
@@ -241,7 +259,7 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 		return false, fmt.Errorf("create http request: %w", err)
 	}
 	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
-	code, err := c.do(c.timeoutUnit*20, req, nil, nil, ok)
+	code, err := c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, nil, ok)
 	return code != http.StatusNotFound, err
 }
 
@@ -355,7 +373,7 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	objs, err := clusterapi.IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	objs, err := clusterapi.IndicesPayloads.ObjectList.Unmarshal(bodyBytes, clusterapi.MethodGet)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal objects")
 	}
@@ -376,34 +394,36 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
+	selection *searchparams.Selection,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties, selection)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
 	req, err := setupRequest(ctx, http.MethodPost, host,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
 		"", bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, fmt.Errorf("create http request: %w", err)
+		return nil, nil, nil, fmt.Errorf("create http request: %w", err)
 	}
 	clusterapi.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
-	return resp.Objects, resp.Distributions, err
+	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
 }
 
 type searchShardResp struct {
 	Objects       []*storobj.Object
 	Distributions []float32
+	QueryProfiles []helpers.ShardQueryProfile
 }
 
 func (r *searchShardResp) decode(data []byte) (err error) {
-	r.Objects, r.Distributions, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
+	r.Objects, r.Distributions, r.QueryProfiles, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
 	return err
 }
 
@@ -434,14 +454,14 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
 	return resp.Result, err
 }
 
 func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
-	shardName string, filters *filters.LocalFilter,
+	shardName string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
+	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal request payload")
 	}
@@ -574,7 +594,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		return false, nil
 	}
-	return size, c.retry(ctx, 9, try)
+	return size, c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
@@ -615,7 +635,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, 9, try)
+	return status, c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -651,7 +671,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
@@ -685,7 +705,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 
-	return c.retry(ctx, 12, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
@@ -711,7 +731,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) ReInitShard(ctx context.Context,
@@ -738,7 +758,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // PauseFileActivity pauses the collection's shard replica background processes on the specified
@@ -770,7 +790,7 @@ func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // ResumeFileActivity resumes the collection's shard replica background processes on the specified host
@@ -797,7 +817,7 @@ func (c *RemoteIndex) ResumeFileActivity(ctx context.Context,
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // ListFiles returns a list of files that can be used to get the shard data at the time the pause
@@ -837,7 +857,7 @@ func (c *RemoteIndex) ListFiles(ctx context.Context,
 		}
 		return false, nil
 	}
-	return relativeFilePaths, c.retry(ctx, 9, try)
+	return relativeFilePaths, c.retry(ctx, MAX_RETRIES, try)
 }
 
 // GetFileMetadata returns file info to the file relative to the
@@ -881,7 +901,7 @@ func (c *RemoteIndex) GetFileMetadata(ctx context.Context, hostName, indexName,
 
 		return false, nil
 	}
-	return md, c.retry(ctx, 9, try)
+	return md, c.retry(ctx, MAX_RETRIES, try)
 }
 
 // GetFile caller must close the returned io.ReadCloser if no error is returned.
@@ -914,7 +934,7 @@ func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
 		file = res.Body
 		return false, nil
 	}
-	return file, c.retry(ctx, 9, try)
+	return file, c.retry(ctx, MAX_RETRIES, try)
 }
 
 // AddAsyncReplicationTargetNode configures and starts async replication for the given
@@ -953,7 +973,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // RemoveAsyncReplicationTargetNode removes the given target node override for async replication.
@@ -988,7 +1008,7 @@ func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // setupRequest is a simple helper to create a new http request with the given method, host, path,

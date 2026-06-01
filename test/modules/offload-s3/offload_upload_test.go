@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,20 +17,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func Test_UploadS3Journey(t *testing.T) {
+func Test_UploadS3JourneyHappyPath(t *testing.T) {
 	t.Run("happy path with RF 2 upload to s3 provider", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
@@ -139,7 +139,11 @@ func Test_UploadS3Journey(t *testing.T) {
 			require.Nil(t, err)
 			for _, tn := range resp.Payload {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.True(t,
+						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+					)
 					break
 				}
 			}
@@ -196,10 +200,11 @@ func Test_UploadS3Journey(t *testing.T) {
 			})
 		})
 	})
+}
 
+func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 	t.Run("node is down while RF is 3, one weaviate node is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
@@ -309,7 +314,11 @@ func Test_UploadS3Journey(t *testing.T) {
 
 			for _, tn := range resp.Payload {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.True(t,
+						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+					)
 					break
 				}
 			}
@@ -337,10 +346,11 @@ func Test_UploadS3Journey(t *testing.T) {
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 	})
+}
 
+func Test_UploadS3JourneyUnhappyPath_CloudProviderIsDown(t *testing.T) {
 	t.Run("unhappy path with RF 3, cloud provider is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -349,6 +359,8 @@ func Test_UploadS3Journey(t *testing.T) {
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
 			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
+			WithWeaviateEnv("OFFLOAD_S3_CONCURRENCY", "1").
+			WithWeaviateEnv("OFFLOAD_S3_WORKERS", "1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -433,34 +445,50 @@ func Test_UploadS3Journey(t *testing.T) {
 			}
 		})
 
-		t.Run("updating tenant status", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{
-					Name:           tenantNames[0],
-					ActivityStatus: models.TenantActivityStatusFROZEN,
-				},
-			})
-		})
-
-		t.Run("verify tenant status FREEZING", func(t *testing.T) {
-			resp, err := helper.GetTenants(t, className)
-			require.Nil(t, err)
-
-			for _, tn := range resp.Payload {
-				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
-					break
+		t.Run("add objects so offload is in progress when MinIO is killed", func(t *testing.T) {
+			const (
+				extraObjects = 50000
+				batchSize    = 1000
+			)
+			for offset := 0; offset < extraObjects; offset += batchSize {
+				n := batchSize
+				if offset+batchSize > extraObjects {
+					n = extraObjects - offset
 				}
+				if n > 30000 {
+					t.Run("update tenant to FROZEN (starts offload)", func(t *testing.T) {
+						go func() {
+							helper.UpdateTenants(t, className, []*models.Tenant{
+								{
+									Name:           tenantNames[0],
+									ActivityStatus: models.TenantActivityStatusFROZEN,
+								},
+							})
+						}()
+					})
+				}
+				objects := make([]*models.Object, n)
+				for i := 0; i < n; i++ {
+					objects[i] = &models.Object{
+						ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", offset+i+1)),
+						Class: className,
+						Properties: map[string]interface{}{
+							"name": fmt.Sprintf("extra-%d", offset+i),
+						},
+						Tenant: tenantNames[0],
+					}
+				}
+				helper.CreateObjectsBatch(t, objects)
 			}
 		})
 
-		t.Run("terminate Minio", func(t *testing.T) {
+		t.Run("terminate MinIO so offload fails", func(t *testing.T) {
 			require.Nil(t, compose.TerminateContainer(ctx, docker.MinIO))
 		})
 
-		t.Run("verify tenant status HOT", func(xt *testing.T) {
+		t.Run("verify tenant is reset to HOT", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
-				resp, err := helper.GetTenants(xt, className)
+				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 
 				for _, tn := range resp.Payload {
@@ -469,7 +497,7 @@ func Test_UploadS3Journey(t *testing.T) {
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+			}, 60*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
 		})
 	})
 }

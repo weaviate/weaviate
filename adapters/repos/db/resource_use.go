@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,11 +13,13 @@ package db
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/interval"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -53,8 +55,10 @@ func (d *DB) scanResourceUsage() {
 				return
 			case <-t.C:
 				updateMappings := i%(memwatch.MappingDelayInS*2) == 0
-				if !d.resourceScanState.isReadOnly {
-					du := d.getDiskUse(d.config.RootPath)
+				du := d.getDiskUse(d.config.RootPath)
+				if d.resourceScanState.isReadOnly {
+					d.resourceUseRecovery(d.memMonitor, du)
+				} else {
 					d.resourceUseWarn(d.memMonitor, du, updateMappings)
 					d.resourceUseReadonly(d.memMonitor, du)
 				}
@@ -155,7 +159,7 @@ func (db *DB) setShardsReadOnly(reason string) {
 	db.indexLock.Lock()
 	for _, index := range db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			err := shard.SetStatusReadonly(reason)
+			err := shard.SetStatusReadonly(statusReasonResourcePressure)
 			if err != nil {
 				db.logger.WithField("action", "set_shard_read_only").
 					WithField("path", db.config.RootPath).
@@ -167,4 +171,59 @@ func (db *DB) setShardsReadOnly(reason string) {
 	}
 	db.indexLock.Unlock()
 	db.resourceScanState.isReadOnly = true
+}
+
+// resourceUseRecovery checks whether resource usage has dropped below the
+// configured thresholds and, if so, transitions all READONLY shards back to
+// READY.  Both disk and memory must be below their respective thresholds (or
+// the threshold must be disabled, i.e. set to 0) for recovery to trigger.
+func (db *DB) resourceUseRecovery(mon *memwatch.Monitor, du diskUse) {
+	if db.diskAboveReadonlyThreshold(du) || db.memAboveReadonlyThreshold(mon) {
+		return
+	}
+	db.setShardsReady()
+}
+
+func (db *DB) diskAboveReadonlyThreshold(du diskUse) bool {
+	p := db.config.ResourceUsage.DiskUse.ReadOnlyPercentage
+	return p > 0 && du.percentUsed() > float64(p)
+}
+
+func (db *DB) memAboveReadonlyThreshold(mon *memwatch.Monitor) bool {
+	p := db.config.ResourceUsage.MemUse.ReadOnlyPercentage
+	return p > 0 && (mon.Ratio()*100) > float64(p)
+}
+
+func (db *DB) setShardsReady() {
+	var failedCount atomic.Int64
+	func() {
+		db.indexLock.Lock()
+		defer db.indexLock.Unlock()
+		for _, index := range db.indices {
+			index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+				if shard.GetStatus() == storagestate.StatusReadOnly &&
+					shard.GetStatusReason() == statusReasonResourcePressure {
+					err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonResourceRecovery)
+					if err != nil {
+						failedCount.Add(1)
+						db.logger.WithField("action", "set_shard_ready").
+							WithField("path", db.config.RootPath).
+							WithError(err).
+							Error("failed to set to READY")
+					}
+				}
+				return nil
+			})
+		}
+	}()
+
+	if count := failedCount.Load(); count > 0 {
+		db.logger.WithField("action", "set_shard_ready").
+			WithField("failed_count", count).
+			Warn("Resource usage below threshold, but some shards failed to transition to READY")
+		return
+	}
+	db.resourceScanState.isReadOnly = false
+	db.logger.WithField("action", "set_shard_ready").
+		Info("Resource usage below threshold. Set shards back to READY")
 }

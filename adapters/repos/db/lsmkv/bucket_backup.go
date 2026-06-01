@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,7 +21,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
@@ -32,8 +31,8 @@ import (
 // Method should be run only if flushCycle is not running
 // (was not started, is stopped, or noop impl is provided)
 func (b *Bucket) FlushMemtable() error {
-	if b.isReadOnly() {
-		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
+	if err := b.readOnlyErr(); err != nil {
+		return fmt.Errorf("flush memtable: %w", err)
 	}
 
 	return b.FlushAndSwitch()

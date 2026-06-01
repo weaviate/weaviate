@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -183,4 +183,65 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 			time.Sleep(time.Second / 10)
 		}
 	})
+
+	// The base backup ID of an incremental backup is exposed via the get-status
+	// and list endpoints only to root users. customUser holds the full
+	// manage_backups permission on clsA.Class (granted above) but is not root, so
+	// it must not see it. Create a base + incremental backup as prerequisites for
+	// the visibility checks below; these are setup, not standalone subtests.
+	baseBackupID := "base-backup"
+	incrementalBackupID := "incremental-backup"
+
+	_, err = helper.CreateBackupWithBaseAndAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, baseBackupID, "", helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	helper.ExpectBackupEventuallyCreated(t, baseBackupID, backend, helper.CreateAuth(adminKey))
+
+	// add more data so the incremental backup has something to capture, then back
+	// it up on top of the base
+	objB := articles.NewArticle().WithTitle("Programming 102")
+	helper.CreateObjectsBatchAuth(t, []*models.Object{objB.Object()}, adminKey)
+
+	_, err = helper.CreateBackupWithBaseAndAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, incrementalBackupID, baseBackupID, helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	helper.ExpectBackupEventuallyCreated(t, incrementalBackupID, backend, helper.CreateAuth(adminKey))
+
+	t.Run("root sees the base backup id in the create-status response", func(t *testing.T) {
+		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, incrementalBackupID, "", "", helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		require.Equal(t, baseBackupID, resp.Payload.IncrementalBaseBackupID)
+	})
+
+	t.Run("non-root with manage_backups does not see the base backup id in the create-status response", func(t *testing.T) {
+		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, incrementalBackupID, "", "", helper.CreateAuth(customKey))
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		require.Empty(t, resp.Payload.IncrementalBaseBackupID)
+	})
+
+	t.Run("root sees the base backup id in the list response", func(t *testing.T) {
+		resp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		item := findBackupListItem(resp.Payload, incrementalBackupID)
+		require.NotNil(t, item)
+		require.Equal(t, baseBackupID, item.IncrementalBaseBackupID)
+	})
+
+	t.Run("non-root with manage_backups does not see the base backup id in the list response", func(t *testing.T) {
+		resp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(customKey))
+		require.NoError(t, err)
+		item := findBackupListItem(resp.Payload, incrementalBackupID)
+		require.NotNil(t, item)
+		require.Empty(t, item.IncrementalBaseBackupID)
+	})
+}
+
+// findBackupListItem returns the list item with the given backup ID, or nil.
+func findBackupListItem(items models.BackupListResponse, backupID string) *models.BackupListResponseItems0 {
+	for _, item := range items {
+		if item != nil && item.ID == backupID {
+			return item
+		}
+	}
+	return nil
 }

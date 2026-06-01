@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -41,15 +40,12 @@ func TestFilter(t *testing.T) {
 		},
 	}
 
-	l, _ := test.NewNullLogger()
-
 	authorizer := mocks.NewMockAuthorizer()
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
 			resourceFilter := New[*models.Object](authorizer, tt.Config)
 			filteredObjects := resourceFilter.Filter(
 				context.Background(),
-				l,
 				&models.Principal{Username: "user"},
 				tt.Items,
 				authorization.READ,

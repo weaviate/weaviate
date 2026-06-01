@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,7 +63,7 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 
 			var compacted bool
 			var err error
-			for compacted, err = b.disk.compactOnce(); err == nil && compacted; compacted, err = b.disk.compactOnce() {
+			for compacted, err = b.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = b.disk.compactOnce(context.Background()) {
 				compactions++
 			}
 			require.Nil(t, err)
@@ -417,7 +417,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 		i := 0
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 			if i == 1 {
 				// segment1 and segment2 merged
 				// none of them is root segment, so tombstones
@@ -515,7 +515,7 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 		}
 		require.Nil(t, err)
 	})
@@ -614,7 +614,7 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 				}
 				require.Nil(t, err)
 			})

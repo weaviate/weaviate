@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -162,6 +162,21 @@ func (s *Raft) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, 
 	}
 	command := &api.ApplyRequest{
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) SubmitNodeReachedState(ctx context.Context, req *api.ReplicationNodeReachedStateRequest) error {
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(ctx, command); err != nil {

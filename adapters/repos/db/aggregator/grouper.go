@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -287,12 +287,17 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 	c := b.Cursor()
 	defer c.Close()
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting objects bucket class name: %w", err)
+	}
+
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			elem, err := storobj.FromBinaryOptional(v, additional.Properties{}, properties)
+			elem, err := storobj.FromBinaryOptionalDisk(v, className, additional.Properties{}, properties)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}

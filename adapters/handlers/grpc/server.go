@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,12 @@ import (
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/restrictions"
+	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -47,7 +53,8 @@ import (
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+// clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
+func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -92,6 +99,15 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
+	if clientTracker != nil {
+		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
+		// so no need for a separate makeClientIdentifierInterceptor.
+		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker))
+	} else {
+		interceptors = append(interceptors, makeClientIdentifierInterceptor())
+	}
+	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
+	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
 
 	// Add OpenTelemetry tracing interceptors
 	interceptors = append(interceptors, monitoring.GRPCTracingInterceptor())
@@ -108,21 +124,11 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	)
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
+	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1, drainBatch := v1.NewService(
-		state.Traverser,
-		composer.New(
-			state.ServerConfig.Config.Authentication,
-			state.APIKey, state.OIDC),
-		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
-		state.SchemaManager,
-		state.BatchManager,
-		&state.ServerConfig.Config,
-		state.Authorizer,
-		state.Logger,
-	)
+	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
@@ -163,31 +169,97 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 	}
 }
 
+// translateTypedError maps Weaviate's typed errors (auth, usage limits)
+// to gRPC statuses. Returns nil when no mapping applies so callers can
+// fall through. Shared by the unary and stream interceptors.
+func translateTypedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.As(err, &authErrs.Unauthenticated{}) {
+		return status.Error(codes.Unauthenticated, err.Error())
+	}
+	if errors.As(err, &authErrs.Forbidden{}) {
+		return status.Error(codes.PermissionDenied, err.Error())
+	}
+	if le, ok := usagelimits.AsLimitExceeded(err); ok {
+		return limitExceededToGrpcError(le)
+	}
+	if v, ok := restrictions.AsViolation(err); ok {
+		return restrictionViolationToGrpcError(v)
+	}
+	return nil
+}
+
+// restrictionViolationToGrpcError maps a ViolationError to
+// FailedPrecondition + ErrorInfo metadata mirroring the REST 422 body.
+func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
+	st := status.New(codes.FailedPrecondition, v.Error())
+	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: restrictions.ErrorCode,
+		Domain: "weaviate.restrictions",
+		Metadata: map[string]string{
+			"restriction": string(v.Restriction),
+			"value":       v.Value,
+			"allowed":     strings.Join(v.Allowed, ","),
+			"message":     v.RenderedMessage,
+		},
+	})
+	if derr != nil {
+		return st.Err()
+	}
+	return withDetails.Err()
+}
+
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
 		resp, err := handler(ctx, req)
-
-		if errors.As(err, &authErrs.Unauthenticated{}) {
-			return nil, status.Error(codes.Unauthenticated, err.Error())
+		if translated := translateTypedError(err); translated != nil {
+			return nil, translated
 		}
-
-		if errors.As(err, &authErrs.Forbidden{}) {
-			return nil, status.Error(codes.PermissionDenied, err.Error())
-		}
-
 		return resp, err
 	}
 }
 
+// limitExceededToGrpcError converts a *usagelimits.LimitExceededError into
+// a gRPC status with codes.ResourceExhausted and an attached
+// errdetails.ErrorInfo proto carrying the structured fields that mirror the
+// REST 429 body. SDKs may match on the gRPC code alone, or read the details
+// payload for the same `errorCode`/`limit`/`value`/`message` fields they'd
+// see over REST.
+func limitExceededToGrpcError(le *usagelimits.LimitExceededError) error {
+	st := status.New(codes.ResourceExhausted, le.Error())
+	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: usagelimits.ErrorCode,
+		Domain: "weaviate.usagelimits",
+		Metadata: map[string]string{
+			"limit":   string(le.Limit),
+			"value":   strconv.FormatInt(le.Value, 10),
+			"message": le.RenderedMessage,
+		},
+	})
+	if derr != nil {
+		// Fall back to the bare status if attaching details fails for any
+		// reason (e.g. proto marshaling). The status code + message is
+		// still a valid contract; we just lose the structured payload.
+		return st.Err()
+	}
+	return withDetails.Err()
+}
+
 func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		_, err := auth.PrincipalFromContext(ss.Context())
-		if err != nil {
+		if _, err := auth.PrincipalFromContext(ss.Context()); err != nil {
 			return status.Error(codes.Unauthenticated, err.Error())
 		}
-		return handler(srv, ss)
+		// Mirror makeAuthInterceptor so streams get the same wire contract.
+		err := handler(srv, ss)
+		if translated := translateTypedError(err); translated != nil {
+			return translated
+		}
+		return err
 	}
 }
 
@@ -197,6 +269,47 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 
 		// Add IP to context
 		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+		return handler(ctx, req)
+	}
+}
+
+func makeClientIdentifierInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
+				ctx = context.WithValue(ctx, "clientIdentifier", telemetry.SanitizeClientHeader(vals[0]))
+			}
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		var err error
+		switch state.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_ONLY:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrReadOnlyModeEnabled
+			}
+		case config.SCALE_OUT:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrScaleOutModeEnabled
+			}
+		case config.WRITE_ONLY:
+			if config.IsGRPCRead(info.FullMethod) {
+				err = config.ErrWriteOnlyModeEnabled
+			}
+		default:
+			// all good
+		}
+		if err != nil {
+			st := status.New(codes.Unavailable, err.Error())
+			return nil, st.Err()
+		}
 		return handler(ctx, req)
 	}
 }
@@ -231,6 +344,24 @@ func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword
 		}
 
 		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if maintenanceModeEnabledForLocalhost() {
+			return nil, status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if maintenanceModeEnabledForLocalhost() {
+			return status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(srv, ss)
 	}
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,4 +29,5 @@ type FSMUpdater interface {
 	ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error
 	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
+	ReplicationAllPeersAtLeast(opID uint64, target api.ShardReplicationState) (bool, error)
 }

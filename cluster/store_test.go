@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -461,7 +462,11 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
+				// ErrShardNotFound (partial success), so the DB layer is invoked with the
+				// filtered (empty) tenant list before the schema error is propagated.
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
+			doAfter: func(ms *MockStore) error { return nil },
 		},
 		{
 			name: "UpdateTenant/HasOngoingReplication/true",
@@ -1411,6 +1416,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
+			NamespacesController:   usecasesNamespaces.NewController(logger),
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}

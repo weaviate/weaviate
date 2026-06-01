@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package roaringsetrange
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -106,8 +107,9 @@ func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
 	}
 }
 
-// Do starts a compaction. See [Compactor] for an explanation of this process.
-func (c *Compactor) Do() error {
+// Do starts a compaction. See [Compactor]. Cancelling ctx aborts the
+// in-flight merge.
+func (c *Compactor) Do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return fmt.Errorf("init: %w", err)
 	}
@@ -117,7 +119,7 @@ func (c *Compactor) Do() error {
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
-	written, err := c.writeNodes(segmentFile)
+	written, err := c.writeNodes(ctx, segmentFile)
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
 	}
@@ -155,7 +157,7 @@ func (c *Compactor) init() error {
 	return nil
 }
 
-func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) (int, error) {
+func (c *Compactor) writeNodes(ctx context.Context, f *segmentindex.SegmentFile) (int, error) {
 	nc := &nodeCompactor{
 		left:             c.left,
 		right:            c.right,
@@ -164,7 +166,7 @@ func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) (int, error) {
 		emptyBitmap:      sroar.NewBitmap(),
 	}
 
-	if err := nc.loopThroughKeys(); err != nil {
+	if err := nc.loopThroughKeys(ctx); err != nil {
 		return 0, err
 	}
 
@@ -183,7 +185,7 @@ type nodeCompactor struct {
 	deletionsLeft, deletionsRight *sroar.Bitmap
 }
 
-func (nc *nodeCompactor) loopThroughKeys() error {
+func (nc *nodeCompactor) loopThroughKeys(ctx context.Context) error {
 	keyLeft, layerLeft, okLeft := nc.left.First()
 	keyRight, layerRight, okRight := nc.right.First()
 
@@ -201,7 +203,14 @@ func (nc *nodeCompactor) loopThroughKeys() error {
 
 	// left segment empty, take right
 	if !okLeft {
+		i := 0
 		for ; okRight; keyRight, layerRight, okRight = nc.right.Next() {
+			if i%compactor.AbortCheckEveryN == 0 {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("merge keys: %w", err)
+				}
+			}
+			i++
 			if err := nc.writeLayer(keyRight, layerRight); err != nil {
 				return fmt.Errorf("right segment: %w", err)
 			}
@@ -211,7 +220,14 @@ func (nc *nodeCompactor) loopThroughKeys() error {
 
 	// right segment empty, take left
 	if !okRight {
+		i := 0
 		for ; okLeft; keyLeft, layerLeft, okLeft = nc.left.Next() {
+			if i%compactor.AbortCheckEveryN == 0 {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("merge keys: %w", err)
+				}
+			}
+			i++
 			if err := nc.writeLayer(keyLeft, layerLeft); err != nil {
 				return fmt.Errorf("left segment: %w", err)
 			}
@@ -233,7 +249,12 @@ func (nc *nodeCompactor) loopThroughKeys() error {
 		nc.deletionsRight = layerRight.Deletions.Clone()
 	}
 
-	for okLeft || okRight {
+	for i := 0; okLeft || okRight; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("merge keys: %w", err)
+			}
+		}
 		if okLeft && (!okRight || keyLeft < keyRight) {
 			// merge left
 			merged := nc.mergeLayers(keyLeft, layerLeft.Additions, nc.emptyBitmap)

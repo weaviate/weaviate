@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,7 @@ func startAzurite(ctx context.Context, networkName string) (*DockerContainer, er
 				networkName: {Azurite},
 			},
 			Name: Azurite,
-			Cmd:  []string{Azurite, "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0"},
+			Cmd:  []string{Azurite, "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0", "--skipApiVersionCheck"},
 			WaitingFor: wait.
 				ForAll(
 					wait.ForLog("Azurite Blob service is successfully listening at http://0.0.0.0:10000"),

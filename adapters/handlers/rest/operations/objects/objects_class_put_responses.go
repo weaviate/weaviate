@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -201,6 +201,51 @@ func (o *ObjectsClassPutUnprocessableEntity) SetPayload(payload *models.ErrorRes
 func (o *ObjectsClassPutUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ObjectsClassPutTooManyRequestsCode is the HTTP code returned for type ObjectsClassPutTooManyRequests
+const ObjectsClassPutTooManyRequestsCode int = 429
+
+/*
+ObjectsClassPutTooManyRequests The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.
+
+swagger:response objectsClassPutTooManyRequests
+*/
+type ObjectsClassPutTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.UsageLimitExceededResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassPutTooManyRequests creates ObjectsClassPutTooManyRequests with default headers values
+func NewObjectsClassPutTooManyRequests() *ObjectsClassPutTooManyRequests {
+
+	return &ObjectsClassPutTooManyRequests{}
+}
+
+// WithPayload adds the payload to the objects class put too many requests response
+func (o *ObjectsClassPutTooManyRequests) WithPayload(payload *models.UsageLimitExceededResponse) *ObjectsClassPutTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class put too many requests response
+func (o *ObjectsClassPutTooManyRequests) SetPayload(payload *models.UsageLimitExceededResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassPutTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

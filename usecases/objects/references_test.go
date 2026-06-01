@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -89,6 +89,54 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		if err.Code != StatusInternalServerError {
 			t.Errorf("error expected: internal error, got: %v", err)
 		}
+	})
+}
+
+// Test_ReferencesClasslessOnNSReturnsGone pins the NS-gate added to the three
+// reference use cases: on namespace-enabled clusters a classless call
+// (input.Class == "") returns 410 Gone instead of running the legacy
+// scan-all-collections fallback. The REST layer rejects the deprecated route
+// with 410 before reaching the use case, so this gate is defensive for
+// direct/internal callers — it MUST NOT fire on non-NS clusters (covered by
+// Test_ReferencesAddDeprecated above, which still drives the scan path).
+func Test_ReferencesClasslessOnNSReturnsGone(t *testing.T) {
+	id := strfmt.UUID("d18c8e5e-0000-0000-0000-56b0cfe33ce7")
+	beacon := strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+
+	t.Run("AddObjectReference", func(t *testing.T) {
+		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m.config.Config.Namespaces.Enabled = true
+		err := m.AddObjectReference(context.Background(), nil, &AddReferenceInput{
+			ID: id, Property: "hasAnimals", Ref: models.SingleRef{Beacon: beacon},
+		}, nil, "")
+		require.NotNil(t, err)
+		require.Equal(t, StatusGone, err.Code)
+		require.True(t, err.Gone())
+		// The legacy path's ObjectByID lookup must NOT be reached on NS clusters.
+		m.repo.AssertNotCalled(t, "ObjectByID", mock.Anything, mock.Anything, mock.Anything)
+	})
+	t.Run("UpdateObjectReferences", func(t *testing.T) {
+		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m.config.Config.Namespaces.Enabled = true
+		err := m.UpdateObjectReferences(context.Background(), nil, &PutReferenceInput{
+			ID: id, Property: "hasAnimals",
+			Refs: models.MultipleRef{&models.SingleRef{Beacon: beacon}},
+		}, nil, "")
+		require.NotNil(t, err)
+		require.Equal(t, StatusGone, err.Code)
+		require.True(t, err.Gone())
+		m.repo.AssertNotCalled(t, "Object", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+	t.Run("DeleteObjectReference", func(t *testing.T) {
+		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m.config.Config.Namespaces.Enabled = true
+		err := m.DeleteObjectReference(context.Background(), nil, &DeleteReferenceInput{
+			ID: id, Property: "hasAnimals", Reference: models.SingleRef{Beacon: beacon},
+		}, nil, "")
+		require.NotNil(t, err)
+		require.Equal(t, StatusGone, err.Code)
+		require.True(t, err.Gone())
+		m.repo.AssertNotCalled(t, "Object", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 }
 

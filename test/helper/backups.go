@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,6 @@ func DefaultBackupConfig() *models.BackupConfig {
 	return &models.BackupConfig{
 		CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
 		CPUPercentage:    backup.DefaultCPUPercentage,
-		ChunkSize:        128,
 	}
 }
 
@@ -47,6 +46,38 @@ func CreateBackup(t *testing.T, cfg *models.BackupConfig, className, backend, ba
 		})
 	t.Logf("Creating backup with ID: %s, backend: %s, className: %s, config: %+v\n", backupID, backend, className, cfg)
 	return Client(t).Backups.BackupsCreate(params, nil)
+}
+
+func CreateBackupWithBase(t *testing.T, cfg *models.BackupConfig, className, backend, backupID, baseBackupID string) (*backups.BackupsCreateOK, error) {
+	body := &models.BackupCreateRequest{
+		ID:      backupID,
+		Include: []string{className},
+		Config:  cfg,
+	}
+	if baseBackupID != "" {
+		body.IncrementalBaseBackupID = &baseBackupID
+	}
+	params := backups.NewBackupsCreateParams().
+		WithBackend(backend).
+		WithBody(body)
+	t.Logf("Creating backup with ID: %s, backend: %s, className: %s, config: %+v\n", backupID, backend, className, cfg)
+	return Client(t).Backups.BackupsCreate(params, nil)
+}
+
+func CreateBackupWithBaseAndAuthz(t *testing.T, cfg *models.BackupConfig, className, backend, backupID, baseBackupID string, authInfo runtime.ClientAuthInfoWriter) (*backups.BackupsCreateOK, error) {
+	body := &models.BackupCreateRequest{
+		ID:      backupID,
+		Include: []string{className},
+		Config:  cfg,
+	}
+	if baseBackupID != "" {
+		body.IncrementalBaseBackupID = &baseBackupID
+	}
+	params := backups.NewBackupsCreateParams().
+		WithBackend(backend).
+		WithBody(body)
+	t.Logf("Creating backup with ID: %s, base: %s, backend: %s, className: %s\n", backupID, baseBackupID, backend, className)
+	return Client(t).Backups.BackupsCreate(params, authInfo)
 }
 
 func CreateBackupWithAuthz(t *testing.T, cfg *models.BackupConfig, className, backend, backupID string, authInfo runtime.ClientAuthInfoWriter) (*backups.BackupsCreateOK, error) {
@@ -223,6 +254,9 @@ func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, auth
 		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
-		require.Equal(c, "SUCCESS", status, "backup restore status")
+		if status == "FAILED" {
+			t.Logf("backup %s restore failed: %s", backupID, resp.Payload.Error)
+		}
+		require.Equal(c, "SUCCESS", status, "backup restore status: %s", resp.Payload.Error)
 	}, opt.Deadline, opt.Interval, "backup %s not restored after %s", backupID, opt.Deadline)
 }

@@ -17,7 +17,7 @@ inverted_sorter_disabled: false
 # usage_s3_prefix: billing
 ###########################
 
-# exp_oidc_username_claim: "sub"
-# exp_oidc_client_id: "<client_id>"
-# exp_oidc_issuer: "<issuer_url>"
-# exp_oidc_groups_claim: "teams"
+# authentication_oidc_username_claim: "sub"
+# authentication_oidc_client_id: "<client_id>"
+# authentication_oidc_issuer: "<issuer_url>"
+# authentication_oidc_groups_claim: "teams"

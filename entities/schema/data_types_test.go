@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -414,4 +414,48 @@ func Test_DataType_AsNested(t *testing.T) {
 
 func ptDataType(dt DataType) *DataType {
 	return &dt
+}
+
+func TestFindPropertyDataType_Qualified(t *testing.T) {
+	cases := []struct {
+		name          string
+		dataType      []string
+		wantErrSubstr string
+	}{
+		{
+			name:     "single qualified ref",
+			dataType: []string{"customer1:Movies"},
+		},
+		{
+			name:     "multi-target qualified refs",
+			dataType: []string{"customer1:Movies", "customer1:Books"},
+		},
+		{
+			// Uppercase namespace portion violates NamespaceNameRegexCore.
+			name:          "malformed namespace prefix rejected",
+			dataType:      []string{"UPPER:Movies"},
+			wantErrSubstr: "not a valid class name",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Empty()
+			// Pre-register every dataType entry as a class. Harmless for the
+			// failure case — validation fires before the schema lookup.
+			for _, cls := range tc.dataType {
+				s.Objects.Classes = append(s.Objects.Classes, &models.Class{Class: cls})
+			}
+			pdt, err := s.FindPropertyDataType(tc.dataType)
+			if tc.wantErrSubstr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrSubstr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, pdt.IsReference())
+			for _, want := range tc.dataType {
+				assert.True(t, pdt.ContainsClass(ClassName(want)), "expected %q in pdt", want)
+			}
+		})
+	}
 }

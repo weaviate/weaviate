@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -70,7 +70,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 		if a_b*a_b < 1e-14 {
 			a_b2 := float64(sortList[j].SecondarySortValue - sortList[i].SecondarySortValue)
 			if a_b2*a_b2 < 1e-14 {
-				return sortList[i].ID > sortList[j].ID
+				return sortList[i].ID < sortList[j].ID
 			} else {
 				return sortList[i].SecondarySortValue > sortList[j].SecondarySortValue
 			}
@@ -157,7 +157,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names
 			if a_b*a_b < 1e-14 {
 				a_b2 := float64(concat[j].SecondarySortValue - concat[i].SecondarySortValue)
 				if a_b2*a_b2 < 1e-14 {
-					return concat[i].ID > concat[j].ID
+					return concat[i].ID < concat[j].ID
 				} else {
 					return concat[i].SecondarySortValue > concat[j].SecondarySortValue
 				}

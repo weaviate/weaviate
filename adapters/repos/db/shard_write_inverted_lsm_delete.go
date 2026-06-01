@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -182,9 +182,10 @@ func (s *Shard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64
 }
 
 func (s *Shard) onDeleteFromPropertyValueIndex(docID uint64, property *inverted.Property) error {
+	callbacks, _ := s.callbacksRemoveFromPropertyValueIndex.Load().([]onDeleteFromPropertyValueIndex)
 	ec := errorcompounder.New()
-	for i := range s.callbacksRemoveFromPropertyValueIndex {
-		ec.Add(s.callbacksRemoveFromPropertyValueIndex[i](s, docID, property))
+	for _, cb := range callbacks {
+		ec.Add(cb(s, docID, property))
 	}
 	return ec.ToError()
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,6 +62,17 @@ func (m *KMeansEncoder) Fit(data [][]float32) error {
 	err := km.Fit(data)
 	m.centers = km.Centers
 	return err
+}
+
+func (m *KMeansEncoder) FitBalanced(data [][]float32) ([]uint32, error) {
+	km := kmeans.New(m.k, m.d, m.s)
+	km.DeltaThreshold = 0.01
+	km.IterationThreshold = 10
+	km.Initialization = kmeans.RandomInitialization
+	km.Assignment = kmeans.GraphPruning
+	centroidAssignments, err := km.FitBalanced(data)
+	m.centers = km.Centers
+	return centroidAssignments, err
 }
 
 func (m *KMeansEncoder) Encode(point []float32) byte {
