@@ -3818,7 +3818,8 @@
             "description": "A text value."
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "IntArray": {
       "type": "object",
@@ -3833,7 +3834,8 @@
             "description": "An int64 value. (int64; serialized as a string in responses)"
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NumberArray": {
       "type": "object",
@@ -3847,7 +3849,8 @@
             "description": "A float64 value."
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "BooleanArray": {
       "type": "object",
@@ -3861,7 +3864,8 @@
             "description": "A boolean value."
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "GeoCoordinatesFilter": {
       "type": "object",
@@ -3879,7 +3883,8 @@
           "type": "number",
           "description": "Maximum distance from the reference point, in meters."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "QueryVectors": {
       "type": "object",
@@ -3903,7 +3908,8 @@
           ],
           "description": "Whether this is a single (SINGLE_FP32) or multi (MULTI_FP32) vector."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "WeightsForTarget": {
       "type": "object",
@@ -3917,7 +3923,8 @@
           "type": "number",
           "description": "The weight applied to this target's score during multi-target fusion."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "Targets": {
       "type": "object",
@@ -3950,7 +3957,8 @@
             "$ref": "#/definitions/WeightsForTarget"
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "VectorForTarget": {
       "type": "object",
@@ -3967,7 +3975,8 @@
             "$ref": "#/definitions/QueryVectors"
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "SelectionMMR": {
       "type": "object",
@@ -3981,7 +3990,8 @@
           "type": "number",
           "description": "Trade-off between relevance and diversity (0..1)."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "Selection": {
       "type": "object",
@@ -3990,7 +4000,8 @@
         "mmr": {
           "$ref": "#/definitions/SelectionMMR"
         }
-      }
+      },
+      "x-doc-only": true
     },
     "SearchOperatorOptions": {
       "type": "object",
@@ -4009,7 +4020,8 @@
           "type": "integer",
           "description": "When operator is OR, the minimum number of query tokens that must match."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearTextMove": {
       "type": "object",
@@ -4035,7 +4047,8 @@
             "description": "An object UUID to move toward/away from."
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearTextSearch": {
       "type": "object",
@@ -4089,7 +4102,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearVector": {
       "type": "object",
@@ -4141,7 +4155,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearObject": {
       "type": "object",
@@ -4175,7 +4190,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearImageSearch": {
       "type": "object",
@@ -4209,7 +4225,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearAudioSearch": {
       "type": "object",
@@ -4243,7 +4260,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearVideoSearch": {
       "type": "object",
@@ -4277,7 +4295,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearDepthSearch": {
       "type": "object",
@@ -4311,7 +4330,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearThermalSearch": {
       "type": "object",
@@ -4345,7 +4365,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "NearIMUSearch": {
       "type": "object",
@@ -4379,7 +4400,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "BM25": {
       "type": "object",
@@ -4405,7 +4427,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "Hybrid": {
       "type": "object",
@@ -4504,7 +4527,8 @@
             "format": "float"
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "FilterReferenceSingleTarget": {
       "type": "object",
@@ -4522,7 +4546,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "FilterReferenceMultiTarget": {
       "type": "object",
@@ -4544,7 +4569,8 @@
           "type": "string",
           "description": "The referenced collection to traverse into."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "FilterReferenceCount": {
       "type": "object",
@@ -4554,7 +4580,8 @@
           "type": "string",
           "description": "The cross-reference property whose count is filtered."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "FilterTarget": {
       "type": "object",
@@ -4588,7 +4615,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "Filters": {
       "type": "object",
@@ -4688,7 +4716,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "ObjectPropertiesRequest": {
       "type": "object",
@@ -4713,7 +4742,8 @@
             "$ref": "#/definitions/ObjectPropertiesRequest"
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "RefPropertiesRequest": {
       "type": "object",
@@ -4743,7 +4773,8 @@
           "type": "string",
           "description": "The referenced collection (for multi-target references)."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "PropertiesRequest": {
       "type": "object",
@@ -4775,7 +4806,8 @@
           "type": "boolean",
           "description": "If true, return all non-reference properties (ignores nonRefProperties)."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "MetadataRequest": {
       "type": "object",
@@ -4829,7 +4861,8 @@
           "type": "boolean",
           "description": "Return per-shard query profiling (timing breakdowns) in the reply."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "SearchGroupBy": {
       "type": "object",
@@ -4851,7 +4884,8 @@
           "type": "integer",
           "description": "Maximum number of objects per group."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "SortBy": {
       "type": "object",
@@ -4869,7 +4903,8 @@
             "description": "The property to sort by (currently exactly one)."
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "Rerank": {
       "type": "object",
@@ -4883,7 +4918,8 @@
           "type": "string",
           "description": "Optional rerank query; defaults to the search query."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "GenerativeSearch": {
       "type": "object",
@@ -4941,7 +4977,8 @@
             }
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregationInteger": {
       "type": "object",
@@ -4979,7 +5016,8 @@
           "type": "boolean",
           "description": "Return the minimum."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregationNumber": {
       "type": "object",
@@ -5017,7 +5055,8 @@
           "type": "boolean",
           "description": "Return the minimum."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregationText": {
       "type": "object",
@@ -5039,7 +5078,8 @@
           "type": "integer",
           "description": "Maximum number of top occurrences to return."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregationBoolean": {
       "type": "object",
@@ -5069,7 +5109,8 @@
           "type": "boolean",
           "description": "Return the percentage of false values."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregationDate": {
       "type": "object",
@@ -5099,7 +5140,8 @@
           "type": "boolean",
           "description": "Return the minimum."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregationReference": {
       "type": "object",
@@ -5113,7 +5155,8 @@
           "type": "boolean",
           "description": "Return the collections referenced."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "Aggregation": {
       "type": "object",
@@ -5171,7 +5214,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregateGroupBy": {
       "type": "object",
@@ -5185,7 +5229,8 @@
           "type": "string",
           "description": "The property to group by."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "SearchRequest": {
       "type": "object",
@@ -5383,7 +5428,8 @@
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregateRequest": {
       "type": "object",
@@ -5520,7 +5566,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "Properties": {
       "type": "object",
@@ -5530,7 +5577,8 @@
           "type": "object",
           "description": "Map of property name to its (typed) value."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "MetadataResult": {
       "type": "object",
@@ -5591,7 +5639,8 @@
           "type": "boolean",
           "description": "Whether the read was consistent."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "RefPropertiesResult": {
       "type": "object",
@@ -5608,7 +5657,8 @@
             "$ref": "#/definitions/PropertiesResult"
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "PropertiesResult": {
       "type": "object",
@@ -5637,11 +5687,13 @@
           "type": "boolean",
           "description": "Whether reference properties were requested."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "GenerativeResult": {
       "type": "object",
-      "description": "A generative (RAG) result."
+      "description": "A generative (RAG) result.",
+      "x-doc-only": true
     },
     "SearchResult": {
       "type": "object",
@@ -5671,7 +5723,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "GroupByResult": {
       "type": "object",
@@ -5709,7 +5762,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "QueryProfile": {
       "type": "object",
@@ -5723,7 +5777,8 @@
             "description": "Per-shard profiling entry (name, node, per-search-type timings)."
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "SearchReply": {
       "type": "object",
@@ -5763,11 +5818,13 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregateReplyAggregations": {
       "type": "object",
-      "description": "Per-property aggregation results."
+      "description": "Per-property aggregation results.",
+      "x-doc-only": true
     },
     "AggregateReplySingle": {
       "type": "object",
@@ -5786,7 +5843,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregateReplyGroup": {
       "type": "object",
@@ -5809,7 +5867,8 @@
           "type": "object",
           "description": "The group's path and value."
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregateReplyGrouped": {
       "type": "object",
@@ -5822,7 +5881,8 @@
             "$ref": "#/definitions/AggregateReplyGroup"
           }
         }
-      }
+      },
+      "x-doc-only": true
     },
     "AggregateReply": {
       "type": "object",
@@ -5848,7 +5908,8 @@
             }
           ]
         }
-      }
+      },
+      "x-doc-only": true
     }
   },
   "externalDocs": {
@@ -6011,7 +6072,8 @@
         },
         "tags": [
           "query"
-        ]
+        ],
+        "x-doc-only": true
       }
     },
     "/{collection}/aggregate": {
@@ -6077,7 +6139,8 @@
         },
         "tags": [
           "query"
-        ]
+        ],
+        "x-doc-only": true
       }
     },
     "/": {
@@ -13151,7 +13214,8 @@
     },
     {
       "name": "query",
-      "description": "REST search and aggregation over a single collection (POST /v1/{collection}/query and /v1/{collection}/aggregate). The recommended way to query Weaviate over HTTP and the replacement for GraphQL data queries."
+      "description": "REST search and aggregation over a single collection (POST /v1/{collection}/query and /v1/{collection}/aggregate). The recommended way to query Weaviate over HTTP and the replacement for GraphQL data queries.",
+      "x-doc-only": true
     },
     {
       "name": "meta"

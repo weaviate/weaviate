@@ -26,11 +26,21 @@ go install golang.org/x/tools/cmd/goimports@v0.1.12
 # Explicitly get yamplc package
 (go get github.com/go-openapi/runtime/yamlpc@v0.29.2)
 
+# Generate from a copy of the spec with documentation-only entries removed.
+# Entries marked `"x-doc-only": true` stay in openapi-specs/schema.json for the
+# docs site but are excluded from code generation — they document the REST
+# query/aggregate endpoints, which are served by custom middleware over the gRPC
+# pipeline rather than by generated handlers.
+CODEGEN_DIR="$(mktemp -d)"
+trap 'rm -rf "$CODEGEN_DIR"' EXIT
+CODEGEN_SPEC="$CODEGEN_DIR/schema.json"
+(cd "$DIR"/..; GO111MODULE=on go run ./tools/swagger_strip_doc_only openapi-specs/schema.json "$CODEGEN_SPEC")
+
 # Remove old stuff.
 (cd "$DIR"/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
-(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json)
-(cd "$DIR"/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
+(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec="$CODEGEN_SPEC" -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json)
+(cd "$DIR"/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec="$CODEGEN_SPEC" -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
 (cd "$DIR"/..; GO111MODULE=on GOWORK=off go generate ./deprecations)
