@@ -7575,73 +7575,6 @@
         "x-doc-only": true
       }
     },
-    "/{collection}/query/near-vector": {
-      "post": {
-        "summary": "nearVector search",
-        "description": "Searches a single collection using nearVector. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearVector` search field (the collection comes from the path).",
-        "operationId": "query.nearVector",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "parameters": [
-          {
-            "name": "collection",
-            "in": "path",
-            "description": "The name of the collection (class) to search.",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "description": "weaviate query request body (common params + `nearVector`).",
-            "required": false,
-            "schema": {
-              "$ref": "#/definitions/NearVectorQueryRequest"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Search executed successfully. The body contains the matching objects.",
-            "schema": {
-              "$ref": "#/definitions/SearchReply"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "413": {
-            "description": "The request body exceeds the maximum allowed size."
-          },
-          "422": {
-            "description": "The request is well-formed but could not be processed (for example an unknown collection, invalid parameters, or the endpoint is disabled).",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An internal server error occurred. Check the ErrorResponse for details.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "tags": [
-          "query"
-        ],
-        "x-doc-only": true
-      }
-    },
     "/{collection}/query/near-text": {
       "post": {
         "summary": "nearText (Semantic) search",
@@ -7709,9 +7642,76 @@
         "x-doc-only": true
       }
     },
+    "/{collection}/query/near-vector": {
+      "post": {
+        "summary": "nearVector search",
+        "description": "Searches a single collection using nearVector. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearVector` search field (the collection comes from the path).",
+        "operationId": "query.nearVector",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "path",
+            "description": "The name of the collection (class) to search.",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "description": "weaviate query request body (common params + `nearVector`).",
+            "required": false,
+            "schema": {
+              "$ref": "#/definitions/NearVectorQueryRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search executed successfully. The body contains the matching objects.",
+            "schema": {
+              "$ref": "#/definitions/SearchReply"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeds the maximum allowed size."
+          },
+          "422": {
+            "description": "The request is well-formed but could not be processed (for example an unknown collection, invalid parameters, or the endpoint is disabled).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "tags": [
+          "query"
+        ],
+        "x-doc-only": true
+      }
+    },
     "/{collection}/query/near-object": {
       "post": {
-        "summary": "Similarity search by an existing object",
+        "summary": "nearObject (search by an existing object)",
         "description": "Searches a single collection using nearObject. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearObject` search field (the collection comes from the path).",
         "operationId": "query.nearObject",
         "consumes": [
@@ -7778,7 +7778,7 @@
     },
     "/{collection}/query/near-image": {
       "post": {
-        "summary": "Near-image search",
+        "summary": "nearImage search",
         "description": "Searches a single collection using nearImage. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearImage` search field (the collection comes from the path). Requires a multi-modal module.",
         "operationId": "query.nearImage",
         "consumes": [
@@ -7845,7 +7845,7 @@
     },
     "/{collection}/query/near-audio": {
       "post": {
-        "summary": "Near-audio search",
+        "summary": "nearAudio search",
         "description": "Searches a single collection using nearAudio. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearAudio` search field (the collection comes from the path). Requires a multi-modal module.",
         "operationId": "query.nearAudio",
         "consumes": [
@@ -7912,7 +7912,7 @@
     },
     "/{collection}/query/near-video": {
       "post": {
-        "summary": "Near-video search",
+        "summary": "nearVideo search",
         "description": "Searches a single collection using nearVideo. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearVideo` search field (the collection comes from the path). Requires a multi-modal module.",
         "operationId": "query.nearVideo",
         "consumes": [
@@ -7979,7 +7979,7 @@
     },
     "/{collection}/query/near-depth": {
       "post": {
-        "summary": "Near-depth search",
+        "summary": "nearDepth search",
         "description": "Searches a single collection using nearDepth. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearDepth` search field (the collection comes from the path). Requires a multi-modal module.",
         "operationId": "query.nearDepth",
         "consumes": [
@@ -8046,7 +8046,7 @@
     },
     "/{collection}/query/near-thermal": {
       "post": {
-        "summary": "Near-thermal search",
+        "summary": "nearThermal search",
         "description": "Searches a single collection using nearThermal. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearThermal` search field (the collection comes from the path). Requires a multi-modal module.",
         "operationId": "query.nearThermal",
         "consumes": [
@@ -8113,7 +8113,7 @@
     },
     "/{collection}/query/near-imu": {
       "post": {
-        "summary": "Near-IMU search",
+        "summary": "nearImu search",
         "description": "Searches a single collection using nearImu. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearImu` search field (the collection comes from the path). Requires a multi-modal module.",
         "operationId": "query.nearImu",
         "consumes": [
