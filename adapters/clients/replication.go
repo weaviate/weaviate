@@ -117,7 +117,8 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	}
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodGet, host, index, shard,
-		"", "_digest", bytes.NewReader(body), 0)
+		"", "_digest", bytes.NewReader(body), 0,
+	)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -142,7 +143,8 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", "digestsInRange", bytes.NewReader(body), 0)
+		"", "digestsInRange", bytes.NewReader(body), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -236,7 +238,8 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 	// per-cycle deadline on the incoming context.
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", "compareDigests", bytes.NewReader(body), 0)
+		"", "compareDigests", bytes.NewReader(body), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -323,7 +326,8 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", fmt.Sprintf("hashtree/level/%d", level), bytes.NewReader(bodyBytes), 0)
+		"", fmt.Sprintf("hashtree/level/%d", level), bytes.NewReader(bodyBytes), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -517,7 +521,8 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,
-		"", "_overwrite", bytes.NewReader(bodyCompressed), 0)
+		"", "_overwrite", bytes.NewReader(bodyCompressed), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -566,11 +571,11 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	// storobj.MarshalBinary intentionally excludes Conditional (it is a per-request
-	// attribute, not a storage attribute), so carry the Phase-1 precondition flags as
-	// dedicated query parameters.  The receiving handler restores them into obj.Conditional
-	// before passing to ReplicateObject.  Old replicas missing these params treat the
-	// request as unconditional (KNOWN-WEAK-ROLLING-UPGRADE).
-	if obj.Conditional.OnlyIfNotExists || obj.Conditional.OnlyIfExists || obj.Conditional.IfVersion != nil {
+	// attribute, not a storage attribute), so carry the precondition flags as dedicated
+	// query parameters. The receiving handler restores them into obj.Conditional before
+	// passing to ReplicateObject. Old replicas missing these params treat the request as
+	// unconditional (KNOWN-WEAK-ROLLING-UPGRADE).
+	if !obj.Conditional.IsZero() {
 		q := req.URL.Query()
 		if obj.Conditional.OnlyIfNotExists {
 			q.Set(replica.ConditionalOnlyIfNotExistsKey, "true")
@@ -580,6 +585,18 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 		}
 		if obj.Conditional.IfVersion != nil {
 			q.Set(replica.ConditionalIfVersionKey, fmt.Sprintf("%d", *obj.Conditional.IfVersion))
+		}
+		if obj.Conditional.UpdateIf != nil {
+			prop, val, vtype := storobj.SerializePredicateToQueryParams(obj.Conditional.UpdateIf)
+			// Emit all three params whenever a predicate is present. Property and
+			// value_type are always non-empty for a valid Predicate; value MAY be ""
+			// (empty string is a valid text value). The receiver uses property+value_type
+			// presence as the discriminator, not the value string.
+			if prop != "" && vtype != "" {
+				q.Set(replica.ConditionalFieldPropertyKey, prop)
+				q.Set(replica.ConditionalFieldValueKey, val)
+				q.Set(replica.ConditionalFieldValueTypeKey, vtype)
+			}
 		}
 		req.URL.RawQuery = q.Encode()
 	}

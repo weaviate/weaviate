@@ -289,8 +289,8 @@ func TestConditionalWriteRESTHandlerMessageText(t *testing.T) {
 // etagFakeManager supports GetObject (for ETag) and UpdateObject (for If-Match).
 // Other methods panic as in conditionalFakeManager.
 type etagFakeManager struct {
-	getObjectReturn *models.Object
-	getObjectErr    error
+	getObjectReturn    *models.Object
+	getObjectErr       error
 	updateObjectReturn *models.Object
 	updateObjectErr    error
 	// capturedCtx captures the context passed to UpdateObject so tests can
@@ -303,67 +303,80 @@ func (f *etagFakeManager) AddObject(_ context.Context, _ *models.Principal,
 ) (*models.Object, error) {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) ValidateObject(context.Context, *models.Principal,
 	*models.Object, *additional.ReplicationProperties,
 ) error {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) GetObject(_ context.Context, _ *models.Principal,
 	_ string, _ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties, _ string,
 ) (*models.Object, error) {
 	return f.getObjectReturn, f.getObjectErr
 }
+
 func (f *etagFakeManager) DeleteObject(context.Context, *models.Principal,
 	string, strfmt.UUID, *additional.ReplicationProperties, string,
 ) error {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) UpdateObject(ctx context.Context, _ *models.Principal,
 	_ string, _ strfmt.UUID, _ *models.Object, _ *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	f.capturedCtx = ctx
 	return f.updateObjectReturn, f.updateObjectErr
 }
+
 func (f *etagFakeManager) HeadObject(context.Context, *models.Principal,
 	string, strfmt.UUID, *additional.ReplicationProperties, string,
 ) (bool, *uco.Error) {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) GetObjects(context.Context, *models.Principal,
 	*int64, *int64, *string, *string, *string, additional.Properties, string,
 ) ([]*models.Object, error) {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) Query(context.Context, *models.Principal,
 	*uco.QueryParams,
 ) ([]*models.Object, *uco.Error) {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) MergeObject(context.Context, *models.Principal,
 	*models.Object, *additional.ReplicationProperties,
 ) *uco.Error {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) AddObjectReference(context.Context, *models.Principal,
 	*uco.AddReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) UpdateObjectReferences(context.Context, *models.Principal,
 	*uco.PutReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) DeleteObjectReference(context.Context, *models.Principal,
 	*uco.DeleteReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) GetObjectsClass(context.Context, *models.Principal,
 	strfmt.UUID,
 ) (*models.Class, error) {
 	panic("not implemented")
 }
+
 func (f *etagFakeManager) GetObjectClassFromName(context.Context, *models.Principal,
 	string,
 ) (*models.Class, error) {

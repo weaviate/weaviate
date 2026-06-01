@@ -54,6 +54,7 @@ function main() {
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
+  run_acceptance_conditional_writes=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -106,6 +107,7 @@ function main() {
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
+          --acceptance-conditional-writes|-acw) run_all_tests=false; run_acceptance_conditional_writes=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -326,6 +328,11 @@ function main() {
     echo "running reindex multi-tenant acceptance tests"
     run_acceptance_reindex_mt
   fi
+
+  if $run_acceptance_conditional_writes; then
+    echo "running conditional-writes RF=3 acceptance tests"
+    run_acceptance_conditional_writes
+  fi
   echo "Done!"
 }
 
@@ -489,6 +496,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_concurrent' \
     | grep -v 'test/acceptance/reindex_mt' \
     | grep -v 'test/acceptance/distributed_tasks' \
+    | grep -v 'test/acceptance/conditional_writes' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -1048,6 +1056,19 @@ function run_acceptance_objects() {
       return 1
     fi
   done
+}
+
+function run_acceptance_conditional_writes() {
+  echo_green "acceptance: conditional-writes: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  run_aof_group "conditional-writes" test/acceptance/conditional_writes
 }
 
 function run_acceptance_only_tests() {

@@ -153,6 +153,23 @@ func parseVersionMatchCondition(expectedVersion, ifMatchHeader string) (storobj.
 	return storobj.Conditional{IfVersion: &v}, nil
 }
 
+// parseFieldPredicateCondition builds a Conditional with UpdateIf set from the
+// ?property=, ?value=, and ?value_type= query parameters extracted from r.
+// Returns an error when the parameters are absent or cannot be parsed into a
+// valid Predicate.
+func parseFieldPredicateCondition(r *http.Request) (storobj.Conditional, error) {
+	q := r.URL.Query()
+	pred, err := storobj.ParsePredicateFromQueryParams(
+		q.Get("property"),
+		q.Get("value"),
+		q.Get("value_type"),
+	)
+	if err != nil {
+		return storobj.Conditional{}, err
+	}
+	return storobj.Conditional{UpdateIf: pred}, nil
+}
+
 // objectVersionFromAdditional extracts the server-managed Version from an object's
 // AdditionalProperties map, where it is placed by storobj.SearchResult. Returns 0
 // when absent (legacy object, no version tracked).
@@ -206,10 +223,11 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	// directly from the raw query string.
 	//
 	// Supported values:
-	//   insert_if_not_exists            → OnlyIfNotExists = true (idempotent insert)
-	//   update_if_exists                → OnlyIfExists    = true (update-only)
-	//   version_match&expected_version=N → IfVersion = &N  (Phase-2 version-CAS)
-	//   (absent or empty)               → unconditional write
+	//   insert_if_not_exists                                    → OnlyIfNotExists = true (idempotent insert)
+	//   update_if_exists                                        → OnlyIfExists    = true (update-only)
+	//   version_match&expected_version=N                        → IfVersion = &N  (Phase-2 version-CAS)
+	//   field_match&property=<name>&value=<v>&value_type=<type> → UpdateIf (Phase-3 field-predicate)
+	//   (absent or empty)                                       → unconditional write
 	q := params.HTTPRequest.URL.Query()
 	conditionalOp := q.Get("condition")
 	isConditional := conditionalOp != ""
@@ -228,6 +246,18 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 					Error:  "bad_request",
 					Code:   "invalid_version",
 					Detail: conditionalWriteConflictDetail{Message: err.Error()},
+				})
+		}
+	case "field_match":
+		var predErr error
+		cond, predErr = parseFieldPredicateCondition(params.HTTPRequest)
+		if predErr != nil {
+			h.metricRequestsTotal.logUserError(className)
+			return newConditionalWriteResponder(http.StatusBadRequest,
+				conditionalWriteConflictResponse{
+					Error:  "bad_request",
+					Code:   "invalid_field_predicate",
+					Detail: conditionalWriteConflictDetail{Message: predErr.Error()},
 				})
 		}
 	}
@@ -591,12 +621,31 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	}
 
 	// Phase-2: If-Match header or ?expected_version=N triggers version-CAS.
+	// Phase-3: ?condition=field_match&property=<name>&value=<v>&value_type=<type>
+	// triggers field-predicate CAS. The two conditions are mutually exclusive in v1.
 	// The conditional is threaded through context so crud.go restores it on
 	// the storobj.Object before putObjectLSM runs the check (INV-RBAC-1 preserved:
 	// auth runs in UpdateObject before the conditional check reaches the shard).
+	conditionalPutOp := params.HTTPRequest.URL.Query().Get("condition")
 	ifMatch := params.HTTPRequest.Header.Get("If-Match")
-	if ifMatch != "" {
-		cond, parseErr := parseVersionMatchCondition("", ifMatch)
+
+	var putCond storobj.Conditional
+	switch {
+	case conditionalPutOp == "field_match":
+		var predErr error
+		putCond, predErr = parseFieldPredicateCondition(params.HTTPRequest)
+		if predErr != nil {
+			h.metricRequestsTotal.logUserError(className)
+			return newConditionalWriteResponder(http.StatusBadRequest,
+				conditionalWriteConflictResponse{
+					Error:  "bad_request",
+					Code:   "invalid_field_predicate",
+					Detail: conditionalWriteConflictDetail{Message: predErr.Error()},
+				})
+		}
+	case ifMatch != "":
+		var parseErr error
+		putCond, parseErr = parseVersionMatchCondition("", ifMatch)
 		if parseErr != nil {
 			h.metricRequestsTotal.logUserError(className)
 			return newConditionalWriteResponder(http.StatusBadRequest,
@@ -606,7 +655,9 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 					Detail: conditionalWriteConflictDetail{Message: parseErr.Error()},
 				})
 		}
-		ctx = storobj.ContextWithConditional(ctx, cond)
+	}
+	if !putCond.IsZero() {
+		ctx = storobj.ContextWithConditional(ctx, putCond)
 	}
 
 	object, err := h.manager.UpdateObject(ctx,
@@ -617,20 +668,31 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			return objects.NewObjectsClassPutTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
 		}
-		// Phase-2: version-CAS mismatch on PUT → 412 Precondition Failed.
-		// Per RFC 7232: condition on a resource's state failed.
-		// 412 is used here (not 409) because this is a header-precondition failure,
-		// not a state-conflict; see synthesis §2.2 for the 409/412 split.
+		// Handle conditional write precondition failures.
+		// Phase-2 (If-Match / version-CAS) → 412 Precondition Failed (RFC 7232 header-precondition).
+		// Phase-3 (field_match) → 409 Conflict (consistent with Phase-1 conditional semantics).
 		var pf *uco.ErrPreconditionFailed
 		if errors.As(err, &pf) {
 			h.metricRequestsTotal.logUserError(className)
-			body := map[string]interface{}{
-				"error":           "precondition_failed",
-				"expected_version": pf.ExpectedVersion,
-				"current_version":  pf.ActualVersion,
-				"message":         pf.Reason,
+			// If-Match was active → 412 (RFC 7232 header-precondition failure).
+			if putCond.IfVersion != nil {
+				body := map[string]interface{}{
+					"error":            "precondition_failed",
+					"expected_version": pf.ExpectedVersion,
+					"current_version":  pf.ActualVersion,
+					"message":          pf.Reason,
+				}
+				return newConditionalWriteResponder(http.StatusPreconditionFailed, body)
 			}
-			return newConditionalWriteResponder(http.StatusPreconditionFailed, body)
+			// field_match was active → 409 Conflict (consistent with Phase-1/3 semantics).
+			return newConditionalWriteResponder(http.StatusConflict,
+				conditionalWriteConflictResponse{
+					Error: "conditional_check_failed",
+					Code:  "condition_not_met",
+					Detail: conditionalWriteConflictDetail{
+						Message: pf.Reason,
+					},
+				})
 		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
