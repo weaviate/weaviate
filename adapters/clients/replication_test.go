@@ -366,6 +366,12 @@ func TestReplicationAbort(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(t, ts.Client())
+	// Abort's per-request deadline is timeoutUnit*ABORT_TIMEOUT_VALUE. With the
+	// default 20ms timeoutUnit that is only 100ms, which races a localhost
+	// round-trip and loses under parallel -race CPU load. Bump timeoutUnit so
+	// the deadline (4s) dwarfs both the round-trip and the retry budget (72ms),
+	// for every subtest below — not just ServerInternalError.
+	client.timeoutUnit = client.maxBackOff * 100
 
 	t.Run("ConnectionError", func(t *testing.T) {
 		client := newReplicationClient(t, ts.Client())
@@ -386,11 +392,7 @@ func TestReplicationAbort(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
-	// timeoutUnit * 5 drives the per-request context deadline. Setting it to
-	// maxBackOff*100 (800ms) makes the deadline >> MaxElapsedTime (72ms), so
-	// the retry loop always exhausts retries rather than the context, even under
-	// CI scheduling pressure.
-	client.timeoutUnit = client.maxBackOff * 100
+
 	t.Run("ServerInternalError", func(t *testing.T) {
 		_, err := client.Abort(ctx, fs.host, "C1", "S1", RequestInternalError)
 		assert.NotNil(t, err)
@@ -796,6 +798,7 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		_, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest in range record")

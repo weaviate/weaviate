@@ -106,6 +106,7 @@ const (
 )
 
 type Compose struct {
+	netOctet                    int // second octet of this cluster's subnet, set in Start
 	enableModules               []string
 	defaultVectorizerModule     string
 	withMinIO                   bool
@@ -705,15 +706,26 @@ func (d *Compose) WithAutoschema() *Compose {
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
-	network, err := tescontainersnetwork.New(
-		ctx,
-		tescontainersnetwork.WithAttachable(),
-		tescontainersnetwork.WithIPAM(&dockernetwork.IPAM{
-			Config: []dockernetwork.IPAMConfig{
-				{Subnet: TestSubnet, Gateway: TestGateway},
-			},
-		}),
-	)
+	// Each cluster gets its own subnet (10.<octet>.0.0/16). Two networks can
+	// still draw the same random octet — including several within one test
+	// binary — so re-roll and retry when Docker reports an overlap.
+	newNet := func() (*testcontainers.DockerNetwork, error) {
+		return tescontainersnetwork.New(
+			ctx,
+			tescontainersnetwork.WithAttachable(),
+			tescontainersnetwork.WithIPAM(&dockernetwork.IPAM{
+				Config: []dockernetwork.IPAMConfig{
+					{Subnet: subnetForOctet(d.netOctet), Gateway: gatewayForOctet(d.netOctet)},
+				},
+			}),
+		)
+	}
+	d.netOctet = pickNetOctet()
+	network, err := newNet()
+	for retries := 0; err != nil && retries < 9 && strings.Contains(err.Error(), "overlaps"); retries++ {
+		d.netOctet = pickNetOctet()
+		network, err = newNet()
+	}
 	if err != nil {
 		return nil, errors.Wrapf(err, "connecting to network")
 	}
@@ -725,7 +737,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
-		container, err := startMinIO(ctx, networkName, d.withBackendS3Buckets)
+		container, err := startMinIO(ctx, networkName, d.netOctet, d.withBackendS3Buckets)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
@@ -937,7 +949,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 				containers = append(containers, c)
 			}
 		}
-		return &DockerCompose{network, containers}, err
+		return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, err
 	}
 
 	if d.withSecondWeaviate {
@@ -955,17 +967,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
 		if err != nil {
-			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
+			return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, errors.Wrapf(err, "start %s", hostname)
 		}
 	}
 
-	return &DockerCompose{network, containers}, nil
+	return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, nil
 }
 
 func (d *Compose) With1NodeCluster() *Compose {
@@ -1119,7 +1131,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
-				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
 			cancel()
 			if err == nil {
 				if attempt > 0 {
