@@ -148,7 +148,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
 			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
@@ -384,7 +383,6 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
 			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
@@ -582,7 +580,6 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
 			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
