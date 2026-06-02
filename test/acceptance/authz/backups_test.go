@@ -136,13 +136,6 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		}
 	})
 
-	// backup-1 (clsA) is now persisted. The subtests below cover the RBAC
-	// behaviour of the status/cancel/list endpoints:
-	//   - list returns a 200 filtered response containing only the backups
-	//     whose classes the caller has READ on,
-	//   - status/cancel authorize against the resolved classes of the
-	//     target backup, so a caller without permission on those classes
-	//     gets 403 once the meta has been read.
 	t.Run("list backups filters in response instead of returning 403", func(t *testing.T) {
 		// Admin sees every backup.
 		adminResp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(adminKey))
@@ -178,11 +171,6 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	// The following subtests cover the RBAC filter behaviour of Backup:
-	//   - empty Include narrows the operation to the caller's permitted classes,
-	//   - empty Include with no permitted classes returns 422 "no classes found",
-	//   - explicit Include is authorized strictly and fails 403 when the caller
-	//     lacks permission on any listed class.
 	t.Run("empty Include filters to classes the caller is permitted to back up", func(t *testing.T) {
 		filterBackupID := "backup-filter-1"
 		params := backups.NewBackupsCreateParams().
