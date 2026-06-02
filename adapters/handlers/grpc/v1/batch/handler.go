@@ -88,9 +88,16 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		if err != nil {
 			return nil, err
 		}
-		knownClasses[classname] = vClass[classname]
-		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
-		return vClass[classname].Class, nil
+		cls := vClass[classname]
+
+		if err := h.schemaManager.WaitForUpdate(ctx, cls.Version); err != nil {
+			return nil, fmt.Errorf("wait for schema update: %w", err)
+		}
+
+		knownClasses[classname] = cls
+		knownClassesAuthCheck[classTenantName] = cls.Class
+
+		return cls.Class, nil
 	}
 	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter)
 
