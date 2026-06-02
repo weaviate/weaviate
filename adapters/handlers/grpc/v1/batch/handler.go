@@ -90,6 +90,8 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		}
 		cls := vClass[classname]
 
+		// ensure our local schema is caught up to the leader to avoid any downstream EC issues like
+		// tenants in the wrong status or missing aliases due to raft propagation lag
 		if err := h.schemaManager.WaitForUpdate(ctx, cls.Version); err != nil {
 			return nil, fmt.Errorf("wait for schema update: %w", err)
 		}
