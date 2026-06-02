@@ -152,7 +152,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 
 	// When Include is empty ("all classes"), reduce the resolved list to
 	// classes the caller is allowed to back up. An explicit list was already
-	// strictly authorized above.
+	// strictly authorized above. An empty filtered result is rejected as an
+	// error by filterBackupableClasses, so classes is guaranteed non-empty here.
 	if !explicitInclude {
 		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
 		if err != nil {
@@ -225,7 +226,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	// When Include is empty ("all classes in the backup"), reduce the backup's
 	// class list to those the caller is allowed to restore. An explicit list
-	// was already strictly authorized above.
+	// was already strictly authorized above. An empty filtered result is
+	// rejected as an error by filterBackupableClasses.
 	if !explicitInclude {
 		allowed, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, meta.Classes())
 		if err != nil {
@@ -280,7 +282,10 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 	allowed := make([]string, 0, len(classes))
 	for _, c := range classes {
 		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(c)...); err != nil {
-			continue
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				continue
+			}
+			return nil, err
 		}
 		allowed = append(allowed, c)
 	}
