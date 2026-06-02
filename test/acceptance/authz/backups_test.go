@@ -215,7 +215,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		helper.ExpectBackupEventuallyCreated(t, filterBackupID, backend, helper.CreateAuth(customKey))
 	})
 
-	t.Run("empty Include with no backup permissions returns 422 no classes found", func(t *testing.T) {
+	t.Run("empty Include with no backup permissions returns 403", func(t *testing.T) {
 		params := backups.NewBackupsCreateParams().
 			WithBackend(backend).
 			WithBody(&models.BackupCreateRequest{
@@ -224,9 +224,9 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 			})
 		_, err := helper.Client(t).Backups.BackupsCreate(params, helper.CreateAuth(viewerKey))
 		require.Error(t, err)
-		var parsed *backups.BackupsCreateUnprocessableEntity
+		var parsed *backups.BackupsCreateForbidden
 		require.True(t, errors.As(err, &parsed))
-		require.Contains(t, parsed.Payload.Error[0].Message, "no classes found")
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("explicit Include is forbidden when caller lacks permission on a listed class", func(t *testing.T) {
@@ -310,7 +310,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("empty Include restore with no backup permissions returns 422 no classes found", func(t *testing.T) {
+	t.Run("empty Include restore with no backup permissions returns 403", func(t *testing.T) {
 		params := backups.NewBackupsRestoreParams().
 			WithBackend(backend).
 			WithID("backup-1").
@@ -319,9 +319,9 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 			})
 		_, err := helper.Client(t).Backups.BackupsRestore(params, helper.CreateAuth(viewerKey))
 		require.Error(t, err)
-		var parsed *backups.BackupsRestoreUnprocessableEntity
+		var parsed *backups.BackupsRestoreForbidden
 		require.True(t, errors.As(err, &parsed))
-		require.Contains(t, parsed.Payload.Error[0].Message, "no classes found")
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("empty Include restore filters to classes the caller is permitted to restore", func(t *testing.T) {

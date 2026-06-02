@@ -148,10 +148,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// An empty filtered result is rejected as an error by filterBackupableClasses.
+	// An empty filtered result returns Forbidden from filterBackupableClasses.
 	if !explicitInclude {
 		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
 		if err != nil {
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return nil, err
+			}
 			return nil, backup.NewErrUnprocessable(err)
 		}
 	}
@@ -217,10 +220,13 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// An empty filtered result is rejected as an error by filterBackupableClasses.
+	// An empty filtered result returns Forbidden from filterBackupableClasses.
 	if !explicitInclude {
 		allowed, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, meta.Classes())
 		if err != nil {
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return nil, err
+			}
 			return nil, backup.NewErrUnprocessable(err)
 		}
 		meta.Include(allowed)
@@ -266,8 +272,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 // to act on with the given verb under the backups domain. It is used on the
 // "all classes" path (empty Include) to narrow the operation to the classes
 // the caller has permission on, rather than 403-ing the whole request.
-// An empty result is treated as an error so the caller does not silently
-// proceed with nothing to back up / restore.
+// An empty result returns Forbidden so the caller learns they have no
+// permission to act on any class, consistent with the explicit-Include path.
 func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
 	allowed := make([]string, 0, len(classes))
 	for _, c := range classes {
@@ -280,7 +286,7 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 		allowed = append(allowed, c)
 	}
 	if len(allowed) == 0 {
-		return nil, errors.New("no classes found that the caller is permitted to access")
+		return nil, authzerrors.NewForbidden(pr, verb, authorization.Backups(classes...)...)
 	}
 	return allowed, nil
 }
