@@ -1,0 +1,73 @@
+name: Notify Slack on release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  notify-slack:
+    name: Post release notes to Slack
+    runs-on: ubuntu-latest
+    # Skip drafts only — publish for stable GA and pre-releases (rc/beta/alpha).
+    if: ${{ github.event.release.draft == false }}
+    steps:
+      - name: Build Slack payload
+        env:
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REL_URL: ${{ github.event.release.html_url }}
+          REL_BODY: ${{ github.event.release.body }}
+          # Optional: Slack member ID (e.g. U01ABC23DEF) so "cc:" actually pings.
+          # Set as a repo variable: Settings → Secrets and variables → Actions → Variables.
+          CC_USER_ID: ${{ vars.SLACK_CC_USER_ID }}
+        run: |
+          set -euo pipefail
+
+          # "Weaviate Core <release number>" — strip a leading "v" from the tag.
+          number="${REL_TAG#v}"
+
+          # Convert a subset of GitHub Markdown to Slack mrkdwn and truncate so the
+          # message stays well under Slack's 3000-character section-block limit.
+          # - drop authorship/PR refs: "by @user", "in #123", "in <pull-url>"
+          # - md → mrkdwn: "## heading" → "*heading*", "**x**" → "*x*"
+          changes="$(printf '%s' "$REL_BODY" \
+            | sed -E 's#[[:space:]]+in[[:space:]]+https?://[^[:space:]]+##g' \
+            | sed -E 's/[[:space:]]+in[[:space:]]+#[0-9]+//g' \
+            | sed -E 's/[[:space:]]+by[[:space:]]+@[A-Za-z0-9_-]+//g' \
+            | sed -E 's/^#{1,6}[[:space:]]+(.*)$/*\1*/' \
+            | sed -E 's/\*\*([^*]+)\*\*/*\1*/g')"
+
+          max=2500
+          if [ "${#changes}" -gt "$max" ]; then
+            changes="$(printf '%s' "$changes" | head -c "$max")…"
+          fi
+          if [ -z "${changes// }" ]; then
+            changes="_(see release notes below)_"
+          fi
+
+          # A real Slack ping needs <@MEMBER_ID>; append the cc line only when set.
+          cc_line=""
+          if [ -n "${CC_USER_ID:-}" ]; then
+            cc_line="$(printf '\n\ncc: <@%s>' "$CC_USER_ID")"
+          fi
+
+          # Assemble the message body in the user's template, then let jq do all
+          # JSON escaping via --arg.
+          text="$(printf 'Weaviate Core *%s* release :tada:\n\nThis release contains:\n\n%s\n\nRelease notes: %s%s' \
+            "$number" "$changes" "$REL_URL" "$cc_line")"
+
+          jq -n --arg text "$text" \
+            '{ blocks: [ { type: "section", text: { type: "mrkdwn", text: $text } } ] }' \
+            > payload.json
+
+          echo "Generated payload:"
+          cat payload.json
+
+      - name: Send to Slack
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload-file-path: payload.json
