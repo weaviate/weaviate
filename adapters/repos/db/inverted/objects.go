@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -473,17 +474,25 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 	var asRefs models.MultipleRef
 	asRefs, ok = value.(models.MultipleRef)
 	if !ok {
-		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
-		// MultipleRef's can appear as empty []any when no actual refs are provided for
-		// an object's reference property.
-		//
-		// if we encounter []any, assume it indicates an empty ref prop, and skip it.
-		_, ok := value.([]any)
-		if !ok {
-			return fmt.Errorf("expected property %q to be of type models.MutlipleRef,"+
+		// A reference can also arrive as a generic []any of beacon
+		// maps — e.g. an object decoded from JSON during async-replication
+		// repair. Per PR #2320 an *empty* []any means "no refs". A *populated*
+		// one carries real beacons and must be parsed and indexed: silently
+		// skipping it drops the refs from the filterable bucket and makes
+		// by-reference filters miss the object.
+		untyped, isUntyped := value.([]any)
+		if !isUntyped {
+			return fmt.Errorf("expected property %q to be of type models.MultipleRef,"+
 				" but got %T", prop.Name, value)
 		}
-		return nil
+		if len(untyped) == 0 {
+			return nil
+		}
+		parsed, err := refsFromUntyped(untyped)
+		if err != nil {
+			return fmt.Errorf("reference property %q: %w", prop.Name, err)
+		}
+		asRefs = parsed
 	}
 
 	property, err := a.analyzeRefPropCount(prop, asRefs)
@@ -504,6 +513,26 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 
 	*properties = append(*properties, *property)
 	return nil
+}
+
+// refsFromUntyped converts a reference property decoded from generic JSON
+// ([]interface{} of {"beacon": ...} maps) into models.MultipleRef, so it can be
+// indexed like a natively-typed reference. Used when an object reaches the
+// analyzer without the typed-coercion the read path normally applies.
+func refsFromUntyped(value []interface{}) (models.MultipleRef, error) {
+	refs := make(models.MultipleRef, len(value))
+	for i, elem := range value {
+		asMap, ok := elem.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected ref element %d to be a map, got %T", i, elem)
+		}
+		beacon, ok := asMap["beacon"].(string)
+		if !ok {
+			return nil, fmt.Errorf("expected ref element %d to have a string %q, got %T", i, "beacon", asMap["beacon"])
+		}
+		refs[i] = &models.SingleRef{Beacon: strfmt.URI(beacon)}
+	}
+	return refs, nil
 }
 
 func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
