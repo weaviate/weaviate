@@ -628,7 +628,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.NoError(t, err)
 		require.Equal(t, expected, got)
@@ -643,7 +642,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.NoError(t, err)
 		require.Equal(t, expected, got)
@@ -663,7 +661,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status code")
@@ -677,7 +674,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest")
@@ -719,9 +715,6 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		// timeoutUnit*20 is the per-request deadline; set it large enough to
-		// survive CI scheduling jitter without relying on retry.
-		c.timeoutUnit = time.Second
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
@@ -740,7 +733,6 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
@@ -759,7 +751,6 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -793,7 +784,6 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		_, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest in range record")
@@ -941,6 +931,8 @@ func newReplicationClient(t *testing.T, httpClient *http.Client) *replicationCli
 	require.NoError(t, err)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
-	c.timeoutUnit = time.Millisecond * 20
+	// Generous deadline: a localhost round-trip under -race CI load otherwise
+	// loses to it, surfacing "context deadline exceeded" instead of the real error.
+	c.timeoutUnit = time.Second
 	return c
 }
