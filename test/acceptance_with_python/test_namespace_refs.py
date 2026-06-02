@@ -79,7 +79,7 @@ from weaviate.collections.classes.filters import Filter
 from weaviate.collections.classes.grpc import QueryReference
 from weaviate.collections.classes.internal import ReferenceToMulti
 
-import namespace_helpers as nsh
+from . import namespace_helpers as nsh
 
 # Ports must match docker-compose-namespaces-test.yml. Three nodes so we can
 # distribute writes/reads across the cluster within a single test.

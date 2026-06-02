@@ -29,7 +29,7 @@ import weaviate.classes.config as wvcc
 from weaviate import WeaviateClient
 from weaviate.exceptions import UnexpectedStatusCodeError
 
-import namespace_helpers as nsh
+from . import namespace_helpers as nsh
 
 # Ports must match docker-compose-namespaces-test.yml.
 NODES: List[Tuple[int, int]] = [
