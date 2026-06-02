@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 var (
@@ -290,17 +291,19 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 }
 
 // authorizeBackupByID reads the backup meta for backupID and authorizes the
-// caller against the classes recorded in the backup. If the meta cannot be
-// read (e.g. the backup does not exist, or it is still in-flight and has not
-// yet persisted its descriptor), this is a no-op: leaking the existence of a
-// backup ID via a 404 response is intentional; what must stay protected is
-// the content of the backup (class list, status).
+// caller against the classes recorded in the backup. A not-found meta is a
+// no-op: leaking the existence of a backup ID via a 404 response is
+// intentional. Any other backend error fails closed so that callers cannot
+// observe in-flight backup state when the descriptor read is failing.
 func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
 	store coordStore, filename, overrideBucket, overridePath string,
 ) error {
 	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
-	if err != nil || meta == nil {
-		return nil
+	if err != nil {
+		if errors.As(err, &backup.ErrNotFound{}) {
+			return nil
+		}
+		return err
 	}
 	return s.authorizer.Authorize(ctx, principal, verb, authorization.Backups(meta.Classes()...)...)
 }
@@ -373,13 +376,18 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 
-	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
-	if meta != nil {
-		// Authorize against the backup's actual classes.
-		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
-			return err
-		}
-		// if existed meta and not in the next cases shall be cancellable
+	// When the meta cannot be read, authorize against wildcard backups so that
+	// only callers with DELETE on all backups can cancel an op whose class list
+	// is unknown.
+	meta, metaErr := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
+	var classes []string
+	if metaErr == nil {
+		classes = meta.Classes()
+	}
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
+		return err
+	}
+	if metaErr == nil {
 		switch meta.Status {
 		case backup.Cancelled:
 			return nil
@@ -425,11 +433,22 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 
-	meta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
-	if meta != nil {
-		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
-			return err
-		}
+	// Prefer the restore descriptor for authz; fall back to the backup
+	// descriptor if the restore meta hasn't been written yet. If neither is
+	// readable, authorize against wildcard backups so that only callers with
+	// DELETE on all backups can cancel a restore whose class list is unknown.
+	meta, metaErr := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+	var classes []string
+	if metaErr == nil {
+		classes = meta.Classes()
+	} else if backupMeta, err := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+		classes = backupMeta.Classes()
+	}
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
+		return err
+	}
+
+	if metaErr == nil {
 		switch meta.Status {
 		case backup.Cancelled, backup.Cancelling:
 			// Cancellation already in progress or complete
@@ -460,14 +479,6 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			return nil
 		}
 		s.restorer.lastOp.set(backup.Cancelling)
-	} else {
-		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
-		backupMeta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
-		if backupMeta != nil {
-			if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(backupMeta.Classes()...)...); err != nil {
-				return err
-			}
-		}
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -528,7 +539,10 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	for _, b := range backups {
 		classes := b.Classes()
 		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
-			continue
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				continue
+			}
+			return nil, err
 		}
 		response = append(response, &models.BackupListResponseItems0{
 			ID:          b.ID,

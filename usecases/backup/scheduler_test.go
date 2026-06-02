@@ -207,10 +207,10 @@ func TestSchedulerBackupStatus(t *testing.T) {
 			Path:      path,
 		}
 		// In-flight backup: meta has not yet been persisted, so the meta read
-		// that backs authorizeBackupByID returns no bytes and is a no-op.
+		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
 		// OnStatus then short-circuits on lastOp.
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -225,7 +225,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
 		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
@@ -308,9 +308,10 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		// authorizeBackupByID reads the meta to resolve classes; in the
-		// active-state path we don't require that read to succeed.
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
+		// In-flight restore: meta has not yet been persisted, so the meta read
+		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
+		// OnStatus then short-circuits on lastOp.
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -325,7 +326,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
