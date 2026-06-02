@@ -83,6 +83,15 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/scale",
 	}
 
+	// Per-method ignore: backup status (GET) and restore (POST) / restore
+	// status (GET) on a non-existent backup ID leak 404 because the meta
+	// file is read before class-aware authz can run. Class-specific RBAC
+	// for these endpoints is covered exhaustively in backups_test.go.
+	ignoreEndpointMethods := map[string]map[string]bool{
+		"/backups/{backend}/{id}":         {http.MethodGet: true},
+		"/backups/{backend}/{id}/restore": {http.MethodGet: true, http.MethodPost: true},
+	}
+
 	ignoreGetAll := []string{
 		"/authz/roles",
 		"/authz/groups/{groupType}", // returns 200 with an empty, per-group filtered list (same pattern as /authz/roles)
@@ -111,6 +120,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{id}", "admin-user")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
+		url = strings.ReplaceAll(url, "{indexName}", "filterable")
 		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
 		url = strings.ReplaceAll(url, "{userType}", "db")
 		url = strings.ReplaceAll(url, "{aliasName}", "alias")
@@ -121,7 +131,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			require.NotContains(t, url, "}")
 
 			shallIgnore := slices.Contains(ignoreEndpoints, endpoint.path) ||
-				(endpoint.method == http.MethodGet && slices.Contains(ignoreGetAll, endpoint.path))
+				(endpoint.method == http.MethodGet && slices.Contains(ignoreGetAll, endpoint.path)) ||
+				ignoreEndpointMethods[endpoint.path][strings.ToUpper(endpoint.method)]
 			if shallIgnore {
 				t.Skip("Endpoint is in ignore list")
 				return
