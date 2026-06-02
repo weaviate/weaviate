@@ -5423,10 +5423,6 @@
               "$ref": "#/definitions/Boost"
             }
           ]
-        },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
         }
       },
       "x-doc-only": true
@@ -6006,10 +6002,6 @@
               "$ref": "#/definitions/Boost"
             }
           ]
-        },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
         }
       },
       "x-doc-only": true
@@ -6117,10 +6109,6 @@
               "$ref": "#/definitions/Boost"
             }
           ]
-        },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
         },
         "bm25Search": {
           "$ref": "#/definitions/BM25"
@@ -6232,10 +6220,6 @@
             }
           ]
         },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
-        },
         "hybridSearch": {
           "$ref": "#/definitions/Hybrid"
         }
@@ -6345,10 +6329,6 @@
               "$ref": "#/definitions/Boost"
             }
           ]
-        },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
         },
         "nearVector": {
           "$ref": "#/definitions/NearVector"
@@ -6460,10 +6440,6 @@
             }
           ]
         },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
-        },
         "nearText": {
           "$ref": "#/definitions/NearTextSearch"
         }
@@ -6574,10 +6550,6 @@
             }
           ]
         },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
-        },
         "nearObject": {
           "$ref": "#/definitions/NearObject"
         }
@@ -6687,10 +6659,6 @@
               "$ref": "#/definitions/Boost"
             }
           ]
-        },
-        "uses127Api": {
-          "type": "boolean",
-          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
         },
         "nearImage": {
           "description": "Search by an image. Set exactly one media field.",

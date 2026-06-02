@@ -232,6 +232,10 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		return
 	}
 	req.Collection = collection
+	// REST always returns the modern (1.27+) response shape. uses127Api is a gRPC
+	// client-version negotiation flag (alongside the deprecated uses123/125Api)
+	// and has no place in a new HTTP API, so force it on regardless of the body.
+	req.Uses_127Api = true
 	if err := validateSearchForKind(req, kind); err != nil {
 		h.writeError(w, http.StatusUnprocessableEntity, principal, err)
 		return

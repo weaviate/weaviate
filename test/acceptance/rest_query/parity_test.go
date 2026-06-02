@@ -103,9 +103,10 @@ func TestRESTQueryParity(t *testing.T) {
 		{
 			name: "match all with uuid metadata",
 			req: &pb.SearchRequest{
-				Collection: parityClass,
-				Metadata:   &pb.MetadataRequest{Uuid: true},
-				Limit:      10,
+				Collection:  parityClass,
+				Metadata:    &pb.MetadataRequest{Uuid: true},
+				Limit:       10,
+				Uses_127Api: true, // REST forces this on; match it for a fair comparison
 			},
 		},
 		{

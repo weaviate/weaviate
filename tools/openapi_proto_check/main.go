@@ -54,7 +54,9 @@ type watch struct {
 // must keep up with. Reply messages are intentionally excluded (modeled loosely
 // on purpose). Add a message here when it gains a documented OpenAPI def.
 var watched = map[string]watch{
-	"weaviate.v1.SearchRequest":     {def: "SearchRequest"},
+	// uses127Api is forced on by the REST handler (always the modern response
+	// shape) and intentionally not exposed as a documented field.
+	"weaviate.v1.SearchRequest":     {def: "SearchRequest", omit: []string{"uses127Api"}},
 	"weaviate.v1.AggregateRequest":  {def: "AggregateRequest"},
 	"weaviate.v1.NearVector":        {def: "NearVector"},
 	"weaviate.v1.NearTextSearch":    {def: "NearTextSearch"},
