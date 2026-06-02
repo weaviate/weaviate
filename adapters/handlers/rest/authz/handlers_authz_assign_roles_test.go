@@ -515,7 +515,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
+				controller.On("GetUsers", "testUser").Return(map[string]apikey.UserView{"testUser": {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, authentication.AuthType(tt.params.Body.UserType)), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
