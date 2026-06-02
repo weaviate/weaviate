@@ -43,6 +43,10 @@ type Request struct {
 	// Classes is list of class which need to be backed up
 	Classes []string
 
+	// Resolved from BackupRequest.IncludeUsers by the scheduler. Empty
+	// means the participant keeps its whole-cluster user-snapshot default.
+	Users []string
+
 	// Duration
 	Duration time.Duration
 
@@ -64,6 +68,9 @@ type Request struct {
 	UserRestoreOption string
 
 	RestoreOverwriteAlias bool
+
+	// Restore-only. See BackupRequest.ShouldStripNamespaces.
+	ShouldStripNamespaces bool
 
 	BaseBackupID string
 }

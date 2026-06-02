@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -204,15 +205,17 @@ type uploader struct {
 	cfg            config.Backup
 	sourcer        Sourcer
 	rbacSourcer    fsm.Snapshotter
-	dynUserSourcer fsm.Snapshotter
-	backend        nodeStore
-	backupID       string
+	dynUserSourcer dynUserSnapshotter
+	// Resolved includeUsers ids; empty → whole-cluster snapshot.
+	users    []string
+	backend  nodeStore
+	backupID string
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
-func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
@@ -220,6 +223,7 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 		sourcer:        sourcer,
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
+		users:          users,
 		backend:        backend,
 		backupID:       backupID,
 		zipConfig: newZipConfig(Compression{
@@ -328,11 +332,15 @@ Loop:
 		return contextChecker(ctx)
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
-		descrp, err := u.dynUserSourcer.Snapshot()
+		descrp, err := u.dynUserSourcer.Snapshot(u.users...)
 		if err != nil {
 			return err
 		}
 		desc.UserBackups = descrp
+	} else if len(u.users) > 0 {
+		// includeUsers was set but no sourcer is wired on this participant —
+		// fail loudly rather than ship a missing UserBackups blob.
+		return fmt.Errorf("includeUsers requested but no dynamic-user sourcer is configured on this node")
 	}
 
 	u.setStatus(backup.Transferred)
@@ -743,15 +751,30 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
-// Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
+// Write downloads files into the staging directory. materializedName keys the
+// staging dir; it differs from desc.Name only under namespace-graduation
+// restore, where it must match the RAFT-applied RestoreClassDir lookup. Chunk
+// keys keep desc.Name — object-storage paths are immutable from upload.
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, materializedName, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
-	classTempDir := path.Join(fw.tempDir, desc.Name)
+	classTempDir := path.Join(fw.tempDir, materializedName)
 
 	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
+	}
+
+	if materializedName != desc.Name {
+		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(desc.Name))
+		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
+		if oldIndexDir != newIndexDir {
+			if _, err := os.Stat(oldIndexDir); err == nil {
+				if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
+					return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
+				}
+			}
+		}
 	}
 
 	if fw.migrator != nil {

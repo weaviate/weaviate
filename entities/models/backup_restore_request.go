@@ -43,6 +43,9 @@ type BackupRestoreRequest struct {
 
 	// Allows ovewriting the collection alias if there is a conflict
 	OverwriteAlias bool `json:"overwriteAlias,omitempty"`
+
+	// When true, restore strips the leading namespace prefix from each qualified collection, alias, and dynamic-user identifier before materializing them on the target. Used for Stage-1 namespace graduation onto a namespace-disabled cluster.
+	ShouldStripNamespaces bool `json:"shouldStripNamespaces,omitempty"`
 }
 
 // Validate validates this backup restore request

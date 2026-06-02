@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -37,7 +38,7 @@ type restorer struct {
 	logger         logrus.FieldLogger
 	sourcer        Sourcer
 	rbacSourcer    fsm.Snapshotter
-	dynUserSourcer fsm.Snapshotter
+	dynUserSourcer dynUserSnapshotter
 	backends       BackupBackendProvider
 	shardSyncChan
 
@@ -49,7 +50,7 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter,
+	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter,
 	backends BackupBackendProvider,
 ) *restorer {
 	return &restorer{
@@ -132,7 +133,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption, req.ShouldStripNamespaces)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -150,6 +151,7 @@ func (r *restorer) restore(
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+	stripNamespaces bool,
 ) error {
 	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
@@ -162,8 +164,8 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	if r.dynUserSourcer != nil && len(desc.UserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		if err := r.dynUserSourcer.Restore(desc.UserBackups); err != nil {
-			return fmt.Errorf("restore rbac: %w", err)
+		if err := r.dynUserSourcer.Restore(desc.UserBackups, stripNamespaces); err != nil {
+			return fmt.Errorf("restore users: %w", err)
 		}
 		// Check for cancellation after User restore
 		if err := ctx.Err(); err != nil {
@@ -189,7 +191,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -216,6 +218,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
 	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
+	stripNamespaces bool,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -239,7 +242,15 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, overrideBucket, overridePath, compressionType); err != nil {
+	// Local staging dir uses the post-strip name so the RAFT-applied
+	// RestoreClassDir (sees the stripped class.Class) finds the files.
+	// Object-storage chunk paths keep desc.Name — see fileWriter.Write.
+	materializedName := desc.Name
+	if stripNamespaces {
+		materializedName = namespacing.StripNamespacePrefix(desc.Name)
+	}
+
+	if err := fw.Write(ctx, desc, materializedName, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 

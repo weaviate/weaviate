@@ -764,3 +764,105 @@ func TestReadAndUnzipChunk_TrailingBytes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fileContent, got)
 }
+
+// TestFileWriter_Write_MaterializedNameAlignment pins the load-bearing
+// asymmetry: staging dir uses the post-strip name (so RAFT's RestoreClassDir
+// finds it), chunk-key uses the source name (immutable object-storage path).
+// Crossing them makes RestoreClassDir silently no-op — schema applies, no data.
+func TestFileWriter_Write_MaterializedNameAlignment(t *testing.T) {
+	tempDir := t.TempDir()
+
+	var capturedKey string
+	mockBackend := modulecapabilities.NewMockBackupBackend(t)
+	mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+	mockBackend.EXPECT().
+		Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _, key, _, _ string, w io.WriteCloser) (int64, error) {
+			capturedKey = key
+			_ = w.Close() // signal EOF to the tar reader
+			return 0, nil
+		})
+
+	fw := newFileWriter(nil, nodeStore{
+		objectStore: objectStore{backend: mockBackend},
+	}, true, logrus.New())
+
+	desc := &backup.ClassDescriptor{
+		Name:   "ns1:Foo",
+		Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}},
+		Chunks: map[int32][]string{0: nil},
+	}
+
+	// Write may error on the empty stream; the side effects we assert below
+	// both happen before that point.
+	_ = fw.Write(context.Background(), desc, "Foo", "", "", backup.CompressionNone)
+
+	info, err := os.Stat(filepath.Join(tempDir, TempDirectory, "Foo"))
+	require.NoError(t, err, "staging dir must be created at the materialized name")
+	require.True(t, info.IsDir())
+
+	_, err = os.Stat(filepath.Join(tempDir, TempDirectory, "ns1:Foo"))
+	require.True(t, os.IsNotExist(err),
+		"staging dir must not be created at the source name (would break RestoreClassDir)")
+
+	require.Equal(t, "ns1:Foo/chunk-0", capturedKey,
+		"chunk key must use desc.Name, not the materialized name")
+}
+
+// TestFileWriter_Write_StripRenamesInnerIndexDir pins the second half of the
+// strip plumbing. Tarball entries were uploaded keyed by the source class's
+// lowercased indexID (adapters/repos/db/index.go:indexID); RestoreClassDir
+// moves classTempDir contents into dataPath verbatim. Without an in-place
+// rename of <tempDir>/Foo/ns1:foo -> <tempDir>/Foo/foo the schema applies
+// at name "Foo" while data sits at dataPath/ns1:foo — silent corruption.
+func TestFileWriter_Write_StripRenamesInnerIndexDir(t *testing.T) {
+	tempDir := t.TempDir()
+	shardPayload := []byte("shard-bytes")
+
+	// Tar entry is keyed under the source class's lowercased indexID; the
+	// reader in readAndUnzipChunk needs the chunk to end on a clean tar EOF.
+	var tarBuf bytes.Buffer
+	tw := tar.NewWriter(&tarBuf)
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:    "ns1:foo/shard1/segment.db",
+		Mode:    0o644,
+		Size:    int64(len(shardPayload)),
+		ModTime: time.Now(),
+	}))
+	_, err := tw.Write(shardPayload)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+
+	mockBackend := modulecapabilities.NewMockBackupBackend(t)
+	mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+	mockBackend.EXPECT().
+		Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _, _, _, _ string, w io.WriteCloser) (int64, error) {
+			n, err := io.Copy(w, bytes.NewReader(tarBuf.Bytes()))
+			_ = w.Close()
+			return n, err
+		})
+
+	fw := newFileWriter(nil, nodeStore{
+		objectStore: objectStore{backend: mockBackend},
+	}, true, logrus.New())
+
+	desc := &backup.ClassDescriptor{
+		Name:   "ns1:Foo",
+		Shards: []*backup.ShardDescriptor{{Name: "shard1", Node: "n1"}},
+		Chunks: map[int32][]string{0: {"shard1"}},
+	}
+
+	require.NoError(t, fw.Write(context.Background(), desc, "Foo", "", "", backup.CompressionNone))
+
+	renamed := filepath.Join(tempDir, TempDirectory, "Foo", "foo", "shard1", "segment.db")
+	got, err := os.ReadFile(renamed)
+	require.NoError(t, err, "shard file must be reachable under the materialized indexID")
+	require.Equal(t, shardPayload, got)
+
+	// The source-named directory must be gone — otherwise RestoreClassDir
+	// would move data to both old and new index paths.
+	_, err = os.Stat(filepath.Join(tempDir, TempDirectory, "Foo", "ns1:foo"))
+	require.True(t, os.IsNotExist(err),
+		"source-indexID dir must not survive the strip rename")
+}

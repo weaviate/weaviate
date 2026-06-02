@@ -41,6 +41,9 @@ type BackupCreateRequest struct {
 	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`.
 	Include []string `json:"include"`
 
+	// List of users to include in the backup restoration process. If not set, all users are included.
+	IncludeUsers []string `json:"includeUsers"`
+
 	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.
 	IncrementalBaseBackupID *string `json:"incremental_base_backup_id,omitempty"`
 }

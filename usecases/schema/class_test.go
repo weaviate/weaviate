@@ -2617,7 +2617,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 
 		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
 		fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
-		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false)
+		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false)
 		assert.Nil(t, err, "class passes validation")
 		fakeSchemaManager.AssertExpectations(t)
 	}
@@ -2650,7 +2650,7 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		expectedShardingState.ApplyNodeMapping(map[string]string{"node1": "new-node1"})
 		expectedShardingState.SetLocalName("")
 		fakeSchemaManager.On("RestoreClass", mock.Anything, shardingState).Return(nil)
-		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{"node1": "new-node1"}, false)
+		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{"node1": "new-node1"}, false, false)
 		assert.NoError(t, err)
 	}
 }

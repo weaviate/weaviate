@@ -63,6 +63,9 @@ var (
 	AllBackups = &models.PermissionBackups{
 		Collection: All,
 	}
+	AllBackupUsers = &models.PermissionBackups{
+		User: All,
+	}
 	AllData = &models.PermissionData{
 		Collection: All,
 		Tenant:     All,
@@ -563,6 +566,26 @@ func Backups(classes ...string) []string {
 	return resources
 }
 
+// BackupUsers is the user-scoped counterpart of [Backups], yielding
+// "backups/users/<id>". Ids pass through verbatim (case-sensitive); empty
+// defaults to "backups/users/*".
+func BackupUsers(users ...string) []string {
+	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
+		return []string{fmt.Sprintf("%s/users/*", BackupsDomain)}
+	}
+
+	resources := make([]string, len(users))
+	for idx := range users {
+		if users[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/users/*", BackupsDomain)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/users/%s", BackupsDomain, users[idx])
+		}
+	}
+
+	return resources
+}
+
 // Replications generates a replication resource string for a given class and shard.
 //
 // Parameters:
@@ -652,6 +675,13 @@ func adminPermissions() []*models.Permission {
 			Namespaces:  AllNamespaces,
 		})
 	}
+
+	// AllBackups above is collection-scoped; add the user-scoped counterpart
+	// so the admin role covers both halves of the discriminated union.
+	perms = append(perms, &models.Permission{
+		Action:  String(ManageBackups),
+		Backups: AllBackupUsers,
+	})
 
 	return perms
 }

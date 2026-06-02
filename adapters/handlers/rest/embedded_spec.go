@@ -7199,6 +7199,13 @@ func init() {
             "type": "string"
           }
         },
+        "includeUsers": {
+          "description": "List of users to include in the backup restoration process. If not set, all users are included.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "incremental_base_backup_id": {
           "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
@@ -7250,6 +7257,13 @@ func init() {
             "CANCELLING",
             "CANCELED"
           ]
+        },
+        "users": {
+          "description": "The list of dynamic DB users included in the backup, resolved from the request's ` + "`" + `includeUsers` + "`" + ` selectors. Empty unless ` + "`" + `includeUsers` + "`" + ` was supplied.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -7392,6 +7406,10 @@ func init() {
         },
         "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
+        },
+        "shouldStripNamespaces": {
+          "description": "When true, restore strips the leading namespace prefix from each qualified collection, alias, and dynamic-user identifier before materializing them on the target. Used for Stage-1 namespace graduation onto a namespace-disabled cluster.",
           "type": "boolean"
         }
       }
@@ -9201,6 +9219,11 @@ func init() {
           "properties": {
             "collection": {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+              "type": "string",
+              "default": "*"
+            },
+            "user": {
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
               "type": "string",
               "default": "*"
             }
@@ -18265,6 +18288,13 @@ func init() {
             "type": "string"
           }
         },
+        "includeUsers": {
+          "description": "List of users to include in the backup restoration process. If not set, all users are included.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "incremental_base_backup_id": {
           "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
@@ -18316,6 +18346,13 @@ func init() {
             "CANCELLING",
             "CANCELED"
           ]
+        },
+        "users": {
+          "description": "The list of dynamic DB users included in the backup, resolved from the request's ` + "`" + `includeUsers` + "`" + ` selectors. Empty unless ` + "`" + `includeUsers` + "`" + ` was supplied.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -18461,6 +18498,10 @@ func init() {
         },
         "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
+        },
+        "shouldStripNamespaces": {
+          "description": "When true, restore strips the leading namespace prefix from each qualified collection, alias, and dynamic-user identifier before materializing them on the target. Used for Stage-1 namespace graduation onto a namespace-disabled cluster.",
           "type": "boolean"
         }
       }
@@ -20471,6 +20512,11 @@ func init() {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
+            },
+            "user": {
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -20638,6 +20684,11 @@ func init() {
       "properties": {
         "collection": {
           "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+          "type": "string",
+          "default": "*"
+        },
+        "user": {
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
           "type": "string",
           "default": "*"
         }

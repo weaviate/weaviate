@@ -1530,3 +1530,40 @@ func TestQualifyRefTarget(t *testing.T) {
 		})
 	}
 }
+
+// TestStripNamespacePrefix pins cut-on-first-separator. A swap to
+// SplitN(..., -1) would over-strip a multi-colon suffix into something
+// that looks valid but isn't.
+func TestStripNamespacePrefix(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty input passes through", input: "", want: ""},
+		{name: "bare name (no separator) passes through", input: "Movies", want: "Movies"},
+		{name: "single separator strips prefix", input: "ns1:Movies", want: "Movies"},
+		{name: "trailing separator yields empty suffix", input: "ns1:", want: ""},
+		{
+			name:  "leading separator yields the rest after it",
+			input: ":Movies",
+			want:  "Movies",
+		},
+		{
+			name:  "multi-separator input cuts only on the first",
+			input: "ns1:Movies:Sci-Fi",
+			want:  "Movies:Sci-Fi",
+		},
+		{
+			name:  "namespace as substring without separator passes through",
+			input: "ns1Movies",
+			want:  "ns1Movies",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, StripNamespacePrefix(tc.input))
+		})
+	}
+}
