@@ -165,7 +165,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 
 	if r.dynUserSourcer != nil && len(desc.UserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
 		if err := r.dynUserSourcer.Restore(desc.UserBackups, stripNamespaces); err != nil {
-			return fmt.Errorf("restore rbac: %w", err)
+			return fmt.Errorf("restore users: %w", err)
 		}
 		// Check for cancellation after User restore
 		if err := ctx.Err(); err != nil {
