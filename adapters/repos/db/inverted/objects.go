@@ -516,10 +516,10 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 }
 
 // refsFromUntyped converts a reference property decoded from generic JSON
-// ([]interface{} of {"beacon": ...} maps) into models.MultipleRef, so it can be
+// ([]any of {"beacon": ...} maps) into models.MultipleRef, so it can be
 // indexed like a natively-typed reference. Used when an object reaches the
 // analyzer without the typed-coercion the read path normally applies.
-func refsFromUntyped(value []interface{}) (models.MultipleRef, error) {
+func refsFromUntyped(value []any) (models.MultipleRef, error) {
 	refs := make(models.MultipleRef, len(value))
 	for i, elem := range value {
 		asMap, ok := elem.(map[string]interface{})
