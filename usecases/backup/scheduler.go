@@ -135,16 +135,6 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
 			return nil, err
 		}
-	} else if classes := s.backupper.selector.ListClasses(ctx); len(classes) > 0 {
-		// Gate on the existing classes so a caller with no backup permission is
-		// rejected with 403 before request validation can surface a 422. The
-		// precise per-class narrowing happens after validation below.
-		if _, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes); err != nil {
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return nil, err
-			}
-			return nil, backup.NewErrUnprocessable(err)
-		}
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)

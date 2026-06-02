@@ -113,9 +113,18 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 			var err error
 
 			endpoint.method = strings.ToUpper(endpoint.method)
+
+			body := endpoint.validGeneratedBodyData
+			// Backup-create generates an empty body (the request schema has no type),
+			// which 422s on id validation before authz; send a valid id so the request
+			// reaches the authz check.
+			if endpoint.path == "/backups/{backend}" && endpoint.method == http.MethodPost {
+				body = []byte(`{"id":"someid"}`)
+			}
+
 			forbidden := false
 			if endpoint.method == "POST" || endpoint.method == "PUT" || endpoint.method == "PATCH" || endpoint.method == "DELETE" {
-				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(endpoint.validGeneratedBodyData))
+				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(body))
 				require.Nil(t, err)
 				req.Header.Set("Content-Type", "application/json")
 				forbidden = true
