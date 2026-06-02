@@ -211,11 +211,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
 		return nil, err
 	}
-	if len(req.IncludeUsers) > 0 {
-		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.BackupUsers(req.IncludeUsers...)...); err != nil {
-			return nil, err
-		}
-	}
 
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
@@ -236,7 +231,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Backend:               req.Backend,
 		Compression:           req.Compression,
 		Classes:               meta.Classes(),
-		Users:                 req.IncludeUsers,
 		Bucket:                req.Bucket,
 		Path:                  req.Path,
 		UserRestoreOption:     req.UserRestoreOption,
