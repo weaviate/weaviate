@@ -5236,10 +5236,6 @@
       "type": "object",
       "description": "The search request body. Field encoding: camelCase field names, enum values as strings, vectors and other bytes as base64-encoded strings, and 64-bit integers as strings. Set at most one search method (nearVector, nearText, hybridSearch, bm25Search, ...).",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
@@ -5431,10 +5427,6 @@
       "type": "object",
       "description": "The aggregation request body. Field encoding: camelCase field names, enum values as strings, vectors and other bytes as base64-encoded strings, and 64-bit integers as strings. Set at most one search method (nearVector, nearText, hybrid, bm25, ...).",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to aggregate (multi-tenant collections only)."
@@ -5903,10 +5895,6 @@
       "type": "object",
       "description": "Fetch request — common query parameters only, no search method.",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
@@ -6010,10 +5998,6 @@
       "type": "object",
       "description": "Common query parameters plus the `bm25Search` search field.",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
@@ -6120,10 +6104,6 @@
       "type": "object",
       "description": "Common query parameters plus the `hybridSearch` search field.",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
@@ -6230,10 +6210,6 @@
       "type": "object",
       "description": "Common query parameters plus the `nearVector` search field.",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
@@ -6340,10 +6316,6 @@
       "type": "object",
       "description": "Common query parameters plus the `nearText` search field.",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
@@ -6450,10 +6422,6 @@
       "type": "object",
       "description": "Common query parameters plus the `nearObject` search field.",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
@@ -6560,10 +6528,6 @@
       "type": "object",
       "description": "Multi-modal similarity search. Set exactly one of the media fields: nearImage, nearAudio, nearVideo, nearDepth, nearThermal, nearImu.",
       "properties": {
-        "collection": {
-          "type": "string",
-          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
-        },
         "tenant": {
           "type": "string",
           "description": "The tenant to query (multi-tenant collections only)."
