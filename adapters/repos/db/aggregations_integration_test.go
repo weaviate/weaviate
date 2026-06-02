@@ -955,7 +955,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Count: 10,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"makesProduct"},
-							Value: strfmt.URI("weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06"),
+							Value: "weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06",
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
