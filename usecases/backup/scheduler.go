@@ -135,6 +135,16 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
 			return nil, err
 		}
+	} else if classes := s.backupper.selector.ListClasses(ctx); len(classes) > 0 {
+		// Gate on the existing classes so a caller with no backup permission is
+		// rejected with 403 before request validation can surface a 422. The
+		// precise per-class narrowing happens after validation below.
+		if _, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes); err != nil {
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return nil, err
+			}
+			return nil, backup.NewErrUnprocessable(err)
+		}
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
@@ -367,26 +377,32 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return backup.NewErrUnprocessable(err)
 	}
 
-	if err := validateID(backupID); err != nil {
+	idErr := validateID(backupID)
+
+	// Authorize before surfacing a validation error so a caller without
+	// permission gets 403, not a hint about the id. Scope authz to the backup's
+	// classes when the id is valid and the meta is readable; otherwise authorize
+	// against wildcard backups so only callers with DELETE on all backups proceed.
+	var meta *backup.DistributedBackupDescriptor
+	var classes []string
+	if idErr == nil {
+		if m, err := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+			meta = m
+			classes = m.Classes()
+		}
+	}
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
 		return err
+	}
+	if idErr != nil {
+		return backup.NewErrUnprocessable(idErr)
 	}
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 
-	// When the meta cannot be read, authorize against wildcard backups so that
-	// only callers with DELETE on all backups can cancel an op whose class list
-	// is unknown.
-	meta, metaErr := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
-	var classes []string
-	if metaErr == nil {
-		classes = meta.Classes()
-	}
-	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
-		return err
-	}
-	if metaErr == nil {
+	if meta != nil {
 		switch meta.Status {
 		case backup.Cancelled:
 			return nil
@@ -424,27 +440,32 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		return backup.NewErrUnprocessable(err)
 	}
 
-	if err := validateID(backupID); err != nil {
+	idErr := validateID(backupID)
+
+	// Authorize before surfacing a validation error so a caller without
+	// permission gets 403, not a hint about the id. Prefer the restore descriptor
+	// for authz; fall back to the backup descriptor if the restore meta hasn't
+	// been written yet. If neither is readable (or the id is malformed), authorize
+	// against wildcard backups so only callers with DELETE on all backups proceed.
+	var meta *backup.DistributedBackupDescriptor
+	var metaErr error
+	var classes []string
+	if idErr == nil {
+		if meta, metaErr = store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
+			classes = meta.Classes()
+		} else if backupMeta, err := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+			classes = backupMeta.Classes()
+		}
+	}
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
 		return err
+	}
+	if idErr != nil {
+		return backup.NewErrUnprocessable(idErr)
 	}
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
-	}
-
-	// Prefer the restore descriptor for authz; fall back to the backup
-	// descriptor if the restore meta hasn't been written yet. If neither is
-	// readable, authorize against wildcard backups so that only callers with
-	// DELETE on all backups can cancel a restore whose class list is unknown.
-	meta, metaErr := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
-	var classes []string
-	if metaErr == nil {
-		classes = meta.Classes()
-	} else if backupMeta, err := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath); err == nil {
-		classes = backupMeta.Classes()
-	}
-	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
-		return err
 	}
 
 	if metaErr == nil {
