@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"sync"
 	"testing"
@@ -53,6 +54,81 @@ func TestDynUserConcurrency(t *testing.T) {
 	users, err := dynUsers.GetUsers(userNames...)
 	require.NoError(t, err)
 	require.Equal(t, len(userNames), len(users))
+}
+
+// Pins UserView's data fields to User's. Adding a field to User without
+// mirroring it in UserView (and view()) would silently drop it from the
+// GetUsers snapshot.
+func TestUserView_MirrorsUserFields(t *testing.T) {
+	collect := func(typ reflect.Type) map[string]string {
+		out := make(map[string]string, typ.NumField())
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			if f.Anonymous || !f.IsExported() {
+				continue
+			}
+			out[f.Name] = f.Type.String()
+		}
+		return out
+	}
+
+	require.Equal(t, collect(reflect.TypeOf(User{})), collect(reflect.TypeOf(UserView{})),
+		"User and UserView must expose the same exported data fields; update UserView and (*User).view() when adding fields to User")
+}
+
+// Concurrent Activate/Deactivate vs GetUsers field reads must stay race-free under -race.
+func TestGetUsers_NoRaceWithMutators(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	const numUsers = 5
+	userIds := make([]string, 0, numUsers)
+	for i := 0; i < numUsers; i++ {
+		id := fmt.Sprintf("u%d", i)
+		require.NoError(t, dynUsers.CreateUser(id, "h", id, "", time.Now()))
+		userIds = append(userIds, id)
+	}
+
+	const iterations = 200
+	done := make(chan struct{})
+	wg := sync.WaitGroup{}
+
+	// Mutator: flips Active under c.lock.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			id := userIds[i%numUsers]
+			if i%2 == 0 {
+				_ = dynUsers.DeactivateUser(id, false)
+			} else {
+				_ = dynUsers.ActivateUser(id)
+			}
+		}
+		close(done)
+	}()
+
+	// Reader: GetUsers + read .Active.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			users, err := dynUsers.GetUsers(userIds...)
+			require.NoError(t, err)
+			for _, u := range users {
+				_ = u.Active
+				_ = u.LastUsedAt
+				_ = u.InternalIdentifier
+			}
+		}
+	}()
+
+	wg.Wait()
 }
 
 func TestConcurrentValidate(t *testing.T) {

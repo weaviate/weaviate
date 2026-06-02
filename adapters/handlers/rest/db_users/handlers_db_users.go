@@ -105,19 +105,19 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	allUsers := make([]*apikey.User, 0, len(allDbUsers))
+	allUsers := make([]apikey.UserView, 0, len(allDbUsers))
 	for _, dbUser := range allDbUsers {
 		allUsers = append(allUsers, dbUser)
 	}
 
-	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
+	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
 		ctx,
 		h.logger,
 		principal,
 		allUsers,
 		authorization.READ,
-		func(user *apikey.User) string {
+		func(user apikey.UserView) string {
 			return authorization.Users(user.Id)[0]
 		},
 	)
@@ -223,7 +223,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		}
 
 		if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
-			usersWithTime := h.getLastUsed([]*apikey.User{user})
+			usersWithTime := h.getLastUsed([]apikey.UserView{user})
 			response.LastUsedAt = strfmt.DateTime(usersWithTime[params.UserID])
 		}
 		userType = string(models.UserTypeOutputDbUser)
@@ -248,7 +248,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	return users.NewGetUserInfoOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time {
+func (h *dynUserHandler) getLastUsed(users []apikey.UserView) map[string]time.Time {
 	usersWithTime := make(map[string]time.Time, len(users))
 	for _, user := range users {
 		usersWithTime[user.Id] = user.LastUsedAt
