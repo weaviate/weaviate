@@ -3998,7 +3998,12 @@
       "description": "Post-retrieval selection strategy applied to the candidate set.",
       "properties": {
         "mmr": {
-          "$ref": "#/definitions/SelectionMMR"
+          "description": "Maximal Marginal Relevance (MMR) re-ranking options.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SelectionMMR"
+            }
+          ]
         }
       },
       "x-doc-only": true
@@ -6095,7 +6100,12 @@
           ]
         },
         "bm25Search": {
-          "$ref": "#/definitions/BM25"
+          "description": "The BM25 keyword search to run.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BM25"
+            }
+          ]
         }
       },
       "x-doc-only": true
@@ -6201,7 +6211,12 @@
           ]
         },
         "hybridSearch": {
-          "$ref": "#/definitions/Hybrid"
+          "description": "The hybrid search to run.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Hybrid"
+            }
+          ]
         }
       },
       "x-doc-only": true
@@ -6307,7 +6322,12 @@
           ]
         },
         "nearVector": {
-          "$ref": "#/definitions/NearVector"
+          "description": "The raw-vector search to run.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearVector"
+            }
+          ]
         }
       },
       "x-doc-only": true
@@ -6413,7 +6433,12 @@
           ]
         },
         "nearText": {
-          "$ref": "#/definitions/NearTextSearch"
+          "description": "The semantic (nearText) search to run.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearTextSearch"
+            }
+          ]
         }
       },
       "x-doc-only": true
@@ -6519,7 +6544,12 @@
           ]
         },
         "nearObject": {
-          "$ref": "#/definitions/NearObject"
+          "description": "The search-by-object query (find objects similar to an existing object).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearObject"
+            }
+          ]
         }
       },
       "x-doc-only": true
