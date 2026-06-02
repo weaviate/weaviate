@@ -19,6 +19,9 @@ from .conftest import CollectionFactory
         (lambda: Filter.by_property("textArray").not_equal([]), [0], True),
         (lambda: Filter.by_property("textArray", length=True).not_equal(0), [0], False),
     ],
+    # Explicit ids: the default would be "<lambda>", whose angle brackets make the
+    # collection_factory-derived class name invalid.
+    ids=["equal_empty", "equal_len0", "not_equal_empty", "not_equal_len0"],
 )
 def test_empty_list_filter(
     collection_factory: CollectionFactory,
