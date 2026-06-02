@@ -129,10 +129,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 
 	explicitInclude := len(req.Include) > 0
 
-	// When the caller explicitly lists classes, authorize strictly against
-	// that list before touching the backend. Copy Include because
-	// authorization.Backups uppercases its input in place.
 	if explicitInclude {
+		// Copy Include because authorization.Backups uppercases its input in place.
 		includeCopy := append([]string(nil), req.Include...)
 		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
 			return nil, err
@@ -150,10 +148,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// When Include is empty ("all classes"), reduce the resolved list to
-	// classes the caller is allowed to back up. An explicit list was already
-	// strictly authorized above. An empty filtered result is rejected as an
-	// error by filterBackupableClasses, so classes is guaranteed non-empty here.
+	// An empty filtered result is rejected as an error by filterBackupableClasses.
 	if !explicitInclude {
 		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
 		if err != nil {
@@ -201,10 +196,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	explicitInclude := len(req.Include) > 0
 
-	// When the caller explicitly lists classes, authorize strictly against
-	// that list before touching the backend. Copy Include because
-	// authorization.Backups uppercases its input in place.
 	if explicitInclude {
+		// Copy Include because authorization.Backups uppercases its input in place.
 		includeCopy := append([]string(nil), req.Include...)
 		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
 			return nil, err
@@ -224,10 +217,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// When Include is empty ("all classes in the backup"), reduce the backup's
-	// class list to those the caller is allowed to restore. An explicit list
-	// was already strictly authorized above. An empty filtered result is
-	// rejected as an error by filterBackupableClasses.
+	// An empty filtered result is rejected as an error by filterBackupableClasses.
 	if !explicitInclude {
 		allowed, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, meta.Classes())
 		if err != nil {
@@ -325,7 +315,6 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// Authorize against the backup's actual classes.
 	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalBackupFile, overrideBucket, overridePath); err != nil {
 		return nil, err
 	}
@@ -348,7 +337,6 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	// Authorize against the backup's actual classes.
 	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath); err != nil {
 		return nil, err
 	}
