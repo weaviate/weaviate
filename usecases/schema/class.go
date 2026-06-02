@@ -468,20 +468,31 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
+	} else if updated != nil && updated.Class != "" {
+		// Auth is on the path but the RAFT command keys on updated.Class; pin
+		// them together so the body can't redirect the update to another class.
+		if schema.UppercaseClassName(updated.Class) != className {
+			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, className)
+		}
+		updated.Class = className
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {
 		return err
 	}
 
-	// Require DELETE permission on data when any TTL setting is being changed,
-	// but not when the user is updating other collection settings without
-	// touching TTL configuration.
+	// ReadOnlyClass is a local, no-wait read; on a lagging follower confirm
+	// against the leader before 404ing (also gates the TTL permission below).
 	initial := h.schemaReader.ReadOnlyClass(className)
 	if initial == nil {
-		// Reject here so the body's Class field can't redirect the
-		// update to a different, existing class.
-		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+		vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+		if err != nil {
+			return err
+		}
+		initial = vclasses[className].Class
+		if initial == nil {
+			return fmt.Errorf("class %q: %w", className, ErrNotFound)
+		}
 	}
 	if ttl.IsTtlConfigChanged(initial.ObjectTTLConfig, updated.ObjectTTLConfig) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {

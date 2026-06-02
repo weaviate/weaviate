@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1419,10 +1420,42 @@ func Test_UpdateClass(t *testing.T) {
 	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"WrongClass"}).
+			Return(map[string]versioned.Class{}, nil)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
 		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("stale local view falls back to leader and proceeds", func(t *testing.T) {
+		// Regression: a lagging follower must defer to the leader, not 404.
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		existing := &models.Class{
+			Class:             "Article",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		fakeSchemaManager.On("ReadOnlyClass", "Article", mock.Anything).Return(nil)
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"Article"}).
+			Return(map[string]versioned.Class{"Article": {Class: existing}}, nil)
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			Class:             "Article",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		})
+		require.NoError(t, err)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("body class name must match path", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			Class:             "OtherClass",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		})
+		require.ErrorIs(t, err, ErrValidation)
+		require.Contains(t, err.Error(), "does not match path")
 	})
 
 	t.Run("immutable vectorizer properties", func(t *testing.T) {
@@ -1556,12 +1589,12 @@ func Test_UpdateClass(t *testing.T) {
 			expectedError error
 		}{
 			{
+				// Rejected by the path-vs-body guard, which fires before the immutable-fields check.
 				name:    "ChangeName",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				update:  &models.Class{Class: "UpdatedName", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				expectedError: fmt.Errorf(
-					"class name is immutable: " +
-						"attempted change from \"InitialName\" to \"UpdatedName\""),
+					"class name in body \"UpdatedName\" does not match path \"InitialName\""),
 			},
 			{
 				name:    "ModifyVectorizer",
