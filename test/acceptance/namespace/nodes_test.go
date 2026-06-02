@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/nodes"
-	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
@@ -30,18 +29,6 @@ import (
 )
 
 func strPtr(s string) *string { return &s }
-
-// waitKeyRecognized polls a cheap self-info endpoint until the freshly-created
-// user's API key is accepted locally. CreateUserWithNamespace returns once the
-// leader applies the FSM entry, but the follower the test client talks to may
-// still be replicating, so the next authenticated request can transiently 401.
-func waitKeyRecognized(t *testing.T, key string) {
-	t.Helper()
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(key))
-		assert.NoError(c, err)
-	}, 10*time.Second, 50*time.Millisecond, "apikey not recognized after create")
-}
 
 // nodesGetVerbose issues a verbose all-collections NodesGet. This path never
 // 403s: it returns 200 with shards filtered to the caller's authorized collections.
@@ -200,7 +187,6 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 	t.Run("custom verbose-nodes role grants scoped access to a non-admin namespace user", func(t *testing.T) {
 		key := helper.CreateUserWithNamespace(t, "vn", "customer1", adminKey)
 		t.Cleanup(func() { helper.DeleteUser(t, "customer1:vn", adminKey) })
-		waitKeyRecognized(t, key)
 
 		// No role yet: verbose returns 200 with no shards, minimal is forbidden.
 		bareNodes := nodesGetVerbose(t, key).Nodes
