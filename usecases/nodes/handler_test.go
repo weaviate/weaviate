@@ -31,8 +31,31 @@ type stubNodesDB struct {
 	status []*models.NodeStatus
 }
 
-func (s stubNodesDB) GetNodeStatus(context.Context, string, string, string) ([]*models.NodeStatus, error) {
-	return s.status, nil
+// GetNodeStatus mirrors the real DB's class scoping (db/nodes.go localNodeShardStats):
+// a by-class query returns only that class's shards with Stats recomputed, but
+// BatchStats stays node-wide — dropping it for a scoped caller is the handler's job.
+func (s stubNodesDB) GetNodeStatus(_ context.Context, className, _, _ string) ([]*models.NodeStatus, error) {
+	if className == "" {
+		return s.status, nil
+	}
+	out := make([]*models.NodeStatus, len(s.status))
+	for i, n := range s.status {
+		scoped := *n
+		var shards []*models.NodeShardStatus
+		var objects int64
+		for _, sh := range n.Shards {
+			if sh.Class == className {
+				shards = append(shards, sh)
+				objects += sh.ObjectCount
+			}
+		}
+		scoped.Shards = shards
+		if n.Stats != nil {
+			scoped.Stats = &models.NodeStats{ObjectCount: objects, ShardCount: int64(len(shards))}
+		}
+		out[i] = &scoped
+	}
+	return out, nil
 }
 
 func (s stubNodesDB) GetNodeStatistics(context.Context) ([]*models.Statistics, error) {
@@ -270,9 +293,11 @@ func TestGetNodeStatus_VerboseFilteredAggregate(t *testing.T) {
 }
 
 // TestGetNodeStatus_ByClassDropsNodeWideBatchStats: by-class BatchStats is
-// node-wide, so a class-scoped caller must not receive it; an operator does.
+// node-wide, so a class-scoped caller must not receive it; an operator does. The
+// DB-level class-scoping this branch trusts is pinned separately by
+// adapters/repos/db.TestNodesAPI_ByClassScopesStats.
 func TestGetNodeStatus_ByClassDropsNodeWideBatchStats(t *testing.T) {
-	t.Run("class-scoped caller: node-wide BatchStats dropped, class Stats untouched", func(t *testing.T) {
+	t.Run("class-scoped caller: node-wide BatchStats dropped, class Stats passed through", func(t *testing.T) {
 		m := &Manager{
 			logger:                 logrus.New(),
 			authorizer:             classScopedAuthorizer{allowedClass: "ClassA"},
@@ -286,10 +311,11 @@ func TestGetNodeStatus_ByClassDropsNodeWideBatchStats(t *testing.T) {
 		require.Len(t, got, 1)
 
 		assert.Nil(t, got[0].BatchStats, "node-wide BatchStats must be dropped for a class-scoped caller")
-		// Stats stays as the DB returned it — class-scoped, no recompute here.
+		require.Len(t, got[0].Shards, 1, "by-class returns only the queried class's shards")
+		assert.Equal(t, "ClassA", got[0].Shards[0].Class)
 		require.NotNil(t, got[0].Stats)
-		assert.Equal(t, int64(30), got[0].Stats.ObjectCount)
-		assert.Equal(t, int64(2), got[0].Stats.ShardCount)
+		assert.Equal(t, int64(10), got[0].Stats.ObjectCount, "by-class Stats must be ClassA's, not the node-wide aggregate")
+		assert.Equal(t, int64(1), got[0].Stats.ShardCount)
 	})
 
 	t.Run("global operator: node-wide BatchStats preserved on by-class", func(t *testing.T) {
@@ -305,6 +331,10 @@ func TestGetNodeStatus_ByClassDropsNodeWideBatchStats(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].BatchStats, "operator with the node-wide grant must keep BatchStats on by-class")
+		// Stats stay class-scoped for the operator too; only BatchStats handling differs.
+		require.NotNil(t, got[0].Stats)
+		assert.Equal(t, int64(10), got[0].Stats.ObjectCount)
+		assert.Equal(t, int64(1), got[0].Stats.ShardCount)
 	})
 }
 
