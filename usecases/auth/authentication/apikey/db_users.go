@@ -318,6 +318,9 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	if len(userIds) == 0 {
 		users := make(map[string]UserView, len(c.data.Users))
 		for id, user := range c.data.Users {
+			if user == nil {
+				continue
+			}
 			users[id] = user.view()
 		}
 		return users, nil
@@ -325,7 +328,7 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 
 	users := make(map[string]UserView, len(userIds))
 	for _, id := range userIds {
-		if user, ok := c.data.Users[id]; ok {
+		if user, ok := c.data.Users[id]; ok && user != nil {
 			users[id] = user.view()
 		}
 	}

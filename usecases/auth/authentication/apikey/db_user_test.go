@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -119,7 +120,7 @@ func TestGetUsers_NoRaceWithMutators(t *testing.T) {
 			default:
 			}
 			users, err := dynUsers.GetUsers(userIds...)
-			require.NoError(t, err)
+			assert.NoError(t, err)
 			for _, u := range users {
 				_ = u.Active
 				_ = u.LastUsedAt
