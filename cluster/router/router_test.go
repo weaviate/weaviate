@@ -862,10 +862,6 @@ func TestMultiTenantRouter_MultipleTenantsSameCollection(t *testing.T) {
 
 		require.Equal(t, sorted(expected), sorted(rs.NodeNames()), "read replicas mismatch for tenant %s", tenant)
 		require.Equal(t, []string{expected[0]}, ws.NodeNames(), "write replicas mismatch for tenant %s", tenant)
-
-		if len(expected) > 1 {
-		} else {
-		}
 	}
 }
 
