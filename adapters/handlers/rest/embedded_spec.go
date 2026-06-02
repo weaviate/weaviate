@@ -7200,7 +7200,7 @@ func init() {
           }
         },
         "includeUsers": {
-          "description": "List of namespace-scoped dynamic user selectors to include in the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + ` to back up every dynamic DB user whose namespace equals ` + "`" + `namespace` + "`" + `. When set, the backup captures a namespace-filtered dynamic-user snapshot instead of the whole-cluster snapshot. Used for namespace graduation.",
+          "description": "List of users to include in the backup restoration process. If not set, all users are included.",
           "type": "array",
           "items": {
             "type": "string"
@@ -18289,7 +18289,7 @@ func init() {
           }
         },
         "includeUsers": {
-          "description": "List of namespace-scoped dynamic user selectors to include in the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + ` to back up every dynamic DB user whose namespace equals ` + "`" + `namespace` + "`" + `. When set, the backup captures a namespace-filtered dynamic-user snapshot instead of the whole-cluster snapshot. Used for namespace graduation.",
+          "description": "List of users to include in the backup restoration process. If not set, all users are included.",
           "type": "array",
           "items": {
             "type": "string"

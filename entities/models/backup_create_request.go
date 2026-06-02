@@ -41,7 +41,7 @@ type BackupCreateRequest struct {
 	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`.
 	Include []string `json:"include"`
 
-	// List of namespace-scoped dynamic user selectors to include in the backup, e.g. `["namespace:*"]` to back up every dynamic DB user whose namespace equals `namespace`. When set, the backup captures a namespace-filtered dynamic-user snapshot instead of the whole-cluster snapshot. Used for namespace graduation.
+	// List of users to include in the backup restoration process. If not set, all users are included.
 	IncludeUsers []string `json:"includeUsers"`
 
 	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.
