@@ -366,11 +366,9 @@ func TestReplicationAbort(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(t, ts.Client())
-	// Abort's per-request deadline is timeoutUnit*ABORT_TIMEOUT_VALUE. With the
-	// default 20ms timeoutUnit that is only 100ms, which races a localhost
-	// round-trip and loses under parallel -race CPU load. Bump timeoutUnit so
-	// the deadline (4s) dwarfs both the round-trip and the retry budget (72ms),
-	// for every subtest below — not just ServerInternalError.
+	// Pin timeoutUnit to the retry budget so Abort's deadline
+	// (timeoutUnit*ABORT_TIMEOUT_VALUE = 4s) dwarfs the round-trip and retries
+	// for every subtest below, independent of the helper default.
 	client.timeoutUnit = client.maxBackOff * 100
 
 	t.Run("ConnectionError", func(t *testing.T) {
