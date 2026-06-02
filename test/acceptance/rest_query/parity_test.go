@@ -10,9 +10,9 @@
 //
 
 // Package restquery verifies that the pure-REST query/aggregate endpoints
-// (POST /v1/{collection}/query and /aggregate) return exactly the same results
-// as the equivalent gRPC Search/Aggregate RPCs. Both transports delegate to the
-// same gRPC pipeline (SearchWithPrincipal/AggregateWithPrincipal), so any
+// (POST /v1/{collection}/query/{method} and /aggregate) return exactly the same
+// results as the equivalent gRPC Search/Aggregate RPCs. Both transports delegate
+// to the same gRPC pipeline (SearchWithPrincipal/AggregateWithPrincipal), so any
 // divergence here is a regression in the REST plumbing.
 package restquery
 
@@ -176,7 +176,7 @@ func TestRESTQueryParity(t *testing.T) {
 		require.NoError(t, err)
 
 		// Same request over REST — filters expressed as protobuf-JSON.
-		restReply := restSearchBody(t, httpURI, parityClass,
+		restReply := restSearchBody(t, httpURI, parityClass, "query/fetch",
 			`{"metadata":{"uuid":true},"properties":{"nonRefProperties":["title","category"]},"uses127Api":true,`+
 				`"filters":{"operator":"OPERATOR_EQUAL","valueText":"fantasy","target":{"property":"category"}}}`)
 
@@ -212,13 +212,13 @@ func TestRESTQueryParity(t *testing.T) {
 		})
 	}
 
-	t.Run("disabled endpoint returns error", func(t *testing.T) {
+	t.Run("fetch route is registered", func(t *testing.T) {
 		// The endpoint is enabled by default; this is a sanity check that the
 		// route exists (a 404 would indicate the route was never registered).
 		req := &pb.SearchRequest{Collection: parityClass}
 		body, err := protojson.Marshal(req)
 		require.NoError(t, err)
-		resp, err := http.Post("http://"+httpURI+"/v1/"+parityClass+"/query", "application/json", bytes.NewReader(body))
+		resp, err := http.Post("http://"+httpURI+"/v1/"+parityClass+"/query/fetch", "application/json", bytes.NewReader(body))
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -236,17 +236,41 @@ func normalizeSearch(r *pb.SearchReply) {
 
 func restSearch(t *testing.T, httpURI string, req *pb.SearchRequest) *pb.SearchReply {
 	t.Helper()
-	data := restPost(t, httpURI, req.Collection, "query", req)
+	data := restPost(t, httpURI, req.Collection, searchVerb(req), req)
 	var reply pb.SearchReply
 	require.NoError(t, protojson.Unmarshal(data, &reply))
 	return &reply
 }
 
-// restSearchBody POSTs a raw JSON body to the query endpoint (used to send the
-// REST `where` syntax, which has no protobuf equivalent to marshal from).
-func restSearchBody(t *testing.T, httpURI, collection, body string) *pb.SearchReply {
+// searchVerb maps a SearchRequest to the per-method REST route that accepts it.
+// The universal /query route was removed in favor of /query/{method}, so each
+// search field has its own endpoint (a request with no search method is a fetch).
+func searchVerb(req *pb.SearchRequest) string {
+	switch {
+	case req.Bm25Search != nil:
+		return "query/bm25"
+	case req.HybridSearch != nil:
+		return "query/hybrid"
+	case req.NearVector != nil:
+		return "query/near-vector"
+	case req.NearText != nil:
+		return "query/near-text"
+	case req.NearObject != nil:
+		return "query/near-object"
+	case req.NearImage != nil || req.NearAudio != nil || req.NearVideo != nil ||
+		req.NearDepth != nil || req.NearThermal != nil || req.NearImu != nil:
+		return "query/near-media"
+	default:
+		return "query/fetch"
+	}
+}
+
+// restSearchBody POSTs a raw JSON body to a per-method query endpoint (used when
+// the body can't be marshaled from a proto — e.g. to exercise the protobuf-JSON
+// filters shape directly).
+func restSearchBody(t *testing.T, httpURI, collection, verb, body string) *pb.SearchReply {
 	t.Helper()
-	url := "http://" + httpURI + "/v1/" + collection + "/query"
+	url := "http://" + httpURI + "/v1/" + collection + "/" + verb
 	resp, err := http.Post(url, "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
