@@ -10,14 +10,12 @@ inputs:
 runs:
   using: composite
   steps:
-    - shell: bash
+    - uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
       env:
         DOCKER_USERNAME: ${{ inputs.username }}
         DOCKER_PASSWORD: ${{ inputs.password }}
-      run: |
-        for i in 1 2 3 4 5; do
-          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin && exit 0
-          echo "::warning::docker login attempt $i failed; retrying in $((i*5))s"
-          sleep $((i*5))
-        done
-        echo "::error::docker login failed after 5 attempts"; exit 1
+      with:
+        max_attempts: 5
+        timeout_minutes: 5
+        retry_wait_seconds: 15
+        command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
