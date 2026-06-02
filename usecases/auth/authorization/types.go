@@ -245,9 +245,10 @@ var (
 
 // BuiltInPermissionsFor returns the canonical permission shape of the built-in
 // roles. On namespace-enabled clusters admin/viewer are narrowed to
-// collections/schema, data, multi-tenancy, aliases, and MCP; admin additionally
-// gets scoped verbose read_nodes (viewer does not). root/read-only keep wildcard
-// CRUD/READ. nodes-viewer is always verbose read_nodes.
+// collections/schema, data, multi-tenancy, aliases, and MCP; of those two only
+// admin additionally gets scoped verbose read_nodes (viewer gets no nodes
+// access). root/read-only keep wildcard CRUD/READ; nodes-viewer is always
+// verbose read_nodes, scoped to the caller's namespace by the matcher.
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
 		return map[string][]*models.Permission{
