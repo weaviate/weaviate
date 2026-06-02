@@ -154,7 +154,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
 // local config
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
-	// Wipe all five built-in role policies before re-registering. The
+	// Wipe all four built-in role policies before re-registering. The
 	// canonical shape lives in code; rebuilding from scratch on every boot
 	// keeps the on-disk policy CSV honest.
 	for _, role := range authorization.BuiltInRoles {
@@ -180,10 +180,6 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		wildcardRoles = authorization.EnvVarRoles
 	}
 	for _, role := range wildcardRoles {
-		// per-permission roles (nodes-viewer) are registered below, never as wildcards
-		if slices.Contains(authorization.PerPermissionBuiltInRoles, role) {
-			continue
-		}
 		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", conv.BuiltInWildcardVerb[role], "*"); err != nil {
 			return fmt.Errorf("add policy: %w", err)
 		}
@@ -200,20 +196,6 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 				if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), p.Resource, p.Verb, p.Domain); err != nil {
 					return fmt.Errorf("add tenant-safe policy: %w", err)
 				}
-			}
-		}
-	}
-
-	// Per-permission built-in roles (nodes-viewer): narrowed, never wildcard, so
-	// the matcher can scope them to the caller's namespace. On every cluster.
-	for _, role := range authorization.PerPermissionBuiltInRoles {
-		policies, err := conv.PermissionToPolicies(authorization.BuiltInPermissionsFor(namespacesEnabled)[role]...)
-		if err != nil {
-			return fmt.Errorf("%s policies: %w", role, err)
-		}
-		for _, p := range policies {
-			if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), p.Resource, p.Verb, p.Domain); err != nil {
-				return fmt.Errorf("add %s policy: %w", role, err)
 			}
 		}
 	}

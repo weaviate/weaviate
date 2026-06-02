@@ -137,9 +137,10 @@ func assertNoNodeWideLeak(t *testing.T, nodeStatuses []*models.NodeStatus) {
 }
 
 // TestNamespaces_NodesEndpoint pins the namespace-aware contract of /v1/nodes:
-// a namespaced admin (and the new nodes-viewer role) see verbose node/shard
-// info for their own collections only, regular namespace viewers see none, the
-// node-wide minimal view stays operator-only, and the global root sees all.
+// a namespaced admin (and any role with verbose read_nodes) sees verbose
+// node/shard info for its own collections only, regular namespace viewers see
+// none, the node-wide minimal view stays operator-only, and the global root
+// sees all.
 func TestNamespaces_NodesEndpoint(t *testing.T) {
 	user1Key, user2Key := twoNamespaces(t)
 
@@ -196,7 +197,7 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 		requireMinimalForbidden(t, viewerKey)
 	})
 
-	t.Run("nodes-viewer role grants scoped verbose access to a non-admin namespace user", func(t *testing.T) {
+	t.Run("custom verbose-nodes role grants scoped access to a non-admin namespace user", func(t *testing.T) {
 		key := helper.CreateUserWithNamespace(t, "vn", "customer1", adminKey)
 		t.Cleanup(func() { helper.DeleteUser(t, "customer1:vn", adminKey) })
 		waitKeyRecognized(t, key)
@@ -208,16 +209,24 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 		assertNoNodeWideLeak(t, bareNodes)
 		requireMinimalForbidden(t, key)
 
-		helper.AssignRoleToUser(t, adminKey, authorization.NodesViewer, "customer1:vn")
-		helper.WaitForOwnRole(t, key, authorization.NodesViewer)
+		// A custom role with verbose read_nodes over all collections; the matcher
+		// scopes it to the caller's namespace. There is no built-in nodes role for
+		// non-admin namespace users — this is how an operator would grant one.
+		helper.CreateRoleAndAssign(t, adminKey, "customer1:vn", "ns-nodes-viewer",
+			helper.NewNodesPermission().
+				WithAction(authorization.ReadNodes).
+				WithVerbosity(verbosity.OutputVerbose).
+				WithCollection("*").
+				Permission())
+		helper.WaitForOwnRole(t, key, "ns-nodes-viewer")
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			_, total := shardClassPrefixes(nodesGetVerbose(t, key).Nodes)
-			assert.Positive(c, total, "nodes-viewer should eventually expose the namespace's shards")
-		}, 20*time.Second, 200*time.Millisecond, "nodes-viewer verbose nodes never populated")
+			assert.Positive(c, total, "the verbose-nodes role should eventually expose the namespace's shards")
+		}, 20*time.Second, 200*time.Millisecond, "verbose-nodes role never populated")
 		assertScopedTo(t, nodesGetVerbose(t, key).Nodes, "customer1:")
 
-		// nodes-viewer is verbose-only: the node-wide minimal view stays denied.
+		// verbose-only role: the node-wide minimal view stays denied.
 		requireMinimalForbidden(t, key)
 	})
 

@@ -752,42 +752,6 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.Equal(t, []string{conv.PrefixRoleName(authorization.ReadOnly), "*", authorization.READ, "*"}, readOnlyRows[0])
 }
 
-// TestApplyPredefinedRoles_NodesViewer asserts the new built-in nodes-viewer
-// role holds exactly one verbose read_nodes policy on both NS modes and never
-// gets a wildcard-resource policy (it must always be registered per-permission,
-// so the matcher can scope it to the caller's namespace).
-func TestApplyPredefinedRoles_NodesViewer(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		nsEnabled bool
-	}{
-		{"NS-disabled", false},
-		{"NS-enabled", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := freshPolicyDir(t)
-			conf := rbacconf.Config{Enabled: true}
-			enforcer, err := Init(conf, dir, config.Authentication{}, tc.nsEnabled)
-			require.NoError(t, err)
-			require.NotNil(t, enforcer)
-
-			m := &Manager{casbin: enforcer, namespacesEnabled: tc.nsEnabled}
-			rows := rolePolicies(t, m, authorization.NodesViewer)
-
-			require.Len(t, rows, 1, "nodes-viewer must hold exactly one policy")
-			assert.Equal(t, []string{
-				conv.PrefixRoleName(authorization.NodesViewer),
-				"nodes/verbosity/verbose/collections/.*",
-				authorization.READ,
-				authorization.NodesDomain,
-			}, rows[0])
-			for _, r := range rows {
-				assert.NotEqual(t, "*", r[1], "nodes-viewer must never get a wildcard-resource policy")
-			}
-		})
-	}
-}
-
 // TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSDisabled is the
 // NS-disabled control: the policy wipe-and-rebuild on every Init must not
 // touch user→role groupings created via the API.

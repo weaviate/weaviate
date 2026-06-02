@@ -7,7 +7,7 @@ the client surface the Go acceptance test doesn't reach:
   - a namespaced admin sees verbose node/shard info for its own collections only,
   - the node-wide minimal view stays denied (403),
   - a regular namespace viewer sees no shards,
-  - the built-in `nodes-viewer` role grants scoped verbose access to a
+  - a custom role with verbose read_nodes grants scoped access to a
     non-admin namespace user,
   - the global root sees every namespace's shards.
 
@@ -98,6 +98,17 @@ def _assign_role(http_port: int, qualified_user: str, role: str) -> None:
     assert status in (200, 201), f"assign {role} to {qualified_user}: {status} {body!r}"
 
 
+def _create_role(http_port: int, name: str, permissions: List[dict]) -> None:
+    """POST /authz/roles; on 409 (already exists) delete and retry so re-runs are idempotent."""
+    url = f"{_rest_base(http_port)}/authz/roles"
+    body_in = {"name": name, "permissions": permissions}
+    status, body = _http("POST", url, _admin_headers(), body_in)
+    if status == 409:
+        _http("DELETE", f"{url}/{name}", _admin_headers())
+        status, body = _http("POST", url, _admin_headers(), body_in)
+    assert status in (200, 201), f"create role {name}: {status} {body!r}"
+
+
 def _create_user(http_port: int, qualified: str, role: Optional[str]) -> str:
     """POST /users/db/{qualified}, optionally grant a role, return its apikey.
 
@@ -152,7 +163,7 @@ def keys() -> Iterator[Dict[str, str]]:
 
     - admin1/admin2: built-in admin in customer1/customer2 (the namespace admins),
     - viewer1: built-in viewer in customer1 (a regular namespace user),
-    - bare1: no role in customer1 (granted nodes-viewer at runtime by a test).
+    - bare1: no role in customer1 (granted a custom verbose-nodes role at runtime by a test).
     """
     http_port = NODES[0][0]
     _create_namespace(http_port, NS1)
@@ -281,7 +292,7 @@ def test_regular_namespace_viewer_sees_no_shards(keys, probe_collections, open_c
     _assert_minimal_forbidden(client)
 
 
-def test_nodes_viewer_role_grants_scoped_access(keys, probe_collections, open_client):
+def test_custom_verbose_nodes_role_grants_scoped_access(keys, probe_collections, open_client):
     client = open_client(keys["bare1"])
 
     # No role yet: verbose returns 200 with no shards; minimal is denied.
@@ -289,7 +300,15 @@ def test_nodes_viewer_role_grants_scoped_access(keys, probe_collections, open_cl
     assert total == 0, "a bare namespace user must see no shards before the role is granted"
     _assert_minimal_forbidden(client)
 
-    _assign_role(NODES[0][0], f"{NS1}:bare1", "nodes-viewer")
+    # No built-in nodes role for non-admin namespace users; an operator grants a
+    # custom role with verbose read_nodes over all collections — the matcher
+    # scopes it to the caller's namespace.
+    _create_role(
+        NODES[0][0],
+        "ns-nodes-viewer",
+        [{"action": "read_nodes", "nodes": {"verbosity": "verbose", "collection": "*"}}],
+    )
+    _assign_role(NODES[0][0], f"{NS1}:bare1", "ns-nodes-viewer")
 
     # Poll until the role applies on the node this client talks to.
     deadline = time.time() + 20.0
@@ -299,10 +318,10 @@ def test_nodes_viewer_role_grants_scoped_access(keys, probe_collections, open_cl
             break
         time.sleep(0.2)
     else:
-        raise AssertionError("nodes-viewer role never exposed the namespace's shards")
+        raise AssertionError("custom verbose-nodes role never exposed the namespace's shards")
 
     _assert_scoped_to(client.cluster.nodes(output="verbose"), f"{NS1}:")
-    # nodes-viewer is verbose-only: the node-wide minimal view stays denied.
+    # verbose-only role: the node-wide minimal view stays denied.
     _assert_minimal_forbidden(client)
 
 

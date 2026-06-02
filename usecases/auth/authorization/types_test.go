@@ -20,9 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 func TestUsers(t *testing.T) {
@@ -379,24 +377,6 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	assert.True(t, ok, "Root must include manage_backups on NS-enabled")
 	_, ok = gotReadOnly[ReadNodes]
 	assert.True(t, ok, "ReadOnly must include read_nodes on NS-enabled")
-}
-
-// TestBuiltInPermissions_NodesViewer asserts the new nodes-viewer built-in
-// role holds exactly one verbose read_nodes permission (Collection=*) on both
-// NS modes; the matcher scopes the wildcard collection to the caller's namespace.
-func TestBuiltInPermissions_NodesViewer(t *testing.T) {
-	for _, nsEnabled := range []bool{false, true} {
-		perms := BuiltInPermissionsFor(nsEnabled)[NodesViewer]
-		require.Len(t, perms, 1, "nodes-viewer must hold exactly one permission (nsEnabled=%v)", nsEnabled)
-		p := perms[0]
-		require.NotNil(t, p.Action)
-		assert.Equal(t, ReadNodes, *p.Action)
-		require.NotNil(t, p.Nodes)
-		require.NotNil(t, p.Nodes.Verbosity)
-		assert.Equal(t, verbosity.OutputVerbose, *p.Nodes.Verbosity)
-		require.NotNil(t, p.Nodes.Collection)
-		assert.Equal(t, "*", *p.Nodes.Collection)
-	}
 }
 
 func TestGetWildcardPath(t *testing.T) {
