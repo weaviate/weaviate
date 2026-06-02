@@ -14,6 +14,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -115,6 +116,15 @@ func (dv *DynamicValue[T]) SetValue(val T) error {
 func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 	var val T
 	if err := node.Decode(&val); err != nil {
+		// `key: ""` errors against slice T in yaml.v3; coerce to nil so a
+		// quoted-empty doesn't fail the whole push. Scalars stay strict —
+		// their zero is field-dependent.
+		if node.Kind == yaml.ScalarNode && node.Value == "" && reflect.TypeOf(val).Kind() == reflect.Slice {
+			dv.mu.Lock()
+			defer dv.mu.Unlock()
+			dv.def = val
+			return nil
+		}
 		return err
 	}
 	dv.mu.Lock()
