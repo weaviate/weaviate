@@ -91,7 +91,9 @@ func TestMatchRESTQueryPath(t *testing.T) {
 		{"/v1/Article/query/bm25", "Article", kindQueryBM25, true},
 		{"/v1/Article/query/hybrid", "Article", kindQueryHybrid, true},
 		{"/v1/Article/query/fetch", "Article", kindQueryFetch, true},
-		{"/v1/Article/query/near-imu", "Article", kindQueryNearImu, true},
+		{"/v1/Article/query/near-media", "Article", kindQueryNearMedia, true},
+		{"/v1/Article/query/near-imu", "", 0, false},          // media routes collapsed into near-media
+		{"/v1/Article/query/near-image", "", 0, false},        // media routes collapsed into near-media
 		{"/v1/Article/query/bogus", "", 0, false},             // unknown sub-method
 		{"/v1/Article/query/near-vector/extra", "", 0, false}, // too deep
 		{"/v1/Article", "", 0, false},
@@ -349,18 +351,26 @@ func TestRESTQuery_ConsistencyLevelShorthand(t *testing.T) {
 
 func TestRESTQuery_PerMethodEndpoints_Accept(t *testing.T) {
 	cases := []struct {
+		name string
 		path string
 		body string
 		want func(*pbv1.SearchRequest) bool
 	}{
-		{"/v1/Article/query/near-vector", `{"nearVector":{"vector":[1,0,0]}}`, func(r *pbv1.SearchRequest) bool { return r.NearVector != nil }},
-		{"/v1/Article/query/bm25", `{"bm25Search":{"query":"x"}}`, func(r *pbv1.SearchRequest) bool { return r.Bm25Search != nil }},
-		{"/v1/Article/query/hybrid", `{"hybridSearch":{"query":"x"}}`, func(r *pbv1.SearchRequest) bool { return r.HybridSearch != nil }},
-		{"/v1/Article/query/near-object", `{"nearObject":{"id":"abc"}}`, func(r *pbv1.SearchRequest) bool { return r.NearObject != nil }},
-		{"/v1/Article/query/fetch", `{"limit":3}`, func(r *pbv1.SearchRequest) bool { return r.Limit == 3 }},
+		{"near-vector", "/v1/Article/query/near-vector", `{"nearVector":{"vector":[1,0,0]}}`, func(r *pbv1.SearchRequest) bool { return r.NearVector != nil }},
+		{"bm25", "/v1/Article/query/bm25", `{"bm25Search":{"query":"x"}}`, func(r *pbv1.SearchRequest) bool { return r.Bm25Search != nil }},
+		{"hybrid", "/v1/Article/query/hybrid", `{"hybridSearch":{"query":"x"}}`, func(r *pbv1.SearchRequest) bool { return r.HybridSearch != nil }},
+		{"near-object", "/v1/Article/query/near-object", `{"nearObject":{"id":"abc"}}`, func(r *pbv1.SearchRequest) bool { return r.NearObject != nil }},
+		{"fetch", "/v1/Article/query/fetch", `{"limit":3}`, func(r *pbv1.SearchRequest) bool { return r.Limit == 3 }},
+		// near-media accepts any one of the six media search fields.
+		{"near-media image", "/v1/Article/query/near-media", `{"nearImage":{}}`, func(r *pbv1.SearchRequest) bool { return r.NearImage != nil }},
+		{"near-media audio", "/v1/Article/query/near-media", `{"nearAudio":{}}`, func(r *pbv1.SearchRequest) bool { return r.NearAudio != nil }},
+		{"near-media video", "/v1/Article/query/near-media", `{"nearVideo":{}}`, func(r *pbv1.SearchRequest) bool { return r.NearVideo != nil }},
+		{"near-media depth", "/v1/Article/query/near-media", `{"nearDepth":{}}`, func(r *pbv1.SearchRequest) bool { return r.NearDepth != nil }},
+		{"near-media thermal", "/v1/Article/query/near-media", `{"nearThermal":{}}`, func(r *pbv1.SearchRequest) bool { return r.NearThermal != nil }},
+		{"near-media imu", "/v1/Article/query/near-media", `{"nearImu":{}}`, func(r *pbv1.SearchRequest) bool { return r.NearImu != nil }},
 	}
 	for _, tc := range cases {
-		t.Run(tc.path, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
 			h := newTestQueryHandler(q)
 			rec := doQueryRequest(t, h, http.MethodPost, tc.path, tc.body)
@@ -380,6 +390,9 @@ func TestRESTQuery_PerMethodEndpoints_RejectMismatch(t *testing.T) {
 		{"search method on fetch", "/v1/Article/query/fetch", `{"nearVector":{"vector":[1,0,0]}}`},
 		{"empty body on near-vector (missing field)", "/v1/Article/query/near-vector", `{}`},
 		{"two methods on hybrid", "/v1/Article/query/hybrid", `{"hybridSearch":{"query":"x"},"bm25Search":{"query":"x"}}`},
+		{"non-media method on near-media", "/v1/Article/query/near-media", `{"nearVector":{"vector":[1,0,0]}}`},
+		{"no method on near-media", "/v1/Article/query/near-media", `{}`},
+		{"two media methods on near-media", "/v1/Article/query/near-media", `{"nearImage":{},"nearAudio":{}}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

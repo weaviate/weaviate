@@ -78,46 +78,41 @@ const (
 	kindQueryNearVector
 	kindQueryNearText
 	kindQueryNearObject
-	kindQueryNearImage
-	kindQueryNearAudio
-	kindQueryNearVideo
-	kindQueryNearDepth
-	kindQueryNearThermal
-	kindQueryNearImu
+	kindQueryNearMedia // /query/near-media — any one of the media search fields
 )
 
 // querySubKinds maps the /v1/{collection}/query/{sub} suffix to its kind. These
 // mirror the client-library query methods.
 var querySubKinds = map[string]restQueryKind{
-	"fetch":        kindQueryFetch,
-	"bm25":         kindQueryBM25,
-	"hybrid":       kindQueryHybrid,
-	"near-vector":  kindQueryNearVector,
-	"near-text":    kindQueryNearText,
-	"near-object":  kindQueryNearObject,
-	"near-image":   kindQueryNearImage,
-	"near-audio":   kindQueryNearAudio,
-	"near-video":   kindQueryNearVideo,
-	"near-depth":   kindQueryNearDepth,
-	"near-thermal": kindQueryNearThermal,
-	"near-imu":     kindQueryNearImu,
+	"fetch":       kindQueryFetch,
+	"bm25":        kindQueryBM25,
+	"hybrid":      kindQueryHybrid,
+	"near-vector": kindQueryNearVector,
+	"near-text":   kindQueryNearText,
+	"near-object": kindQueryNearObject,
+	"near-media":  kindQueryNearMedia,
 }
 
 // kindExpectedSearchField is the SearchRequest proto-JSON field a specialized
 // query endpoint requires. Universal (any) and fetch (none) are handled
 // separately in validateSearchForKind.
 var kindExpectedSearchField = map[restQueryKind]string{
-	kindQueryBM25:        "bm25Search",
-	kindQueryHybrid:      "hybridSearch",
-	kindQueryNearVector:  "nearVector",
-	kindQueryNearText:    "nearText",
-	kindQueryNearObject:  "nearObject",
-	kindQueryNearImage:   "nearImage",
-	kindQueryNearAudio:   "nearAudio",
-	kindQueryNearVideo:   "nearVideo",
-	kindQueryNearDepth:   "nearDepth",
-	kindQueryNearThermal: "nearThermal",
-	kindQueryNearImu:     "nearImu",
+	kindQueryBM25:       "bm25Search",
+	kindQueryHybrid:     "hybridSearch",
+	kindQueryNearVector: "nearVector",
+	kindQueryNearText:   "nearText",
+	kindQueryNearObject: "nearObject",
+}
+
+// mediaSearchFields are the multi-modal search methods accepted by the single
+// /query/near-media endpoint. Exactly one of them must be set on the body.
+var mediaSearchFields = map[string]bool{
+	"nearImage":   true,
+	"nearAudio":   true,
+	"nearVideo":   true,
+	"nearDepth":   true,
+	"nearThermal": true,
+	"nearImu":     true,
 }
 
 // makeAddRESTQueryHandlers builds the middleware that intercepts the REST
@@ -150,8 +145,7 @@ func (h *restQueryHandler) middleware(next http.Handler) http.Handler {
 // matchRESTQueryPath returns the (url-decoded) collection and the endpoint kind
 // for the REST query/aggregate routes:
 //
-//	/v1/{collection}/query              universal search
-//	/v1/{collection}/query/{method}     fetch | bm25 | hybrid | near-vector | near-text | ...
+//	/v1/{collection}/query/{method}     fetch | bm25 | hybrid | near-vector | near-text | near-object | near-media
 //	/v1/{collection}/aggregate          aggregation
 //
 // ok is false for anything else so the caller falls through to the next handler.
@@ -235,7 +229,7 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		return
 	}
 
-	// Query family: universal /query and the per-method /query/{method} routes.
+	// Query family: the per-method /query/{method} routes.
 	req := &pbv1.SearchRequest{}
 	if err := unmarshalRequestBody(reqBody, req); err != nil {
 		h.writeError(w, http.StatusUnprocessableEntity, principal,
@@ -285,11 +279,12 @@ func searchMethodsSet(req *pbv1.SearchRequest) []string {
 }
 
 // validateSearchForKind enforces that the request body matches the specialized
-// query endpoint it was sent to. The universal /query accepts anything;
-// /query/fetch must carry no search method; every other endpoint must carry
-// exactly its own search method and no other. This keeps the body identical to
-// the gRPC SearchRequest (an agent can still construct any of these from the
-// proto) while giving each endpoint clear validation.
+// query endpoint it was sent to: /query/fetch must carry no search method;
+// /query/near-media must carry exactly one of the media search fields; every
+// other endpoint must carry exactly its own search method and no other. This
+// keeps the body identical to the gRPC SearchRequest (an agent can still
+// construct any of these from the proto) while giving each endpoint clear
+// validation.
 func validateSearchForKind(req *pbv1.SearchRequest, kind restQueryKind) error {
 	set := searchMethodsSet(req)
 	if kind == kindQueryFetch {
@@ -297,6 +292,19 @@ func validateSearchForKind(req *pbv1.SearchRequest, kind restQueryKind) error {
 			return fmt.Errorf("this endpoint takes no search method, but %q was set; use the matching /query/<method> endpoint", set[0])
 		}
 		return nil
+	}
+	if kind == kindQueryNearMedia {
+		const fields = "nearImage, nearAudio, nearVideo, nearDepth, nearThermal, nearImu"
+		switch {
+		case len(set) == 1 && mediaSearchFields[set[0]]:
+			return nil
+		case len(set) == 0:
+			return fmt.Errorf("near-media requires exactly one media search field (one of %s)", fields)
+		case len(set) == 1:
+			return fmt.Errorf("near-media accepts only a media search field (one of %s), got %q", fields, set[0])
+		default:
+			return fmt.Errorf("near-media accepts exactly one media search field, got %v", set)
+		}
 	}
 	want := kindExpectedSearchField[kind]
 	switch {
