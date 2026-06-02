@@ -51,6 +51,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
@@ -413,7 +414,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
 	if authConfig.BasicAuth.Enabled() {
 		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
-		grpcDialOpts = append(grpcDialOpts,
+		grpcDialOpts = append(
+			grpcDialOpts,
 			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
 			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
 		)
@@ -421,7 +423,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
 	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
-	grpcDialOpts = append(grpcDialOpts,
+	grpcDialOpts = append(
+		grpcDialOpts,
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxSize),
 			grpc.MaxCallSendMsgSize(maxSize),
@@ -435,7 +438,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	grpcConnManager, err := grpcconn.NewConnManager(
 		appState.ServerConfig.Config.GRPC.MaxOpenConns,
 		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
-		metricsRegisterer, appState.Logger, grpcDialOpts...)
+		metricsRegisterer, appState.Logger, grpcDialOpts...,
+	)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
 			WithError(err).
@@ -459,7 +463,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	replConnManager, err := grpcconn.NewConnManager(
 		appState.ServerConfig.Config.GRPC.MaxOpenConns,
 		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
-		replMetricsReg, appState.Logger, replDialOpts...)
+		replMetricsReg, appState.Logger, replDialOpts...,
+	)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
 			WithError(err).
@@ -608,7 +613,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	localClassifierRepo, err := classifications.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger,
+	)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -737,7 +743,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		return nil
 	}
 
-	executor := schema.NewExecutor(migrator,
+	executor := schema.NewExecutor(
+		migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, restoreClassDirWithAudit,
 	)
@@ -752,7 +759,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger,
 	)
 
-	schemaManager, err := schema.NewManager(migrator,
+	schemaManager, err := schema.NewManager(
+		migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
@@ -1323,7 +1331,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
-		appState.APIKey, appState.OIDC)
+		appState.APIKey, appState.OIDC,
+	)
 
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "version": build.Version}).Infof(msg, args...)
@@ -1391,6 +1400,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), grpcInstrument...)
+	var grpcWebSrv *grpcweb.Server
+	if appState.ServerConfig.Config.GRPC.WebEnabled {
+		grpcWebSrv = grpcweb.NewServer(grpcServer, appState)
+	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1410,7 +1423,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 				backupScheduler.CleanupUnfinishedBackups(ctx)
-			}, appState.Logger)
+			}, appState.Logger,
+		)
 	}
 
 	api.PreServerShutdown = func() {
@@ -1473,6 +1487,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
+		if grpcWebSrv != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := grpcWebSrv.Close(shutdownCtx); err != nil {
+				appState.Logger.WithField("action", "grpc_web_shutdown").WithError(err).
+					Warn("grpc-web server shutdown error")
+			}
+			cancel()
+		}
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 
@@ -1517,6 +1539,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	startGrpcServer(grpcServer, appState)
+	if grpcWebSrv != nil {
+		startGrpcWebServer(grpcWebSrv, appState)
+	}
 	setupMCPHandlers(api, appState, objectsManager)
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
@@ -1528,7 +1553,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		appState.DB, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
-		appState.Logger)
+		appState.Logger,
+	)
 	return backupScheduler
 }
 
@@ -2349,7 +2375,8 @@ func postInitModules(appState *state.State) {
 
 func initModules(ctx context.Context, appState *state.State) error {
 	storageProvider, err := modulestorage.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger,
+	)
 	if err != nil {
 		return errors.Wrap(err, "init storage provider")
 	}
@@ -2602,7 +2629,8 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
-			prometheus.DefaultRegisterer)
+			prometheus.DefaultRegisterer,
+		)
 		if err != nil {
 			appState.Logger.WithField("action", "startup").Errorf("could not create runtime config manager: %v", err)
 		}

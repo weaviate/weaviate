@@ -939,6 +939,14 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
 		config.GRPC.KeyFile = v
 	}
+	config.GRPC.WebEnabled = entcfg.Enabled(os.Getenv("GRPC_WEB_ENABLED"))
+	if err := parsePositiveInt(
+		"GRPC_WEB_PORT",
+		func(val int) { config.GRPC.WebPort = val },
+		DefaultGRPCWebPort,
+	); err != nil {
+		return err
+	}
 
 	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
@@ -1806,6 +1814,7 @@ const (
 	DefaultMaxConcurrentShardLoads             = 100
 	DefaultMaxConcurrentBucketLoads            = 100
 	DefaultGRPCPort                            = 50051
+	DefaultGRPCWebPort                         = 50052
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
 	DefaultMCPEnabled                          = false
@@ -1963,9 +1972,11 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	cfg.IgnoreStartupSchemaSync = entcfg.Enabled(
-		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
+		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"),
+	)
 	cfg.SkipSchemaSyncRepair = entcfg.Enabled(
-		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
+		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"),
+	)
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
 	basicAuthPassword := os.Getenv("CLUSTER_BASIC_AUTH_PASSWORD")
