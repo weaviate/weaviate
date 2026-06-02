@@ -28,14 +28,20 @@ jobs:
           # "Weaviate Core <release number>" — strip a leading "v" from the tag.
           number="${REL_TAG#v}"
 
-          # Convert a subset of GitHub Markdown to Slack mrkdwn:
+          # Convert a subset of GitHub Markdown to Slack mrkdwn. GitHub release
+          # bodies are CRLF, so strip carriage returns first (otherwise stray \r
+          # leaks into Slack and the line-anchored regexes below mis-match).
           # - drop authorship/PR refs: "by @user", "in #123", "in <pull-url>"
-          # - md → mrkdwn: "## heading" → "*heading*", "**x**" → "*x*"
+          # - drop empty "## Section\n*none*" blocks (Breaking Changes/New Features)
+          # - md → mrkdwn: "## heading" → "*heading*" (trailing space trimmed so
+          #   Slack still bolds it), "**x**" → "*x*"
           changes="$(printf '%s' "$REL_BODY" \
+            | tr -d '\r' \
             | sed -E 's#[[:space:]]+in[[:space:]]+https?://[^[:space:]]+##g' \
             | sed -E 's/[[:space:]]+in[[:space:]]+#[0-9]+//g' \
             | sed -E 's/[[:space:]]+by[[:space:]]+@[A-Za-z0-9_-]+//g' \
-            | sed -E 's/^#{1,6}[[:space:]]+(.*)$/*\1*/' \
+            | perl -0777 -pe 's/^#{1,6}\h+.*\n\h*\*?none\*?\h*\n\n?//gmi' \
+            | sed -E 's/^#{1,6}[[:space:]]+(.*[^[:space:]])[[:space:]]*$/*\1*/' \
             | sed -E 's/\*\*([^*]+)\*\*/*\1*/g')"
 
           # Assemble the message entirely inside jq, which handles JSON escaping and
