@@ -59,7 +59,8 @@ type User struct {
 	ImportedWithKey    bool
 }
 
-// UserView is a race-free snapshot of [User] returned by [DBUser.GetUsers].
+// UserView is an independent snapshot of [User] returned by [DBUser.GetUsers]
+// so callers can read fields without racing in-place mutators.
 type UserView struct {
 	Id                 string
 	Active             bool
@@ -70,8 +71,8 @@ type UserView struct {
 	ImportedWithKey    bool
 }
 
-// view returns a snapshot. Caller must hold c.lock for read; this method
-// also takes the per-user RLock to block LastUsedAt updaters.
+// view returns a snapshot taken under the per-user RLock so it cannot
+// observe a torn write from UpdateLastUsedTimestamp.
 func (u *User) view() UserView {
 	u.RLock()
 	defer u.RUnlock()
