@@ -113,11 +113,6 @@ The handler pre-processes the JSON body (`preprocessQueryBody`) before the stric
 proto-JSON parse to smooth over the parts that are awkward to hand-write over raw
 HTTP:
 
-- **`where`** — an optional top-level filter in the familiar REST `WhereFilter`
-  syntax (`operator: "Equal"`, `path`, `operands`), an alternative to the
-  protobuf `filters`. It is resolved server-side via the existing
-  `adapters/handlers/rest/filterext.Parse` (reused, not reimplemented) and
-  overrides `filters`. Setting both `where` and `filters` returns 422.
 - **`consistencyLevel`** — accepts the short form (`ONE`/`QUORUM`/`ALL`,
   case-insensitive) and rewrites it to the protobuf enum name; unknown values
   fall through to the strict parser.
@@ -156,11 +151,10 @@ the module's error otherwise).
 | Area | File |
 |---|---|
 | Shared pipeline entrypoints | `adapters/handlers/grpc/v1/service.go` |
-| REST handler (routing, auth, where/consistency, errors) | `adapters/handlers/rest/handlers_query.go` |
+| REST handler (routing, auth, consistency shorthand, errors) | `adapters/handlers/rest/handlers_query.go` |
 | Middleware wiring + operational-mode read classification | `adapters/handlers/rest/middlewares.go` |
 | `Querier` interface | `adapters/handlers/rest/state/state.go` |
 | Gating flag | `usecases/config/config_handler.go`, `usecases/config/environment.go` |
-| WhereFilter → internal filter converter (reused) | `adapters/handlers/rest/filterext/parse.go` |
 | OpenAPI doc-only strip for codegen | `tools/swagger_strip_doc_only/main.go` |
 | Unit tests | `adapters/handlers/rest/handlers_query_test.go` |
 | REST-vs-gRPC parity acceptance test | `test/acceptance/rest_query/parity_test.go` |

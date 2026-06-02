@@ -158,9 +158,10 @@ func TestRESTQueryParity(t *testing.T) {
 		})
 	}
 
-	// The REST `where` filter (operator/path syntax) must produce the same
-	// result as the equivalent gRPC pb.Filters.
-	t.Run("search/where filter equals pb.Filters", func(t *testing.T) {
+	// The REST `filters` field (protobuf Filters as protobuf-JSON) must produce
+	// the same result as the equivalent gRPC pb.Filters — i.e. the REST body is
+	// the same SearchRequest, just over HTTP.
+	t.Run("search/filters equals pb.Filters", func(t *testing.T) {
 		grpcReply, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection: parityClass,
 			Filters: &pb.Filters{
@@ -174,15 +175,15 @@ func TestRESTQueryParity(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Same filter, expressed in the REST where syntax instead of pb.Filters.
+		// Same request over REST — filters expressed as protobuf-JSON.
 		restReply := restSearchBody(t, httpURI, parityClass,
 			`{"metadata":{"uuid":true},"properties":{"nonRefProperties":["title","category"]},"uses127Api":true,`+
-				`"where":{"operator":"Equal","path":["category"],"valueText":"fantasy"}}`)
+				`"filters":{"operator":"OPERATOR_EQUAL","valueText":"fantasy","target":{"property":"category"}}}`)
 
 		normalizeSearch(grpcReply)
 		normalizeSearch(restReply)
 		require.Truef(t, proto.Equal(grpcReply, restReply),
-			"REST where and gRPC pb.Filters differ\ngRPC: %v\nREST: %v", grpcReply, restReply)
+			"REST filters and gRPC pb.Filters differ\ngRPC: %v\nREST: %v", grpcReply, restReply)
 	})
 
 	aggregateCases := []struct {

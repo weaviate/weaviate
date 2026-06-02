@@ -5312,14 +5312,6 @@
             }
           ]
         },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
-            }
-          ]
-        },
         "hybridSearch": {
           "description": "Hybrid (keyword + vector) search.",
           "allOf": [
@@ -5483,14 +5475,6 @@
           "allOf": [
             {
               "$ref": "#/definitions/Filters"
-            }
-          ]
-        },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
             }
           ]
         },
@@ -5999,14 +5983,6 @@
             }
           ]
         },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
-            }
-          ]
-        },
         "generative": {
           "description": "Retrieval-augmented generation (RAG) over the results.",
           "allOf": [
@@ -6115,14 +6091,6 @@
           "allOf": [
             {
               "$ref": "#/definitions/Filters"
-            }
-          ]
-        },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
             }
           ]
         },
@@ -6240,14 +6208,6 @@
             }
           ]
         },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
-            }
-          ]
-        },
         "generative": {
           "description": "Retrieval-augmented generation (RAG) over the results.",
           "allOf": [
@@ -6359,14 +6319,6 @@
           "allOf": [
             {
               "$ref": "#/definitions/Filters"
-            }
-          ]
-        },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
             }
           ]
         },
@@ -6484,14 +6436,6 @@
             }
           ]
         },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
-            }
-          ]
-        },
         "generative": {
           "description": "Retrieval-augmented generation (RAG) over the results.",
           "allOf": [
@@ -6606,14 +6550,6 @@
             }
           ]
         },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
-            }
-          ]
-        },
         "generative": {
           "description": "Retrieval-augmented generation (RAG) over the results.",
           "allOf": [
@@ -6725,14 +6661,6 @@
           "allOf": [
             {
               "$ref": "#/definitions/Filters"
-            }
-          ]
-        },
-        "where": {
-          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/WhereFilter"
             }
           ]
         },
@@ -7082,7 +7010,7 @@
     "/{collection}/query/fetch": {
       "post": {
         "summary": "Fetch objects",
-        "description": "Returns objects with no vector or keyword search — filter, sort, and paginate (mirrors the clients' fetch_objects). The body is the weaviate.v1.SearchRequest with no search method set; the collection comes from the path.",
+        "description": "Fetch objects from a collection by filter, sort, and pagination — no relevance ranking.",
         "operationId": "query.fetch",
         "consumes": [
           "application/json"
@@ -7101,7 +7029,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "weaviate query request body (common params, no search method).",
+            "description": "Filter, sort, and pagination options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/FetchQueryRequest"
@@ -7149,7 +7077,7 @@
     "/{collection}/query/bm25": {
       "post": {
         "summary": "Keyword (BM25) search",
-        "description": "Searches a single collection using bm25Search. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `bm25Search` search field (the collection comes from the path).",
+        "description": "Keyword search ranked by BM25 over the collection's text properties.",
         "operationId": "query.bm25",
         "consumes": [
           "application/json"
@@ -7168,7 +7096,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "weaviate query request body (common params + `bm25Search`).",
+            "description": "BM25 keyword query and result options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/BM25QueryRequest"
@@ -7216,7 +7144,7 @@
     "/{collection}/query/hybrid": {
       "post": {
         "summary": "Hybrid (keyword + vector) search",
-        "description": "Searches a single collection using hybridSearch. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `hybridSearch` search field (the collection comes from the path).",
+        "description": "Hybrid search that fuses vector similarity and BM25 keyword scoring.",
         "operationId": "query.hybrid",
         "consumes": [
           "application/json"
@@ -7235,7 +7163,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "weaviate query request body (common params + `hybridSearch`).",
+            "description": "Hybrid query (vector + keyword) and result options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/HybridQueryRequest"
@@ -7283,7 +7211,7 @@
     "/{collection}/query/near-text": {
       "post": {
         "summary": "nearText (Semantic) search",
-        "description": "Searches a single collection using nearText. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearText` search field (the collection comes from the path). Requires a text vectorizer module on the collection.",
+        "description": "Semantic search from a text query. Requires a vectorizer module on the collection.",
         "operationId": "query.nearText",
         "consumes": [
           "application/json"
@@ -7302,7 +7230,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "weaviate query request body (common params + `nearText`).",
+            "description": "Text query and result options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/NearTextQueryRequest"
@@ -7350,7 +7278,7 @@
     "/{collection}/query/near-vector": {
       "post": {
         "summary": "nearVector search",
-        "description": "Searches a single collection using nearVector. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearVector` search field (the collection comes from the path).",
+        "description": "Vector similarity search from a raw query vector.",
         "operationId": "query.nearVector",
         "consumes": [
           "application/json"
@@ -7369,7 +7297,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "weaviate query request body (common params + `nearVector`).",
+            "description": "Query vector and result options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/NearVectorQueryRequest"
@@ -7417,7 +7345,7 @@
     "/{collection}/query/near-object": {
       "post": {
         "summary": "nearObject (search by an existing object)",
-        "description": "Searches a single collection using nearObject. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set the `nearObject` search field (the collection comes from the path).",
+        "description": "Find the objects most similar to an existing object, given its ID.",
         "operationId": "query.nearObject",
         "consumes": [
           "application/json"
@@ -7436,7 +7364,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "weaviate query request body (common params + `nearObject`).",
+            "description": "Reference object and result options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/NearObjectQueryRequest"
@@ -7484,7 +7412,7 @@
     "/{collection}/query/near-media": {
       "post": {
         "summary": "nearMedia (image/audio/video/depth/thermal/IMU) search",
-        "description": "Multi-modal similarity search over a single collection. Request and response bodies are the weaviate.v1.SearchRequest/SearchReply; set exactly one media search field (nearImage, nearAudio, nearVideo, nearDepth, nearThermal or nearImu) — the collection comes from the path. Requires a multi-modal module.",
+        "description": "Multi-modal similarity search from a media input (image, audio, video, depth, thermal, or IMU). Requires a multi-modal module.",
         "operationId": "query.nearMedia",
         "consumes": [
           "application/json"
@@ -7503,7 +7431,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "weaviate query request body (common params + exactly one media search field).",
+            "description": "Media input and result options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/NearMediaQueryRequest"
@@ -7551,7 +7479,7 @@
     "/{collection}/aggregate": {
       "post": {
         "summary": "Aggregate over a collection",
-        "description": "Runs a aggregation against a single collection and returns the aggregation results. The collection name is taken from the path and always overrides any `collection` field in the body.",
+        "description": "Aggregate over a collection: object counts and per-property statistics, optionally grouped by a property.",
         "operationId": "query.aggregate",
         "consumes": [
           "application/json"
@@ -7570,7 +7498,7 @@
           {
             "name": "body",
             "in": "body",
-            "description": "The aggregation request body. Any `collection` field in the body is ignored in favor of the path parameter.",
+            "description": "Aggregation and grouping options.",
             "required": false,
             "schema": {
               "$ref": "#/definitions/AggregateRequest"

@@ -200,9 +200,8 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		return
 	}
 
-	// Adapt REST-friendly conveniences (`where` filter, consistency-level
-	// shorthand) before the strict protojson parse.
-	reqBody, where, err := preprocessQueryBody(body)
+	// Adapt the consistency-level shorthand before the strict protojson parse.
+	reqBody, err := preprocessQueryBody(body)
 	if err != nil {
 		h.writeError(w, http.StatusUnprocessableEntity, principal, err)
 		return
@@ -216,11 +215,7 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 			return
 		}
 		req.Collection = collection
-		if where != nil && req.Filters != nil {
-			h.writeError(w, http.StatusUnprocessableEntity, principal, errWhereAndFilters)
-			return
-		}
-		reply, err := h.querier.AggregateWithPrincipal(r.Context(), principal, req, where)
+		reply, err := h.querier.AggregateWithPrincipal(r.Context(), principal, req)
 		if err != nil {
 			h.writeError(w, httpStatusForQueryError(err), principal, err)
 			return
@@ -237,23 +232,17 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		return
 	}
 	req.Collection = collection
-	if where != nil && req.Filters != nil {
-		h.writeError(w, http.StatusUnprocessableEntity, principal, errWhereAndFilters)
-		return
-	}
 	if err := validateSearchForKind(req, kind); err != nil {
 		h.writeError(w, http.StatusUnprocessableEntity, principal, err)
 		return
 	}
-	reply, err := h.querier.SearchWithPrincipal(r.Context(), principal, req, where)
+	reply, err := h.querier.SearchWithPrincipal(r.Context(), principal, req)
 	if err != nil {
 		h.writeError(w, httpStatusForQueryError(err), principal, err)
 		return
 	}
 	h.writeProto(w, principal, reply)
 }
-
-var errWhereAndFilters = errors.New("set either `where` or `filters` in the body, not both")
 
 // searchMethodsSet returns the proto-JSON names of the mutually-exclusive search
 // methods present on the request.
@@ -335,61 +324,39 @@ var consistencyLevelAliases = map[string]string{
 	"ALL":    "CONSISTENCY_LEVEL_ALL",
 }
 
-// preprocessQueryBody adapts a couple of REST-friendly conveniences in the JSON
-// body into the canonical protobuf JSON before the strict protojson parse:
-//
-//   - a top-level `where` filter (REST WhereFilter syntax) is peeled off and
-//     returned separately. It is not part of the protobuf request; the pipeline
-//     resolves it server-side via filterext.Parse and it overrides the protobuf
-//     `filters` field.
-//   - a `consistencyLevel` given in the short form ("ONE"/"QUORUM"/"ALL",
-//     case-insensitive) is rewritten to the protobuf enum name so protojson can
-//     decode it.
-//
-// It returns the (possibly rewritten) body to hand to protojson and the parsed
-// WhereFilter (nil if absent). A non-object body is returned untouched so the
-// protojson parse surfaces the error.
-func preprocessQueryBody(body []byte) (rest []byte, where *models.WhereFilter, err error) {
+// preprocessQueryBody adapts a REST-friendly convenience in the JSON body into
+// the canonical protobuf JSON before the strict protojson parse: a
+// `consistencyLevel` given in the short form ("ONE"/"QUORUM"/"ALL",
+// case-insensitive) is rewritten to the protobuf enum name so protojson can
+// decode it. A non-object body is returned untouched so the protojson parse
+// surfaces the error.
+func preprocessQueryBody(body []byte) (rest []byte, err error) {
 	if len(bytes.TrimSpace(body)) == 0 {
-		return body, nil, nil
+		return body, nil
 	}
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(body, &top); err != nil {
-		return body, nil, nil
+		return body, nil
 	}
 
-	changed := false
-
-	if raw, ok := top["where"]; ok {
-		var wf models.WhereFilter
-		if err := json.Unmarshal(raw, &wf); err != nil {
-			return nil, nil, fmt.Errorf("parse `where` filter: %w", err)
-		}
-		where = &wf
-		delete(top, "where")
-		changed = true
+	raw, ok := top["consistencyLevel"]
+	if !ok {
+		return body, nil
 	}
-
-	if raw, ok := top["consistencyLevel"]; ok {
-		var s string
-		if json.Unmarshal(raw, &s) == nil {
-			if full, ok := consistencyLevelAliases[strings.ToUpper(s)]; ok && full != s {
-				if enc, err := json.Marshal(full); err == nil {
-					top["consistencyLevel"] = enc
-					changed = true
-				}
-			}
-		}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return body, nil
 	}
-
-	if !changed {
-		return body, where, nil
+	full, ok := consistencyLevelAliases[strings.ToUpper(s)]
+	if !ok || full == s {
+		return body, nil
 	}
-	rest, err = json.Marshal(top)
+	enc, err := json.Marshal(full)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return rest, where, nil
+	top["consistencyLevel"] = enc
+	return json.Marshal(top)
 }
 
 // principalFromRequest authenticates the request exactly like the gRPC auth

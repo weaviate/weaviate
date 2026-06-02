@@ -54,8 +54,8 @@ type watch struct {
 // must keep up with. Reply messages are intentionally excluded (modeled loosely
 // on purpose). Add a message here when it gains a documented OpenAPI def.
 var watched = map[string]watch{
-	"weaviate.v1.SearchRequest":     {def: "SearchRequest", restOnly: []string{"where"}},
-	"weaviate.v1.AggregateRequest":  {def: "AggregateRequest", restOnly: []string{"where"}},
+	"weaviate.v1.SearchRequest":     {def: "SearchRequest"},
+	"weaviate.v1.AggregateRequest":  {def: "AggregateRequest"},
 	"weaviate.v1.NearVector":        {def: "NearVector"},
 	"weaviate.v1.NearTextSearch":    {def: "NearTextSearch"},
 	"weaviate.v1.NearObject":        {def: "NearObject"},

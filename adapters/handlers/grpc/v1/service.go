@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -98,7 +97,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	return s.AggregateWithPrincipal(ctx, principal, req, nil)
+	return s.AggregateWithPrincipal(ctx, principal, req)
 }
 
 // AggregateWithPrincipal runs an aggregation on behalf of an already-authenticated
@@ -106,10 +105,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 // metadata and delegates here; transports that authenticate before reaching the
 // service (e.g. the REST /v1/{collection}/aggregate endpoint) call this directly
 // so they reuse the exact same parse → aggregate → reply pipeline.
-//
-// where is an optional filter in the REST WhereFilter syntax. When non-nil it is
-// resolved server-side and overrides req.Filters. gRPC callers pass nil.
-func (s *Service) AggregateWithPrincipal(ctx context.Context, principal *models.Principal, req *pb.AggregateRequest, where *models.WhereFilter) (reply *pb.AggregateReply, retErr error) {
+func (s *Service) AggregateWithPrincipal(ctx context.Context, principal *models.Principal, req *pb.AggregateRequest) (reply *pb.AggregateReply, retErr error) {
 	before := time.Now()
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
@@ -129,14 +125,6 @@ func (s *Service) AggregateWithPrincipal(ctx context.Context, principal *models.
 	params, err := parser.Aggregate(req)
 	if err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
-	}
-
-	if where != nil {
-		filter, err := filterext.Parse(where, req.Collection, s.config.Namespaces.Enabled, principal)
-		if err != nil {
-			return nil, err
-		}
-		params.Filters = filter
 	}
 
 	res, err := s.traverser.Aggregate(restCtx.AddPrincipalToContext(ctx, principal), principal, params)
@@ -308,7 +296,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	return s.SearchWithPrincipal(ctx, principal, req, nil)
+	return s.SearchWithPrincipal(ctx, principal, req)
 }
 
 // SearchWithPrincipal executes a search on behalf of an already-authenticated
@@ -316,12 +304,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 // metadata and delegates here; transports that authenticate before reaching the
 // service (e.g. the REST /v1/{collection}/query endpoint) call this directly so
 // they reuse the exact same parse → traverse → reply pipeline.
-//
-// where is an optional filter in the REST WhereFilter syntax. When non-nil it is
-// resolved server-side and overrides req.Filters, letting REST callers use the
-// familiar where syntax instead of the protobuf Filters shape. gRPC callers pass
-// nil.
-func (s *Service) SearchWithPrincipal(ctx context.Context, principal *models.Principal, req *pb.SearchRequest, where *models.WhereFilter) (reply *pb.SearchReply, retErr error) {
+func (s *Service) SearchWithPrincipal(ctx context.Context, principal *models.Principal, req *pb.SearchRequest) (reply *pb.SearchReply, retErr error) {
 	before := time.Now()
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
@@ -348,14 +331,6 @@ func (s *Service) SearchWithPrincipal(ctx context.Context, principal *models.Pri
 	searchParams, err := parser.Search(req, s.config)
 	if err != nil {
 		return nil, err
-	}
-
-	if where != nil {
-		filter, err := filterext.Parse(where, req.Collection, s.config.Namespaces.Enabled, principal)
-		if err != nil {
-			return nil, err
-		}
-		searchParams.Filters = filter
 	}
 
 	if err := s.validateClassAndProperty(searchParams); err != nil {

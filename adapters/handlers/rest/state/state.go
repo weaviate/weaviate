@@ -162,8 +162,8 @@ type State struct {
 // (*grpc/v1.Service) satisfies it; the REST query handlers consume it so that
 // REST and gRPC share one parse → traverse → reply implementation.
 type GRPCQuerier interface {
-	SearchWithPrincipal(ctx context.Context, principal *models.Principal, req *pbv1.SearchRequest, where *models.WhereFilter) (*pbv1.SearchReply, error)
-	AggregateWithPrincipal(ctx context.Context, principal *models.Principal, req *pbv1.AggregateRequest, where *models.WhereFilter) (*pbv1.AggregateReply, error)
+	SearchWithPrincipal(ctx context.Context, principal *models.Principal, req *pbv1.SearchRequest) (*pbv1.SearchReply, error)
+	AggregateWithPrincipal(ctx context.Context, principal *models.Principal, req *pbv1.AggregateRequest) (*pbv1.AggregateReply, error)
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
