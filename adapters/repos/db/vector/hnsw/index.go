@@ -185,7 +185,9 @@ type hnsw struct {
 	// to define the rescoring concurrency.
 	rescoreConcurrency int
 
-	compressActionLock    *sync.RWMutex
+	compressActionLock *sync.RWMutex
+	// compressWg lets Drop/Shutdown join the async compression goroutine Upgrade spawns.
+	compressWg            sync.WaitGroup
 	className             string
 	shardName             string
 	VectorForIDThunk      common.VectorForID[float32]
@@ -714,6 +716,10 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 }
 
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
+	// Wait for in-flight async compression to finish before teardown: it drops
+	// the cache and writes the commit log.
+	h.compressWg.Wait()
+
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -741,6 +747,10 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
+
+	// Wait for in-flight async compression to finish before teardown: it drops
+	// the cache and writes the commit log.
+	h.compressWg.Wait()
 
 	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
