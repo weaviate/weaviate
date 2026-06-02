@@ -155,6 +155,32 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.Len(t, viewerResp.Payload, 0)
 	})
 
+	t.Run("multi-class backup is filtered out for caller missing permission on one of its classes", func(t *testing.T) {
+		multiBackupID := "backup-multi-1"
+		params := backups.NewBackupsCreateParams().
+			WithBackend(backend).
+			WithBody(&models.BackupCreateRequest{
+				ID:      multiBackupID,
+				Include: []string{clsA.Class, clsP.Class},
+				Config:  helper.DefaultBackupConfig(),
+			})
+		_, err := helper.Client(t).Backups.BackupsCreate(params, helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		helper.ExpectBackupEventuallyCreated(t, multiBackupID, backend, helper.CreateAuth(adminKey))
+
+		// Admin sees both backups.
+		adminResp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.Len(t, adminResp.Payload, 2)
+
+		// customUser has manage_backups on clsA only; backup-multi-1 spans clsP
+		// so the every-class READ requirement filters it out.
+		customResp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+		require.Len(t, customResp.Payload, 1)
+		require.Equal(t, backupID, customResp.Payload[0].ID)
+	})
+
 	t.Run("backup status is 403 for callers without permission on the backup classes", func(t *testing.T) {
 		_, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(viewerKey))
 		require.Error(t, err)
@@ -271,6 +297,81 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 			}
 			if *resp.Payload.Status == "FAILED" {
 				t.Fatalf("backup failed: %s", resp.Payload.Error)
+			}
+			time.Sleep(time.Second / 10)
+		}
+	})
+
+	t.Run("restoration cancel is 403 for callers without permission on the backup classes", func(t *testing.T) {
+		err := helper.RestoreCancelWithAuthz(t, backend, "backup-1", helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsRestoreCancelForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("empty Include restore with no backup permissions returns 422 no classes found", func(t *testing.T) {
+		params := backups.NewBackupsRestoreParams().
+			WithBackend(backend).
+			WithID("backup-1").
+			WithBody(&models.BackupRestoreRequest{
+				Config: helper.DefaultRestoreConfig(),
+			})
+		_, err := helper.Client(t).Backups.BackupsRestore(params, helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsRestoreUnprocessableEntity
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "no classes found")
+	})
+
+	t.Run("empty Include restore filters to classes the caller is permitted to restore", func(t *testing.T) {
+		// Delete clsA and clsP so backup-multi-1 can be restored; otherwise
+		// restore fails because the classes already exist on the cluster.
+		helper.DeleteClassWithAuthz(t, clsA.Class, helper.CreateAuth(adminKey))
+		helper.DeleteClassWithAuthz(t, clsP.Class, helper.CreateAuth(adminKey))
+
+		params := backups.NewBackupsRestoreParams().
+			WithBackend(backend).
+			WithID("backup-multi-1").
+			WithBody(&models.BackupRestoreRequest{
+				Config: helper.DefaultRestoreConfig(),
+			})
+		resp, err := helper.Client(t).Backups.BackupsRestore(params, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.Equal(t, "", resp.Payload.Error)
+		// customUser has manage_backups on clsA only; clsP must be filtered out.
+		require.Equal(t, []string{clsA.Class}, resp.Payload.Classes)
+
+		helper.ExpectBackupEventuallyRestored(t, "backup-multi-1", backend, helper.CreateAuth(adminKey))
+	})
+
+	t.Run("successfully cancel an in-progress restore", func(t *testing.T) {
+		// Create a fresh backup, then delete the class so a restore can run
+		// and be cancelled mid-flight.
+		cancelRestoreID := "backup-3"
+		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, cancelRestoreID, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+		helper.ExpectBackupEventuallyCreated(t, cancelRestoreID, backend, helper.CreateAuth(customKey))
+
+		helper.DeleteClassWithAuthz(t, clsA.Class, helper.CreateAuth(adminKey))
+
+		_, err = helper.RestoreBackupWithAuthz(t, helper.DefaultRestoreConfig(), clsA.Class, backend, cancelRestoreID, map[string]string{}, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+
+		err = helper.RestoreCancelWithAuthz(t, backend, cancelRestoreID, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+
+		for {
+			resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, cancelRestoreID, "", "", helper.CreateAuth(customKey))
+			require.Nil(t, err)
+			require.NotNil(t, resp.Payload)
+			// handle success also in case of the restore was fast
+			if *resp.Payload.Status == string(backup.Cancelled) || *resp.Payload.Status == string(backup.Success) {
+				break
+			}
+			if *resp.Payload.Status == "FAILED" {
+				t.Fatalf("restore failed: %s", resp.Payload.Error)
 			}
 			time.Sleep(time.Second / 10)
 		}
