@@ -4,8 +4,8 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: read
+# No repo contents are read and no GitHub API is called — least privilege.
+permissions: {}
 
 jobs:
   notify-slack:
@@ -28,8 +28,7 @@ jobs:
           # "Weaviate Core <release number>" — strip a leading "v" from the tag.
           number="${REL_TAG#v}"
 
-          # Convert a subset of GitHub Markdown to Slack mrkdwn and truncate so the
-          # message stays well under Slack's 3000-character section-block limit.
+          # Convert a subset of GitHub Markdown to Slack mrkdwn:
           # - drop authorship/PR refs: "by @user", "in #123", "in <pull-url>"
           # - md → mrkdwn: "## heading" → "*heading*", "**x**" → "*x*"
           changes="$(printf '%s' "$REL_BODY" \
@@ -39,28 +38,23 @@ jobs:
             | sed -E 's/^#{1,6}[[:space:]]+(.*)$/*\1*/' \
             | sed -E 's/\*\*([^*]+)\*\*/*\1*/g')"
 
-          max=2500
-          if [ "${#changes}" -gt "$max" ]; then
-            changes="$(printf '%s' "$changes" | head -c "$max")…"
-          fi
-          if [ -z "${changes// }" ]; then
-            changes="_(see release notes below)_"
-          fi
-
-          # A real Slack ping needs <@MEMBER_ID>; append the cc line only when set.
-          cc_line=""
-          if [ -n "${CC_USER_ID:-}" ]; then
-            cc_line="$(printf '\n\ncc: <@%s>' "$CC_USER_ID")"
-          fi
-
-          # Assemble the message body in the user's template, then let jq do all
-          # JSON escaping via --arg.
-          text="$(printf 'Weaviate Core *%s* release :tada:\n\nThis release contains:\n\n%s\n\nRelease notes: %s%s' \
-            "$number" "$changes" "$REL_URL" "$cc_line")"
-
-          jq -n --arg text "$text" \
-            '{ blocks: [ { type: "section", text: { type: "mrkdwn", text: $text } } ] }' \
-            > payload.json
+          # Assemble the message entirely inside jq, which handles JSON escaping and
+          # operates on Unicode code points — so the truncation below (to stay under
+          # Slack's 3000-char section-block limit) can never split a multi-byte rune
+          # or emit invalid UTF-8, and string slicing is character- not byte-based.
+          jq -n \
+            --arg number "$number" \
+            --arg changes "$changes" \
+            --arg url "$REL_URL" \
+            --arg cc "${CC_USER_ID:-}" \
+            '
+              # All-whitespace body (spaces, tabs, newlines) counts as empty.
+              (if ($changes | test("[^[:space:]]")) then $changes else "_(see release notes below)_" end) as $c
+              | (if ($c | length) > 2500 then ($c[0:2500] + "…") else $c end) as $c
+              | "Weaviate Core *\($number)* release :tada:\n\nThis release contains:\n\n\($c)\n\nRelease notes: \($url)"
+                + (if ($cc | length) > 0 then "\n\ncc: <@\($cc)>" else "" end)
+              | { blocks: [ { type: "section", text: { type: "mrkdwn", text: . } } ] }
+            ' > payload.json
 
           echo "Generated payload:"
           cat payload.json
