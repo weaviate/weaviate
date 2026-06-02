@@ -159,6 +159,29 @@ func (h *hnsw) checkAndCompress() error {
 	return err
 }
 
+// growIndexToAccomodateNodeUnderCompressLock grows the index from the batch
+// insert paths, which (unlike addOne) don't already hold compressActionLock.
+// growIndexToAccomodateNode grows the cache/compressor too, reading the
+// compression trio, so take the read lock to exclude a concurrent compress().
+func (h *hnsw) growIndexToAccomodateNodeUnderCompressLock(maxId uint64) error {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
+	h.RLock()
+	if maxId < uint64(len(h.nodes)) {
+		h.RUnlock()
+		return nil
+	}
+	h.RUnlock()
+
+	h.Lock()
+	defer h.Unlock()
+	if maxId >= uint64(len(h.nodes)) {
+		return h.growIndexToAccomodateNode(maxId, h.logger)
+	}
+	return nil
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -210,20 +233,8 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		}
 		levels[i] = int(h.generateLevel()) // TODO: represent level as uint8
 	}
-	h.RLock()
-	if maxId >= uint64(len(h.nodes)) {
-		h.RUnlock()
-		h.Lock()
-		if maxId >= uint64(len(h.nodes)) {
-			err := h.growIndexToAccomodateNode(maxId, h.logger)
-			if err != nil {
-				h.Unlock()
-				return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
-			}
-		}
-		h.Unlock()
-	} else {
-		h.RUnlock()
+	if err := h.growIndexToAccomodateNodeUnderCompressLock(maxId); err != nil {
+		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
 	}
 
 	for i := range ids {
@@ -333,31 +344,24 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 		maxId := counter + uint64(numVectors)
 
-		h.RLock()
-		if maxId >= uint64(len(h.nodes)) {
-			h.RUnlock()
-			h.Lock()
-			if maxId >= uint64(len(h.nodes)) {
-				err := h.growIndexToAccomodateNode(maxId, h.logger)
-				if err != nil {
-					h.Unlock()
-					return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
-				}
-			}
-			h.Unlock()
-		} else {
-			h.RUnlock()
+		if err := h.growIndexToAccomodateNodeUnderCompressLock(maxId); err != nil {
+			return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
 		}
 
 		ids := make([]uint64, numVectors)
 		for id := range ids {
 			ids[id] = counter + uint64(id)
 		}
+		// Read the compression trio under compressActionLock, like addOne, so a
+		// concurrent compress() (which holds the write lock) can't swap the
+		// compressor / drop the cache underneath this preload.
+		h.compressActionLock.RLock()
 		if h.compressed.Load() {
 			h.compressor.PreloadMulti(docID, ids, vectors[i])
 		} else {
 			h.cache.PreloadMulti(docID, ids, vectors[i])
 		}
+		h.compressActionLock.RUnlock()
 		for j := range numVectors {
 			if err := ctx.Err(); err != nil {
 				return err
