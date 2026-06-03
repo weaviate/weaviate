@@ -123,18 +123,34 @@ type TaskHandle interface {
 }
 
 // Provider is an interface for the management and execution of a group of tasks denoted by a namespace.
+//
+// Bounded-by-construction contract: the three operational methods
+// ([GetLocalTasks], [CleanupTask], [StartTask]) are invoked inside the
+// scheduler tick under [Scheduler.mu] and MUST return in bounded time
+// — they have no ctx parameter precisely because the scheduler relies
+// on them to be quick. Implementations doing blocking I/O or RAFT
+// writes here will block tick progression and (transitively) shutdown
+// via [Scheduler.Close]. If a future implementation needs to do
+// long-running work, extend the interface to take ctx rather than
+// adding a hidden blocking call. The heavy lifecycle hooks live on
+// [UnitAwareProvider], which DOES take ctx (see its docstring).
 type Provider interface {
 	// SetCompletionRecorder is invoked on node startup to register TaskCompletionRecorder which
 	// should be passed to all launch tasks so they could mark their completion.
 	SetCompletionRecorder(recorder TaskCompletionRecorder)
 
 	// GetLocalTasks returns a list of tasks that provider is aware of from the local node state.
+	// Must be a fast local-state lookup; see interface-level contract above.
 	GetLocalTasks() []TaskDescriptor
 
 	// CleanupTask is a signal to clean up the task local state.
+	// Must complete in bounded time; see interface-level contract above.
 	CleanupTask(desc TaskDescriptor) error
 
 	// StartTask is a signal to start executing the task in the background.
+	// The synchronous work here is expected to be small (handle creation,
+	// goroutine spawn). The actual work runs asynchronously and is
+	// cancellable via [TaskHandle.Terminate]. See interface-level contract.
 	StartTask(task *Task) (TaskHandle, error)
 }
 
@@ -291,12 +307,20 @@ type UnitAwareProvider interface {
 	// localGroupUnitIDs contains ONLY units on this node; no-op for nodes
 	// without local units in the group. Non-nil errors feed
 	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
-	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
+	//
+	// ctx is the scheduler's tick context (cancelled on Scheduler.Close).
+	// Implementations doing RAFT writes or heavy IO MUST honor it so a
+	// shutdown can't deadlock against a stuck callback. errors.Is(err,
+	// context.Canceled) is the contract for "shutdown happened mid-call";
+	// the scheduler drops the fired-mark on that and the post-restart
+	// tick re-fires the callback.
+	OnGroupCompleted(ctx context.Context, task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnSwapRequested fires after the cluster-wide PREP barrier lifts
 	// (PREPARING → SWAPPING). Barrier tasks only. Non-nil errors feed
 	// RecordPostCompletionAck (failure → FAILED, schema flip skipped).
-	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
+	// Same ctx contract as [OnGroupCompleted].
+	OnSwapRequested(ctx context.Context, task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnTaskCompleted is invoked by the [Scheduler] once per task that has
 	// reached a terminal status, after every local unit terminated and
@@ -312,7 +336,11 @@ type UnitAwareProvider interface {
 	// twice, etc.). Today's concrete provider (db/reindex_provider.go's
 	// OnTaskCompleted → autoCleanupAfterTerminal) already is; new
 	// implementations MUST preserve this contract.
-	OnTaskCompleted(task *Task)
+	//
+	// ctx is the scheduler's tick context (cancelled on Scheduler.Close).
+	// Implementations doing RAFT writes here (e.g. schema flips) MUST
+	// honor it so a shutdown can't deadlock against a stuck callback.
+	OnTaskCompleted(ctx context.Context, task *Task)
 }
 
 type UnitStatus string

@@ -145,6 +145,22 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
+	// loopCtx is the context the tick path threads through every
+	// cancellable call (listTasks, ackRecorder writes, finalizer,
+	// cleaner, UnitAwareProvider callbacks). loopCancel is invoked by
+	// [Scheduler.Close] BEFORE the loop-done barrier so a tick stuck
+	// inside any of those calls unwinds before Close waits on loopDone.
+	// Without this, a stalled RAFT round-trip (leader unavailable,
+	// partition, slow apply) holds shutdown indefinitely.
+	loopCtx    context.Context
+	loopCancel context.CancelFunc
+
+	// loopDone is closed by the run loop goroutine after the final tick
+	// returns. [Scheduler.Close] waits on this so no tick can race
+	// against teardown of the DB / schema / cluster services on the
+	// caller side.
+	loopDone chan struct{}
+
 	// wakeCh signals the run loop to fire a scheduling cycle immediately
 	// instead of waiting for the next periodic tick. Sized 1 so concurrent
 	// callers coalesce — a pending wake-up is equivalent to any number of
@@ -258,6 +274,13 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.bootstrapProviders(tasksByNamespace)
 	}
 
+	// Arm the cancel-on-shutdown context BEFORE spawning the loop. Every
+	// cancellable site in the tick path (listTasks, ackRecorder writes,
+	// finalizer, cleaner, UnitAwareProvider callbacks) threads s.loopCtx
+	// so a stalled RAFT round-trip unwinds when Close() fires
+	// loopCancel.
+	s.loopDone = make(chan struct{})
+	s.loopCtx, s.loopCancel = context.WithCancel(context.Background())
 	enterrors.GoWrapper(s.loop, s.logger)
 
 	return nil
@@ -440,6 +463,11 @@ func filterTasks(tasks map[TaskDescriptor]*Task, predicate func(task *Task) bool
 }
 
 func (s *Scheduler) loop() {
+	// Close loopDone last so [Scheduler.Close]'s wait barrier can confirm
+	// that no tick is still in flight. Without this, Close returns
+	// concurrent with a mid-RAFT-apply tick and races the caller's
+	// teardown of DB / schema services.
+	defer close(s.loopDone)
 	ticker := s.clock.NewTicker(s.tickInterval)
 	defer ticker.Stop()
 
@@ -462,7 +490,10 @@ func (s *Scheduler) loop() {
 }
 
 func (s *Scheduler) tick() {
-	tasksByNamespace, err := s.listTasks(context.Background())
+	// listTasks gets s.loopCtx so a stalled RAFT round-trip is cut by
+	// [Scheduler.Close] cancelling loopCtx — same shutdown-cancel contract
+	// as the per-phase RAFT writes below.
+	tasksByNamespace, err := s.listTasks(s.loopCtx)
 	if err != nil {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 			l.Errorf("failed to list distributed tasks: %v", err)
@@ -627,7 +658,7 @@ func (s *Scheduler) tick() {
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
-			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
+			err = s.taskCleaner.CleanUpDistributedTask(s.loopCtx, namespace, task.ID, task.Version)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					s.loggerWithTask(namespace, task.TaskDescriptor).
@@ -795,10 +826,11 @@ func (s *Scheduler) runPreparationPhase(
 		return list
 	}()
 
-	// Process without the lock. Provider does real I/O.
+	// Process without the lock. Provider does real I/O. ctx = s.loopCtx
+	// so a stuck callback unwinds on Scheduler.Close.
 	groupErrors := make([]error, len(worklist))
 	for i, w := range worklist {
-		groupErrors[i] = suProvider.OnGroupCompleted(task, w.groupID, w.localIDs)
+		groupErrors[i] = suProvider.OnGroupCompleted(s.loopCtx, task, w.groupID, w.localIDs)
 	}
 
 	// Commit group errors + ack eligibility snapshot under deferred-Unlock.
@@ -844,9 +876,10 @@ func (s *Scheduler) runPreparationPhase(
 	}
 	success, joined := ackSnap.success, ackSnap.joined
 
-	// Ack RAFT-write without the lock.
+	// Ack RAFT-write without the lock. Threads s.loopCtx so a stuck RAFT
+	// round-trip is cut by Scheduler.Close cancelling loopCtx.
 	ackErr := s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
-		context.Background(), namespace, task.ID, task.Version,
+		s.loopCtx, namespace, task.ID, task.Version,
 		s.localNode, success, joined,
 	)
 
@@ -944,13 +977,14 @@ func (s *Scheduler) runSwapPhase(
 		return list
 	}()
 
-	// Process without the lock.
+	// Process without the lock. ctx = s.loopCtx so a stuck callback
+	// unwinds on Scheduler.Close.
 	groupErrors := make([]error, len(worklist))
 	for i, w := range worklist {
 		if w.isSwap {
-			groupErrors[i] = suProvider.OnSwapRequested(task, w.groupID, w.localIDs)
+			groupErrors[i] = suProvider.OnSwapRequested(s.loopCtx, task, w.groupID, w.localIDs)
 		} else {
-			groupErrors[i] = suProvider.OnGroupCompleted(task, w.groupID, w.localIDs)
+			groupErrors[i] = suProvider.OnGroupCompleted(s.loopCtx, task, w.groupID, w.localIDs)
 		}
 	}
 
@@ -1002,9 +1036,10 @@ func (s *Scheduler) runSwapPhase(
 	}
 	success, joined := ackSnap.success, ackSnap.joined
 
-	// Ack RAFT-write without the lock.
+	// Ack RAFT-write without the lock. Threads s.loopCtx so a stuck RAFT
+	// round-trip is cut by Scheduler.Close cancelling loopCtx.
 	ackErr := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
-		context.Background(), namespace, task.ID, task.Version,
+		s.loopCtx, namespace, task.ID, task.Version,
 		s.localNode, success, joined,
 	)
 
@@ -1084,9 +1119,10 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 
-	// Fire OnTaskCompleted without the lock. See the "Idempotency contract"
-	// note at the matching rollback site in runFinalizePhase.
-	suProvider.OnTaskCompleted(task)
+	// Fire OnTaskCompleted without the lock. ctx = s.loopCtx so a stuck
+	// schema flip unwinds on Scheduler.Close. See the "Idempotency
+	// contract" note at the matching rollback site in runFinalizePhase.
+	suProvider.OnTaskCompleted(s.loopCtx, task)
 }
 
 // finalizeWork captures one finalize-phase task identity. Populated under
@@ -1135,8 +1171,10 @@ func (s *Scheduler) runFinalizePhase(
 	// small (typically 1 task SWAPPING per tick).
 	finErrors := make([]error, len(worklist))
 	for i, w := range worklist {
+		// Threads s.loopCtx so a stuck finalize RAFT-write is cut by
+		// Scheduler.Close cancelling loopCtx.
 		finErrors[i] = s.taskFinalizer.MarkDistributedTaskFinalized(
-			context.Background(), namespace, w.task.ID, w.task.Version,
+			s.loopCtx, namespace, w.task.ID, w.task.Version,
 		)
 	}
 
@@ -1193,10 +1231,27 @@ func (s *Scheduler) recordRunningTaskHandleLocked(namespace string, desc TaskDes
 	s.runningTasks[namespace][desc] = handle
 }
 
-// Close stops the background tick loop and terminates all running task handles. It blocks
-// until all handles have been signalled. After Close returns, no new ticks will fire.
+// Close stops the background tick loop and terminates all running task
+// handles. Contract:
+//
+//  1. CANCEL: loopCancel is fired BEFORE the wait barrier so any tick
+//     stuck inside a RAFT round-trip (listTasks / ackRecorder writes /
+//     finalizer / cleaner / UnitAwareProvider callbacks) unwinds on
+//     ctx.Done() rather than holding shutdown indefinitely.
+//  2. SYNC: waits on loopDone so no tick is mid-RAFT-apply when Close
+//     returns. Without this, the caller's teardown of DB / schema /
+//     cluster services races against an in-flight tick.
+//
+// After Close returns, no new ticks will fire AND no previously-spawned
+// tick is still running.
 func (s *Scheduler) Close() {
 	close(s.stopCh)
+	if s.loopCancel != nil {
+		s.loopCancel()
+	}
+	if s.loopDone != nil {
+		<-s.loopDone
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

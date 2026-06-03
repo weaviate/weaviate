@@ -78,7 +78,7 @@ func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
 	}
 }
 
-func (p *barrierRecordingProvider) OnGroupCompleted(task *Task, _ string, _ []string) error {
+func (p *barrierRecordingProvider) OnGroupCompleted(_ context.Context, task *Task, _ string, _ []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.groupCalls = append(p.groupCalls, task.ID)
@@ -89,7 +89,7 @@ func (p *barrierRecordingProvider) OnGroupCompleted(task *Task, _ string, _ []st
 	return nil
 }
 
-func (p *barrierRecordingProvider) OnSwapRequested(task *Task, _ string, _ []string) error {
+func (p *barrierRecordingProvider) OnSwapRequested(_ context.Context, task *Task, _ string, _ []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.swapCalls = append(p.swapCalls, task.ID)
@@ -100,7 +100,7 @@ func (p *barrierRecordingProvider) OnSwapRequested(task *Task, _ string, _ []str
 	return nil
 }
 
-func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) {
+func (p *barrierRecordingProvider) OnTaskCompleted(_ context.Context, task *Task) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.taskCalls = append(p.taskCalls, task.ID)
