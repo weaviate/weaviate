@@ -86,8 +86,33 @@ allowed_compression_types: ["pq", "bq"]`,
 		}
 	})
 
-	t.Run("empty-string scalar for non-slice fields still errors", func(t *testing.T) {
-		_, err := ParseRuntimeConfig([]byte(`maximum_allowed_collections_count: ""`))
+	t.Run("a malformed field is skipped and reported, valid fields still apply", func(t *testing.T) {
+		// empty-string into an int field cannot decode; it must be skipped and
+		// reported, while the other valid keys in the same document are applied.
+		in := []byte(`maximum_allowed_collections_count: ""
+maximum_allowed_objects_count: 42
+autoschema_enabled: true`)
+
+		cfg, fieldErrs, err := ParseRuntimeConfigPartial(in)
+		require.NoError(t, err)
+
+		require.Len(t, fieldErrs, 1)
+		assert.Equal(t, "maximum_allowed_collections_count", fieldErrs[0].Field)
+
+		// bad field left unset (nil pointer → Get() returns zero value)
+		assert.Equal(t, 0, cfg.MaximumAllowedCollectionsCount.Get())
+		// sibling valid fields still applied
+		assert.Equal(t, 42, cfg.MaximumAllowedObjectsCount.Get())
+		assert.Equal(t, true, cfg.AutoschemaEnabled.Get())
+
+		// back-compat wrapper drops field errors and does not fail the load
+		_, werr := ParseRuntimeConfig(in)
+		require.NoError(t, werr)
+	})
+
+	t.Run("malformed document is still a fatal error", func(t *testing.T) {
+		// a top-level scalar (no mapping) can't be decoded field-by-field
+		_, _, err := ParseRuntimeConfigPartial([]byte(`maximum_allowed_collections_count=13`))
 		require.Error(t, err)
 	})
 
@@ -169,6 +194,38 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, 10*time.Second, minFinWait.Get())
+	})
+
+	t.Run("a malformed field keeps the previously-applied value", func(t *testing.T) {
+		var (
+			colCount   runtime.DynamicValue[int]  // default 0
+			autoSchema runtime.DynamicValue[bool] // default false
+		)
+		reg := &WeaviateRuntimeConfig{
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+		}
+
+		// 1. apply a valid override (13 differs from the default 0)
+		parsed, err := ParseRuntimeConfig([]byte(`maximum_allowed_collections_count: 13`))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		assert.Equal(t, 13, colCount.Get())
+
+		// 2. reload where that same field is malformed, alongside a valid sibling
+		parsed, fieldErrs, err := ParseRuntimeConfigPartial([]byte(`maximum_allowed_collections_count: "not-an-int"
+autoschema_enabled: true`))
+		require.NoError(t, err)
+		require.Len(t, fieldErrs, 1)
+		assert.Equal(t, "maximum_allowed_collections_count", fieldErrs[0].Field)
+
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+
+		// malformed field keeps the previously-applied 13: not reset to the
+		// default 0, and not the bad value
+		assert.Equal(t, 13, colCount.Get())
+		// the valid sibling field still applies
+		assert.Equal(t, true, autoSchema.Get())
 	})
 
 	t.Run("Add and remove workflow", func(t *testing.T) {
