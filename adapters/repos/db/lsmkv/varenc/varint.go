@@ -141,6 +141,9 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 	// Tail: byte-by-byte for the remaining values where a uint64 read would
 	// run past the end of the input.
 	bytePosT := int(bitPos >> 3)
+	if bytePosT >= bitsLen {
+		return
+	}
 	bitOffset := int(bitPos & 7)
 	bitsLeft := 8 - bitOffset
 	bitBuffer := uint64(bits[bytePosT]) & (uint64(1)<<uint(bitsLeft) - 1)
