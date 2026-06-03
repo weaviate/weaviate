@@ -324,6 +324,21 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
+	t.Run("explicit Include restore is forbidden when caller lacks permission on a listed class", func(t *testing.T) {
+		params := backups.NewBackupsRestoreParams().
+			WithBackend(backend).
+			WithID("backup-multi-1").
+			WithBody(&models.BackupRestoreRequest{
+				Include: []string{clsP.Class},
+				Config:  helper.DefaultRestoreConfig(),
+			})
+		_, err := helper.Client(t).Backups.BackupsRestore(params, helper.CreateAuth(customKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsRestoreForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
 	t.Run("empty Include restore filters to classes the caller is permitted to restore", func(t *testing.T) {
 		// Delete clsA and clsP so backup-multi-1 can be restored; otherwise
 		// restore fails because the classes already exist on the cluster.

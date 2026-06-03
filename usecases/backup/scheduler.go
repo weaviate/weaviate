@@ -303,6 +303,36 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 	return s.authorizer.Authorize(ctx, principal, verb, authorization.Backups(meta.Classes()...)...)
 }
 
+const metaReadAttempts = 3
+
+// metaWithRetry reads the backup meta, retrying briefly when the read observes a
+// partial file mid-write (a json.SyntaxError). Resolving the real classes lets a
+// caller scoped to specific collections pass a class-aware authz check instead of
+// falling back to a wildcard one. ErrNotFound and other errors return immediately.
+func metaWithRetry(ctx context.Context, store coordStore, filename, overrideBucket, overridePath string,
+) (*backup.DistributedBackupDescriptor, error) {
+	var (
+		meta *backup.DistributedBackupDescriptor
+		err  error
+	)
+	for attempt := range metaReadAttempts {
+		meta, err = store.Meta(ctx, filename, overrideBucket, overridePath)
+		if err == nil {
+			return meta, nil
+		}
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) || attempt == metaReadAttempts-1 {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return nil, err
+}
+
 func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
 	backend, backupID, overrideBucket, overridePath string,
 ) (_ *Status, err error) {
@@ -369,7 +399,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	var meta *backup.DistributedBackupDescriptor
 	var classes []string
 	if idErr == nil {
-		if m, err := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+		if m, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
 			meta = m
 			classes = m.Classes()
 		}
@@ -432,9 +462,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	var metaErr error
 	var classes []string
 	if idErr == nil {
-		if meta, metaErr = store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
+		if meta, metaErr = metaWithRetry(ctx, store, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
 			classes = meta.Classes()
-		} else if backupMeta, err := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+		} else if backupMeta, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
 			classes = backupMeta.Classes()
 		}
 	}
