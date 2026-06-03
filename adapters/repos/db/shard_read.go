@@ -506,7 +506,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(),
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version()).
-			WithTokenizationResolver(s.TokenizationFor)
+			WithTokenizationResolver(s.TokenizationFor).
+			WithSearchableBucketTokenizationResolver(s.EffectiveTokenizationAndSearchableBucket).
+			WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket)
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err

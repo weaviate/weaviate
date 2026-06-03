@@ -38,8 +38,18 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
-	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, pins *pinnedSearchableBuckets, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
+	// Reuse the bucket this query PINNED at prop discovery instead of
+	// re-fetching by name: a re-fetch could land on the post-swap bucket or,
+	// mid-Shutdown, a freed mmap. Fall back to a by-name fetch only when no
+	// pinning resolver was wired.
+	bucket, pinned := pins.bucketFor(propName)
+	if !pinned || b.forceLookupRefetchForTest {
+		bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+	}
+	if bucket == nil {
+		return nil, nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
+	}
 	return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config, ctx)
 }
 
@@ -62,13 +72,28 @@ func (b *BM25Searcher) wandBlock(
 		return []*storobj.Object{}, []float32{}, false, nil
 	}
 
-	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
+	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, false, err
+	}
+	// Release every searchable-bucket pin this query took at prop discovery,
+	// on every exit path. One defer; release is idempotent so the explicit
+	// release in the wand-fallback below does not double-free.
+	defer pins.release()
+
+	// TEST-ONLY: widen the prop-discovery→lookup gap (the 258→603 window).
+	// Fired after pins are held and before createBlockTerm reads them.
+	if b.afterPinBeforeLookupHook != nil {
+		b.afterPinBeforeLookupHook()
 	}
 
 	// fallback to the old search process if not all buckets are inverted
 	if !allBucketsAreInverted {
+		// wand re-runs prop discovery and takes its OWN pins; release ours
+		// first so we never hold two RLocks on the same bucket across the
+		// call (a Shutdown waiting on the first RLock would otherwise block
+		// wand's second RLock — writer-priority deadlock).
+		pins.release()
 		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
 		return objects, scores, true, err
 	}
@@ -104,7 +129,7 @@ func (b *BM25Searcher) wandBlock(
 			globalIdfCounts := make(map[string]uint64, len(queryTerms))
 			nonZeroTerms := make(map[string]uint64, len(queryTerms))
 			for _, propName := range propNames {
-				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, b.config, ctx)
+				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, b.config, pins, ctx)
 				if err != nil {
 					return nil, nil, false, err
 				}
