@@ -10,7 +10,13 @@ ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
-RUN go mod download
+# Retry to ride out transient proxy.golang.org flakes; http2client=0 forces HTTP/1.1,
+# which avoids the HTTP/2 "stream INTERNAL_ERROR" class seen mid-download.
+RUN for i in 1 2 3 4 5; do \
+      GODEBUG=http2client=0 go mod download && exit 0; \
+      echo "go mod download attempt $i failed; retrying in $((i*3))s"; sleep $((i*3)); \
+    done; \
+    echo "go mod download failed after 5 attempts"; exit 1
 
 
 ###############################################################################
