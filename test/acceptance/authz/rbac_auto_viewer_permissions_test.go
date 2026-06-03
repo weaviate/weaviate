@@ -63,11 +63,9 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/authz/roles/{id}/has-permission", // must be a POST rather than GET or HEAD due to need of body. but viewer can access it due to its permissions
 	}
 
-	// TODO: needs to be removed and endpoints adapted — these currently leak
-	// status (404 for aliases, 501 for replication) before authz runs, so a
-	// viewer hitting a mutating method gets 404/501 instead of 403. Fix by
-	// moving authz to the top of each handler/manager (same pattern as the
-	// backup scheduler), then drop these entries.
+	// TODO: these leak status (404 for aliases, 501 for replication) before
+	// authz runs, so a viewer mutating them gets 404/501 instead of 403.
+	// Fix by moving authz to the top of each handler, then drop these entries.
 	ignoreEndpoints := []string{
 		"/aliases/{aliasName}",
 		"/replication/replicate",
@@ -75,9 +73,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/replication/scale",
 	}
 
-	// Per-method ignore: restore on a non-existent backup ID leaks 404
-	// because the meta file is read before class-aware authz can run.
-	// Class-specific RBAC for restore is covered in backups_test.go.
+	// Restore leaks 404 on a non-existent backup ID because the meta is read
+	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
 		"/backups/{backend}/{id}/restore": {http.MethodPost: true},
 	}
@@ -115,9 +112,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 			endpoint.method = strings.ToUpper(endpoint.method)
 
 			body := endpoint.validGeneratedBodyData
-			// Backup-create generates an empty body (the request schema has no type),
-			// which 422s on id validation before authz; send a valid id so the request
-			// reaches the authz check.
+			// Backup-create's generated body is empty (schema has no type) and 422s
+			// on id validation before authz; send a valid id so it reaches authz.
 			if endpoint.path == "/backups/{backend}" && endpoint.method == http.MethodPost {
 				body = []byte(`{"id":"someid"}`)
 			}

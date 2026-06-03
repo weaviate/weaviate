@@ -71,11 +71,9 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/sharding-state",
 		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
-		// TODO: needs to be removed and endpoints adapted — these currently leak
-		// status (404 for aliases, 501 for replication) before authz runs, so a
-		// caller without permissions learns whether the resource exists / feature
-		// is enabled. Fix by moving authz to the top of each handler/manager
-		// (same pattern as the backup scheduler), then drop these entries.
+		// TODO: these leak status (404 for aliases, 501 for replication) before
+		// authz runs, so a caller without permission learns the resource exists.
+		// Fix by moving authz to the top of each handler, then drop these entries.
 		"/aliases/{aliasName}",
 		"/replication/replicate",
 		"/replication/replicate/force-delete",
@@ -83,10 +81,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/scale",
 	}
 
-	// Per-method ignore: backup status (GET) and restore (POST) / restore
-	// status (GET) on a non-existent backup ID leak 404 because the meta
-	// file is read before class-aware authz can run. Class-specific RBAC
-	// for these endpoints is covered exhaustively in backups_test.go.
+	// These leak 404 on a non-existent backup ID because the meta is read
+	// before class-aware authz runs. RBAC for them is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
 		"/backups/{backend}/{id}":         {http.MethodGet: true},
 		"/backups/{backend}/{id}/restore": {http.MethodGet: true, http.MethodPost: true},
@@ -144,9 +140,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			endpoint.method = strings.ToUpper(endpoint.method)
 
 			body := endpoint.validGeneratedBodyData
-			// Backup-create generates an empty body (the request schema has no type),
-			// which 422s on id validation before authz; send a valid id so the request
-			// reaches the authz check.
+			// Backup-create's generated body is empty (schema has no type) and 422s
+			// on id validation before authz; send a valid id so it reaches authz.
 			if endpoint.path == "/backups/{backend}" && endpoint.method == http.MethodPost {
 				body = []byte(`{"id":"someid"}`)
 			}

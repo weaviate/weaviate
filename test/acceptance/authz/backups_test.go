@@ -291,7 +291,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 			resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
 			require.Nil(t, err)
 			require.NotNil(t, resp.Payload)
-			// handle success also in case of the backup was fast
+			// also accept success in case the backup was fast
 			if *resp.Payload.Status == string(backup.Cancelled) || *resp.Payload.Status == string(backup.Success) {
 				break
 			}
@@ -366,7 +366,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 			resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, cancelRestoreID, "", "", helper.CreateAuth(customKey))
 			require.Nil(t, err)
 			require.NotNil(t, resp.Payload)
-			// handle success also in case of the restore was fast
+			// also accept success in case the restore was fast
 			if *resp.Payload.Status == string(backup.Cancelled) || *resp.Payload.Status == string(backup.Success) {
 				break
 			}
