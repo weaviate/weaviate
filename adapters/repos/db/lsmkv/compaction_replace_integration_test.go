@@ -199,7 +199,7 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 		}
 		require.Nil(t, err)
 	})
@@ -423,7 +423,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 		}
 		require.Nil(t, err)
 	})
@@ -517,7 +517,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 		}
 		require.Nil(t, err)
 	})
@@ -602,7 +602,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 		}
 		require.Nil(t, err)
 	})
@@ -672,7 +672,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations(ctx context.Context, 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 		}
 		require.Nil(t, err)
 	})
@@ -744,7 +744,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 				}
 				require.Nil(t, err)
 			})
@@ -841,7 +841,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context
 
 	// --- Step 4: compact — this panicked before the fix ---
 	var compacted bool
-	for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+	for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 	}
 	require.NoError(t, err)
 
@@ -934,7 +934,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(c
 
 	// --- Step 4: compact ---
 	var compacted bool
-	for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+	for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 	}
 	require.NoError(t, err)
 
