@@ -34,7 +34,6 @@ import (
 )
 
 func TestAuthzAutoTenantActivationRBAC(t *testing.T) {
-	existingUser := "admin-user"
 	existingKey := "admin-key"
 
 	customUser := "custom-user"
@@ -44,7 +43,7 @@ func TestAuthzAutoTenantActivationRBAC(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+	_, teardown := composeUpShared(t)
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
@@ -318,7 +317,6 @@ func TestAuthzAutoTenantActivationAdminList(t *testing.T) {
 }
 
 func TestAuthzAutoTenantCreation(t *testing.T) {
-	existingUser := "existing-user"
 	existingKey := "existing-key"
 
 	customUser := "custom-user"
@@ -328,7 +326,7 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+	_, teardown := composeUpShared(t)
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
