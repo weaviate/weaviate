@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -98,7 +99,7 @@ type fakeSegment struct {
 	roaringRangeAdditions map[uint64]*sroar.Bitmap
 	roaringRangeDeletions *sroar.Bitmap
 	collectionStore       map[string][]value
-	refs                  int
+	refs                  atomic.Int64
 	path                  string
 	getCounter            int
 
@@ -137,15 +138,15 @@ func (f *fakeSegment) setSize(size int64) {
 }
 
 func (f *fakeSegment) incRef() {
-	f.refs++
+	f.refs.Add(1)
 }
 
 func (f *fakeSegment) decRef() {
-	f.refs--
+	f.refs.Add(-1)
 }
 
 func (f *fakeSegment) getRefs() int {
-	return f.refs
+	return int(f.refs.Load())
 }
 
 func (f *fakeSegment) indexSize() int {

@@ -32,6 +32,14 @@ type segmentInvertedData struct {
 	propertyLengths       map[uint64]uint32
 	propertyLengthsLoaded bool
 
+	// Dense view of propertyLengths for the scoring hot path: indexed by
+	// docID-propLengthsMin, avoiding a per-scored-doc map probe. Built only when
+	// the docID range is dense enough to bound the extra memory (see
+	// loadPropertyLengths); nil otherwise, in which case the map is used. The map
+	// is always kept — compaction copies it wholesale.
+	propLengthsDense []uint32
+	propLengthsMin   uint64
+
 	avgPropertyLengthsAvg   float64
 	avgPropertyLengthsCount uint64
 }
@@ -124,7 +132,38 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 
 	s.invertedData.propertyLengthsLoaded = true
 	s.invertedData.propertyLengths = propLengths
+	s.buildDensePropertyLengths(propLengths)
 	return s.invertedData.propertyLengths, nil
+}
+
+// buildDensePropertyLengths populates the dense docID->propLength view used by
+// the scoring hot path, but only when the docID range is dense enough that the
+// array stays within ~4/3 of the entry count (≈75% dense). Sparse segments keep
+// using the map so a few scattered docIDs can't blow up memory. Must be called
+// with lockInvertedData held.
+func (s *segment) buildDensePropertyLengths(propLengths map[uint64]uint32) {
+	if len(propLengths) == 0 {
+		return
+	}
+	minID, maxID := uint64(math.MaxUint64), uint64(0)
+	for id := range propLengths {
+		if id < minID {
+			minID = id
+		}
+		if id > maxID {
+			maxID = id
+		}
+	}
+	span := maxID - minID + 1
+	if span > uint64(len(propLengths))/3*4 {
+		return // too sparse — keep the map only
+	}
+	dense := make([]uint32, span)
+	for id, l := range propLengths {
+		dense[id-minID] = l
+	}
+	s.invertedData.propLengthsDense = dense
+	s.invertedData.propLengthsMin = minID
 }
 
 // ReadOnlyTombstones returns segment's tombstones
