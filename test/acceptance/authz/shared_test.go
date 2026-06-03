@@ -79,6 +79,7 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 	builder := docker.New().
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
 		WithWeaviateWithGRPC().WithRBAC().WithApiKey().
+		WithBackendFilesystem().
 		WithUserApiKey(sharedRootUser, sharedRootKey).
 		WithUserApiKey(sharedRoot2User, sharedRoot2Key).
 		WithUserApiKey(sharedViewerUser, sharedViewerKey).
