@@ -105,6 +105,21 @@ slice: ["one", "two", "three"]
 			assert.Equal(t, want, val.Slice.Get(), "input %q", input)
 		}
 	})
+
+	t.Run("non-string scalar errors for slice T", func(t *testing.T) {
+		cases := []string{
+			`slice: 123`,
+			`slice: true`,
+			`slice: 1.5`,
+		}
+		for _, input := range cases {
+			val := struct {
+				Slice *DynamicValue[[]string] `yaml:"slice"`
+			}{}
+			err := yaml.NewDecoder(strings.NewReader(input)).Decode(&val)
+			require.Error(t, err, "expected %q to error", input)
+		}
+	})
 }
 
 func TestDynamicValue_JSON(t *testing.T) {
