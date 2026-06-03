@@ -330,12 +330,12 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					// being processed, we need to cancel it in the FSM and return
 					if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						c.logger.Info("replication op cancelled, stopping replication operation")
-						c.cancelOp(operation, opLogger)
+						c.cancelOp(&operation, opLogger)
 						return
 					}
 
 					opLogger.Debug("worker processing replication operation")
-					err := c.dispatchReplicationOp(opCtx, operation)
+					err := c.dispatchReplicationOp(opCtx, &operation)
 					if err == nil {
 						opLogger.Debug("worker completed replication operation")
 						c.opsGateway.RegisterFinished(op.Op.ID)
@@ -352,12 +352,12 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					// TODO: Refactor this error handling
 					if errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						opLogger.WithError(err).Info("replication operation cancelled")
-						c.cancelOp(operation, opLogger)
+						c.cancelOp(&operation, opLogger)
 						return
 					}
 					if errors.Is(err, errOpCancelled) {
 						opLogger.WithError(err).Info("replication operation cancelled")
-						c.cancelOp(operation, opLogger)
+						c.cancelOp(&operation, opLogger)
 						return
 					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
@@ -372,7 +372,7 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 // based on the current state of the operation.
 // If the state handler returns success and a valid next state, the operation is transitioned to the next state.
 // If the state handler returns an error, the operation is not transitioned and the error is returned.
-func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
+func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op *ShardReplicationOpAndStatus) error {
 	switch op.Status.GetCurrentState() {
 	case api.REGISTERED:
 		return c.processStateAndTransition(ctx, op, c.processRegisteredOp)
@@ -395,9 +395,9 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 }
 
 // stateFuncHandler is a function that processes a replication operation and returns the next state and an error.
-type stateFuncHandler func(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error)
+type stateFuncHandler func(ctx context.Context, op *ShardReplicationOpAndStatus) (api.ShardReplicationState, error)
 
-func (c *CopyOpConsumer) checkCancelled(logger *logrus.Entry, op ShardReplicationOpAndStatus) error {
+func (c *CopyOpConsumer) checkCancelled(logger *logrus.Entry, op *ShardReplicationOpAndStatus) error {
 	if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 		logger.WithFields(logrus.Fields{"op": op}).Debug("replication op cancelled, stopping replication operation")
 		return errOpCancelled
@@ -409,7 +409,7 @@ func (c *CopyOpConsumer) checkCancelled(logger *logrus.Entry, op ShardReplicatio
 // It retries the operation using a backoff policy if it returns an error.
 // If the operation is successful, the operation is transitioned to the next state.
 // Otherwise, the operation is transitioned to the next state and the process continues.
-func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op ShardReplicationOpAndStatus, stateFuncHandler stateFuncHandler) error {
+func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op *ShardReplicationOpAndStatus, stateFuncHandler stateFuncHandler) error {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	nextState, err := backoff.RetryWithData(func() (api.ShardReplicationState, error) {
 		if ctx.Err() != nil {
@@ -478,7 +478,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 //
 // It exists outside of the formal state machine to allow for cancellation of operations that are in progress
 // or have been cancelled but not yet processed without introducing new intermediate states to the FSM.
-func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus.Entry) {
+func (c *CopyOpConsumer) cancelOp(op *ShardReplicationOpAndStatus, logger *logrus.Entry) {
 	defer func() {
 		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
@@ -517,7 +517,11 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	}
 }
 
-func (c *CopyOpConsumer) sync(ctx context.Context, op ShardReplicationOpAndStatus) error {
+func (c *CopyOpConsumer) sync(ctx context.Context, op *ShardReplicationOpAndStatus) error {
+	if op == nil {
+		return fmt.Errorf("replication operation is nil")
+	}
+
 	if _, err := c.leaderClient.SyncShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
 		return err
 	}
@@ -528,7 +532,11 @@ func (c *CopyOpConsumer) sync(ctx context.Context, op ShardReplicationOpAndStatu
 }
 
 // processRegisteredOp is the state handler for the REGISTERED state.
-func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op *ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	if op == nil {
+		return api.ShardReplicationState(""), fmt.Errorf("replication operation is nil")
+	}
+
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing registered replication operation")
 
@@ -538,7 +546,11 @@ func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplic
 // processHydratingOp is the state handler for the HYDRATING state. On error
 // after a successful StartChangeCapture it tears the source log down so the
 // retry starts from a clean file slate.
-func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (nextState api.ShardReplicationState, retErr error) {
+func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op *ShardReplicationOpAndStatus) (nextState api.ShardReplicationState, retErr error) {
+	if op == nil {
+		return api.ShardReplicationState(""), fmt.Errorf("replication operation is nil")
+	}
+
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing hydrating replication operation")
 
@@ -559,21 +571,15 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			logger.WithError(err).Error("failure while updating tenant to active state for hydrating operation")
 			return api.ShardReplicationState(""), err
 		}
-
 		if err := c.leaderClient.ReplicationStoreSchemaVersion(ctx, op.Op.ID, schemaVersion); err != nil {
 			logger.WithError(err).Error("failure while storing schema version for replication operation")
 			return api.ShardReplicationState(""), err
 		}
-
 		if err := c.leaderClient.WaitForUpdate(ctx, schemaVersion); err != nil {
 			logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
 			return api.ShardReplicationState(""), err
 		}
-		// Update the local operation status with the stored schema version so it's available
-		// when processFinalizingOp is called in the next state transition
-		if schemaVersion > op.Status.SchemaVersion {
-			op.Status.SchemaVersion = schemaVersion
-		}
+		op.Status.SchemaVersion = schemaVersion
 	}
 
 	if ctx.Err() != nil {
@@ -623,7 +629,11 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 // cap'd drain runs before RAFT-add so a consistency=ONE read routed to the
 // target right after it joins the sharding state cannot observe a state older
 // than the FINALIZING phase boundary.
-func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op *ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	if op == nil {
+		return api.ShardReplicationState(""), fmt.Errorf("replication operation is nil")
+	}
+
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing finalizing replication operation")
 
@@ -681,7 +691,8 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// RAFT-add only after the target is caught up to snap. CCL stays alive;
 	// the seal happens in INTEGRATING after the transition converges.
 	if !replicaExists {
-		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
+		schemaVersion, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID)
+		if err != nil {
 			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
 				// The replica already exists, this is not an error and it got updated after our sanity check
 				// due to eventual consistency of the sharding state.
@@ -691,6 +702,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 				return api.ShardReplicationState(""), err
 			}
 		}
+		op.Status.SchemaVersion = schemaVersion
 	}
 
 	return api.INTEGRATING, nil
@@ -704,7 +716,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 //
 // Returns READY for COPY (source stays), DEHYDRATING for MOVE (source removed
 // next by processDehydratingOp).
-func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op *ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	if op == nil {
+		return api.ShardReplicationState(""), fmt.Errorf("replication operation is nil")
+	}
+
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing integrating replication operation")
 
@@ -775,7 +791,11 @@ func nextStateAfterIntegrating(tt api.ShardReplicationTransferType) api.ShardRep
 // DEHYDRATING to converge (so the source-side fence is rejecting stale writes
 // everywhere), then remove the source from the sharding state. Retry-safe via
 // the "still in replica set" guard.
-func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op *ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	if op == nil {
+		return api.ShardReplicationState(""), fmt.Errorf("replication operation is nil")
+	}
+
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
 
@@ -815,7 +835,11 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	return api.READY, nil
 }
 
-func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op *ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	if op == nil {
+		return api.ShardReplicationState(""), fmt.Errorf("replication operation is nil")
+	}
+
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing cancelled replication operation")
 
