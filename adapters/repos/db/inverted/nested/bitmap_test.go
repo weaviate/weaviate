@@ -329,6 +329,129 @@ func TestBitmapOps_MaskRootLeaf(t *testing.T) {
 	})
 }
 
+func TestBitmapOps_LiftOneLevel(t *testing.T) {
+	ops := newTrackingOps(t)
+
+	t.Run("empty input returns empty bitmap", func(t *testing.T) {
+		result, release := ops.LiftOneLevel(nil, sroar.NewBitmap())
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("lifts child markers to owning parent markers", func(t *testing.T) {
+		// doc=42, root=1
+		// garage g1 marker at leaf 1; its cars at leaves 2 and 3
+		// garage g2 marker at leaf 10; its car at leaf 11
+		parentAnchor := sroar.NewBitmap()
+		parentAnchor.Set(Encode(1, 1, 42))
+		parentAnchor.Set(Encode(1, 10, 42))
+
+		children := sroar.NewBitmap()
+		children.Set(Encode(1, 2, 42))
+		children.Set(Encode(1, 3, 42))
+		children.Set(Encode(1, 11, 42))
+
+		result, release := ops.LiftOneLevel(children, parentAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.ElementsMatch(t,
+			[]uint64{Encode(1, 1, 42), Encode(1, 10, 42)},
+			result.ToArray(),
+		)
+	})
+
+	t.Run("does not cross docs when raw order interleaves by leaf first", func(t *testing.T) {
+		// Because encoding sorts by root, then leaf, then docID, doc 100 and 200
+		// can interleave at the same leaf. liftOneLevel must still pick the
+		// parent from the same (root,doc) bucket.
+		parentAnchor := sroar.NewBitmap()
+		parentAnchor.Set(Encode(1, 1, 100))
+		parentAnchor.Set(Encode(1, 1, 200))
+		parentAnchor.Set(Encode(1, 10, 100))
+		parentAnchor.Set(Encode(1, 10, 200))
+
+		children := sroar.NewBitmap()
+		children.Set(Encode(1, 2, 100))
+		children.Set(Encode(1, 11, 200))
+
+		result, release := ops.LiftOneLevel(children, parentAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.ElementsMatch(t,
+			[]uint64{Encode(1, 1, 100), Encode(1, 10, 200)},
+			result.ToArray(),
+		)
+	})
+
+	t.Run("does not cross roots", func(t *testing.T) {
+		// Multi-root data (e.g. top-level countries[]) produces positions with
+		// different root_idx values. The bucket key must include root_idx, not
+		// just docID, or root=2 children would lift to root=1 parents whenever
+		// the uint64 ordering puts the cross-root parent in front.
+		parentAnchor := sroar.NewBitmap()
+		parentAnchor.Set(Encode(1, 1, 42))
+		parentAnchor.Set(Encode(2, 1, 42))
+
+		children := sroar.NewBitmap()
+		children.Set(Encode(1, 5, 42))
+		children.Set(Encode(2, 5, 42))
+
+		result, release := ops.LiftOneLevel(children, parentAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.ElementsMatch(t,
+			[]uint64{Encode(1, 1, 42), Encode(2, 1, 42)},
+			result.ToArray(),
+		)
+	})
+
+	t.Run("drops child whose (root,doc) bucket has no parent", func(t *testing.T) {
+		// A child whose (root,doc) tuple is absent from parentAnchor must
+		// silently drop. Happens whenever the child path is populated for a
+		// doc but the parent path is not — typically the result of an earlier
+		// filter intersection narrowing parentAnchor.
+		parentAnchor := sroar.NewBitmap()
+		parentAnchor.Set(Encode(1, 1, 100))
+
+		children := sroar.NewBitmap()
+		children.Set(Encode(1, 5, 100)) // has a parent in (1,100)
+		children.Set(Encode(1, 5, 200)) // (1,200) absent from parentAnchor
+
+		result, release := ops.LiftOneLevel(children, parentAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.ElementsMatch(t,
+			[]uint64{Encode(1, 1, 100)},
+			result.ToArray(),
+		)
+	})
+
+	t.Run("dedupes when multiple children share a parent", func(t *testing.T) {
+		// Two cars under the same garage must lift to exactly one garage
+		// marker, not two. The bitmap naturally dedupes since Set is
+		// idempotent; this test pins the resulting cardinality.
+		parentAnchor := sroar.NewBitmap()
+		parentAnchor.Set(Encode(1, 1, 42))
+
+		children := sroar.NewBitmap()
+		children.Set(Encode(1, 2, 42))
+		children.Set(Encode(1, 3, 42))
+		children.Set(Encode(1, 4, 42))
+
+		result, release := ops.LiftOneLevel(children, parentAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{Encode(1, 1, 42)}, result.ToArray())
+		assert.Equal(t, 1, result.GetCardinality())
+	})
+}
+
 func TestBitmapOps_AndAll(t *testing.T) {
 	ops := newTrackingOps(t)
 

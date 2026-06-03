@@ -131,6 +131,64 @@ func (o *BitmapOps) MaskRootLeaf(positions *sroar.Bitmap) (doc *sroar.Bitmap, re
 	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf), release
 }
 
+// LiftOneLevel projects child markers to their owning parent markers by
+// predecessor scan within the same (root_idx, docID) bucket.
+//
+// children must contain positions that sit strictly below the target parent
+// scope — the intended use is exact child self markers such as
+// `m_pinned_match = value ∩ _idx ∩ _anchor(childPath)`. parentAnchor must be
+// the `_anchor(parentPath)` bitmap for the immediately enclosing collection.
+//
+// For each child position c:
+//   - compute key = c with leaf bits zeroed (same root_idx + docID)
+//   - look up the greatest parent marker p < c in the same key bucket
+//   - emit p into the result
+//
+// The greatest-p-below-c is the owning parent under DFS leaf assignment: a
+// parent's self marker is allocated before every descendant in the same
+// `(root, doc)` bucket, so the most recently consumed parent for that bucket
+// is also numerically the greatest below the child. Multiple children may
+// lift to the same parent; the bitmap naturally deduplicates them.
+func (o *BitmapOps) LiftOneLevel(children, parentAnchor *sroar.Bitmap) (parent *sroar.Bitmap, release func()) {
+	if children == nil || parentAnchor == nil || children.IsEmpty() {
+		return sroar.NewBitmap(), func() {}
+	}
+	parentCardinality := parentAnchor.GetCardinality()
+	if parentCardinality == 0 {
+		return sroar.NewBitmap(), func() {}
+	}
+
+	parent, release = o.NewEmpty(min(children.LenInBytes(), parentAnchor.LenInBytes()))
+
+	// Raw positions are strictly positive (root_idx and leaf_idx are 1-based),
+	// so iterator.Next()==0 is an unambiguous end-of-stream sentinel here.
+	childItr := children.NewIterator()
+	parentItr := parentAnchor.NewIterator()
+
+	nextChild := childItr.Next()
+	nextParent := parentItr.Next()
+
+	// parentByBucket holds the owning parent marker for each (root_idx, docID)
+	// bucket. Because raw uint64 order is root, then leaf, then docID,
+	// different docs can interleave at the same leaf; a single scalar
+	// predecessor across all buckets is not enough.
+	parentByBucket := make(map[uint64]uint64, min(parentCardinality, 1024))
+
+	for nextChild != 0 {
+		for nextParent != 0 && nextParent < nextChild {
+			parentByBucket[nextParent&zeroLeafBits] = nextParent
+			nextParent = parentItr.Next()
+		}
+
+		if lifted, ok := parentByBucket[nextChild&zeroLeafBits]; ok {
+			parent.Set(lifted)
+		}
+		nextChild = childItr.Next()
+	}
+
+	return parent, release
+}
+
 // AndAll returns the intersection of all raw position bitmaps in a pool
 // buffer. Returns an empty (non-pooled) bitmap when raws is empty. The loop
 // exits early when the running intersection becomes empty — further ANDs
