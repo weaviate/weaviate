@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -37,6 +38,10 @@ const (
 	sharedRoot2Key   = "existing-key"
 	sharedViewerUser = "viewer-user"
 	sharedViewerKey  = "viewer-key"
+	// sharedImportUser is a static env user reserved for the destructive
+	// import-static-user test, which consumes (imports then deletes) it.
+	sharedImportUser = "import-user"
+	sharedImportKey  = "import-key"
 )
 
 // sharedPlainPrincipals start with no role; resetAuthzState strips any
@@ -78,11 +83,12 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 
 	builder := docker.New().
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
-		WithWeaviateWithGRPC().WithRBAC().WithApiKey().
+		WithWeaviateWithGRPC().WithRBAC().WithApiKey().WithDbUsers().
 		WithBackendFilesystem().
 		WithUserApiKey(sharedRootUser, sharedRootKey).
 		WithUserApiKey(sharedRoot2User, sharedRoot2Key).
 		WithUserApiKey(sharedViewerUser, sharedViewerKey).
+		WithUserApiKey(sharedImportUser, sharedImportKey).
 		WithRbacRoots(sharedRootUser, sharedRoot2User).
 		WithRbacViewers(sharedViewerUser)
 	for u, k := range sharedPlainPrincipals {
@@ -105,6 +111,18 @@ func composeUpShared(t *testing.T, _, _, _ map[string]string) (*docker.DockerCom
 	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 	resetAuthzState(t) // clean any residue a prior test's teardown missed
 	return compose, func() { resetAuthzState(t) }
+}
+
+// countDynamicUsers returns how many of the listed users were created at
+// runtime (db_user); static env users baked at boot are excluded.
+func countDynamicUsers(users []*models.DBUserInfo) int {
+	n := 0
+	for _, u := range users {
+		if u.DbUserType != nil && *u.DbUserType == models.DBUserInfoDbUserTypeDbUser {
+			n++
+		}
+	}
+	return n
 }
 
 // resetAuthzState returns the shared container to boot state: drops every
@@ -135,6 +153,16 @@ func resetAuthzState(t *testing.T) {
 			if role.Name != nil {
 				helper.RevokeRoleFromUser(t, sharedRootKey, *role.Name, user)
 			}
+		}
+	}
+
+	// Drop dynamically-created DB users; static env users survive to boot state.
+	for _, u := range helper.ListAllUsers(t, sharedRootKey) {
+		if u.UserID == nil || u.DbUserType == nil {
+			continue
+		}
+		if *u.DbUserType == models.DBUserInfoDbUserTypeDbUser {
+			helper.DeleteUser(t, *u.UserID, sharedRootKey)
 		}
 	}
 

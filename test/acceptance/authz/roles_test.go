@@ -1063,17 +1063,8 @@ func TestRolesUserExistence(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
-		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
 	roleName := "role1"
 	helper.DeleteRole(t, adminKey, roleName)
@@ -1136,17 +1127,8 @@ func TestGetRolesForUserPermission(t *testing.T) {
 
 	customUser := "custom-user"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "a").WithDbUsers().
-		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: "custom-key"}, nil)
+	defer down()
 
 	all := "*"
 
