@@ -941,12 +941,23 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				classNames = append(classNames, c.Class)
 			}
 		}
+		var userNames []string
+		if appState.APIKey != nil && appState.APIKey.Dynamic != nil {
+			users, err := appState.APIKey.Dynamic.GetUsers()
+			if err != nil {
+				l.WithError(err).Fatal("could not list dynamic DB users for namespace startup invariant")
+			}
+			for name := range users {
+				userNames = append(userNames, name)
+			}
+		}
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 			appState.ServerConfig.Config.Replication.MaximumFactor,
 			classNames,
 			appState.ClusterService.NamespaceCount(),
+			userNames,
 		); err != nil {
 			l.Fatal(err)
 		}
@@ -1212,10 +1223,10 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 // decision logic can be unit-tested without fighting os.Exit; the caller wires
 // a non-nil return to logrus.Fatal.
 //
-// A class name is considered namespace-qualified iff it contains
+// A class or DB user name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
-// by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int) error {
+// by ClassNameRegexCore and in DB user names by UserNameRegexCore.
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, userNames []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1229,6 +1240,22 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 				nonNamespacedExample = name
 			}
 			nonNamespacedCount++
+		}
+	}
+
+	var unqualifiedUserCount, qualifiedUserCount int
+	var unqualifiedUserExample, qualifiedUserExample string
+	for _, name := range userNames {
+		if strings.Contains(name, entschema.NamespaceSeparator) {
+			if qualifiedUserCount == 0 {
+				qualifiedUserExample = name
+			}
+			qualifiedUserCount++
+		} else {
+			if unqualifiedUserCount == 0 {
+				unqualifiedUserExample = name
+			}
+			unqualifiedUserCount++
 		}
 	}
 
@@ -1246,6 +1273,10 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 	case !enabled && namespacedCount > 0:
 		// Guards against disabling namespaces on a namespaced cluster.
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
+	case !enabled && qualifiedUserCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d DB user name(s) containing the namespace separator %q (e.g. %q); refusing to start with inconsistent state", qualifiedUserCount, entschema.NamespaceSeparator, qualifiedUserExample)
+	case enabled && unqualifiedUserCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced DB user name(s) (e.g. %q); namespaces can only be enabled on clusters whose DB users are all already namespace-qualified", unqualifiedUserCount, unqualifiedUserExample)
 	}
 	return nil
 }
