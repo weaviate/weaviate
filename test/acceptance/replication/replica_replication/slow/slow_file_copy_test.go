@@ -173,7 +173,9 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 							uuid.New().String(),
 							"",
 						)
-						require.NoError(t, err, "failed to create object on source node: %+v", err)
+						if !assert.NoError(t, err, "failed to create object on source node: %+v", err) {
+							return
+						}
 						time.Sleep(time.Millisecond)
 
 					}
@@ -193,8 +195,10 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 						),
 						nil,
 					)
-					require.NoError(t, err, "failed to start replica replication operation: %+v", err)
-					require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
+					if !assert.NoError(t, err, "failed to start replica replication operation: %+v", err) {
+						return
+					}
+					assert.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
 					opId = *resp.Payload.ID
 				}, logger)
 				wg.Wait()
