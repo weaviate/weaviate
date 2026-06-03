@@ -1078,8 +1078,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	// Load config from config file if present
 	if len(file) > 0 {
-		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
-			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
 			return configErr(err)
