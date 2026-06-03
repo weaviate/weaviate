@@ -35,7 +35,7 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 	readDataAction := authorization.ReadData
 	readCollectionsAction := authorization.ReadCollections
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	roleName := "AuthZGQLBatchTestRole"

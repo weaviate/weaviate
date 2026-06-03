@@ -34,7 +34,7 @@ func TestAuthzAliases(t *testing.T) {
 	customRole := "custom"
 	onlyAliasesStartingWithAliasRole := "only-aliases"
 
-	_, down := composeUp(t,
+	_, down := composeUpShared(t,
 		map[string]string{adminUser: adminKey},
 		map[string]string{customUser: customKey, limitedUser: limitedKey},
 		nil,

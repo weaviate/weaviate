@@ -38,7 +38,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	customKey := "custom-key"
 	customUser := "custom-user"
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	compose, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	// create class via admin

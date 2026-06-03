@@ -31,7 +31,7 @@ func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t,
+	_, down := composeUpShared(t,
 		map[string]string{adminUser: adminKey},
 		map[string]string{customUser: customKey},
 		nil,

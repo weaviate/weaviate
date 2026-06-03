@@ -44,7 +44,7 @@ func TestAuthZBatchObjs(t *testing.T) {
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	tests := []struct {
@@ -231,7 +231,7 @@ func TestAuthZBatchObjsTenantFiltering(t *testing.T) {
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	cls := articles.ParagraphsClass()

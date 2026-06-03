@@ -43,7 +43,7 @@ func TestWithoutCollectionName(t *testing.T) {
 	testRoleName := t.Name() + "role"
 	all := "*"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	// add classes with object
@@ -177,7 +177,7 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 	readCollectionAction := authorization.ReadCollections
 	all := "*"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	articlesCls := articles.ArticlesClass()

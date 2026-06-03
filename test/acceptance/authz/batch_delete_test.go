@@ -53,7 +53,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 	readCollectionsAction := authorization.ReadCollections
 	readDataAction := authorization.ReadData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	// add classes with object
@@ -286,7 +286,7 @@ func TestAuthZBatchDeleteWithMT(t *testing.T) {
 	testRoleName := "test-role"
 	deleteDataAction := authorization.DeleteData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	// add classes with object

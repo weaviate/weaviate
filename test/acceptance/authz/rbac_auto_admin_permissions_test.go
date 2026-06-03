@@ -29,7 +29,7 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	compose, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
 	defer down()
 
 	containers := compose.Containers()

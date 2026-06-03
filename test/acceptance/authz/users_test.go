@@ -40,7 +40,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	t.Run("all roles", func(t *testing.T) {
@@ -68,11 +68,11 @@ func TestAuthzRolesForUsers(t *testing.T) {
 }
 
 func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
-	adminUser := "admin"
-	adminKey := "admin"
-	similar := "similarRoleKeyUserName"
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	similar := "custom-user"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{similar: similar}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{similar: similar}, nil)
 	defer down()
 
 	t.Run("create role with the same name of the user", func(t *testing.T) {
@@ -107,16 +107,14 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 }
 
 func TestUserPermissions(t *testing.T) {
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	//defer down()
-
-	helper.SetupClient("127.0.0.1:8081")
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	// create roles for later
 	assignUserAction := authorization.AssignAndRevokeUsers
@@ -211,19 +209,17 @@ func TestUserPermissions(t *testing.T) {
 }
 
 func TestReadUserPermissions(t *testing.T) {
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	secondUser := "viewer-user"
-	secondKey := "viewer-key"
+	secondUser := "custom-user2"
+	secondKey := "custom-key2"
 
-	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, secondUser: secondKey}, nil)
-	//defer down()
-
-	helper.SetupClient("127.0.0.1:8081")
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, secondUser: secondKey}, nil)
+	defer down()
 
 	// create roles for later
 	readUserAction := authorization.ReadUsers
@@ -714,7 +710,7 @@ func TestUserPermissionReturns(t *testing.T) {
 	adminKey := "admin-key"
 	all := "*"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
 	defer down()
 
 	roleName := "testingUserPermissionReturns"

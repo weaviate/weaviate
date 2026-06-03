@@ -44,7 +44,7 @@ func TestAuthzAutoTenantActivationRBAC(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+	_, teardown := composeUpShared(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
@@ -328,7 +328,7 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+	_, teardown := composeUpShared(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"

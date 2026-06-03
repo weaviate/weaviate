@@ -45,6 +45,7 @@ var sharedPlainPrincipals = map[string]string{
 	"custom-user":  "custom-key",
 	"custom-user2": "custom-key2",
 	"test-user":    "test-key",
+	"limited-user": "limited-key",
 }
 
 var (
@@ -133,6 +134,13 @@ func resetAuthzState(t *testing.T) {
 			if role.Name != nil {
 				helper.RevokeRoleFromUser(t, sharedRootKey, *role.Name, user)
 			}
+		}
+	}
+
+	// Aliases reference classes, so drop them before the classes they point at.
+	if aliases := helper.GetAliasesWithAuthz(t, nil, helper.CreateAuth(sharedRootKey)); aliases != nil {
+		for _, a := range aliases.Aliases {
+			helper.DeleteAliasWithAuthz(t, a.Alias, helper.CreateAuth(sharedRootKey))
 		}
 	}
 

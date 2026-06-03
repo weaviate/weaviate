@@ -32,7 +32,7 @@ func TestAuthZReferencesOperations(t *testing.T) {
 	customKey := "custom-key"
 	customAuth := helper.CreateAuth(customKey)
 
-	_, teardown := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, teardown := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer teardown()
 
 	tenants := []*models.Tenant{{Name: "tenant1"}, {Name: "tenant2"}}

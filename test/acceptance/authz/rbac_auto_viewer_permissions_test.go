@@ -30,7 +30,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	viewerKey := "viewer-key"
 	viewerUser := "viewer-user"
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
+	compose, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
 	defer down()
 
 	// create class via admin

@@ -30,7 +30,7 @@ func TestAuthZBatchRefAuthZCalls(t *testing.T) {
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	compose, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
 	defer down()
 
 	containers := compose.Containers()
@@ -99,7 +99,7 @@ func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
 	customKey := "custom-key"
 	customAuth := helper.CreateAuth(customKey)
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	compose, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	containers := compose.Containers()
