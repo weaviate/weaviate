@@ -33,7 +33,7 @@ func TestAuthzNodesFilter(t *testing.T) {
 	customKey := "custom-key"
 	roleName := "role"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	clsA := articles.ArticlesClass()
@@ -73,7 +73,7 @@ func TestAuthzNodes(t *testing.T) {
 	customKey := "custom-key"
 	customRole := "custom"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	clsA := articles.ArticlesClass()

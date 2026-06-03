@@ -34,7 +34,7 @@ func TestAuthzClassification(t *testing.T) {
 	postRole := "post"
 	getRole := "get"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
 
 	clsA := articles.ArticlesClass()
