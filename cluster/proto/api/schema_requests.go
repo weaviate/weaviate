@@ -25,6 +25,75 @@ type AddClassRequest struct {
 type UpdateClassRequest struct {
 	Class *models.Class
 	State *sharding.State
+	// FieldsToUpdate, when non-empty, restricts the FSM merge AND the
+	// executor's downstream migrator dispatch to ONLY the listed
+	// class-level sub-config tags (see ClassField* constants below).
+	// When empty / nil, the FSM falls back to the legacy "replace every
+	// non-nil sub-config" semantics.
+	//
+	// Used by migration completion paths (e.g. the BlockMax flag flip
+	// in [adapters/repos/db.updateToBlockMaxInvertedIndexConfig]) so an
+	// inverted-only mutation does NOT cascade through
+	// [executor.UpdateClass] into [migrator.UpdateVectorIndexConfig],
+	// which in turn flips every shard to read-only via
+	// [Shard.SetStatusReadonly] for the duration of the async
+	// UpdateUserConfig callback. That window has been observed to
+	// overlap with a concurrent runtime-reindex iteration's write to
+	// the per-prop blockmax_reindex bucket and surface as
+	// `store is read-only` mid-iteration — see
+	// weaviate/0-weaviate-issues#240.
+	//
+	// Wire-format compatibility (rolling upgrades + WAL replay):
+	//   - Old followers receiving a masked command silently drop the
+	//     unknown JSON field and fall back to the full "replace every
+	//     non-nil sub-config" merge. The migration caller still sends
+	//     the full class read-modify-write off fresh state, so old
+	//     follower behaviour is unchanged from pre-mask (with the same
+	//     read-only side effect — the bug only fully closes once every
+	//     node honors the mask).
+	//   - New followers honor the mask and skip both the FSM merge of
+	//     unmasked fields AND the executor's downstream dispatch for
+	//     unmasked sub-configs.
+	FieldsToUpdate []string `json:"FieldsToUpdate,omitempty"`
+}
+
+// Field tags for UpdateClassRequest.FieldsToUpdate. Mirrors the
+// PropertyField* tag set on UpdatePropertyRequest. Intentionally short
+// tags rather than struct field names so they remain stable across
+// refactors of [models.Class].
+const (
+	ClassFieldInvertedIndexConfig = "invertedIndexConfig"
+	ClassFieldVectorIndexConfig   = "vectorIndexConfig"
+	ClassFieldVectorConfig        = "vectorConfig"
+	ClassFieldReplicationConfig   = "replicationConfig"
+	ClassFieldMultiTenancyConfig  = "multiTenancyConfig"
+	ClassFieldObjectTTLConfig     = "objectTTLConfig"
+	ClassFieldDescription         = "description"
+	ClassFieldProperties          = "properties"
+)
+
+// ClassFieldUpdaterFromMask returns a predicate that reports whether a
+// named class-level sub-config should be applied during an
+// UpdateClass operation. Empty/nil mask preserves the legacy "apply
+// every supported sub-config" semantics.
+//
+// Single source of truth used by BOTH the schema FSM's apply path
+// (cluster/schema.SchemaManager.UpdateClass) and the executor's
+// downstream migrator dispatch (usecases/schema.executor.UpdateClass)
+// — keeping the merge and dispatch decisions in lockstep so a future
+// caller cannot inadvertently produce one without the other.
+func ClassFieldUpdaterFromMask(mask []string) func(string) bool {
+	if len(mask) == 0 {
+		return func(string) bool { return true }
+	}
+	set := make(map[string]struct{}, len(mask))
+	for _, f := range mask {
+		set[f] = struct{}{}
+	}
+	return func(field string) bool {
+		_, ok := set[field]
+		return ok
+	}
 }
 
 type AddPropertyRequest struct {

@@ -362,10 +362,11 @@ func (*fakeMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sc
 	return nil
 }
 
-func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
+func (f *fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
-	return nil
+	args := f.Called(ctx, className, updated)
+	return args.Error(0)
 }
 
 func (*fakeMigrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
@@ -386,7 +387,8 @@ func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className 
 }
 
 func (f *fakeMigrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
-	return nil
+	args := f.Called(ctx, className, cfg)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
