@@ -62,7 +62,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "20s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start compose cluster: %+v", err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -111,7 +111,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			require.NoError(ct, clientErr)
+			require.NoError(ct, clientErr, "failed to get nodes status: %+v", clientErr)
 			require.NotNil(ct, body.Payload)
 
 			resp := body.Payload
@@ -130,7 +130,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 		verbose := verbosity.OutputVerbose
 		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
 		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr)
+		require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
 		require.NotNil(t, body.Payload)
 		targetNode := docker.Weaviate2
 		hasFoundNode := false
@@ -173,7 +173,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 							uuid.New().String(),
 							"",
 						)
-						require.NoError(t, err)
+						require.NoError(t, err, "failed to create object on source node: %+v", err)
 						time.Sleep(time.Millisecond)
 
 					}
@@ -193,7 +193,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 						),
 						nil,
 					)
-					require.NoError(t, err)
+					require.NoError(t, err, "failed to start replica replication operation: %+v", err)
 					require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
 					opId = *resp.Payload.ID
 				}, logger)
@@ -215,7 +215,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 			details, err := helper.Client(t).Replication.ReplicationDetails(
 				replication.NewReplicationDetailsParams().WithID(opId), nil,
 			)
-			assert.Nil(t, err, "failed to get replication details %s", err)
+			assert.NoError(t, err, "failed to get replication details %s", err)
 			assert.NotNil(t, details, "expected replication details to be not nil")
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
