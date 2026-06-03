@@ -36,16 +36,14 @@ const (
 // Per the namespace-prefix validator, a namespaced principal that submits a
 // qualified name is rejected up front with "is not a valid class name".
 func TestNamespaces_MCP(t *testing.T) {
-	user1Key, _ := twoNamespaces(t)
+	ns1, ns2, user1Key, _ := twoNamespaces(t)
 
 	alpha0 := 0.0
-	const (
-		short   = "Movies"
-		qualNs1 = "customer1:Movies"
-		qualNs2 = "customer2:Movies"
-	)
+	const short = "Movies"
+	qualNs1 := ns1 + ":" + short
+	qualNs2 := ns2 + ":" + short
 
-	setupClassInNs1(t, short, user1Key)
+	setupClassInNs1(t, ns1, short, user1Key)
 
 	t.Run("namespaced principal, short input works on single-tenant tools", func(t *testing.T) {
 		// upsert
@@ -90,7 +88,7 @@ func TestNamespaces_MCP(t *testing.T) {
 	// onto every other tool call above.
 	t.Run("namespaced principal, tenants-list with short input", func(t *testing.T) {
 		const mtShort = "Theaters"
-		setupMTClassInNs1(t, mtShort, user1Key)
+		setupMTClassInNs1(t, ns1, mtShort, user1Key)
 		require.NoError(t, addTenantsAuth(t, mtShort,
 			[]*models.Tenant{{Name: "t1", ActivityStatus: models.TenantActivityStatusHOT}}, user1Key))
 
@@ -194,8 +192,8 @@ func TestNamespaces_MCP(t *testing.T) {
 	})
 
 	// Global principals carry no namespace, so the resolver doesn't qualify
-	// "Movies" and the equality filter against the schema (which stores
-	// "customer1:Movies") returns the existing "not found" path. Hybrid hits
+	// "Movies" and the equality filter against the schema (which stores the
+	// namespaced "Movies" class) returns the existing "not found" path. Hybrid hits
 	// the traverser, which surfaces a class-missing error.
 	t.Run("global admin, short input does not resolve to namespaced class", func(t *testing.T) {
 		var cfg *read.GetCollectionConfigResp
@@ -217,7 +215,7 @@ func TestNamespaces_MCP(t *testing.T) {
 		const alias = "Films"
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: short}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
 		})
 
 		var hybridResp *search.QueryHybridResp
@@ -246,7 +244,7 @@ func TestNamespaces_MCP(t *testing.T) {
 			Query:          "Inception",
 			Alpha:          &alpha0,
 			Filters: map[string]any{
-				"path":      []any{"hasAuthor", "customer2:Author", "name"},
+				"path":      []any{"hasAuthor", ns2 + ":Author", "name"},
 				"operator":  "Equal",
 				"valueText": "Anyone",
 			},

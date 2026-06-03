@@ -47,10 +47,8 @@ func homeNodeShards(t *testing.T, qualifiedClass, homeNode, key string) (homeSha
 // TestNamespaces_CollectionPinsToHomeNode places a namespaced collection
 // and asserts its shard lands only on the namespace's home_node.
 func TestNamespaces_CollectionPinsToHomeNode(t *testing.T) {
-	const (
-		ns       = "pincol"
-		homeNode = "weaviate-1"
-	)
+	ns := uniqueNS()
+	const homeNode = "weaviate-1"
 
 	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
@@ -77,10 +75,8 @@ func TestNamespaces_CollectionPinsToHomeNode(t *testing.T) {
 // namespaced MT class: every tenant's shard lands on the namespace's
 // home_node, and a tenant reactivated after freeze still pins there.
 func TestNamespaces_TenantPinsToHomeNode(t *testing.T) {
-	const (
-		ns       = "pintnt"
-		homeNode = "weaviate-2"
-	)
+	ns := uniqueNS()
+	const homeNode = "weaviate-2"
 
 	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })

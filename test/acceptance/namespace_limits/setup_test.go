@@ -17,8 +17,10 @@ package namespace_limits
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +38,15 @@ const (
 	adminUser, adminKey = "admin-user", "admin-key"
 	objectCap           = 10
 )
+
+// nsCounter backs uniqueNS. Tests must not hardcode namespace names: a shared
+// compose runs every test against one cluster, so reused names collide.
+var nsCounter atomic.Int64
+
+// uniqueNS returns a process-unique, validator-legal namespace name.
+func uniqueNS() string {
+	return fmt.Sprintf("ns%d", nsCounter.Add(1))
+}
 
 var sharedCompose *docker.DockerCompose
 

@@ -90,10 +90,8 @@ func findProp(class *models.Class, name string) *models.Property {
 }
 
 func TestNamespaces_AddClassProperty(t *testing.T) {
-	const (
-		ns1 = "customer1"
-		ns2 = "customer2"
-	)
+	ns1 := uniqueNS()
+	ns2 := uniqueNS()
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
 	defer helper.DeleteNamespace(t, ns1, adminKey)
@@ -108,7 +106,7 @@ func TestNamespaces_AddClassProperty(t *testing.T) {
 
 	t.Run("namespaced user adds property by short name; lands on qualified class", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 		err := addPropertyAuth(t, "Movies", &models.Property{
 			Name:     "genre",
@@ -116,7 +114,7 @@ func TestNamespaces_AddClassProperty(t *testing.T) {
 		}, user1Key)
 		require.NoError(t, err)
 
-		got := helper.GetClassAuth(t, "customer1:Movies", adminKey)
+		got := helper.GetClassAuth(t, ns1+":Movies", adminKey)
 		require.Len(t, got.Properties, 1)
 		assert.Equal(t, "genre", got.Properties[0].Name)
 	})
@@ -124,15 +122,15 @@ func TestNamespaces_AddClassProperty(t *testing.T) {
 	t.Run("each namespace mutates only its own class", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "Books"}, user1Key)
 		helper.CreateClassAuth(t, &models.Class{Class: "Books"}, user2Key)
-		defer helper.DeleteClassAuth(t, "customer1:Books", adminKey)
-		defer helper.DeleteClassAuth(t, "customer2:Books", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Books", adminKey)
+		defer helper.DeleteClassAuth(t, ns2+":Books", adminKey)
 
 		require.NoError(t, addPropertyAuth(t, "Books", &models.Property{
 			Name: "author", DataType: []string{"text"},
 		}, user2Key))
 
-		c1 := helper.GetClassAuth(t, "customer1:Books", adminKey)
-		c2 := helper.GetClassAuth(t, "customer2:Books", adminKey)
+		c1 := helper.GetClassAuth(t, ns1+":Books", adminKey)
+		c2 := helper.GetClassAuth(t, ns2+":Books", adminKey)
 		assert.Empty(t, c1.Properties)
 		require.Len(t, c2.Properties, 1)
 		assert.Equal(t, "author", c2.Properties[0].Name)
@@ -140,36 +138,36 @@ func TestNamespaces_AddClassProperty(t *testing.T) {
 
 	t.Run("global admin adds property by qualified name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "Shows"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
 
-		err := addPropertyAuth(t, "customer1:Shows", &models.Property{
+		err := addPropertyAuth(t, ns1+":Shows", &models.Property{
 			Name: "rating", DataType: []string{"text"},
 		}, adminKey)
 		require.NoError(t, err)
 
-		got := helper.GetClassAuth(t, "customer1:Shows", adminKey)
+		got := helper.GetClassAuth(t, ns1+":Shows", adminKey)
 		require.Len(t, got.Properties, 1)
 		assert.Equal(t, "rating", got.Properties[0].Name)
 	})
 
 	t.Run("alias is not a backdoor: AddClassProperty by alias name fails and underlying class unchanged", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "Concerts"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
 		err := addPropertyAuth(t, "Gigs", &models.Property{
 			Name: "venue", DataType: []string{"text"},
 		}, user1Key)
 		require.Error(t, err, "AddClassProperty must not resolve aliases on namespaced clusters")
 
-		got := helper.GetClassAuth(t, "customer1:Concerts", adminKey)
+		got := helper.GetClassAuth(t, ns1+":Concerts", adminKey)
 		assert.Empty(t, got.Properties, "underlying class must be unchanged")
 	})
 }
 
 func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
-	const ns1 = "customer1"
+	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
 	defer helper.DeleteNamespace(t, ns1, adminKey)
@@ -204,40 +202,40 @@ func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
 
 	t.Run("namespaced user drops filterable index by short name", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithFilterable("Movies"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
-		requireFilterable(t, "customer1:Movies", true)
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
+		requireFilterable(t, ns1+":Movies", true)
 
 		require.NoError(t, deletePropertyIndexAuth(t, "Movies", "title", "filterable", user1Key))
 
-		requireFilterable(t, "customer1:Movies", false)
+		requireFilterable(t, ns1+":Movies", false)
 	})
 
 	t.Run("global admin drops filterable index by qualified name", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithFilterable("Shows"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
-		requireFilterable(t, "customer1:Shows", true)
+		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
+		requireFilterable(t, ns1+":Shows", true)
 
-		require.NoError(t, deletePropertyIndexAuth(t, "customer1:Shows", "title", "filterable", adminKey))
+		require.NoError(t, deletePropertyIndexAuth(t, ns1+":Shows", "title", "filterable", adminKey))
 
-		requireFilterable(t, "customer1:Shows", false)
+		requireFilterable(t, ns1+":Shows", false)
 	})
 
 	t.Run("alias is not a backdoor: DeleteClassPropertyIndex by alias name fails and underlying class unchanged", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithFilterable("Concerts"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
-		requireFilterable(t, "customer1:Concerts", true)
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
+		requireFilterable(t, ns1+":Concerts", true)
 
 		err := deletePropertyIndexAuth(t, "Gigs", "title", "filterable", user1Key)
 		require.Error(t, err, "DeleteClassPropertyIndex must not resolve aliases on namespaced clusters")
 
-		requireFilterable(t, "customer1:Concerts", true)
+		requireFilterable(t, ns1+":Concerts", true)
 	})
 }
 
 func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
-	const ns1 = "customer1"
+	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
 	defer helper.DeleteNamespace(t, ns1, adminKey)
@@ -274,41 +272,41 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("namespaced user drops named vector by short name", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithTwoVectors("Movies"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
-		require.Equal(t, "hnsw", vectorIndexType(t, "customer1:Movies", "vec1"))
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
+		require.Equal(t, "hnsw", vectorIndexType(t, ns1+":Movies", "vec1"))
 
 		require.NoError(t, deleteVectorIndexAuth(t, "Movies", "vec1", user1Key))
 
-		assert.Equal(t, "none", vectorIndexType(t, "customer1:Movies", "vec1"))
-		assert.Equal(t, "hnsw", vectorIndexType(t, "customer1:Movies", "vec2"))
+		assert.Equal(t, "none", vectorIndexType(t, ns1+":Movies", "vec1"))
+		assert.Equal(t, "hnsw", vectorIndexType(t, ns1+":Movies", "vec2"))
 	})
 
 	t.Run("global admin drops named vector by qualified name", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithTwoVectors("Shows"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
-		require.Equal(t, "hnsw", vectorIndexType(t, "customer1:Shows", "vec1"))
+		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
+		require.Equal(t, "hnsw", vectorIndexType(t, ns1+":Shows", "vec1"))
 
-		require.NoError(t, deleteVectorIndexAuth(t, "customer1:Shows", "vec1", adminKey))
+		require.NoError(t, deleteVectorIndexAuth(t, ns1+":Shows", "vec1", adminKey))
 
-		assert.Equal(t, "none", vectorIndexType(t, "customer1:Shows", "vec1"))
+		assert.Equal(t, "none", vectorIndexType(t, ns1+":Shows", "vec1"))
 	})
 
 	t.Run("alias is not a backdoor: DeleteClassVectorIndex by alias name fails and underlying class unchanged", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithTwoVectors("Concerts"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
-		require.Equal(t, "hnsw", vectorIndexType(t, "customer1:Concerts", "vec1"))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
+		require.Equal(t, "hnsw", vectorIndexType(t, ns1+":Concerts", "vec1"))
 
 		err := deleteVectorIndexAuth(t, "Gigs", "vec1", user1Key)
 		require.Error(t, err, "DeleteClassVectorIndex must not resolve aliases on namespaced clusters")
 
-		assert.Equal(t, "hnsw", vectorIndexType(t, "customer1:Concerts", "vec1"))
+		assert.Equal(t, "hnsw", vectorIndexType(t, ns1+":Concerts", "vec1"))
 	})
 }
 
 func TestNamespaces_PropertyTokenize(t *testing.T) {
-	const ns1 = "customer1"
+	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
 	defer helper.DeleteNamespace(t, ns1, adminKey)
@@ -331,7 +329,7 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 
 	t.Run("namespaced user tokenizes property by short class name", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithTokenizedTitle("Movies"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 		got, err := tokenizePropertyAuth(t, "Movies", "title", "Hello World", user1Key)
 		require.NoError(t, err)
@@ -340,9 +338,9 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 
 	t.Run("namespaced user tokenizes property via alias resolves to underlying class", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithTokenizedTitle("Concerts"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
 		// retryOnAliasLag absorbs the brief window where the alias entry has
 		// been applied on the leader but the follower has not yet replicated
@@ -358,9 +356,9 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 
 	t.Run("global admin tokenizes property by qualified class name", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithTokenizedTitle("Shows"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
 
-		got, err := tokenizePropertyAuth(t, "customer1:Shows", "title", "Hello World", adminKey)
+		got, err := tokenizePropertyAuth(t, ns1+":Shows", "title", "Hello World", adminKey)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"hello", "world"}, got.Indexed)
 	})
@@ -372,10 +370,8 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 // i.e. weaviate-0), so the shard always lives remote and the request hops
 // the /indices/<ns>:<class>/shards/<sh>/status route every run.
 func TestNamespaces_ShardsStatus(t *testing.T) {
-	const (
-		ns1      = "shardsstatusns"
-		homeNode = "weaviate-2"
-	)
+	ns1 := uniqueNS()
+	const homeNode = "weaviate-2"
 
 	helper.CreateNamespaceWithHomeNode(t, ns1, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
@@ -454,10 +450,8 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 // names from a namespaced principal must hit "<ns>:<class>" and aliases
 // must not be a backdoor.
 func TestNamespaces_UpdateShardStatus(t *testing.T) {
-	const (
-		ns1 = "customer1"
-		ns2 = "customer2"
-	)
+	ns1 := uniqueNS()
+	ns2 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
 	defer helper.DeleteNamespace(t, ns1, adminKey)
@@ -523,7 +517,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 
 	t.Run("namespaced user updates shard status by short name; lands on qualified class", func(t *testing.T) {
 		helper.CreateClassAuth(t, newClass("Movies"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 		shards, err := getShards(t, "Movies", user1Key)
 		require.NoError(t, err)
@@ -532,28 +526,28 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 
 		require.NoError(t, updateShard(t, "Movies", shardName, "READONLY", user1Key))
 
-		eventuallyShardStatus(t, "customer1:Movies", shardName, "READONLY", adminKey)
+		eventuallyShardStatus(t, ns1+":Movies", shardName, "READONLY", adminKey)
 	})
 
 	t.Run("global admin updates shard status by qualified name", func(t *testing.T) {
 		helper.CreateClassAuth(t, newClass("Shows"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
 
-		shards, err := getShards(t, "customer1:Shows", adminKey)
+		shards, err := getShards(t, ns1+":Shows", adminKey)
 		require.NoError(t, err)
 		require.Len(t, shards, 1)
 		shardName := shards[0].Name
 
-		require.NoError(t, updateShard(t, "customer1:Shows", shardName, "READONLY", adminKey))
+		require.NoError(t, updateShard(t, ns1+":Shows", shardName, "READONLY", adminKey))
 
-		eventuallyShardStatus(t, "customer1:Shows", shardName, "READONLY", adminKey)
+		eventuallyShardStatus(t, ns1+":Shows", shardName, "READONLY", adminKey)
 	})
 
 	t.Run("alias is not a backdoor: UpdateShardStatus by alias name fails and underlying shard unchanged", func(t *testing.T) {
 		helper.CreateClassAuth(t, newClass("Concerts"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
 		shards, err := getShards(t, "Concerts", user1Key)
 		require.NoError(t, err)
@@ -575,7 +569,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		err = updateShard(t, "Gigs", shardName, "READONLY", user1Key)
 		require.Error(t, err, "UpdateShardStatus must not resolve aliases on namespaced clusters")
 
-		after, err := getShards(t, "customer1:Concerts", adminKey)
+		after, err := getShards(t, ns1+":Concerts", adminKey)
 		require.NoError(t, err)
 		require.Len(t, after, 1)
 		assert.Equal(t, initialStatus, after[0].Status, "underlying shard status must be unchanged")
@@ -584,27 +578,27 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 	t.Run("each namespace updates only its own class", func(t *testing.T) {
 		helper.CreateClassAuth(t, newClass("Books"), user1Key)
 		helper.CreateClassAuth(t, newClass("Books"), user2Key)
-		defer helper.DeleteClassAuth(t, "customer1:Books", adminKey)
-		defer helper.DeleteClassAuth(t, "customer2:Books", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Books", adminKey)
+		defer helper.DeleteClassAuth(t, ns2+":Books", adminKey)
 
-		// Shard ids are per-class, so customer1:Books and customer2:Books
+		// Shard ids are per-class, so ns1:Books and ns2:Books
 		// have disjoint shard name sets.
-		shards2, err := getShards(t, "customer2:Books", adminKey)
+		shards2, err := getShards(t, ns2+":Books", adminKey)
 		require.NoError(t, err)
 		require.Len(t, shards2, 1)
 		shardName := shards2[0].Name
 
-		// user2 says "Books" + a shard id that exists only on customer2:Books.
+		// user2 says "Books" + a shard id that exists only on ns2:Books.
 		// If qualification were skipped the update would resolve to
-		// customer1:Books and fail with "shard not found".
+		// ns1:Books and fail with "shard not found".
 		require.NoError(t, updateShard(t, "Books", shardName, "READONLY", user2Key))
 
-		eventuallyShardStatus(t, "customer2:Books", shardName, "READONLY", adminKey)
+		eventuallyShardStatus(t, ns2+":Books", shardName, "READONLY", adminKey)
 
-		after1, err := getShards(t, "customer1:Books", adminKey)
+		after1, err := getShards(t, ns1+":Books", adminKey)
 		require.NoError(t, err)
 		require.Len(t, after1, 1)
-		assert.NotEqual(t, "READONLY", after1[0].Status, "customer1:Books must be untouched by user2's update")
+		assert.NotEqual(t, "READONLY", after1[0].Status, "ns1:Books must be untouched by user2's update")
 	})
 }
 
@@ -615,7 +609,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 // cluster-API URL routing through `regxNodesClass`, which only accepts
 // namespace-qualified names once it is built from IndexNameRegexCore.
 func TestNamespaces_NodesGetClass(t *testing.T) {
-	const ns1 = "customer1"
+	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
@@ -629,7 +623,7 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 			{Name: "title", DataType: []string{"text"}},
 		},
 	}, user1Key)
-	defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+	defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 	verbose := "verbose"
 
@@ -642,7 +636,7 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	})
 
 	t.Run("global admin gets node status by qualified class name", func(t *testing.T) {
-		params := nodes.NewNodesGetClassParams().WithClassName("customer1:Movies").WithOutput(&verbose)
+		params := nodes.NewNodesGetClassParams().WithClassName(ns1 + ":Movies").WithOutput(&verbose)
 		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp.Payload)
@@ -656,9 +650,9 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 				{Name: "title", DataType: []string{"text"}},
 			},
 		}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
 		// A 403 is immediate (the authz deny precedes alias resolution), so no
 		// retryOnAliasLag wrapper is needed here.

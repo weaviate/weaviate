@@ -33,21 +33,21 @@ func mtClass(name string) *models.Class {
 
 // setupMTClassInBothNamespaces creates an MT-enabled class with the same short
 // name under each namespaced user and registers cleanup of the qualified names.
-func setupMTClassInBothNamespaces(t *testing.T, name, k1, k2 string) {
+func setupMTClassInBothNamespaces(t *testing.T, ns1, ns2, name, k1, k2 string) {
 	t.Helper()
 	for _, key := range []string{k1, k2} {
 		helper.CreateClassAuth(t, mtClass(name), key)
 	}
 	t.Cleanup(func() {
-		helper.DeleteClassAuth(t, "customer1:"+name, adminKey)
-		helper.DeleteClassAuth(t, "customer2:"+name, adminKey)
+		helper.DeleteClassAuth(t, ns1+":"+name, adminKey)
+		helper.DeleteClassAuth(t, ns2+":"+name, adminKey)
 	})
 }
 
-func setupMTClassInNs1(t *testing.T, name, key string) {
+func setupMTClassInNs1(t *testing.T, ns1, name, key string) {
 	t.Helper()
 	helper.CreateClassAuth(t, mtClass(name), key)
-	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+name, adminKey) })
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+name, adminKey) })
 }
 
 func addTenantsAuth(t *testing.T, class string, tenants []*models.Tenant, key string) error {
@@ -113,14 +113,14 @@ func tenantNames(tenants []*models.Tenant) []string {
 // shards land under the qualified class name and tenant lookups never bleed
 // across namespaces.
 func TestNamespaces_TenantOps(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)
 	defer conn.Close()
 
 	t.Run("REST mutations under namespaced principal land on qualified class", func(t *testing.T) {
 		const class = "TenantsCRUD"
-		setupMTClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupMTClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		// user1 adds two tenants by short name; user2 adds the same short
 		// "alpha" tenant under its own copy of the class.
@@ -134,19 +134,19 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 		// Admin's raw view of the qualified classes shows the per-namespace
 		// tenant sets exactly as written.
-		ns1, err := getTenantsAuth(t, "customer1:"+class, adminKey)
+		ns1Tenants, err := getTenantsAuth(t, ns1+":"+class, adminKey)
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"alpha", "beta"}, tenantNames(ns1))
+		assert.ElementsMatch(t, []string{"alpha", "beta"}, tenantNames(ns1Tenants))
 
-		ns2, err := getTenantsAuth(t, "customer2:"+class, adminKey)
+		ns2Tenants, err := getTenantsAuth(t, ns2+":"+class, adminKey)
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"alpha"}, tenantNames(ns2))
+		assert.ElementsMatch(t, []string{"alpha"}, tenantNames(ns2Tenants))
 
 		// user1 deactivates beta via the short class name.
 		require.NoError(t, updateTenantsAuth(t, class, []*models.Tenant{
 			{Name: "beta", ActivityStatus: models.TenantActivityStatusCOLD},
 		}, user1Key))
-		listed, err := getTenantsAuth(t, "customer1:"+class, adminKey)
+		listed, err := getTenantsAuth(t, ns1+":"+class, adminKey)
 		require.NoError(t, err)
 		var betaActivity string
 		for _, tt := range listed {
@@ -158,17 +158,17 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 		// user1 deletes alpha by short name; ns2's alpha is untouched.
 		require.NoError(t, deleteTenantsAuth(t, class, []string{"alpha"}, user1Key))
-		ns1after, err := getTenantsAuth(t, "customer1:"+class, adminKey)
+		ns1after, err := getTenantsAuth(t, ns1+":"+class, adminKey)
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"beta"}, tenantNames(ns1after))
-		ns2after, err := getTenantsAuth(t, "customer2:"+class, adminKey)
+		ns2after, err := getTenantsAuth(t, ns2+":"+class, adminKey)
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"alpha"}, tenantNames(ns2after))
 	})
 
 	t.Run("REST reads are namespace-scoped", func(t *testing.T) {
 		const class = "TenantsRead"
-		setupMTClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupMTClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{
 			{Name: "shared"},
@@ -178,19 +178,19 @@ func TestNamespaces_TenantOps(t *testing.T) {
 			{Name: "ns2only"},
 		}, user2Key))
 
-		ns1, err := getTenantsAuth(t, class, user1Key)
+		ns1Tenants, err := getTenantsAuth(t, class, user1Key)
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"shared"}, tenantNames(ns1))
+		assert.ElementsMatch(t, []string{"shared"}, tenantNames(ns1Tenants))
 
-		ns2, err := getTenantsAuth(t, class, user2Key)
+		ns2Tenants, err := getTenantsAuth(t, class, user2Key)
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"shared", "ns2only"}, tenantNames(ns2))
+		assert.ElementsMatch(t, []string{"shared", "ns2only"}, tenantNames(ns2Tenants))
 
 		got, err := getOneTenantAuth(t, class, "shared", user1Key)
 		require.NoError(t, err)
 		assert.Equal(t, "shared", got.Name)
 
-		// ns2only is invisible to user1 — qualifies to customer1:TenantsRead
+		// ns2only is invisible to user1 — qualifies to user1's own namespace
 		// where no such tenant exists.
 		_, err = getOneTenantAuth(t, class, "ns2only", user1Key)
 		require.Error(t, err)
@@ -201,13 +201,13 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 	t.Run("global principal uses qualified names; short names do not resolve", func(t *testing.T) {
 		const class = "TenantsAdmin"
-		setupMTClassInNs1(t, class, user1Key)
+		setupMTClassInNs1(t, ns1, class, user1Key)
 
-		require.NoError(t, addTenantsAuth(t, "customer1:"+class, []*models.Tenant{
+		require.NoError(t, addTenantsAuth(t, ns1+":"+class, []*models.Tenant{
 			{Name: "byAdmin"},
 		}, adminKey))
 
-		listed, err := getTenantsAuth(t, "customer1:"+class, adminKey)
+		listed, err := getTenantsAuth(t, ns1+":"+class, adminKey)
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"byAdmin"}, tenantNames(listed))
 
@@ -220,7 +220,7 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 	t.Run("gRPC TenantsGet under namespaced principal returns own tenants", func(t *testing.T) {
 		const class = "TenantsGRPC"
-		setupMTClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupMTClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{{Name: "g1"}}, user1Key))
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{{Name: "g2"}}, user2Key))
@@ -238,7 +238,7 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 	t.Run("gRPC TenantsGet with Names param filters to the requested subset", func(t *testing.T) {
 		const class = "TenantsGRPCNames"
-		setupMTClassInNs1(t, class, user1Key)
+		setupMTClassInNs1(t, ns1, class, user1Key)
 
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{
 			{Name: "keep1"},
@@ -262,11 +262,11 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 	t.Run("gRPC TenantsGet under global principal uses qualified collection name", func(t *testing.T) {
 		const class = "TenantsGRPCAdmin"
-		setupMTClassInNs1(t, class, user1Key)
+		setupMTClassInNs1(t, ns1, class, user1Key)
 
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{{Name: "ga1"}}, user1Key))
 
-		resp, err := grpcClient.TenantsGet(authCtx(adminKey), &pb.TenantsGetRequest{Collection: "customer1:" + class})
+		resp, err := grpcClient.TenantsGet(authCtx(adminKey), &pb.TenantsGetRequest{Collection: ns1 + ":" + class})
 		require.NoError(t, err)
 		require.Len(t, resp.Tenants, 1)
 		assert.Equal(t, "ga1", resp.Tenants[0].Name)
@@ -281,7 +281,7 @@ func TestNamespaces_TenantOps(t *testing.T) {
 			class = "AliasBackdoorTarget"
 			alias = "AliasBackdoor"
 		)
-		setupMTClassInNs1(t, class, user1Key)
+		setupMTClassInNs1(t, ns1, class, user1Key)
 
 		// Seed the underlying class with a known tenant so we can detect any
 		// state change after the rejected calls.
@@ -290,7 +290,7 @@ func TestNamespaces_TenantOps(t *testing.T) {
 		}, user1Key))
 
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
 
 		// Mutations qualify via QualifyClass, which does not resolve aliases.
 		// All three calls must fail.
@@ -304,7 +304,7 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 		// Underlying class state must be unchanged: same single tenant, still
 		// HOT, no leaked "viaAlias" tenant.
-		listed, err := getTenantsAuth(t, "customer1:"+class, adminKey)
+		listed, err := getTenantsAuth(t, ns1+":"+class, adminKey)
 		require.NoError(t, err)
 		require.Len(t, listed, 1)
 		assert.Equal(t, "seed", listed[0].Name)
@@ -313,16 +313,16 @@ func TestNamespaces_TenantOps(t *testing.T) {
 
 	t.Run("namespaced caller submitting namespace-qualified class double-prefixes", func(t *testing.T) {
 		const class = "TenantsDoublePrefix"
-		setupMTClassInNs1(t, class, user1Key)
+		setupMTClassInNs1(t, ns1, class, user1Key)
 
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{{Name: "x"}}, user1Key))
 
-		// user1 supplying "customer1:TenantsDoublePrefix" qualifies again to
-		// "customer1:customer1:TenantsDoublePrefix" — no such class.
-		_, err := getTenantsAuth(t, "customer1:"+class, user1Key)
+		// user1 supplying the already-qualified "<ns>:TenantsDoublePrefix"
+		// qualifies again to "<ns>:<ns>:TenantsDoublePrefix" — no such class.
+		_, err := getTenantsAuth(t, ns1+":"+class, user1Key)
 		require.Error(t, err)
 
-		err = addTenantsAuth(t, "customer1:"+class, []*models.Tenant{{Name: "y"}}, user1Key)
+		err = addTenantsAuth(t, ns1+":"+class, []*models.Tenant{{Name: "y"}}, user1Key)
 		require.Error(t, err)
 	})
 
@@ -331,14 +331,14 @@ func TestNamespaces_TenantOps(t *testing.T) {
 			class = "AliasSingleTarget"
 			alias = "AliasSingle"
 		)
-		setupMTClassInNs1(t, class, user1Key)
+		setupMTClassInNs1(t, ns1, class, user1Key)
 
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{
 			{Name: "present", ActivityStatus: models.TenantActivityStatusHOT},
 		}, user1Key))
 
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
 
 		// GetConsistentTenant via alias resolves to the underlying class.
 		// retryOnAliasLag absorbs the brief window where the alias entry
@@ -368,12 +368,12 @@ func TestNamespaces_TenantOps(t *testing.T) {
 			class = "TenantsAliasTarget"
 			alias = "TenantsAlias"
 		)
-		setupMTClassInNs1(t, class, user1Key)
+		setupMTClassInNs1(t, ns1, class, user1Key)
 
 		require.NoError(t, addTenantsAuth(t, class, []*models.Tenant{{Name: "t1"}, {Name: "t2"}}, user1Key))
 
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
 
 		// retryOnAliasLag absorbs the brief window where the alias entry
 		// has been applied on the leader but the follower has not yet

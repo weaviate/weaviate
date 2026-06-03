@@ -50,8 +50,8 @@ func authCtx(key string) context.Context {
 // keeping Limit/Value and unanimousLimitExceeded lifting the per-row
 // rejection to a top-level gRPC error.
 func TestGRPCBatchObjects_AtQuota(t *testing.T) {
+	ns := uniqueNS()
 	const (
-		ns       = "grpcbatch"
 		homeNode = "weaviate-1"
 		class    = "Items"
 	)

@@ -46,8 +46,8 @@ func rawDeleteNamespace(t *testing.T, name, key string) (*namespaces.DeleteNames
 // alias, and a DB user, deletes it, and verifies that the namespace,
 // its class, its alias, and the user are all gone.
 func TestNamespaces_DeleteHappyPath(t *testing.T) {
+	ns := uniqueNS()
 	const (
-		ns        = "delhappy"
 		userID    = "alice"
 		className = "Movies"
 		aliasName = "Films"
@@ -85,10 +85,8 @@ func TestNamespaces_DeleteHappyPath(t *testing.T) {
 // the synchronous DeleteUsersInNamespace before returning 202; followers
 // apply asynchronously, so each node is polled until auth is rejected.
 func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
-	const (
-		ns     = "delauth"
-		userID = "bob"
-	)
+	ns := uniqueNS()
+	const userID = "bob"
 
 	helper.CreateNamespace(t, ns, adminKey)
 	userKey := createNamespacedUser(t, userID, ns, adminKey)
@@ -129,8 +127,8 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 // 409 (still deleting) and success are acceptable; any other response
 // fails the test.
 func TestNamespaces_RecreateAfterDelete(t *testing.T) {
+	ns := uniqueNS()
 	const (
-		ns        = "delrecreate"
 		userID    = "creator"
 		className = "Movies"
 	)
@@ -176,7 +174,7 @@ func TestNamespaces_RecreateAfterDelete(t *testing.T) {
 // the namespace is still in the deleting state and asserts both return
 // 202. After cleanup completes, DELETE returns 404.
 func TestNamespaces_DeleteIsIdempotent(t *testing.T) {
-	const ns = "delidempotent"
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
 	// First DELETE: 202.
@@ -207,7 +205,7 @@ func TestNamespaces_DeleteIsIdempotent(t *testing.T) {
 // cleaned up — both outcomes are acceptable. The post-condition is that
 // no orphan class survives once the namespace entity is gone.
 func TestNamespaces_ConcurrentDeleteAndAddClass(t *testing.T) {
-	const ns = "delrace"
+	ns := uniqueNS()
 	const className = "Films"
 	qualifiedClass := ns + ":" + className
 
@@ -249,8 +247,8 @@ func TestNamespaces_ConcurrentDeleteAndAddClass(t *testing.T) {
 // class can be created cleanly — the latter is the proxy for "no torn
 // state was left behind".
 func TestNamespaces_DeleteWhileBatchInsertInFlight(t *testing.T) {
+	ns := uniqueNS()
 	const (
-		ns        = "delbatch"
 		userID    = "dave"
 		className = "Tickets"
 	)
@@ -348,7 +346,7 @@ func TestNamespaces_DeleteWhileBatchInsertInFlight(t *testing.T) {
 // must round-trip through gRPC and re-chain on the client so the
 // handler's errors.Is mapping returns 404 rather than 500.
 func TestNamespaces_DeleteMissingReturns404FromEveryReplica(t *testing.T) {
-	const ns = "neverexisted"
+	ns := uniqueNS()
 
 	originalURI := sharedCompose.GetWeaviate().URI()
 	t.Cleanup(func() { helper.SetupClient(originalURI) })

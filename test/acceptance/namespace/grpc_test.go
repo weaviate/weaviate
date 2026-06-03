@@ -63,13 +63,13 @@ func searchReq(collection string, limit uint32) *pb.SearchRequest {
 // short collection name; the handler must qualify it via namespacing.Resolve
 // so the request only ever touches the caller's namespace shard.
 func TestNamespaces_GRPC(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)
 	defer conn.Close()
 
 	const class = "MoviesGRPC"
-	setupClassInBothNamespaces(t, class, user1Key, user2Key)
+	setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 	id1 := strfmt.UUID("aaaaaaaa-1111-1111-1111-111111111111")
 	id2 := strfmt.UUID("bbbbbbbb-2222-2222-2222-222222222222")
@@ -90,7 +90,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 
 	t.Run("BatchObjects fans out per namespace", func(t *testing.T) {
 		// user1 inserts under the short class name; the handler qualifies
-		// to customer1:MoviesGRPC.
+		// to ns1:MoviesGRPC.
 		resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
 			Objects: []*pb.BatchObject{
 				makeBatchObj(id1, class, "ns1-The Matrix"),
@@ -102,7 +102,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 		require.Empty(t, resp.Errors)
 
 		// user2 inserts the same UUIDs under the same short class name;
-		// the handler qualifies to customer2:MoviesGRPC, so there is no
+		// the handler qualifies to ns2:MoviesGRPC, so there is no
 		// id collision between the two namespaces.
 		resp, err = grpcClient.BatchObjects(authCtx(user2Key), &pb.BatchObjectsRequest{
 			Objects: []*pb.BatchObject{
@@ -131,7 +131,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// Self-contained against the rest of TestNamespaces_GRPC: own class,
 		// own UUIDs, no reliance on (or mutation of) the MoviesGRPC rows above.
 		const delClass = "BatchDeleteGRPC"
-		setupClassInBothNamespaces(t, delClass, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, delClass, user1Key, user2Key)
 
 		killID := strfmt.UUID("33333333-cccc-cccc-cccc-cccccccccccc")
 		keepID := strfmt.UUID("44444444-dddd-dddd-dddd-dddddddddddd")
@@ -188,12 +188,12 @@ func TestNamespaces_GRPC(t *testing.T) {
 			delClass = "BatchDeleteAliasGRPC"
 			alias    = "BDAliasGRPC"
 		)
-		setupClassInBothNamespaces(t, delClass, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, delClass, user1Key, user2Key)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: delClass}, user1Key)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: delClass}, user2Key)
 		t.Cleanup(func() {
-			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
-			helper.DeleteAliasWithAuthz(t, "customer2:"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns2+":"+alias, helper.CreateAuth(adminKey))
 		})
 
 		killID := strfmt.UUID("77777777-7777-7777-7777-777777777777")
@@ -250,7 +250,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// class portion: the qualified name flows through to storage and
 		// matches; the short name does not exist on disk.
 		const delClass = "BatchDeleteAdminGRPC"
-		setupClassInNs1(t, delClass, user1Key)
+		setupClassInNs1(t, ns1, delClass, user1Key)
 
 		killID := strfmt.UUID("bbbbbbbb-3333-3333-3333-333333333333")
 		keepID := strfmt.UUID("cccccccc-4444-4444-4444-444444444444")
@@ -279,7 +279,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 		require.Error(t, err)
 
 		// Qualified class name → resolves to storage, delete succeeds.
-		delResp, err := grpcClient.BatchDelete(authCtx(adminKey), mkReq("customer1:"+delClass))
+		delResp, err := grpcClient.BatchDelete(authCtx(adminKey), mkReq(ns1+":"+delClass))
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), delResp.Successful)
 		assert.Equal(t, int64(0), delResp.Failed)
@@ -401,9 +401,9 @@ func TestNamespaces_GRPC(t *testing.T) {
 			"buckets should differ between namespaces; got %v on both", buckets1)
 
 		respAdmin, err := grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
-			Collection:   "customer1:" + class,
+			Collection:   ns1 + ":" + class,
 			ObjectsCount: true,
-			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: "customer1:" + class, Property: "title"},
+			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: ns1 + ":" + class, Property: "title"},
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, respAdmin.GetGroupedResults().GetGroups(),
@@ -433,8 +433,8 @@ func TestNamespaces_GRPC(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+zoo, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+animal, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+zoo, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+animal, adminKey)
 		})
 
 		animalID := strfmt.UUID(uuid.New().String())
@@ -497,11 +497,11 @@ func TestNamespaces_GRPC(t *testing.T) {
 			require.NoError(t, err)
 		}
 		defer helper.Client(t).Schema.AliasesDelete(
-			schemaCli.NewAliasesDeleteParams().WithAliasName("customer1:"+aliasName),
+			schemaCli.NewAliasesDeleteParams().WithAliasName(ns1+":"+aliasName),
 			helper.CreateAuth(adminKey),
 		)
 		defer helper.Client(t).Schema.AliasesDelete(
-			schemaCli.NewAliasesDeleteParams().WithAliasName("customer2:"+aliasName),
+			schemaCli.NewAliasesDeleteParams().WithAliasName(ns2+":"+aliasName),
 			helper.CreateAuth(adminKey),
 		)
 
@@ -533,9 +533,9 @@ func TestNamespaces_GRPC(t *testing.T) {
 	})
 
 	t.Run("namespaced caller submitting :-qualified collection double-prefixes", func(t *testing.T) {
-		// user1 supplying "customer1:MoviesGRPC" gets qualified again to
-		// "customer1:customer1:MoviesGRPC" — no such class on disk.
-		qualified := "customer1:" + class
+		// user1 supplying "ns1:MoviesGRPC" gets qualified again to
+		// "ns1:ns1:MoviesGRPC" — no such class on disk.
+		qualified := ns1 + ":" + class
 
 		_, err := grpcClient.Search(authCtx(user1Key), searchReq(qualified, 1))
 		require.Error(t, err)
@@ -563,7 +563,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 			return grpcClient.Search(authCtx(adminKey), searchReq(class, 10))
 		}
 		qualifiedReq := func() (*pb.SearchReply, error) {
-			return grpcClient.Search(authCtx(adminKey), searchReq("customer1:"+class, 10))
+			return grpcClient.Search(authCtx(adminKey), searchReq(ns1+":"+class, 10))
 		}
 
 		_, err := shortReq()
@@ -572,8 +572,8 @@ func TestNamespaces_GRPC(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, searchResp.Results, 2)
 		// Admin sees the raw qualified class name in target_collection.
-		assert.Equal(t, "customer1:"+class, searchResp.Results[0].Properties.TargetCollection)
-		assert.Equal(t, "customer1:"+class, searchResp.Results[1].Properties.TargetCollection)
+		assert.Equal(t, ns1+":"+class, searchResp.Results[0].Properties.TargetCollection)
+		assert.Equal(t, ns1+":"+class, searchResp.Results[1].Properties.TargetCollection)
 
 		_, err = grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
 			Collection:   class,
@@ -581,7 +581,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 		})
 		require.Error(t, err)
 		aggResp, err := grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
-			Collection:   "customer1:" + class,
+			Collection:   ns1 + ":" + class,
 			ObjectsCount: true,
 		})
 		require.NoError(t, err)
@@ -598,14 +598,14 @@ func TestNamespaces_GRPC(t *testing.T) {
 
 		adminID := strfmt.UUID("ffffffff-6666-6666-6666-666666666666")
 		qualifiedBatch, err := grpcClient.BatchObjects(authCtx(adminKey), &pb.BatchObjectsRequest{
-			Objects: []*pb.BatchObject{makeBatchObj(adminID, "customer1:"+class, "admin-qualified")},
+			Objects: []*pb.BatchObject{makeBatchObj(adminID, ns1+":"+class, "admin-qualified")},
 		})
 		require.NoError(t, err)
 		require.Empty(t, qualifiedBatch.Errors)
 
-		got, err := helper.GetObjectAuth(t, "customer1:"+class, adminID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":"+class, adminID, adminKey)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, ns1+":"+class, got.Class)
 		assert.Equal(t, "admin-qualified", got.Properties.(map[string]any)["title"])
 	})
 
@@ -662,13 +662,13 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// Driving real traffic through the stream also locks in that the
 		// principal captured at Handle() is the one used per data message.
 		const streamClass = "MoviesGRPCStream"
-		setupClassInBothNamespaces(t, streamClass, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, streamClass, user1Key, user2Key)
 
 		streamID1 := strfmt.UUID("99999999-1111-1111-1111-111111111111")
 		streamID2 := strfmt.UUID("99999999-2222-2222-2222-222222222222")
 
 		// user1 inserts under the short class name; the stream receiver must
-		// qualify to customer1:MoviesGRPCStream for the schema pre-flight,
+		// qualify to ns1:MoviesGRPCStream for the schema pre-flight,
 		// and the worker must qualify again for the actual write.
 		successes, errs := runBatchStream(t, user1Key, []*pb.BatchObject{
 			{Uuid: streamID1.String(), Collection: streamClass, Properties: &pb.BatchObject_Properties{
@@ -721,18 +721,18 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// Each namespace registers the same short alias name for its own
 		// copy of the class. namespacing.Resolve in the receiver qualifies
 		// the alias with the principal's namespace before alias→target
-		// lookup, so user1's stream must land on customer1's class and
-		// user2's stream on customer2's.
+		// lookup, so user1's stream must land on ns1's class and
+		// user2's stream on ns2's.
 		const (
 			streamClass = "MoviesGRPCStreamAlias"
 			aliasName   = "StreamAlias"
 		)
-		setupClassInBothNamespaces(t, streamClass, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, streamClass, user1Key, user2Key)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: streamClass}, user1Key)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: streamClass}, user2Key)
 		t.Cleanup(func() {
-			helper.DeleteAliasWithAuthz(t, "customer1:"+aliasName, helper.CreateAuth(adminKey))
-			helper.DeleteAliasWithAuthz(t, "customer2:"+aliasName, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns1+":"+aliasName, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns2+":"+aliasName, helper.CreateAuth(adminKey))
 		})
 
 		id1 := strfmt.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
@@ -787,7 +787,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// class portion. Short names don't exist on disk; qualified names
 		// flow through to the namespaced shard.
 		const streamClass = "MoviesGRPCStreamAdmin"
-		setupClassInNs1(t, streamClass, user1Key)
+		setupClassInNs1(t, ns1, streamClass, user1Key)
 
 		adminShortID := strfmt.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
 		adminQualifiedID := strfmt.UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
@@ -813,17 +813,17 @@ func TestNamespaces_GRPC(t *testing.T) {
 		require.Len(t, errs, 1)
 		assert.Equal(t, adminShortID.String(), errs[0].GetUuid())
 
-		// Qualified name: write lands on customer1's shard and is visible
+		// Qualified name: write lands on ns1's shard and is visible
 		// via REST to admin and to user1.
 		successes, errs = runBatchStream(t, adminKey, []*pb.BatchObject{
-			mkObj(adminQualifiedID, "customer1:"+streamClass, "admin-qualified"),
+			mkObj(adminQualifiedID, ns1+":"+streamClass, "admin-qualified"),
 		})
 		require.Empty(t, errs)
 		assert.Equal(t, 1, successes)
 
-		got, err := helper.GetObjectAuth(t, "customer1:"+streamClass, adminQualifiedID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":"+streamClass, adminQualifiedID, adminKey)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+streamClass, got.Class)
+		assert.Equal(t, ns1+":"+streamClass, got.Class)
 		assert.Equal(t, "admin-qualified", got.Properties.(map[string]any)["title"])
 
 		// The short-name row was never persisted under any class.
@@ -835,16 +835,16 @@ func TestNamespaces_GRPC(t *testing.T) {
 // TestNamespaces_GRPC_QueryProfile checks that a namespaced caller never sees
 // its own "<namespace>:" prefix in the per-shard query_profile. The shard ID
 // (shard.ID()) embeds the qualified class name, so the raw profile Name is
-// "customer1:moviesgrpcprofile_<shard>"; the replier strips the prefix via
+// "ns1:moviesgrpcprofile_<shard>"; the replier strips the prefix via
 // namespacing.StripOwnNamespace, the same helper used for target_collection.
 func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)
 	defer conn.Close()
 
 	const class = "MoviesGRPCProfile"
-	setupClassInBothNamespaces(t, class, user1Key, user2Key)
+	setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 	// Seed one row in ns1 so a shard is actually searched and profiled.
 	_, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
@@ -876,7 +876,7 @@ func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
 		// prefix must not surface anywhere a future detail could embed a
 		// qualified name (search-type keys, detail keys, detail values).
 		notLeak := func(field, val string) {
-			assert.NotContainsf(t, val, "customer1:",
+			assert.NotContainsf(t, val, ns1+":",
 				"query_profile leaks the caller's namespace prefix via %s: %q", field, val)
 		}
 		for _, sh := range resp.QueryProfile.Shards {
@@ -894,21 +894,21 @@ func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
 
 	t.Run("global admin keeps the raw profile (raw mode)", func(t *testing.T) {
 		// Admin has no namespace, so it keeps the raw internal names: at least
-		// one shard name must still carry the qualified "customer1:" prefix.
+		// one shard name must still carry the qualified "ns1:" prefix.
 		// This is the positive control for the stripping above — without it a
 		// regression that strips global names too would go unnoticed.
-		resp, err := grpcClient.Search(authCtx(adminKey), profReq("customer1:"+class))
+		resp, err := grpcClient.Search(authCtx(adminKey), profReq(ns1+":"+class))
 		require.NoError(t, err)
 		require.NotNil(t, resp.QueryProfile)
 		require.NotEmpty(t, resp.QueryProfile.Shards)
 		hasPrefix := false
 		for _, sh := range resp.QueryProfile.Shards {
-			if strings.Contains(sh.Name, "customer1:") {
+			if strings.Contains(sh.Name, ns1+":") {
 				hasPrefix = true
 			}
 		}
 		assert.True(t, hasPrefix,
-			"admin should see the raw qualified shard name with the customer1: prefix, got %v",
+			"admin should see the raw qualified shard name with the ns1: prefix, got %v",
 			resp.QueryProfile.Shards)
 	})
 }
@@ -918,10 +918,8 @@ func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
 // The namespace is pinned to a node that is provably not the gRPC entry
 // (GetWeaviate() returns weaviate-0) so the hop is exercised every run.
 func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
-	const (
-		ns       = "remoteshardns"
-		homeNode = "weaviate-2"
-	)
+	ns := uniqueNS()
+	const homeNode = "weaviate-2"
 	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
 
@@ -974,13 +972,13 @@ func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
 // qualify the object's collection so the auto-created collection and the write
 // agree on the qualified name.
 func TestNamespaces_GRPC_BatchAutoSchema(t *testing.T) {
-	user1Key, _ := twoNamespaces(t)
+	ns1, _, user1Key, _ := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)
 	defer conn.Close()
 
 	const class = "GrpcAutoSchema"
-	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 	id := strfmt.UUID("99999999-aaaa-bbbb-cccc-999999999999")
 	resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
@@ -1007,6 +1005,6 @@ func TestNamespaces_GRPC_BatchAutoSchema(t *testing.T) {
 	assert.Equal(t, "Inception", got.Properties.(map[string]any)["title"])
 
 	// Admin's raw view confirms auto-schema created a single-qualified class.
-	gotClass := helper.GetClassAuth(t, "customer1:"+class, adminKey)
-	assert.Equal(t, "customer1:"+class, gotClass.Class)
+	gotClass := helper.GetClassAuth(t, ns1+":"+class, adminKey)
+	assert.Equal(t, ns1+":"+class, gotClass.Class)
 }

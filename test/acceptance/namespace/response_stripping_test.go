@@ -32,7 +32,7 @@ import (
 // global admin keeps the raw qualified form. Round-trip tests assert that a
 // stripped GET response can be PUT/PATCHed back unchanged.
 func TestNamespaces_ResponseStripping_REST(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("AddClass response strips Class and cross-ref DataType", func(t *testing.T) {
 		const name = "AddClassStripped"
@@ -41,9 +41,9 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
 		helper.CreateClassAuth(t, &models.Class{Class: "Books"}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+name, adminKey)
-			helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
-			helper.DeleteClassAuth(t, "customer1:Books", adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+name, adminKey)
+			helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
+			helper.DeleteClassAuth(t, ns1+":Books", adminKey)
 		})
 
 		resp, err := helper.CreateClassAuthWithReturn(t, &models.Class{
@@ -63,20 +63,20 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 		// Admin sees the raw qualified class + qualified cross-ref DataTypes
 		// via direct GET.
-		raw := helper.GetClassAuth(t, "customer1:"+name, adminKey)
-		assert.Equal(t, "customer1:"+name, raw.Class)
-		assert.Equal(t, []string{"customer1:Movies"}, findProp(raw, "watched").DataType)
-		assert.Equal(t, []string{"customer1:Movies", "customer1:Books"}, findProp(raw, "related").DataType)
+		raw := helper.GetClassAuth(t, ns1+":"+name, adminKey)
+		assert.Equal(t, ns1+":"+name, raw.Class)
+		assert.Equal(t, []string{ns1 + ":Movies"}, findProp(raw, "watched").DataType)
+		assert.Equal(t, []string{ns1 + ":Movies", ns1 + ":Books"}, findProp(raw, "related").DataType)
 	})
 
 	t.Run("addClassProperty response strips DataType cross-ref class names", func(t *testing.T) {
 		const host = "Library"
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
 		helper.CreateClassAuth(t, &models.Class{Class: "Books"}, user1Key)
-		setupClassInNs1(t, host, user1Key)
+		setupClassInNs1(t, ns1, host, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
-			helper.DeleteClassAuth(t, "customer1:Books", adminKey)
+			helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
+			helper.DeleteClassAuth(t, ns1+":Books", adminKey)
 		})
 
 		single, err := addPropertyAuthWithReturn(t, host,
@@ -90,19 +90,19 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		assert.Equal(t, []string{"Movies", "Books"}, multi.DataType)
 
 		// Admin sees the raw qualified DataTypes via direct GET.
-		raw := helper.GetClassAuth(t, "customer1:"+host, adminKey)
-		assert.Equal(t, []string{"customer1:Movies"}, findProp(raw, "watched").DataType)
-		assert.Equal(t, []string{"customer1:Movies", "customer1:Books"}, findProp(raw, "related").DataType)
+		raw := helper.GetClassAuth(t, ns1+":"+host, adminKey)
+		assert.Equal(t, []string{ns1 + ":Movies"}, findProp(raw, "watched").DataType)
+		assert.Equal(t, []string{ns1 + ":Movies", ns1 + ":Books"}, findProp(raw, "related").DataType)
 	})
 
 	t.Run("AddClass with already-qualified own-NS DataType rejected", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:Movies", adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":Movies", adminKey) })
 
 		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{
 			Class: "RejectQualifiedOwn",
 			Properties: []*models.Property{
-				{Name: "watched", DataType: []string{"customer1:Movies"}},
+				{Name: "watched", DataType: []string{ns1 + ":Movies"}},
 			},
 		}, user1Key)
 		require.Error(t, err)
@@ -110,14 +110,14 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 	})
 
 	t.Run("AddClass with cross-NS DataType rejected", func(t *testing.T) {
-		// customer2:Movies exists, but customer1's caller may not reference it.
+		// ns2's Movies exists, but ns1's caller may not reference it.
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user2Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer2:Movies", adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns2+":Movies", adminKey) })
 
 		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{
 			Class: "RejectCrossNS",
 			Properties: []*models.Property{
-				{Name: "watched", DataType: []string{"customer2:Movies"}},
+				{Name: "watched", DataType: []string{ns2 + ":Movies"}},
 			},
 		}, user1Key)
 		require.Error(t, err)
@@ -132,7 +132,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		// sides.
 		const name = "RoundTripMe"
 		helper.CreateClassAuth(t, &models.Class{Class: name, Description: "v1"}, user1Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+name, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+name, adminKey) })
 
 		// GET by short path — response is stripped.
 		got, err := helper.GetClassAuthWithReturn(t, name, user1Key)
@@ -147,7 +147,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		assert.Equal(t, name, putResp.Payload.Class)
 
 		// Confirm via admin: underlying class updated.
-		after := helper.GetClassAuth(t, "customer1:"+name, adminKey)
+		after := helper.GetClassAuth(t, ns1+":"+name, adminKey)
 		assert.Equal(t, "v2", after.Description)
 	})
 
@@ -167,8 +167,8 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+host, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+target, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+host, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+target, adminKey)
 		})
 
 		got, err := helper.GetClassAuthWithReturn(t, host, user1Key)
@@ -187,18 +187,18 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 		// Admin GET confirms the stored cross-refs are still qualified and
 		// the Description update landed.
-		after := helper.GetClassAuth(t, "customer1:"+host, adminKey)
+		after := helper.GetClassAuth(t, ns1+":"+host, adminKey)
 		assert.Equal(t, "v2", after.Description)
-		assert.Equal(t, []string{"customer1:" + target}, findProp(after, "watched").DataType)
-		assert.Equal(t, []string{"customer1:" + target}, findProp(after, "related").DataType)
+		assert.Equal(t, []string{ns1 + ":" + target}, findProp(after, "watched").DataType)
+		assert.Equal(t, []string{ns1 + ":" + target}, findProp(after, "related").DataType)
 	})
 
 	t.Run("AddAlias response strips Alias and Class", func(t *testing.T) {
 		const class = "AliasCreateTarget"
 		const alias = "AliasCreateName"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
 		})
 
 		resp, err := helper.CreateAliasAuthWithReturn(t, &models.Alias{Alias: alias, Class: class}, user1Key)
@@ -211,12 +211,12 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		const classA = "AliasUpdateA"
 		const classB = "AliasUpdateB"
 		const alias = "AliasUpdateName"
-		setupClassInNs1(t, classA, user1Key)
+		setupClassInNs1(t, ns1, classA, user1Key)
 		helper.CreateClassAuth(t, &models.Class{Class: classB}, user1Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+classB, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+classB, adminKey) })
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: classA}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, ns1+":"+alias, helper.CreateAuth(adminKey))
 		})
 
 		resp, err := helper.UpdateAliasAuthWithReturn(t, alias, classB, user1Key)
@@ -227,7 +227,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 	t.Run("AddObject response is stripped", func(t *testing.T) {
 		const class = "AddObjStripped"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 		obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			Class: class, Properties: map[string]any{"title": "first"},
 		}, user1Key)
@@ -237,7 +237,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 	t.Run("object GET → PUT round-trip succeeds with stripped body", func(t *testing.T) {
 		const class = "ObjPutRoundTrip"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		id := strfmt.UUID("aaaa1111-2222-3333-4444-aaaa11112222")
 		obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -267,7 +267,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 	t.Run("object GET → PATCH round-trip succeeds with stripped body", func(t *testing.T) {
 		const class = "ObjPatchRoundTrip"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		id := strfmt.UUID("bbbb2222-3333-4444-5555-bbbb22223333")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -294,7 +294,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 	t.Run("batch create response strips per-item Class", func(t *testing.T) {
 		const class = "BatchCreateStrip"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		resp, err := helper.Client(t).Batch.BatchObjectsCreate(
 			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
@@ -314,20 +314,20 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		respAdmin, err := helper.Client(t).Batch.BatchObjectsCreate(
 			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
 				Objects: []*models.Object{
-					{Class: "customer1:" + class, Properties: map[string]any{"title": "admin-a"}},
+					{Class: ns1 + ":" + class, Properties: map[string]any{"title": "admin-a"}},
 				},
 			}),
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
 		require.Len(t, respAdmin.Payload, 1)
-		assert.Equal(t, "customer1:"+class, respAdmin.Payload[0].Class,
+		assert.Equal(t, ns1+":"+class, respAdmin.Payload[0].Class,
 			"global admin must see the qualified Class in the batch-create response")
 	})
 
 	t.Run("batch delete response strips Match.Class", func(t *testing.T) {
 		const class = "BatchDeleteStrip"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 		id := strfmt.UUID("cccc3333-4444-5555-6666-cccc33334444")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			ID: id, Class: class, Properties: map[string]any{"title": "kill"},
@@ -362,7 +362,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		respAdmin, err := helper.Client(t).Batch.BatchObjectsDelete(
 			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
 				Match: &models.BatchDeleteMatch{
-					Class: "customer1:" + class,
+					Class: ns1 + ":" + class,
 					Where: &models.WhereFilter{
 						Operator:  "Equal",
 						Path:      []string{"title"},
@@ -374,7 +374,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.NotNil(t, respAdmin.Payload.Match)
-		assert.Equal(t, "customer1:"+class, respAdmin.Payload.Match.Class,
+		assert.Equal(t, ns1+":"+class, respAdmin.Payload.Match.Class,
 			"global admin must see the qualified Match.Class in the batch-delete response")
 	})
 
@@ -385,7 +385,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 			Class:      animal,
 			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
 		}, user1Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+animal, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+animal, adminKey) })
 		helper.CreateClassAuth(t, &models.Class{
 			Class: zoo,
 			Properties: []*models.Property{
@@ -393,7 +393,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 				{Name: "hasAnimals", DataType: []string{animal}},
 			},
 		}, user1Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+zoo, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+zoo, adminKey) })
 
 		zooID := strfmt.UUID("bbbb1111-2222-3333-4444-bbbb11112222")
 		animalID := strfmt.UUID("bbbb3333-4444-5555-6666-bbbb33334444")
@@ -419,9 +419,9 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 		gotFrom := string(resp.Payload[0].From)
 		gotTo := string(resp.Payload[0].To)
-		assert.NotContains(t, gotFrom, "customer1:",
+		assert.NotContains(t, gotFrom, ns1+":",
 			"namespaced caller must see short From beacon: %s", gotFrom)
-		assert.NotContains(t, gotTo, "customer1:",
+		assert.NotContains(t, gotTo, ns1+":",
 			"namespaced caller must see short To beacon: %s", gotTo)
 		assert.Equal(t, "weaviate://localhost/"+zoo+"/"+string(zooID)+"/hasAnimals", gotFrom)
 		assert.Equal(t, "weaviate://localhost/"+animal+"/"+string(animalID), gotTo)
@@ -429,7 +429,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 
 	t.Run("cross-NS isolation: same short class name in both namespaces, each sees only own", func(t *testing.T) {
 		const class = "CrossNSStrip"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		// Each namespaced caller GETs by short name and sees only their own
 		// short form; admin sees both qualified forms exist.
@@ -438,13 +438,13 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		c2 := helper.GetClassAuth(t, class, user2Key)
 		assert.Equal(t, class, c2.Class)
 
-		assert.Equal(t, "customer1:"+class, helper.GetClassAuth(t, "customer1:"+class, adminKey).Class)
-		assert.Equal(t, "customer2:"+class, helper.GetClassAuth(t, "customer2:"+class, adminKey).Class)
+		assert.Equal(t, ns1+":"+class, helper.GetClassAuth(t, ns1+":"+class, adminKey).Class)
+		assert.Equal(t, ns2+":"+class, helper.GetClassAuth(t, ns2+":"+class, adminKey).Class)
 	})
 
 	t.Run("SchemaDump strips for namespaced caller and keeps qualified for admin", func(t *testing.T) {
 		const class = "SchemaDumpStrip"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		dump := func(key string) []*models.Class {
 			resp, err := helper.Client(t).Schema.SchemaDump(clschema.NewSchemaDumpParams(), helper.CreateAuth(key))
@@ -475,17 +475,17 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		for _, c := range dump(adminKey) {
 			adminNames = append(adminNames, c.Class)
 		}
-		assert.Contains(t, adminNames, "customer1:"+class)
-		assert.Contains(t, adminNames, "customer2:"+class)
+		assert.Contains(t, adminNames, ns1+":"+class)
+		assert.Contains(t, adminNames, ns2+":"+class)
 	})
 }
 
 // TestNamespaces_ResponseStripping_OwnInfoUsername pins the Username strip
-// contract: namespaced DB users carry "customer1:apiuser" internally, and
+// contract: namespaced DB users carry a namespace-qualified username internally, and
 // /users/own-info must echo that as the short form. Role/permission strip
 // requires RBAC and is covered in the authz acceptance suite.
 func TestNamespaces_ResponseStripping_OwnInfoUsername(t *testing.T) {
-	user1Key, _ := twoNamespaces(t)
+	_, _, user1Key, _ := twoNamespaces(t)
 
 	t.Run("namespaced DB user sees short username", func(t *testing.T) {
 		resp, err := helper.Client(t).Users.GetOwnInfo(
@@ -494,7 +494,7 @@ func TestNamespaces_ResponseStripping_OwnInfoUsername(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp.Payload.Username)
 		assert.Equal(t, "u1", *resp.Payload.Username,
-			"namespaced caller's stored username is customer1:u1; response must strip")
+			"namespaced caller's stored username is qualified; response must strip")
 	})
 
 	t.Run("global admin sees raw username", func(t *testing.T) {
