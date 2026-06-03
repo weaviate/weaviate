@@ -17,11 +17,9 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// makeDebugEndpointsGate returns a middleware that re-checks the
-// DebugEndpointsEnabled flag on every request and returns 404 when it is
-// false. The listener in setupGoProfiling binds unconditionally (subject only
-// to the GO_PROFILING_DISABLE kill switch), so runtime flips of this flag in
-// either direction take effect without a restart.
+// makeDebugEndpointsGate returns middleware that returns 404 for every request
+// while DebugEndpointsEnabled is false, re-checking per request so runtime
+// flips take effect without a restart.
 func makeDebugEndpointsGate(enabled *configRuntime.DynamicValue[bool]) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

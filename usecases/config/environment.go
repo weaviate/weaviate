@@ -352,13 +352,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
-	// DEBUG_ENDPOINTS_ENABLED gates the debug HTTP listener. Default false:
-	// the listener does not bind and the entire /debug/* surface (including
-	// pprof) is unreachable. Operators must opt in explicitly. Wrapped in a
-	// DynamicValue so the runtime overrides system can toggle the gate
-	// without a restart (kill switch / re-enable on a listener that was
-	// already bound at boot). GO_PROFILING_DISABLE remains as a legacy
-	// kill switch that prevents binding regardless of this flag.
+	// Default false (debug surface closed); see Profiling.DebugEndpointsEnabled.
 	config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DEBUG_ENDPOINTS_ENABLED")))
 
 	if !config.Authentication.AnyAuthMethodSelected() {

@@ -2075,10 +2075,8 @@ func setupGoProfiling(appState *state.State) {
 	if port == 0 {
 		port = 6060
 	}
-	// GO_PROFILING_DISABLE=true (legacy) is a hard kill switch — never bind.
-	// DEBUG_ENDPOINTS_ENABLED is enforced per-request by the gate below, so
-	// the listener binds unconditionally and runtime flips in either direction
-	// take effect without a restart.
+	// GO_PROFILING_DISABLE is the only switch that prevents binding;
+	// DEBUG_ENDPOINTS_ENABLED is enforced per-request by the gate below.
 	if config.Profiling.Disabled {
 		logger.Infof("debug HTTP listener (port %d) disabled by GO_PROFILING_DISABLE; unset to enable", port)
 		return
@@ -2111,11 +2109,10 @@ func setupGoProfiling(appState *state.State) {
 	}, logger)
 }
 
-// setupRuntimeProfiling configures the Go runtime block/mutex profile rates.
-// Independent of DEBUG_ENDPOINTS_ENABLED and the debug HTTP listener — an
-// operator can collect profiles via signal handlers or runtime/pprof file
-// dumps without ever exposing /debug/*. GO_PROFILING_DISABLE remains a global
-// kill switch: if set, neither the rates nor the listener are configured.
+// setupRuntimeProfiling sets the Go block/mutex profile rates. Independent of
+// the debug HTTP listener and DEBUG_ENDPOINTS_ENABLED (profiles can still be
+// collected via runtime/pprof dumps), but GO_PROFILING_DISABLE switches them
+// off too.
 func setupRuntimeProfiling(appState *state.State) {
 	config := appState.ServerConfig.Config
 	if config.Profiling.Disabled {

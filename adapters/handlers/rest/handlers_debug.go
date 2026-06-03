@@ -1059,10 +1059,8 @@ func setupDebugHandlers(appState *state.State) {
 		w.Write(jsonBytes)
 	}))
 
-	// This endpoint dumps all server configuration from environment.go
-	// e.g. curl -X GET localhost:6060/debug/config
-	// Sensitive values (API keys, cluster basic-auth password, Sentry DSN) are replaced
-	// with "<redacted>" by redactDebugConfigSecrets before being returned.
+	// Dumps all server config. e.g. curl localhost:6060/debug/config
+	// Secrets are redacted by redactDebugConfigSecrets before returning.
 	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1299,25 +1297,19 @@ func cleanValue(v any) any {
 	}
 }
 
-// redactDebugConfigSecrets walks the marshaled config map and replaces
-// known-sensitive values with redactPlaceholder. Field structure is left
-// intact so an operator can still confirm whether a credential is
-// configured, but the actual value is never returned over the wire.
-//
-// When adding a new credential field to any config struct that is reachable
-// from config.Config, add its JSON path here too.
+// redactDebugConfigSecrets replaces each known secret value with "<redacted>",
+// leaving the field present so an operator can see it's configured without
+// exposing the value. Add the JSON path of any new secret field here.
 func redactDebugConfigSecrets(m map[string]any) {
 	redactPath(m, "<redacted>", "authentication", "APIKey", "allowed_keys")
 	redactPath(m, "<redacted>", "cluster", "auth", "basic", "password")
-	// Sentry DSN embeds the project key as the userinfo segment of the URL
-	// (https://<key>@host/<project>), so the entire string is a credential.
+	// The DSN's userinfo segment is the project key, so the whole string is a secret.
 	redactPath(m, "<redacted>", "sentry", "dsn")
 }
 
-// redactPath walks a nested map by the given key path and replaces the
-// terminal value with placeholder. Slices have each element replaced with
-// placeholder so the count is preserved. Missing intermediate keys are a
-// no-op (the field was empty and already cleaned away).
+// redactPath replaces the value at the given key path with placeholder; for a
+// slice, each element is replaced so the element count is preserved. Missing
+// keys are a no-op.
 func redactPath(m map[string]any, placeholder string, path ...string) {
 	if len(path) == 0 {
 		return

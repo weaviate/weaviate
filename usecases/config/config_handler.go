@@ -406,18 +406,11 @@ type Profiling struct {
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
 	Port                 int  `json:"port" yaml:"port"`
-	// DebugEndpointsEnabled controls whether the debug HTTP listener
-	// (port 6060 / Profiling.Port serving pprof, fgprof, and /debug/*)
-	// is reachable. Defaults to false so the unauthenticated debug surface
-	// is closed; operators must set DEBUG_ENDPOINTS_ENABLED=true to opt in.
-	// Wrapped in a DynamicValue so the runtime overrides system can flip
-	// the gate at runtime — the listener binds based on the value at boot,
-	// and a per-request gate then re-checks the value so an operator can
-	// kill-switch the surface (or re-enable it after a temporary disable)
-	// without restarting. Going from default-off to enabled still requires
-	// a restart since the listener was never bound. Independent of
-	// Disabled: GO_PROFILING_DISABLE=true is honored as a legacy kill
-	// switch and prevents binding regardless.
+	// DebugEndpointsEnabled gates the debug HTTP listener (pprof, fgprof,
+	// /debug/*). The listener always binds: while this is false the port is
+	// open but every request returns 404, checked per-request so runtime
+	// flips need no restart. GO_PROFILING_DISABLE (Disabled) is a separate
+	// switch that stops the listener binding at all.
 	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debugEndpointsEnabled" yaml:"debugEndpointsEnabled"`
 }
 
