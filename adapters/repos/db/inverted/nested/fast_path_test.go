@@ -262,7 +262,7 @@ func leafPinnedPositive(idx *fastPathIndex, valuePath, pinPath string, pinIndex 
 	// owner-scope ExactSupport (e.g., AND with a pin-incompatible sibling or
 	// owner-scope output as the final bitmap).
 	mPinnedMatch := a.Clone().And(idx.anchor[pinPath])
-	exactSupport, _ := idx.ops.LiftOneLevel(mPinnedMatch, ownerAnchor)
+	exactSupport, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
 
 	// Rich: strip owner-level ghosts from A in place, add back real owner
 	// selves from ExactSupport. Higher-level ghosts (ancestors of owner)
@@ -300,7 +300,7 @@ func leafPinnedIsNullFalse(idx *fastPathIndex, valuePath, pinPath string, pinInd
 	// the correct docs; lift is only required when downstream actually needs
 	// owner-scope ExactSupport.
 	mPinnedMatch := a.Clone().And(idx.anchor[pinPath])
-	exactSupport, _ := idx.ops.LiftOneLevel(mPinnedMatch, ownerAnchor)
+	exactSupport, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
 
 	rich := a.AndNot(ownerAnchor).Or(exactSupport)
 
@@ -315,7 +315,7 @@ func leafPinnedIsNullFalse(idx *fastPathIndex, valuePath, pinPath string, pinInd
 // leafPinnedIsNullTrue realizes `pinPath[pinIndex].x IS NULL true`. Missing
 // pinned slot counts as true (per design's owner-centric pinned semantic).
 // Support-first negation at owner scope: the canonical positive ES at owner
-// is computed via _anchor(pinPath) narrowing + LiftOneLevel, then subtracted
+// is computed via _anchor(pinPath) narrowing + LiftToAncestor, then subtracted
 // from the universe. Skipping the lift (raw `E ∩ I1 ∩ G`) would leave ghost
 // owners in the positive set and incorrectly drop them from ExactSupport.
 //
@@ -337,7 +337,7 @@ func leafPinnedIsNullTrue(idx *fastPathIndex, valuePath, pinPath string, pinInde
 	// consumed for doc-level output, the answer is `universe_docs \
 	// MaskRootLeaf(mPinnedMatch)`; lift is only required when downstream needs
 	// owner-scope ExactSupport (e.g., AND/OR composition at owner scope).
-	canonPos, _ := idx.ops.LiftOneLevel(mPinnedMatch, ownerAnchor)
+	canonPos, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
 
 	exactSupport := cloneOrEmpty(ownerAnchor).AndNot(canonPos)
 	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
@@ -367,9 +367,9 @@ type pinSpec struct {
 //
 //	A   = value(valuePath, value) ∩ _idx(innermost) ∩ _anchor(innermost)
 //	for each outer pin (inner→outer):
-//	    A = LiftOneLevel(A, _anchor(pin.path))
+//	    A = LiftToAncestor(A, _anchor(pin.path))
 //	    A = A ∩ _idx(pin.path, pin.index) ∩ _anchor(pin.path)
-//	A   = LiftOneLevel(A, _anchor(TruthScope))
+//	A   = LiftToAncestor(A, _anchor(TruthScope))
 //	TruthScope   = parent(pins[0].path)
 //	ExactSupport = A
 //	Rich         = A   (trivially satisfies Rich ∩ _anchor(TruthScope) == ES)
@@ -394,12 +394,12 @@ func leafMultiPinPositive(idx *fastPathIndex, valuePath string, value any, pins 
 
 	for i := len(pins) - 2; i >= 0; i-- {
 		pin := pins[i]
-		a, _ = idx.ops.LiftOneLevel(a, idx.anchor[pin.path])
+		a, _ = idx.ops.LiftToAncestor(a, idx.anchor[pin.path])
 		a = a.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
 	}
 
 	truthScope := parentPath(pins[0].path)
-	a, _ = idx.ops.LiftOneLevel(a, idx.anchor[truthScope])
+	a, _ = idx.ops.LiftToAncestor(a, idx.anchor[truthScope])
 
 	return &fastPathResult{
 		TruthScope:               truthScope,
@@ -426,12 +426,12 @@ func leafMultiPinIsNullFalse(idx *fastPathIndex, valuePath string, pins []pinSpe
 
 	for i := len(pins) - 2; i >= 0; i-- {
 		pin := pins[i]
-		a, _ = idx.ops.LiftOneLevel(a, idx.anchor[pin.path])
+		a, _ = idx.ops.LiftToAncestor(a, idx.anchor[pin.path])
 		a = a.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
 	}
 
 	truthScope := parentPath(pins[0].path)
-	a, _ = idx.ops.LiftOneLevel(a, idx.anchor[truthScope])
+	a, _ = idx.ops.LiftToAncestor(a, idx.anchor[truthScope])
 
 	return &fastPathResult{
 		TruthScope:               truthScope,
@@ -465,13 +465,13 @@ func leafMultiPinIsNullTrue(idx *fastPathIndex, valuePath string, pins []pinSpec
 
 	for i := len(pins) - 2; i >= 0; i-- {
 		pin := pins[i]
-		canonPos, _ = idx.ops.LiftOneLevel(canonPos, idx.anchor[pin.path])
+		canonPos, _ = idx.ops.LiftToAncestor(canonPos, idx.anchor[pin.path])
 		canonPos = canonPos.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
 	}
 
 	truthScope := parentPath(pins[0].path)
 	truthAnchor := idx.anchor[truthScope]
-	canonPos, _ = idx.ops.LiftOneLevel(canonPos, truthAnchor)
+	canonPos, _ = idx.ops.LiftToAncestor(canonPos, truthAnchor)
 
 	exactSupport := cloneOrEmpty(truthAnchor).AndNot(canonPos)
 	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
@@ -501,13 +501,13 @@ func leafMultiPinNot(idx *fastPathIndex, valuePath string, value any, pins []pin
 
 	for i := len(pins) - 2; i >= 0; i-- {
 		pin := pins[i]
-		canonPos, _ = idx.ops.LiftOneLevel(canonPos, idx.anchor[pin.path])
+		canonPos, _ = idx.ops.LiftToAncestor(canonPos, idx.anchor[pin.path])
 		canonPos = canonPos.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
 	}
 
 	truthScope := parentPath(pins[0].path)
 	truthAnchor := idx.anchor[truthScope]
-	canonPos, _ = idx.ops.LiftOneLevel(canonPos, truthAnchor)
+	canonPos, _ = idx.ops.LiftToAncestor(canonPos, truthAnchor)
 
 	exactSupport := cloneOrEmpty(truthAnchor).AndNot(canonPos)
 	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
@@ -544,7 +544,7 @@ func leafPinnedNot(idx *fastPathIndex, valuePath, pinPath string, pinIndex int, 
 	// consumed for doc-level output, the answer is `universe_docs \
 	// MaskRootLeaf(mPinnedMatch)`; lift is only required when downstream needs
 	// owner-scope ExactSupport.
-	canonPos, _ := idx.ops.LiftOneLevel(mPinnedMatch, ownerAnchor)
+	canonPos, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
 
 	exactSupport := cloneOrEmpty(ownerAnchor).AndNot(canonPos)
 	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)

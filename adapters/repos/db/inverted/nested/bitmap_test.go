@@ -329,11 +329,11 @@ func TestBitmapOps_MaskRootLeaf(t *testing.T) {
 	})
 }
 
-func TestBitmapOps_LiftOneLevel(t *testing.T) {
+func TestBitmapOps_LiftToAncestor(t *testing.T) {
 	ops := newTrackingOps(t)
 
 	t.Run("empty input returns empty bitmap", func(t *testing.T) {
-		result, release := ops.LiftOneLevel(nil, sroar.NewBitmap())
+		result, release := ops.LiftToAncestor(nil, sroar.NewBitmap())
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -352,7 +352,7 @@ func TestBitmapOps_LiftOneLevel(t *testing.T) {
 		children.Set(Encode(1, 3, 42))
 		children.Set(Encode(1, 11, 42))
 
-		result, release := ops.LiftOneLevel(children, parentAnchor)
+		result, release := ops.LiftToAncestor(children, parentAnchor)
 		defer release()
 
 		requireBitmapValid(t, result)
@@ -376,7 +376,7 @@ func TestBitmapOps_LiftOneLevel(t *testing.T) {
 		children.Set(Encode(1, 2, 100))
 		children.Set(Encode(1, 11, 200))
 
-		result, release := ops.LiftOneLevel(children, parentAnchor)
+		result, release := ops.LiftToAncestor(children, parentAnchor)
 		defer release()
 
 		requireBitmapValid(t, result)
@@ -399,7 +399,7 @@ func TestBitmapOps_LiftOneLevel(t *testing.T) {
 		children.Set(Encode(1, 5, 42))
 		children.Set(Encode(2, 5, 42))
 
-		result, release := ops.LiftOneLevel(children, parentAnchor)
+		result, release := ops.LiftToAncestor(children, parentAnchor)
 		defer release()
 
 		requireBitmapValid(t, result)
@@ -421,7 +421,7 @@ func TestBitmapOps_LiftOneLevel(t *testing.T) {
 		children.Set(Encode(1, 5, 100)) // has a parent in (1,100)
 		children.Set(Encode(1, 5, 200)) // (1,200) absent from parentAnchor
 
-		result, release := ops.LiftOneLevel(children, parentAnchor)
+		result, release := ops.LiftToAncestor(children, parentAnchor)
 		defer release()
 
 		requireBitmapValid(t, result)
@@ -443,12 +443,172 @@ func TestBitmapOps_LiftOneLevel(t *testing.T) {
 		children.Set(Encode(1, 3, 42))
 		children.Set(Encode(1, 4, 42))
 
-		result, release := ops.LiftOneLevel(children, parentAnchor)
+		result, release := ops.LiftToAncestor(children, parentAnchor)
 		defer release()
 
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{Encode(1, 1, 42)}, result.ToArray())
 		assert.Equal(t, 1, result.GetCardinality())
+	})
+
+	// The following subtests pin a property the runtime leans on (intermediate
+	// pin semantics, multi-pin pipelines): LiftToAncestor is really a "lift to
+	// nearest predecessor in parentAnchor within (root_idx, docID) bucket"
+	// scan, not strictly one schema level. It works for multi-level lifts in
+	// our encoding because the walker allocates leaf_idx in DFS order and
+	// separates top-level array elements by root_idx. If a future refactor
+	// breaks either contract, these tests should fail.
+
+	t.Run("lifts directly to grandparent skipping intermediate level", func(t *testing.T) {
+		// Single doc, single country, four garages with varying car counts.
+		// DFS leaf_idx allocation (walker emits self before descendants):
+		//   country @ 1
+		//   garage_0 @ 2, cars @ 3,4,5
+		//   garage_1 @ 6, cars @ 7,8
+		//   garage_2 @ 9, cars @ 10,11,12,13
+		//   garage_3 @ 14, cars @ 15,16
+		// Total: 1 country, 4 garages, 11 cars. All cars must lift to the
+		// single country self.
+		countryAnchor := sroar.NewBitmap()
+		countryAnchor.Set(Encode(1, 1, 42))
+
+		children := sroar.NewBitmap()
+		carLeaves := []uint16{3, 4, 5, 7, 8, 10, 11, 12, 13, 15, 16}
+		for _, leaf := range carLeaves {
+			children.Set(Encode(1, leaf, 42))
+		}
+
+		result, release := ops.LiftToAncestor(children, countryAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{Encode(1, 1, 42)}, result.ToArray())
+		assert.Equal(t, 1, result.GetCardinality())
+	})
+
+	t.Run("multi-level lift equals chained single-level lifts", func(t *testing.T) {
+		// Same beefy layout as above. Whether we lift cars→garages→countries
+		// (two scans) or cars→countries directly (one scan), the result must
+		// be the same set of country selves.
+		countryAnchor := sroar.NewBitmap()
+		countryAnchor.Set(Encode(1, 1, 42))
+
+		garageAnchor := sroar.NewBitmap()
+		for _, leaf := range []uint16{2, 6, 9, 14} {
+			garageAnchor.Set(Encode(1, leaf, 42))
+		}
+
+		children := sroar.NewBitmap()
+		for _, leaf := range []uint16{3, 4, 5, 7, 8, 10, 11, 12, 13, 15, 16} {
+			children.Set(Encode(1, leaf, 42))
+		}
+
+		direct, releaseDirect := ops.LiftToAncestor(children, countryAnchor)
+		defer releaseDirect()
+
+		garages, releaseG := ops.LiftToAncestor(children, garageAnchor)
+		defer releaseG()
+		chained, releaseC := ops.LiftToAncestor(garages, countryAnchor)
+		defer releaseC()
+
+		requireBitmapValid(t, direct)
+		requireBitmapValid(t, chained)
+		assert.ElementsMatch(t, direct.ToArray(), chained.ToArray())
+	})
+
+	t.Run("multi-level lift respects root separation across 5 roots", func(t *testing.T) {
+		// Five top-level country roots in the same doc. Each root has its
+		// own DFS subtree (leaf_idx restarts at 1 per root). All cars must
+		// lift to the country self in their own root, never cross over.
+		//
+		// Per-root layout:
+		//   country @ 1, garage @ 2, cars @ 3, 4, 5 (varying counts per root).
+		const docID uint64 = 42
+		// rootCars[i] = number of cars under root i+1.
+		rootCars := []int{3, 2, 4, 1, 2}
+
+		countryAnchor := sroar.NewBitmap()
+		children := sroar.NewBitmap()
+		expected := make([]uint64, 0, len(rootCars))
+		for i, n := range rootCars {
+			root := uint16(i + 1)
+			countryAnchor.Set(Encode(root, 1, docID))
+			expected = append(expected, Encode(root, 1, docID))
+			// cars start at leaf 3 (after country=1, garage=2).
+			for k := 0; k < n; k++ {
+				children.Set(Encode(root, uint16(3+k), docID))
+			}
+		}
+
+		result, release := ops.LiftToAncestor(children, countryAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.ElementsMatch(t, expected, result.ToArray())
+		assert.Equal(t, len(rootCars), result.GetCardinality(),
+			"all 5 countries must appear exactly once")
+	})
+
+	t.Run("multi-level lift across 5 multi-doc buckets", func(t *testing.T) {
+		// Five docs, same root_idx=1. Each doc has a country + garage +
+		// varying cars. (root, doc) bucket key must keep all five docs'
+		// countries separate even though leaf_idx values overlap.
+		docCars := map[uint64]int{
+			100: 3,
+			200: 1,
+			300: 4,
+			400: 2,
+			500: 3,
+		}
+
+		countryAnchor := sroar.NewBitmap()
+		children := sroar.NewBitmap()
+		expected := make([]uint64, 0, len(docCars))
+		for docID, n := range docCars {
+			countryAnchor.Set(Encode(1, 1, docID))
+			expected = append(expected, Encode(1, 1, docID))
+			for k := 0; k < n; k++ {
+				children.Set(Encode(1, uint16(3+k), docID))
+			}
+		}
+
+		result, release := ops.LiftToAncestor(children, countryAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.ElementsMatch(t, expected, result.ToArray())
+		assert.Equal(t, len(docCars), result.GetCardinality(),
+			"all 5 doc-level countries must appear exactly once")
+	})
+
+	t.Run("multi-level lift with 5 roots × 5 docs", func(t *testing.T) {
+		// Beefier combo: 5 roots × 5 docs, every (root, doc) cell has a
+		// country + garage + 2 cars. Cross-level lift must map each of
+		// the 50 cars back to the country self in the same bucket.
+		const carsPerCell = 2
+		docIDs := []uint64{100, 200, 300, 400, 500}
+		nRoots := uint16(5)
+
+		countryAnchor := sroar.NewBitmap()
+		children := sroar.NewBitmap()
+		expected := make([]uint64, 0, len(docIDs)*int(nRoots))
+		for _, docID := range docIDs {
+			for r := uint16(1); r <= nRoots; r++ {
+				countryAnchor.Set(Encode(r, 1, docID))
+				expected = append(expected, Encode(r, 1, docID))
+				for k := 0; k < carsPerCell; k++ {
+					children.Set(Encode(r, uint16(3+k), docID))
+				}
+			}
+		}
+
+		result, release := ops.LiftToAncestor(children, countryAnchor)
+		defer release()
+
+		requireBitmapValid(t, result)
+		assert.ElementsMatch(t, expected, result.ToArray())
+		assert.Equal(t, len(docIDs)*int(nRoots), result.GetCardinality(),
+			"all 25 (root, doc) country selves must appear exactly once")
 	})
 }
 
