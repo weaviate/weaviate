@@ -173,51 +173,77 @@ func leafIsNullFalse(idx *fastPathIndex, path string) *fastPathResult {
 	}
 }
 
-// leafIsNullTrue realizes `path IS NULL true` for a scalar property inside an
-// object array. Witness is the array element (parent of path) where the scalar
-// is missing. Support-first negation: Rich subtracts the canonical positive
-// ExactSupport from the outer rich carrier, so Rich is non-canonical.
+// negate produces the support-first negation of any positive leaf result.
+// The transformation is identical across every NOT-style leaf (unpinned NOT,
+// IS NULL true, pinned variants): the positive helper's ExactSupport is
+// always the canonical positive support at TruthScope, and the negation is
+// `universe \ pos.ExactSupport` for both ExactSupport (over _anchor) and
+// Rich (over _exists). CanProject flips to false because Rich keeps chain
+// bits above TruthScope after subtract — projecting up by anchor would
+// falsely include docs where the negation actually fails (§2.2.2.A).
 //
-//	TruthScope   = parent(path)
-//	posExact     = _exists(path) ∩ _anchor(TruthScope)       canonical positive ES
-//	ExactSupport = _anchor(TruthScope) ANDNOT posExact
-//	Rich         = _exists(TruthScope) ANDNOT posExact
-//	CanProjectParentByAnchor = false                          (support-first negation)
+//	TruthScope   = pos.TruthScope
+//	ExactSupport = _anchor(TruthScope) ANDNOT pos.ExactSupport
+//	Rich         = _exists(TruthScope) ANDNOT pos.ExactSupport
+//	CanProjectParentByAnchor = false
+func negate(idx *fastPathIndex, pos *fastPathResult) *fastPathResult {
+	truthAnchor := idx.anchor[pos.TruthScope]
+	return &fastPathResult{
+		TruthScope:               pos.TruthScope,
+		ExactSupport:             cloneOrEmpty(truthAnchor).AndNot(pos.ExactSupport),
+		Rich:                     cloneOrEmpty(idx.exists[pos.TruthScope]).AndNot(pos.ExactSupport),
+		CanProjectParentByAnchor: false,
+	}
+}
+
+// leafIsNullTrue realizes `path IS NULL true` — universe-subtract of
+// leafIsNullFalse's positive support.
 func leafIsNullTrue(idx *fastPathIndex, path string) *fastPathResult {
-	truthScope := parentPath(path)
-	truthAnchor := idx.anchor[truthScope]
-
-	posExact := cloneOrEmpty(idx.exists[path]).And(truthAnchor)
-
-	exactSupport := cloneOrEmpty(truthAnchor).AndNot(posExact)
-	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(posExact)
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     rich,
-		ExactSupport:             exactSupport,
-		CanProjectParentByAnchor: false,
-	}
+	return negate(idx, leafIsNullFalse(idx, path))
 }
 
-// leafNot realizes `NOT path = value`. Existential at the leaf's natural
-// witness scope: there exists an array element where the property is missing
-// or has a different value. Per §4.1.1.A, empty array scope (no elements at
-// all) does NOT count as a witness.
-//
-//	TruthScope   = parent(path)
-//	posExact     = value(path, value) ∩ _anchor(TruthScope)
-//	ExactSupport = _anchor(TruthScope) ANDNOT posExact
-//	Rich         = _exists(TruthScope) ANDNOT posExact
-//	CanProjectParentByAnchor = false                          (support-first negation)
+// leafNot realizes `NOT path = value` — universe-subtract of leafPositive's
+// positive support. Per §4.1.1.A, empty array scope (no elements) does NOT
+// count as a witness — that falls out because pos.ExactSupport already
+// requires at least one TruthScope-element to exist.
 func leafNot(idx *fastPathIndex, path string, value any) *fastPathResult {
-	truthScope := parentPath(path)
+	return negate(idx, leafPositive(idx, path, value))
+}
+
+// leafPinnedIsNullFalse realizes `<pinned path>.x IS NULL false` using the
+// same unified pipeline as leafPinnedPositive, just reading from _exists
+// instead of a value-keyed bucket. Works for any pin layout.
+//
+//	A              = _exists(valuePath) ∩ _idx(pin_0) ∩ … ∩ _idx(pin_N-1)
+//	mPin           = A ∩ _anchor(parent(valuePath))
+//	TruthScope     = parent(pins[0].path)
+//	narrowedAnchor = _anchor(TruthScope) ∩ A
+//	ExactSupport   = LiftToAncestor(mPin, narrowedAnchor)
+//	Rich           = (A ANDNOT _anchor(TruthScope)) ∪ ExactSupport
+//	CanProjectParentByAnchor = false
+//
+// TODO aliszka:nested_filtering — make the lift lazy when downstream only
+// consumes doc-level output; MaskRootLeaf(mPin) suffices in that case.
+func leafPinnedIsNullFalse(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
+	if len(pins) == 0 {
+		panic("pinned IS NULL false needs at least one pin")
+	}
+
+	innerAnchor := idx.anchor[parentPath(valuePath)]
+	truthScope := parentPath(pins[0].path)
 	truthAnchor := idx.anchor[truthScope]
 
-	posExact := cloneOrEmpty(idx.values[path][value]).And(truthAnchor)
+	a := cloneOrEmpty(idx.exists[valuePath])
+	for _, pin := range pins {
+		a.And(idx.idx[pin.path][pin.index])
+	}
 
-	exactSupport := cloneOrEmpty(truthAnchor).AndNot(posExact)
-	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(posExact)
+	mPin := a.Clone().And(innerAnchor)
+
+	narrowedAnchor := cloneOrEmpty(truthAnchor).And(a)
+	exactSupport, _ := idx.ops.LiftToAncestor(mPin, narrowedAnchor)
+
+	rich := a.AndNot(truthAnchor).Or(exactSupport)
 
 	return &fastPathResult{
 		TruthScope:               truthScope,
@@ -227,127 +253,13 @@ func leafNot(idx *fastPathIndex, path string, value any) *fastPathResult {
 	}
 }
 
-// leafPinnedPositive realizes a pinned positive leaf `pinPath[pinIndex].x = value`,
-// where valuePath = pinPath + ".x". Pin-to-owner: leaf evaluation narrows to
-// the pinned slot, but the result is reinterpreted as a predicate about the
-// pin's owner.
-//
-//	A            = value(valuePath, value) ∩ _idx(pinPath, pinIndex)
-//	mPinnedMatch = A ∩ _anchor(pinPath)
-//	ExactSupport = liftOneLevel(mPinnedMatch, _anchor(TruthScope))
-//	Rich         = (A ANDNOT _anchor(TruthScope)) ∪ ExactSupport
-//	TruthScope   = parent(pinPath)               (owner of the pinned array)
-//	CanProjectParentByAnchor = false
-//
-// A also carries "ghost ancestors" — chain bits (country/garage selves) from
-// docs where some other slot matched the value but the pinned slot did not.
-// Stripping _anchor(TruthScope) removes ghost garage selves; OR-ing
-// ExactSupport adds back the real ones. Higher-level ghosts (countries) stay
-// in Rich; CanProjectParentByAnchor=false documents that only TruthScope is
-// trustworthy, so downstream callers must not project above it by anchor.
-func leafPinnedPositive(idx *fastPathIndex, valuePath, pinPath string, pinIndex int, value any) *fastPathResult {
-	truthScope := parentPath(pinPath)
-	ownerAnchor := idx.anchor[truthScope]
-
-	// A = value ∩ _idx(pinPath, pinIndex). Carries chain + self + descendants
-	// for real pinned matches, plus "ghost ancestors" (shared chain bits) from
-	// docs where some other slot matched the value but the pinned slot did not.
-	a := cloneOrEmpty(idx.values[valuePath][value]).
-		And(idx.idx[pinPath][pinIndex])
-
-	// ExactSupport: real pinned matches lifted to owner scope.
-	// TODO aliszka:nested_filtering — make the lift lazy. If the result is only
-	// consumed for doc-level output, MaskRootLeaf(mPinnedMatch) already gives
-	// the correct docs; lift is only required when downstream actually needs
-	// owner-scope ExactSupport (e.g., AND with a pin-incompatible sibling or
-	// owner-scope output as the final bitmap).
-	mPinnedMatch := a.Clone().And(idx.anchor[pinPath])
-	exactSupport, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
-
-	// Rich: strip owner-level ghosts from A in place, add back real owner
-	// selves from ExactSupport. Higher-level ghosts (ancestors of owner)
-	// remain; CanProjectParentByAnchor=false documents that only TruthScope
-	// is trustworthy, so callers must not project above by anchor.
-	rich := a.AndNot(ownerAnchor).Or(exactSupport)
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     rich,
-		ExactSupport:             exactSupport,
-		CanProjectParentByAnchor: false,
-	}
-}
-
-// leafPinnedIsNullFalse realizes `pinPath[pinIndex].x IS NULL false`. Same
-// ghost-strip + lift-addback structure as leafPinnedPositive; only the source
-// bucket differs (_exists instead of value-keyed).
-//
-//	A            = _exists(valuePath) ∩ _idx(pinPath, pinIndex)
-//	mPinnedMatch = A ∩ _anchor(pinPath)
-//	ExactSupport = liftOneLevel(mPinnedMatch, _anchor(TruthScope))
-//	Rich         = (A ANDNOT _anchor(TruthScope)) ∪ ExactSupport
-//	TruthScope   = parent(pinPath)
-//	CanProjectParentByAnchor = false
-func leafPinnedIsNullFalse(idx *fastPathIndex, valuePath, pinPath string, pinIndex int) *fastPathResult {
-	truthScope := parentPath(pinPath)
-	ownerAnchor := idx.anchor[truthScope]
-
-	a := cloneOrEmpty(idx.exists[valuePath]).
-		And(idx.idx[pinPath][pinIndex])
-
-	// TODO aliszka:nested_filtering — make the lift lazy. If the result is only
-	// consumed for doc-level output, MaskRootLeaf(mPinnedMatch) already gives
-	// the correct docs; lift is only required when downstream actually needs
-	// owner-scope ExactSupport.
-	mPinnedMatch := a.Clone().And(idx.anchor[pinPath])
-	exactSupport, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
-
-	rich := a.AndNot(ownerAnchor).Or(exactSupport)
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     rich,
-		ExactSupport:             exactSupport,
-		CanProjectParentByAnchor: false,
-	}
-}
-
-// leafPinnedIsNullTrue realizes `pinPath[pinIndex].x IS NULL true`. Missing
-// pinned slot counts as true (per design's owner-centric pinned semantic).
-// Support-first negation at owner scope: the canonical positive ES at owner
-// is computed via _anchor(pinPath) narrowing + LiftToAncestor, then subtracted
-// from the universe. Skipping the lift (raw `E ∩ I1 ∩ G`) would leave ghost
-// owners in the positive set and incorrectly drop them from ExactSupport.
-//
-//	A            = _exists(valuePath) ∩ _idx(pinPath, pinIndex)
-//	mPinnedMatch = A ∩ _anchor(pinPath)
-//	canonPos     = liftOneLevel(mPinnedMatch, _anchor(TruthScope))
-//	ExactSupport = _anchor(TruthScope) ANDNOT canonPos
-//	Rich         = _exists(TruthScope) ANDNOT canonPos
-//	TruthScope   = parent(pinPath)
-//	CanProjectParentByAnchor = false
-func leafPinnedIsNullTrue(idx *fastPathIndex, valuePath, pinPath string, pinIndex int) *fastPathResult {
-	truthScope := parentPath(pinPath)
-	ownerAnchor := idx.anchor[truthScope]
-
-	mPinnedMatch := cloneOrEmpty(idx.exists[valuePath]).
-		And(idx.idx[pinPath][pinIndex]).
-		And(idx.anchor[pinPath])
-	// TODO aliszka:nested_filtering — make the lift lazy. If the result is only
-	// consumed for doc-level output, the answer is `universe_docs \
-	// MaskRootLeaf(mPinnedMatch)`; lift is only required when downstream needs
-	// owner-scope ExactSupport (e.g., AND/OR composition at owner scope).
-	canonPos, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
-
-	exactSupport := cloneOrEmpty(ownerAnchor).AndNot(canonPos)
-	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     rich,
-		ExactSupport:             exactSupport,
-		CanProjectParentByAnchor: false,
-	}
+// leafPinnedIsNullTrue realizes `<pinned path>.x IS NULL true` —
+// universe-subtract of leafPinnedIsNullFalse's positive support. Works for
+// any pin count. Missing pinned slot counts as true: universe \
+// pos.ExactSupport includes every owner where no pinned match existed,
+// including those where any pinned slot itself is missing.
+func leafPinnedIsNullTrue(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
+	return negate(idx, leafPinnedIsNullFalse(idx, valuePath, pins))
 }
 
 // pinSpec describes one pin in a multi-pin path, e.g.,
@@ -358,123 +270,66 @@ type pinSpec struct {
 	index int    // pinned index within that array
 }
 
-// leafMultiPinPositive realizes a multi-pin positive value leaf, e.g.,
-// `garages[1].cars[2].name=honda`. Pins are listed outer-to-inner. Each pin
-// gets consumed at its level (narrow by `_idx ∩ _anchor`), then we lift to
-// the next outer pin's level. After processing all pins, a final lift takes
-// us past the outermost pin's level to the owner per design's
-// pin-consumption rule (parent of outermost pin path).
+// leafPinnedPositive realizes a multi-pin positive value leaf using a
+// unified pipeline that works for any pin layout (innermost-pinned,
+// intermediate-pinned, all-pinned multi-level) with a single LiftToAncestor
+// regardless of pin count.
 //
-//	A   = value(valuePath, value) ∩ _idx(innermost) ∩ _anchor(innermost)
-//	for each outer pin (inner→outer):
-//	    A = LiftToAncestor(A, _anchor(pin.path))
-//	    A = A ∩ _idx(pin.path, pin.index) ∩ _anchor(pin.path)
-//	A   = LiftToAncestor(A, _anchor(TruthScope))
-//	TruthScope   = parent(pins[0].path)
-//	ExactSupport = A
-//	Rich         = A   (trivially satisfies Rich ∩ _anchor(TruthScope) == ES)
+//	A              = value(valuePath, value) ∩ _idx(pin_0) ∩ … ∩ _idx(pin_N-1)
+//	mPin           = A ∩ _anchor(parent(valuePath))                  // drops chain bits
+//	TruthScope     = parent(pins[0].path)
+//	narrowedAnchor = _anchor(TruthScope) ∩ A                          // optimization
+//	ExactSupport   = LiftToAncestor(mPin, narrowedAnchor)
+//	Rich           = (A ANDNOT _anchor(TruthScope)) ∪ ExactSupport
 //	CanProjectParentByAnchor = false
+//
+// A carries chain bits inside the pinned subtree. Some are authentic
+// ancestors of real matches; others are ghost bits left over when value
+// matches at a sibling slot of a pin (e.g., value match at cars[3] while pin
+// requires cars[2] keeps the shared country/garage chain bits).
+// mPin's `∩ _anchor(parent(valuePath))` drops every chain bit (both
+// authentic and ghost), leaving only leaf-scope selves where every pin
+// constraint holds at a single concrete element. That's the canonical
+// ExactSupport once lifted to TruthScope.
+//
+// narrowedAnchor: every authentic TruthScope ancestor of an mPin element is
+// already in A (chain bit of the same emission), so pre-intersecting the
+// parent anchor with A doesn't drop any required predecessor — but it does
+// shrink the scan to only buckets that survived the pin intersections.
+// For sparse filters this is a significant cut to the LiftToAncestor cost.
+//
+// Rich preserves chain structure within the pinned subtree by stripping only
+// TruthScope-level bits before OR-ing ExactSupport back. Intermediate-level
+// ghosts (e.g., garages self bits in a sibling-mismatch case) can persist
+// below TruthScope; CanProjectParentByAnchor=false documents that downstream
+// composition above TruthScope via anchor is unsafe.
 //
 // Does not support a root-level pin (TruthScope would resolve to "" with no
 // corresponding parent anchor in the index). Add separate handling if a
 // 3-pin path including the root array is needed.
 //
-// TODO aliszka:nested_filtering — like other pinned helpers, the lift chain
-// here is eager; downstream consumers that only need docs could mask the
-// inner-pin result with successive `_idx ∩ _anchor` narrows and skip lifts.
-func leafMultiPinPositive(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
+// TODO aliszka:nested_filtering — make the lift lazy when downstream only
+// consumes doc-level output; MaskRootLeaf(mPin) suffices in that case.
+func leafPinnedPositive(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
 	if len(pins) == 0 {
 		panic("multi-pin needs at least one pin")
 	}
 
-	inner := pins[len(pins)-1]
-	a := cloneOrEmpty(idx.values[valuePath][value]).
-		And(idx.idx[inner.path][inner.index]).
-		And(idx.anchor[inner.path])
-
-	for i := len(pins) - 2; i >= 0; i-- {
-		pin := pins[i]
-		a, _ = idx.ops.LiftToAncestor(a, idx.anchor[pin.path])
-		a = a.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
-	}
-
-	truthScope := parentPath(pins[0].path)
-	a, _ = idx.ops.LiftToAncestor(a, idx.anchor[truthScope])
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     a.Clone(),
-		ExactSupport:             a,
-		CanProjectParentByAnchor: false,
-	}
-}
-
-// leafMultiPinIsNullFalse: positive existence under a multi-pin path. Same
-// narrow+lift chain as leafMultiPinPositive but reads from _exists.
-//
-// TODO aliszka:nested_filtering — eager-lift like other pinned helpers; could
-// be deferred for pure doc-level output.
-func leafMultiPinIsNullFalse(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
-	if len(pins) == 0 {
-		panic("multi-pin needs at least one pin")
-	}
-
-	inner := pins[len(pins)-1]
-	a := cloneOrEmpty(idx.exists[valuePath]).
-		And(idx.idx[inner.path][inner.index]).
-		And(idx.anchor[inner.path])
-
-	for i := len(pins) - 2; i >= 0; i-- {
-		pin := pins[i]
-		a, _ = idx.ops.LiftToAncestor(a, idx.anchor[pin.path])
-		a = a.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
-	}
-
-	truthScope := parentPath(pins[0].path)
-	a, _ = idx.ops.LiftToAncestor(a, idx.anchor[truthScope])
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     a.Clone(),
-		ExactSupport:             a,
-		CanProjectParentByAnchor: false,
-	}
-}
-
-// leafMultiPinIsNullTrue: universe-subtract for `<path> IS NULL true` under a
-// multi-pin path. Any missing pin or missing terminal property at the outer
-// owner counts as success (§4.1.1.B applied at every pin level).
-//
-//	canonPos     = multi-pin chain over _exists(valuePath) — country selves
-//	               where the full pinned path exists.
-//	ExactSupport = _anchor(TruthScope) ANDNOT canonPos
-//	Rich         = _exists(TruthScope) ANDNOT canonPos
-//	TruthScope   = parent(pins[0].path)
-//	CanProjectParentByAnchor = false
-//
-// TODO aliszka:nested_filtering — eager-lift like other pinned helpers.
-func leafMultiPinIsNullTrue(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
-	if len(pins) == 0 {
-		panic("multi-pin needs at least one pin")
-	}
-
-	inner := pins[len(pins)-1]
-	canonPos := cloneOrEmpty(idx.exists[valuePath]).
-		And(idx.idx[inner.path][inner.index]).
-		And(idx.anchor[inner.path])
-
-	for i := len(pins) - 2; i >= 0; i-- {
-		pin := pins[i]
-		canonPos, _ = idx.ops.LiftToAncestor(canonPos, idx.anchor[pin.path])
-		canonPos = canonPos.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
-	}
-
+	innerAnchor := idx.anchor[parentPath(valuePath)]
 	truthScope := parentPath(pins[0].path)
 	truthAnchor := idx.anchor[truthScope]
-	canonPos, _ = idx.ops.LiftToAncestor(canonPos, truthAnchor)
 
-	exactSupport := cloneOrEmpty(truthAnchor).AndNot(canonPos)
-	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
+	a := cloneOrEmpty(idx.values[valuePath][value])
+	for _, pin := range pins {
+		a.And(idx.idx[pin.path][pin.index])
+	}
+
+	mPin := a.Clone().And(innerAnchor)
+
+	narrowedAnchor := cloneOrEmpty(truthAnchor).And(a)
+	exactSupport, _ := idx.ops.LiftToAncestor(mPin, narrowedAnchor)
+
+	rich := a.AndNot(truthAnchor).Or(exactSupport)
 
 	return &fastPathResult{
 		TruthScope:               truthScope,
@@ -484,77 +339,16 @@ func leafMultiPinIsNullTrue(idx *fastPathIndex, valuePath string, pins []pinSpec
 	}
 }
 
-// leafMultiPinNot: universe-subtract for `NOT <path>=value` under a multi-pin
-// path. Same shape as leafMultiPinIsNullTrue but uses value lookup instead of
-// _exists. Missing pin → witness (§4.1.1.B applied at every pin level).
+// leafPinnedNot realizes `NOT <pinned path>.x = value` — universe-subtract
+// of leafPinnedPositive's positive support. Works for any pin count (single,
+// intermediate, multi) since leafPinnedPositive is unified.
 //
-// TODO aliszka:nested_filtering — eager-lift like other pinned helpers.
-func leafMultiPinNot(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
-	if len(pins) == 0 {
-		panic("multi-pin needs at least one pin")
-	}
-
-	inner := pins[len(pins)-1]
-	canonPos := cloneOrEmpty(idx.values[valuePath][value]).
-		And(idx.idx[inner.path][inner.index]).
-		And(idx.anchor[inner.path])
-
-	for i := len(pins) - 2; i >= 0; i-- {
-		pin := pins[i]
-		canonPos, _ = idx.ops.LiftToAncestor(canonPos, idx.anchor[pin.path])
-		canonPos = canonPos.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
-	}
-
-	truthScope := parentPath(pins[0].path)
-	truthAnchor := idx.anchor[truthScope]
-	canonPos, _ = idx.ops.LiftToAncestor(canonPos, truthAnchor)
-
-	exactSupport := cloneOrEmpty(truthAnchor).AndNot(canonPos)
-	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     rich,
-		ExactSupport:             exactSupport,
-		CanProjectParentByAnchor: false,
-	}
-}
-
-// leafPinnedNot realizes `NOT pinPath[pinIndex].x = value`. Missing pinned
-// slot counts as success (per design's owner-centric pinned semantic — both
-// "year != 2020" and "no cars[1]" make the NOT true). Same ghost-strip via
-// lift as leafPinnedIsNullTrue; only the source bucket differs (value vs
-// _exists).
-//
-//	A            = value(valuePath, value) ∩ _idx(pinPath, pinIndex)
-//	mPinnedMatch = A ∩ _anchor(pinPath)
-//	canonPos     = liftOneLevel(mPinnedMatch, _anchor(TruthScope))
-//	ExactSupport = _anchor(TruthScope) ANDNOT canonPos
-//	Rich         = _exists(TruthScope) ANDNOT canonPos
-//	TruthScope   = parent(pinPath)
-//	CanProjectParentByAnchor = false
-func leafPinnedNot(idx *fastPathIndex, valuePath, pinPath string, pinIndex int, value any) *fastPathResult {
-	truthScope := parentPath(pinPath)
-	ownerAnchor := idx.anchor[truthScope]
-
-	mPinnedMatch := cloneOrEmpty(idx.values[valuePath][value]).
-		And(idx.idx[pinPath][pinIndex]).
-		And(idx.anchor[pinPath])
-	// TODO aliszka:nested_filtering — make the lift lazy. If the result is only
-	// consumed for doc-level output, the answer is `universe_docs \
-	// MaskRootLeaf(mPinnedMatch)`; lift is only required when downstream needs
-	// owner-scope ExactSupport.
-	canonPos, _ := idx.ops.LiftToAncestor(mPinnedMatch, ownerAnchor)
-
-	exactSupport := cloneOrEmpty(ownerAnchor).AndNot(canonPos)
-	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     rich,
-		ExactSupport:             exactSupport,
-		CanProjectParentByAnchor: false,
-	}
+// Missing pinned slot counts as success (per design's owner-centric pinned
+// semantic — both "year != 2020" and "no pinned slot" make the NOT true):
+// pos.ExactSupport is empty for docs whose pinned slot doesn't exist, and
+// universe \ ∅ = universe, so those docs survive.
+func leafPinnedNot(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
+	return negate(idx, leafPinnedPositive(idx, valuePath, value, pins))
 }
 
 // ---------------------------------------------------------------------------
@@ -798,7 +592,8 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPinnedPositive(idx,
 					"countries.garages.cars.year",
-					"countries.garages.cars", 1, 2020)
+					2020,
+					[]pinSpec{{"countries.garages.cars", 1}})
 			},
 			wantTruthScope: "countries.garages",
 			wantCanProject: false,
@@ -818,7 +613,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPinnedIsNullFalse(idx,
 					"countries.garages.cars.year",
-					"countries.garages.cars", 1)
+					[]pinSpec{{"countries.garages.cars", 1}})
 			},
 			wantTruthScope: "countries.garages",
 			wantCanProject: false,
@@ -838,7 +633,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPinnedIsNullTrue(idx,
 					"countries.garages.cars.year",
-					"countries.garages.cars", 1)
+					[]pinSpec{{"countries.garages.cars", 1}})
 			},
 			wantTruthScope: "countries.garages",
 			wantCanProject: false,
@@ -861,7 +656,8 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPinnedNot(idx,
 					"countries.garages.cars.year",
-					"countries.garages.cars", 1, 2020)
+					2020,
+					[]pinSpec{{"countries.garages.cars", 1}})
 			},
 			wantTruthScope: "countries.garages",
 			wantCanProject: false,
@@ -958,7 +754,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 		{
 			name: "garages[1].cars[2].name=honda",
 			build: func(idx *fastPathIndex) *fastPathResult {
-				return leafMultiPinPositive(idx,
+				return leafPinnedPositive(idx,
 					"countries.garages.cars.name",
 					"honda",
 					[]pinSpec{
@@ -973,7 +769,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 		{
 			name: "garages[1].cars[2].name IS NULL false",
 			build: func(idx *fastPathIndex) *fastPathResult {
-				return leafMultiPinIsNullFalse(idx,
+				return leafPinnedIsNullFalse(idx,
 					"countries.garages.cars.name",
 					[]pinSpec{
 						{"countries.garages", 1},
@@ -988,7 +784,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 		{
 			name: "garages[1].cars[2].name IS NULL true",
 			build: func(idx *fastPathIndex) *fastPathResult {
-				return leafMultiPinIsNullTrue(idx,
+				return leafPinnedIsNullTrue(idx,
 					"countries.garages.cars.name",
 					[]pinSpec{
 						{"countries.garages", 1},
@@ -1005,7 +801,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 		{
 			name: "NOT garages[1].cars[2].name=honda",
 			build: func(idx *fastPathIndex) *fastPathResult {
-				return leafMultiPinNot(idx,
+				return leafPinnedNot(idx,
 					"countries.garages.cars.name",
 					"honda",
 					[]pinSpec{
