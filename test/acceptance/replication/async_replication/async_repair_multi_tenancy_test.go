@@ -346,8 +346,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 // the toggle path through `runtime-overrides → AsyncReplicationDisabled hook
 // → DB.ReconcileAsyncReplication → per-tenant-shard apply` on a real
 // multi-tenant cluster.
-func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyRuntimeToggle() {
-	t := suite.T()
+func TestAsyncRepairMultiTenancyRuntimeToggle(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	mainCtx := context.Background()
 
 	const (
