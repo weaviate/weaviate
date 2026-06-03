@@ -816,6 +816,36 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			// passes either via missing pin or via name != honda.
 			wantDocs: []uint64{100, 200, 300, 400, 600, 700, 810, 820, 830},
 		},
+		// Intermediate-pin: pin at garages[1] with cars unpinned. Discriminates
+		// from single-pin `cars.make=bmw` (which would also include doc 600).
+		// Only doc 500 has garages[1] containing a car with make=bmw.
+		// NOT and IS NULL true variants have an owner-level vs per-element
+		// semantic ambiguity at intermediate-pin and are deferred.
+		{
+			name: "garages[1].cars.make=bmw",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedPositive(idx,
+					"countries.garages.cars.make",
+					"bmw",
+					[]pinSpec{{"countries.garages", 1}})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			wantDocs:       []uint64{500},
+		},
+		{
+			name: "garages[1].cars.make IS NULL false",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedIsNullFalse(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages", 1}})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// doc 500: g[1].cars[0].make=bmw. doc 700: g[1].cars[0].make=ford.
+			// All other docs lack garages[1] or have no make on any car in g[1].
+			wantDocs: []uint64{500, 700},
+		},
 	}
 
 	for _, tc := range cases {
