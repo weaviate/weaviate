@@ -298,7 +298,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasRead(collection string, shar
 	return readReplicas
 }
 
-func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) []string {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
@@ -306,14 +306,14 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, sha
 	// If not we can return early as all replicas can be used for writes
 	byCollection, ok := s.opsByCollectionAndShard[collection]
 	if !ok {
-		return shardReplicasLocation, []string{}
+		return shardReplicasLocation
 	}
 	if _, ok := byCollection[shard]; !ok {
-		return shardReplicasLocation, []string{}
+		return shardReplicasLocation
 	}
 
 	_, writeReplicas := s.readWriteReplicas(collection, shard, shardReplicasLocation)
-	return writeReplicas, []string{}
+	return writeReplicas
 }
 
 func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardReplicasLocation []string) ([]string, []string) {
