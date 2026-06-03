@@ -423,10 +423,13 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard string) error {
 	db.indexLock.RLock()
 	index := db.indices[indexID(schema.ClassName(class))]
-	db.indexLock.RUnlock()
 	if index == nil || index.replicator == nil {
+		db.indexLock.RUnlock()
 		return nil
 	}
+	index.dropIndex.RLock()
+	db.indexLock.RUnlock()
+	defer index.dropIndex.RUnlock()
 	return index.replicator.WaitForDrain(ctx, shard)
 }
 
