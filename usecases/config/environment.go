@@ -1808,14 +1808,14 @@ const (
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
-	DefaultAsyncReplicationSchedulerWorkers    = 10
+	DefaultAsyncReplicationSchedulerWorkers    = 3
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
 	// scaleDownCh) are all sized relative to this value; exceeding it requires
 	// a code change, so we enforce it at config parse time rather than silently
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
-	DefaultAsyncReplicationHashtreeInitConcurrency = 100
+	DefaultAsyncReplicationHashtreeInitConcurrency = 10
 	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
 	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
 	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
