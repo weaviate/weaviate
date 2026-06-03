@@ -1420,8 +1420,11 @@ func Test_UpdateClass(t *testing.T) {
 	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass").Return(nil)
+		// Production returns a nil map (not an empty one) when the leader
+		// confirms the class is absent; mirror that to exercise the real
+		// nil-map lookup path in UpdateClass.
 		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"WrongClass"}).
-			Return(map[string]versioned.Class{}, nil)
+			Return(nil, nil)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
