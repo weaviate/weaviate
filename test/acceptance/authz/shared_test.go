@@ -56,19 +56,27 @@ var sharedPlainPrincipals = map[string]string{
 var (
 	sharedMu    sync.Mutex
 	sharedAuthz *docker.DockerCompose
+
+	sharedClusterMu sync.Mutex
+	sharedCluster   *docker.DockerCompose
 )
 
 func TestMain(m *testing.M) {
 	code := m.Run()
-	sharedMu.Lock()
-	c := sharedAuthz
-	sharedMu.Unlock()
+	terminateShared(&sharedMu, &sharedAuthz)
+	terminateShared(&sharedClusterMu, &sharedCluster)
+	os.Exit(code)
+}
+
+func terminateShared(mu *sync.Mutex, compose **docker.DockerCompose) {
+	mu.Lock()
+	c := *compose
+	mu.Unlock()
 	if c != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		_ = c.Terminate(ctx)
 		cancel()
 	}
-	os.Exit(code)
 }
 
 // getSharedCompose lazily starts the single-node RBAC container with the
@@ -113,6 +121,60 @@ func composeUpShared(t *testing.T) (*docker.DockerCompose, func()) {
 	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 	resetAuthzState(t) // clean any residue a prior test's teardown missed
 	return compose, func() { resetAuthzState(t) }
+}
+
+// getSharedCluster lazily starts the single 3-node RBAC cluster reused by every
+// multi-node test. It bakes the same principals as the single-node shared
+// container plus the infra those tests need: an S3/MinIO backend for backup and
+// REPLICA_MOVEMENT_ENABLED for replication. State is reset between tests.
+func getSharedCluster(t *testing.T) *docker.DockerCompose {
+	t.Helper()
+	sharedClusterMu.Lock()
+	defer sharedClusterMu.Unlock()
+	if sharedCluster != nil {
+		return sharedCluster
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	builder := docker.New().
+		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateCluster(3).
+		WithApiKey().WithRBAC().WithDbUsers().
+		WithBackendS3("bucket", s3BackupJourneyRegion).
+		WithUserApiKey(sharedRootUser, sharedRootKey).
+		WithUserApiKey(sharedRoot2User, sharedRoot2Key).
+		WithRbacRoots(sharedRootUser, sharedRoot2User)
+	for u, k := range sharedPlainPrincipals {
+		builder = builder.WithUserApiKey(u, k)
+	}
+
+	compose, err := builder.Start(ctx)
+	require.NoError(t, err)
+	sharedCluster = compose
+	return sharedCluster
+}
+
+// composeUpSharedCluster points the test client at node 1 of the shared cluster
+// and returns a reset-based teardown so the cluster survives for the next test.
+func composeUpSharedCluster(t *testing.T) (*docker.DockerCompose, func()) {
+	compose := getSharedCluster(t)
+	resetClusterState(t, compose)
+	return compose, func() { resetClusterState(t, compose) }
+}
+
+// resetClusterState restarts any node a prior test left stopped, re-points the
+// client at node 1, and clears RBAC/schema residue.
+func resetClusterState(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	for n := 1; n <= 3; n++ {
+		require.NoError(t, compose.EnsureRunning(ctx, n))
+	}
+	cancel()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	resetAuthzState(t)
 }
 
 // countDynamicUsers returns how many of the listed users were created at

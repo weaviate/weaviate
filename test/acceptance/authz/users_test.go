@@ -704,19 +704,11 @@ func TestUserPermissionReturns(t *testing.T) {
 }
 
 func TestGetLastUsageMultinode(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	ctx := context.Background()
-	compose, err := docker.New().
-		With3NodeCluster().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
-		Start(ctx)
 
-	require.NoError(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose, down := composeUpSharedCluster(t)
+	defer down()
 
 	t.Run("get last usage multinode", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())

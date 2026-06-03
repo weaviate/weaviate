@@ -354,7 +354,6 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 }
 
 func TestAuthzRolesMultiNodeJourney(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRole := "testRole"
@@ -367,17 +366,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	compose, down := composeUpSharedCluster(t)
+	defer down()
 
 	t.Run("add role while 1 node is down", func(t *testing.T) {
 		t.Run("get all roles before create", func(t *testing.T) {
@@ -386,7 +376,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			require.Nil(t, compose.StopAt(ctx, 2, nil))
+			require.Nil(t, compose.StopNode(ctx, 3, nil))
 		})
 
 		t.Run("create role", func(t *testing.T) {
@@ -400,7 +390,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		})
 
 		t.Run("StartNode-3", func(t *testing.T) {
-			require.Nil(t, compose.StartAt(ctx, 2))
+			require.Nil(t, compose.StartNode(ctx, 3))
 		})
 
 		helper.SetupClient(compose.GetWeaviateNode3().URI())
@@ -497,7 +487,6 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 }
 
 func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRole := "testRole"
@@ -505,20 +494,11 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	compose, down := composeUpSharedCluster(t)
+	defer down()
 
 	t.Run("StopNode-3", func(t *testing.T) {
-		require.Nil(t, compose.StopAt(ctx, 2, nil))
+		require.Nil(t, compose.StopNode(ctx, 3, nil))
 	})
 
 	t.Run("create role", func(t *testing.T) {
@@ -557,7 +537,7 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 	})
 
 	t.Run("StartNode-3", func(t *testing.T) {
-		require.Nil(t, compose.StartAt(ctx, 2))
+		require.Nil(t, compose.StartNode(ctx, 3))
 	})
 
 	t.Run("permission in 3 without waiting", func(t *testing.T) {
