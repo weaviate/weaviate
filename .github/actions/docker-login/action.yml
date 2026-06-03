@@ -16,6 +16,6 @@ runs:
         DOCKER_PASSWORD: ${{ inputs.password }}
       with:
         max_attempts: 5
-        timeout_minutes: 5
-        retry_wait_seconds: 15
+        timeout_minutes: 2
+        retry_wait_seconds: 30
         command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
