@@ -54,7 +54,7 @@ import (
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
 // clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
-func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -102,7 +102,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	if clientTracker != nil {
 		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
 		// so no need for a separate makeClientIdentifierInterceptor.
-		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker))
+		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker, integrationTracker))
 	} else {
 		interceptors = append(interceptors, makeClientIdentifierInterceptor())
 	}

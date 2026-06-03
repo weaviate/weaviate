@@ -308,24 +308,12 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, sha
 	if !ok {
 		return shardReplicasLocation, []string{}
 	}
-	ops, ok := byCollection[shard]
-	if !ok {
+	if _, ok := byCollection[shard]; !ok {
 		return shardReplicasLocation, []string{}
 	}
 
 	_, writeReplicas := s.readWriteReplicas(collection, shard, shardReplicasLocation)
-
-	additionalWriteReplicas := []string{}
-	for _, op := range ops {
-		opState, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		if opState.GetCurrentState() == api.FINALIZING {
-			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
-		}
-	}
-	return writeReplicas, additionalWriteReplicas
+	return writeReplicas, []string{}
 }
 
 func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardReplicasLocation []string) ([]string, []string) {

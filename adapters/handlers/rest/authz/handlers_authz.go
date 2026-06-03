@@ -61,7 +61,7 @@ type authZHandlers struct {
 
 type ControllerAndGetUsers interface {
 	authorization.Controller
-	GetUsers(userIds ...string) (map[string]*apikey.User, error)
+	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers, schemaReader schemaUC.SchemaGetter,

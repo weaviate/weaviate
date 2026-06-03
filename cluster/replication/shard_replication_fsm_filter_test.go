@@ -21,8 +21,10 @@ import (
 )
 
 // TestShardReplicationFSM_FilterReplicas_ByState: read/write filter
-// contract across a COPY lifecycle. INTEGRATING promotes target from
-// additional (FINALIZING) to a counted write replica.
+// contract across a COPY lifecycle. The target receives no direct writes while
+// it catches up (HYDRATING/FINALIZING) — the change-capture-log is the sole,
+// ordered, LWW-safe catchup path — and is promoted to a counted read+write
+// replica only at INTEGRATING.
 func TestShardReplicationFSM_FilterReplicas_ByState(t *testing.T) {
 	const (
 		class  = "TestClass"
@@ -54,11 +56,11 @@ func TestShardReplicationFSM_FilterReplicas_ByState(t *testing.T) {
 			wantAdditional: []string{},
 		},
 		{
-			name:           "FINALIZING: target is a best-effort additional write replica only",
+			name:           "FINALIZING: target receives no direct writes (CCL-only catchup)",
 			state:          api.FINALIZING,
 			wantRead:       []string{source},
 			wantWrite:      []string{source},
-			wantAdditional: []string{target},
+			wantAdditional: []string{},
 		},
 		{
 			name:           "INTEGRATING: target is a counted read+write replica, not additional",
