@@ -58,6 +58,7 @@ func (s *Raft) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
 			CreatedAt:          u.CreatedAt,
 			LastUsedAt:         u.LastUsedAt,
 			ImportedWithKey:    u.ImportedWithKey,
+			Namespace:          u.Namespace,
 		}
 	}
 	return out, nil

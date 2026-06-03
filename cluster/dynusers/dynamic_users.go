@@ -164,6 +164,7 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 			CreatedAt:          v.CreatedAt,
 			LastUsedAt:         v.LastUsedAt,
 			ImportedWithKey:    v.ImportedWithKey,
+			Namespace:          v.Namespace,
 		}
 	}
 	response := cmd.QueryGetUsersResponse{Users: wireUsers}
