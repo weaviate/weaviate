@@ -350,6 +350,176 @@ func leafPinnedIsNullTrue(idx *fastPathIndex, valuePath, pinPath string, pinInde
 	}
 }
 
+// pinSpec describes one pin in a multi-pin path, e.g.,
+// `garages[1].cars[2].year=2020` carries two pins: `{path:"countries.garages",
+// index:1}` and `{path:"countries.garages.cars", index:2}`.
+type pinSpec struct {
+	path  string // qualified path of the pinned array
+	index int    // pinned index within that array
+}
+
+// leafMultiPinPositive realizes a multi-pin positive value leaf, e.g.,
+// `garages[1].cars[2].name=honda`. Pins are listed outer-to-inner. Each pin
+// gets consumed at its level (narrow by `_idx ∩ _anchor`), then we lift to
+// the next outer pin's level. After processing all pins, a final lift takes
+// us past the outermost pin's level to the owner per design's
+// pin-consumption rule (parent of outermost pin path).
+//
+//	A   = value(valuePath, value) ∩ _idx(innermost) ∩ _anchor(innermost)
+//	for each outer pin (inner→outer):
+//	    A = LiftOneLevel(A, _anchor(pin.path))
+//	    A = A ∩ _idx(pin.path, pin.index) ∩ _anchor(pin.path)
+//	A   = LiftOneLevel(A, _anchor(TruthScope))
+//	TruthScope   = parent(pins[0].path)
+//	ExactSupport = A
+//	Rich         = A   (trivially satisfies Rich ∩ _anchor(TruthScope) == ES)
+//	CanProjectParentByAnchor = false
+//
+// Does not support a root-level pin (TruthScope would resolve to "" with no
+// corresponding parent anchor in the index). Add separate handling if a
+// 3-pin path including the root array is needed.
+//
+// TODO aliszka:nested_filtering — like other pinned helpers, the lift chain
+// here is eager; downstream consumers that only need docs could mask the
+// inner-pin result with successive `_idx ∩ _anchor` narrows and skip lifts.
+func leafMultiPinPositive(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
+	if len(pins) == 0 {
+		panic("multi-pin needs at least one pin")
+	}
+
+	inner := pins[len(pins)-1]
+	a := cloneOrEmpty(idx.values[valuePath][value]).
+		And(idx.idx[inner.path][inner.index]).
+		And(idx.anchor[inner.path])
+
+	for i := len(pins) - 2; i >= 0; i-- {
+		pin := pins[i]
+		a, _ = idx.ops.LiftOneLevel(a, idx.anchor[pin.path])
+		a = a.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
+	}
+
+	truthScope := parentPath(pins[0].path)
+	a, _ = idx.ops.LiftOneLevel(a, idx.anchor[truthScope])
+
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     a.Clone(),
+		ExactSupport:             a,
+		CanProjectParentByAnchor: false,
+	}
+}
+
+// leafMultiPinIsNullFalse: positive existence under a multi-pin path. Same
+// narrow+lift chain as leafMultiPinPositive but reads from _exists.
+//
+// TODO aliszka:nested_filtering — eager-lift like other pinned helpers; could
+// be deferred for pure doc-level output.
+func leafMultiPinIsNullFalse(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
+	if len(pins) == 0 {
+		panic("multi-pin needs at least one pin")
+	}
+
+	inner := pins[len(pins)-1]
+	a := cloneOrEmpty(idx.exists[valuePath]).
+		And(idx.idx[inner.path][inner.index]).
+		And(idx.anchor[inner.path])
+
+	for i := len(pins) - 2; i >= 0; i-- {
+		pin := pins[i]
+		a, _ = idx.ops.LiftOneLevel(a, idx.anchor[pin.path])
+		a = a.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
+	}
+
+	truthScope := parentPath(pins[0].path)
+	a, _ = idx.ops.LiftOneLevel(a, idx.anchor[truthScope])
+
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     a.Clone(),
+		ExactSupport:             a,
+		CanProjectParentByAnchor: false,
+	}
+}
+
+// leafMultiPinIsNullTrue: universe-subtract for `<path> IS NULL true` under a
+// multi-pin path. Any missing pin or missing terminal property at the outer
+// owner counts as success (§4.1.1.B applied at every pin level).
+//
+//	canonPos     = multi-pin chain over _exists(valuePath) — country selves
+//	               where the full pinned path exists.
+//	ExactSupport = _anchor(TruthScope) ANDNOT canonPos
+//	Rich         = _exists(TruthScope) ANDNOT canonPos
+//	TruthScope   = parent(pins[0].path)
+//	CanProjectParentByAnchor = false
+//
+// TODO aliszka:nested_filtering — eager-lift like other pinned helpers.
+func leafMultiPinIsNullTrue(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
+	if len(pins) == 0 {
+		panic("multi-pin needs at least one pin")
+	}
+
+	inner := pins[len(pins)-1]
+	canonPos := cloneOrEmpty(idx.exists[valuePath]).
+		And(idx.idx[inner.path][inner.index]).
+		And(idx.anchor[inner.path])
+
+	for i := len(pins) - 2; i >= 0; i-- {
+		pin := pins[i]
+		canonPos, _ = idx.ops.LiftOneLevel(canonPos, idx.anchor[pin.path])
+		canonPos = canonPos.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
+	}
+
+	truthScope := parentPath(pins[0].path)
+	truthAnchor := idx.anchor[truthScope]
+	canonPos, _ = idx.ops.LiftOneLevel(canonPos, truthAnchor)
+
+	exactSupport := cloneOrEmpty(truthAnchor).AndNot(canonPos)
+	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
+
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     rich,
+		ExactSupport:             exactSupport,
+		CanProjectParentByAnchor: false,
+	}
+}
+
+// leafMultiPinNot: universe-subtract for `NOT <path>=value` under a multi-pin
+// path. Same shape as leafMultiPinIsNullTrue but uses value lookup instead of
+// _exists. Missing pin → witness (§4.1.1.B applied at every pin level).
+//
+// TODO aliszka:nested_filtering — eager-lift like other pinned helpers.
+func leafMultiPinNot(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
+	if len(pins) == 0 {
+		panic("multi-pin needs at least one pin")
+	}
+
+	inner := pins[len(pins)-1]
+	canonPos := cloneOrEmpty(idx.values[valuePath][value]).
+		And(idx.idx[inner.path][inner.index]).
+		And(idx.anchor[inner.path])
+
+	for i := len(pins) - 2; i >= 0; i-- {
+		pin := pins[i]
+		canonPos, _ = idx.ops.LiftOneLevel(canonPos, idx.anchor[pin.path])
+		canonPos = canonPos.And(idx.idx[pin.path][pin.index]).And(idx.anchor[pin.path])
+	}
+
+	truthScope := parentPath(pins[0].path)
+	truthAnchor := idx.anchor[truthScope]
+	canonPos, _ = idx.ops.LiftOneLevel(canonPos, truthAnchor)
+
+	exactSupport := cloneOrEmpty(truthAnchor).AndNot(canonPos)
+	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(canonPos)
+
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     rich,
+		ExactSupport:             exactSupport,
+		CanProjectParentByAnchor: false,
+	}
+}
+
 // leafPinnedNot realizes `NOT pinPath[pinIndex].x = value`. Missing pinned
 // slot counts as success (per design's owner-centric pinned semantic — both
 // "year != 2020" and "no cars[1]" make the NOT true). Same ghost-strip via
@@ -779,6 +949,76 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			wantTruthScope: "countries.garages.cars",
 			wantCanProject: true,
 			wantDocs:       nil,
+		},
+		// Multi-pin path — two pins (garages[1] + cars[2]). Verifies the
+		// narrow+lift chain across multiple array levels. Single-pin
+		// equivalent `cars[2].name=honda` would also match docs 100 and 600;
+		// the garages[1] pin filters them out, leaving only doc 500 (the
+		// only fixture with garages[1].cars[2].name=honda).
+		{
+			name: "garages[1].cars[2].name=honda",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafMultiPinPositive(idx,
+					"countries.garages.cars.name",
+					"honda",
+					[]pinSpec{
+						{"countries.garages", 1},
+						{"countries.garages.cars", 2},
+					})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			wantDocs:       []uint64{500},
+		},
+		{
+			name: "garages[1].cars[2].name IS NULL false",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafMultiPinIsNullFalse(idx,
+					"countries.garages.cars.name",
+					[]pinSpec{
+						{"countries.garages", 1},
+						{"countries.garages.cars", 2},
+					})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// Only doc 500 has the full pinned path with a name field.
+			wantDocs: []uint64{500},
+		},
+		{
+			name: "garages[1].cars[2].name IS NULL true",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafMultiPinIsNullTrue(idx,
+					"countries.garages.cars.name",
+					[]pinSpec{
+						{"countries.garages", 1},
+						{"countries.garages.cars", 2},
+					})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// All countries pass except doc 500's (which has the full
+			// pinned path with a name). Missing-pin cases (no garages[1] or
+			// no cars[2]) all count as witnesses per §4.1.1.B.
+			wantDocs: []uint64{100, 200, 300, 400, 600, 700, 810, 820, 830},
+		},
+		{
+			name: "NOT garages[1].cars[2].name=honda",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafMultiPinNot(idx,
+					"countries.garages.cars.name",
+					"honda",
+					[]pinSpec{
+						{"countries.garages", 1},
+						{"countries.garages.cars", 2},
+					})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// Same set as the IS NULL true case — the only doc where the
+			// full pinned path has name=honda is doc 500. Every other doc
+			// passes either via missing pin or via name != honda.
+			wantDocs: []uint64{100, 200, 300, 400, 600, 700, 810, 820, 830},
 		},
 	}
 
