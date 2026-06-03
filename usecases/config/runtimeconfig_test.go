@@ -63,6 +63,15 @@ allowed_compression_types: ""`)
 		require.Error(t, err)
 	})
 
+	t.Run("comma-separated scalar for slice fields splits into elements", func(t *testing.T) {
+		buf := []byte(`allowed_vector_index_types: "hfresh,hnsw,dynamic,flat"
+allowed_compression_types: "pq,bq"`)
+		cfg, err := ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"hfresh", "hnsw", "dynamic", "flat"}, cfg.AllowedVectorIndexTypes.Get())
+		assert.Equal(t, []string{"pq", "bq"}, cfg.AllowedCompressionTypes.Get())
+	})
+
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
 		var r WeaviateRuntimeConfig
 

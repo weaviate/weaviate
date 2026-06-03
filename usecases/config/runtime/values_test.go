@@ -91,12 +91,19 @@ slice: ["one", "two", "three"]
 		}
 	})
 
-	t.Run("non-empty scalar with wrong type still errors", func(t *testing.T) {
-		val := struct {
-			Slice *DynamicValue[[]string] `yaml:"slice"`
-		}{}
-		err := yaml.NewDecoder(strings.NewReader(`slice: "abc"`)).Decode(&val)
-		require.Error(t, err)
+	t.Run("comma-separated scalar splits into slice T", func(t *testing.T) {
+		cases := map[string][]string{
+			`slice: "hfresh,hnsw,dynamic,flat"`: {"hfresh", "hnsw", "dynamic", "flat"},
+			`slice: "hnsw"`:                     {"hnsw"},
+			`slice: "a,b,"`:                     {"a", "b", ""},
+		}
+		for input, want := range cases {
+			val := struct {
+				Slice *DynamicValue[[]string] `yaml:"slice"`
+			}{}
+			require.NoError(t, yaml.NewDecoder(strings.NewReader(input)).Decode(&val), "input %q", input)
+			assert.Equal(t, want, val.Slice.Get(), "input %q", input)
+		}
 	})
 }
 
