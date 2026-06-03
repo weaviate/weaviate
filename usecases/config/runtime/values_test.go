@@ -69,6 +69,35 @@ slice: ["one", "two", "three"]
 		assert.Equal(t, []string{"one", "two", "three"}, val.Slice.Get())
 		assert.Nil(t, val.Slice.val)
 	})
+
+	t.Run("empty scalar decodes to nil for slice T", func(t *testing.T) {
+		val := struct {
+			Slice *DynamicValue[[]string] `yaml:"slice"`
+		}{}
+		require.NoError(t, yaml.NewDecoder(strings.NewReader(`slice: ""`)).Decode(&val))
+		assert.Nil(t, val.Slice.Get())
+	})
+
+	t.Run("empty scalar still errors for non-slice T", func(t *testing.T) {
+		cases := map[string]any{
+			`foo: ""`:   &struct{ Foo *DynamicValue[int] }{},
+			`bar: ""`:   &struct{ Bar *DynamicValue[float64] }{},
+			`alice: ""`: &struct{ Alice *DynamicValue[bool] }{},
+			`dave: ""`:  &struct{ Dave *DynamicValue[time.Duration] }{},
+		}
+		for input, target := range cases {
+			err := yaml.NewDecoder(strings.NewReader(input)).Decode(target)
+			require.Error(t, err, "expected %q to error", input)
+		}
+	})
+
+	t.Run("non-empty scalar with wrong type still errors", func(t *testing.T) {
+		val := struct {
+			Slice *DynamicValue[[]string] `yaml:"slice"`
+		}{}
+		err := yaml.NewDecoder(strings.NewReader(`slice: "abc"`)).Decode(&val)
+		require.Error(t, err)
+	})
 }
 
 func TestDynamicValue_JSON(t *testing.T) {

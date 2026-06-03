@@ -49,6 +49,20 @@ maximum_allowed_collections_count: 13
 		assert.Equal(t, 13, cfg.MaximumAllowedCollectionsCount.Get())
 	})
 
+	t.Run("empty-string scalar for slice fields is equivalent to empty list", func(t *testing.T) {
+		buf := []byte(`allowed_vector_index_types: ""
+allowed_compression_types: ""`)
+		cfg, err := ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		assert.Empty(t, cfg.AllowedVectorIndexTypes.Get())
+		assert.Empty(t, cfg.AllowedCompressionTypes.Get())
+	})
+
+	t.Run("empty-string scalar for non-slice fields still errors", func(t *testing.T) {
+		_, err := ParseRuntimeConfig([]byte(`maximum_allowed_collections_count: ""`))
+		require.Error(t, err)
+	})
+
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
 		var r WeaviateRuntimeConfig
 
