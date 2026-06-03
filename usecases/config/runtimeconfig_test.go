@@ -72,6 +72,15 @@ allowed_compression_types: "pq,bq"`)
 		assert.Equal(t, []string{"pq", "bq"}, cfg.AllowedCompressionTypes.Get())
 	})
 
+	t.Run("explicit YAML list for slice fields decodes as-is", func(t *testing.T) {
+		buf := []byte(`allowed_vector_index_types: ["hfresh", "hnsw", "dynamic", "flat"]
+allowed_compression_types: ["pq", "bq"]`)
+		cfg, err := ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"hfresh", "hnsw", "dynamic", "flat"}, cfg.AllowedVectorIndexTypes.Get())
+		assert.Equal(t, []string{"pq", "bq"}, cfg.AllowedCompressionTypes.Get())
+	})
+
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
 		var r WeaviateRuntimeConfig
 
