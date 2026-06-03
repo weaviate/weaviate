@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	ucfg "github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -105,4 +107,70 @@ func TestRedactDebugConfigSecrets(t *testing.T) {
 		_, ok := m["authentication"].(map[string]any)["APIKey"].(map[string]any)["allowed_keys"]
 		assert.False(t, ok)
 	})
+}
+
+// Runs a populated config.Config through the exact /debug/config pipeline. The
+// hand-built-map subtests above can't catch a json tag drifting away from a
+// redactPath path (e.g. APIKey gaining a json tag) — this fails when that
+// happens, instead of silently re-exposing the secret in production.
+func TestRedactDebugConfigSecrets_RealConfigPipeline(t *testing.T) {
+	const (
+		apiKey1     = "secret-api-key-1"
+		apiKey2     = "secret-api-key-2"
+		clusterPass = "secret-cluster-password"
+		sentryDSN   = "https://publickey@o0.ingest.sentry.io/12345"
+	)
+
+	cfg := ucfg.Config{
+		Authentication: ucfg.Authentication{
+			APIKey: ucfg.StaticAPIKey{
+				Enabled:     true,
+				Users:       []string{"root-user"},
+				AllowedKeys: []string{apiKey1, apiKey2},
+			},
+		},
+		Cluster: cluster.Config{
+			AuthConfig: cluster.AuthConfig{
+				BasicAuth: cluster.BasicAuth{
+					Username: "cluster-user",
+					Password: clusterPass,
+				},
+			},
+		},
+		Sentry: &entsentry.ConfigOpts{Enabled: true, DSN: sentryDSN},
+	}
+
+	// Mirror the /debug/config handler exactly.
+	jsonBytes, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	var configMap map[string]any
+	require.NoError(t, json.Unmarshal(jsonBytes, &configMap))
+	cleaned := cleanEmptyValues(configMap)
+	redactDebugConfigSecrets(cleaned)
+
+	// No secret value may survive to the wire. (MarshalIndent HTML-escapes, but
+	// none of these secrets contain <, > or &, so a leak would appear verbatim.)
+	out, err := json.MarshalIndent(cleaned, "", "  ")
+	require.NoError(t, err)
+	outStr := string(out)
+	for _, secret := range []string{apiKey1, apiKey2, clusterPass, sentryDSN} {
+		assert.NotContainsf(t, outStr, secret,
+			"secret leaked into /debug/config — a json-tag drift likely broke a redactPath path")
+	}
+
+	// Each secret is gone because it was redacted, not because the section was
+	// dropped: assert redaction fired AND the non-secret siblings still survive.
+	authn, _ := cleaned["authentication"].(map[string]any)
+	apiKey, _ := authn["APIKey"].(map[string]any)
+	assert.Equal(t, []any{"<redacted>", "<redacted>"}, apiKey["allowed_keys"])
+	assert.Equal(t, []any{"root-user"}, apiKey["users"])
+
+	clusterM, _ := cleaned["cluster"].(map[string]any)
+	authM, _ := clusterM["auth"].(map[string]any)
+	basicM, _ := authM["basic"].(map[string]any)
+	assert.Equal(t, "<redacted>", basicM["password"])
+	assert.Equal(t, "cluster-user", basicM["username"])
+
+	sentryM, _ := cleaned["sentry"].(map[string]any)
+	assert.Equal(t, "<redacted>", sentryM["dsn"])
 }
