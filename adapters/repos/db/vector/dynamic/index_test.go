@@ -758,7 +758,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	for i := 0; i < 100; i++ {
-		err = dynamic.store.Bucket(dynamic.getBucketName()).FlushAndSwitch()
+		err = dynamic.store.Bucket(dynamic.getBucketName()).FlushAndSwitch(context.Background())
 		time.Sleep(1 * time.Millisecond)
 		require.NoError(t, err)
 	}

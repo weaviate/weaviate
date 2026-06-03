@@ -247,14 +247,14 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 			require.Nil(t, err)
 		}
 
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 
 		for _, pair := range previous2 {
 			err := bucket.SetAdd(pair.key, pair.values)
 			require.Nil(t, err)
 		}
 
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 1", func(t *testing.T) {
@@ -270,7 +270,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -286,7 +286,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
@@ -380,7 +380,7 @@ func compactionSetStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 			err := bucket.SetAdd(key, [][]byte{value})
 			require.Nil(t, err)
 
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 		}
 	})
 
@@ -485,7 +485,7 @@ func compactionSetStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 						require.Nil(t, err)
 					}
 
-					require.Nil(t, bucket.FlushAndSwitch())
+					require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 				}
 			})
 

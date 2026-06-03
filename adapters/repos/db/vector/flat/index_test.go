@@ -145,7 +145,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 
 	buckets := store.GetBucketsByName()
 	for _, bucket := range buckets {
-		bucket.FlushMemtable()
+		bucket.FlushMemtable(ctx)
 	}
 
 	var relevant uint64
@@ -583,7 +583,7 @@ func TestFlat_ValidateCount(t *testing.T) {
 
 	count := index.AlreadyIndexed()
 	require.Equal(t, count, uint64(len(vectors)))
-	err = index.store.Bucket(index.getBucketName()).FlushAndSwitch()
+	err = index.store.Bucket(index.getBucketName()).FlushAndSwitch(ctx)
 	require.Nil(t, err)
 
 	err = index.Shutdown(ctx)

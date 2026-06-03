@@ -78,7 +78,7 @@ func TestCompactionSetSkipKeys(t *testing.T) {
 				require.Nil(t, err)
 				require.Len(t, res, 2)
 
-				require.Nil(t, bucket.FlushAndSwitch())
+				require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 
 				res, err = bucket.SetList([]byte(fmt.Sprintf("key-delete-on-flush-%d", i)))
 				require.Nil(t, err)

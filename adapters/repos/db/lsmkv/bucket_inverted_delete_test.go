@@ -362,7 +362,7 @@ func runTombstoneInvertedCompactionTest(t *testing.T, size int) {
 						case <-done:
 							return nil
 						default:
-							require.Nil(t, bucket.FlushAndSwitch())
+							require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 							k++
 						}
 					}

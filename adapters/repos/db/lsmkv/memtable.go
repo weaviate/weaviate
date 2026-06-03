@@ -60,7 +60,7 @@ type memtable interface {
 
 	writeWAL() error
 	flushWAL() error
-	flush() (string, error)
+	flush(ctx context.Context) (string, error)
 	setAveragePropertyLength(avgPropLength float64, propLengthCount uint64)
 	getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bool
 
@@ -94,13 +94,13 @@ type memtable interface {
 	roaringSetRangeAddCommitLog(key uint64, additions []uint64, deletions []uint64) error
 	extractRoaringSetRange() *roaringsetrange.Memtable
 
-	flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
-	flushDataSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
-	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
-	flushDataCollection(f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
-	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
-	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
-	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataReplace(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataSet(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataMap(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataCollection(ctx context.Context, f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
+	flushDataInverted(ctx context.Context, f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
+	flushDataRoaringSet(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataRoaringSetRange(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
 	incWriterCount()
 	decWriterCount()
