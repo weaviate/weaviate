@@ -96,7 +96,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWithAutoTenantActivat
 		nodes.NewNodesGetClassParams().WithClassName(cls.Class).WithOutput(&verbose),
 		nil,
 	)
-	require.Nil(t, err, "failed to get nodes for class %s: %v", cls.Class, err)
+	require.NoError(t, err, "failed to get nodes for class %s: %v", cls.Class, err)
 
 	replicaByTenant := make(map[string]string, len(randomTenants))
 	nodeNames := make([]string, 0, len(nodes.Payload.Nodes))
@@ -148,7 +148,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWithAutoTenantActivat
 				}),
 				nil,
 			)
-			require.Nil(t, err, "failed to start replication for tenant %s on node %s: %v", tenantName, sourceNode, err)
+			require.NoError(t, err, "failed to start replication for tenant %s on node %s: %v", tenantName, sourceNode, err)
 			opIds = append(opIds, *res.Payload.ID)
 		})
 	}
