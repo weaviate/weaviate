@@ -1419,7 +1419,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 func Test_UpdateClass(t *testing.T) {
 	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
+		fakeSchemaManager.On("ReadOnlyClass", "WrongClass").Return(nil)
 		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"WrongClass"}).
 			Return(map[string]versioned.Class{}, nil)
 
@@ -1435,7 +1435,7 @@ func Test_UpdateClass(t *testing.T) {
 			Class:             "Article",
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
-		fakeSchemaManager.On("ReadOnlyClass", "Article", mock.Anything).Return(nil)
+		fakeSchemaManager.On("ReadOnlyClass", "Article").Return(nil)
 		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"Article"}).
 			Return(map[string]versioned.Class{"Article": {Class: existing}}, nil)
 		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
@@ -1456,6 +1456,27 @@ func Test_UpdateClass(t *testing.T) {
 		})
 		require.ErrorIs(t, err, ErrValidation)
 		require.Contains(t, err.Error(), "does not match path")
+	})
+
+	t.Run("omitted body class is pinned to the path", func(t *testing.T) {
+		// Regression: an optional/omitted body class must be taken from the path,
+		// not forwarded to RAFT as an empty class name (which it rejects).
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		existing := &models.Class{
+			Class:             "Article",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		fakeSchemaManager.On("ReadOnlyClass", "Article").Return(existing)
+		fakeSchemaManager.On("UpdateClass",
+			mock.MatchedBy(func(c *models.Class) bool { return c.Class == "Article" }),
+			mock.Anything).Return(nil)
+
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			// Class deliberately omitted; it must be inferred from the path.
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		})
+		require.NoError(t, err)
+		fakeSchemaManager.AssertExpectations(t)
 	})
 
 	t.Run("immutable vectorizer properties", func(t *testing.T) {

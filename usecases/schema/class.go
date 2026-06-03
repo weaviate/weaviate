@@ -468,10 +468,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
-	} else if updated != nil && updated.Class != "" {
+	} else if updated != nil {
 		// Auth is on the path but the RAFT command keys on updated.Class; pin
-		// them together so the body can't redirect the update to another class.
-		if schema.UppercaseClassName(updated.Class) != className {
+		// them together. The body class is optional, so only reject an explicit
+		// non-empty mismatch — an omitted class is taken from the path instead of
+		// reaching RAFT as an empty-class error.
+		if updated.Class != "" && schema.UppercaseClassName(updated.Class) != className {
 			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, className)
 		}
 		updated.Class = className
