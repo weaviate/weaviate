@@ -113,6 +113,7 @@ func tenantNames(tenants []*models.Tenant) []string {
 // shards land under the qualified class name and tenant lookups never bleed
 // across namespaces.
 func TestNamespaces_TenantOps(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)

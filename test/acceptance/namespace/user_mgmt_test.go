@@ -73,6 +73,7 @@ func createNamespacedViewerUser(t *testing.T, userID, ns, adminKey string) strin
 // create / get / list / deactivate / activate / rotate / delete lifecycle
 // on a user in its own namespace, with responses stripped to the short form.
 func TestNamespacedAdminLifecycle(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
@@ -135,6 +136,7 @@ func TestNamespacedAdminLifecycle(t *testing.T) {
 // each namespace's admin sees only its own users, deletes only its own, and
 // every response (success or 404) is free of the namespace separator.
 func TestNamespacedUserCrossNamespaceIsolation(t *testing.T) {
+	t.Parallel()
 	ns1, ns2 := uniqueNS(), uniqueNS()
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
@@ -184,6 +186,7 @@ func TestNamespacedUserCrossNamespaceIsolation(t *testing.T) {
 // TestNamespacedViewerDeniedUserMutations — viewer in a namespace can read
 // users, cannot mutate.
 func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
@@ -230,6 +233,7 @@ func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
 // revokes roles on a namespaced user (matcher blast-radius guard). The
 // deprecated role-read endpoint is gated off on NS clusters — 410.
 func TestGlobalOperatorReach(t *testing.T) {
+	t.Parallel()
 	ns1, ns2 := uniqueNS(), uniqueNS()
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
@@ -289,6 +293,7 @@ func TestGlobalOperatorReach(t *testing.T) {
 // the configured root user succeeds inside a namespace because the
 // resolver qualifies the storage key before the isRootUser check.
 func TestNamespacedAdminConflictsAndCollisions(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
@@ -341,6 +346,7 @@ func TestNamespacedAdminConflictsAndCollisions(t *testing.T) {
 // (matcher cannot specialize the unqualified key), and assign/revoke fail at
 // authz on the qualified key (no AssignAndRevokeUsers in the widened admin).
 func TestNamespacedAdminAuthzSurface(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
@@ -386,6 +392,7 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 // mid-delete is 422. A class makes cleanup non-instant so the race lands
 // somewhere between deleting and gone; both surface 422.
 func TestCreateUserAgainstDeletingNamespace(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
@@ -413,6 +420,7 @@ func TestCreateUserAgainstDeletingNamespace(t *testing.T) {
 // short name hits the self-target guard on the resolved key; the 422
 // message must not leak the ':' separator.
 func TestNamespacedAdminSelfTargetIs422(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)

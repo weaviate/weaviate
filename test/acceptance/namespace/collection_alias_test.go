@@ -85,6 +85,7 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 // caller's namespace; on top of that sits the handler-level
 // IsGlobalOperator/Namespace check plus the entity-name validators.
 func TestNamespaces_CollectionAndAlias(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 	ns2 := uniqueNS()
 	upperNS := func(ns string) string { return strings.ToUpper(ns[:1]) + ns[1:] }

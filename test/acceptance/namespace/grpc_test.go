@@ -63,6 +63,7 @@ func searchReq(collection string, limit uint32) *pb.SearchRequest {
 // short collection name; the handler must qualify it via namespacing.Resolve
 // so the request only ever touches the caller's namespace shard.
 func TestNamespaces_GRPC(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)
@@ -838,6 +839,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 // "ns1:moviesgrpcprofile_<shard>"; the replier strips the prefix via
 // namespacing.StripOwnNamespace, the same helper used for target_collection.
 func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)
@@ -918,6 +920,7 @@ func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
 // The namespace is pinned to a node that is provably not the gRPC entry
 // (GetWeaviate() returns weaviate-0) so the hop is exercised every run.
 func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	const homeNode = "weaviate-2"
 	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
@@ -972,6 +975,7 @@ func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
 // qualify the object's collection so the auto-created collection and the write
 // agree on the qualified name.
 func TestNamespaces_GRPC_BatchAutoSchema(t *testing.T) {
+	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 
 	grpcClient, conn := newGrpcClient(t)

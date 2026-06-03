@@ -28,6 +28,7 @@ import (
 // by short name reaches the resolved collection (200, not 404); a global admin uses the
 // qualified name.
 func TestNamespaces_IndexesGet(t *testing.T) {
+	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 	const class = "IdxStatus"
 	setupClassInNs1(t, ns1, class, user1Key)
@@ -112,6 +113,7 @@ func findIndexProp(t *testing.T, resp *models.IndexStatusResponse, name string) 
 // 404); a valid body submits a real reindex (202). Each subtest uses its own
 // class so in-flight reindexes don't conflict.
 func TestNamespaces_IndexesUpdate(t *testing.T) {
+	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 
 	put := func(className, key string, body *models.IndexUpdateRequest) (*schema.SchemaObjectsIndexesUpdateAccepted, error) {

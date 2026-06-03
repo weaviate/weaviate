@@ -36,6 +36,7 @@ const (
 // Per the namespace-prefix validator, a namespaced principal that submits a
 // qualified name is rejected up front with "is not a valid class name".
 func TestNamespaces_MCP(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, _ := twoNamespaces(t)
 
 	alpha0 := 0.0

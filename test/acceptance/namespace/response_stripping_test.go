@@ -32,6 +32,7 @@ import (
 // global admin keeps the raw qualified form. Round-trip tests assert that a
 // stripped GET response can be PUT/PATCHed back unchanged.
 func TestNamespaces_ResponseStripping_REST(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("AddClass response strips Class and cross-ref DataType", func(t *testing.T) {
@@ -485,6 +486,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 // /users/own-info must echo that as the short form. Role/permission strip
 // requires RBAC and is covered in the authz acceptance suite.
 func TestNamespaces_ResponseStripping_OwnInfoUsername(t *testing.T) {
+	t.Parallel()
 	_, _, user1Key, _ := twoNamespaces(t)
 
 	t.Run("namespaced DB user sees short username", func(t *testing.T) {

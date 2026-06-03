@@ -40,6 +40,7 @@ import (
 //  3. update / delete resolve the same way add does
 //  4. global admin can address objects via qualified class names
 func TestNamespaces_References(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	// One Zoo and one Animal class per namespace. hasAnimals.DataType is

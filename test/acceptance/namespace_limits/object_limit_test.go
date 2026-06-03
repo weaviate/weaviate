@@ -68,6 +68,7 @@ func fillUntilQuota(t *testing.T, class, key string) {
 // so the cap is per namespace, not per node: after alpha hits its cap,
 // beta can still write.
 func TestObjectLimitEnforcedPerNamespace(t *testing.T) {
+	t.Parallel()
 	nsA, nsB := uniqueNS(), uniqueNS()
 	const homeNode = "weaviate-0"
 
@@ -106,6 +107,7 @@ func TestObjectLimitEnforcedPerNamespace(t *testing.T) {
 // client is not bound to, so every insert is forwarded; the quota still
 // fires at the home node.
 func TestObjectLimitFromNonHomeNode(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	const homeNode = "weaviate-1"
 
@@ -131,6 +133,7 @@ func TestObjectLimitFromNonHomeNode(t *testing.T) {
 // TestUpdatesAtQuotaRejected regression-guards the documented behaviour
 // that PUTs also fail at full quota (the chokepoint covers updates).
 func TestUpdatesAtQuotaRejected(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS()
 	const homeNode = "weaviate-2"
 

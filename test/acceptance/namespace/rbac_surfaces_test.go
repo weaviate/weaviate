@@ -40,6 +40,7 @@ const s3Backend = "s3"
 // env-var root accessing it successfully, proving the denies are real auth
 // denials — narrowing, not a missing grant or a disabled endpoint.
 func TestNamespaces_RBACSurfaces(t *testing.T) {
+	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 
 	const class = "Surfaces"

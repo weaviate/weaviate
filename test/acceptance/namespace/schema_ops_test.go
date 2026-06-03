@@ -90,6 +90,7 @@ func findProp(class *models.Class, name string) *models.Property {
 }
 
 func TestNamespaces_AddClassProperty(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 	ns2 := uniqueNS()
 	helper.CreateNamespace(t, ns1, adminKey)
@@ -167,6 +168,7 @@ func TestNamespaces_AddClassProperty(t *testing.T) {
 }
 
 func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
@@ -235,6 +237,7 @@ func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
 }
 
 func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
@@ -306,6 +309,7 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 }
 
 func TestNamespaces_PropertyTokenize(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)
@@ -370,6 +374,7 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 // i.e. weaviate-0), so the shard always lives remote and the request hops
 // the /indices/<ns>:<class>/shards/<sh>/status route every run.
 func TestNamespaces_ShardsStatus(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 	const homeNode = "weaviate-2"
 
@@ -450,6 +455,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 // names from a namespaced principal must hit "<ns>:<class>" and aliases
 // must not be a backdoor.
 func TestNamespaces_UpdateShardStatus(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 	ns2 := uniqueNS()
 
@@ -609,6 +615,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 // cluster-API URL routing through `regxNodesClass`, which only accepts
 // namespace-qualified names once it is built from IndexNameRegexCore.
 func TestNamespaces_NodesGetClass(t *testing.T) {
+	t.Parallel()
 	ns1 := uniqueNS()
 
 	helper.CreateNamespace(t, ns1, adminKey)

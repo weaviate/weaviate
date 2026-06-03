@@ -33,6 +33,7 @@ import (
 // error messages surfaced to namespaced callers do not carry the caller's own
 // namespace prefix, while global admins still see qualified names.
 func TestNamespaces_ResponseStripping_Errors_REST(t *testing.T) {
+	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 	const class = "ErrStripREST"
 	setupClassInNs1(t, ns1, class, user1Key)
@@ -139,6 +140,7 @@ func TestNamespaces_ResponseStripping_Errors_REST(t *testing.T) {
 // (PermissionDenied/Unauthenticated) — the test asserts the status code is
 // preserved, not collapsed to Unknown.
 func TestNamespaces_ResponseStripping_Errors_GRPC(t *testing.T) {
+	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 	grpcClient, conn := newGrpcClient(t)
 	defer conn.Close()
@@ -236,6 +238,7 @@ func TestNamespaces_ResponseStripping_Errors_GRPC(t *testing.T) {
 // TestNamespaces_ResponseStripping_Errors_MCP pins the contract for MCP
 // tool-handler returned errors and per-item upsert error fields.
 func TestNamespaces_ResponseStripping_Errors_MCP(t *testing.T) {
+	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 	const class = "ErrStripMCP"
 	setupClassInNs1(t, ns1, class, user1Key)

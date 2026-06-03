@@ -31,6 +31,7 @@ import (
 // A global principal on the same cluster cannot trigger auto-schema and
 // must be rejected with 403.
 func TestNamespaces_AutoSchema(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("auto-create class on first object insert", func(t *testing.T) {

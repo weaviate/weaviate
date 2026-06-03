@@ -96,6 +96,7 @@ func seedTwo(t *testing.T, class string, id strfmt.UUID, ns1Title, ns2Title, k1,
 // the object REST endpoints (add/get/update/merge/delete/head/list/validate)
 // plus the contract for double-prefix and global-principal access.
 func TestNamespaces_ObjectLifecycle(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("add and get with short, lowercase class name", func(t *testing.T) {
@@ -313,6 +314,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 // TestNamespaces_BatchOperations exercises BatchManager fan-out under
 // namespace resolution.
 func TestNamespaces_BatchOperations(t *testing.T) {
+	t.Parallel()
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("batch insert is namespace-scoped", func(t *testing.T) {
