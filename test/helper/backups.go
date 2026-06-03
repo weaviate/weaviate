@@ -219,6 +219,9 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz
 		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
+		if status == "FAILED" {
+			t.Fatalf("backup %s creation failed with error: %s", backupID, resp.Payload.Error)
+		}
 		require.Equal(c, "SUCCESS", status, "backup create status")
 	}, opt.Deadline, opt.Interval, "backup %s not created after %s", backupID, opt.Deadline)
 }
