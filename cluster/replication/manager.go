@@ -47,7 +47,10 @@ type Manager struct {
 	// know who reported.
 	localNodeID       string
 	submitNodeReached func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
+	inflightDrainer   func(ctx context.Context, class, shard string) error
 }
+
+const inflightDrainBackstop = 60 * time.Second
 
 func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
@@ -70,6 +73,10 @@ func (m *Manager) SetNodeReachedStateSubmitter(
 	m.submitNodeReached = submit
 }
 
+func (m *Manager) SetInflightDrainer(fn func(ctx context.Context, class, shard string) error) {
+	m.inflightDrainer = fn
+}
+
 // broadcastNodeReachedState submits a node-reached-state command async so
 // the FSM apply that triggered it can't block on RAFT. Bounded backoff;
 // idempotent on receipt (monotonic per peer).
@@ -77,11 +84,12 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 	if m.submitNodeReached == nil || m.localNodeID == "" {
 		return
 	}
-	logger := m.logger
-	if logger == nil {
-		logger = logrus.New()
-	}
+
 	enterrors.GoWrapper(func() {
+		if state == cmd.INTEGRATING {
+			m.drainInflight(opID)
+		}
+
 		req := &cmd.ReplicationNodeReachedStateRequest{
 			Version: cmd.ReplicationCommandVersionV0,
 			Id:      opID,
@@ -94,13 +102,36 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 			return m.submitNodeReached(context.Background(), req)
 		}, bo)
 		if err != nil {
-			logger.WithFields(logrus.Fields{
+			m.logger.WithFields(logrus.Fields{
 				"op_id":   opID,
 				"node_id": m.localNodeID,
 				"state":   state,
 			}).Error(fmt.Errorf("broadcast node-reached-state exhausted retries: %w", err))
 		}
-	}, logger)
+	}, m.logger)
+}
+
+func (m *Manager) drainInflight(opID uint64) {
+	if m.inflightDrainer == nil {
+		return
+	}
+	op, ok := m.replicationFSM.GetOpById(opID)
+	if !ok {
+		return
+	}
+	class := op.Op.SourceShard.CollectionId
+	shard := op.Op.SourceShard.ShardId
+
+	ctx, cancel := context.WithTimeout(context.Background(), inflightDrainBackstop)
+	defer cancel()
+	if err := m.inflightDrainer(ctx, class, shard); err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"op_id":   opID,
+			"node_id": m.localNodeID,
+			"class":   class,
+			"shard":   shard,
+		}).Warnf("in-flight write drain before INTEGRATING did not complete, proceeding: %v", err)
+	}
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
