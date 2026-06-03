@@ -87,7 +87,7 @@ func testAliasesAPI(t *testing.T) {
 			},
 			{
 				name: "create with different case",
-				// passing in `restAliasThatCreated` but should transform into `AliasThatCreated`.
+				// passing in `restAliasThatCreated` but should transform into `RestAliasThatCreated`.
 				alias: &models.Alias{Alias: "restAliasThatCreated", Class: documents.Passage},
 			},
 		}

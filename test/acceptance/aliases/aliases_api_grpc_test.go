@@ -44,9 +44,14 @@ func testAliasesAPIgRPC(t *testing.T, grpcURI string) {
 	booksAliasName := "GrpcBooksAlias"
 
 	// Shared container: leave no class/alias behind so the other suites'
-	// instance-wide alias counts stay correct.
+	// instance-wide alias counts stay correct. Delete only aliases that exist so
+	// a failure before the alias is created can't mask the original error.
 	defer func() {
-		helper.DeleteAlias(t, booksAliasName)
+		resp := helper.GetAliases(t, nil)
+		require.NotNil(t, resp)
+		for _, alias := range resp.Aliases {
+			helper.DeleteAlias(t, alias.Alias)
+		}
 		helper.DeleteClass(t, books.DefaultClassName)
 	}()
 
