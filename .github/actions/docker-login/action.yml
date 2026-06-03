@@ -15,7 +15,11 @@ runs:
         DOCKER_USERNAME: ${{ inputs.username }}
         DOCKER_PASSWORD: ${{ inputs.password }}
       with:
+        # Wide window to ride out sustained Docker Hub reachability dips: docker's own
+        # client timeout fires per attempt, so attempts × wait is the only effective lever.
+        # timeout_minutes is just a backstop to kill an attempt that hangs past docker's
+        # own timeout, so retries cycle promptly.
         max_attempts: 5
-        timeout_minutes: 5
-        retry_wait_seconds: 15
+        timeout_minutes: 2
+        retry_wait_seconds: 30
         command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
