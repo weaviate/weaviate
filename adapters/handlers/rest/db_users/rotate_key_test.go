@@ -208,11 +208,11 @@ func TestRotateKey_Namespaces(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			switch tt.wantStatus.(type) {
 			case *users.RotateUserAPIKeyOK:
-				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {InternalIdentifier: "old-id"}}, nil)
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {InternalIdentifier: "old-id"}}, nil)
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 				dynUser.On("RotateKey", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, "old-id", mock.Anything).Return(nil)
 			case *users.RotateUserAPIKeyNotFound:
-				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{}, nil)
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 			}
 
 			h := dynUserHandler{
@@ -236,7 +236,7 @@ func TestRotateKey_ResolveThenAuthorize(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("customer1:bob")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "customer1:bob").Return(map[string]*apikey.User{"customer1:bob": {InternalIdentifier: "old-id"}}, nil)
+	dynUser.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {InternalIdentifier: "old-id"}}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 	dynUser.On("RotateKey", mock.Anything, "customer1:bob", mock.Anything, mock.Anything, "old-id", mock.Anything).Return(nil)
 

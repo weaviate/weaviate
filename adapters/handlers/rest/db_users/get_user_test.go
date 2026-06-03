@@ -291,8 +291,8 @@ func TestGetUser_Namespaces(t *testing.T) {
 		userID           string // raw id as the client sends it
 		principalNS      string // principal.Namespace ("" = global)
 		isGlobalOperator bool
-		authzKey         string                  // resolved users/ key authz is asked for
-		storedUser       map[string]*apikey.User // GetUsers return; key by internal key
+		authzKey         string                     // resolved users/ key authz is asked for
+		storedUser       map[string]apikey.UserView // GetUsers return; key by internal key
 		wantStatus       any
 		wantUserID       string // expected response.UserID
 		wantNamespace    string // expected response.Namespace
@@ -302,7 +302,7 @@ func TestGetUser_Namespaces(t *testing.T) {
 			userID:        "bob",
 			principalNS:   "customer1",
 			authzKey:      "customer1:bob",
-			storedUser:    map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
+			storedUser:    map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
 			wantStatus:    &users.GetUserInfoOK{},
 			wantUserID:    "bob",
 			wantNamespace: "",
@@ -312,7 +312,7 @@ func TestGetUser_Namespaces(t *testing.T) {
 			userID:      "bob",
 			principalNS: "customer2",
 			authzKey:    "customer2:bob",
-			storedUser:  map[string]*apikey.User{},
+			storedUser:  map[string]apikey.UserView{},
 			wantStatus:  &users.GetUserInfoNotFound{},
 		},
 		{
@@ -320,7 +320,7 @@ func TestGetUser_Namespaces(t *testing.T) {
 			userID:           "customer1:bob",
 			isGlobalOperator: true,
 			authzKey:         "customer1:bob",
-			storedUser:       map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
+			storedUser:       map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
 			wantStatus:       &users.GetUserInfoOK{},
 			wantUserID:       "customer1:bob",
 			wantNamespace:    "customer1",
@@ -364,7 +364,7 @@ func TestGetUser_ResolveThenAuthorize(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("customer1:bob")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "customer1:bob").Return(map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}}, nil)
+	dynUser.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 	h := dynUserHandler{

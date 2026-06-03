@@ -204,11 +204,11 @@ func TestDeleteUser_Namespaces(t *testing.T) {
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			if _, ok := tt.wantStatus.(*users.DeleteUserNoContent); ok {
-				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {}}, nil)
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
 				dynUser.On("GetRolesForUserOrGroup", tt.authzKey, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 				dynUser.On("DeleteUser", mock.Anything, tt.authzKey).Return(nil)
 			} else if _, ok := tt.wantStatus.(*users.DeleteUserNotFound); ok {
-				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{}, nil)
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 			}
 
 			h := dynUserHandler{
@@ -233,7 +233,7 @@ func TestDeleteUser_ResolveThenAuthorize(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("customer1:bob")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "customer1:bob").Return(map[string]*apikey.User{"customer1:bob": {}}, nil)
+	dynUser.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 	dynUser.On("DeleteUser", mock.Anything, "customer1:bob").Return(nil)
 

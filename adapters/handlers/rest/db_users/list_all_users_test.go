@@ -281,7 +281,7 @@ func TestListNoDynamic(t *testing.T) {
 // TestListUsers_Namespaces — per-item response stripping: short id (no
 // Namespace) for a namespaced caller; full id (with Namespace) for a global op.
 func TestListUsers_Namespaces(t *testing.T) {
-	storedUser := &apikey.User{Id: "customer1:bob", Namespace: "customer1", Active: true}
+	storedUser := apikey.UserView{Id: "customer1:bob", Namespace: "customer1", Active: true}
 
 	tests := []struct {
 		name             string
@@ -311,7 +311,7 @@ func TestListUsers_Namespaces(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(storedUser.Id)[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]*apikey.User{storedUser.Id: storedUser}, nil)
+			dynUser.On("GetUsers").Return(map[string]apikey.UserView{storedUser.Id: storedUser}, nil)
 			dynUser.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{
@@ -337,7 +337,7 @@ func TestListUsers_Namespaces(t *testing.T) {
 // specialization, exercised here via FilterAuthorizedResources) returns only
 // the caller's customer1:bob, stripped to the short name.
 func TestListUsers_CrossNamespaceIsolation(t *testing.T) {
-	stored := map[string]*apikey.User{
+	stored := map[string]apikey.UserView{
 		"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true},
 		"customer2:bob": {Id: "customer2:bob", Namespace: "customer2", Active: true},
 	}

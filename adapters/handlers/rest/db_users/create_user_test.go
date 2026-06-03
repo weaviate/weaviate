@@ -407,7 +407,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 				if i := strings.Index(tt.authzKey, ":"); i >= 0 {
 					expectedNS = tt.authzKey[:i]
 				}
-				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{}, nil)
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything).Return(nil)
 			}
@@ -490,7 +490,7 @@ func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{}, nil)
+			dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{}, nil)
 			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 			dynUser.On("CreateUser", mock.Anything, userID, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
 
@@ -517,7 +517,7 @@ func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 
 func TestListAndGetUser_NamespaceVisibility(t *testing.T) {
 	const userID = "u1"
-	storedUser := &apikey.User{Id: userID, Namespace: "ns1", Active: true, ApiKeyFirstLetters: "abc"}
+	storedUser := apikey.UserView{Id: userID, Namespace: "ns1", Active: true, ApiKeyFirstLetters: "abc"}
 
 	tests := []struct {
 		name             string
@@ -535,7 +535,7 @@ func TestListAndGetUser_NamespaceVisibility(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: storedUser}, nil)
+			dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: storedUser}, nil)
 			dynUser.On("GetRolesForUserOrGroup", userID, mock.Anything, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{

@@ -362,11 +362,11 @@ func TestGetRolesForUser_Namespaces(t *testing.T) {
 				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(fmt.Errorf("not allowed"))
 			case *authz.GetRolesForUserOK:
 				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(nil)
-				controller.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {}}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
 				controller.On("GetRolesForUserOrGroup", tt.authzKey, authentication.AuthTypeDb, false).Return(roles, nil)
 			case *authz.GetRolesForUserNotFound:
 				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(nil)
-				controller.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 			}
 
 			h := &authZHandlers{
@@ -427,7 +427,7 @@ func TestGetRolesForUser_OwnUserSelfReadBypass(t *testing.T) {
 
 			switch tt.wantStatus.(type) {
 			case *authz.GetRolesForUserOK:
-				controller.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {}}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
 				controller.On("GetRolesForUserOrGroup", tt.authzKey, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 			case *authz.GetRolesForUserForbidden:
 				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(fmt.Errorf("not allowed"))
