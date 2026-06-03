@@ -148,14 +148,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// An empty filtered result returns Forbidden from filterBackupableClasses.
 	if !explicitInclude {
 		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
 		if err != nil {
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return nil, err
-			}
-			return nil, backup.NewErrUnprocessable(err)
+			return nil, err
 		}
 	}
 
@@ -220,14 +216,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// An empty filtered result returns Forbidden from filterBackupableClasses.
 	if !explicitInclude {
 		allowed, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, meta.Classes())
 		if err != nil {
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return nil, err
-			}
-			return nil, backup.NewErrUnprocessable(err)
+			return nil, err
 		}
 		meta.Include(allowed)
 	}
@@ -268,12 +260,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-// filterBackupableClasses returns the subset of classes the caller is allowed
-// to act on with the given verb under the backups domain. It is used on the
-// "all classes" path (empty Include) to narrow the operation to the classes
-// the caller has permission on, rather than 403-ing the whole request.
-// An empty result returns Forbidden so the caller learns they have no
-// permission to act on any class, consistent with the explicit-Include path.
+// filterBackupableClasses returns the subset of classes the caller may act on
+// with the given verb, used on the empty-Include path to narrow the operation
+// rather than 403-ing the whole request. An empty result returns Forbidden,
+// consistent with the explicit-Include path; any other authorizer failure is
+// wrapped Unprocessable so callers can return it directly.
 func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
 	allowed := make([]string, 0, len(classes))
 	for _, c := range classes {
@@ -281,7 +272,7 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 			if errors.As(err, &authzerrors.Forbidden{}) {
 				continue
 			}
-			return nil, err
+			return nil, backup.NewErrUnprocessable(err)
 		}
 		allowed = append(allowed, c)
 	}
@@ -291,11 +282,9 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 	return allowed, nil
 }
 
-// authorizeBackupByID reads the backup meta for backupID and authorizes the
-// caller against the classes recorded in the backup. A not-found meta is a
-// no-op: leaking the existence of a backup ID via a 404 response is
-// intentional. Any other backend error fails closed so that callers cannot
-// observe in-flight backup state when the descriptor read is failing.
+// authorizeBackupByID reads the backup meta and authorizes the caller against
+// the classes it records. A not-found meta is a deliberate no-op (the 404 may
+// leak the id's existence); any other backend error fails closed.
 func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
 	store coordStore, filename, overrideBucket, overridePath string,
 ) error {
@@ -369,10 +358,9 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 	idErr := validateID(backupID)
 
-	// Authorize before surfacing a validation error so a caller without
-	// permission gets 403, not a hint about the id. Scope authz to the backup's
-	// classes when the id is valid and the meta is readable; otherwise authorize
-	// against wildcard backups so only callers with DELETE on all backups proceed.
+	// Authorize before validating the id so a caller without permission gets 403,
+	// not a hint about the id. Scope to the backup's classes when the meta is
+	// readable; otherwise require wildcard DELETE.
 	var meta *backup.DistributedBackupDescriptor
 	var classes []string
 	if idErr == nil {
@@ -432,11 +420,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 
 	idErr := validateID(backupID)
 
-	// Authorize before surfacing a validation error so a caller without
-	// permission gets 403, not a hint about the id. Prefer the restore descriptor
-	// for authz; fall back to the backup descriptor if the restore meta hasn't
-	// been written yet. If neither is readable (or the id is malformed), authorize
-	// against wildcard backups so only callers with DELETE on all backups proceed.
+	// Authorize before validating the id so a caller without permission gets 403,
+	// not a hint about the id. Prefer the restore descriptor, falling back to the
+	// backup descriptor; if neither is readable, require wildcard DELETE.
 	var meta *backup.DistributedBackupDescriptor
 	var metaErr error
 	var classes []string
@@ -541,10 +527,9 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
-	// Filter-in-response: return only backups the caller has READ on. A backup
-	// spans multiple classes, so include it only if the caller has READ on every
-	// class in the backup — otherwise listing would leak the existence of
-	// collections the caller cannot see.
+	// Return only backups the caller has READ on. A backup spans multiple classes,
+	// so include it only if the caller has READ on every one — otherwise listing
+	// leaks the existence of collections the caller cannot see.
 	response := make(models.BackupListResponse, 0, len(backups))
 	for _, b := range backups {
 		classes := b.Classes()
