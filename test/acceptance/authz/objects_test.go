@@ -28,7 +28,6 @@ import (
 )
 
 func TestAuthZObjectsEndpoints(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
@@ -40,7 +39,7 @@ func TestAuthZObjectsEndpoints(t *testing.T) {
 	updateDataAction := authorization.UpdateData
 	deleteDataAction := authorization.DeleteData
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	tests := []struct {

@@ -27,11 +27,9 @@ import (
 
 func TestAuthzViewerEndpoints(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
-	viewerKey := "viewer-key"
 	viewerUser := "viewer-user"
 
-	compose, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
+	compose, down := composeUpShared(t)
 	defer down()
 
 	weaviateUrl := compose.GetWeaviate().URI()

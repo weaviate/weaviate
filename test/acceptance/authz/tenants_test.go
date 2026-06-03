@@ -25,7 +25,6 @@ import (
 )
 
 func TestAuthZTenants(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -39,7 +38,7 @@ func TestAuthZTenants(t *testing.T) {
 	updateTenantAction := authorization.UpdateTenants
 
 	ctx := context.Background()
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	className := "AuthzTenantTestClass"

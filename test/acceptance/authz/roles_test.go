@@ -79,13 +79,12 @@ func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	var err error
 
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminRole := "admin"
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("get all roles to check if i have perm.", func(t *testing.T) {
@@ -176,7 +175,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("get all roles before create", func(t *testing.T) {
@@ -304,12 +303,10 @@ func TestAuthzRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRoleName := "testRole"
 	testUser := "test-user"
-	testKey := "test-key"
 
 	testRole := &models.Role{
 		Name: &testRoleName,
@@ -321,7 +318,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 		}},
 	}
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{testUser: testKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("get all roles before create", func(t *testing.T) {
@@ -442,15 +439,13 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 }
 
 func TestAuthzRolesHasPermission(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
-	customUser := "custom-user"
 	customKey := "custom-key"
 
 	testRole := "testRole"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create role", func(t *testing.T) {
@@ -581,11 +576,10 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 func TestAuthzEmptyRole(t *testing.T) {
 	var err error
 
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customEmptyRole := "customEmpty"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create empty role", func(t *testing.T) {
@@ -608,13 +602,12 @@ func TestAuthzEmptyRole(t *testing.T) {
 func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
 	var err error
 
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customRole := "customRole"
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create role", func(t *testing.T) {
@@ -680,7 +673,6 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 	var err error
 
 	// Setup users
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -694,11 +686,7 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 	broaderRole := "broader-role"
 
 	// Start environment with admin and limited user
-	_, down := composeUpShared(t,
-		map[string]string{adminUser: adminKey},     // admin users
-		map[string]string{limitedUser: limitedKey}, // regular users
-		nil,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	// Clean up any existing test roles
@@ -912,7 +900,6 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 }
 
 func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -926,11 +913,7 @@ func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
 	allowedTenant := "tenant1"
 	restrictedTenant := "tenant2"
 
-	_, down := composeUpShared(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{limitedUser: limitedKey},
-		nil,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("setup collection with tenants", func(t *testing.T) {
@@ -1061,9 +1044,8 @@ func TestRaceConcurrentRoleCreation(t *testing.T) {
 
 func TestRolesUserExistence(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	roleName := "role1"
@@ -1123,11 +1105,10 @@ func TestRolesUserExistence(t *testing.T) {
 
 func TestGetRolesForUserPermission(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 
 	customUser := "custom-user"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: "custom-key"}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	all := "*"

@@ -28,13 +28,12 @@ import (
 )
 
 func TestAuthzGRPCSearch(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	grpcClient := helper.ClientGRPC(t)
@@ -114,14 +113,13 @@ func TestAuthzGRPCSearch(t *testing.T) {
 }
 
 func TestAuthzGRPCSearchWithMT(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 	roleName := "role"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	grpcClient := helper.ClientGRPC(t)

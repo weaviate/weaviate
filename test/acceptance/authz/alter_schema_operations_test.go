@@ -24,18 +24,13 @@ import (
 )
 
 func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUpShared(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{customUser: customKey},
-		nil,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	className := "AuthzDeletePropertyIndex"

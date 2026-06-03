@@ -28,7 +28,6 @@ import (
 )
 
 func TestAuthzAggregateWithGRPC(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
@@ -37,7 +36,7 @@ func TestAuthzAggregateWithGRPC(t *testing.T) {
 	customUser2 := "custom-user2"
 	customKey2 := "custom-key2"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, customUser2: customKey2}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	grpcClient := helper.ClientGRPC(t)

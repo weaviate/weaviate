@@ -38,9 +38,8 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
-	customKey := "custom-key"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("all roles", func(t *testing.T) {
@@ -68,11 +67,10 @@ func TestAuthzRolesForUsers(t *testing.T) {
 }
 
 func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	similar := "custom-user"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{similar: similar}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create role with the same name of the user", func(t *testing.T) {
@@ -107,13 +105,12 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 }
 
 func TestUserPermissions(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	// create roles for later
@@ -209,7 +206,6 @@ func TestUserPermissions(t *testing.T) {
 }
 
 func TestReadUserPermissions(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
@@ -218,7 +214,7 @@ func TestReadUserPermissions(t *testing.T) {
 	secondUser := "custom-user2"
 	secondKey := "custom-key2"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, secondUser: secondKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	// create roles for later
@@ -308,9 +304,8 @@ func TestReadUserPermissions(t *testing.T) {
 
 func TestUserEndpoint(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 	customUser := "custom-user"
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: "custom-key"}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	testUser := "endpoint-test-user"
@@ -494,12 +489,11 @@ func TestUserEndpoint(t *testing.T) {
 
 func TestDynamicUsers(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 
 	viewerUser := "viewer-user"
 	viewerKey := "viewer-key"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
@@ -682,11 +676,10 @@ func TestDynamicUsers(t *testing.T) {
 }
 
 func TestUserPermissionReturns(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	all := "*"
 
-	_, down := composeUpShared(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	roleName := "testingUserPermissionReturns"

@@ -24,7 +24,6 @@ import (
 )
 
 func TestAuthzAliases(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
@@ -34,11 +33,7 @@ func TestAuthzAliases(t *testing.T) {
 	customRole := "custom"
 	onlyAliasesStartingWithAliasRole := "only-aliases"
 
-	_, down := composeUpShared(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{customUser: customKey, limitedUser: limitedKey},
-		nil,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	clsA := articles.ArticlesClass()

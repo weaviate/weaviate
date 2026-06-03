@@ -64,7 +64,9 @@ func TestMain(m *testing.M) {
 	c := sharedAuthz
 	sharedMu.Unlock()
 	if c != nil {
-		_ = c.Terminate(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		_ = c.Terminate(ctx)
+		cancel()
 	}
 	os.Exit(code)
 }
@@ -101,11 +103,11 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 	return sharedAuthz
 }
 
-// composeUpShared is a drop-in for composeUp for the default-config bucket.
-// The admins/users/viewers maps are ignored: their principals are baked into
-// the shared container at boot. The teardown resets state instead of
-// terminating, so the container survives for the next test.
-func composeUpShared(t *testing.T, _, _, _ map[string]string) (*docker.DockerCompose, func()) {
+// composeUpShared points the test client at the shared default-config
+// container. Its principals are baked in at boot, so callers don't provision
+// any. The teardown resets state instead of terminating, so the container
+// survives for the next test.
+func composeUpShared(t *testing.T) (*docker.DockerCompose, func()) {
 	compose := getSharedCompose(t)
 	helper.SetupClient(compose.GetWeaviate().URI())
 	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
