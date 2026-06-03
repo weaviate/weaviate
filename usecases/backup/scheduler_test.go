@@ -216,6 +216,24 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		assert.Equal(t, want, st)
 	})
 
+	t.Run("ActiveStatePartialMeta", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		s := fs.scheduler()
+		s.backupper.lastOp.reqState = reqState{
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Transferring,
+			Path:      path,
+		}
+		// A status poll racing an in-progress meta write reads a partial file
+		// that fails to unmarshal; authz must tolerate it so the poll succeeds.
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return([]byte("{"), nil)
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")
+		assert.Nil(t, err)
+		assert.Equal(t, want, st)
+	})
+
 	t.Run("GetBackupProvider", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
@@ -312,6 +330,23 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
 		// OnStatus then short-circuits on lastOp.
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
+		assert.Nil(t, err)
+		assert.Equal(t, want, st)
+	})
+
+	t.Run("ActiveStatePartialMeta", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		s := fs.scheduler()
+		s.restorer.lastOp.reqState = reqState{
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Transferring,
+			Path:      path,
+		}
+		// A status poll racing an in-progress meta write reads a partial file
+		// that fails to unmarshal; authz must tolerate it so the poll succeeds.
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return([]byte("{"), nil)
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)

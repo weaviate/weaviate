@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -290,7 +291,11 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 ) error {
 	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
 	if err != nil {
-		if errors.As(err, &backup.ErrNotFound{}) {
+		// A meta read concurrent with an in-progress write returns a partial or
+		// empty file that fails to unmarshal; treat that like not-found so a
+		// status poll mid-write retries instead of erroring.
+		var syntaxErr *json.SyntaxError
+		if errors.As(err, &backup.ErrNotFound{}) || errors.As(err, &syntaxErr) {
 			return nil
 		}
 		return err
