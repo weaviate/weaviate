@@ -119,7 +119,7 @@ func TestCreateConflict(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 			if !tt.rbacConf.Enabled {
-				dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
+				dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{"user": {}}, nil)
 			}
 
 			h := dynUserHandler{
@@ -144,7 +144,7 @@ func TestCreateSuccess(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", user).Return(map[string]apikey.UserView{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 	dynUser.On("CreateUser", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 

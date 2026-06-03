@@ -40,7 +40,7 @@ func TestSuccessDeactivate(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: true}}, nil)
+			dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{"user": {Id: "user", Active: true}}, nil)
 			dynUser.On("DeactivateUser", mock.Anything, "user", test.revokeKey).Return(nil)
 
 			h := dynUserHandler{
@@ -60,7 +60,7 @@ func TestDeactivateNotFound(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -113,7 +113,7 @@ func TestDoubleDeactivate(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(user)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{user: {Id: user, Active: false}}, nil)
+	dynUser.On("GetUsers", user).Return(map[string]apikey.UserView{user: {Id: user, Active: false}}, nil)
 
 	h := dynUserHandler{
 		dbUsers:              dynUser,
