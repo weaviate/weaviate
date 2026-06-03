@@ -2104,7 +2104,7 @@ func setupGoProfiling(appState *state.State) {
 	debugHandler := makeDebugEndpointsGate(enabled)(http.DefaultServeMux)
 	enterrors.GoWrapper(func() {
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), debugHandler); err != nil {
-			logger.WithError(err).Errorf("error listening and serve :%d", port)
+			logger.WithField("action", "debug_listener").Error(err)
 		}
 	}, logger)
 }
