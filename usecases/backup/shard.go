@@ -96,8 +96,9 @@ type shardSyncChan struct {
 	lastAsyncError error
 }
 
-// waitForCoordinator to confirm or to abort previous operation
-func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) error {
+// waitForCoordinator to confirm or to abort previous operation. Exits early
+// if shutdownCtx is cancelled.
+func (c *shardSyncChan) waitForCoordinator(shutdownCtx context.Context, d time.Duration, id string) error {
 	defer c.waitingForCoordinatorToCommit.Store(false)
 	if d == 0 {
 		return nil
@@ -107,6 +108,8 @@ func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) error {
 	defer timer.Stop()
 	for {
 		select {
+		case <-shutdownCtx.Done():
+			return fmt.Errorf("node shutting down before coordinator commit: %w", shutdownCtx.Err())
 		case <-timer.C:
 			return fmt.Errorf("timed out waiting for coordinator to commit")
 		case v := <-c.coordChan:

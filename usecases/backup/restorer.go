@@ -41,6 +41,11 @@ type restorer struct {
 	backends       BackupBackendProvider
 	shardSyncChan
 
+	// shutdownCtx cancels the local restore on node shutdown.
+	shutdownCtx context.Context
+	// inflight tracks the restore goroutine; drained by Handler.Wait.
+	inflight *sync.WaitGroup
+
 	// TODO: keeping status in memory after restore has been done
 	// is not a proper solution for communicating status to the user.
 	// On app crash or restart this data will be lost
@@ -50,7 +55,7 @@ type restorer struct {
 
 func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter,
-	backends BackupBackendProvider,
+	backends BackupBackendProvider, shutdownCtx context.Context, inflight *sync.WaitGroup,
 ) *restorer {
 	return &restorer{
 		node:           node,
@@ -60,6 +65,8 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shutdownCtx:    shutdownCtx,
+		inflight:       inflight,
 	}
 }
 
@@ -86,8 +93,9 @@ func (r *restorer) restore(
 		return ret, err
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
-
+	r.inflight.Add(1)
 	f := func() {
+		defer r.inflight.Done()
 		var err error
 		status := Status{
 			Path:      destPath,
@@ -106,7 +114,7 @@ func (r *restorer) restore(
 			r.lastOp.reset()
 		}()
 
-		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
+		if err = r.waitForCoordinator(r.shutdownCtx, expiration, req.ID); err != nil {
 			r.logger.WithField("action", "restore_backup").
 				Error(err)
 			r.lastAsyncError = err
@@ -116,7 +124,12 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		// ctx cancels on coordinator abort RPC or node shutdown.
+		done := make(chan struct{})
+		ctx := r.withCancellation(r.shutdownCtx, req.ID, done, r.logger)
+		defer close(done)
+
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
