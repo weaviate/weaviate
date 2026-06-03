@@ -86,7 +86,7 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 	}
 
 	enterrors.GoWrapper(func() {
-		if state == cmd.INTEGRATING {
+		if state == cmd.INTEGRATING || state == cmd.DEHYDRATING {
 			m.drainInflight(opID)
 		}
 
