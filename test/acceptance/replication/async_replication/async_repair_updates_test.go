@@ -56,6 +56,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       int64(clusterSize),
 			AsyncEnabled: true,
+			AsyncConfig:  fastAsyncReplicationConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 

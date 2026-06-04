@@ -59,6 +59,18 @@ var (
 	}
 )
 
+// fastAsyncReplicationConfig pins per-class frequencies to the API floors so
+// read-repair converges in seconds, decoupling tests from the larger production
+// code defaults.
+func fastAsyncReplicationConfig() *models.ReplicationAsyncConfig {
+	freq := int64(5000)          // 5s == minFrequency
+	freqWhileProp := int64(1000) // 1s == minFrequencyWhilePropagating
+	return &models.ReplicationAsyncConfig{
+		Frequency:                 &freq,
+		FrequencyWhilePropagating: &freqWhileProp,
+	}
+}
+
 type AsyncReplicationTestSuite struct {
 	suite.Suite
 }
@@ -97,12 +109,14 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       3,
 			AsyncEnabled: true,
+			AsyncConfig:  fastAsyncReplicationConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       3,
 			AsyncEnabled: true,
+			AsyncConfig:  fastAsyncReplicationConfig(),
 		}
 		helper.CreateClass(t, articleClass)
 	})

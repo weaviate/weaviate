@@ -56,6 +56,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 			Factor:           int64(clusterSize),
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
 			AsyncEnabled:     true,
+			AsyncConfig:      fastAsyncReplicationConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 

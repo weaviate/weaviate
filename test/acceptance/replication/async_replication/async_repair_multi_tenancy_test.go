@@ -80,6 +80,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       int64(clusterSize),
 			AsyncEnabled: true,
+			AsyncConfig:  fastAsyncReplicationConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -210,6 +211,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 		// Update to enable async replication
 		class := res.Payload
 		class.ReplicationConfig.AsyncEnabled = true
+		class.ReplicationConfig.AsyncConfig = fastAsyncReplicationConfig()
 
 		// Update the class
 		helper.UpdateClass(t, class)
