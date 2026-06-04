@@ -313,14 +313,6 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	nodeCh := c.broadcast(ctxWithTimeout, writeRoutingPlan.HostAddresses(), ask, level)
 	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
 
-	// if there are additional hosts, we do a "best effort" write to them
-	// where we don't wait for a response because they are not part of the
-	// replicas used to reach level consistency
-	if len(writeRoutingPlan.AdditionalHostAddresses()) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, len(writeRoutingPlan.AdditionalHostAddresses()))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
-	}
-
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
 }
 

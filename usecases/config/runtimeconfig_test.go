@@ -49,13 +49,41 @@ maximum_allowed_collections_count: 13
 		assert.Equal(t, 13, cfg.MaximumAllowedCollectionsCount.Get())
 	})
 
-	t.Run("empty-string scalar for slice fields is equivalent to empty list", func(t *testing.T) {
-		buf := []byte(`allowed_vector_index_types: ""
-allowed_compression_types: ""`)
-		cfg, err := ParseRuntimeConfig(buf)
-		require.NoError(t, err)
-		assert.Empty(t, cfg.AllowedVectorIndexTypes.Get())
-		assert.Empty(t, cfg.AllowedCompressionTypes.Get())
+	t.Run("slice fields accept multiple YAML shapes", func(t *testing.T) {
+		cases := []struct {
+			name            string
+			yaml            string
+			wantVector      []string
+			wantCompression []string
+		}{
+			{
+				name: "empty-string scalar is equivalent to empty list",
+				yaml: `allowed_vector_index_types: ""
+allowed_compression_types: ""`,
+			},
+			{
+				name: "comma-separated scalar splits into elements",
+				yaml: `allowed_vector_index_types: "hfresh,hnsw,dynamic,flat"
+allowed_compression_types: "pq,bq"`,
+				wantVector:      []string{"hfresh", "hnsw", "dynamic", "flat"},
+				wantCompression: []string{"pq", "bq"},
+			},
+			{
+				name: "explicit YAML list decodes as-is",
+				yaml: `allowed_vector_index_types: ["hfresh", "hnsw", "dynamic", "flat"]
+allowed_compression_types: ["pq", "bq"]`,
+				wantVector:      []string{"hfresh", "hnsw", "dynamic", "flat"},
+				wantCompression: []string{"pq", "bq"},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg, err := ParseRuntimeConfig([]byte(tc.yaml))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantVector, cfg.AllowedVectorIndexTypes.Get())
+				assert.Equal(t, tc.wantCompression, cfg.AllowedCompressionTypes.Get())
+			})
+		}
 	})
 
 	t.Run("empty-string scalar for non-slice fields still errors", func(t *testing.T) {

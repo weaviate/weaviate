@@ -33,7 +33,6 @@ import (
 )
 
 func TestAuthZBatchObjs(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
@@ -44,7 +43,7 @@ func TestAuthZBatchObjs(t *testing.T) {
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	tests := []struct {
@@ -220,7 +219,6 @@ func TestAuthZBatchObjs(t *testing.T) {
 }
 
 func TestAuthZBatchObjsTenantFiltering(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
@@ -231,7 +229,7 @@ func TestAuthZBatchObjsTenantFiltering(t *testing.T) {
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	cls := articles.ParagraphsClass()
