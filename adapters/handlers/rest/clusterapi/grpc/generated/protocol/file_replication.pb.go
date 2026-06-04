@@ -670,7 +670,7 @@ type StartChangeCaptureRequest struct {
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
 	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
 	OpId          string                 `protobuf:"bytes,3,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
-	SchemaVersion uint64                 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"` // source waits for this schema version (the tenant HOT activation) before opening the change-capture log
+	SchemaVersion uint64                 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
