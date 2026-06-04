@@ -40,12 +40,16 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		return nil
 	}
 
-	// perform a RNG selection to determine the postings where the vector should be
-	// reassigned to.
-	q, err := h.config.VectorForIDThunk(ctx, op.VectorID)
+	var q []float32
+	if h.muvera.Load() {
+		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, h.id+"_muvera_vectors")
+	} else {
+		q, err = h.config.VectorForIDThunk(ctx, op.VectorID)
+	}
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}
+	q = h.normalizeVec(q)
 
 	replicas, needsReassign, err := h.RNGSelect(q, op.PostingID)
 	if err != nil {

@@ -12,8 +12,10 @@
 package hfresh
 
 import (
+	"context"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -26,18 +28,41 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+type muveraTestStore struct {
+	multiVectors map[uint64][][]float32
+}
+
+func newMuveraTestStore() *muveraTestStore {
+	return &muveraTestStore{
+		multiVectors: make(map[uint64][][]float32),
+	}
+}
+
+func (s *muveraTestStore) storeMultiVector(id uint64, vecs [][]float32) {
+	s.multiVectors[id] = vecs
+}
+
+func (s *muveraTestStore) getMultiVector(id uint64) ([][]float32, error) {
+	vecs, ok := s.multiVectors[id]
+	if !ok {
+		return nil, errors.Errorf("multi-vector not found for id %d", id)
+	}
+	return vecs, nil
+}
+
 type TestHFresh struct {
-	Index *HFresh
-	Logs  *test.Hook
+	Index   *HFresh
+	Logs    *test.Hook
+	mvStore *muveraTestStore
 }
 
 func createHFreshIndex(t *testing.T) TestHFresh {
 	t.Helper()
 
-	// Create logger + hook
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -151,4 +176,71 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 	}
 
 	return postingID, posting
+}
+
+func createMuveraHFreshIndex(t *testing.T) TestHFresh {
+	t.Helper()
+
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	cfg := DefaultConfig()
+	mvStore := newMuveraTestStore()
+
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: logger,
+		},
+	)
+	cfg.Scheduler = scheduler
+	cfg.RootPath = t.TempDir()
+
+	cfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "hfresh_muvera",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
+	}
+
+	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+	cfg.Logger = logger
+	cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
+		return mvStore.getMultiVector(id)
+	}
+
+	scheduler.Start()
+	t.Cleanup(func() {
+		scheduler.Close(t.Context())
+	})
+
+	uc := ent.NewDefaultUserConfig()
+	uc.Multivector.Enabled = true
+	uc.Multivector.MuveraConfig.Enabled = true
+	uc.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
+	uc.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
+	uc.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+
+	store := testinghelpers.NewDummyStore(t)
+
+	index, err := New(cfg, uc, store)
+	require.NoError(t, err)
+	index.multivectorForIdThunk = cfg.MultiVectorForIDThunk
+
+	return TestHFresh{
+		Index:    index,
+		Logs:     hook,
+		mvStore:  mvStore,
+	}
+}
+
+func addMultiVectorToIndex(t *testing.T, tf *TestHFresh, docID uint64, vectors [][]float32) {
+	t.Helper()
+	if tf.mvStore != nil {
+		tf.mvStore.storeMultiVector(docID, vectors)
+	}
+	err := tf.Index.AddMulti(t.Context(), docID, vectors)
+	require.NoError(t, err)
 }

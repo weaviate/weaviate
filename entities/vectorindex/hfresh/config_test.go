@@ -21,6 +21,16 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+func defaultMuveraConfig() hnsw.MultivectorConfig {
+	return hnsw.MultivectorConfig{
+		MuveraConfig: hnsw.MuveraConfig{
+			KSim:         DefaultMuveraKSim,
+			DProjections: DefaultMuveraDProjections,
+			Repetitions:  DefaultMuveraRepetitions,
+		},
+	}
+}
+
 func Test_UserConfig(t *testing.T) {
 	type test struct {
 		name         string
@@ -44,6 +54,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -61,6 +72,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -78,6 +90,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -95,6 +108,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -114,6 +128,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 500,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -131,6 +146,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -148,6 +164,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -171,6 +188,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 500,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -193,6 +211,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 500,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -212,6 +231,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 0,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
