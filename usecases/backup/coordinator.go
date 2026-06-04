@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -187,6 +188,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ServerVersion:   config.ServerVersion,
 		Leader:          leader,
 		CompressionType: compressionType,
+		BaseBackupID:    req.BaseBackupID,
 	}
 
 	for key := range c.Participants {
@@ -207,11 +209,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	statusReq := StatusRequest{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
-		Bucket:  req.Bucket,
-		Path:    req.Path,
+		Method:       OpCreate,
+		ID:           req.ID,
+		Backend:      req.Backend,
+		Bucket:       req.Bucket,
+		Path:         req.Path,
+		BaseBackupID: req.BaseBackupID,
 	}
 
 	f := func() {
@@ -457,14 +460,34 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	}
 
 	status := &Status{
-		Path:        store.HomeDir(store.bucket, store.path),
-		StartedAt:   meta.StartedAt,
-		CompletedAt: meta.CompletedAt,
-		Status:      meta.Status,
-		Err:         meta.Error,
-		Size:        float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
+		Path:         store.HomeDir(store.bucket, store.path),
+		StartedAt:    meta.StartedAt,
+		CompletedAt:  meta.CompletedAt,
+		Status:       meta.Status,
+		Err:          meta.Error,
+		Size:         float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
+		BaseBackupID: meta.BaseBackupID,
 	}
 	return status, nil
+}
+
+// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
+// typed error. When the response has [CanCommitErrInFlightReindex] kind, we
+// wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
+// upstream `errors.Is` checks succeed across the RPC boundary. Empty or
+// [CanCommitErrCannotCommit] kinds (including responses from older nodes
+// that don't set the field) keep the legacy [errCannotCommit] wrapping so
+// existing callers and tests continue to match.
+func canCommitErrFromResponse(resp *CanCommitResponse) error {
+	if resp == nil {
+		return errCannotCommit
+	}
+	switch resp.ErrKind {
+	case CanCommitErrInFlightReindex:
+		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	default:
+		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
+	}
 }
 
 // canCommit asks candidates if they agree to participate in DBRO
@@ -514,6 +537,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Path:              req.Path,
 				UserRestoreOption: req.UserRestoreOption,
 				RbacRestoreOption: req.RbacRestoreOption,
+				BaseBackupID:      c.descriptor.BaseBackupID,
 			}
 		}
 		return nil
@@ -525,7 +549,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
-				err = fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
+				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
 				return fmt.Errorf("node %q: %w", req.NodeName, err)
@@ -637,7 +661,7 @@ func (c *coordinator) commit(ctx context.Context,
 			// for the whole cluster (not just the node)
 			// Skip this for restore operations
 			if req.Method != OpRestore {
-				if backend, err := c.backends.BackupBackend(req.Backend); err == nil {
+				if backend, err := c.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup); err == nil {
 					// Create a nodeStore for this specific node
 					nodeBackupID := fmt.Sprintf("%s/%s", req.ID, node)
 					nodeStore := nodeStore{
@@ -646,6 +670,7 @@ func (c *coordinator) commit(ctx context.Context,
 							backupId: nodeBackupID,
 							bucket:   req.Bucket,
 							path:     req.Path,
+							node:     node,
 						},
 					}
 
@@ -840,6 +865,6 @@ func CompressionTypeFromLevel(c CompressionLevel) (backup.CompressionType, error
 	case NoCompression:
 		return backup.CompressionNone, nil
 	default:
-		return "", fmt.Errorf("invalid compression level: %q", c)
+		return "", fmt.Errorf("invalid compression level: %v", c)
 	}
 }

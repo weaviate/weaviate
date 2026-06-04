@@ -27,13 +27,17 @@ import (
 	"github.com/weaviate/weaviate/client/classifications"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/distributed_tasks"
+	"github.com/weaviate/weaviate/client/export"
 	"github.com/weaviate/weaviate/client/graphql"
+	"github.com/weaviate/weaviate/client/mcp"
 	"github.com/weaviate/weaviate/client/meta"
+	"github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/operations"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/client/tokenize"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/client/well_known"
 )
@@ -86,13 +90,17 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Cluster = cluster.New(transport, formats)
 	cli.DistributedTasks = distributed_tasks.New(transport, formats)
+	cli.Export = export.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
+	cli.Mcp = mcp.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
+	cli.Namespaces = namespaces.New(transport, formats)
 	cli.Nodes = nodes.New(transport, formats)
 	cli.Objects = objects.New(transport, formats)
 	cli.Operations = operations.New(transport, formats)
 	cli.Replication = replication.New(transport, formats)
 	cli.Schema = schema.New(transport, formats)
+	cli.Tokenize = tokenize.New(transport, formats)
 	cli.Users = users.New(transport, formats)
 	cli.WellKnown = well_known.New(transport, formats)
 	return cli
@@ -151,9 +159,15 @@ type Weaviate struct {
 
 	DistributedTasks distributed_tasks.ClientService
 
+	Export export.ClientService
+
 	Graphql graphql.ClientService
 
+	Mcp mcp.ClientService
+
 	Meta meta.ClientService
+
+	Namespaces namespaces.ClientService
 
 	Nodes nodes.ClientService
 
@@ -164,6 +178,8 @@ type Weaviate struct {
 	Replication replication.ClientService
 
 	Schema schema.ClientService
+
+	Tokenize tokenize.ClientService
 
 	Users users.ClientService
 
@@ -181,13 +197,17 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Classifications.SetTransport(transport)
 	c.Cluster.SetTransport(transport)
 	c.DistributedTasks.SetTransport(transport)
+	c.Export.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
+	c.Mcp.SetTransport(transport)
 	c.Meta.SetTransport(transport)
+	c.Namespaces.SetTransport(transport)
 	c.Nodes.SetTransport(transport)
 	c.Objects.SetTransport(transport)
 	c.Operations.SetTransport(transport)
 	c.Replication.SetTransport(transport)
 	c.Schema.SetTransport(transport)
+	c.Tokenize.SetTransport(transport)
 	c.Users.SetTransport(transport)
 	c.WellKnown.SetTransport(transport)
 }

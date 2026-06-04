@@ -32,10 +32,20 @@ type segmentReplaceNode struct {
 }
 
 func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	var buf [9]byte
+	return s.keyIndexAndWriteToWithBuf(w, buf[:])
+}
+
+// KeyIndexAndWriteToWithBuf is like KeyIndexAndWriteTo but accepts a caller-
+// supplied buffer (must be at least 9 bytes) to avoid a per-call allocation.
+func (s *segmentReplaceNode) KeyIndexAndWriteToWithBuf(w io.Writer, buf []byte) (segmentindex.Key, error) {
+	return s.keyIndexAndWriteToWithBuf(w, buf)
+}
+
+func (s *segmentReplaceNode) keyIndexAndWriteToWithBuf(w io.Writer, buf []byte) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
 	written := 0
 
-	buf := make([]byte, 9)
 	if s.tombstone {
 		buf[0] = 1
 	} else {
@@ -50,6 +60,9 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, 
 
 	written += 9
 
+	// IMPORTANT: w must copy s.value bytes synchronously (e.g. bufio.Writer).
+	// The compactor passes aliased value buffers that are reused on the next
+	// cursor iteration, so a deferred or zero-copy writer would corrupt data.
 	n, err := w.Write(s.value)
 	if err != nil {
 		return out, errors.Wrapf(err, "write node value")
@@ -115,7 +128,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 		out.offset += n
 	}
 
-	out.tombstone = tmpBuf[0] == 0x1
+	out.tombstone = tmpBuf[0] != 0
 	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.value = make([]byte, valueLength)
 	if n, err := io.ReadFull(r, out.value); err != nil {
@@ -168,15 +181,16 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) (err error) {
 	out.offset = 0
 
-	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
-		return errors.Wrap(err, "read tombstone")
-	}
-	out.offset += 1
+	// 9 bytes covers the largest uninterrupted read (tombstone + value length).
+	// Stack-allocated, no heap allocation.
+	var tmpBuf [9]byte
 
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return errors.Wrap(err, "read value length encoding")
+	if _, err := io.ReadFull(r, tmpBuf[:9]); err != nil {
+		return errors.Wrap(err, "read tombstone and value length")
 	}
+	out.tombstone = tmpBuf[0] != 0
+	out.offset += 1
+	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.offset += 8
 
 	if int(valueLength) > cap(out.value) {
@@ -191,35 +205,44 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 		out.offset += n
 	}
 
-	var keyLength uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+	if _, err := io.ReadFull(r, tmpBuf[:4]); err != nil {
 		return errors.Wrap(err, "read key length encoding")
 	}
+	keyLength := binary.LittleEndian.Uint32(tmpBuf[:4])
 	out.offset += 4
 
-	out.primaryKey = make([]byte, keyLength)
+	if int(keyLength) > cap(out.primaryKey) {
+		out.primaryKey = make([]byte, keyLength)
+	} else {
+		out.primaryKey = out.primaryKey[:keyLength]
+	}
 	if n, err := io.ReadFull(r, out.primaryKey); err != nil {
 		return errors.Wrap(err, "read key")
 	} else {
 		out.offset += n
 	}
 
-	if secondaryIndexCount > 0 {
+	if secondaryIndexCount > 0 && len(out.secondaryKeys) < int(secondaryIndexCount) {
 		out.secondaryKeys = make([][]byte, secondaryIndexCount)
 	}
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
-		var secKeyLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+		if _, err := io.ReadFull(r, tmpBuf[:4]); err != nil {
 			return errors.Wrap(err, "read secondary key length encoding")
 		}
+		secKeyLen := binary.LittleEndian.Uint32(tmpBuf[:4])
 		out.offset += 4
 
 		if secKeyLen == 0 {
+			out.secondaryKeys[j] = out.secondaryKeys[j][:0]
 			continue
 		}
 
-		out.secondaryKeys[j] = make([]byte, secKeyLen)
+		if int(secKeyLen) > cap(out.secondaryKeys[j]) {
+			out.secondaryKeys[j] = make([]byte, secKeyLen)
+		} else {
+			out.secondaryKeys[j] = out.secondaryKeys[j][:secKeyLen]
+		}
 		if n, err := io.ReadFull(r, out.secondaryKeys[j]); err != nil {
 			return errors.Wrap(err, "read secondary key")
 		} else {
@@ -279,6 +302,55 @@ type segmentCollectionNode struct {
 	values     []value
 	primaryKey []byte
 	offset     int
+}
+
+func (s segmentCollectionNode) KeyIndexAndWriteToRedux(w io.Writer, buf []byte) (segmentindex.KeyRedux, error) {
+	written := 0
+	valueLen := uint64(len(s.values))
+	binary.LittleEndian.PutUint64(buf, valueLen)
+	if _, err := w.Write(buf[0:8]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write values len for node")
+	}
+	written += 8
+
+	for i, value := range s.values {
+		if value.tombstone {
+			buf[0] = 0x01
+		} else {
+			buf[0] = 0x00
+		}
+
+		valueLen := uint64(len(value.value))
+		binary.LittleEndian.PutUint64(buf[1:9], valueLen)
+		if _, err := w.Write(buf[0:9]); err != nil {
+			return segmentindex.KeyRedux{}, errors.Wrapf(err, "write len of value %d", i)
+		}
+		written += 9
+
+		n, err := w.Write(value.value)
+		if err != nil {
+			return segmentindex.KeyRedux{}, errors.Wrapf(err, "write value %d", i)
+		}
+		written += n
+	}
+
+	keyLength := uint32(len(s.primaryKey))
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err := w.Write(s.primaryKey)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	return segmentindex.KeyRedux{
+		ValueEnd: s.offset + written,
+		Key:      s.primaryKey,
+	}, nil
 }
 
 func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
@@ -408,12 +480,11 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 // As a result calling this method only makes sense if you plan on calling it
 // multiple times. Calling it just once on an uninitialized node does not have
 // major advantages over calling ParseCollectionNode.
-func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
+func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode, buf []byte) error {
 	// offset is only the local offset relative to "in". In the end we need to
 	// update the global offset.
 	offset := 0
 
-	buf := make([]byte, 9)
 	_, err := io.ReadFull(r, buf[0:8])
 	if err != nil {
 		return fmt.Errorf("read values len: %w", err)

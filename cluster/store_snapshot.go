@@ -48,6 +48,11 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 		return fmt.Errorf("db user snapshot: %w", err)
 	}
 
+	namespacesSnapshot, err := s.namespaceManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("namespaces snapshot: %w", err)
+	}
+
 	tasksSnapshot, err := s.distributedTasksManager.Snapshot()
 	if err != nil {
 		return fmt.Errorf("tasks snapshot: %w", err)
@@ -65,6 +70,7 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 		Aliases:          aliasSnapshot,
 		RBAC:             rbacSnapshot,
 		DbUsers:          dbUserSnapshot,
+		Namespaces:       namespacesSnapshot,
 		DistributedTasks: tasksSnapshot,
 		ReplicationOps:   replicationSnapshot,
 	}
@@ -165,6 +171,13 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			if err := st.dynUserManager.Restore(snap.DbUsers); err != nil {
 				st.log.WithError(err).Error("restoring db user from snapshot")
 				return fmt.Errorf("restore db user from snapshot: %w", err)
+			}
+		}
+
+		if snap.Namespaces != nil {
+			if err := st.namespaceManager.Restore(snap.Namespaces); err != nil {
+				st.log.Error(err)
+				return fmt.Errorf("restore namespaces from snapshot: %w", err)
 			}
 		}
 

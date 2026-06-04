@@ -613,7 +613,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
+				controller.On("GetUsers", "testUser").Return(map[string]apikey.UserView{"testUser": {}}, nil)
 				controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, authentication.AuthType(tt.params.Body.UserType)), tt.params.Body.Roles[0]).Return(tt.revokeErr)
 			}
 
@@ -699,6 +699,72 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 			if tt.expectedError != "" {
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
 			}
+		})
+	}
+}
+
+// TestRevokeRoleFromUser_Namespaces — namespaced short → 403-at-authz on
+// the qualified resource; global op qualified → 200.
+func TestRevokeRoleFromUser_Namespaces(t *testing.T) {
+	userType := models.UserTypeInputDb
+	roles := []string{"testRole"}
+
+	tests := []struct {
+		name             string
+		userID           string
+		principalNS      string
+		isGlobalOperator bool
+		authzKey         string
+		wantStatus       any
+	}{
+		{
+			name:        "namespaced caller short name no grant returns 403",
+			userID:      "bob",
+			principalNS: "customer1",
+			authzKey:    "customer1:bob",
+			wantStatus:  &authz.RevokeRoleFromUserForbidden{},
+		},
+		{
+			name:             "global operator qualified passthrough succeeds",
+			userID:           "customer1:bob",
+			isGlobalOperator: true,
+			authzKey:         "customer1:bob",
+			wantStatus:       &authz.RevokeRoleFromUserOK{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{
+				Namespace:        tt.principalNS,
+				IsGlobalOperator: tt.isGlobalOperator,
+			}
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			switch tt.wantStatus.(type) {
+			case *authz.RevokeRoleFromUserForbidden:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(fmt.Errorf("not allowed"))
+			case *authz.RevokeRoleFromUserOK:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(nil)
+				controller.On("GetRoles", roles[0]).Return(map[string][]authorization.Policy{roles[0]: {}}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
+				controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.authzKey, authentication.AuthType(userType)), roles[0]).Return(nil)
+			}
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				logger:            logger,
+				namespacesEnabled: true,
+			}
+			res := h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+				ID:          tt.userID,
+				HTTPRequest: req,
+				Body:        authz.RevokeRoleFromUserBody{Roles: roles, UserType: userType},
+			}, principal)
+			assert.IsType(t, tt.wantStatus, res)
 		})
 	}
 }

@@ -37,6 +37,14 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 		return []error{err}
 	}
 
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
+		errs := make([]error, len(objects))
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs
+	}
+
 	return s.putBatch(ctx, objects)
 }
 
@@ -228,6 +236,15 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		if err := queue.Delete(docIDsToDelete...); err != nil {
 			for _, pos := range positions {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), pos)
 			}
 		}
 		return nil
@@ -467,6 +484,15 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			for i := range ob.objects {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), i)
 			}
 		}
 		return nil

@@ -21,3 +21,10 @@ type Key struct {
 	ValueStart    int
 	ValueEnd      int
 }
+
+// KeyRedux that only contains the primary key and the value end position.
+// This is used for the compactor to avoid using more heap than needed.
+type KeyRedux struct {
+	Key      []byte
+	ValueEnd int
+}

@@ -24,7 +24,7 @@ type PropertyInterface interface {
 	GetNestedProperties() []*models.NestedProperty
 }
 
-// GetClassByName returns the class by its name
+// GetClassByName returns the class by its name.
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	if s == nil {
 		return nil, fmt.Errorf(ErrorNoSuchClass, className)
@@ -39,7 +39,9 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	return nil, fmt.Errorf(ErrorNoSuchClass, className)
 }
 
-// GetPropertyByName returns the class by its name
+// GetPropertyByName returns a frst-order property by its name.
+// If propName is a name of the nested property, then this property is returned.
+// It is not possible to retrieve deeply nested properties using the dot-notation.
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
 	for _, prop := range c.Properties {
 		// Check if the name of the property is the given name, that's the property we need
@@ -66,12 +68,9 @@ func GetPropertyDataType(class *models.Class, propertyName string) (*DataType, e
 		if len(dataType) == 0 {
 			return nil, fmt.Errorf("invalid-dataType")
 		}
-		// Get the first letter to see if it is a capital
-		firstLetter := string(dataType[0])
-		if strings.ToUpper(firstLetter) == firstLetter {
+		if IsRefDataType([]string{dataType}) {
 			returnDataType = DataTypeCRef
 		} else {
-			// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
 			valueDataType, err := GetValueDataTypeFromString(dataType)
 			if err != nil {
 				return nil, err
@@ -109,12 +108,9 @@ func GetNestedPropertyDataType[P PropertyInterface](p P, propertyName string) (*
 		if len(dataType) == 0 {
 			return nil, fmt.Errorf("invalid-dataType")
 		}
-		// Get the first letter to see if it is a capital
-		firstLetter := string(dataType[0])
-		if strings.ToUpper(firstLetter) == firstLetter {
+		if IsRefDataType([]string{dataType}) {
 			returnDataType = DataTypeCRef
 		} else {
-			// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
 			valueDataType, err := GetValueDataTypeFromString(dataType)
 			if err != nil {
 				return nil, err
@@ -151,6 +147,7 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeGeoCoordinates),
 		string(DataTypePhoneNumber),
 		string(DataTypeBlob),
+		string(DataTypeBlobHash),
 		string(DataTypeUUID),
 		string(DataTypeUUIDArray),
 		string(DataTypeStringArray),
@@ -166,8 +163,21 @@ func IsValidValueDataType(dt string) bool {
 	return false
 }
 
+// IsRefDataType reports whether dt is a cross-reference DataType. Expects
+// stored DataType — qualified "<namespace>:Class" or bare "Class".
+// User-supplied DataType must go through FindPropertyDataTypeWithRefsAndAuth.
 func IsRefDataType(dt []string) bool {
-	firstLetter := string(dt[0][0])
+	if len(dt) == 0 || len(dt[0]) == 0 {
+		return false
+	}
+	name := dt[0]
+	if _, cls, ok := strings.Cut(name, NamespaceSeparator); ok {
+		if cls == "" {
+			return false
+		}
+		name = cls
+	}
+	firstLetter := string(name[0])
 	return strings.ToUpper(firstLetter) == firstLetter
 }
 
@@ -178,6 +188,20 @@ func IsBlobDataType(dt []string) bool {
 		}
 	}
 	return false
+}
+
+func IsBlobHashDataType(dt []string) bool {
+	for i := range dt {
+		if dt[i] == string(DataTypeBlobHash) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBlobLikeDataType returns true for both blob and blobHash data types.
+func IsBlobLikeDataType(dt []string) bool {
+	return IsBlobDataType(dt) || IsBlobHashDataType(dt)
 }
 
 func IsArrayDataType(dt []string) bool {

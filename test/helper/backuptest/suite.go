@@ -13,8 +13,11 @@ package backuptest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,14 +25,22 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/brianvoe/gofakeit/v6"
+	"github.com/minio/minio-go/v7"
+	minioCredentials "github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"
+	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+	"golang.org/x/sync/errgroup"
 )
 
 // CompressionType specifies the vector compression algorithm to use.
@@ -43,6 +54,13 @@ const (
 	// CompressionRQ indicates Rotational Quantization compression
 	CompressionRQ CompressionType = "rq"
 )
+
+type BackupTestSuiteMultiTenancyConfig struct {
+	Enabled                  bool
+	NumTenants               int
+	ObjectsPerTenant         int
+	WithMidBackupActivations bool
+}
 
 // BackupTestSuiteConfig configures the backup test suite.
 type BackupTestSuiteConfig struct {
@@ -61,14 +79,8 @@ type BackupTestSuiteConfig struct {
 	// BackupID is the base backup ID
 	BackupID string
 
-	// MultiTenant enables multi-tenant testing
-	MultiTenant bool
-
-	// NumTenants is the number of tenants for multi-tenant tests
-	NumTenants int
-
-	// ObjectsPerTenant is the number of objects to create per tenant (or total if not multi-tenant)
-	ObjectsPerTenant int
+	// MultiTenant configures multi-tenant testing
+	MultiTenant BackupTestSuiteMultiTenancyConfig
 
 	// ClusterSize is the number of Weaviate nodes (1 for single-node, 3 for cluster)
 	ClusterSize int
@@ -98,25 +110,30 @@ type BackupTestSuiteConfig struct {
 
 	// TestCancellation runs backup cancellation test instead of full backup/restore
 	TestCancellation bool
+
+	TestIncremental bool
 }
 
 // DefaultSuiteConfig returns a default configuration for the backup test suite.
 // By default, WithVectorizer is enabled to use text2vec-contextionary for consistency.
 func DefaultSuiteConfig() *BackupTestSuiteConfig {
 	return &BackupTestSuiteConfig{
-		BackendType:      "s3",
-		BucketName:       "backups",
-		Region:           "us-east-1",
-		ClassName:        "BackupTestClass",
-		BackupID:         "backup-test",
-		MultiTenant:      false,
-		NumTenants:       3,
-		ObjectsPerTenant: 10,
-		ClusterSize:      1,
-		WithVectorizer:   true, // Always use text2vec-contextionary for consistency
-		TestTimeout:      5 * time.Minute,
-		BackupTimeout:    2 * time.Minute,
-		RestoreTimeout:   2 * time.Minute,
+		BackendType: "s3",
+		BucketName:  "backups",
+		Region:      "us-east-1",
+		ClassName:   "BackupTestClass",
+		BackupID:    "backup-test",
+		MultiTenant: BackupTestSuiteMultiTenancyConfig{
+			Enabled:                  false,
+			NumTenants:               3,
+			ObjectsPerTenant:         10,
+			WithMidBackupActivations: false,
+		},
+		ClusterSize:    1,
+		WithVectorizer: true, // Always use text2vec-contextionary for consistency
+		TestTimeout:    5 * time.Minute,
+		BackupTimeout:  2 * time.Minute,
+		RestoreTimeout: 2 * time.Minute,
 	}
 }
 
@@ -128,6 +145,8 @@ type BackupTestSuite struct {
 	objectIDs []string
 	// objectTenants maps object ID to tenant name (empty string for non-MT)
 	objectTenants map[string]string
+	// objects retains the original generated objects for data integrity verification after restore.
+	objects []*models.Object
 }
 
 // NewBackupTestSuite creates a new backup test suite with the given configuration.
@@ -153,11 +172,11 @@ func NewBackupTestSuite(config *BackupTestSuiteConfig) *BackupTestSuite {
 		if config.BackupID == "" {
 			config.BackupID = defaults.BackupID
 		}
-		if config.NumTenants == 0 {
-			config.NumTenants = defaults.NumTenants
+		if config.MultiTenant.NumTenants == 0 {
+			config.MultiTenant.NumTenants = defaults.MultiTenant.NumTenants
 		}
-		if config.ObjectsPerTenant == 0 {
-			config.ObjectsPerTenant = defaults.ObjectsPerTenant
+		if config.MultiTenant.ObjectsPerTenant == 0 {
+			config.MultiTenant.ObjectsPerTenant = defaults.MultiTenant.ObjectsPerTenant
 		}
 		if config.ClusterSize == 0 {
 			config.ClusterSize = defaults.ClusterSize
@@ -181,9 +200,9 @@ func NewBackupTestSuite(config *BackupTestSuiteConfig) *BackupTestSuite {
 
 	dataGen := NewTestDataGenerator(&TestDataConfig{
 		ClassName:        config.ClassName,
-		MultiTenant:      config.MultiTenant,
-		NumTenants:       config.NumTenants,
-		ObjectsPerTenant: config.ObjectsPerTenant,
+		MultiTenant:      config.MultiTenant.Enabled,
+		NumTenants:       config.MultiTenant.NumTenants,
+		ObjectsPerTenant: config.MultiTenant.ObjectsPerTenant,
 		UseVectorizer:    vectorizer,
 	})
 
@@ -343,7 +362,7 @@ func (s *BackupTestSuite) DeleteTestClass(t *testing.T) {
 // CreateTestTenants creates tenants for multi-tenant tests.
 func (s *BackupTestSuite) CreateTestTenants(t *testing.T) {
 	t.Helper()
-	if !s.config.MultiTenant {
+	if !s.config.MultiTenant.Enabled {
 		return
 	}
 
@@ -351,11 +370,121 @@ func (s *BackupTestSuite) CreateTestTenants(t *testing.T) {
 	helper.CreateTenants(t, s.config.ClassName, tenants)
 }
 
+// GetInactiveTenants returns the list of tenants that should be deactivated for testing.
+func (s *BackupTestSuite) GetInactiveTenants(t *testing.T) []string {
+	t.Helper()
+	if !s.config.MultiTenant.Enabled {
+		return nil
+	}
+	tenants := s.dataGen.GenerateTenants()
+	return tenants[:10] // Return first 10 tenants as inactive
+}
+
+// GetActiveTenants returns the list of active tenants (those not deactivated) for multi-tenant tests.
+func (s *BackupTestSuite) GetActiveTenants(t *testing.T) []string {
+	t.Helper()
+	if !s.config.MultiTenant.Enabled {
+		return nil
+	}
+	tenants := s.dataGen.GenerateTenants()
+	return tenants[10:] // Return tenants after the first 10 as active
+}
+
+// DeactivateTestTenants deactivates tenants to test backup/restore with inactive tenants.
+func (s *BackupTestSuite) DeactivateTestTenants(t *testing.T) {
+	t.Helper()
+	if !s.config.MultiTenant.Enabled {
+		return
+	}
+	inactive := s.GetInactiveTenants(t)
+	toDeactivate := make([]*models.Tenant, 0, len(inactive))
+	for _, tenant := range inactive {
+		toDeactivate = append(toDeactivate, &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusINACTIVE})
+	}
+	helper.UpdateTenants(t, s.config.ClassName, toDeactivate)
+}
+
+// DeactivateSomeTestTenants deactivates random tenants in the middle of backup to test activity status handling.
+func (s *BackupTestSuite) DeactivateSomeTestTenants(t *testing.T) {
+	t.Helper()
+	if !s.config.MultiTenant.Enabled {
+		return
+	}
+	tenants := s.GetActiveTenants(t)
+	rand.Shuffle(len(tenants), func(i, j int) { tenants[i], tenants[j] = tenants[j], tenants[i] })
+	// Randomly select half of the active tenants to deactivate
+	numToDeactivate := len(tenants) / 2
+	toDeactivate := make([]*models.Tenant, 0, numToDeactivate)
+	for i := 0; i < numToDeactivate; i++ {
+		toDeactivate = append(toDeactivate, &models.Tenant{Name: tenants[i], ActivityStatus: models.TenantActivityStatusINACTIVE})
+	}
+	helper.UpdateTenants(t, s.config.ClassName, toDeactivate)
+}
+
+// ActivateSomeTestTenants activates random tenants in the middle of backup to test activity status handling.
+func (s *BackupTestSuite) ActivateSomeTestTenants(t *testing.T) {
+	t.Helper()
+	if !s.config.MultiTenant.Enabled {
+		return
+	}
+	tenants := s.GetInactiveTenants(t)
+	rand.Shuffle(len(tenants), func(i, j int) { tenants[i], tenants[j] = tenants[j], tenants[i] })
+	// Randomly select half of the inactive tenants to activate
+	numToActivate := len(tenants) / 2
+	toActivate := make([]string, 0, numToActivate)
+	for i := 0; i < numToActivate; i++ {
+		toActivate = append(toActivate, tenants[i])
+	}
+	// Read some data to cause auto-tenant activation to kick-in
+	for _, tenant := range toActivate {
+		resp, err := helper.Client(t).Graphql.GraphqlPost(&gql.GraphqlPostParams{
+			Body: &models.GraphQLQuery{
+				Query: fmt.Sprintf(`{ Aggregate { %s (tenant: "%s") { meta { count } } } }`, s.config.ClassName, tenant),
+			},
+		}, nil)
+		require.NoError(t, err, "should search tenant %s without error", tenant)
+		require.NotNil(t, resp, "should get a response for tenant %s", tenant)
+		var errmsg string
+		if len(resp.Payload.Errors) > 0 {
+			errmsg = resp.Payload.Errors[0].Message
+		}
+		require.Len(t, resp.Payload.Errors, 0, "should not have errors for tenant %s: %s", tenant, errmsg)
+		count, err := resp.Payload.Data["Aggregate"].(map[string]any)[s.config.ClassName].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
+		require.NoError(t, err, "should parse count for tenant %s without error", tenant)
+		require.Equal(t, count, int64(s.config.MultiTenant.ObjectsPerTenant), "tenant %s should have %d objects, got %v", tenant, s.config.MultiTenant.ObjectsPerTenant, count)
+	}
+}
+
+// VerifyTenantActivitiesRestored checks that tenant activity statuses are correctly restored after backup/restore.
+func (s *BackupTestSuite) VerifyTenantActivitiesRestored(t *testing.T) {
+	for _, tenant := range s.GetActiveTenants(t) {
+		res, err := helper.GetOneTenant(t, s.config.ClassName, tenant)
+		require.NoError(t, err, "should get tenant %s without error", tenant)
+		// API still returns HOT for BC
+		require.Equal(t, models.TenantActivityStatusHOT, res.GetPayload().ActivityStatus,
+			"tenant %s should be HOT after restore, got %s", tenant, res.GetPayload().ActivityStatus)
+	}
+	for _, tenant := range s.GetInactiveTenants(t) {
+		res, err := helper.GetOneTenant(t, s.config.ClassName, tenant)
+		require.NoError(t, err, "should get tenant %s without error", tenant)
+		// API still returns COLD for BC
+		require.Equal(t, models.TenantActivityStatusCOLD, res.GetPayload().ActivityStatus,
+			"tenant %s should be COLD after restore, got %s", tenant, res.GetPayload().ActivityStatus)
+	}
+}
+
 // CreateTestObjects creates test objects and stores their IDs.
-func (s *BackupTestSuite) CreateTestObjects(t *testing.T) {
+func (s *BackupTestSuite) CreateTestObjects(t *testing.T, saveObjects bool) {
 	t.Helper()
 
 	objects := s.dataGen.GenerateAllObjects()
+	helper.CreateObjectsBatch(t, objects)
+
+	if !saveObjects {
+		return
+	}
+
+	s.objects = objects
 	s.objectIDs = make([]string, len(objects))
 	s.objectTenants = make(map[string]string, len(objects))
 
@@ -364,9 +493,6 @@ func (s *BackupTestSuite) CreateTestObjects(t *testing.T) {
 		s.objectIDs[i] = id
 		s.objectTenants[id] = obj.Tenant // Empty string for non-MT
 	}
-
-	// Batch create objects
-	helper.CreateObjectsBatch(t, objects)
 }
 
 // VerifyObjectsExist checks that all created objects still exist using aggregate count.
@@ -376,10 +502,11 @@ func (s *BackupTestSuite) VerifyObjectsExist(t *testing.T) {
 
 	expectedCount := int64(len(s.objectIDs))
 
-	if s.config.MultiTenant {
+	if s.config.MultiTenant.Enabled {
 		// For multi-tenant, check count per tenant
 		tenants := s.dataGen.GenerateTenants()
-		expectedPerTenant := int64(s.config.ObjectsPerTenant)
+
+		expectedPerTenant := int64(s.config.MultiTenant.ObjectsPerTenant)
 		for _, tenant := range tenants {
 			count := moduleshelper.GetClassCount(t, s.config.ClassName, tenant)
 			require.Equal(t, expectedPerTenant, count,
@@ -393,13 +520,62 @@ func (s *BackupTestSuite) VerifyObjectsExist(t *testing.T) {
 	}
 }
 
+// VerifyObjectDataIntegrity retrieves every object after restore and compares
+// its properties against the originals stored during creation. This catches
+// corruption from mutable-file issues (WAL append, BoltDB mmap, HNSW commitlog)
+// that a count-only check would miss.
+//
+// Properties are compared via their JSON representation to avoid Go type
+// mismatches (e.g. int vs float64, []string vs []interface{}) that occur
+// between the stored objects and the JSON-decoded API response.
+func (s *BackupTestSuite) VerifyObjectDataIntegrity(t *testing.T) {
+	t.Helper()
+
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(50)
+
+	for _, expected := range s.objects {
+		g.Go(func() error {
+			tenant := expected.Tenant
+			var got *models.Object
+			var err error
+			if tenant != "" {
+				got, err = helper.TenantObject(t, s.config.ClassName, expected.ID, tenant)
+			} else {
+				got, err = helper.GetObject(t, s.config.ClassName, expected.ID)
+			}
+			if err != nil {
+				return fmt.Errorf("get object %s (tenant %q): %w", expected.ID, tenant, err)
+			}
+			if got == nil {
+				return fmt.Errorf("object %s (tenant %q) not found", expected.ID, tenant)
+			}
+
+			expectedJSON, err := json.Marshal(expected.Properties)
+			if err != nil {
+				return fmt.Errorf("object %s: marshal expected props: %w", expected.ID, err)
+			}
+			gotJSON, err := json.Marshal(got.Properties)
+			if err != nil {
+				return fmt.Errorf("object %s: marshal got props: %w", expected.ID, err)
+			}
+			if string(expectedJSON) != string(gotJSON) {
+				return fmt.Errorf("object %s (tenant %q) properties mismatch:\nwant: %s\ngot:  %s",
+					expected.ID, tenant, expectedJSON, gotJSON)
+			}
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
+}
+
 // VerifyObjectsDoNotExist checks that objects no longer exist (after class deletion).
 // Uses class existence check since the class should be deleted.
 func (s *BackupTestSuite) VerifyObjectsDoNotExist(t *testing.T) {
 	t.Helper()
 
 	// After class deletion, trying to get the class should return an error
-	_, err := helper.GetClassWithoutAssert(t, s.config.ClassName)
+	_, err := helper.GetClassWithoutAssert(t, s.config.ClassName, "")
 	require.Error(t, err, "class %s should not exist after deletion", s.config.ClassName)
 }
 
@@ -453,34 +629,52 @@ func (s *BackupTestSuite) VerifyCompressedVectorsRestored(t *testing.T, sampleSi
 	}
 }
 
+type createBackupResult struct {
+	resp *backups.BackupsCreateOK
+	err  error
+}
+
 // CreateBackup creates a backup and waits for it to complete.
-func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID string) {
+func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID string) {
 	t.Helper()
 
 	cfg := helper.DefaultBackupConfig()
 
-	// Start backup
-	resp, err := helper.CreateBackup(t, cfg, s.config.ClassName, s.config.BackendType, backupID)
-	if err != nil {
-		// Try to extract detailed error message from the response
-		t.Logf("Backup creation failed with error type: %T", err)
+	ch := make(chan createBackupResult, 1)
+	logger, _ := test.NewNullLogger()
+	enterrors.GoWrapper(func() {
+		defer close(ch)
+		resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupID)
+		if err != nil {
+			// Try to extract detailed error message from the response
+			t.Logf("Backup creation failed with error type: %T", err)
 
-		// Check for unprocessable entity error
-		var uerr *backups.BackupsCreateUnprocessableEntity
-		if errors.As(err, &uerr) && uerr.Payload != nil {
-			for i, e := range uerr.Payload.Error {
-				t.Logf("Error[%d]: %s", i, e.Message)
+			// Check for unprocessable entity error
+			var uerr *backups.BackupsCreateUnprocessableEntity
+			if errors.As(err, &uerr) && uerr.Payload != nil {
+				for i, e := range uerr.Payload.Error {
+					t.Logf("Error[%d]: %s", i, e.Message)
+				}
 			}
 		}
+		ch <- createBackupResult{resp: resp, err: err}
+	}, logger)
+
+	if s.config.MultiTenant.Enabled && s.config.MultiTenant.WithMidBackupActivations {
+		// Activate/deactivate tenants in the middle of backup to test activity status handling
+		s.DeactivateSomeTestTenants(t)
+		s.ActivateSomeTestTenants(t)
 	}
-	require.NoError(t, err, "create backup should succeed")
-	require.NotNil(t, resp)
-	require.NotNil(t, resp.Payload)
-	assert.Equal(t, backupID, resp.Payload.ID)
 
 	// Wait for backup to complete
 	helper.ExpectBackupEventuallyCreated(t, backupID, s.config.BackendType, nil,
 		helper.WithDeadline(s.config.BackupTimeout))
+
+	result := <-ch
+	require.NoError(t, result.err, "create backup should succeed")
+	require.NotNil(t, result.resp)
+	require.NotNil(t, result.resp.Payload)
+	assert.Equal(t, backupID, result.resp.Payload.ID)
 }
 
 // RestoreBackup restores a backup and waits for it to complete.
@@ -491,6 +685,14 @@ func (s *BackupTestSuite) RestoreBackup(t *testing.T, backupID string) {
 
 	// Start restore
 	resp, err := helper.RestoreBackup(t, cfg, s.config.ClassName, s.config.BackendType, backupID, nil, false)
+	if err != nil {
+		var uerr *backups.BackupsRestoreUnprocessableEntity
+		if errors.As(err, &uerr) && uerr.Payload != nil {
+			for _, item := range uerr.Payload.Error {
+				t.Logf("restore 422 error: %s", item.Message)
+			}
+		}
+	}
 	require.NoError(t, err, "restore backup should succeed")
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)
@@ -527,6 +729,124 @@ func (s *BackupTestSuite) EnableRQ(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
+type book struct {
+	Title   string   `fake:"{sentence:10}"`
+	Content string   `fake:"{paragraph:10}"`
+	Tags    []string `fake:"{words:3}"`
+}
+
+func (b *book) toObject(class string) *models.Object {
+	return &models.Object{
+		Class: class,
+		Properties: map[string]interface{}{
+			"title":   b.Title,
+			"content": b.Content,
+			"tags":    b.Tags,
+		},
+	}
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
+	t.Run("incremental backup and restore errors", s.RunIncrementalTestAndRestoreErrors)
+	t.Run("successful incremental backup and restore", s.RunIncrementalTestAndRestoreSuccess)
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestoreErrors(t *testing.T) {
+	t.Run("base backup does not exist", func(t *testing.T) {
+		s.CreateTestClass(t)
+		s.CreateTestObjects(t, true)
+		cfg := helper.DefaultBackupConfig()
+
+		_, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, "incremental-no-base-"+s.config.BackupID, "non-existent-base-backup"+s.config.BackupID)
+		require.Error(t, err)
+	})
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestoreSuccess(t *testing.T) {
+	backupIDBase := fmt.Sprintf("base-%s-%d", s.config.BackupID, time.Now().UnixNano())
+	backupIDIncremental1 := fmt.Sprintf("incremental1-%s-%d", s.config.BackupID, time.Now().UnixNano())
+	backupIDIncremental2 := fmt.Sprintf("incremental2-%s-%d", s.config.BackupID, time.Now().UnixNano())
+	var endpoints []string
+	for i := 1; i <= s.config.ClusterSize; i++ {
+		endpoints = append(endpoints, s.compose.GetWeaviateNode(i).URI())
+	}
+	s.DeleteTestClass(t)
+	defer s.DeleteTestClass(t)
+	s.CreateTestClass(t)
+
+	// add lots of data
+	numObjects := 10000
+	for i := 0; i < numObjects; i++ {
+		var b book
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
+	}
+	checkCount(t, endpoints, s.config.ClassName, numObjects)
+	s.CreateBackup(t, backupIDBase, "")
+
+	// add more data after backup completed and do incremental backup
+	numObjects2 := 250
+	for i := 0; i < numObjects2; i++ {
+		var b book
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
+	}
+	s.CreateBackup(t, backupIDIncremental1, backupIDBase)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+numObjects2)
+
+	// add more data after backup completed and do a second incremental backup
+	for i := 0; i < numObjects2; i++ {
+		var b book
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
+	}
+
+	s.CreateBackup(t, backupIDIncremental2, backupIDIncremental1)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+2*numObjects2)
+
+	helper.DeleteClass(t, s.config.ClassName)
+	s.RestoreBackup(t, backupIDBase)
+	checkCount(t, endpoints, s.config.ClassName, numObjects)
+
+	helper.DeleteClass(t, s.config.ClassName)
+	s.RestoreBackup(t, backupIDIncremental1)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+numObjects2)
+
+	helper.DeleteClass(t, s.config.ClassName)
+	s.RestoreBackup(t, backupIDIncremental2)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+2*numObjects2)
+
+	// check that sizes are as expected. We return the size of the pre-compression/deduplication data in the backup status
+	res1, err := helper.CreateBackupStatus(t, s.config.BackendType, backupIDBase, s.config.BucketName, "")
+	require.NoError(t, err)
+	res2, err := helper.CreateBackupStatus(t, s.config.BackendType, backupIDIncremental1, s.config.BucketName, "")
+	require.NoError(t, err)
+	res3, err := helper.CreateBackupStatus(t, s.config.BackendType, backupIDIncremental2, s.config.BucketName, "")
+	require.NoError(t, err)
+
+	if s.config.MinioEndpoint != "" {
+		// verify that incremental backups are smaller than the full backup. Only on S3 backends where we can check the
+		// actual stored size.
+		backupSize1, err := getTotalSize(t, s.config.MinioEndpoint, s.config.BucketName, backupIDBase)
+		require.NoError(t, err)
+
+		backupSize2, err := getTotalSize(t, s.config.MinioEndpoint, s.config.BucketName, backupIDIncremental1)
+		require.NoError(t, err)
+
+		backupSize3, err := getTotalSize(t, s.config.MinioEndpoint, s.config.BucketName, backupIDIncremental2)
+		require.NoError(t, err)
+
+		t.Logf("actual backup sizes from minio: base: %d, incremental1: %d, incremental2: %d", backupSize1, backupSize2, backupSize3)
+		require.Less(t, backupSize2, backupSize1)
+		require.Less(t, backupSize3, backupSize1)
+	}
+
+	// total sizes should increase with each incremental backup as we add more objects
+	t.Logf("Total precompression sizes: base backup size: %v, incremental1 size: %v, incremental size2: %v", res1.Payload.Size, res2.Payload.Size, res3.Payload.Size)
+	require.Greater(t, res2.Payload.Size, res1.Payload.Size)
+	require.Greater(t, res3.Payload.Size, res2.Payload.Size)
+}
+
 // RunBasicBackupRestoreTest runs a complete backup and restore test cycle.
 func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	backupID := fmt.Sprintf("%s-%d", s.config.BackupID, time.Now().UnixNano())
@@ -535,14 +855,14 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.CreateTestClass(t)
 	})
 
-	if s.config.MultiTenant {
+	if s.config.MultiTenant.Enabled {
 		t.Run("create tenants", func(t *testing.T) {
 			s.CreateTestTenants(t)
 		})
 	}
 
 	t.Run("create objects", func(t *testing.T) {
-		s.CreateTestObjects(t)
+		s.CreateTestObjects(t, true)
 	})
 
 	// Enable compression if configured (must be after objects exist)
@@ -564,8 +884,18 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.VerifyObjectsExist(t)
 	})
 
+	if s.config.MultiTenant.Enabled {
+		t.Run("deactivate some tenants", func(t *testing.T) {
+			s.DeactivateTestTenants(t)
+		})
+	}
+
 	t.Run("create backup", func(t *testing.T) {
-		s.CreateBackup(t, backupID)
+		s.CreateBackup(t, backupID, "")
+	})
+
+	t.Run("add objects post backup", func(t *testing.T) {
+		s.CreateTestObjects(t, false) // Create objects but don't save their IDs since they shouldn't be in the backup
 	})
 
 	t.Run("delete class", func(t *testing.T) {
@@ -581,8 +911,18 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.RestoreBackup(t, backupID)
 	})
 
+	if s.config.MultiTenant.Enabled && !s.config.MultiTenant.WithMidBackupActivations {
+		t.Run("verify tenant activities restored", func(t *testing.T) {
+			s.VerifyTenantActivitiesRestored(t)
+		})
+	}
+
 	t.Run("verify objects restored", func(t *testing.T) {
 		s.VerifyObjectsExist(t)
+	})
+
+	t.Run("verify object data integrity", func(t *testing.T) {
+		s.VerifyObjectDataIntegrity(t)
 	})
 
 	// For compressed backups, verify vectors are restored correctly
@@ -605,14 +945,14 @@ func (s *BackupTestSuite) RunCancellationTest(t *testing.T) {
 		s.CreateTestClass(t)
 	})
 
-	if s.config.MultiTenant {
+	if s.config.MultiTenant.Enabled {
 		t.Run("create tenants", func(t *testing.T) {
 			s.CreateTestTenants(t)
 		})
 	}
 
 	t.Run("create objects", func(t *testing.T) {
-		s.CreateTestObjects(t)
+		s.CreateTestObjects(t, true)
 	})
 
 	t.Run("create and cancel backup", func(t *testing.T) {
@@ -686,6 +1026,10 @@ func (s *BackupTestSuite) RunTestsWithSharedCompose(t *testing.T, compose *docke
 	if s.config.TestCancellation {
 		t.Run("backup_cancellation", func(t *testing.T) {
 			s.RunCancellationTest(t)
+		})
+	} else if s.config.TestIncremental {
+		t.Run("incremental backup restore", func(t *testing.T) {
+			s.RunIncrementalTestAndRestore(t)
 		})
 	} else {
 		t.Run("basic_backup_restore", func(t *testing.T) {
@@ -787,11 +1131,17 @@ type BackupTestCase struct {
 	// ObjectsPerTenant overrides the default objects per tenant (default: 10)
 	ObjectsPerTenant int
 
+	// WithMidBackupActivations specifies whether to activate/deactivate tenants in the middle of backup to test activity status handling
+	WithMidBackupActivations bool
+
 	// WithCompression specifies the compression algorithm to enable (CompressionPQ or CompressionRQ)
 	WithCompression CompressionType
 
 	// TestCancellation tests backup cancellation instead of full backup/restore
 	TestCancellation bool
+
+	// TestIncremental tests incremental backup and restore
+	TestIncremental bool
 }
 
 // DefaultTestCase returns a test case with default settings (single-tenant).
@@ -820,6 +1170,17 @@ func MultiTenantTestCase() BackupTestCase {
 		MultiTenant:      true,
 		NumTenants:       50,
 		ObjectsPerTenant: 10,
+	}
+}
+
+// MultiTenantTestCaseWithMidBackupActivations returns a test case for multi-tenant backup testing with tenant activations/deactivations in the middle of backup.
+func MultiTenantTestCaseWithMidBackupActivations() BackupTestCase {
+	return BackupTestCase{
+		Name:                     "multi_tenant_mid_backup_activations",
+		MultiTenant:              true,
+		NumTenants:               50,
+		ObjectsPerTenant:         10,
+		WithMidBackupActivations: true,
 	}
 }
 
@@ -875,6 +1236,15 @@ func CancellationTestCase() BackupTestCase {
 	}
 }
 
+// IncrementalTestCase returns a test case for testing incremental backups.
+func IncrementalTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:            "incremental",
+		MultiTenant:     false,
+		TestIncremental: true,
+	}
+}
+
 // SharedComposeConfig holds configuration for the shared Docker compose environment.
 type SharedComposeConfig struct {
 	// Compose is the shared Docker compose instance
@@ -921,14 +1291,17 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 	}
 
 	return &BackupTestSuiteConfig{
-		BackendType:      backendType,
-		BucketName:       "backups", // Use the default bucket created by shared cluster
-		Region:           sharedConfig.Region,
-		ClassName:        fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
-		BackupID:         fmt.Sprintf("backup-%s-%d", testCase.Name, timestamp),
-		MultiTenant:      testCase.MultiTenant,
-		NumTenants:       numTenants,
-		ObjectsPerTenant: objectsPerTenant,
+		BackendType: backendType,
+		BucketName:  "backups", // Use the default bucket created by shared cluster
+		Region:      sharedConfig.Region,
+		ClassName:   fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
+		BackupID:    fmt.Sprintf("backup-%s-%d", testCase.Name, timestamp),
+		MultiTenant: BackupTestSuiteMultiTenancyConfig{
+			Enabled:                  testCase.MultiTenant,
+			NumTenants:               numTenants,
+			ObjectsPerTenant:         objectsPerTenant,
+			WithMidBackupActivations: testCase.WithMidBackupActivations,
+		},
 		ClusterSize:      clusterSize,
 		WithVectorizer:   true,
 		TestTimeout:      5 * time.Minute,
@@ -938,6 +1311,7 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 		MinioEndpoint:    sharedConfig.MinioEndpoint,
 		WithCompression:  testCase.WithCompression,
 		TestCancellation: testCase.TestCancellation,
+		TestIncremental:  testCase.TestIncremental,
 	}
 }
 
@@ -990,4 +1364,63 @@ func RunFilesystemBackupTests(t *testing.T, compose *docker.DockerCompose, testC
 	config := NewSuiteConfigFromTestCase(sharedConfig, testCase)
 	suite := NewBackupTestSuite(config)
 	suite.RunTestsWithSharedCompose(t, compose)
+}
+
+func checkCount(t *testing.T, nodeEndpoints []string, classname string, numObjects int) {
+	t.Helper()
+	for i := range nodeEndpoints {
+		helper.SetupClient(nodeEndpoints[i])
+		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
+		require.NoError(t, err)
+		if resp.Payload.Errors != nil {
+			for _, err := range resp.Payload.Errors {
+				if err != nil {
+					t.Logf("GraphQL errors on node %d: %+v", i+1, resp.Payload.Errors)
+				}
+			}
+		}
+		require.Nil(t, resp.Payload.Errors, "GraphQL errors: %+v", resp.Payload.Errors)
+		require.NotNil(t, resp.Payload.Data)
+
+		countJson := resp.Payload.Data["Aggregate"].(map[string]interface{})[classname].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"].(json.Number)
+		count, err := countJson.Int64()
+		require.NoError(t, err)
+		require.Equal(t, int64(numObjects), count, "expected all objects to be present on node %d", i+1)
+	}
+}
+
+func queryGQL(t *testing.T, query string) (*gql.GraphqlPostOK, error) {
+	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
+	return helper.Client(t).Graphql.GraphqlPost(params, nil)
+}
+
+// getTotalSize gets the total size of all objects for a given backupID from the specified S3 bucket
+func getTotalSize(t *testing.T, minioURL, bucketName, backupID string) (int64, error) {
+	t.Helper()
+
+	client, err := minio.New(minioURL, &minio.Options{
+		Creds: minioCredentials.NewStaticV4("aws_access_key", // MinIO default access key
+			"aws_secret_key", // MinIO default secret key
+			"",
+		),
+		Secure: false,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	objectCh := client.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
+		Recursive: true,
+	})
+
+	totalSize := int64(0)
+	for object := range objectCh {
+		require.NoError(t, object.Err)
+		if !strings.Contains(object.Key, backupID) {
+			continue
+		}
+		totalSize += object.Size
+	}
+
+	return totalSize, nil
 }

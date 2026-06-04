@@ -18,12 +18,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
+
 	"github.com/weaviate/s5cmd/v2/command"
 	"github.com/weaviate/s5cmd/v2/log"
 	"github.com/weaviate/s5cmd/v2/log/stat"
@@ -41,6 +43,7 @@ const (
 	s3BucketAutoCreate = "OFFLOAD_S3_BUCKET_AUTO_CREATE"
 	s3Bucket           = "OFFLOAD_S3_BUCKET"
 	concurrency        = "OFFLOAD_S3_CONCURRENCY"
+	workers            = "OFFLOAD_S3_WORKERS"
 	timeout            = "OFFLOAD_TIMEOUT"
 )
 
@@ -48,6 +51,13 @@ const (
 var (
 	_ = modulecapabilities.Module(&Module{})
 )
+
+// s5cmdInit gates the one-time initialization of s5cmd's package-level
+// globals (log.Init, parallel.Init). It is package-scoped because the
+// state it protects is itself package-level inside s5cmd; a per-Module
+// sync.Once would still race if two Module instances ever ran Upload
+// concurrently.
+var s5cmdInit sync.Once
 
 type Module struct {
 	Endpoint     string
@@ -57,103 +67,126 @@ type Module struct {
 	DataPath     string
 	logger       logrus.FieldLogger
 	timeout      time.Duration
-	app          *cli.App
+	workersCount int
 
 	metrics *monitoring.TenantOffloadMetrics
 }
 
 func New() *Module {
+	workersCount := 256
+	if workers := os.Getenv(workers); workers != "" {
+		workersN, err := strconv.Atoi(workers)
+		if err != nil {
+			logrus.WithError(err).Error("failed to parse workers count")
+		}
+		workersCount = workersN
+	}
 	return &Module{
-		Endpoint:    "",
-		Bucket:      "weaviate-offload",
-		Concurrency: 25,
-		DataPath:    config.DefaultPersistenceDataPath,
-		timeout:     120 * time.Second,
-		// we use custom cli app to avoid some bugs in underlying dependencies
-		// specially with .After implementation.
+		Endpoint:     "",
+		Bucket:       "weaviate-offload",
+		Concurrency:  25,
+		DataPath:     config.DefaultPersistenceDataPath,
+		timeout:      120 * time.Second,
+		workersCount: workersCount,
 		metrics: monitoring.NewTenantOffloadMetrics(monitoring.Config{
 			MetricsNamespace: "weaviate",
 		}, prometheus.DefaultRegisterer),
-		app: &cli.App{
-			Name:                 "weaviate-s5cmd",
-			Usage:                "weaviate fast S3 and local filesystem execution tool",
-			EnableBashCompletion: true,
-			Commands:             command.Commands(),
-			Flags: []cli.Flag{
-				&cli.IntFlag{
-					Name:  "numworkers",
-					Value: 256,
-					Usage: "number of workers execute operation on each object",
-				},
-				&cli.IntFlag{
-					Name:    "retry-count",
-					Aliases: []string{"r"},
-					Value:   10,
-					Usage:   "number of times that a request will be retried for failures",
-				},
-				&cli.StringFlag{
-					Name:    "endpoint-url",
-					Usage:   "override default S3 host for custom services",
-					EnvVars: []string{"OFFLOAD_S3_ENDPOINT"},
-				},
-				&cli.BoolFlag{
-					Name:  "no-verify-ssl",
-					Usage: "disable SSL certificate verification",
-				},
-			},
-			Before: func(c *cli.Context) error {
-				retryCount := c.Int("retry-count")
-				workerCount := c.Int("numworkers")
-				isStat := c.Bool("stat")
-				endpointURL := c.String("endpoint-url")
+	}
+}
 
+// newApp constructs a fresh *cli.App for a single RunContext invocation.
+func (m *Module) newApp() *cli.App {
+	commands := command.Commands()
+	for _, c := range commands {
+		// Suppress the auto-appended help flag/subcommand so Command.setup
+		// does not touch the package-level HelpFlag global.
+		c.HideHelp = true
+		c.HideHelpCommand = true
+	}
+	return &cli.App{
+		Name:                 "weaviate-s5cmd",
+		Usage:                "weaviate fast S3 and local filesystem execution tool",
+		EnableBashCompletion: true,
+		HideHelp:             true,
+		HideHelpCommand:      true,
+		HideVersion:          true,
+		Commands:             commands,
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:  "numworkers",
+				Value: m.workersCount,
+				Usage: "number of workers execute operation on each object",
+			},
+			&cli.IntFlag{
+				Name:    "retry-count",
+				Aliases: []string{"r"},
+				Value:   10,
+				Usage:   "number of times that a request will be retried for failures",
+			},
+			&cli.StringFlag{
+				Name:    "endpoint-url",
+				Usage:   "override default S3 host for custom services",
+				EnvVars: []string{"OFFLOAD_S3_ENDPOINT"},
+			},
+			&cli.BoolFlag{
+				Name:  "no-verify-ssl",
+				Usage: "disable SSL certificate verification",
+			},
+		},
+		Before: func(c *cli.Context) error {
+			retryCount := c.Int("retry-count")
+			workerCount := c.Int("numworkers")
+			isStat := c.Bool("stat")
+			endpointURL := c.String("endpoint-url")
+
+			s5cmdInit.Do(func() {
 				log.Init("error", false) // print level error only
 				parallel.Init(workerCount)
+			})
 
-				if retryCount < 0 {
-					err := fmt.Errorf("retry count cannot be a negative value")
+			if retryCount < 0 {
+				err := fmt.Errorf("retry count cannot be a negative value")
+				return err
+			}
+			if c.Bool("no-sign-request") && c.String("profile") != "" {
+				err := fmt.Errorf(`"no-sign-request" and "profile" flags cannot be used together`)
+				return err
+			}
+			if c.Bool("no-sign-request") && c.String("credentials-file") != "" {
+				err := fmt.Errorf(`"no-sign-request" and "credentials-file" flags cannot be used together`)
+				return err
+			}
+
+			if isStat {
+				stat.InitStat()
+			}
+
+			if endpointURL != "" {
+				if !strings.HasPrefix(endpointURL, "http") {
+					err := fmt.Errorf(`bad value for --endpoint-url %v: scheme is missing. Must be of the form http://<hostname>/ or https://<hostname>/`, endpointURL)
 					return err
 				}
-				if c.Bool("no-sign-request") && c.String("profile") != "" {
-					err := fmt.Errorf(`"no-sign-request" and "profile" flags cannot be used together`)
-					return err
-				}
-				if c.Bool("no-sign-request") && c.String("credentials-file") != "" {
-					err := fmt.Errorf(`"no-sign-request" and "credentials-file" flags cannot be used together`)
-					return err
-				}
+			}
 
-				if isStat {
-					stat.InitStat()
-				}
-
-				if endpointURL != "" {
-					if !strings.HasPrefix(endpointURL, "http") {
-						err := fmt.Errorf(`bad value for --endpoint-url %v: scheme is missing. Must be of the form http://<hostname>/ or https://<hostname>/`, endpointURL)
-						return err
-					}
-				}
-
+			return nil
+		},
+		Action: func(c *cli.Context) error {
+			if c.Bool("install-completion") {
 				return nil
-			},
-			Action: func(c *cli.Context) error {
-				if c.Bool("install-completion") {
-					return nil
-				}
-				args := c.Args()
-				if args.Present() {
-					cli.ShowCommandHelp(c, args.First())
-					return cli.Exit("", 1)
-				}
+			}
+			args := c.Args()
+			if args.Present() {
+				cli.ShowCommandHelp(c, args.First())
+				return cli.Exit("", 1)
+			}
 
-				return cli.ShowAppHelp(c)
-			},
-			After: func(c *cli.Context) error {
-				if c.Bool("stat") && len(stat.Statistics()) > 0 {
-					log.Stat(stat.Statistics())
-				}
-				return nil
-			},
+			return cli.ShowAppHelp(c)
+		},
+		After: func(c *cli.Context) error {
+			if c.Bool("stat") && len(stat.Statistics()) > 0 {
+				log.Stat(stat.Statistics())
+			}
+			return nil
 		},
 	}
 }
@@ -227,7 +260,7 @@ func (m *Module) VerifyBucket(ctx context.Context) error {
 		"ls",
 		fmt.Sprintf("s3://%s", m.Bucket),
 	}
-	if err := m.app.RunContext(ctx, cmd); err != nil {
+	if err := m.newApp().RunContext(ctx, cmd); err != nil {
 		return err
 	}
 	m.BucketExists.Store(true)
@@ -243,7 +276,7 @@ func (m *Module) create(ctx context.Context) error {
 		fmt.Sprintf("s3://%s", m.Bucket),
 	}
 
-	return m.app.RunContext(ctx, cmd)
+	return m.newApp().RunContext(ctx, cmd)
 }
 
 // Upload uploads the content of a shard assigned to specific node to
@@ -260,6 +293,17 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 	defer cancel()
 
 	localPath := fmt.Sprintf("%s/%s/%s", m.DataPath, strings.ToLower(className), shardName)
+	// Skip s5cmd when path is missing or empty so "path/*" doesn't fail; treat as success.
+	entries, dirErr := os.ReadDir(localPath)
+	if dirErr != nil || len(entries) == 0 {
+		if dirErr != nil && !os.IsNotExist(dirErr) {
+			return dirErr
+		}
+		m.logger.Warn("no data to upload for shard", "className", className, "shardName", shardName)
+		m.metrics.OpsDuration.WithLabelValues("upload", "success").Observe(time.Since(start).Seconds())
+		return nil
+	}
+
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
@@ -280,7 +324,7 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 		m.metrics.OpsDuration.WithLabelValues("upload", status).Observe(time.Since(start).Seconds())
 	}()
 
-	err = m.app.RunContext(ctx, cmd)
+	err = m.newApp().RunContext(ctx, cmd)
 	return err
 }
 
@@ -323,8 +367,19 @@ func (m *Module) DownloadToPath(ctx context.Context, className, shardName, nodeN
 		m.metrics.OpsDuration.WithLabelValues("download", status).Observe(time.Since(start).Seconds())
 	}()
 
-	err = m.app.RunContext(ctx, cmd)
-
+	err = m.newApp().RunContext(ctx, cmd)
+	// Empty S3 prefix (cold tenant frozen with no data): treat as success; do not create empty dir.
+	if err != nil {
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "no match found") ||
+			strings.Contains(errStr, "no object found") ||
+			strings.Contains(errStr, "no objects found") {
+			m.logger.Warn("no data to download for shard", "className", className, "shardName", shardName)
+			// set error to nil for metrics
+			err = nil
+			return nil
+		}
+	}
 	return err
 }
 
@@ -373,7 +428,7 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 		m.metrics.OpsDuration.WithLabelValues("delete", status).Observe(time.Since(start).Seconds())
 	}()
 
-	err = m.app.RunContext(ctx, cmd)
+	err = m.newApp().RunContext(ctx, cmd)
 	if err != nil && !strings.Contains(err.Error(), "no object found") {
 		return err
 	}

@@ -23,18 +23,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -43,7 +44,26 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
+
+// writeUsageLimitExceeded responds with 429 and a JSON body the peer
+// parses back into a *LimitExceededError.
+func writeUsageLimitExceeded(w http.ResponseWriter, le *usagelimits.LimitExceededError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(struct {
+		ErrorCode string `json:"errorCode"`
+		Limit     string `json:"limit"`
+		Value     int64  `json:"value"`
+		Message   string `json:"message"`
+	}{
+		ErrorCode: usagelimits.ErrorCode,
+		Limit:     string(le.Limit),
+		Value:     le.Value,
+		Message:   le.Error(),
+	})
+}
 
 type indices struct {
 	shards shards
@@ -79,8 +99,8 @@ type indices struct {
 	logger logrus.FieldLogger
 }
 
-const (
-	cl = entschema.ClassNameRegexCore
+var (
+	cl = entschema.IndexNameRegexCore
 	sh = entschema.ShardNameRegexCore
 	ob = `[A-Za-z0-9_+-]+`
 	l  = "[0-9]+"
@@ -150,7 +170,8 @@ type shards interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, error)
+		selection *searchparams.Selection,
+	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,
@@ -444,11 +465,11 @@ func (i *indices) postObject() http.Handler {
 		ct := r.Header.Get("content-type")
 
 		switch ct {
-		case IndicesPayloads.ObjectList.MIME():
+		case shared.IndicesPayloads.ObjectList.MIME():
 			i.postObjectBatch(w, r, index, shard)
 			return
 
-		case IndicesPayloads.SingleObject.MIME():
+		case shared.IndicesPayloads.SingleObject.MIME():
 			i.postObjectSingle(w, r, index, shard)
 			return
 
@@ -468,7 +489,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
+	obj, err := shared.IndicesPayloads.SingleObject.Unmarshal(bodyBytes, shared.MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -481,6 +502,10 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 	}
 
 	if err := i.shards.PutObject(r.Context(), index, shard, obj, schemaVersion); err != nil {
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			writeUsageLimitExceeded(w, le)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -497,7 +522,7 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
+	objs, err := shared.IndicesPayloads.ObjectList.Unmarshal(bodyBytes, shared.MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -510,13 +535,13 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
-	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
+	errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	IndicesPayloads.ErrorList.SetContentTypeHeader(w)
+	shared.IndicesPayloads.ErrorList.SetContentTypeHeader(w)
 	w.Write(errsJSON)
 }
 
@@ -603,13 +628,13 @@ func (i *indices) getObject() http.Handler {
 			return
 		}
 
-		objBytes, err := IndicesPayloads.SingleObject.Marshal(obj, MethodGet)
+		objBytes, err := shared.IndicesPayloads.SingleObject.Marshal(obj, shared.MethodGet)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.SingleObject.SetContentTypeHeader(w)
+		shared.IndicesPayloads.SingleObject.SetContentTypeHeader(w)
 		w.Write(objBytes)
 	})
 }
@@ -683,7 +708,7 @@ func (i *indices) mergeObject() http.Handler {
 		index, shard, _ := args[1], args[2], args[3]
 
 		defer r.Body.Close()
-		ct, ok := IndicesPayloads.MergeDoc.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.MergeDoc.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
@@ -696,7 +721,7 @@ func (i *indices) mergeObject() http.Handler {
 			return
 		}
 
-		mergeDoc, err := IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
+		mergeDoc, err := shared.IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -762,13 +787,13 @@ func (i *indices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs, MethodGet)
+		objsBytes, err := shared.IndicesPayloads.ObjectList.Marshal(objs, shared.MethodGet)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.ObjectList.SetContentTypeHeader(w)
+		shared.IndicesPayloads.ObjectList.SetContentTypeHeader(w)
 		w.Write(objsBytes)
 	})
 }
@@ -790,14 +815,14 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.SearchParams.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.SearchParams.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, err := IndicesPayloads.SearchParams.
+		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection, err := shared.IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -810,8 +835,8 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
-		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
+		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -821,13 +846,13 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		resBytes, err := IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional)
+		resBytes, err := shared.IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional, queryProfiles)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.SearchResults.SetContentTypeHeader(w)
+		shared.IndicesPayloads.SearchResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
 	})
 }
@@ -850,14 +875,14 @@ func (i *indices) postReferences() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.ReferenceList.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.ReferenceList.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		refs, err := IndicesPayloads.ReferenceList.Unmarshal(reqPayload)
+		refs, err := shared.IndicesPayloads.ReferenceList.Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(),
 				http.StatusInternalServerError)
@@ -871,13 +896,13 @@ func (i *indices) postReferences() http.Handler {
 		}
 
 		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
-		errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
+		errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.ErrorList.SetContentTypeHeader(w)
+		shared.IndicesPayloads.ErrorList.SetContentTypeHeader(w)
 		w.Write(errsJSON)
 	})
 }
@@ -900,14 +925,14 @@ func (i *indices) postAggregateObjects() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.AggregationParams.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.AggregationParams.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		params, err := IndicesPayloads.AggregationParams.Unmarshal(reqPayload)
+		params, err := shared.IndicesPayloads.AggregationParams.Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(),
 				http.StatusInternalServerError)
@@ -930,13 +955,13 @@ func (i *indices) postAggregateObjects() http.Handler {
 			return
 		}
 
-		aggResBytes, err := IndicesPayloads.AggregationResult.Marshal(aggRes)
+		aggResBytes, err := shared.IndicesPayloads.AggregationResult.Marshal(aggRes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.AggregationResult.SetContentTypeHeader(w)
+		shared.IndicesPayloads.AggregationResult.SetContentTypeHeader(w)
 		w.Write(aggResBytes)
 	})
 }
@@ -958,14 +983,14 @@ func (i *indices) postFindUUIDs() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.FindUUIDsParams.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.FindUUIDsParams.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		filters, limit, err := IndicesPayloads.FindUUIDsParams.
+		filters, limit, err := shared.IndicesPayloads.FindUUIDsParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -989,13 +1014,13 @@ func (i *indices) postFindUUIDs() http.Handler {
 			return
 		}
 
-		resBytes, err := IndicesPayloads.FindUUIDsResults.Marshal(results)
+		resBytes, err := shared.IndicesPayloads.FindUUIDsResults.Marshal(results)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.FindUUIDsResults.SetContentTypeHeader(w)
+		shared.IndicesPayloads.FindUUIDsResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
 	})
 }
@@ -1017,14 +1042,14 @@ func (i *indices) putOverwriteObjects() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.VersionedObjectList.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.VersionedObjectList.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		vobjs, err := IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+		vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal overwrite objects params from json: "+err.Error(),
 				http.StatusBadRequest)
@@ -1130,15 +1155,7 @@ func (i *indices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
-			Digests: digests,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Write(resBytes)
+		writeDigestsInRangeResponse(w, r, digests)
 	})
 }
 
@@ -1206,14 +1223,14 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.BatchDeleteParams.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.BatchDeleteParams.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		uuids, deletionTimeUnix, dryRun, err := IndicesPayloads.BatchDeleteParams.
+		uuids, deletionTimeUnix, dryRun, err := shared.IndicesPayloads.BatchDeleteParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -1229,13 +1246,13 @@ func (i *indices) deleteObjects() http.Handler {
 
 		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, deletionTimeUnix, dryRun, schemaVersion)
 
-		resBytes, err := IndicesPayloads.BatchDeleteResults.Marshal(results)
+		resBytes, err := shared.IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.BatchDeleteResults.SetContentTypeHeader(w)
+		shared.IndicesPayloads.BatchDeleteResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
 	})
 }
@@ -1268,13 +1285,13 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 			return
 		}
 
-		sizeBytes, err := IndicesPayloads.GetShardQueueSizeResults.Marshal(size)
+		sizeBytes, err := shared.IndicesPayloads.GetShardQueueSizeResults.Marshal(size)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.GetShardQueueSizeResults.SetContentTypeHeader(w)
+		shared.IndicesPayloads.GetShardQueueSizeResults.SetContentTypeHeader(w)
 		w.Write(sizeBytes)
 	})
 }
@@ -1306,13 +1323,13 @@ func (i *indices) getGetShardStatus() http.Handler {
 			return
 		}
 
-		statusBytes, err := IndicesPayloads.GetShardStatusResults.Marshal(status)
+		statusBytes, err := shared.IndicesPayloads.GetShardStatusResults.Marshal(status)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
+		shared.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
 		w.Write(statusBytes)
 	})
 }
@@ -1334,14 +1351,14 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.UpdateShardStatusParams.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.UpdateShardStatusParams.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		targetStatus, err := IndicesPayloads.UpdateShardStatusParams.
+		targetStatus, err := shared.IndicesPayloads.UpdateShardStatusParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -1373,7 +1390,7 @@ func (i *indices) postShardFile() http.Handler {
 
 		index, shard, filename := args[1], args[2], args[3]
 
-		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
@@ -1454,7 +1471,7 @@ func (i *indices) getShardFileMetadata() http.Handler {
 
 		indexName, shardName, relativeFilePath := args[1], args[2], args[3]
 
-		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
@@ -1488,7 +1505,7 @@ func (i *indices) getShardFile() http.Handler {
 
 		indexName, shardName, relativeFilePath := args[1], args[2], args[3]
 
-		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
+		ct, ok := shared.IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)

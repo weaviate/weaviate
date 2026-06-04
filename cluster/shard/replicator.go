@@ -59,6 +59,7 @@ type Replicator interface {
 	EnsureReadConsistency(ctx context.Context, shardName string, cl routerTypes.ConsistencyLevel) (localReady bool, err error)
 	PutObject(ctx context.Context, shard string, obj *storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) error
 	PutObjects(ctx context.Context, shard string, objs []*storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error
+	CountObjects(ctx context.Context, shard string, l routerTypes.ConsistencyLevel) (int, error)
 }
 
 // ShardReader provides read access to a local shard.

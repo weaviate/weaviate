@@ -38,6 +38,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 
 	mockBatcher := mocks.NewMockbatcher(t)
 	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockStream := newMockStream(t)
 	mockStream.EXPECT().Context().Return(ctx).Maybe()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -97,10 +98,9 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
-	mockStream.EXPECT().Send(newBatchStreamShutdownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -150,6 +150,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 
 	collection := "TestClass"
 	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockSchemaManager.EXPECT().
 		GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
@@ -187,7 +188,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Maybe()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -231,6 +232,7 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 
 	collection := "TestClass"
 	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockSchemaManager.EXPECT().
 		GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
@@ -267,7 +269,7 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 	err := handler.Handle(mockStream)
 	require.NotNil(t, err, "handler should return an error")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
@@ -284,6 +286,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 
 	mockBatcher := mocks.NewMockbatcher(t)
 	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -348,7 +351,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -372,6 +375,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 
 	mockBatcher := mocks.NewMockbatcher(t)
 	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -433,7 +437,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	// Will not emit shutdown message since client never stops sending messages, it gets hung up on instead
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -451,14 +455,6 @@ func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShuttingDown_{
 			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
-		},
-	}
-}
-
-func newBatchStreamShutdownReply() *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Shutdown_{
-			Shutdown: &pb.BatchStreamReply_Shutdown{},
 		},
 	}
 }

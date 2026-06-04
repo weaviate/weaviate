@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
 	"sync"
 	"time"
@@ -204,7 +205,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 }
 
 func getType(myvar interface{}) string {
-	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
+	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Pointer {
 		return "*" + t.Elem().Name()
 	} else {
 		return t.Name()
@@ -221,7 +222,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		classLabel = "n/a"
 	}
 	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel)
-	if err != nil {
+	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
@@ -273,9 +274,10 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, nil, fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
+			req.ID, path.Join(destPath, BackupFile), meta.ID, destPath)
 	}
-	if meta.Status != string(backup.Success) {
+	if meta.Status != backup.Success {
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}
@@ -293,6 +295,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		}
 		meta.Include(req.Classes)
 	}
+
 	return meta, cs, nil
 }
 

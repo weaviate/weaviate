@@ -47,9 +47,61 @@ func newTestManager(t *testing.T, maxConns int, timeout time.Duration, opts ...g
 	reg := prometheus.NewPedanticRegistry()
 	logger := logrus.New()
 
-	m := NewConnManager(maxConns, timeout, reg, logger, opts...)
+	m, err := NewConnManager(maxConns, timeout, reg, logger, opts...)
+	if err != nil {
+		t.Fatalf("NewConnManager failed: %v", err)
+	}
 
 	return m, func() { m.Close() }
+}
+
+func TestNewConnManager_Validation(t *testing.T) {
+	reg := prometheus.NewPedanticRegistry()
+	logger := logrus.New()
+
+	cases := []struct {
+		name         string
+		maxOpenConns int
+		timeout      time.Duration
+		wantErr      string
+	}{
+		{
+			name:         "zero maxOpenConns",
+			maxOpenConns: 0,
+			timeout:      time.Minute,
+			wantErr:      "grpcconn: maxOpenConns must be > 0, got 0",
+		},
+		{
+			name:         "negative maxOpenConns",
+			maxOpenConns: -1,
+			timeout:      time.Minute,
+			wantErr:      "grpcconn: maxOpenConns must be > 0, got -1",
+		},
+		{
+			name:         "zero timeout",
+			maxOpenConns: 10,
+			timeout:      0,
+			wantErr:      "grpcconn: timeout must be > 0, got 0s",
+		},
+		{
+			name:         "negative timeout",
+			maxOpenConns: 10,
+			timeout:      -time.Second,
+			wantErr:      "grpcconn: timeout must be > 0, got -1s",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewConnManager(tc.maxOpenConns, tc.timeout, reg, logger)
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != tc.wantErr {
+				t.Fatalf("expected error %q, got %q", tc.wantErr, err.Error())
+			}
+		})
+	}
 }
 
 func TestGetConn_CachesConnection(t *testing.T) {
@@ -74,78 +126,6 @@ func TestGetConn_CachesConnection(t *testing.T) {
 
 	if c1 != c2 {
 		t.Fatalf("expected cached connection; got different pointers")
-	}
-}
-
-func TestCleanupIdleConnections_RemovesStaleOnes(t *testing.T) {
-	lis, dialer := newBufConnDialer(t)
-	defer lis.Close()
-
-	// Tiny timeout so entries become stale quickly.
-	m, done := newTestManager(t, 10, 20*time.Millisecond,
-		grpc.WithContextDialer(dialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	defer done()
-
-	c1, err := m.GetConn("bufnet")
-	if err != nil {
-		t.Fatalf("GetConn failed: %v", err)
-	}
-
-	// Let it become stale.
-	time.Sleep(50 * time.Millisecond)
-
-	// Force a cleanup pass (no direct field access).
-	m.CleanupIdleConnections()
-
-	// The old connection should be closed by now.
-	if s := c1.GetState(); s != connectivity.Shutdown {
-		t.Fatalf("expected stale conn to be closed (Shutdown), got %v", s)
-	}
-
-	// A fresh GetConn should yield a new, distinct connection.
-	c2, err := m.GetConn("bufnet")
-	if err != nil {
-		t.Fatalf("GetConn after cleanup failed: %v", err)
-	}
-
-	if c1 == c2 {
-		t.Fatalf("expected a new connection after cleanup")
-	}
-}
-
-func TestCleanupIdleConnections_RespectsRecentUse(t *testing.T) {
-	lis, dialer := newBufConnDialer(t)
-	defer lis.Close()
-
-	m, done := newTestManager(t, 10, 100*time.Millisecond,
-		grpc.WithContextDialer(dialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	defer done()
-
-	c1, err := m.GetConn("bufnet")
-	if err != nil {
-		t.Fatalf("GetConn failed: %v", err)
-	}
-
-	// Wait but not past the timeout, then "touch" the entry by calling GetConn again.
-	time.Sleep(50 * time.Millisecond)
-	c2, err := m.GetConn("bufnet")
-	if err != nil {
-		t.Fatalf("GetConn refresh failed: %v", err)
-	}
-
-	if c1 != c2 {
-		t.Fatalf("expected same connection on refresh")
-	}
-
-	// Immediately run cleanup; lastUsed should have been refreshed, so it should NOT close.
-	m.CleanupIdleConnections()
-
-	if s := c1.GetState(); s == connectivity.Shutdown {
-		t.Fatalf("did not expect conn to be closed after recent use")
 	}
 }
 
@@ -370,31 +350,6 @@ func TestGetConn_AtCapacityNoExpired_Rejected(t *testing.T) {
 	}
 	if got := err.Error(); got != "connection limit reached and no expired connections available" {
 		t.Fatalf("unexpected error: %q", got)
-	}
-}
-
-func TestCleanupIdleConnections_NoTimeout_NoOp(t *testing.T) {
-	lis, dialer := newBufConnDialer(t)
-	defer lis.Close()
-
-	// timeout <= 0: cleanup should be a no-op
-	m, done := newTestManager(t, 10, 0,
-		grpc.WithContextDialer(dialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	defer done()
-
-	c, err := m.GetConn("bufnet")
-	if err != nil {
-		t.Fatalf("GetConn failed: %v", err)
-	}
-
-	// Even after waiting and running cleanup, the connection should remain
-	time.Sleep(50 * time.Millisecond)
-	m.CleanupIdleConnections()
-
-	if s := c.GetState(); s == connectivity.Shutdown {
-		t.Fatalf("did not expect connection to be closed when timeout is disabled")
 	}
 }
 

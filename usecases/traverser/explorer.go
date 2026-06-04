@@ -148,6 +148,34 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 
+	// When boost is set, overfetch to give boost room to reorder results.
+	// The candidate pool size is controlled by boost.Depth (per-query) with
+	// a default of QueryBoostDefaultDepth. Capped at QueryMaximumResults.
+	// We also zero the offset so boost sees all top candidates from position 0;
+	// the original offset/limit are stored on the Boost struct and applied
+	// after boost re-sorts.
+	if params.Boost != nil && params.Boost.Weight > 0 {
+		params.Boost.OriginalOffset = params.Pagination.Offset
+		params.Boost.OriginalLimit = params.Pagination.Limit
+
+		overfetch := params.Boost.Depth
+		if overfetch == 0 {
+			overfetch = e.config.QueryBoostDefaultDepth
+		}
+		if overfetch > int(e.config.QueryMaximumResults) {
+			overfetch = int(e.config.QueryMaximumResults)
+		}
+		// Need at least offset+limit candidates so the original page is reachable.
+		minCandidates := params.Boost.OriginalOffset + params.Boost.OriginalLimit
+		if overfetch < minCandidates {
+			overfetch = minCandidates
+		}
+		pagination := *params.Pagination
+		pagination.Limit = overfetch
+		pagination.Offset = 0
+		params.Pagination = &pagination
+	}
+
 	if params.KeywordRanking != nil {
 		res, err := e.getClassKeywordBased(ctx, params)
 		if err != nil {
@@ -164,11 +192,27 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return e.searchResultsToGetResponse(ctx, res, searchVector, params, searchStartTime)
 	}
 
+	// Hybrid and plain list searches go through getClassList, which handles
+	// Group workarounds, ListExploreAdditionalExtend, and usage tracking.
 	res, err := e.getClassList(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
+}
+
+// applyBoostIfNeeded applies boost post-scoring when boost conditions are
+// present and weight > 0. For vector searches, distances are converted to
+// scores first since vector search populates Dist but not Score.
+// The original pagination (offset/limit) is read from the Boost struct.
+func (e *Explorer) applyBoostIfNeeded(res []search.Result, boost *filters.Boost, isVectorSearch bool) []search.Result {
+	if boost == nil || boost.Weight <= 0 || len(res) == 0 {
+		return res
+	}
+	if isVectorSearch {
+		distToScore(res)
+	}
+	return applyBoostScoring(res, boost)
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -195,6 +239,8 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		}
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
+
+	res = e.applyBoostIfNeeded(res, params.Boost, false)
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
@@ -297,6 +343,12 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res = grouped
 	}
 
+	// Apply boost before module extensions (rerankers) so the order is:
+	// vector search → boost → reranker. Only for non-hybrid paths.
+	if params.HybridSearch == nil {
+		res = e.applyBoostIfNeeded(res, params.Boost, true)
+	}
+
 	// This operation cannot be performed with hybrid search.
 	// In case of hybrid it needs to be done later with combined results from vector and keyword search
 	if e.modulesProvider != nil && params.HybridSearch == nil {
@@ -392,8 +444,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
-	if e.modulesProvider != nil {
+	res = e.applyBoostIfNeeded(res, params.Boost, false)
 
+	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, params.ModuleParams)
 		if err != nil {

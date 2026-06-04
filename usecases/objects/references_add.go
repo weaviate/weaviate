@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddObjectReference to an existing object. If the class contains a network
@@ -40,8 +41,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	defer m.metrics.AddReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	input.Class = schema.UppercaseClassName(input.Class)
-	input.Class, _ = m.resolveAlias(input.Class)
+	if input.Class != "" {
+		class, _, err := m.resolveNS(principal, input.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		input.Class = class
+	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
@@ -52,7 +58,15 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	deprecatedEndpoint := input.Class == ""
-	if deprecatedEndpoint { // for backward compatibility only
+	if deprecatedEndpoint {
+		// NS-enabled: refuse the legacy scan-all-collections fallback. The
+		// REST layer rejects the deprecated route with 410 before this point;
+		// this is defensive for direct callers.
+		if m.config.Config.Namespaces.Enabled {
+			err := fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")
+			return &Error{err.Error(), StatusGone, err}
+		}
+		// Non-NS clusters: legacy backward-compatibility scan.
 		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
@@ -79,7 +93,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return typedErr
 	}
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
+		principal, m.config.Config.Namespaces.Enabled)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -103,6 +118,27 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			input.Ref.Beacon = toBeacon
 			targetRef.Class = string(toClass)
 		}
+	}
+
+	// NS-enabled: classless beacon on a multi-target prop would reach
+	// Exists with Class=="" → DB.anyExists scans every namespace's
+	// indices, and the stored beacon would be wildcard-deletable.
+	if m.config.Config.Namespaces.Enabled && targetRef.Class == "" {
+		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
+	if targetRef.Class != "" {
+		// Qualified for in-memory ops (authz + existence), short for the
+		// stored beacon. QualifyRefTarget backs all four write paths.
+		qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
+			principal, m.config.Config.Namespaces.Enabled, input.Class, targetRef.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		targetRef.Class = qualifiedTarget
+		input.Ref.Class = strfmt.URI(shortTarget)
+		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
@@ -136,8 +172,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if shouldValidateMultiTenantRef(tenant, source, target) {
+		// MT validation uses targetRef (qualified); storage `target` is short.
 		_, err = validateReferenceMultiTenancy(ctx, principal,
-			m.schemaManager, m.vectorRepo, source, target, tenant, fetchedClass)
+			m.schemaManager, m.vectorRepo, source, targetRef, tenant, fetchedClass)
 		if err != nil {
 			switch {
 			case errors.As(err, &autherrs.Forbidden{}):

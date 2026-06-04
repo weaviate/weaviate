@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"iter"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -19,24 +20,23 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestPostingPassesFilterSlice_PassesIfAddsNewVector(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 has allowed vector 0
-	pm.FastAddVectorID(ctx, 0, 0, 0)
+	pm.FastAddVectorID(ctx, 0, 0)
 
 	// posting 1 has allowed vector 1 (different allowed vector)
-	pm.FastAddVectorID(ctx, 1, 1, 0)
+	pm.FastAddVectorID(ctx, 1, 1)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -56,16 +56,16 @@ func TestPostingPassesFilterSlice_IgnoresDisallowedVectors(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// postings only have vectors that are NOT in allowList
-	pm.FastAddVectorID(ctx, 0, 10, 0)
-	pm.FastAddVectorID(ctx, 0, 11, 0)
-	pm.FastAddVectorID(ctx, 1, 12, 0)
+	pm.FastAddVectorID(ctx, 0, 10)
+	pm.FastAddVectorID(ctx, 0, 11)
+	pm.FastAddVectorID(ctx, 1, 12)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -85,18 +85,18 @@ func TestPostingPassesFilterSlice_SkipsAlreadyUsedAndFindsLaterNewOne(t *testing
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 consumes vector 0
-	pm.FastAddVectorID(ctx, 0, 0, 0)
+	pm.FastAddVectorID(ctx, 0, 0)
 
 	// posting 1 has [0, 1], where 0 will be already used after checking posting 0
-	pm.FastAddVectorID(ctx, 1, 0, 0)
-	pm.FastAddVectorID(ctx, 1, 1, 0)
+	pm.FastAddVectorID(ctx, 1, 0)
+	pm.FastAddVectorID(ctx, 1, 1)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -116,18 +116,18 @@ func TestPostingPassesFilterSlice_StopsOnFirstNewContribution(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 has [0, 1]. It should consume ONLY 0 (first new allowed) and stop.
-	pm.FastAddVectorID(ctx, 0, 0, 0)
-	pm.FastAddVectorID(ctx, 0, 1, 0)
+	pm.FastAddVectorID(ctx, 0, 0)
+	pm.FastAddVectorID(ctx, 0, 1)
 
 	// posting 1 has only [1]. If posting 0 incorrectly consumed both 0 and 1, this would fail.
-	pm.FastAddVectorID(ctx, 1, 1, 0)
+	pm.FastAddVectorID(ctx, 1, 1)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -147,14 +147,14 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 has allowed vector 0
-	pm.FastAddVectorID(ctx, 0, 0, 0)
+	pm.FastAddVectorID(ctx, 0, 0)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -169,4 +169,37 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 	require.True(t, ok)
 
 	hfAllowList.Close()
+}
+
+func TestAllowListIteratorReturnsAcceptedPostingWithSingleAllowedVector(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+	pm := NewPostingMap(bucket)
+	ctx := t.Context()
+
+	pm.FastAddVectorID(ctx, 0, 0)
+
+	hf := &HFresh{
+		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
+	}
+
+	allowList := helpers.NewAllowList(0)
+	hfAllowList := hf.wrapAllowList(ctx, allowList)
+	defer hfAllowList.Close()
+
+	next, stop := iter.Pull2(hf.PostingMap.Iter())
+	defer stop()
+
+	iterator := &AllowListIterator{
+		allowList: hfAllowList,
+		next:      next,
+		stop:      func() {},
+		len:       1,
+	}
+
+	id, ok := iterator.Next()
+	require.True(t, ok)
+	require.EqualValues(t, 0, id)
 }

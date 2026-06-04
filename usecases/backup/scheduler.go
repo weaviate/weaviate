@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -145,13 +146,14 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	breq := Request{
-		Method:      OpCreate,
-		ID:          req.ID,
-		Backend:     req.Backend,
-		Classes:     classes,
-		Compression: req.Compression,
-		Bucket:      req.Bucket,
-		Path:        req.Path,
+		Method:       OpCreate,
+		ID:           req.ID,
+		Backend:      req.Backend,
+		Classes:      classes,
+		Compression:  req.Compression,
+		Bucket:       req.Bucket,
+		Path:         req.Path,
+		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -243,7 +245,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path}
+	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -261,7 +263,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath}
+	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -418,13 +420,13 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	return nil
 }
 
-func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string) (*models.BackupListResponse, error) {
+func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string, includeBaseBackupID bool) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
 
-	backupBackend, err := s.backends.BackupBackend(backend)
+	backupBackend, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +440,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {
-		response[i] = &models.BackupListResponseItems0{
+		item := &models.BackupListResponseItems0{
 			ID:          b.ID,
 			Classes:     b.Classes(),
 			Status:      string(b.Status),
@@ -446,6 +448,12 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
 			Size:        float64(b.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 		}
+		// Base backup ID is sensitive and only populated for callers the
+		// handler has confirmed as root.
+		if includeBaseBackupID {
+			item.IncrementalBaseBackupID = b.BaseBackupID
+		}
+		response[i] = item
 	}
 
 	return &response, nil
@@ -470,7 +478,7 @@ func sortBackups(order AllBackupsOrder) func(a, b *backup.DistributedBackupDescr
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {
-	caps, err := provider.BackupBackend(backend)
+	caps, err := provider.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return coordStore{}, err
 	}
@@ -485,6 +493,11 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 
 	if err := validateID(req.ID); err != nil {
 		return nil, err
+	}
+	if req.BaseBackupID != "" {
+		if err := validateID(req.BaseBackupID); err != nil {
+			return nil, fmt.Errorf("base backup id: %w", err)
+		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
@@ -520,6 +533,16 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
 		return nil, err
 	}
+
+	// validate base backup chain
+	compressionType, err := CompressionTypeFromLevel(req.Level)
+	if err != nil {
+		return nil, fmt.Errorf("get compression type: %w", err)
+	}
+	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+		return nil, fmt.Errorf("resolve base backup chain: %w", err)
+	}
+
 	return classes, nil
 }
 
@@ -558,7 +581,8 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		return nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, fmt.Errorf("wrong backup file: restore request asked for %q but the descriptor at %q reports its ID as %q (someone placed metadata from a different backup into this slot, or the backup_config.json was overwritten by an aborted operation; remove the slot and retry with the original backup ID)",
+			req.ID, path.Join(destPath, GlobalBackupFile), meta.ID)
 	}
 	if meta.Status != backup.Success {
 		return nil, fmt.Errorf("invalid backup in scheduler %s status: %s", destPath, meta.Status)

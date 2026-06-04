@@ -286,6 +286,13 @@ func skipTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 			continue
 		}
 
+		// Skip snapshot files — they are handled by the snapshot system,
+		// not the WAL deserializer. This includes compact v2 snapshots
+		// that may appear in the commitlog directory before migration.
+		if strings.HasSuffix(entry.Name(), ".snapshot") {
+			continue
+		}
+
 		out[i] = entry
 		i++
 	}
@@ -338,7 +345,10 @@ func filterNewerCommitLogFiles(in []os.DirEntry, createdAfter int64) ([]os.DirEn
 	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, entry := range in {
-		ts, err := asTimeStamp(entry.Name())
+		// Use endTimeStamp so that range files (e.g. 1400_1600.sorted) are
+		// included when the snapshot covers only up to 1500. The file contains
+		// data beyond the snapshot and must be loaded.
+		ts, err := endTimeStamp(entry.Name())
 		if err != nil {
 			return nil, errors.Wrapf(err, "read commitlog timestamp %q", entry.Name())
 		}
@@ -355,7 +365,29 @@ func filterNewerCommitLogFiles(in []os.DirEntry, createdAfter int64) ([]os.DirEn
 }
 
 func asTimeStamp(in string) (int64, error) {
-	return strconv.ParseInt(strings.TrimSuffix(in, ".condensed"), 10, 64)
+	s := in
+	for _, suffix := range []string{".condensed", ".sorted", ".snapshot"} {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	// Handle range format: {start}_{end} — use start timestamp for sorting
+	if idx := strings.Index(s, "_"); idx != -1 {
+		s = s[:idx]
+	}
+	return strconv.ParseInt(s, 10, 64)
+}
+
+// endTimeStamp returns the end timestamp from a commit log filename.
+// For single-timestamp files, it returns the same value as asTimeStamp.
+// For range-format files ({start}_{end}), it returns the end timestamp.
+func endTimeStamp(in string) (int64, error) {
+	s := in
+	for _, suffix := range []string{".condensed", ".sorted", ".snapshot"} {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	if _, end, ok := strings.Cut(s, "_"); ok {
+		return strconv.ParseInt(end, 10, 64)
+	}
+	return strconv.ParseInt(s, 10, 64)
 }
 
 type Condensor interface {
@@ -609,6 +641,11 @@ func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 	return err
 }
 
+func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
+	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	return nil
+}
+
 func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	l.Lock()
 	defer l.Unlock()
@@ -756,14 +793,26 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "drop commitlog")
 	}
 
+	if keepFiles {
+		return nil
+	}
+
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := l.fs.Stat(dir); err == nil && !keepFiles {
-		err := l.fs.RemoveAll(dir)
-		if err != nil {
+	if _, err := l.fs.Stat(dir); err == nil {
+		if err := l.fs.RemoveAll(dir); err != nil {
 			return errors.Wrap(err, "delete commit files directory")
 		}
 	}
+
+	// remove snapshot directory if exists
+	sDir := snapshotDirectory(l.rootPath, l.id)
+	if _, err := l.fs.Stat(sDir); err == nil {
+		if err := l.fs.RemoveAll(sDir); err != nil {
+			return errors.Wrap(err, "delete snapshot directory")
+		}
+	}
+
 	return nil
 }
 

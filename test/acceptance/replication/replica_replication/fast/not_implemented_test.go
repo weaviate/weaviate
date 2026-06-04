@@ -43,9 +43,8 @@ func (suite *ReplicationNotImplementedTestSuite) SetupSuite() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start weaviate cluster: %+v", err)
 	if cancel != nil {
 		cancel()
 	}

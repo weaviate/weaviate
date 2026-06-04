@@ -32,4 +32,6 @@ func TestMulti2VecClip_SingleNode(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 
 	t.Run("multi2vec-clip", testMulti2VecClip(endpoint))
+	t.Run("blob-hash-vectorization", testBlobHashVectorization(endpoint))
+	t.Run("blob-hash-validation", testBlobHashValidation(endpoint))
 }

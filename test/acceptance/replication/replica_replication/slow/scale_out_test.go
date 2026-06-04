@@ -34,7 +34,7 @@ type movement struct {
 	shard  string
 }
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
+func (suite *ReplicationTestSuiteSlow) TestReplicationReplicateScaleOut() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -43,7 +43,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start weaviate cluster: %+v", err)
 	defer func() {
 		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -91,7 +91,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 	ns, err := helper.Client(t).Nodes.NodesGet(
 		nodes.NewNodesGetParams(), nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get nodes: %+v", err)
 	nodeNames := make([]string, 0, len(ns.Payload.Nodes))
 	for _, node := range ns.Payload.Nodes {
 		nodeNames = append(nodeNames, node.Name)
@@ -101,7 +101,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 	shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(
 		replication.NewGetCollectionShardingStateParams().WithCollection(&cls.Class), nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get collection sharding state: %+v", err)
 	require.Len(t, shardingState.Payload.ShardingState.Shards, 10)
 
 	movements := []movement{}
@@ -131,21 +131,26 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 			}),
 			nil,
 		)
-		require.Nil(t, err, "failed to start replication from %s to %s for shard %s", movement.source, movement.target, movement.shard)
+		require.NoError(t, err, "failed to start replication from %s to %s for shard %s", movement.source, movement.target, movement.shard)
 		time.Sleep(10 * time.Millisecond) // Give some time to avoid overwhelming the server with requests
 	}
-	require.Nil(t, err, "failed to start batch replications")
+	require.NoError(t, err, "failed to start batch replications")
 
 	// Wait until all ops are in the READY state
 	t.Log("Waiting for all replication operations to be in READY state...")
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		t.Log("Not all ops are in READY state, checking again...")
+		include := true
 		ops, err := helper.Client(t).Replication.ListReplication(
-			replication.NewListReplicationParams().WithCollection(&cls.Class), nil,
+			replication.NewListReplicationParams().WithCollection(&cls.Class).WithIncludeHistory(&include), nil,
 		)
-		require.Nil(ct, err, "failed to list replication operations")
+		require.NoError(ct, err, "failed to list replication operations")
 		for _, op := range ops.Payload {
 			assert.Equal(ct, "READY", op.Status.State, "replication operation should be in READY state")
+			if len(op.Status.Errors) > 0 {
+				lastError := op.Status.Errors[len(op.Status.Errors)-1]
+				t.Logf("op %s most recently failed with %s", op.ID, lastError.Message)
+			}
 		}
 	}, 10*time.Minute, 1*time.Second, "not all replication operations are in READY state")
 
@@ -165,9 +170,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 			res, err := helper.Client(t).Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
 				Query: fmt.Sprintf(`{ Aggregate { %s(tenant: "%s") { meta { count } } } }`, cls.Class, tenantName),
 			}), nil)
-			require.Nil(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
+			require.NoError(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
 			val, err := res.Payload.Data["Aggregate"].(map[string]any)["Paragraph"].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
-			require.Nil(t, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
+			require.NoError(t, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
 			objectCountByReplica[node][tenantName] = val
 		}
 	}

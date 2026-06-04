@@ -23,7 +23,10 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetAddOne(key, value)
@@ -34,7 +37,10 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetRemoveOne(key, value)
@@ -45,10 +51,53 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetAddList(key, values)
+}
+
+// RoaringSetBatchEntry is a key-values pair for use with RoaringSetAddBatch.
+type RoaringSetBatchEntry struct {
+	Key    []byte
+	Values []uint64
+}
+
+// RoaringSetAddBatch writes multiple key-values pairs to the bucket under
+// a single flushLock acquisition and a single memtable lock acquisition,
+// reducing lock overhead compared to calling RoaringSetAddList in a loop.
+func (b *Bucket) RoaringSetAddBatch(entries []RoaringSetBatchEntry) error {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return err
+	}
+
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return active.roaringSetAddBatch(entries)
+}
+
+// RoaringSetRemoveBatch removes multiple key-values pairs from the bucket under
+// a single flushLock acquisition and a single memtable lock acquisition,
+// reducing lock overhead compared to calling RoaringSetRemoveOne in a loop.
+func (b *Bucket) RoaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return err
+	}
+
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return active.roaringSetRemoveBatch(entries)
 }
 
 func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
@@ -56,7 +105,10 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetAddBitmap(key, bm)

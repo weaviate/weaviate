@@ -47,11 +47,11 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -68,11 +68,11 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil, nil, nil)
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -128,6 +128,10 @@ func (f *fakeDB) DeleteClass(class string, hasFrozen bool) error {
 }
 
 func (f *fakeDB) AddProperty(prop string, cmd command.AddPropertyRequest) error {
+	return nil
+}
+
+func (f *fakeDB) UpdateProperty(class string, req command.UpdatePropertyRequest) error {
 	return nil
 }
 
@@ -238,6 +242,10 @@ func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
 	return strings.Contains(moduleName, "colbert")
 }
 
+func (f *fakeModuleConfig) HasModule(moduleName string) bool {
+	return strings.Contains(moduleName, "colbert") || strings.Contains(moduleName, "text2vec") || strings.Contains(moduleName, "multi2vec")
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -299,6 +307,11 @@ func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop .
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, property *models.Property) error {
+	args := f.Called(ctx, className, property)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
@@ -312,10 +325,6 @@ func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string
 func (f *fakeMigrator) ShutdownShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
-}
-
-func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
-	return nil
 }
 
 func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error {
@@ -356,6 +365,14 @@ func (*fakeMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sc
 func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
+	return nil
+}
+
+func (*fakeMigrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
+	return nil
+}
+
+func (*fakeMigrator) GetVectorIndexNames(className string) []string {
 	return nil
 }
 

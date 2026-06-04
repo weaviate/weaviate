@@ -79,21 +79,21 @@ type google struct {
 	apiKey        string
 	googleApiKey  *apikey.GoogleApiKey
 	useGoogleAuth bool
+	rpm           int
 	httpClient    *http.Client
 	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
 	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *google {
+func New(apiKey string, useGoogleAuth bool, rpm int, timeout time.Duration, logger logrus.FieldLogger) *google {
 	return &google{
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
+		rpm:           rpm,
 		googleApiKey:  apikey.NewGoogleApiKey(),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		urlBuilderFn: buildURL,
-		logger:       logger,
+		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilderFn:  buildURL,
+		logger:        logger,
 	}
 }
 
@@ -130,9 +130,9 @@ func (v *google) GetVectorizerRateLimit(ctx context.Context, config moduletools.
 			return
 		}
 
-		limits.LimitRequests = 30000
+		limits.LimitRequests = v.rpm
 		limits.LimitTokens = 1000000
-		limits.RemainingRequests = 30000
+		limits.RemainingRequests = v.rpm
 		limits.RemainingTokens = 1000000
 		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
 		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)
@@ -254,7 +254,7 @@ func (v *google) parseGenerativeAIApiResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody batchEmbedTextResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
@@ -286,7 +286,7 @@ func (v *google) parseEmbeddingsResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {

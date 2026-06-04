@@ -155,6 +155,7 @@ func TestGRPC_MixedVectors(t *testing.T) {
 						}
 					}
 				})
+				require.NotEmpty(t, resp.Results)
 				require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
 			})
 		})

@@ -49,6 +49,48 @@ maximum_allowed_collections_count: 13
 		assert.Equal(t, 13, cfg.MaximumAllowedCollectionsCount.Get())
 	})
 
+	t.Run("slice fields accept multiple YAML shapes", func(t *testing.T) {
+		cases := []struct {
+			name            string
+			yaml            string
+			wantVector      []string
+			wantCompression []string
+		}{
+			{
+				name: "empty-string scalar is equivalent to empty list",
+				yaml: `allowed_vector_index_types: ""
+allowed_compression_types: ""`,
+			},
+			{
+				name: "comma-separated scalar splits into elements",
+				yaml: `allowed_vector_index_types: "hfresh,hnsw,dynamic,flat"
+allowed_compression_types: "pq,bq"`,
+				wantVector:      []string{"hfresh", "hnsw", "dynamic", "flat"},
+				wantCompression: []string{"pq", "bq"},
+			},
+			{
+				name: "explicit YAML list decodes as-is",
+				yaml: `allowed_vector_index_types: ["hfresh", "hnsw", "dynamic", "flat"]
+allowed_compression_types: ["pq", "bq"]`,
+				wantVector:      []string{"hfresh", "hnsw", "dynamic", "flat"},
+				wantCompression: []string{"pq", "bq"},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg, err := ParseRuntimeConfig([]byte(tc.yaml))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantVector, cfg.AllowedVectorIndexTypes.Get())
+				assert.Equal(t, tc.wantCompression, cfg.AllowedCompressionTypes.Get())
+			})
+		}
+	})
+
+	t.Run("empty-string scalar for non-slice fields still errors", func(t *testing.T) {
+		_, err := ParseRuntimeConfig([]byte(`maximum_allowed_collections_count: ""`))
+		require.Error(t, err)
+	})
+
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
 		var r WeaviateRuntimeConfig
 
@@ -92,41 +134,36 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 			readLogLevel             runtime.DynamicValue[string]
 			writeLogLevel            runtime.DynamicValue[string]
 			revectorizeCheckDisabled runtime.DynamicValue[bool]
-			minFinWait               runtime.DynamicValue[time.Duration]
 			raftDrainSleep           runtime.DynamicValue[time.Duration]
 			raftTimeoutsMultiplier   runtime.DynamicValue[int]
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount:  &colCount,
-			AutoschemaEnabled:               &autoSchema,
-			AsyncReplicationDisabled:        &asyncRep,
-			TenantActivityReadLogLevel:      &readLogLevel,
-			TenantActivityWriteLogLevel:     &writeLogLevel,
-			RevectorizeCheckDisabled:        &revectorizeCheckDisabled,
-			ReplicaMovementMinimumAsyncWait: &minFinWait,
-			RaftDrainSleep:                  &raftDrainSleep,
-			RaftTimoutsMultiplier:           &raftTimeoutsMultiplier,
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+			AsyncReplicationDisabled:       &asyncRep,
+			TenantActivityReadLogLevel:     &readLogLevel,
+			TenantActivityWriteLogLevel:    &writeLogLevel,
+			RevectorizeCheckDisabled:       &revectorizeCheckDisabled,
+			RaftDrainSleep:                 &raftDrainSleep,
+			RaftTimoutsMultiplier:          &raftTimeoutsMultiplier,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13
-replica_movement_minimum_async_wait: 10s`)
+maximum_allowed_collections_count: 13`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
 		// before update (zero values)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
-		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
-		assert.Equal(t, 10*time.Second, minFinWait.Get())
 	})
 
 	t.Run("Add and remove workflow", func(t *testing.T) {
@@ -290,23 +327,20 @@ maximum_allowed_collections_count: 10`)
 			readLogLevel             runtime.DynamicValue[string]
 			writeLogLevel            runtime.DynamicValue[string]
 			revectorizeCheckDisabled runtime.DynamicValue[bool]
-			minFinWait               runtime.DynamicValue[time.Duration]
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount:  &colCount,
-			AutoschemaEnabled:               &autoSchema,
-			AsyncReplicationDisabled:        &asyncRep,
-			TenantActivityReadLogLevel:      &readLogLevel,
-			TenantActivityWriteLogLevel:     &writeLogLevel,
-			RevectorizeCheckDisabled:        &revectorizeCheckDisabled,
-			ReplicaMovementMinimumAsyncWait: &minFinWait,
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+			AsyncReplicationDisabled:       &asyncRep,
+			TenantActivityReadLogLevel:     &readLogLevel,
+			TenantActivityWriteLogLevel:    &writeLogLevel,
+			RevectorizeCheckDisabled:       &revectorizeCheckDisabled,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13
-replica_movement_minimum_async_wait: 10s`)
+maximum_allowed_collections_count: 13`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
@@ -314,7 +348,6 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
-		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 
@@ -322,7 +355,6 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
-		assert.Equal(t, 10*time.Second, minFinWait.Get())
 
 		// removing `maximum_allowed_collection_count` from config
 		buf = []byte(`autoschema_enabled: false`)
@@ -587,6 +619,54 @@ replica_movement_minimum_async_wait: 10s`)
 			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
 		})
 	})
+}
+
+// TestExportDefaultPathRuntimeOverride verifies that runtime config overrides
+// correctly update Export.DefaultPath.
+func TestExportDefaultPathRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	tests := []struct {
+		name          string
+		initialPath   string // startup value for source.ExportDefaultPath
+		runtimeConfig string // YAML applied via UpdateRuntimeConfig
+		expectedPath  string
+	}{
+		{
+			name:          "override from empty to non-empty path",
+			initialPath:   "",
+			runtimeConfig: `export_default_path: "from/runtime"`,
+			expectedPath:  "from/runtime",
+		},
+		{
+			name:          "override switching non-empty path to another non-empty path",
+			initialPath:   "initial/path",
+			runtimeConfig: `export_default_path: "new/path"`,
+			expectedPath:  "new/path",
+		},
+		{
+			name:          "override from non-empty to empty string",
+			initialPath:   "initial/path",
+			runtimeConfig: `export_default_path: ""`,
+			expectedPath:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defaultPath := runtime.NewDynamicValue(tt.initialPath)
+			source := &WeaviateRuntimeConfig{
+				ExportDefaultPath: defaultPath,
+			}
+
+			parsed, err := ParseRuntimeConfig([]byte(tt.runtimeConfig))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+
+			assert.Equal(t, tt.expectedPath, defaultPath.Get())
+		})
+	}
 }
 
 // helpers

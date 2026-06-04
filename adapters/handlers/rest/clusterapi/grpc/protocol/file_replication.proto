@@ -19,6 +19,16 @@ service FileReplicationService {
   rpc GetFileMetadata (GetFileMetadataRequest) returns (FileMetadata);
 
   rpc GetFile (GetFileRequest) returns (stream FileChunk);
+
+  rpc StartChangeCapture (StartChangeCaptureRequest) returns (StartChangeCaptureResponse);
+
+  rpc GetChangeLog (GetChangeLogRequest) returns (stream ChangeLogStreamEntry);
+
+  rpc SnapshotChangeLogLSN (SnapshotChangeLogLSNRequest) returns (SnapshotChangeLogLSNResponse);
+
+  rpc FinalizeChangeLog (FinalizeChangeLogRequest) returns (FinalizeChangeLogResponse);
+
+  rpc StopChangeCapture (StopChangeCaptureRequest) returns (StopChangeCaptureResponse);
 }
 
 message PauseFileActivityRequest {
@@ -79,3 +89,75 @@ message FileChunk {
   bytes data = 2; // Compressed or raw chunk data
   bool eof = 3; // Indicates final chunk
 }
+
+message StartChangeCaptureRequest {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+}
+
+message StartChangeCaptureResponse {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+}
+
+message GetChangeLogRequest {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+  // Inclusive upper bound on emitted LSNs. The stream closes cleanly with
+  // io.EOF after lsn >= until_lsn (or when the log is finalized, whichever
+  // fires first), without sealing the log. until_lsn=0 emits no entries —
+  // a quiet shard's Snapshot returns 0 and the cap'd drain must not hang.
+  uint64 until_lsn = 4;
+}
+
+message SnapshotChangeLogLSNRequest {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+}
+
+message SnapshotChangeLogLSNResponse {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+  // The highest LSN in the change log at snapshot time. The log remains
+  // writable.
+  uint64 lsn = 4;
+}
+
+message ChangeLogStreamEntry {
+  uint64 lsn = 1;
+  bool is_delete = 2;
+  int64 update_time_millis = 3;
+  bytes uuid = 4;
+  bytes payload = 5;
+}
+
+message FinalizeChangeLogRequest {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+}
+
+message FinalizeChangeLogResponse {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+  uint64 final_lsn = 4;
+}
+
+message StopChangeCaptureRequest {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+}
+
+message StopChangeCaptureResponse {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+}
+

@@ -38,6 +38,7 @@ type CycleManager interface {
 type cycleManager struct {
 	sync.RWMutex
 
+	name          string
 	cycleCallback CycleCallback
 	cycleTicker   CycleTicker
 	running       bool
@@ -49,8 +50,9 @@ type cycleManager struct {
 	logger logrus.FieldLogger
 }
 
-func NewManager(cycleTicker CycleTicker, cycleCallback CycleCallback, logger logrus.FieldLogger) CycleManager {
+func NewManager(name string, cycleTicker CycleTicker, cycleCallback CycleCallback, logger logrus.FieldLogger) CycleManager {
 	return &cycleManager{
+		name:          name,
 		cycleCallback: cycleCallback,
 		cycleTicker:   cycleTicker,
 		running:       false,
@@ -66,8 +68,11 @@ func (c *cycleManager) Start() {
 	defer c.Unlock()
 
 	if c.running {
+		c.logger.WithFields(logrus.Fields{"name": c.name, "action": "cyclemanager"}).Info("cycle manager not started, already running")
 		return
 	}
+
+	c.logger.WithFields(logrus.Fields{"name": c.name, "action": "cyclemanager"}).Info("cycle manager started")
 
 	enterrors.GoWrapper(func() {
 		c.cycleTicker.Start()
@@ -196,6 +201,9 @@ func (c *cycleManager) handleStopRequest(stopped bool) {
 	c.running = !stopped
 	c.stopContexts = nil
 	c.stopResults = nil
+	if stopped {
+		c.logger.WithFields(logrus.Fields{"name": c.name, "action": "cyclemanager"}).Info("cycle manager stopped")
+	}
 }
 
 func NewManagerNoop() CycleManager {

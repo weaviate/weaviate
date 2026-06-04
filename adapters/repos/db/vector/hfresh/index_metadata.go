@@ -30,14 +30,26 @@ const (
 	postingSequenceKey = "posting_seq"
 )
 
+// The shared bucket is used to store various metadata. It is used by multiple stores
+// and the data is namespaced by using different prefixes for the keys.
+// The shared bucket format itself is versioned, so that we can make non-compatible changes in the future if needed.
+const (
+	sharedBucketVersionV1 = 1
+)
+
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
-const (
-	indexMetadataBucketPrefix  = 'm'
-	versionMapBucketPrefix     = 'v'
-	postingMapBucketPrefix     = 'p'
-	postingVersionBucketPrefix = 'l'
-	reassignBucketKey          = "pending_reassignments"
+var (
+	indexMetadataBucketPrefix = []byte{sharedBucketVersionV1, 0}
+	versionMapBucketPrefix    = []byte{sharedBucketVersionV1, 1}
+	// postingMapBucketPrefixV1 is migrated to postingMapBucketPrefixV2 by migratePostingMapV1ToV2.
+	postingMapBucketPrefixV1   = []byte{sharedBucketVersionV1, 2}
+	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
+	reassignBucketKey          = []byte{sharedBucketVersionV1, 4, 0}
+	// postingMapBucketPrefixV2 stores posting IDs without vector version bytes.
+	postingMapBucketPrefixV2 = []byte{sharedBucketVersionV1, 5}
+	// postingSizesBucketPrefix was added with postingMapBucketPrefixV2.
+	postingSizesBucketPrefix = []byte{sharedBucketVersionV1, 6}
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
@@ -71,9 +83,9 @@ func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
 }
 
 func (i *IndexMetadataStore) key(suffix string) []byte {
-	buf := make([]byte, 1+len(suffix))
-	buf[0] = indexMetadataBucketPrefix
-	copy(buf[1:], suffix)
+	buf := make([]byte, len(indexMetadataBucketPrefix)+len(suffix))
+	copy(buf, indexMetadataBucketPrefix)
+	copy(buf[len(indexMetadataBucketPrefix):], suffix)
 	return buf
 }
 
@@ -134,30 +146,67 @@ func (h *HFresh) restoreMetadata() error {
 	if err != nil || dims == 0 {
 		return err
 	}
-	h.initDimensionsOnce.Do(func() {
-		atomic.StoreUint32(&h.dims, dims)
-		err = h.setMaxPostingSize()
-		if err != nil {
-			return
-		}
 
-		var quantization *QuantizationData
-		quantization, err = h.IndexMetadata.GetQuantizationData()
-		if err != nil {
-			return
-		}
+	if err := h.restoreDimensions(dims); err != nil {
+		return err
+	}
 
-		if quantization != nil {
-			err = h.restoreQuantizationData(&quantization.RQ)
-		}
-	})
+	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
+		return err
+	}
+	if err := h.PostingMap.Restore(h.ctx); err != nil {
+		return err
+	}
+	if err := h.PostingSizes.Restore(h.ctx); err != nil {
+		return err
+	}
 
-	err = h.restoreBackgroundMetrics()
+	return h.restoreMetrics()
+}
+
+// restoreDimensions restores dimension-dependent components from persisted
+// metadata. If quantization data is missing (e.g. crash before it was
+// persisted), the quantizer is re-created from scratch.
+func (h *HFresh) restoreDimensions(dims uint32) error {
+	h.initMu.Lock()
+	defer h.initMu.Unlock()
+
+	if h.initDone {
+		return nil
+	}
+
+	atomic.StoreUint32(&h.dims, dims)
+	if err := h.setMaxPostingSize(); err != nil {
+		return err
+	}
+
+	quantization, err := h.IndexMetadata.GetQuantizationData()
 	if err != nil {
 		return err
 	}
 
-	return err
+	if quantization != nil {
+		if err := h.restoreQuantizationData(&quantization.RQ); err != nil {
+			return err
+		}
+	} else {
+		// Dimensions were persisted but quantization data was not (e.g. crash
+		// between persisting dimensions and quantization data). Re-create the
+		// quantizer from scratch.
+		quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
+		if err != nil {
+			return errors.Wrap(err, "could not create quantizer")
+		}
+		h.quantizer = quantizer
+		h.Centroids.SetQuantizer(h.quantizer)
+		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
+		if err := h.persistQuantizationData(); err != nil {
+			return errors.Wrap(err, "could not persist RQ data")
+		}
+	}
+
+	h.initDone = true
+	return nil
 }
 
 func (h *HFresh) persistQuantizationData() error {
@@ -170,16 +219,20 @@ func (h *HFresh) persistQuantizationData() error {
 	})
 }
 
-func (h *HFresh) restoreBackgroundMetrics() error {
+func (h *HFresh) restoreMetrics() error {
 	splitCount := h.taskQueue.splitQueue.Size()
 	mergeCount := h.taskQueue.mergeQueue.Size()
 	reassignCount := h.taskQueue.reassignQueue.Size()
 	analyzeCount := h.taskQueue.analyzeQueue.Size()
 
-	h.metrics.SetSplitCount(splitCount)
-	h.metrics.SetMergeCount(mergeCount)
-	h.metrics.SetReassignCount(reassignCount)
-	h.metrics.SetAnalyzeCount(analyzeCount)
+	h.metrics.SetPendingSplitTasks(splitCount)
+	h.metrics.SetPendingMergeTasks(mergeCount)
+	h.metrics.SetPendingReassignTasks(reassignCount)
+	h.metrics.SetPendingAnalyzeTasks(analyzeCount)
+
+	postingsCount := int(h.PostingSizes.Count())
+	h.Centroids.counter.Store(int32(postingsCount))
+	h.metrics.SetPostings(postingsCount)
 
 	return nil
 }

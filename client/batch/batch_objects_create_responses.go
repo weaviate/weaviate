@@ -70,6 +70,12 @@ func (o *BatchObjectsCreateReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return nil, result
+	case 429:
+		result := NewBatchObjectsCreateTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewBatchObjectsCreateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -398,6 +404,74 @@ func (o *BatchObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorRespon
 func (o *BatchObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewBatchObjectsCreateTooManyRequests creates a BatchObjectsCreateTooManyRequests with default headers values
+func NewBatchObjectsCreateTooManyRequests() *BatchObjectsCreateTooManyRequests {
+	return &BatchObjectsCreateTooManyRequests{}
+}
+
+/*
+BatchObjectsCreateTooManyRequests describes a response with status code 429, with default header values.
+
+The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See `UsageLimitExceededResponse` for the limit value.
+*/
+type BatchObjectsCreateTooManyRequests struct {
+	Payload *models.UsageLimitExceededResponse
+}
+
+// IsSuccess returns true when this batch objects create too many requests response has a 2xx status code
+func (o *BatchObjectsCreateTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects create too many requests response has a 3xx status code
+func (o *BatchObjectsCreateTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects create too many requests response has a 4xx status code
+func (o *BatchObjectsCreateTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects create too many requests response has a 5xx status code
+func (o *BatchObjectsCreateTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects create too many requests response a status code equal to that given
+func (o *BatchObjectsCreateTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the batch objects create too many requests response
+func (o *BatchObjectsCreateTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *BatchObjectsCreateTooManyRequests) Error() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *BatchObjectsCreateTooManyRequests) String() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *BatchObjectsCreateTooManyRequests) GetPayload() *models.UsageLimitExceededResponse {
+	return o.Payload
+}
+
+func (o *BatchObjectsCreateTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.UsageLimitExceededResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

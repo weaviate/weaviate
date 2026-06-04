@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -44,9 +46,9 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Compression: Compression{Level: GzipDefaultCompression, CPUPercentage: DefaultCPUPercentage},
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", ""}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", ""}
+		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", ""}
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
@@ -69,7 +71,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 
 		coordinator := *fc.coordinator()
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.NotNil(t, err)
 	})
@@ -97,12 +99,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		coordinator := *fc.coordinator()
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
-		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
@@ -181,12 +183,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		coordinator := *fc.coordinator()
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
-		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
@@ -237,7 +239,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 
 		coordinator := *fc.coordinator()
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
@@ -249,12 +251,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 			fc          = newFakeCoordinator(nodeResolver)
 			coordinator = *fc.coordinator()
 			req         = newReq(classes, backendName, backupID)
-			store       = coordStore{objectStore{fc.backend, req.ID, "", ""}}
+			store       = coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 		)
 		coordinator.timeoutNodeDown = 0
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
-		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Twice()
 
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
@@ -339,7 +341,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
 
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
@@ -418,9 +420,9 @@ func TestCoordinatedRestore(t *testing.T) {
 			},
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", ""}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", ""}
+		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", ""}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -449,7 +451,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Times(3)
 
 		coordinator := *fc.coordinator()
-		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
+		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
@@ -474,7 +476,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
-		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
+		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, errCannotCommit)
@@ -501,7 +503,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
-		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
+		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, ErrAny)
@@ -556,7 +558,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			},
 		}
 		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", ""}
+		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 
@@ -591,7 +593,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 		coordinator := *fc.coordinator()
 		descReq := genReq()
-		store := coordStore{objectStore{fc.backend, descReq.ID, "", ""}}
+		store := coordStore{objectStore{fc.backend, descReq.ID, "", "", ""}}
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, descReq, nil)
 		assert.Nil(t, err)
@@ -911,4 +913,160 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
 		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
 	})
+}
+
+// TestCoordinator_TypesErrorFromRemoteErrKind verifies that a refused
+// CanCommitResponse with ErrKind == CanCommitErrInFlightReindex is promoted
+// to a typed backup.ErrBackupBlockedByInFlightReindex by the coordinator,
+// so upstream `errors.Is` checks succeed across the RPC boundary. Older
+// nodes that don't populate ErrKind must continue to surface as
+// errCannotCommit for backward compatibility.
+func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		any         = mock.Anything
+		backupID    = "type-err-test"
+		ctx         = context.Background()
+		nodes       = []string{"N1", "N2"}
+		classes     = []string{"Class-A"}
+		// One participant always accepts so we can isolate the refusal path.
+		acceptResp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+	)
+
+	tests := []struct {
+		name            string
+		refusalResp     *CanCommitResponse
+		expectInFlight  bool
+		expectCanCommit bool
+		expectContain   string
+	}{
+		{
+			name: "ErrKind=in_flight_reindex maps to typed sentinel",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "Node-2/Class-A: " + backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard \"shard-a\" has 1 active tracker(s)",
+				ErrKind: CanCommitErrInFlightReindex,
+			},
+			expectInFlight: true,
+			expectContain:  backup.ErrBackupBlockedByInFlightReindex.Error(),
+		},
+		{
+			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "some other refusal",
+				ErrKind: CanCommitErrCannotCommit,
+			},
+			expectCanCommit: true,
+			expectContain:   "some other refusal",
+		},
+		{
+			name: "empty ErrKind (older node) falls back to errCannotCommit",
+			refusalResp: &CanCommitResponse{
+				Method: OpCreate,
+				ID:     backupID,
+				// Err empty + ErrKind empty + Timeout == 0 still triggers
+				// the refusal path; this models a buggy older participant
+				// returning a zero-value response.
+			},
+			expectCanCommit: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			nodeResolver := newFakeNodeResolver(nodes)
+			fc := newFakeCoordinator(nodeResolver)
+			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+
+			// N1 (the leader) accepts; N2 refuses with the response shape under test.
+			fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+				return r.Method == OpCreate && r.ID == backupID
+			})).Return(acceptResp, nil).Maybe()
+			fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+				return r.Method == OpCreate && r.ID == backupID
+			})).Return(tc.refusalResp, nil)
+
+			// On refusal the coordinator aborts the participant that accepted.
+			fc.client.On("Abort", any, nodes[0], mock.Anything).Return(nil).Maybe()
+			fc.client.On("Abort", any, nodes[1], mock.Anything).Return(nil).Maybe()
+			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+
+			coordinator := *fc.coordinator()
+			req := newReq(classes, backendName, backupID)
+			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+			err := coordinator.Backup(ctx, store, &req)
+			assert.Error(t, err)
+
+			if tc.expectInFlight {
+				assert.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+					"expected errors.Is(err, backup.ErrBackupBlockedByInFlightReindex), got: %v", err)
+				// errCannotCommit must NOT be in the chain when we have the
+				// typed sentinel — keep the two paths cleanly separable.
+				assert.False(t, errors.Is(err, errCannotCommit),
+					"in-flight-reindex error must not also match errCannotCommit, got: %v", err)
+			}
+			if tc.expectCanCommit {
+				assert.True(t, errors.Is(err, errCannotCommit),
+					"expected errors.Is(err, errCannotCommit), got: %v", err)
+				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+					"generic refusal must not match the typed sentinel, got: %v", err)
+			}
+			if tc.expectContain != "" {
+				assert.Contains(t, err.Error(), tc.expectContain)
+			}
+			// Surface the offending node so the operator knows where to look.
+			assert.Contains(t, err.Error(), nodes[1])
+		})
+	}
+}
+
+// TestErrInFlightReindex_IsShared pins that the in-flight-reindex sentinel
+// is a single value drawn from entities/backup, not duplicated in either
+// the coordinator (usecases/backup) or the storage layer (adapters/repos/db).
+//
+// Catches the regression where someone re-introduces a parallel
+// `var ErrBackupBlockedByInFlightReindex = errors.New(...)` in either
+// layer: a parallel declaration would compare equal by string but fail
+// pointer-identity, breaking errors.Is across the RPC seam.
+//
+// We verify identity from this package by:
+//  1. Wrapping the shared sentinel through canCommitErrFromResponse — the
+//     public coordinator path that consumes a remote CanCommitResponse.
+//  2. Asserting errors.Is succeeds against backup.ErrBackupBlockedByInFlightReindex
+//     (the entities/backup symbol).
+//
+// Identity from the adapters/repos/db side is enforced by
+// reindex_inflight_test.go, which calls errors.Is against the same shared
+// symbol. Both layers therefore depend on the entities/backup value; a
+// drift would make one layer's tests red.
+func TestErrInFlightReindex_IsShared(t *testing.T) {
+	t.Parallel()
+
+	// Shared symbol must be non-nil and carry the expected operator text.
+	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
+	require.Equal(t,
+		"backup blocked: runtime-reindex in flight on this shard",
+		backup.ErrBackupBlockedByInFlightReindex.Error(),
+		"operator-visible sentinel text is part of the contract; do not edit lightly",
+	)
+
+	// Round-trip through the coordinator's canCommit error promoter: a
+	// CanCommitErrInFlightReindex response must produce an error chain
+	// that errors.Is matches against the SHARED sentinel.
+	resp := &CanCommitResponse{
+		Method:  OpCreate,
+		ID:      "shared-sentinel-id",
+		Err:     "Node-2/Class-A: shard \"sa\" has 1 active tracker(s)",
+		ErrKind: CanCommitErrInFlightReindex,
+	}
+	err := canCommitErrFromResponse(resp)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+		"coordinator must wrap the shared sentinel from entities/backup; "+
+			"if this fails, a parallel declaration has been re-introduced")
 }

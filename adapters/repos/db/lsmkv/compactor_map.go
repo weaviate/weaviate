@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"sort"
@@ -46,8 +47,6 @@ type compactorMap struct {
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
 
-	scratchSpacePath string
-
 	// for backward-compatibility with states where the disk state for maps was
 	// not guaranteed to be sorted yet
 	requiresSorting bool
@@ -60,7 +59,7 @@ type compactorMap struct {
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
+	requiresSorting bool, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorMap {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -82,7 +81,6 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		requiresSorting:          requiresSorting,
 		enableChecksumValidation: enableChecksumValidation,
 		maxNewFileSize:           maxNewFileSize,
@@ -90,7 +88,7 @@ func newCompactorMapCollection(w io.WriteSeeker,
 	}
 }
 
-func (c *compactorMap) do() error {
+func (c *compactorMap) do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return errors.Wrap(err, "init")
 	}
@@ -100,7 +98,7 @@ func (c *compactorMap) do() error {
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
-	kis, err := c.writeKeys(segmentFile)
+	kis, err := c.writeKeys(ctx, segmentFile)
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
@@ -146,7 +144,7 @@ func (c *compactorMap) init() error {
 	return nil
 }
 
-func (c *compactorMap) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (c *compactorMap) writeKeys(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
@@ -158,7 +156,13 @@ func (c *compactorMap) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 	me := newMapEncoder()
 	ssm := newSortedMapMerger()
 
-	for {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("merge keys: %w", err)
+			}
+		}
+
 		if key1 == nil && key2 == nil {
 			break
 		}
@@ -275,14 +279,9 @@ func (c *compactorMap) writeIndexes(f *segmentindex.SegmentFile,
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategyMapCollection,
-			"operation": "writeIndices",
-		}),
-		AllocChecker: c.allocChecker,
+		AllocChecker:        c.allocChecker,
 	}
-	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
+	_, err := f.WriteIndexes(indexes)
 	return err
 }
 

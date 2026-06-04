@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type vectorizer struct {
@@ -33,11 +34,9 @@ type vectorizer struct {
 
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		origin: origin,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		origin:     origin,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 
@@ -71,7 +70,7 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 
 	var resBody vecResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode > 399 {

@@ -98,7 +98,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				}
 			}
 			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthTypeDb, false).Return(returnedPolices, nil)
-			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
+			controller.On("GetUsers", tt.params.ID).Return(map[string]apikey.UserView{"testUser": {}}, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -177,7 +177,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			}
 			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthType(userType), false).Return(returnedPolices, nil)
-			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
+			controller.On("GetUsers", tt.params.ID).Return(map[string]apikey.UserView{tt.params.ID: {}}, nil)
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
@@ -226,7 +226,7 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthType(userType), false).Return(nil, tt.getRolesErr)
-			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
+			controller.On("GetUsers", tt.params.ID).Return(map[string]apikey.UserView{tt.params.ID: {}}, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -297,4 +297,175 @@ func TestSortRolesByName(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.input)
 		})
 	}
+}
+
+// TestGetRolesForUser_Namespaces — resolved key drives validate, authz,
+// and storage; global op qualified passthrough unchanged.
+func TestGetRolesForUser_Namespaces(t *testing.T) {
+	falseP := false
+	userType := models.UserTypeInputDb
+	roles := map[string][]authorization.Policy{
+		"role1": {{Resource: authorization.Collections("X")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
+	}
+
+	tests := []struct {
+		name             string
+		userID           string
+		principalNS      string
+		isGlobalOperator bool
+		authzKey         string // resolved users/<id> key authz is asked for
+		wantStatus       any
+	}{
+		{
+			name:        "namespaced caller short name with grant succeeds",
+			userID:      "bob",
+			principalNS: "customer1",
+			authzKey:    "customer1:bob",
+			wantStatus:  &authz.GetRolesForUserOK{},
+		},
+		{
+			name:        "namespaced caller short name no grant returns 403",
+			userID:      "bob",
+			principalNS: "customer1",
+			authzKey:    "customer1:bob",
+			wantStatus:  &authz.GetRolesForUserForbidden{},
+		},
+		{
+			name:        "namespaced caller non-existent own-ns user returns 404",
+			userID:      "ghost",
+			principalNS: "customer1",
+			authzKey:    "customer1:ghost",
+			wantStatus:  &authz.GetRolesForUserNotFound{},
+		},
+		{
+			name:             "global operator qualified passthrough",
+			userID:           "customer1:bob",
+			isGlobalOperator: true,
+			authzKey:         "customer1:bob",
+			wantStatus:       &authz.GetRolesForUserOK{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{
+				IsGlobalOperator: tt.isGlobalOperator,
+				Namespace:        tt.principalNS,
+				UserType:         userType,
+			}
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			switch tt.wantStatus.(type) {
+			case *authz.GetRolesForUserForbidden:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(fmt.Errorf("not allowed"))
+			case *authz.GetRolesForUserOK:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
+				controller.On("GetRolesForUserOrGroup", tt.authzKey, authentication.AuthTypeDb, false).Return(roles, nil)
+			case *authz.GetRolesForUserNotFound:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
+			}
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				logger:            logger,
+				namespacesEnabled: true,
+			}
+			res := h.getRolesForUser(authz.GetRolesForUserParams{
+				ID:               tt.userID,
+				UserType:         string(userType),
+				IncludeFullRoles: &falseP,
+				HTTPRequest:      req,
+			}, principal)
+			assert.IsType(t, tt.wantStatus, res)
+		})
+	}
+}
+
+// TestGetRolesForUser_OwnUserSelfReadBypass — the bypass fires when the
+// resolved key equals principal.Username; otherwise authz gates the read.
+func TestGetRolesForUser_OwnUserSelfReadBypass(t *testing.T) {
+	falseP := false
+	userType := models.UserTypeInputDb
+	principal := &models.Principal{
+		Username:  "customer1:alice",
+		Namespace: "customer1",
+		UserType:  userType,
+	}
+
+	tests := []struct {
+		name       string
+		userID     string // short name the caller sends
+		authzKey   string // qualified key the handler resolves to
+		wantStatus any
+	}{
+		{
+			// OK with no Authorize mock pins the bypass: an authz call here
+			// would be an unexpected mock invocation and fail the test.
+			name:       "own roles via short name with no grant",
+			userID:     "alice",
+			authzKey:   "customer1:alice",
+			wantStatus: &authz.GetRolesForUserOK{},
+		},
+		{
+			name:       "foreign own-ns user via short name with no grant",
+			userID:     "bob",
+			authzKey:   "customer1:bob",
+			wantStatus: &authz.GetRolesForUserForbidden{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			switch tt.wantStatus.(type) {
+			case *authz.GetRolesForUserOK:
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
+				controller.On("GetRolesForUserOrGroup", tt.authzKey, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			case *authz.GetRolesForUserForbidden:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(fmt.Errorf("not allowed"))
+			}
+
+			h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, namespacesEnabled: true}
+			res := h.getRolesForUser(authz.GetRolesForUserParams{
+				ID:               tt.userID,
+				UserType:         string(userType),
+				IncludeFullRoles: &falseP,
+				HTTPRequest:      req,
+			}, principal)
+			assert.IsType(t, tt.wantStatus, res)
+		})
+	}
+}
+
+// TestGetRolesForUserDeprecated_DisabledOnNamespacesEnabled — the deprecated
+// path is gated off at the top of the handler on namespace-enabled clusters;
+// callers get a 410 before any authz / lookup runs. Pre-NS-disabled clusters
+// keep the existing behavior (covered by other tests in this file).
+func TestGetRolesForUserDeprecated_DisabledOnNamespacesEnabled(t *testing.T) {
+	principal := &models.Principal{
+		Username:  "customer1:alice",
+		Namespace: "customer1",
+		UserType:  models.UserTypeInputDb,
+	}
+	// No authorizer / controller calls — the gate fires first; an unexpected
+	// invocation here would fail the test.
+	h := &authZHandlers{
+		authorizer:        authorization.NewMockAuthorizer(t),
+		controller:        NewMockControllerAndGetUsers(t),
+		namespacesEnabled: true,
+	}
+	res := h.getRolesForUserDeprecated(authz.GetRolesForUserDeprecatedParams{
+		ID:          "bob",
+		HTTPRequest: req,
+	}, principal)
+	_, ok := res.(*authz.GetRolesForUserDeprecatedGone)
+	assert.True(t, ok, "expected 410 Gone, got %T", res)
 }

@@ -101,6 +101,10 @@ func (ic *classSettings) Validate() error {
 		}
 	}
 
+	if err := ic.base.ValidateBaseURL(ic.BaseURL()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+
 	if len(errorMessages) > 0 {
 		return fmt.Errorf("%s", strings.Join(errorMessages, ", "))
 	}

@@ -49,6 +49,8 @@ message SearchRequest {
   optional GenerativeSearch generative = 60;
   optional Rerank rerank = 61;
 
+  optional Boost boost = 62;
+
   bool uses_123_api = 100 [deprecated = true];
   bool uses_125_api = 101 [deprecated = true];
   bool uses_127_api = 102; 
@@ -83,6 +85,9 @@ message MetadataRequest {
   bool explain_score = 8;
   bool is_consistent = 9;
   repeated string vectors = 10;
+  // query_profile enables per-shard query profiling. When true, the response includes
+  // timing breakdowns for each shard and search type.
+  bool query_profile = 11;
 }
 
 message PropertiesRequest {
@@ -116,6 +121,29 @@ message SearchReply {
   optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
+  optional QueryProfile query_profile = 6;
+}
+
+// QueryProfile contains per-shard profiling data for a search query.
+// Only populated when MetadataRequest.profile is true.
+message QueryProfile {
+  // SearchProfile holds the profiling details for a single search type within a shard.
+  message SearchProfile {
+    // details contains human-readable profiling metrics keyed by metric name.
+    map<string, string> details = 1;
+  }
+
+  // ShardProfile holds profiling data for a single shard's contribution to a search query.
+  message ShardProfile {
+    // name is the identifier of the shard that was searched.
+    string name = 1;
+    // node is the name of the cluster node that executed this shard search.
+    string node = 2;
+    // searches maps search type (e.g., "vector", "keyword") to its profiling details.
+    map<string, SearchProfile> searches = 3;
+  }
+
+  repeated ShardProfile shards = 1;
 }
 
 message RerankReply {
@@ -185,4 +213,50 @@ message PropertiesResult {
 message RefPropertiesResult {
   repeated PropertiesResult properties = 1;
   string prop_name = 2;
+}
+
+message Boost {
+  enum PropertyValueModifier {
+    PROPERTY_VALUE_MODIFIER_UNSPECIFIED = 0;
+    PROPERTY_VALUE_MODIFIER_LOG1P = 1;
+    PROPERTY_VALUE_MODIFIER_SQRT = 2;
+  }
+  enum DecayCurve {
+    DECAY_CURVE_UNSPECIFIED = 0;
+    DECAY_CURVE_GAUSS = 1;
+    DECAY_CURVE_LINEAR = 2;
+    DECAY_CURVE_EXPONENTIAL = 3;
+  }
+  message PropertyValueFunction {
+    string property = 1;
+    optional PropertyValueModifier modifier = 2;
+  }
+  message TimeDecayFunction {
+    string property = 1;
+    string origin = 2;
+    string scale = 3;
+    optional string offset = 4;
+    optional DecayCurve curve = 5;
+    optional float decay_value = 6;
+  }
+  message NumericDecayFunction {
+    string property = 1;
+    double origin = 2;
+    double scale = 3;
+    optional double offset = 4;
+    optional DecayCurve curve = 5;
+    optional float decay_value = 6;
+  }
+  message Condition {
+    oneof condition {
+      Filters filter = 1;
+      TimeDecayFunction time_decay = 2;
+      PropertyValueFunction property_value = 3;
+      NumericDecayFunction numeric_decay = 4;
+    }
+    optional float weight = 5;
+  }
+  repeated Condition conditions = 1;
+  optional float weight = 2;
+  optional uint32 depth = 3;
 }

@@ -14,6 +14,8 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -115,6 +117,20 @@ func (dv *DynamicValue[T]) SetValue(val T) error {
 func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 	var val T
 	if err := node.Decode(&val); err != nil {
+		// yaml.v3 errors decoding a scalar into a slice T. Coerce only a string
+		// scalar (empty → nil, else comma-split like the env-var path); non-string
+		// scalars fall through to err so a mistyped config doesn't become ["123"].
+		if node.Kind == yaml.ScalarNode && node.ShortTag() == "!!str" && reflect.TypeOf(val).Kind() == reflect.Slice {
+			if ptr, ok := any(&val).(*[]string); ok {
+				if node.Value != "" {
+					*ptr = strings.Split(node.Value, ",")
+				}
+				dv.mu.Lock()
+				defer dv.mu.Unlock()
+				dv.def = val
+				return nil
+			}
+		}
 		return err
 	}
 	dv.mu.Lock()

@@ -13,7 +13,6 @@ package test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -22,23 +21,14 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func Test_AliasesAPI_gRPC(t *testing.T) {
+func testAliasesAPIgRPC(t *testing.T, grpcURI string) {
 	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
 
 	gRPCClient := func(t *testing.T, addr string) (pb.WeaviateClient, *grpc.ClientConn) {
 		conn, err := helper.CreateGrpcConnectionClient(addr)
@@ -49,13 +39,21 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		return grpcClient, conn
 	}
 
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	grpcClient, _ := gRPCClient(t, grpcURI)
 
-	helper.SetupClient(compose.GetWeaviate().URI())
-	grpcClient, _ := gRPCClient(t, compose.GetWeaviate().GrpcURI())
-	require.NotNil(t, gRPCClient)
+	booksAliasName := "GrpcBooksAlias"
 
-	booksAliasName := "BooksAlias"
+	// Shared container: leave no class/alias behind so the other suites'
+	// instance-wide alias counts stay correct. Delete only aliases that exist so
+	// a failure before the alias is created can't mask the original error.
+	defer func() {
+		resp := helper.GetAliases(t, nil)
+		require.NotNil(t, resp)
+		for _, alias := range resp.Aliases {
+			helper.DeleteAlias(t, alias.Alias)
+		}
+		helper.DeleteClass(t, books.DefaultClassName)
+	}()
 
 	t.Run("create schema", func(t *testing.T) {
 		booksClass := books.ClassModel2VecVectorizer()
@@ -300,6 +298,50 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		require.NotNil(t, srep)
 		require.Len(t, srep.Results, 0)
 	})
+	t.Run("TenantsGet using alias", func(t *testing.T) {
+		mtClassName := "GRPCTenantsAliasTarget"
+		mtAliasName := "GRPCTenantsAlias"
+
+		helper.CreateClass(t, &models.Class{
+			Class:              mtClassName,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties:         []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		})
+		defer helper.DeleteClass(t, mtClassName)
+
+		helper.CreateAlias(t, &models.Alias{Alias: mtAliasName, Class: mtClassName})
+		defer helper.DeleteAlias(t, mtAliasName)
+
+		helper.CreateTenants(t, mtClassName, []*models.Tenant{
+			{Name: "alphaT", ActivityStatus: "HOT"},
+			{Name: "betaT", ActivityStatus: "HOT"},
+			{Name: "gammaT", ActivityStatus: "HOT"},
+		})
+
+		// No Params → returns all tenants of the underlying class.
+		respAll, err := grpcClient.TenantsGet(ctx, &pb.TenantsGetRequest{Collection: mtAliasName})
+		require.NoError(t, err)
+		gotAll := make([]string, len(respAll.Tenants))
+		for i, tt := range respAll.Tenants {
+			gotAll[i] = tt.Name
+		}
+		assert.ElementsMatch(t, []string{"alphaT", "betaT", "gammaT"}, gotAll)
+
+		// Names param → filtered subset, also resolved via alias.
+		respFiltered, err := grpcClient.TenantsGet(ctx, &pb.TenantsGetRequest{
+			Collection: mtAliasName,
+			Params: &pb.TenantsGetRequest_Names{
+				Names: &pb.TenantNames{Values: []string{"alphaT", "gammaT"}},
+			},
+		})
+		require.NoError(t, err)
+		gotFiltered := make([]string, len(respFiltered.Tenants))
+		for i, tt := range respFiltered.Tenants {
+			gotFiltered[i] = tt.Name
+		}
+		assert.ElementsMatch(t, []string{"alphaT", "gammaT"}, gotFiltered)
+	})
+
 	t.Run("batch insert using alias", func(t *testing.T) {
 		theMartian := "67b79643-cf8b-4b22-b206-000000000001"
 		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
@@ -366,5 +408,45 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 			})
 		}
+	})
+
+	// Regression: dangling-alias writes used to fall into auto-schema and silently re-create the deleted target.
+	t.Run("batch insert through alias with deleted target fails", func(t *testing.T) {
+		danglingClass := "GRPCBatchAliasDanglingTarget"
+		danglingAlias := "GRPCBatchAliasDangling"
+
+		helper.CreateClass(t, &models.Class{
+			Class:      danglingClass,
+			Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		})
+		helper.CreateAlias(t, &models.Alias{Alias: danglingAlias, Class: danglingClass})
+		defer helper.DeleteAlias(t, danglingAlias)
+		helper.DeleteClass(t, danglingClass)
+
+		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{
+				{
+					Collection: danglingAlias,
+					Uuid:       uuid.NewString(),
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title": structpb.NewStringValue("should not be inserted"),
+							},
+						},
+					},
+				},
+			},
+		})
+		// Per-object failure: transport call succeeds, error surfaces in resp.Errors.
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Errors, 1, "expected the dangling-alias insert to fail")
+		assert.Contains(t, resp.Errors[0].Error, danglingAlias)
+		assert.Contains(t, resp.Errors[0].Error, "does not exist")
+
+		got, getErr := helper.GetClassWithoutAssert(t, danglingClass, "")
+		require.Error(t, getErr, "deleted collection should return an error from the schema API")
+		require.Nil(t, got, "alias write must not auto-create the deleted collection")
 	})
 }

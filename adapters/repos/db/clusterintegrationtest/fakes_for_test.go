@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -56,6 +57,7 @@ type node struct {
 	scheduler     *ubak.Scheduler
 	migrator      *db.Migrator
 	hostname      string
+	objectCount   int
 }
 
 func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State, asyncIndexEnabled bool) {
@@ -93,7 +95,18 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
-	replicaClient := clients.NewReplicationClient(&http.Client{})
+	replicaClient, err := clients.NewReplicationClient(&http.Client{})
+	if err != nil {
+		t.Fatalf("failed to create replication client: %v", err)
+	}
+
+	// Create schema manager first so the mock can reference it
+	n.schemaManager = &fakeSchemaManager{
+		shardState:   shardState,
+		schema:       schema.Schema{Objects: &models.Schema{}},
+		nodeResolver: nodeResolver,
+	}
+
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -101,6 +114,9 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(className string) *models.Class {
+		return n.schemaManager.ReadOnlyClass(className)
+	}).Maybe()
 	mockSchemaReader.EXPECT().
 		ShardReplicas(mock.Anything, mock.Anything).
 		RunAndReturn(func(class string, shard string) ([]string, error) {
@@ -141,11 +157,6 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	if err != nil {
 		panic(err)
 	}
-	n.schemaManager = &fakeSchemaManager{
-		shardState:   shardState,
-		schema:       schema.Schema{Objects: &models.Schema{}},
-		nodeResolver: nodeResolver,
-	}
 
 	n.repo.SetSchemaGetter(n.schemaManager)
 	err = n.repo.WaitForStartup(context.Background())
@@ -174,6 +185,9 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
+	mux.HandleFunc("/replicas/indices/{collection}/shards/{shard}/objects/_count", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strconv.Itoa(n.objectCount))
+	})
 
 	srv := httptest.NewServer(mux)
 	u, err := url.Parse(srv.URL)
@@ -356,7 +370,7 @@ type fakeBackupBackendProvider struct {
 	backupsPath string
 }
 
-func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabilities.BackupBackend, error) {
+func (f *fakeBackupBackendProvider) BackupBackend(name string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	backend.setLocal(name == modstgfs.Name)
 	return backend, nil
 }
@@ -424,7 +438,7 @@ func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, dest
 	return nil
 }
 
-func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer r.Close()

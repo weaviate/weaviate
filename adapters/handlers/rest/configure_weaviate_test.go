@@ -20,7 +20,7 @@ func TestCreateErrorResponseObject(t *testing.T) {
 	testResults := createErrorResponseObject("error message 1", "error message 2")
 
 	// check which type is used
-	if typeName := reflect.TypeOf(testResults); typeName.Kind() == reflect.Ptr {
+	if typeName := reflect.TypeOf(testResults); typeName.Kind() == reflect.Pointer {
 		if typeName.Elem().Name() != "ErrorResponse" {
 			t.Error("Wrong struct used, should be ErrorResponse but is: ", typeName.Elem().Name())
 		}

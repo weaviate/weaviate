@@ -602,8 +602,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		authorizer: fakeAuthorizer{},
-		logger:     logger,
+		logger: logger,
 	}
 
 	var obj *models.Object
@@ -630,8 +629,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		authorizer: fakeAuthorizer{},
-		logger:     logger,
+		logger: logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -711,8 +709,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			DefaultNumber: "int",
 			DefaultDate:   "date",
 		},
-		authorizer: fakeAuthorizer{},
-		logger:     logger,
+		logger: logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -1290,7 +1287,6 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
-		authorizer: fakeAuthorizer{},
 	}
 
 	for i, tc := range testCases {
@@ -1298,9 +1294,71 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			properties, _ := manager.getProperties(&models.Object{
 				Class:      "ClassWithObjectProps",
 				Properties: tc.valProperties,
-			})
+			}, nil)
 
 			assertPropsMatch(t, tc.expectedProperties, properties)
+		})
+	}
+}
+
+func Test_autoSchemaManager_getProperties_stripsBeaconWithoutClassDataType(t *testing.T) {
+	cases := []struct {
+		name             string
+		principal        *models.Principal
+		repoClassName    string
+		expectedDataType []string
+	}{
+		{
+			name:             "namespaced principal own-NS prefix stripped",
+			principal:        &models.Principal{Username: "u", Namespace: "customer1"},
+			repoClassName:    "customer1:Movies",
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			name:             "global principal passes through",
+			principal:        &models.Principal{Username: "admin", IsGlobalOperator: true},
+			repoClassName:    "Movies",
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			// Crosses-namespace beacons should fall through unchanged so the
+			// downstream qualifier rejects them (deny-foreign-NS contract).
+			name:             "foreign-NS prefix left intact",
+			principal:        &models.Principal{Username: "u", Namespace: "customer1"},
+			repoClassName:    "customer2:Movies",
+			expectedDataType: []string{"customer2:Movies"},
+		},
+	}
+	id := strfmt.UUID("00000000-1111-2222-3333-444444444444")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vectorRepo := &fakeVectorRepo{}
+			vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything, mock.Anything).
+				Return(&search.Result{ClassName: tc.repoClassName}, nil).Once()
+			manager := &AutoSchemaManager{
+				schemaManager: &fakeSchemaManager{},
+				vectorRepo:    vectorRepo,
+				config: config.AutoSchema{
+					Enabled:       runtime.NewDynamicValue(true),
+					DefaultNumber: schema.DataTypeNumber.String(),
+					DefaultString: schema.DataTypeText.String(),
+					DefaultDate:   schema.DataTypeDate.String(),
+				},
+			}
+			properties, err := manager.getProperties(&models.Object{
+				Class: "Library",
+				Properties: map[string]interface{}{
+					"watched": []interface{}{
+						// Beacon without class — asRef looks up the object and
+						// uses its stored ClassName (qualified on NS-enabled).
+						map[string]interface{}{"beacon": "weaviate://localhost/" + id.String()},
+					},
+				},
+			}, tc.principal)
+			require.NoError(t, err)
+			require.Len(t, properties, 1)
+			assert.Equal(t, "watched", properties[0].Name)
+			assert.Equal(t, tc.expectedDataType, properties[0].DataType)
 		})
 	}
 }
@@ -1652,8 +1710,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
-		logger:     logger,
-		authorizer: fakeAuthorizer{},
+		logger: logger,
 	}
 
 	knownClasses := map[string]versioned.Class{
@@ -1695,18 +1752,4 @@ func assertPropsMatch(t *testing.T, propsA, propsB []*models.Property) {
 		assert.Equal(t, pA.DataType, pB.DataType)
 		test_utils.AssertNestedPropsMatch(t, pA.NestedProperties, pB.NestedProperties)
 	}
-}
-
-type fakeAuthorizer struct{}
-
-func (f fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
-	return nil
-}
-
-func (f fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
-	return nil
-}
-
-func (f fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	return resources, nil
 }

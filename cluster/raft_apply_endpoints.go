@@ -110,6 +110,64 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 	return s.Execute(ctx, command)
 }
 
+// UpdateProperty schedules a RAFT command to merge `property` into the
+// named class. When `fields` is non-empty, the FSM merges ONLY the listed
+// fields onto an existing property (see api.PropertyField* constants); the
+// rest are kept from the existing class state, so two concurrent updaters
+// that touch different fields cannot clobber each other. An empty `fields`
+// preserves the legacy "replace every field" semantics — public API
+// callers that don't pass a mask are unaffected.
+//
+// This is the public entry point: callers reach it from the REST / gRPC
+// schema handlers. The cluster-side MutationGuard at apply time blocks
+// updates while a reindex on the same (collection, property) is STARTED
+// or FINALIZING. Internal callers driven by the distributed-task
+// scheduler's own completion path must use
+// [Raft.UpdatePropertyFromMigration] instead, which sets the bypass
+// flag.
+func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+	return s.updateProperty(ctx, class, property, false, fields...)
+}
+
+// UpdatePropertyFromMigration schedules a RAFT command for a property
+// schema flip emitted by the in-process distributed-task scheduler's
+// own completion handler (see
+// adapters/repos/db/reindex_provider.flipSemanticMigrationSchema). The
+// resulting command carries [api.UpdatePropertyRequest.FromInFlightMigration]
+// = true, which the schema FSM uses to bypass the in-flight-reindex
+// MutationGuard for this single update.
+//
+// Public REST / gRPC handlers must not call this; they go through
+// [Raft.UpdateProperty]. The migration-only bypass exists because the
+// scheduler's OnTaskCompleted fires while the task is still FINALIZING
+// (status not yet FINISHED), so the same MutationGuard that protects
+// the property from external mutations would otherwise reject the
+// migration's own scheduled flip.
+func (s *Raft) UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+	return s.updateProperty(ctx, class, property, true, fields...)
+}
+
+func (s *Raft) updateProperty(ctx context.Context, class string, property *models.Property, fromInFlightMigration bool, fields ...string) (uint64, error) {
+	if class == "" || property == nil {
+		return 0, fmt.Errorf("empty property or empty class name: %w", schema.ErrBadRequest)
+	}
+	req := cmd.UpdatePropertyRequest{
+		Property:              property,
+		FieldsToUpdate:        fields,
+		FromInFlightMigration: fromInFlightMigration,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
+		Class:      class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
 func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {
 	if class == "" || shard == "" || targetNode == "" {
 		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode: %w", schema.ErrBadRequest)
