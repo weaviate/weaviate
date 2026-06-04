@@ -505,17 +505,17 @@ func (_c *MockReplicaCopier_SnapshotChangeLogLSN_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// StartChangeCapture provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
-func (_m *MockReplicaCopier) StartChangeCapture(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) error {
-	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)
+// StartChangeCapture provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID, schemaVersion
+func (_m *MockReplicaCopier) StartChangeCapture(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, schemaVersion uint64) error {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for StartChangeCapture")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
-		r0 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, uint64) error); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID, schemaVersion)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -534,13 +534,14 @@ type MockReplicaCopier_StartChangeCapture_Call struct {
 //   - indexName string
 //   - shardName string
 //   - opID string
-func (_e *MockReplicaCopier_Expecter) StartChangeCapture(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}) *MockReplicaCopier_StartChangeCapture_Call {
-	return &MockReplicaCopier_StartChangeCapture_Call{Call: _e.mock.On("StartChangeCapture", ctx, srcNodeId, indexName, shardName, opID)}
+//   - schemaVersion uint64
+func (_e *MockReplicaCopier_Expecter) StartChangeCapture(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}, schemaVersion interface{}) *MockReplicaCopier_StartChangeCapture_Call {
+	return &MockReplicaCopier_StartChangeCapture_Call{Call: _e.mock.On("StartChangeCapture", ctx, srcNodeId, indexName, shardName, opID, schemaVersion)}
 }
 
-func (_c *MockReplicaCopier_StartChangeCapture_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string)) *MockReplicaCopier_StartChangeCapture_Call {
+func (_c *MockReplicaCopier_StartChangeCapture_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, schemaVersion uint64)) *MockReplicaCopier_StartChangeCapture_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(uint64))
 	})
 	return _c
 }
@@ -550,7 +551,7 @@ func (_c *MockReplicaCopier_StartChangeCapture_Call) Return(_a0 error) *MockRepl
 	return _c
 }
 
-func (_c *MockReplicaCopier_StartChangeCapture_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *MockReplicaCopier_StartChangeCapture_Call {
+func (_c *MockReplicaCopier_StartChangeCapture_Call) RunAndReturn(run func(context.Context, string, string, string, string, uint64) error) *MockReplicaCopier_StartChangeCapture_Call {
 	_c.Call.Return(run)
 	return _c
 }

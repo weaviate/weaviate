@@ -42,7 +42,7 @@ type ReplicaCopier interface {
 	AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error)
 
 	// StartChangeCapture see cluster/replication/copier.Copier.StartChangeCapture
-	StartChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error
+	StartChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string, schemaVersion uint64) error
 
 	// TailAndApply see cluster/replication/copier.Copier.TailAndApply
 	TailAndApply(ctx context.Context, srcNodeId, indexName, shardName, opID string, untilLSN uint64) (lastAppliedLSN uint64, err error)
