@@ -157,9 +157,9 @@ func (fps *FileReplicationService) GetReplicaSnapshotFile(req *pb.GetReplicaSnap
 }
 
 func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *pb.StartChangeCaptureRequest) (*pb.StartChangeCaptureResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
-	if index == nil {
-		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	index, err := fps.indexForIncomingWrite(ctx, req.GetIndexName(), req.GetSchemaVersion())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "cannot start change capture for index %q: %v", req.GetIndexName(), err)
 	}
 
 	if err := index.IncomingStartChangeCapture(ctx, req.ShardName, req.OpId); err != nil {

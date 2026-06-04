@@ -595,7 +595,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 
 	// Must precede CopyReplicaFiles: every write after this point lands in
 	// the log and is replayed during FINALIZING/DEHYDRATING.
-	if err := c.replicaCopier.StartChangeCapture(ctx, src, coll, shard, opID); err != nil {
+	if err := c.replicaCopier.StartChangeCapture(ctx, src, coll, shard, opID, op.Status.SchemaVersion); err != nil {
 		logger.WithError(err).Error("failure while starting change capture")
 		return api.ShardReplicationState(""), err
 	}

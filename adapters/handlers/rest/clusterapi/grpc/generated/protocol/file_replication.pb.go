@@ -560,6 +560,7 @@ type StartChangeCaptureRequest struct {
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
 	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
 	OpId          string                 `protobuf:"bytes,3,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
+	SchemaVersion uint64                 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -613,6 +614,13 @@ func (x *StartChangeCaptureRequest) GetOpId() string {
 		return x.OpId
 	}
 	return ""
+}
+
+func (x *StartChangeCaptureRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
 }
 
 type StartChangeCaptureResponse struct {
@@ -1248,13 +1256,14 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"\tFileChunk\x12\x16\n" +
 	"\x06offset\x18\x01 \x01(\x03R\x06offset\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x10\n" +
-	"\x03eof\x18\x03 \x01(\bR\x03eof\"n\n" +
+	"\x03eof\x18\x03 \x01(\bR\x03eof\"\x95\x01\n" +
 	"\x19StartChangeCaptureRequest\x12\x1d\n" +
 	"\n" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
 	"\n" +
 	"shard_name\x18\x02 \x01(\tR\tshardName\x12\x13\n" +
-	"\x05op_id\x18\x03 \x01(\tR\x04opId\"o\n" +
+	"\x05op_id\x18\x03 \x01(\tR\x04opId\x12%\n" +
+	"\x0eschema_version\x18\x04 \x01(\x04R\rschemaVersion\"o\n" +
 	"\x1aStartChangeCaptureResponse\x12\x1d\n" +
 	"\n" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
