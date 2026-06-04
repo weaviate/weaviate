@@ -1451,6 +1451,38 @@ func Test_UpdateClass(t *testing.T) {
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
+	t.Run("stale follower validates against the leader-confirmed initial", func(t *testing.T) {
+		// Regression: the update-vs-add validations in UpdateClassInternal must
+		// run against the leader-confirmed initial, not a stale local read. The
+		// real class has multi-tenancy enabled, so disabling it must be rejected
+		// even though the local view is empty on a lagging follower. Without the
+		// fix the second local read returns nil, the `initial != nil` validations
+		// are skipped, and the invalid update slips through to RAFT.
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		existing := &models.Class{
+			Class:              "Article",
+			Vectorizer:         "none",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		}
+		fakeSchemaManager.On("ReadOnlyClass", "Article").Return(nil)
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"Article"}).
+			Return(map[string]versioned.Class{"Article": {Class: existing}}, nil)
+		// Allow but don't require: with the fix the update is rejected before
+		// RAFT, so the pre-fix path fails on the assertion below rather than on
+		// an unexpected mock call.
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			Class:              "Article",
+			Vectorizer:         "none",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "disabling multi-tenancy for an existing class")
+	})
+
 	t.Run("body class name must match path", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
