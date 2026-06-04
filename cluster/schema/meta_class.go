@@ -512,7 +512,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		toCold := requestTenant.Status == models.TenantActivityStatusCOLD
 		toFrozen := requestedToFrozen && !existedSharedFrozen
 		unfreeze := existedSharedFrozen && !requestedToFrozen
-		if (toCold || toFrozen || unfreeze) && replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name) {
+		if (toCold || toFrozen || unfreeze) && replicationFSM != nil && replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name) {
 			partialErrs = append(partialErrs, fmt.Errorf(
 				"%w: tenant %q status change to %s blocked; retry after movement completes",
 				ErrReplicaMovementInProgress, requestTenant.Name, requestTenant.Status))

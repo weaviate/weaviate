@@ -853,9 +853,12 @@ func isShardBusyError(err error) bool {
 	if err == nil {
 		return false
 	}
-	st, ok := status.FromError(err)
-	if !ok {
-		return false
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		st, ok := status.FromError(e)
+		if !ok {
+			continue
+		}
+		return st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), enterrors.ErrShardBusyStructuralOp.Error())
 	}
-	return st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), enterrors.ErrShardBusyStructuralOp.Error())
+	return false
 }
