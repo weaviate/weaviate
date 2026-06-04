@@ -94,6 +94,7 @@ message StartChangeCaptureRequest {
   string index_name = 1;
   string shard_name = 2;
   string op_id = 3;
+  uint64 schema_version = 4; // source waits for this schema version (the tenant HOT activation) before opening the change-capture log
 }
 
 message StartChangeCaptureResponse {
