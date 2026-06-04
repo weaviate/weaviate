@@ -45,9 +45,10 @@ type Manager struct {
 
 	// localNodeID is embedded in node-reached-state broadcasts so peers
 	// know who reported.
-	localNodeID       string
-	submitNodeReached func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
-	inflightDrainer   func(ctx context.Context, class, shard string) error
+	localNodeID                  string
+	submitNodeReached            func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
+	inflightDrainer              func(ctx context.Context, class, shard string) error
+	inflightDrainFailuresCounter prometheus.Counter
 }
 
 const inflightDrainBackstop = 60 * time.Second
@@ -58,6 +59,11 @@ func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelec
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
 		nodeSelector:   nodeSelector,
+		inflightDrainFailuresCounter: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "inflight_drain_failures_total",
+			Help:      "Total number of failures to drain in-flight writes before transitioning to INTEGRATING or DEHYDRATING state",
+		}),
 	}
 }
 
@@ -125,6 +131,7 @@ func (m *Manager) drainInflight(opID uint64) {
 	ctx, cancel := context.WithTimeout(context.Background(), inflightDrainBackstop)
 	defer cancel()
 	if err := m.inflightDrainer(ctx, class, shard); err != nil {
+		m.inflightDrainFailuresCounter.Inc()
 		m.logger.WithFields(logrus.Fields{
 			"op_id":   opID,
 			"node_id": m.localNodeID,
