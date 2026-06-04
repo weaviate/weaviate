@@ -230,61 +230,106 @@ never FREEZING/UNFREEZING here (those `continue` earlier), so `existedSharedFroz
 
 ---
 
-## Part 3 — Defer the dynamic flat→HNSW auto-upgrade during movement
+## Part 3 — Defer the dynamic flat→HNSW auto-upgrade during movement (implemented)
 
-**File:** `adapters/repos/db/vector_index_queue.go:264-313` (`BeforeSchedule` →
-`checkCompressionSettings`). The upgrade fires automatically with no RAFT coordination and
-deletes the flat bucket dir / creates the HNSW commit log (`dynamic/index.go:519` `doUpgrade`,
-bucket removal at ~597). `HaltForTransfer` pauses the queue but does **not** add a movement
-check before triggering `ci.Upgrade`.
+The dynamic flat→HNSW upgrade fires automatically with no RAFT coordination and deletes the flat
+bucket dir / creates the HNSW commit log (`dynamic/index.go` `doUpgrade`, bucket removal at ~597).
+Its **only** trigger is the async-index scheduler → `VectorIndexQueue.BeforeSchedule` →
+`checkCompressionSettings` → `ci.Upgrade` (`vector_index_queue.go:283-313`); the queue registers
+with the scheduler only when async indexing is enabled, so there is no sync-mode path to guard.
 
-Before `iq.scheduler.PauseQueue(...)` + `ci.Upgrade(...)` (lines 300-304):
+**Guard** (`adapters/repos/db/vector_index_queue.go`): inside the
+`if ci.AlreadyIndexed() > uint64(shouldUpgradeAt)` block, **before** `scheduler.PauseQueue` +
+`ci.Upgrade`, so the FSM is consulted only when an upgrade is imminent and the deferral returns
+before touching the scheduler:
 ```go
-if iq.shardHasActiveMovement() {
+if iq.shard.AnyActiveMovement() {
     return false // defer: keep indexing into flat; re-checked next tick once movement clears
 }
 ```
+This same `ci.Upgrade` site also drives async-enabled HNSW *compression* (`hnsw.ShouldUpgrade()`
+returns true for enabled PQ/SQ/RQ), so the guard intentionally defers both the dynamic upgrade and
+async-on compression while a movement is active — covering the reverse-ordering TOCTOU's
+not-yet-started case (see Part 4 watch-out).
 
-Wiring (mirror the existing reindex-activity lookup):
-- Add `DB.AnyActiveMovementForShard(collection, shard string) bool` + a setter
-  `DB.SetShardMovementLookup(...)`, modeled on `SetShardReindexActivityLookup` /
-  `AnyLiveReindexForShard` (`adapters/repos/db/reindex_inflight.go`,
-  `db.go`/`index.go:321`). Back it with the cluster `replicationFSM.HasActiveReplicationForShard`,
-  installed post-bootstrap in `cluster/store.go` / `configure_api.go` next to the reindex
-  lookup wiring.
-- `iq.shardHasActiveMovement()` calls
-  `shard.index.db.AnyActiveMovementForShard(shard.index.Config.ClassName.String(), shard.name)`
-  (thread the shard ref the queue already holds from `NewVectorIndexQueue(s, ...)`).
+**Reuse the FSM the DB already holds (no new injection).** `DB` already has
+`replicationFSM types.ReplicationFSMReader`, set by `SetReplicationFSM(...)` at
+`configure_api.go:787`; the db package already imports `cluster/replication`, so there is no
+import-cycle barrier (the original closure-injection idea was redundant and was dropped). The only
+gap was that `types.ReplicationFSMReader` exposed just the two `FilterOneShardReplicas*` methods —
+add `HasActiveReplicationForShard(collection, shard string) bool` to it (the concrete
+`*ShardReplicationFSM` already implements it from Part 1; `cluster/router` only consumes the
+interface; regenerate `mock_replication_fsm_reader.go`).
+
+One method, `Shard.AnyActiveMovement()` (in `shard.go`):
+`if s == nil || s.index == nil || s.index.db == nil || s.index.db.replicationFSM == nil { return
+false }; return s.index.db.replicationFSM.HasActiveReplicationForShard(s.index.Config.ClassName,
+s.name)`. The shard supplies its own identity, so the queue call site is just
+`iq.shard.AnyActiveMovement()`. The **`replicationFSM == nil` guard is required**: the field is nil
+in the startup window (`db.New` at `configure_api.go:477` runs before `SetReplicationFSM` at `:773`,
+since `ClusterService` is created at `:703`), so a scheduler tick hitting the upgrade threshold then
+would otherwise call a method on a nil interface and panic the background goroutine. The FSM is
+read live through `db` (process-global, late-bound) and **not** cached per-shard — per-shard copies
+would go stale vs `SetReplicationFSM`. No `configure_api.go` wiring is added (the FSM is already
+wired there); there is no `DB`-level wrapper (the queue's sole call doesn't warrant one).
+
+**Tests** (`adapters/repos/db/vector_index_queue_movement_test.go`, no build tag, white-box so a
+partial `&Shard{index,name}` literal suffices despite `shard` being a concrete `*Shard`): via the
+public `BeforeSchedule()`, an imminent upgrade is deferred (skip=false, no `Upgrade`) during a
+movement — asserting the shard queried with its own collection+name — and the FSM is **not**
+consulted below threshold. Plus a regression test that `Shard.AnyActiveMovement()` doesn't panic on
+a nil FSM. The movement-clear→actually-upgrades path needs a live scheduler+DiskQueue and is left to
+e2e.
 
 ---
 
 ## Part 4 — Reverse guard: movement waits for in-flight structural op (source-node)
 
 ### 4a. Detect structural ops in flight (explicit flags, not reason strings — discrepancy #4)
-- **Compression:** add `Shard.vectorIndexUpdating atomic.Bool`. Set `true` at the top of
-  `UpdateVectorIndexConfigs` (`adapters/repos/db/shard.go:560`) before spawning the async
-  waiter, and `false` inside that goroutine after `wg.Wait()` (lines 599-603) — covering the
-  whole async compression window that can outlive the RAFT apply.
+
+Track each window where the **on-disk work actually runs**, not where the RAFT apply returns.
+Compression outlives `UpdateVectorIndexConfigs` (`shard.go:599-605` spawns the wg-waiter then
+returns), and in async-indexing-**on** mode the compression does not run in
+`UpdateVectorIndexConfigs` at all: `UpdateUserConfig` fires its callback immediately
+(`hnsw/config_update.go:131-134`) and the real compression runs later in the queue. So a flag set
+around `UpdateVectorIndexConfigs`'s waitgroup would cover async-off but **miss async-on entirely** —
+do **not** put it there.
+
+Both compression paths — async-off `UpdateUserConfig`→`h.Upgrade` (`config_update.go:143`) and
+async-on queue `ci.Upgrade`→`h.Upgrade` (`vector_index_queue.go:302`) — funnel through the single
+goroutine `hnsw.compressThenCallback` (`hnsw/config_update.go:176`). Track there, per index:
+
+- **HNSW compression:** add `hnsw.compressing atomic.Bool`; set `true` at the top of
+  `compressThenCallback` and `false` via `defer`. This spans the real compression window in **both**
+  async modes. `UpgradeInProgress()` on HNSW returns `h.compressing.Load()` — it is **not** a
+  constant `false`.
 - **Dynamic upgrade:** add `dynamic.upgrading atomic.Bool`, set `true`/`false` around the
-  upgrade goroutine in `dynamic.Upgrade` (`adapters/repos/db/vector/dynamic/index.go:502-516`).
-  Expose `UpgradeInProgress() bool` on the `upgradableIndexer` interface (dynamic implements
-  it; HNSW/flat return false).
+  `doUpgrade` goroutine in `dynamic.Upgrade` (`dynamic/index.go:502-516`). `UpgradeInProgress()` on
+  dynamic returns `dynamic.upgrading.Load() || (dynamic.upgraded.Load() && inner.UpgradeInProgress())`
+  so it also reports an in-flight *compression* of the inner HNSW after the flat→HNSW upgrade.
+- **Flat:** `UpgradeInProgress()` returns false (flat does not restructure via this path).
+- Expose `UpgradeInProgress() bool` on the `upgradableIndexer` interface (all three implement it).
+
+This replaces the earlier `Shard.vectorIndexUpdating` flag: tracking at the common
+`compressThenCallback`/`doUpgrade` sites covers every trigger (async-on, async-off, dynamic) with no
+RAFT-apply-vs-async-window gap, so no shard-level flag is needed. (Discovered while verifying the
+Part 2a↔Part 4 compression-then-movement TOCTOU: Part 2a only blocks the forward ordering, Part 3
+defers the async-on not-yet-started case, and Part 4 here must catch already-running compression in
+*both* async modes — hence the flag belongs at `compressThenCallback`, not `UpdateVectorIndexConfigs`.)
 
 New shard helper:
 ```go
 // structuralVectorOpInFlight reports an in-progress compression or dynamic upgrade whose
 // on-disk effects would make a file snapshot structurally inconsistent.
 func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
-    if s.vectorIndexUpdating.Load() { return true, "vector index update (compression) in progress" }
-    var found string
     _ = s.ForEachVectorIndex(func(name string, vi VectorIndex) error {
         if u, ok := vi.(upgradableIndexer); ok && u.UpgradeInProgress() {
-            found = fmt.Sprintf("dynamic flat→HNSW upgrade in progress on vector %q", name)
+            busy = true
+            reason = fmt.Sprintf("structural vector op (compression or flat→HNSW upgrade) in progress on vector %q", name)
         }
         return nil
     })
-    if found != "" { return true, found }
-    return false, ""
+    return busy, reason
 }
 ```
 
@@ -350,10 +395,10 @@ leave it unpinned.
 | UpdateClass guard | `cluster/schema/manager.go:347-423` + new `dangerousVectorConfigChange` helper | block compression-enable / new named vector |
 | UpdateProperty guard | `cluster/schema/manager.go:520-550` + `disablesAnyIndex` helper | block index disable |
 | UpdateTenants guard | `cluster/schema/meta_class.go:449-565` | fix node-id bug, block freeze/unfreeze/COLD as partial error |
-| Dynamic upgrade defer | `adapters/repos/db/vector_index_queue.go:264-313` | defer upgrade when movement active |
-| Movement lookup wiring | `adapters/repos/db/{db.go,index.go,reindex_inflight.go-style}`, `cluster/store.go`, `configure_api.go` | `AnyActiveMovementForShard` + setter, backed by replicationFSM |
-| Compression flag | `adapters/repos/db/shard.go:560-606`, `shard_status.go` | `vectorIndexUpdating atomic.Bool` |
-| Upgrade flag | `adapters/repos/db/vector/dynamic/index.go:502-516` + `upgradableIndexer` iface | `upgrading` flag + `UpgradeInProgress()` |
+| Dynamic upgrade defer | `adapters/repos/db/vector_index_queue.go` (`checkCompressionSettings` guard) | defer upgrade/compression when movement active |
+| Movement query | `Shard.AnyActiveMovement()` in `shard.go` (nil-guards incl. `replicationFSM`); `+HasActiveReplicationForShard` on `cluster/replication/types.ReplicationFSMReader` (+ regen mock) | reuse the DB's existing `replicationFSM` — no new injection, no `DB` wrapper, no `configure_api.go` wiring |
+| Compression flag | `adapters/repos/db/vector/hnsw/config_update.go:176` (`compressThenCallback`) + `upgradableIndexer` iface | `hnsw.compressing atomic.Bool`; `UpgradeInProgress()` returns it (spans async-on + async-off) |
+| Upgrade flag | `adapters/repos/db/vector/dynamic/index.go:502-516` + `upgradableIndexer` iface | `dynamic.upgrading` flag; `UpgradeInProgress()` = upgrading OR inner-HNSW compressing |
 | Reverse gate | `adapters/repos/db/shard_backup.go:37-48` + `structuralVectorOpInFlight` | refuse transfer when busy |
 | Sentinel + gRPC | new `ErrShardBusyStructuralOp`; `.../grpc/file_replication_service.go` | distinct gRPC code |
 | Non-counting retry | `cluster/replication/consumer.go:412-450` + `isShardBusyError` | don't count busy refusals toward MaxErrors |
@@ -378,8 +423,10 @@ leave it unpinned.
   →HOT/ACTIVE allowed.
 - `BeforeSchedule` — upgrade deferred when movement active; proceeds when not (and on a later
   tick after movement clears).
-- `HaltForTransfer` — refuses with `ErrShardBusyStructuralOp` when `vectorIndexUpdating` set
-  or a dynamic index reports `UpgradeInProgress()`; passes otherwise.
+- `HaltForTransfer` — refuses with `ErrShardBusyStructuralOp` when any index reports
+  `UpgradeInProgress()` (HNSW compressing — async-on **and** async-off — or dynamic upgrading);
+  passes otherwise. Add a case per async mode so the async-on (queue-driven) compression window is
+  not silently uncovered.
 - **Regression for auto-cancel** — N>50 consecutive busy refusals keep the op non-terminal and
   do **not** trigger `CancelReplication` (Part 4c).
 - **Red test** for Part 5 (schemaOnly replay leaves index uncompressed vs schema).
@@ -402,5 +449,6 @@ leave it unpinned.
   `manager.go`'s (one vs two edits) and the full mock-regeneration surface.
 - Best injection point for `shardHasActiveMovement()` from the queue (shard back-ref vs
   injected callback) without import cycles between `adapters/repos/db` and `cluster`.
-- Confirm `ForEachVectorIndex` (or equivalent) exists for `structuralVectorOpInFlight`; if not,
-  iterate `s.vectorIndexes` under `vectorIndexMu`.
+- `ForEachVectorIndex` exists (`shard_accessors.go`: `func (s *Shard) ForEachVectorIndex(f
+  func(targetVector string, index VectorIndex) error) error`, iterates named + legacy under
+  `vectorIndexMu.RLock`) — use it directly in `structuralVectorOpInFlight`.
