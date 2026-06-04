@@ -145,6 +145,16 @@ type BlockMetrics struct {
 }
 
 type SegmentBlockMax struct {
+	// Hot scalars read on every WAND scan iteration — kept together at the top so
+	// they share a cache line (the gated-off Metrics block sits at the tail).
+	idPointer          uint64
+	idf                float64
+	currentBlockMaxId  uint64
+	currentBlockImpact float32
+	exhausted          bool
+	decoded            bool
+	freqDecoded        bool
+
 	segment               *segment
 	node                  segmentindex.Node
 	docCount              uint64
@@ -158,23 +168,15 @@ type SegmentBlockMax struct {
 	blockDataSize         int
 	blockDataStartOffset  uint64
 	blockDataEndOffset    uint64
-	idPointer             uint64
-	idf                   float64
-	exhausted             bool
-	decoded               bool
-	freqDecoded           bool
 	queryTermIndex        int
-	Metrics               BlockMetrics
 	averagePropLength     float64
 	b                     float64
 	k1                    float64
 	propertyBoost         float64
 
-	currentBlockImpact float32
-	currentBlockMaxId  uint64
-	tombstones         *sroar.Bitmap
-	memTombstones      *sroar.Bitmap
-	filterDocIds       helpers.AllowList
+	tombstones    *sroar.Bitmap
+	memTombstones *sroar.Bitmap
+	filterDocIds  helpers.AllowList
 
 	// stateless reusable-decode functions, resolved once from the segment's
 	// codecs (doc ids and term frequencies). Func values, not an encoder
@@ -188,6 +190,10 @@ type SegmentBlockMax struct {
 	blockDatasTest   []*terms.BlockData
 
 	sectionReader *io.SectionReader
+
+	// cold: only written under collectBlockMetrics (off in production); kept last
+	// so it never separates the hot scalars above.
+	Metrics BlockMetrics
 }
 
 func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
@@ -204,6 +210,17 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	// we can skip it and return nil for the segment
 	if filterDocIds != nil && filterDocIds.IsEmpty() {
 		return nil
+	}
+
+	// Normalize empty-but-non-nil tombstone bitmaps to nil so advanceOnTombstoneOrFilter
+	// short-circuits them instead of paying a sroar.Contains per advanced doc.
+	// memTombstones is built as a fresh sroar.NewBitmap() and is non-nil even with
+	// no in-memory deletes (the common case), which otherwise costs a probe per doc.
+	if tombstones != nil && tombstones.IsEmpty() {
+		tombstones = nil
+	}
+	if memTombstones != nil && memTombstones.IsEmpty() {
+		memTombstones = nil
 	}
 
 	decodeDocIds, decodeTfs := decodeFuncsFromCodecs(s.invertedHeader.DataFields)
