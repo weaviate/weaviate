@@ -123,6 +123,9 @@ func (v *google) waitForQuota(ctx context.Context, n int) error {
 func (v *google) VectorizeWithTitleProperty(ctx context.Context,
 	input []string, titlePropertyValue string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
+	// reserve one rate-limit token per input text, NOT one per HTTP request:
+	// Gemini counts each embedding as a request against the RPM quota, even
+	// when multiple inputs are batched into a single HTTP call
 	if err := v.waitForQuota(ctx, len(input)); err != nil {
 		return nil, err
 	}
@@ -133,6 +136,9 @@ func (v *google) VectorizeWithTitleProperty(ctx context.Context,
 func (v *google) Vectorize(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	// reserve one rate-limit token per input text, NOT one per HTTP request:
+	// Gemini counts each embedding as a request against the RPM quota, even
+	// when multiple inputs are batched into a single HTTP call
 	if err := v.waitForQuota(ctx, len(input)); err != nil {
 		return nil, nil, 0, err
 	}
