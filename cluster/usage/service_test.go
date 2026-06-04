@@ -85,6 +85,12 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	// asyncReplicationEnabledForShard (shard_init_lsm.go) consults ShardReplicas
+	// during NewShard on every WaitForStartup; without it the eager-load goroutine
+	// panics in the testify mock and Goexits before storing the shard, masking
+	// the real failure under a downstream "bucket already registered" from the
+	// unloaded-usage path.
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -212,6 +218,10 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		},
 	)
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(className).Return(len(shardingState.Physical), nil)
+	// asyncReplicationEnabledForShard (shard_init_lsm.go) consults ShardReplicas
+	// during NewShard / LazyLoadShard.load; without it the load panics in the
+	// testify mock and the shard never registers, masking the real failure.
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	putObjectAndFlush(t, repo, className, hotTenant, map[string][]float32{vectorName: {0.1, 0.2, 0.3}}, map[string][]float32{vectorName: {0.4, 0.5, 0.6}})
@@ -560,6 +570,9 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	// asyncReplicationEnabledForShard (shard_init_lsm.go) consults ShardReplicas
+	// during NewShard on every WaitForStartup; see SingleTenant test for details.
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	repo.Shutdown(ctx)
