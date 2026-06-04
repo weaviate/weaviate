@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"golang.org/x/time/rate"
 )
 
 func TestClient(t *testing.T) {
@@ -231,4 +232,69 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+func TestWaitForQuota(t *testing.T) {
+	tests := []struct {
+		name        string
+		limiter     *rate.Limiter
+		n           int
+		ctxTimeout  time.Duration
+		expectError bool
+	}{
+		{
+			name:    "nil limiter is a no-op",
+			limiter: nil,
+			n:       1000,
+		},
+		{
+			name:    "request fitting in burst",
+			limiter: rate.NewLimiter(rate.Limit(1000), 100),
+			n:       50,
+		},
+		{
+			name:    "request larger than burst is chunked",
+			limiter: rate.NewLimiter(rate.Limit(1000), 10),
+			n:       150,
+		},
+		{
+			name:        "context deadline while waiting",
+			limiter:     rate.NewLimiter(rate.Limit(1), 1),
+			n:           10,
+			ctxTimeout:  10 * time.Millisecond,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.ctxTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.ctxTimeout)
+				defer cancel()
+			}
+			v := &google{rateLimiter: tt.limiter}
+			err := v.waitForQuota(ctx, tt.n)
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestRateLimiterPacing(t *testing.T) {
+	// rpm of 600 = 10 embeddings/second. Sending 3 single-input requests after
+	// draining the burst should take at least ~200ms.
+	c := New("apiKey", false, 600, time.Minute, logrus.New())
+	require.NotNil(t, c.rateLimiter)
+	require.NoError(t, c.waitForQuota(context.Background(), c.rateLimiter.Burst())) // drain burst
+
+	start := time.Now()
+	for i := 0; i < 3; i++ {
+		require.NoError(t, c.waitForQuota(context.Background(), 1))
+	}
+	assert.GreaterOrEqual(t, time.Since(start), 200*time.Millisecond)
 }

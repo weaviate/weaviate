@@ -27,6 +27,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
+
 	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 )
 
@@ -83,6 +85,10 @@ type google struct {
 	httpClient    *http.Client
 	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
 	logger        logrus.FieldLogger
+	// Google deducts embedding quota per input text (1 embedding = 1 request),
+	// not per HTTP request. The limiter therefore reserves one token per input
+	// so that all vectorization paths are paced against the actual quota.
+	rateLimiter *rate.Limiter
 }
 
 func New(apiKey string, useGoogleAuth bool, rpm int, timeout time.Duration, logger logrus.FieldLogger) *google {
@@ -94,12 +100,35 @@ func New(apiKey string, useGoogleAuth bool, rpm int, timeout time.Duration, logg
 		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
 		urlBuilderFn:  buildURL,
 		logger:        logger,
+		rateLimiter:   rate.NewLimiter(rate.Limit(float64(rpm)/60.0), max(rpm/60, 1)),
 	}
+}
+
+// waitForQuota blocks until the rate limiter grants quota for n embeddings.
+// Requests larger than the limiter's burst size are reserved in chunks.
+func (v *google) waitForQuota(ctx context.Context, n int) error {
+	if v.rateLimiter == nil {
+		return nil
+	}
+	for n > 0 {
+		take := min(n, v.rateLimiter.Burst())
+		if err := v.rateLimiter.WaitN(ctx, take); err != nil {
+			return errors.Wrap(err, "wait for rate limit quota")
+		}
+		n -= take
+	}
+	return nil
 }
 
 func (v *google) VectorizeWithTitleProperty(ctx context.Context,
 	input []string, titlePropertyValue string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
+	// reserve one rate-limit token per input text, NOT one per HTTP request:
+	// Gemini counts each embedding as a request against the RPM quota, even
+	// when multiple inputs are batched into a single HTTP call
+	if err := v.waitForQuota(ctx, len(input)); err != nil {
+		return nil, err
+	}
 	settings := v.getSettings(cfg)
 	return v.vectorize(ctx, input, v.getDocumentTaskType(settings.TaskType), titlePropertyValue, settings)
 }
@@ -107,6 +136,12 @@ func (v *google) VectorizeWithTitleProperty(ctx context.Context,
 func (v *google) Vectorize(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	// reserve one rate-limit token per input text, NOT one per HTTP request:
+	// Gemini counts each embedding as a request against the RPM quota, even
+	// when multiple inputs are batched into a single HTTP call
+	if err := v.waitForQuota(ctx, len(input)); err != nil {
+		return nil, nil, 0, err
+	}
 	settings := v.getSettings(cfg)
 	res, err := v.vectorize(ctx, input, v.getDocumentTaskType(settings.TaskType), "", settings)
 	return res, nil, 0, err
