@@ -1,0 +1,98 @@
+{
+  "generatedBy": "tools/export-parameters",
+  "modules": [
+    {
+      "name": "text2vec-aws",
+      "description": "AWS vectorizer module for text embeddings using Bedrock or Sagemaker",
+      "parameters": {
+        "Endpoint": {
+          "jsonKey": "endpoint",
+          "defaultValue": "",
+          "description": "Sagemaker endpoint name (required for sagemaker, not allowed for bedrock)",
+          "required": false,
+          "dataType": "string"
+        },
+        "Model": {
+          "jsonKey": "model",
+          "defaultValue": "",
+          "description": "Model identifier (required for bedrock, not allowed for sagemaker)",
+          "required": false,
+          "dataType": "string"
+        },
+        "Region": {
+          "jsonKey": "region",
+          "defaultValue": "",
+          "description": "AWS region",
+          "required": true,
+          "dataType": "string"
+        },
+        "Service": {
+          "jsonKey": "service",
+          "defaultValue": "bedrock",
+          "description": "AWS service to use (bedrock or sagemaker)",
+          "required": false,
+          "allowedValues": [
+            "bedrock",
+            "sagemaker"
+          ],
+          "dataType": "string"
+        },
+        "TargetModel": {
+          "jsonKey": "targetModel",
+          "defaultValue": "",
+          "description": "Target model for Sagemaker inference",
+          "required": false,
+          "dataType": "string"
+        },
+        "TargetVariant": {
+          "jsonKey": "targetVariant",
+          "defaultValue": "",
+          "description": "Target variant for Sagemaker inference",
+          "required": false,
+          "dataType": "string"
+        }
+      }
+    },
+    {
+      "name": "text2vec-cohere",
+      "description": "Cohere vectorizer module for text embeddings",
+      "parameters": {
+        "BaseURL": {
+          "jsonKey": "baseURL",
+          "defaultValue": "https://api.cohere.ai",
+          "description": "Cohere API base URL",
+          "required": false,
+          "dataType": "string"
+        },
+        "Dimensions": {
+          "jsonKey": "dimensions",
+          "description": "Number of dimensions for the embedding",
+          "required": false,
+          "dataType": "int64"
+        },
+        "Model": {
+          "jsonKey": "model",
+          "defaultValue": "embed-multilingual-v3.0",
+          "description": "Cohere model name",
+          "required": false,
+          "dataType": "string"
+        },
+        "Truncate": {
+          "jsonKey": "truncate",
+          "defaultValue": "END",
+          "description": "Truncation strategy (NONE, START, END, LEFT, RIGHT)",
+          "required": false,
+          "allowedValues": [
+            "NONE",
+            "START",
+            "END",
+            "LEFT",
+            "RIGHT"
+          ],
+          "dataType": "string"
+        }
+      }
+    }
+  ],
+  "version": "1.0.0"
+}
