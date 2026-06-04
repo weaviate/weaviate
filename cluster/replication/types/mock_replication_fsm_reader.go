@@ -79,7 +79,7 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasRead_Call) RunAndReturn
 }
 
 // FilterOneShardReplicasWrite provides a mock function with given fields: collection, shard, shardReplicasLocation
-func (_m *MockReplicationFSMReader) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+func (_m *MockReplicationFSMReader) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) []string {
 	ret := _m.Called(collection, shard, shardReplicasLocation)
 
 	if len(ret) == 0 {
@@ -87,10 +87,6 @@ func (_m *MockReplicationFSMReader) FilterOneShardReplicasWrite(collection strin
 	}
 
 	var r0 []string
-	var r1 []string
-	if rf, ok := ret.Get(0).(func(string, string, []string) ([]string, []string)); ok {
-		return rf(collection, shard, shardReplicasLocation)
-	}
 	if rf, ok := ret.Get(0).(func(string, string, []string) []string); ok {
 		r0 = rf(collection, shard, shardReplicasLocation)
 	} else {
@@ -99,15 +95,7 @@ func (_m *MockReplicationFSMReader) FilterOneShardReplicasWrite(collection strin
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string, []string) []string); ok {
-		r1 = rf(collection, shard, shardReplicasLocation)
-	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).([]string)
-		}
-	}
-
-	return r0, r1
+	return r0
 }
 
 // MockReplicationFSMReader_FilterOneShardReplicasWrite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FilterOneShardReplicasWrite'
@@ -130,12 +118,12 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) Run(run fun
 	return _c
 }
 
-func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) Return(_a0 []string, _a1 []string) *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) Return(_a0 []string) *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) RunAndReturn(run func(string, string, []string) ([]string, []string)) *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call {
+func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) RunAndReturn(run func(string, string, []string) []string) *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call {
 	_c.Call.Return(run)
 	return _c
 }

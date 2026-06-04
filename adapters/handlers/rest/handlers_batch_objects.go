@@ -15,7 +15,6 @@ import (
 	"errors"
 
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -140,13 +139,18 @@ func (h *batchObjectHandlers) referencesResponse(principal *models.Principal, in
 		var errorResponse *models.ErrorResponse
 		var reference models.BatchReference
 
+		// Echo beacons on every row so clients can correlate failures back
+		// to the input. Strip helpers tolerate nil inputs (return ""), so
+		// unconditional invocation is safe when the upstream rejected the
+		// row before populating From/To. resolveNS qualifies the From class
+		// upstream; To strip is defense in depth.
+		reference.From = namespacing.StripRefSourceBeacon(principal, ref.From)
+		reference.To = namespacing.StripRefBeacon(principal, ref.To)
+
 		status := models.BatchReferenceResponseAO1ResultStatusSUCCESS
 		if ref.Err != nil {
 			errorResponse = errPayloadFromSingleErr(principal, ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
-		} else {
-			reference.From = strfmt.URI(ref.From.String())
-			reference.To = strfmt.URI(ref.To.String())
 		}
 
 		response[i] = &models.BatchReferenceResponse{

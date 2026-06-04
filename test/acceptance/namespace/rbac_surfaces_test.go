@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/export"
+	clns "github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
@@ -39,13 +40,12 @@ const s3Backend = "s3"
 // env-var root accessing it successfully, proving the denies are real auth
 // denials — narrowing, not a missing grant or a disabled endpoint.
 func TestNamespaces_RBACSurfaces(t *testing.T) {
-	user1Key, _ := twoNamespaces(t)
+	t.Parallel()
+	ns1, _, user1Key, _ := twoNamespaces(t)
 
-	const (
-		class     = "Surfaces"
-		qualified = "customer1:" + class
-	)
-	setupClassInNs1(t, class, user1Key)
+	const class = "Surfaces"
+	qualified := ns1 + ":" + class
+	setupClassInNs1(t, ns1, class, user1Key)
 
 	// Positive control for the namespaced admin itself: prove the admin grant is
 	// live with real data permissions. Without this, the operator-surface 403s
@@ -121,11 +121,46 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		// Root backs up the same namespaced class by qualified name and the backup
 		// reaches SUCCESS — a real, completed operator action.
 		const backupID = "ns-root-backup"
-		_, err = helper.CreateBackupWithAuthz(
+		okResp, err := helper.CreateBackupWithAuthz(
 			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
 			helper.CreateAuth(adminKey))
 		require.NoError(t, err)
+		// Root sees qualified Classes; backup endpoints are operator-only.
+		require.NotNil(t, okResp.Payload)
+		assert.Contains(t, okResp.Payload.Classes, qualified,
+			"root's backup-create response must echo the qualified class verbatim")
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
+	})
+
+	t.Run("create namespace: namespaced denied, root allowed", func(t *testing.T) {
+		// manage_namespaces is root-only; the narrowed admin lacks it.
+		newNS := uniqueNS()
+		_, err := helper.Client(t).Namespaces.CreateNamespace(
+			clns.NewCreateNamespaceParams().WithNamespaceID(newNS),
+			helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *clns.CreateNamespaceForbidden
+		require.True(t, errors.As(err, &forbidden), "expected CreateNamespaceForbidden, got %T: %v", err, err)
+
+		helper.CreateNamespace(t, newNS, adminKey)
+		t.Cleanup(func() { helper.DeleteNamespace(t, newNS, adminKey) })
+	})
+
+	t.Run("delete namespace: namespaced denied, root allowed", func(t *testing.T) {
+		// Throwaway target so a regression letting the call through cannot
+		// remove a live namespace mid-test; authz runs before existence checks.
+		throwaway := uniqueNS()
+		helper.CreateNamespace(t, throwaway, adminKey)
+
+		_, err := helper.Client(t).Namespaces.DeleteNamespace(
+			clns.NewDeleteNamespaceParams().WithNamespaceID(throwaway),
+			helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *clns.DeleteNamespaceForbidden
+		require.True(t, errors.As(err, &forbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
+
+		// Positive control: root completes the delete.
+		helper.DeleteNamespace(t, throwaway, adminKey)
 	})
 
 	t.Run("export: namespaced denied via empty backups filter, root passes filter", func(t *testing.T) {

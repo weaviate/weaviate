@@ -417,11 +417,10 @@ type Shard struct {
 	//
 	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
 	// OnTaskCompleted):
-	//   1. SET: pre-swap, just BEFORE the per-task RunSwapOnShard loop
-	//      kicks off on this shard. Setting pre-swap means the brief
-	//      in-flight window between bucket-pointer flip and overlay
-	//      visibility is bounded by the in-memory swap latency
-	//      (microseconds) rather than the cluster-wide cutover spread.
+	//   1. SET: per prop, atomic with each bucket-pointer flip (onPropSwapped
+	//      hook), so the overlay≠bucket window is one in-memory map write.
+	//      See maybeWirePerPropOverlaySet for why setting it once up front
+	//      was a correctness bug.
 	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
 	//      this shard fails before flipping its bucket pointer (e.g.
 	//      ctx.Canceled during graceful shutdown), the post-loop branch

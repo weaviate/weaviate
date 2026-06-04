@@ -196,7 +196,7 @@ func assertNoIndexBleedAfterDelete(
 			return true
 		}
 		return false
-	}, 12*time.Second, 250*time.Millisecond, args...)
+	}, 12*time.Second, 50*time.Millisecond, args...)
 }
 
 // TestSuppress ensures this file compiles in isolation. The actual entry

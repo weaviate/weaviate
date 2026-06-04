@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
@@ -112,11 +113,13 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	// Poll /v1/tasks every ~20ms. On the first observation of FINISHED,
-	// immediately read the schema and assert the tokenization flipped.
-	deadline := time.Now().Add(120 * time.Second)
+	// Poll /v1/tasks. On the first observation of FINISHED, immediately
+	// capture the timestamp so the convergence-lag measurement below stays
+	// accurate. Keep a tight 20ms tick — this test measures the sub-second
+	// lag between FINISHED and the schema flip, so the cadence is
+	// load-bearing.
 	var sawFinishedAt time.Time
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		status, err := fetchTaskStatus(restURI, taskID)
 		require.NoError(t, err)
 		if status == "FAILED" {
@@ -124,10 +127,10 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		}
 		if status == "FINISHED" {
 			sawFinishedAt = time.Now()
-			break
+			return true
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		return false
+	}, 120*time.Second, 20*time.Millisecond)
 	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED")
 
 	// Poll the schema for up to flipWindow after FINISHED was first observed.
@@ -141,8 +144,10 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	const flipWindow = 5 * time.Second
 	var lastObservedTokenization string
 	var sawFieldAt time.Time
-	pollDeadline := sawFinishedAt.Add(flipWindow)
-	for time.Now().Before(pollDeadline) {
+	// Keep a tight 10ms tick so the captured sawFieldAt is as close as
+	// possible to the actual flip — the convergence-lag assertion below is
+	// sub-second. Capture the timestamp the instant the condition holds.
+	flipped := assert.Eventually(t, func() bool {
 		cls := helper.GetClass(t, className)
 		for _, prop := range cls.Properties {
 			if prop.Name == "filepath" {
@@ -151,12 +156,12 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		}
 		if lastObservedTokenization == "field" {
 			sawFieldAt = time.Now()
-			break
+			return true
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return false
+	}, flipWindow, 10*time.Millisecond)
 
-	if sawFieldAt.IsZero() {
+	if !flipped || sawFieldAt.IsZero() {
 		t.Fatalf(
 			"schema flag never flipped to %q within %v after FINISHED was first observed; "+
 				"last observed tokenization=%q. The Journey 3 wiring "+

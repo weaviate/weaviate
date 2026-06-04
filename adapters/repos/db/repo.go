@@ -250,6 +250,9 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	// resume any .deleteme cleanup that didn't finish before the last shutdown
+	scanAndAsyncDeletePending(config.RootPath, logger)
+
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
 		config.Replication,
@@ -413,6 +416,23 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	}, utils.NewBackoff())
 
 	return index
+}
+
+// WaitForLocalInflightWrites blocks until this node's in-flight coordinated
+// writes to the given shard have drained, or ctx is done.
+func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard string) error {
+	var index *Index
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		index = db.indices[indexID(schema.ClassName(class))]
+		if index == nil || index.replicator == nil {
+			return
+		}
+		index.dropIndex.RLock()
+	}()
+	defer index.dropIndex.RUnlock()
+	return index.replicator.WaitForDrain(ctx, shard)
 }
 
 // GetLocalShardNames returns the names of all shards local to this node for

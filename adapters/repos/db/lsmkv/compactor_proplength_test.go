@@ -109,7 +109,7 @@ func TestInvertedNaNPropLength(t *testing.T) {
 
 	ok := false
 	for !ok {
-		ok, err = bucket.disk.compactOnce()
+		ok, err = bucket.disk.compactOnce(context.Background())
 		require.NoError(t, err)
 	}
 

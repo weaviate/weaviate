@@ -195,7 +195,7 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 			}
 		}
 		return false
-	}, 240*time.Second, 200*time.Millisecond,
+	}, 240*time.Second, 50*time.Millisecond,
 		"reindex task %s should reach FINALIZING (or FINISHED) within 240s", taskID)
 	return observed
 }
@@ -236,7 +236,7 @@ func awaitReindexMidFlight(t *testing.T, restURI, taskID string, timeout time.Du
 			return false
 		}
 		return false
-	}, timeout, 200*time.Millisecond,
+	}, timeout, 50*time.Millisecond,
 		"reindex task %s should have at least one IN_PROGRESS unit within %s",
 		taskID, timeout)
 }
@@ -259,7 +259,7 @@ func raftLeaderIndex(t *testing.T, compose *docker.DockerCompose) int {
 			}
 		}
 		return false
-	}, 30*time.Second, 200*time.Millisecond, "/v1/cluster/statistics should report a leader")
+	}, 30*time.Second, 50*time.Millisecond, "/v1/cluster/statistics should report a leader")
 	for idx, name := range []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2} {
 		if name == leaderName {
 			return idx
@@ -517,7 +517,7 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 	ids, err := runBM25QueryOnNode(t, restURI, className, query)
 	if err != nil {
 		// Retry once after a short delay for transient errors.
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		ids, err = runBM25QueryOnNode(t, restURI, className, query)
 	}
 	return ids, err
@@ -541,6 +541,25 @@ func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCom
 	rollingRestartCluster(ctx, t, compose)
 }
 
+// cycleNodeFast restarts a node via `docker restart` and waits for
+// /v1/.well-known/ready. Use compose.StopAt + StartAt instead when the
+// test needs cluster membership to converge on "node X unhealthy" first
+// (e.g. consistency_level=ALL writes mid-restart). See weaviate/0-weaviate-issues#254.
+func cycleNodeFast(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int) {
+	t.Helper()
+	require.NoErrorf(t, compose.RestartAt(ctx, nodeIdx, nil),
+		"cycleNodeFast: restart node at index %d", nodeIdx)
+}
+
+// cycleNodeFastKill is cycleNodeFast with SIGKILL (`docker restart -t 0`).
+// For crash-path tests that need to bypass the on-shutdown bucket flush.
+func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int) {
+	t.Helper()
+	zero := 0 * time.Second
+	require.NoErrorf(t, compose.RestartAt(ctx, nodeIdx, &zero),
+		"cycleNodeFastKill: restart (SIGKILL) node at index %d", nodeIdx)
+}
+
 // rollingRestartCluster stops + restarts each node ONE AT A TIME,
 // waiting for the node to be ready (and for RAFT to accept writes
 // again) before moving on. Mimics a Kubernetes StatefulSet rolling
@@ -558,8 +577,7 @@ func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.Do
 	t.Helper()
 	for i := 1; i <= 3; i++ {
 		t.Logf("rolling restart: cycling node %d", i)
-		require.NoErrorf(t, compose.StopAt(ctx, i-1, nil), "stop node %d", i)
-		require.NoErrorf(t, compose.StartAt(ctx, i-1), "start node %d", i)
+		cycleNodeFast(ctx, t, compose, i-1)
 
 		// Wait for this node's HTTP endpoint to respond before moving
 		// on. tryGetSchema is cheap and exercises the same routing
@@ -573,7 +591,7 @@ func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.Do
 			}
 			defer resp.Body.Close()
 			return resp.StatusCode == http.StatusOK
-		}, 60*time.Second, 500*time.Millisecond,
+		}, 60*time.Second, 50*time.Millisecond,
 			"node %d should be ready after rolling restart", i)
 	}
 }
@@ -695,6 +713,13 @@ func waitForProbeBaseline(
 ) int {
 	t.Helper()
 	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	// Sample at 50ms via an explicit ticker. The two-consecutive-stable
+	// requirement (prevAll) is a sampling property of this baseline gate,
+	// not a simple wait-for-condition, so it is preserved verbatim rather
+	// than collapsed into require.Eventually (which would return on the
+	// first satisfying read and drop the stability check).
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	prevAll := -1
 	for time.Now().Before(deadline) {
 		var counts [3]int
@@ -720,7 +745,7 @@ func waitForProbeBaseline(
 			// count gets fully re-validated.
 			prevAll = -1
 		}
-		time.Sleep(200 * time.Millisecond)
+		<-ticker.C
 	}
 	t.Fatalf("waitForProbeBaseline: per-replica counts did not converge within %s",
 		perReplicaConvergenceTimeout)
@@ -774,16 +799,17 @@ func runMigrationWithProbes(
 		idx := nodeIdx + 1
 		go func() {
 			defer wg.Done()
+			ticker := time.NewTicker(probeInterval)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-stopCh:
 					return
-				default:
+				case <-ticker.C:
 				}
 				start := time.Now()
 				count, err := probe(nodeURI, className)
 				record(probeSample{t: start, nodeID: idx, count: count, err: err})
-				time.Sleep(probeInterval)
 			}
 		}()
 	}

@@ -15,12 +15,9 @@ import (
 	"context"
 	"slices"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-
-	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 // ResourceFilter handles filtering resources based on authorization
@@ -39,10 +36,10 @@ func New[T any](authorizer authorization.Authorizer, config rbacconf.Config) *Re
 // FilterFn defines a function that generates authorization resources for an item
 type FilterFn[T any] func(item T) string
 
-// Filter filters a slice of items based on authorization
+// Filter filters a slice of items based on authorization. Authz failures are
+// not logged here — the underlying authorizer emits the canonical audit entry.
 func (f *ResourceFilter[T]) Filter(
 	ctx context.Context,
-	logger logrus.FieldLogger,
 	principal *models.Principal,
 	items []T,
 	verb string,
@@ -54,11 +51,6 @@ func (f *ResourceFilter[T]) Filter(
 	if !f.config.Enabled {
 		// here it's either you have the permissions or not so 1 check is enough
 		if err := f.authorizer.Authorize(ctx, principal, verb, resourceFn(items[0])); err != nil {
-			logger.WithFields(logrus.Fields{
-				"username":  principal.Username,
-				"verb":      verb,
-				"resources": items,
-			}).Error(err)
 			return nil
 		}
 		return items
@@ -76,17 +68,7 @@ func (f *ResourceFilter[T]) Filter(
 
 	// If all items have the same parent, we can do a single authorization check
 	if allSameParent {
-		err := f.authorizer.Authorize(ctx, principal, verb, authorization.WildcardPath(firstResource))
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"username": principal.Username,
-				"verb":     verb,
-				"resource": authorization.WildcardPath(firstResource),
-			}).Error(err)
-		}
-
-		if err == nil {
-			// user is authorized
+		if err := f.authorizer.Authorize(ctx, principal, verb, authorization.WildcardPath(firstResource)); err == nil {
 			return items
 		}
 	}
@@ -98,15 +80,7 @@ func (f *ResourceFilter[T]) Filter(
 		resources = append(resources, resourceFn(item))
 	}
 
-	allowedList, err := f.authorizer.FilterAuthorizedResources(ctx, principal, verb, resources...)
-	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"username":  principal.Username,
-			"verb":      verb,
-			"resources": resources,
-		}).Error(err)
-	}
-
+	allowedList, _ := f.authorizer.FilterAuthorizedResources(ctx, principal, verb, resources...)
 	if len(allowedList) == len(resources) {
 		// has permissions to all
 		return items

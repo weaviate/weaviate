@@ -221,11 +221,13 @@ var (
 )
 
 func TestBatchDeleteReply(t *testing.T) {
+	strippedErrorString := "leaked TestClass not found"
 	tests := []struct {
-		name     string
-		response objects.BatchDeleteResult
-		verbose  bool
-		out      *pb.BatchDeleteReply
+		name      string
+		response  objects.BatchDeleteResult
+		verbose   bool
+		principal *models.Principal
+		out       *pb.BatchDeleteReply
 	}{
 		{
 			name:     "single object",
@@ -251,12 +253,21 @@ func TestBatchDeleteReply(t *testing.T) {
 				{Uuid: idByte(string(UUID2)), Successful: true, Error: &noErrorString},
 			}},
 		},
+		{
+			name:      "verbose error message strips principal's namespace",
+			response:  objects.BatchDeleteResult{Matches: 1, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("leaked customer1:TestClass not found")}}},
+			verbose:   true,
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			out: &pb.BatchDeleteReply{Matches: 1, Successful: 0, Failed: 1, Objects: []*pb.BatchDeleteObject{
+				{Uuid: idByte(string(UUID1)), Successful: false, Error: &strippedErrorString},
+			}},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := batchDeleteReplyFromObjects(tt.response, tt.verbose)
-			require.Nil(t, err)
+			out, err := batchDeleteReplyFromObjects(tt.response, tt.verbose, tt.principal)
+			require.NoError(t, err)
 			require.Equal(t, tt.out, out)
 		})
 	}

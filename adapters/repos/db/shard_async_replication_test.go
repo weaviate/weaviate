@@ -35,6 +35,7 @@ import (
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -475,6 +476,129 @@ func TestAsyncReplicationEnableDisableCycle(t *testing.T) {
 	require.NoError(t, s.disableAsyncReplication(context.Background()))
 }
 
+// TestReconcileAsyncReplicationOnFlagToggle verifies that
+// Index.reconcileAsyncReplication starts async replication on a shard that
+// skipped initialisation because the global AsyncReplicationDisabled flag was
+// set at load time, and stops it again when the flag is re-disabled.
+func TestReconcileAsyncReplicationOnFlagToggle(t *testing.T) {
+	ctx := context.Background()
+	const class = "ReconcileAsyncReplicationTest"
+
+	logger, _ := test.NewNullLogger()
+
+	// Index-level flag the test toggles.
+	disabled := configRuntime.NewDynamicValue(true)
+	globalConfig := &entreplication.GlobalConfig{AsyncReplicationDisabled: disabled}
+
+	sl, idx := testShard(t, ctx, class, func(i *Index) {
+		i.Config.ReplicationFactor = 3
+		i.globalreplicationConfig = globalConfig
+
+		// A scheduler whose own disabled flag is permanently set: it accepts
+		// Register/Deregister but never dispatches a hashbeat cycle. This keeps
+		// the test focused on reconcile's effect on shard state (hashtree +
+		// registration) without needing to mock the per-cycle router calls.
+		sched, err := NewAsyncReplicationScheduler(ctx,
+			entreplication.GlobalConfig{
+				AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+				AsyncReplicationDisabled:         configRuntime.NewDynamicValue(true),
+			}, nil, logger)
+		require.NoError(t, err)
+		t.Cleanup(sched.Close)
+		i.asyncReplicationScheduler = sched
+	})
+	s := concreteShard(t, sl)
+
+	// The shard loaded while async replication was globally disabled, so
+	// shard_init_lsm skipped init: no hashtree, not registered with the scheduler.
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree, "async replication must be off when loaded while globally disabled")
+	s.asyncReplicationRWMux.RUnlock()
+
+	// Re-enable the flag at runtime and reconcile: the already-loaded shard must
+	// now start async replication.
+	disabled.SetValue(false)
+	require.NoError(t, idx.reconcileAsyncReplication(ctx))
+	s.asyncReplicationRWMux.RLock()
+	require.NotNil(t, s.hashtree, "reconcile must start async replication after the flag is re-enabled")
+	s.asyncReplicationRWMux.RUnlock()
+	awaitHashtreeInitialized(t, s)
+
+	// Reconcile again with the flag still enabled: idempotent no-op.
+	require.NoError(t, idx.reconcileAsyncReplication(ctx))
+	s.asyncReplicationRWMux.RLock()
+	require.NotNil(t, s.hashtree, "reconcile must be idempotent while the flag stays enabled")
+	s.asyncReplicationRWMux.RUnlock()
+
+	// Disable the flag again and reconcile: async replication must stop.
+	disabled.SetValue(true)
+	require.NoError(t, idx.reconcileAsyncReplication(ctx))
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree, "reconcile must stop async replication after the flag is disabled")
+	s.asyncReplicationRWMux.RUnlock()
+}
+
+// asyncSchedulerOption returns a testShard index option installing a started
+// scheduler whose own disabled flag is permanently set — it accepts
+// Register/Deregister but never dispatches a hashbeat cycle.
+func asyncSchedulerOption(t *testing.T, ctx context.Context) func(*Index) {
+	t.Helper()
+	return func(i *Index) {
+		logger, _ := test.NewNullLogger()
+		sched, err := NewAsyncReplicationScheduler(ctx,
+			entreplication.GlobalConfig{
+				AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+				AsyncReplicationDisabled:         configRuntime.NewDynamicValue(true),
+			}, nil, logger)
+		require.NoError(t, err)
+		t.Cleanup(sched.Close)
+		i.asyncReplicationScheduler = sched
+	}
+}
+
+// TestDBReconcileAsyncReplicationAggregatesErrors verifies that
+// DB.ReconcileAsyncReplication walks every index, and that a reconcile failure
+// on one index (here: a misconfigured index with no scheduler) is aggregated
+// into the returned error without preventing the other index from reconciling.
+func TestDBReconcileAsyncReplicationAggregatesErrors(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	// Index-level flag shared by both indices; both load with it disabled.
+	disabled := configRuntime.NewDynamicValue(true)
+	globalConfig := &entreplication.GlobalConfig{AsyncReplicationDisabled: disabled}
+
+	// Healthy index: RF > 1 with a scheduler installed → reconcile succeeds.
+	healthySL, healthy := testShard(t, ctx, "ReconcileHealthy", func(i *Index) {
+		i.Config.ReplicationFactor = 3
+		i.globalreplicationConfig = globalConfig
+		asyncSchedulerOption(t, ctx)(i)
+	})
+	// Broken index: RF > 1 but no scheduler → enableAsyncReplication errors.
+	_, broken := testShard(t, ctx, "ReconcileBroken", func(i *Index) {
+		i.Config.ReplicationFactor = 3
+		i.globalreplicationConfig = globalConfig
+	})
+
+	db := &DB{
+		logger:  logger,
+		indices: map[string]*Index{healthy.ID(): healthy, broken.ID(): broken},
+	}
+
+	disabled.SetValue(false)
+	err := db.ReconcileAsyncReplication(ctx)
+	require.Error(t, err, "a per-index reconcile failure must surface as an error")
+	require.Contains(t, err.Error(), "1 of 2",
+		"the error must report how many indices failed")
+
+	// The broken index must not have blocked the healthy one.
+	healthyShard := concreteShard(t, healthySL)
+	healthyShard.asyncReplicationRWMux.RLock()
+	require.NotNil(t, healthyShard.hashtree,
+		"the healthy index must still be reconciled despite the other index failing")
+	healthyShard.asyncReplicationRWMux.RUnlock()
+}
+
 // TestInitScanPopulatesHashtree validates that objects on disk when async
 // replication is enabled are correctly registered in the hashtree by the init
 // scan (ApplyToOnDiskObjectDigests), producing a non-zero root digest.
@@ -752,10 +876,11 @@ func TestEnableAsyncReplication_LoadsHashtreeFromDisk(t *testing.T) {
 
 	htPath := s.pathHashTree()
 
-	// Disable: mayStopAsyncReplication serialises the hashtree to a .ht file.
-	require.NoError(t, s.disableAsyncReplication(ctx))
+	// mayStopAsyncReplication is the legitimate .ht producer (shutdown path);
+	// disableAsyncReplication is the runtime path and does not dump.
+	s.mayStopAsyncReplication()
 	require.Len(t, htFilesInDir(t, htPath), 1,
-		"pre-condition: disableAsyncReplication must have written a .ht file")
+		"pre-condition: mayStopAsyncReplication must have written a .ht file")
 
 	// Re-enable: tryLoadHashtreeFromDisk should load the .ht file.
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
@@ -780,6 +905,111 @@ func TestEnableAsyncReplication_LoadsHashtreeFromDisk(t *testing.T) {
 		".ht file must be consumed by enableAsyncReplication on successful load")
 
 	require.NoError(t, s.disableAsyncReplication(ctx))
+}
+
+// TestEnableAsyncReplicationRescansAfterRuntimeDisable pins the silent
+// replica-inconsistency bug from PR #11214: disableAsyncReplication is the
+// runtime path (shard stays live and serves writes), so any hashtree it
+// persists goes stale immediately. Before the fix it dumped a .ht and
+// enableAsyncReplication loaded that snapshot verbatim — CollectShardDifferences
+// then returned ErrNoDiffFound forever and async repair silently abandoned
+// the disabled-window divergence. (mayStopAsyncReplication remains the only
+// safe .ht producer; covered by TestMayStopAsyncReplicationDumpsHashtreeOnSuccess.)
+//
+// Falsifiable assertion: after enable → disable → write → re-enable, the
+// hashtree root must differ from its pre-disable value. With the bug the
+// cached .ht restores the pre-write root and the assertion fires; with the
+// fix re-enable rebuilds from a full scan and the new object shifts the root.
+func TestEnableAsyncReplicationRescansAfterRuntimeDisable(t *testing.T) {
+	ctx := context.Background()
+	const class = "AsyncRescanAfterRuntimeDisable"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	cfg := minAsyncReplicationConfig()
+
+	// Seed: three flushed objects so the first init has non-trivial state.
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	s.asyncReplicationRWMux.RLock()
+	rootBeforeDisable := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.NotEqual(t, hashtree.Digest{}, rootBeforeDisable,
+		"sanity: seeded hashtree must have a non-zero root")
+
+	// Runtime kill-switch flipped to disabled. Shard stays live.
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	// disableAsyncReplication must not leave a .ht behind — the shard will
+	// serve writes from here on, so any snapshot is stale.
+	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
+		"runtime disableAsyncReplication must not persist the hashtree; only "+
+			"mayStopAsyncReplication (shutdown) may write a .ht")
+
+	// Write a fourth object while async replication is disabled. With the
+	// bug, this write is invisible to any future hashtree comparison.
+	const uuidWhileDisabled = strfmt.UUID("44444444-4444-4444-4444-444444444444")
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidWhileDisabled, tsFarPast)))
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	// Flip the kill-switch back to false. The shard must rebuild the hashtree
+	// from the current object store (a full scan) — not trust a leftover .ht.
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	s.asyncReplicationRWMux.RLock()
+	rootAfterReEnable := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+
+	require.NotEqual(t, rootBeforeDisable, rootAfterReEnable,
+		"hashtree must reflect the disabled-window write; if it does not, a "+
+			"stale snapshot was trusted and divergence is invisible to repair")
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+}
+
+// TestShardLoadDiscardsStaleHashtreeWhenAsyncDisabled pins the second arm of
+// the stale-cache bug: a node booted with ASYNC_REPLICATION_DISABLED=true
+// after a previous async-enabled shutdown must not let the leftover .ht
+// survive into a later runtime re-enable — the shard will serve writes while
+// async is off, invalidating the snapshot. shard_init_lsm.go discards the
+// .ht in this branch; this test exercises the helper it relies on.
+func TestShardLoadDiscardsStaleHashtreeWhenAsyncDisabled(t *testing.T) {
+	ctx := context.Background()
+	const class = "DiscardStaleHashtreeOnDisabledLoad"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	cfg := minAsyncReplicationConfig()
+
+	// Produce a legitimate .ht the way a graceful shutdown would: enable async,
+	// let the init scan complete, then mayStopAsyncReplication serialises the
+	// in-memory tree to disk.
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+	s.mayStopAsyncReplication()
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
+		"pre-condition: mayStopAsyncReplication must have produced a .ht")
+
+	// Simulate the shard-init path running with async replication disabled,
+	// i.e. the else-branch of shard_init_lsm.go. The .ht must be discarded
+	// so a later runtime enable cannot load a stale snapshot.
+	require.NoError(t, s.removePersistedHashtree())
+
+	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
+		"shard-load with async replication disabled must discard the "+
+			"persisted .ht; otherwise a later runtime enable would load a "+
+			"snapshot that the shard's disabled-window writes have invalidated")
 }
 
 // TestEnableAsyncReplication_ConcurrentCallsAreSafe verifies that multiple
@@ -853,14 +1083,16 @@ func TestEnableAsyncReplication_DiskIONotBlockedByRLock(t *testing.T) {
 
 	cfg := minAsyncReplicationConfig()
 
-	// Enable and wait for a full init so that disable will produce a .ht file.
+	// Enable and wait for a full init so that mayStopAsyncReplication will
+	// produce a .ht file we can later load.
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
 
 	htPath := s.pathHashTree()
 
-	// Disable: persists the hashtree to disk.
-	require.NoError(t, s.disableAsyncReplication(ctx))
+	// mayStopAsyncReplication is the legitimate .ht producer; disable is the
+	// runtime path and does not dump.
+	s.mayStopAsyncReplication()
 	require.Len(t, htFilesInDir(t, htPath), 1,
 		"pre-condition: one .ht file must exist before the RLock test")
 
@@ -966,12 +1198,14 @@ func TestDisableRacingInitLeavesNoRegistration(t *testing.T) {
 
 	cfg := minAsyncReplicationConfig()
 
-	// Bootstrap: enable → full init scan → disable. disableAsyncReplication
-	// persists the initialised tree to a .ht file. Every subsequent enable will
-	// hit the cached-tree path (goroutine = lock-check + Register + TOCTOU guard).
+	// Bootstrap: enable → full init scan → mayStop persists a .ht. The first
+	// loop iteration's enable hits the cached-tree path (short goroutine =
+	// lock-check + Register + TOCTOU guard); iterations 2..N go through
+	// disableAsyncReplication, which does not dump, so they exercise the same
+	// TOCTOU race against the longer full-scan path. Both are worth covering.
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
-	require.NoError(t, s.disableAsyncReplication(ctx))
+	s.mayStopAsyncReplication()
 	s.asyncRepWg.Wait()
 
 	// awaitWg blocks until asyncRepWg reaches zero or the deadline fires. It
@@ -1099,16 +1333,16 @@ func TestLoadHashtreeIgnoresTmpFile(t *testing.T) {
 
 	cfg := minAsyncReplicationConfig()
 
-	// Enable and wait for a full init so that disableAsyncReplication produces a
-	// well-formed .ht file we can rename in the next step.
+	// Enable, await full init, then mayStop persists a well-formed .ht we
+	// can rename in the next step. (disableAsyncReplication does not dump.)
 	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
 	awaitHashtreeInitialized(t, s)
-	require.NoError(t, s.disableAsyncReplication(ctx))
+	s.mayStopAsyncReplication()
 
 	htPath := s.pathHashTree()
 
 	htFiles := htFilesInDir(t, htPath)
-	require.Len(t, htFiles, 1, "pre-condition: exactly one .ht file must exist after disable")
+	require.Len(t, htFiles, 1, "pre-condition: exactly one .ht file must exist after mayStop")
 
 	// Simulate a crash mid-rename: rename the committed .ht file to .ht.tmp so
 	// the directory contains a well-formed hashtree payload but with the wrong

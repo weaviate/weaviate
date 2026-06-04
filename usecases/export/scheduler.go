@@ -157,7 +157,6 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 	classes = filter.New[string](s.authorizer, s.rbacConfig).Filter(
 		ctx,
-		s.logger,
 		principal,
 		classes,
 		authorization.CREATE,
@@ -170,7 +169,9 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("%w: no exportable classes", ErrExportValidation)
 	}
 
-	// Require async replication for all exported classes that have RF > 1.
+	// Require async replication for every exported class with RF > 1. The
+	// selector also returns false when the class has no local index, so the
+	// error below keeps both causes in view.
 	var noAsync []string
 	for _, class := range classes {
 		if !s.selector.IsAsyncReplicationEnabled(ctx, class) {
@@ -178,9 +179,12 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		}
 	}
 	if len(noAsync) > 0 {
-		return nil, fmt.Errorf("%w: collections %v require async replication for export "+
-			"(replication factor > 1) but it is not active; either enable it per collection "+
-			"or check whether it is globally disabled at the cluster level", ErrExportValidation, noAsync)
+		return nil, fmt.Errorf("%w: collections %v are not exportable: export "+
+			"requires async replication for every collection with replication "+
+			"factor > 1. This usually means async replication is disabled "+
+			"cluster-wide — unset ASYNC_REPLICATION_DISABLED (or the equivalent "+
+			"runtime override) to re-enable it — but it can also mean the "+
+			"collection is not yet known to this node", ErrExportValidation, noAsync)
 	}
 
 	backendStore, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseExport)

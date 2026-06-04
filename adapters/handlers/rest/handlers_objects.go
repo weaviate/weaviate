@@ -856,6 +856,9 @@ func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *mode
 		// ignore return unchanged
 		return ref
 	}
+	// Defensive: beacons are written short, but strip here so a stray qualified
+	// class doesn't leak into the Href URL.
+	parsed.Class = namespacing.StripQualification(parsed.Class)
 	href := fmt.Sprintf("%s/v1/objects/%s/%s", h.config.Origin, parsed.Class, parsed.TargetID)
 	if parsed.Class == "" {
 		href = fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID)

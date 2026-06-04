@@ -112,11 +112,13 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
+			case <-ticker.C:
 			}
 			for _, bl := range blockmaxBaselines {
 				ids, err := blockmaxBM25QuerySafe(t, bl.query)
@@ -127,7 +129,6 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 					queryFailures.Add(1)
 				}
 			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
@@ -210,8 +211,14 @@ func assertSearchableAlgorithm(t *testing.T, restURI, collection, property, want
 // (small data sets) where the rebuild may complete before we can observe.
 func pollForTargetAlgorithm(t *testing.T, restURI, collection, property, want string, timeout time.Duration) bool {
 	t.Helper()
+	// Best-effort observation: a fast migration may legitimately complete
+	// before the transient targetAlgorithm signal can be sampled. This must
+	// NOT fail the test, so we drive a plain ticker + deadline loop and
+	// return whether the signal was observed (never require.Eventually).
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
 		resp := reindexhelpers.GetIndexes(t, restURI, collection)
 		for _, prop := range resp.Properties {
 			if prop.Name != property {
@@ -223,9 +230,15 @@ func pollForTargetAlgorithm(t *testing.T, restURI, collection, property, want st
 				}
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-ticker.C:
+		case <-time.After(time.Until(deadline)):
+			return false
+		}
 	}
-	return false
 }
 
 func blockmaxBM25Query(t *testing.T, query string) []string {

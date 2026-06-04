@@ -162,10 +162,11 @@ func TestRestartDuringSwap(t *testing.T) {
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	// Step 4: poll /v1/tasks every ~20ms until FINISHED.
-	deadline := time.Now().Add(120 * time.Second)
+	// Step 4: poll /v1/tasks until FINISHED. Keep a tight 20ms tick: this
+	// test SIGKILLs at the FINISHED boundary, so the poll cadence is
+	// load-bearing for hitting the swap-recovery window.
 	var sawFinishedAt time.Time
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		status, err := fetchTaskStatus(restURI, taskID)
 		require.NoError(t, err)
 		if status == "FAILED" {
@@ -173,10 +174,10 @@ func TestRestartDuringSwap(t *testing.T) {
 		}
 		if status == "FINISHED" {
 			sawFinishedAt = time.Now()
-			break
+			return true
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		return false
+	}, 120*time.Second, 20*time.Millisecond)
 	require.False(t, sawFinishedAt.IsZero(), "task never reached FINISHED before deadline")
 	t.Logf("task observed FINISHED at %v — initiating immediate container stop", sawFinishedAt)
 
@@ -221,14 +222,9 @@ func TestRestartDuringSwap(t *testing.T) {
 
 	// Step 8: wait for the schema tokenization to flip to "field"
 	// (OnGroupCompleted has fired and the swap has completed).
-	tokenizationFlipped := false
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
-		if getTokenization(t, className, "description") == "field" {
-			tokenizationFlipped = true
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+	tokenizationFlipped := assert.Eventually(t, func() bool {
+		return getTokenization(t, className, "description") == "field"
+	}, 15*time.Second, 50*time.Millisecond)
 	if !tokenizationFlipped {
 		// Diagnostic: dump the shard's lsm + .migrations dir so we can see
 		// the on-disk state when the swap fails to fire.

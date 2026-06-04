@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
@@ -265,21 +266,20 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	// Restart every node, one at a time, so FinalizeCompletedMigrations
 	// runs on each node's shard init.
 	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
-		t.Logf("restarting node %d between rounds", nodeIdx+1)
-		require.NoError(t, compose.StopAt(ctx, nodeIdx, nil))
-		require.NoError(t, compose.StartAt(ctx, nodeIdx))
+		t.Logf("cycling node %d between rounds", nodeIdx+1)
+		cycleNodeFast(ctx, t, compose, nodeIdx)
 
 		restartedURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 		require.Eventually(t, func() bool {
 			_, err := runBM25QueryOnNode(t, restartedURI, className, "alpha")
 			return err == nil
-		}, 60*time.Second, 1*time.Second,
+		}, 60*time.Second, 50*time.Millisecond,
 			"node %d should be ready after restart", nodeIdx+1)
 
 		writeURI := compose.GetWeaviateNode(((nodeIdx + 1) % 3) + 1).URI()
 		require.Eventually(t, func() bool {
 			return tryImportObject(writeURI, className, "raft-probe") == nil
-		}, 90*time.Second, 1*time.Second,
+		}, 90*time.Second, 50*time.Millisecond,
 			"raft quorum should be restored after restart of node %d", nodeIdx+1)
 	}
 	// Re-fetch URI after the rolling restart.
@@ -432,47 +432,24 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	// Poll until each property's per-replica counts settle to the
 	// baseline. The schema flip propagates faster than per-node
 	// OnGroupCompleted runs in some races; see perReplicaConvergenceTimeout.
-	var (
-		lastTitle, lastBody map[string][]int
-		failures            []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastTitle = make(map[string][]int, len(testBM25Queries))
-		lastBody = make(map[string][]int, len(testBM25Queries))
-		failures = failures[:0]
+	// On timeout the per-(prop,query,node) assert messages reproduce the
+	// exact mismatch diagnostic the hand-rolled failures list emitted.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range testBM25Queries {
 			titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
 			bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
-			lastTitle[q] = titleActual
-			lastBody[q] = bodyActual
 			for i := 0; i < 3; i++ {
-				if titleActual[i] != baselinesTitle[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=title query=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesTitle[q][i], titleActual[i]))
-				}
-				if bodyActual[i] != baselinesBody[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=body query=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesBody[q][i], bodyActual[i]))
-				}
+				assert.Equalf(c, baselinesTitle[q][i], titleActual[i],
+					"prop=title query=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesTitle[q][i], titleActual[i])
+				assert.Equalf(c, baselinesBody[q][i], bodyActual[i],
+					"prop=body query=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesBody[q][i], bodyActual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	for _, q := range testBM25Queries {
-		t.Logf("post-concurrent title %q: baseline=%v actual=%v", q, baselinesTitle[q], lastTitle[q])
-		t.Logf("post-concurrent body %q: baseline=%v actual=%v", q, baselinesBody[q], lastBody[q])
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"per-replica inverted-bucket mismatch after concurrent two-property round-trip (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"per-replica inverted-bucket mismatch after concurrent two-property round-trip (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 // ----------------------------------------------------------------------------
@@ -570,35 +547,22 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 
 	// Poll both properties' per-replica counts until they match the
 	// baseline. Same settle-window rationale as assertPerReplicaConsistent.
-	var failures []string
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		failures = failures[:0]
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range testBM25Queries {
 			titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
 			bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
 			for i := 0; i < 3; i++ {
-				if titleActual[i] != baselinesTitle[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=title q=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesTitle[q][i], titleActual[i]))
-				}
-				if bodyActual[i] != baselinesBody[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("prop=body q=%q node%d expected=%d actual=%d",
-							q, i+1, baselinesBody[q][i], bodyActual[i]))
-				}
+				assert.Equalf(c, baselinesTitle[q][i], titleActual[i],
+					"prop=title q=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesTitle[q][i], titleActual[i])
+				assert.Equalf(c, baselinesBody[q][i], bodyActual[i],
+					"prop=body q=%q node%d expected=%d actual=%d",
+					q, i+1, baselinesBody[q][i], bodyActual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"per-replica multi-property round-trip mismatch (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"per-replica multi-property round-trip mismatch (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
@@ -646,29 +610,18 @@ func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	// Poll Equal-filter per-replica counts until they match baseline.
-	var failures []string
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		failures = failures[:0]
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, p := range probes {
 			actual := perNodeEqualCounts(t, compose, className, "text", p)
 			for i := 0; i < 3; i++ {
-				if actual[i] != baselines[p][i] {
-					failures = append(failures,
-						fmt.Sprintf("filter=Equal(%q) node%d expected=%d actual=%d",
-							p, i+1, baselines[p][i], actual[i]))
-				}
+				assert.Equalf(c, baselines[p][i], actual[i],
+					"filter=Equal(%q) node%d expected=%d actual=%d",
+					p, i+1, baselines[p][i], actual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"filterable-only per-replica mismatch after word→field→word round-trip (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"filterable-only per-replica mismatch after word→field→word round-trip (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
@@ -738,7 +691,7 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 			}
 		}
 		return false
-	}, 30*time.Second, 200*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"text.IndexFilterable should be true after enable-filterable")
 
 	// Step 2: change-tokenization word→field on the same property.
@@ -802,7 +755,7 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 			}
 		}
 		return false
-	}, 30*time.Second, 200*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"text.IndexSearchable should be true after enable-searchable")
 
 	// Now BM25 is available — record those baselines for downstream
@@ -834,39 +787,26 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	// Poll until both filterable (Equal) and searchable (BM25) per-replica
 	// counts match the baseline. Same settle-window rationale as
 	// assertPerReplicaConsistent.
-	var failures []string
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		failures = failures[:0]
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, p := range probes {
 			actual := perNodeEqualCounts(t, compose, className, "text", p)
 			for i := 0; i < 3; i++ {
-				if actual[i] != baselinesEqual[p][i] {
-					failures = append(failures,
-						fmt.Sprintf("Equal(%q) node%d expected=%d actual=%d",
-							p, i+1, baselinesEqual[p][i], actual[i]))
-				}
+				assert.Equalf(c, baselinesEqual[p][i], actual[i],
+					"Equal(%q) node%d expected=%d actual=%d",
+					p, i+1, baselinesEqual[p][i], actual[i])
 			}
 		}
 		for _, q := range testBM25Queries {
 			actual := perNodeBM25Counts(t, compose, className, q)
 			for i := 0; i < 3; i++ {
-				if actual[i] != baselinesBM25[q][i] {
-					failures = append(failures,
-						fmt.Sprintf("BM25(%q) node%d expected=%d actual=%d",
-							q, i+1, baselinesBM25[q][i], actual[i]))
-				}
+				assert.Equalf(c, baselinesBM25[q][i], actual[i],
+					"BM25(%q) node%d expected=%d actual=%d",
+					q, i+1, baselinesBM25[q][i], actual[i])
 			}
 		}
-		if len(failures) == 0 {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	sort.Strings(failures)
-	t.Fatalf(
-		"enable-searchable+change-tok round-trip mismatch (after %s wait); %d mismatches:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"enable-searchable+change-tok round-trip mismatch (after %s wait)",
+		perReplicaConvergenceTimeout)
 }
 
 // assertPerReplicaAgreement requires every replica to return the same
@@ -899,37 +839,20 @@ func assertPerReplicaAgreement(
 ) {
 	t.Helper()
 
-	var (
-		lastCounts map[string][]int
-		failures   []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastCounts = make(map[string][]int, len(queries))
-		failures = failures[:0]
+	lastCounts := make(map[string][]int, len(queries))
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range queries {
 			counts := perNodeBM25Counts(t, compose, className, q)
 			lastCounts[q] = counts
-			if counts[0] != counts[1] || counts[0] != counts[2] {
-				failures = append(failures,
-					fmt.Sprintf("query=%q counts=%v (replicas disagree)", q, counts))
-			}
+			assert.Truef(c, counts[0] == counts[1] && counts[0] == counts[2],
+				"query=%q counts=%v (replicas disagree)", q, counts)
 		}
-		if len(failures) == 0 {
-			for _, q := range queries {
-				t.Logf("%s %q: %v", label, q, lastCounts[q])
-			}
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"%s — per-replica disagreement (after %s wait)", label, perReplicaConvergenceTimeout)
 
 	for _, q := range queries {
 		t.Logf("%s %q: %v", label, q, lastCounts[q])
 	}
-	sort.Strings(failures)
-	t.Fatalf("%s — per-replica disagreement (after %s wait); %d mismatches:\n  %s",
-		label, perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 // assertPerReplicaConsistent polls per-replica counts until every
@@ -942,41 +865,24 @@ func assertPerReplicaConsistent(
 ) {
 	t.Helper()
 
-	var (
-		lastActual map[string][]int
-		failures   []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastActual = make(map[string][]int, len(queries))
-		failures = failures[:0]
+	lastActual := make(map[string][]int, len(queries))
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range queries {
 			actual := perNodeBM25Counts(t, compose, className, q)
 			lastActual[q] = actual
 			expected := baselines[q]
 			for i := 0; i < 3; i++ {
-				if actual[i] != expected[i] {
-					failures = append(failures,
-						fmt.Sprintf("query=%q node%d expected=%d actual=%d",
-							q, i+1, expected[i], actual[i]))
-				}
+				assert.Equalf(c, expected[i], actual[i],
+					"query=%q node%d expected=%d actual=%d",
+					q, i+1, expected[i], actual[i])
 			}
 		}
-		if len(failures) == 0 {
-			for _, q := range queries {
-				t.Logf("%s %q: baseline=%v actual=%v", label, q, baselines[q], lastActual[q])
-			}
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"%s — per-replica mismatch (after %s wait)", label, perReplicaConvergenceTimeout)
 
 	for _, q := range queries {
 		t.Logf("%s %q: baseline=%v actual=%v", label, q, baselines[q], lastActual[q])
 	}
-	sort.Strings(failures)
-	t.Fatalf("%s — per-replica mismatch (after %s wait); %d mismatches:\n  %s",
-		label, perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 func captureBaselineCounts(
@@ -1010,39 +916,24 @@ func waitForPerReplicaBaseline(
 ) map[string][]int {
 	t.Helper()
 
-	var (
-		lastCounts map[string][]int
-		failures   []string
-	)
-	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	for time.Now().Before(deadline) {
-		lastCounts = make(map[string][]int, len(queries))
-		failures = failures[:0]
+	lastCounts := make(map[string][]int, len(queries))
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for _, q := range queries {
 			counts := perNodeBM25Counts(t, compose, className, q)
 			lastCounts[q] = counts
+			// Preserve the original else-if branching: a query is only
+			// flagged "zero on every replica" once the replicas agree.
 			if counts[0] != counts[1] || counts[0] != counts[2] {
-				failures = append(failures,
-					fmt.Sprintf("baseline %q inconsistent: %v", q, counts))
+				c.Errorf("baseline %q inconsistent: %v", q, counts)
 			} else if counts[0] == 0 {
-				failures = append(failures,
-					fmt.Sprintf("baseline %q is zero on every replica", q))
+				c.Errorf("baseline %q is zero on every replica", q)
 			}
 		}
-		if len(failures) == 0 {
-			for _, q := range queries {
-				t.Logf("baseline %q: %v", q, lastCounts[q])
-			}
-			return lastCounts
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	}, perReplicaConvergenceTimeout, 50*time.Millisecond,
+		"baseline did not converge across replicas within %s", perReplicaConvergenceTimeout)
 
 	for _, q := range queries {
 		t.Logf("baseline %q: %v", q, lastCounts[q])
 	}
-	sort.Strings(failures)
-	t.Fatalf("baseline did not converge across replicas within %s; %d issues:\n  %s",
-		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
-	return nil
+	return lastCounts
 }

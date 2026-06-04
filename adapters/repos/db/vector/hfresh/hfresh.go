@@ -76,6 +76,7 @@ type HFresh struct {
 	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap    *VersionMap         // Stores vector versions in-memory.
 	PostingMap    *PostingMap         // Maps postings to vector IDs.
+	PostingSizes  *PostingSizes       // Tracks posting sizes.
 	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
@@ -113,10 +114,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
+	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
 		id:            cfg.ID,
-		logger:        cfg.Logger.WithField("component", "HFresh"),
+		logger:        logger,
 		config:        cfg,
 		scheduler:     cfg.Scheduler,
 		store:         store,
@@ -124,7 +126,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		PostingStore:  postingStore,
 		vectorForId:   cfg.VectorForIDThunk,
 		VersionMap:    NewVersionMap(bucket),
-		PostingMap:    NewPostingMap(bucket, metrics),
+		PostingMap:    NewPostingMap(bucket),
+		PostingSizes:  NewPostingSizes(bucket, metrics),
 		IndexMetadata: NewIndexMetadataStore(bucket),
 		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
@@ -160,6 +163,14 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	}
 
 	return &h, nil
+}
+
+func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	if err := h.PostingMap.SetVectorIDs(ctx, postingID, posting); err != nil {
+		return err
+	}
+
+	return h.PostingSizes.Set(ctx, postingID, len(posting))
 }
 
 // Delete marks a vector as deleted in the version map.

@@ -19,6 +19,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -69,8 +70,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	// Build additional properties from return_metadata
 	additionalProps := buildAdditionalProperties(args.ReturnMetadata)
 
-	// Set alpha with default of 0.5
-	alpha := 0.5
+	alpha := common_filters.DefaultAlpha
 	if args.Alpha != nil {
 		alpha = *args.Alpha
 	}
@@ -105,7 +105,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 			return nil, fmt.Errorf("failed to unmarshal filters: %w", err)
 		}
 
-		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.namespacesEnabled)
+		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.namespacesEnabled, principal)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse filters: %w", err)
 		}
@@ -136,6 +136,10 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		res = filterResultProperties(res, selectProps)
 	}
 
+	// Strip caller's NS from nested LocalRef.Class — mirror of the gRPC
+	// extractRefPropertiesAnswer strip.
+	res = stripResultsOwnNamespace(principal, res)
+
 	return &QueryHybridResp{Results: res}, nil
 }
 
@@ -164,6 +168,62 @@ func buildAdditionalProperties(metadata []string) additional.Properties {
 	}
 
 	return props
+}
+
+// maxStripDepth caps recursion in stripResultValue as belt-and-suspenders
+// against pathological inputs (cyclic references via shared maps/slices,
+// extreme nesting). Realistic schemas nest a handful of levels at most.
+const maxStripDepth = 64
+
+// stripResultsOwnNamespace deep-copies results with every nested
+// search.LocalRef.Class stripped of the caller's own NS. Recurses into
+// Fields so deeper cross-refs are stripped too. No-op for global /
+// NS-disabled principals.
+func stripResultsOwnNamespace(principal *models.Principal, results []any) []any {
+	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" || len(results) == 0 {
+		return results
+	}
+	out := make([]any, len(results))
+	for i, r := range results {
+		out[i] = stripResultValue(principal, r, 0)
+	}
+	return out
+}
+
+// stripResultValue handles LocalRef / map / slice; other types pass through.
+// Beyond maxStripDepth the value is returned untouched (defensive cap).
+func stripResultValue(principal *models.Principal, val any, depth int) any {
+	if depth >= maxStripDepth {
+		return val
+	}
+	switch v := val.(type) {
+	case search.LocalRef:
+		return search.LocalRef{
+			Class:  namespacing.StripOwnNamespace(principal, v.Class),
+			Fields: stripResultMap(principal, v.Fields, depth+1),
+		}
+	case map[string]any:
+		return stripResultMap(principal, v, depth+1)
+	case []any:
+		out := make([]any, len(v))
+		for i, vv := range v {
+			out[i] = stripResultValue(principal, vv, depth+1)
+		}
+		return out
+	default:
+		return val
+	}
+}
+
+func stripResultMap(principal *models.Principal, m map[string]any, depth int) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = stripResultValue(principal, v, depth)
+	}
+	return out
 }
 
 // filterResultProperties filters each result to only include requested properties

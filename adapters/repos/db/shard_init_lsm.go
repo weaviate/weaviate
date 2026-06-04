@@ -118,8 +118,17 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
-	} else if s.index.replicationEnabled() {
-		s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
+	} else {
+		// Discard any .ht left by a previous async-enabled shutdown: the shard
+		// will serve writes with async off, which would invalidate the
+		// snapshot, and a later runtime enable would otherwise load it stale.
+		// See disableAsyncReplication for the symmetric rationale.
+		if err := s.removePersistedHashtree(); err != nil {
+			return fmt.Errorf("discard stale hashtree on shard %q: %w", s.ID(), err)
+		}
+		if s.index.replicationEnabled() {
+			s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
+		}
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties

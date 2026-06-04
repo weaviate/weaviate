@@ -21,12 +21,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/namespaces"
+	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestNamespaces_CRUD_HappyPath(t *testing.T) {
-	const name = "crudhappy"
+	t.Parallel()
+	name := uniqueNS()
 
 	helper.CreateNamespace(t, name, adminKey)
 
@@ -65,7 +67,8 @@ func TestNamespaces_CRUD_HappyPath(t *testing.T) {
 }
 
 func TestNamespaces_CreateDuplicate_Conflict(t *testing.T) {
-	const name = "duplicatens"
+	t.Parallel()
+	name := uniqueNS()
 
 	helper.CreateNamespace(t, name, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })
@@ -80,6 +83,7 @@ func TestNamespaces_CreateDuplicate_Conflict(t *testing.T) {
 }
 
 func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		candidate string
@@ -112,8 +116,9 @@ func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
 // on the original node, and (c) a subsequently created collection lands on
 // the new home_node.
 func TestNamespaces_UpdateHomeNode(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS()
 	const (
-		ns    = "updatehomenode"
 		nodeA = "weaviate-0"
 		nodeB = "weaviate-2"
 	)
@@ -170,9 +175,37 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 	})
 }
 
+// TestNamespaces_CreateUserInMissingNamespace pins that CreateUser rejects
+// with 422 when the target namespace does not exist.
+func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
+	t.Parallel()
+	ghost := uniqueNS()
+
+	_, err := helper.Client(t).Namespaces.GetNamespace(
+		namespaces.NewGetNamespaceParams().WithNamespaceID(ghost),
+		helper.CreateAuth(adminKey),
+	)
+	require.Error(t, err)
+	var nf *namespaces.GetNamespaceNotFound
+	require.True(t, errors.As(err, &nf), "expected GetNamespaceNotFound for %q, got %T: %v", ghost, err, err)
+
+	_, err = helper.Client(t).Users.CreateUser(
+		users.NewCreateUserParams().WithUserID(ghost+":orphan").WithBody(users.CreateUserBody{}),
+		helper.CreateAuth(adminKey),
+	)
+	require.Error(t, err)
+	var unproc *users.CreateUserUnprocessableEntity
+	require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	require.NotNil(t, unproc.Payload)
+	require.NotEmpty(t, unproc.Payload.Error)
+	assert.Contains(t, unproc.Payload.Error[0].Message, "namespace",
+		"422 message must explain the namespace existence failure; got %q", unproc.Payload.Error[0].Message)
+}
+
 // TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.
 func TestNamespaces_UpdateHomeNode_Invalid(t *testing.T) {
-	const name = "updatehomenodeinvalid"
+	t.Parallel()
+	name := uniqueNS()
 
 	helper.CreateNamespace(t, name, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })

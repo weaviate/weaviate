@@ -35,6 +35,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,7 +92,38 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		if cancelResp, err := http.DefaultClient.Do(cancelReq); err == nil {
 			cancelResp.Body.Close()
 		}
-		helper.DeleteClass(t, mtClass)
+		// A best-effort cancel may not terminalize a task already in SWAPPING,
+		// so poll the delete until the MutationGuard clears. The guard returns
+		// 400 while a reindex task is still in flight; retry only on that (and
+		// transient transport errors) and surface any other status immediately
+		// rather than masking a real failure for the whole timeout. Manual
+		// loop, not require.Eventually, because the latter runs its closure in
+		// a separate goroutine where t.Fatalf/require are unsafe.
+		deadline := time.Now().Add(60 * time.Second)
+		var lastInfo string
+		for {
+			delReq, _ := http.NewRequest(http.MethodDelete,
+				fmt.Sprintf("http://%s/v1/schema/%s", restURI, mtClass), nil)
+			delResp, err := http.DefaultClient.Do(delReq)
+			if err != nil {
+				lastInfo = fmt.Sprintf("transport error: %v", err)
+			} else {
+				body, _ := io.ReadAll(delResp.Body)
+				delResp.Body.Close()
+				if delResp.StatusCode == http.StatusOK {
+					break
+				}
+				require.Equalf(t, http.StatusBadRequest, delResp.StatusCode,
+					"DeleteClass(%s) returned unexpected status %d (expected 200, or 400 from the in-flight MutationGuard): %s",
+					mtClass, delResp.StatusCode, string(body))
+				lastInfo = fmt.Sprintf("400 MutationGuard: %s", string(body))
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("DeleteClass(%s) did not succeed within 60s — reindex task never left in-flight; last response: %s",
+					mtClass, lastInfo)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}()
 	helper.CreateTenants(t, mtClass, []*models.Tenant{
 		{Name: "tenant-a"}, {Name: "tenant-b"},
@@ -157,12 +189,22 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			wantBodyHas: "multi-tenant",
 		},
 		{
-			name:       "tenants= empty value treated as nonexistent",
+			// Format-only body so the per-tenant existence check is reached
+			// (semantic bodies short-circuit on the semantic-vs-tenants gate).
+			name:       "tenants=<nonexistent> on MT class with format-only migration",
 			collection: mtClass, property: "text_word",
-			body:        `{"searchable":{"algorithm":"blockmax"}}`,
+			body:        `{"filterable":{"rebuild":true}}`,
 			tenantsQS:   "?tenants=nonexistent_tenant_xyz",
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "does not exist",
+		},
+		{
+			name:       "tenants on semantic change-algorithm rejected",
+			collection: mtClass, property: "text_word",
+			body:        `{"searchable":{"algorithm":"blockmax"}}`,
+			tenantsQS:   "?tenants=t1",
+			wantStatus:  http.StatusBadRequest,
+			wantBodyHas: "semantic migrations",
 		},
 		{
 			name:       "change-tokenization same value (word -> word) rejected",
