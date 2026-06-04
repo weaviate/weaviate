@@ -116,3 +116,55 @@ func RestoreFSM(fsm *FSM, className, shardName, nodeID string, lastAppliedIndex 
 		LastAppliedIndex: lastAppliedIndex,
 	})
 }
+
+// BuildTestCluster wires n fully-connected, unstarted Stores over one shared
+// MemNetwork (one shared nodeIDMap, Members = all nodeIDs). Mirrors
+// BuildTestStore for multi-node tests. Callers that need a per-node shard wire
+// it via Store.SetShard before Start.
+func BuildTestCluster(t *testing.T, class, shardName string, nodeIDs []string) []*Store {
+	t.Helper()
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	net := NewMemNetwork()
+	ids := newNodeIDMap()
+	stores := make([]*Store, len(nodeIDs))
+	for i, nodeID := range nodeIDs {
+		sl, err := sharedlog.Open(sharedlog.Options{
+			Path:   filepath.Join(t.TempDir(), sharedRaftLogName),
+			Logger: logger,
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = sl.Close() })
+
+		snap := NewSnapshotter(SnapshotterOptions{RootDataPath: t.TempDir(), Logger: logger})
+		t.Cleanup(func() { _ = snap.Close() })
+
+		router := newMemRouter()
+		transport := net.NewTransport(ids.register(nodeID), router, logger)
+		t.Cleanup(func() { _ = transport.Close() })
+
+		store, err := NewStore(StoreConfig{
+			ClassName:         class,
+			ShardName:         shardName,
+			NodeID:            nodeID,
+			Members:           nodeIDs,
+			Logger:            logger,
+			Transport:         transport,
+			SharedLog:         sl,
+			Snapshotter:       snap,
+			NodeIDs:           ids,
+			TickInterval:      20 * time.Millisecond,
+			HeartbeatTimeout:  40 * time.Millisecond,
+			ElectionTimeout:   200 * time.Millisecond,
+			SnapshotThreshold: 1024,
+		})
+		require.NoError(t, err)
+
+		router.add(store)
+		stores[i] = store
+		t.Cleanup(func() { _ = store.Stop() })
+	}
+	return stores
+}

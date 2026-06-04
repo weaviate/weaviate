@@ -389,7 +389,7 @@ func (reg *Registry) WaitForLinearizableRead(ctx context.Context, className, sha
 	}
 
 	if store.IsLeader() {
-		return store.VerifyLeader() // Leader must verify for linearizability
+		return store.VerifyLeader(ctx) // Leader must verify for linearizability
 	}
 
 	leaderID := store.LeaderID()

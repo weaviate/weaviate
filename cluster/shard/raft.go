@@ -252,7 +252,7 @@ func (r *Raft) VerifyLeaderForRead(ctx context.Context, shardName string) error 
 	if store == nil {
 		return fmt.Errorf("raft store not found for %s/%s", r.config.ClassName, shardName)
 	}
-	return store.VerifyLeader()
+	return store.VerifyLeader(ctx)
 }
 
 // LeaderAddress returns the current leader's address for a shard.

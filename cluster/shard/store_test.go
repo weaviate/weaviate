@@ -795,3 +795,87 @@ func TestChunkObjectBytes_Empty(t *testing.T) {
 	chunks = shard.ChunkObjectBytes([][]byte{}, 1000)
 	assert.Nil(t, chunks)
 }
+
+// ---------------------------------------------------------------------------
+// VerifyLeader (active ReadIndex round)
+// ---------------------------------------------------------------------------
+
+// waitForLeaderInCluster returns the index of the single leader in stores, or
+// fails the test if no leader is elected within the deadline.
+func waitForLeaderInCluster(t *testing.T, stores []*shard.Store) int {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for cluster leader election")
+		case <-ticker.C:
+			for i, s := range stores {
+				if s.IsLeader() {
+					return i
+				}
+			}
+		}
+	}
+}
+
+func TestStore_VerifyLeader_HealthyLeaderSingleNode(t *testing.T) {
+	store, _ := newTestStore(t)
+	startAndWaitForLeader(t, store)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, store.VerifyLeader(ctx))
+}
+
+func TestStore_VerifyLeader_NotLeader(t *testing.T) {
+	// Three members but only node-1 is real — never reaches quorum, never leader.
+	store := shard.BuildTestStore(t, testClassName, testShardName, testNodeID,
+		[]string{testNodeID, "missing-node-2", "missing-node-3"}, mocks.NewMockshard(t))
+	require.NoError(t, store.Start(context.Background()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	err := store.VerifyLeader(ctx)
+	require.ErrorIs(t, err, shard.ErrNotLeader)
+}
+
+func TestStore_VerifyLeader_HealthyLeader3Node(t *testing.T) {
+	nodeIDs := []string{"node-a", "node-b", "node-c"}
+	stores := shard.BuildTestCluster(t, testClassName, testShardName, nodeIDs)
+	for _, s := range stores {
+		require.NoError(t, s.Start(context.Background()))
+	}
+
+	leader := stores[waitForLeaderInCluster(t, stores)]
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, leader.VerifyLeader(ctx))
+}
+
+func TestStore_VerifyLeader_QuorumLoss(t *testing.T) {
+	nodeIDs := []string{"node-a", "node-b", "node-c"}
+	stores := shard.BuildTestCluster(t, testClassName, testShardName, nodeIDs)
+	for _, s := range stores {
+		require.NoError(t, s.Start(context.Background()))
+	}
+
+	leaderIdx := waitForLeaderInCluster(t, stores)
+	leader := stores[leaderIdx]
+
+	// Kill the followers. The remaining node loses quorum; CheckQuorum forces
+	// it to step down within ~1 election timeout, draining any pending read.
+	// Regression guard: the old local-atomic VerifyLeader returned nil here.
+	for i, s := range stores {
+		if i == leaderIdx {
+			continue
+		}
+		require.NoError(t, s.Stop())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.Error(t, leader.VerifyLeader(ctx))
+}

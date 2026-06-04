@@ -57,6 +57,12 @@ const (
 	// channels. raft tolerates message loss, so overflow simply drops.
 	proposeChanSize     = 64
 	incomingMsgChanSize = 256
+	// readIndexChanSize buffers ReadIndex requests queued from VerifyLeader.
+	readIndexChanSize = 64
+
+	// defaultVerifyLeaderTimeout caps a VerifyLeader wait when ElectionTimeout
+	// is unset.
+	defaultVerifyLeaderTimeout = 2 * time.Second
 )
 
 var (
@@ -156,6 +162,11 @@ type pendingApply struct {
 	done chan applyResult
 }
 
+// pendingRead correlates one in-flight VerifyLeader with its ReadState.
+type pendingRead struct {
+	done chan error
+}
+
 // proposal is one command queued from Apply onto the Ready loop.
 type proposal struct {
 	reqID uint64
@@ -203,9 +214,14 @@ type Store struct {
 	leaderCh chan struct{}
 
 	// pending correlates Apply reqIDs with their committed entries.
-	pending   map[uint64]*pendingApply
-	pendingMu sync.Mutex
+	pending   sync.Map // map[uint64]*pendingApply
 	nextReqID atomic.Uint64
+
+	// readIndexCh queues ReadIndex rctx tokens from VerifyLeader to the Ready
+	// loop; pendingReads correlates each rctx with its waiting VerifyLeader.
+	readIndexCh  chan []byte
+	pendingReads sync.Map // map[string]*pendingRead, keyed by string(rctx)
+	nextReadID   atomic.Uint64
 
 	mu      sync.RWMutex
 	started bool
@@ -254,7 +270,8 @@ func NewStore(config StoreConfig) (*Store, error) {
 		raftStorage:  config.SharedLog.Storage(groupID),
 		tickInterval: config.TickInterval,
 		leaderCh:     make(chan struct{}, 1),
-		pending:      make(map[uint64]*pendingApply),
+		pending:      sync.Map{},
+		pendingReads: sync.Map{},
 	}, nil
 }
 
@@ -349,6 +366,7 @@ func (s *Store) Start(ctx context.Context) error {
 	s.rawNode = rn
 	s.proposeCh = make(chan proposal, proposeChanSize)
 	s.incomingMsgCh = make(chan raftpb.Message, incomingMsgChanSize)
+	s.readIndexCh = make(chan []byte, readIndexChanSize)
 	s.snapResultCh = make(chan SnapshotResult, 1)
 	s.loopCtx, s.loopCancel = context.WithCancel(context.Background())
 	s.loopDone = make(chan struct{})
@@ -383,8 +401,23 @@ func (s *Store) raftConfig(localID uint64) *raft.Config {
 		MaxInflightMsgs: defaultMaxInflightMsgs,
 		CheckQuorum:     true,
 		PreVote:         true,
-		Logger:          raftLogger{s.log},
+		// ReadOnlySafe (etcd's zero-value default) confirms each ReadIndex via
+		// a quorum heartbeat round — what VerifyLeader relies on for active
+		// linearizable-read leadership confirmation.
+		ReadOnlyOption: raft.ReadOnlySafe,
+		Logger:         raftLogger{s.log},
 	}
+}
+
+// verifyLeaderTimeout caps a VerifyLeader wait. CheckQuorum forces a leader
+// that has lost quorum to step down within ~1 election timeout (which drains
+// any pending read), so 2x that is a safe upper bound; falls back to a fixed
+// default when ElectionTimeout is unset.
+func verifyLeaderTimeout(electionTimeout time.Duration) time.Duration {
+	if electionTimeout <= 0 {
+		return defaultVerifyLeaderTimeout
+	}
+	return 2 * electionTimeout
 }
 
 // ticksFromDuration converts a timeout duration to a tick count, falling back
@@ -420,6 +453,8 @@ func (s *Store) run() {
 			}
 		case p := <-s.proposeCh:
 			s.handlePropose(p)
+		case rctx := <-s.readIndexCh:
+			s.handleReadIndex(rctx)
 		case r := <-s.snapResultCh:
 			s.onSnapshotResult(r)
 		}
@@ -465,6 +500,13 @@ func (s *Store) processReady() {
 
 	// 4. Apply committed entries to the FSM, wake pending Applies.
 	s.applyEntries(rd.CommittedEntries)
+
+	// 4b. Resolve linearizable-read barriers confirmed by quorum this round.
+	// ReadStates are volatile (etcd clears them on Ready accept) — consume
+	// before Advance.
+	for _, rs := range rd.ReadStates {
+		s.wakePendingRead(rs.RequestCtx, nil)
+	}
 
 	// 5. Track leadership changes.
 	if rd.SoftState != nil {
@@ -536,7 +578,7 @@ func (s *Store) applyEntries(entries []raftpb.Entry) {
 }
 
 // handleSoftState records a leadership change and wakes waiters; on losing
-// leadership it fails all pending Applies.
+// leadership it fails all pending Applies and ReadIndex requests.
 func (s *Store) handleSoftState(ss *raft.SoftState) {
 	prev := ShardRaftState(s.state.Load())
 	next := mapRaftState(ss.RaftState)
@@ -553,6 +595,9 @@ func (s *Store) handleSoftState(ss *raft.SoftState) {
 
 	if prev == ShardStateLeader && next != ShardStateLeader {
 		s.drainPending(ErrLeadershipLost)
+		// etcd silently drops pending ReadIndex requests on step-down (no
+		// ReadState is ever produced), so we must drain them here.
+		s.drainPendingReads(ErrLeadershipLost)
 	}
 }
 
@@ -565,6 +610,16 @@ func (s *Store) handlePropose(p proposal) {
 	if err := s.rawNode.Propose(p.data); err != nil {
 		s.wakePending(p.reqID, applyResult{err: ErrNotLeader})
 	}
+}
+
+// handleReadIndex issues a ReadIndex round for a queued VerifyLeader, or fails
+// it fast if this node is not the leader. Runs on the Ready loop.
+func (s *Store) handleReadIndex(rctx []byte) {
+	if ShardRaftState(s.state.Load()) != ShardStateLeader {
+		s.wakePendingRead(rctx, ErrNotLeader)
+		return
+	}
+	s.rawNode.ReadIndex(rctx)
 }
 
 // maybeSnapshot dispatches a snapshot job once the applied index has advanced
@@ -635,13 +690,23 @@ func (s *Store) onSnapshotResult(r SnapshotResult) {
 	s.lastSnapshotIndex = r.Index
 }
 
+func (s *Store) loadFromPending(reqID uint64) (*pendingApply, bool) {
+	pAny, ok := s.pending.Load(reqID)
+	if !ok {
+		return nil, false
+	}
+	p, ok := pAny.(*pendingApply)
+	if !ok {
+		return nil, false
+	}
+	return p, true
+}
+
 // wakePending delivers a result to a waiting Apply, if one is registered.
 // The send is non-blocking: a result may already have been delivered (e.g. a
 // leadership-loss drain racing a commit), in which case this is a no-op.
 func (s *Store) wakePending(reqID uint64, res applyResult) {
-	s.pendingMu.Lock()
-	p, ok := s.pending[reqID]
-	s.pendingMu.Unlock()
+	p, ok := s.loadFromPending(reqID)
 	if !ok {
 		return
 	}
@@ -653,14 +718,50 @@ func (s *Store) wakePending(reqID uint64, res applyResult) {
 
 // drainPending fails every in-flight Apply with err.
 func (s *Store) drainPending(err error) {
-	s.pendingMu.Lock()
-	defer s.pendingMu.Unlock()
-	for _, p := range s.pending {
+	s.pending.Range(func(key, value any) bool {
+		p, ok := value.(*pendingApply)
+		if !ok {
+			return true
+		}
 		select {
 		case p.done <- applyResult{err: err}:
 		default:
 		}
+		return true
+	})
+}
+
+// wakePendingRead delivers a VerifyLeader result to its waiter, if registered.
+// The send is non-blocking: a result may already have been delivered (e.g. a
+// leadership-loss drain racing a ReadState), in which case this is a no-op.
+func (s *Store) wakePendingRead(rctx []byte, err error) {
+	pAny, ok := s.pendingReads.Load(string(rctx))
+	if !ok {
+		return
 	}
+	p, ok := pAny.(*pendingRead)
+	if !ok {
+		return
+	}
+	select {
+	case p.done <- err:
+	default:
+	}
+}
+
+// drainPendingReads fails every in-flight VerifyLeader with err.
+func (s *Store) drainPendingReads(err error) {
+	s.pendingReads.Range(func(key, value any) bool {
+		p, ok := value.(*pendingRead)
+		if !ok {
+			return true
+		}
+		select {
+		case p.done <- err:
+		default:
+		}
+		return true
+	})
 }
 
 // step hands an inbound raft message to the Ready loop. Called by the
@@ -703,9 +804,10 @@ func (s *Store) Stop() error {
 	loopCancel()
 	<-loopDone
 
-	// Fail any Apply still waiting on a commit the (now stopped) loop will
-	// never deliver.
+	// Fail any Apply / VerifyLeader still waiting on a result the (now
+	// stopped) loop will never deliver.
 	s.drainPending(ErrAlreadyClosed)
+	s.drainPendingReads(ErrAlreadyClosed)
 
 	s.mu.Lock()
 	s.started = false
@@ -735,14 +837,8 @@ func (s *Store) Apply(ctx context.Context, req *shardproto.ApplyRequest) (uint64
 
 	reqID := s.nextReqID.Add(1)
 	p := &pendingApply{done: make(chan applyResult, 1)}
-	s.pendingMu.Lock()
-	s.pending[reqID] = p
-	s.pendingMu.Unlock()
-	defer func() {
-		s.pendingMu.Lock()
-		delete(s.pending, reqID)
-		s.pendingMu.Unlock()
-	}()
+	s.pending.Store(reqID, p)
+	defer s.pending.Delete(reqID)
 
 	select {
 	case s.proposeCh <- proposal{reqID: reqID, data: encodeCmd(reqID, body)}:
@@ -807,12 +903,16 @@ func (s *Store) LeaderID() string {
 	return str
 }
 
-// VerifyLeader ensures this node is still the leader. Used for linearizable
-// reads. Correctness rests on CheckQuorum: a leader that has lost contact with
-// a majority steps itself down within ~election-timeout.
-func (s *Store) VerifyLeader() error {
+// VerifyLeader confirms this node is still the leader by driving an active
+// etcd/raft ReadIndex round: it succeeds only once a quorum of followers
+// acknowledges this node's leadership as of the request. Used for linearizable
+// (STRONG/DIRECT) reads. Bounded by an internal cap of 2x ElectionTimeout
+// composed with the caller's context — a leader that has lost quorum is forced
+// to step down by CheckQuorum within ~1 election timeout, which drains the
+// pending read.
+func (s *Store) VerifyLeader(ctx context.Context) error {
 	s.mu.RLock()
-	started, closed := s.started, s.closed
+	started, closed, loopDone := s.started, s.closed, s.loopDone
 	s.mu.RUnlock()
 	if closed {
 		return ErrAlreadyClosed
@@ -823,7 +923,35 @@ func (s *Store) VerifyLeader() error {
 	if ShardRaftState(s.state.Load()) != ShardStateLeader {
 		return ErrNotLeader
 	}
-	return nil
+
+	ctx, cancel := context.WithTimeout(ctx, verifyLeaderTimeout(s.config.ElectionTimeout))
+	defer cancel()
+
+	id := s.nextReadID.Add(1)
+	rctx := make([]byte, 8)
+	binary.BigEndian.PutUint64(rctx, id)
+	key := string(rctx)
+
+	p := &pendingRead{done: make(chan error, 1)}
+	s.pendingReads.Store(key, p)
+	defer s.pendingReads.Delete(key)
+
+	select {
+	case s.readIndexCh <- rctx:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-loopDone:
+		return ErrAlreadyClosed
+	}
+
+	select {
+	case err := <-p.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-loopDone:
+		return ErrAlreadyClosed
+	}
 }
 
 // State returns the current RAFT state of this node.

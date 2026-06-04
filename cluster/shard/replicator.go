@@ -590,7 +590,7 @@ func (r *replicator) FindUUIDs(ctx context.Context, className string, shard stri
 	case routerTypes.ConsistencyLevelDirect:
 		store := r.raft.GetStore(shard)
 		if store.IsLeader() {
-			if err := store.VerifyLeader(); err != nil {
+			if err := store.VerifyLeader(ctx); err != nil {
 				return nil, fmt.Errorf("verify leader: %w", err)
 			}
 			return r.findUUIDsLocal(ctx, shard, f, limit)
@@ -670,7 +670,7 @@ func (r *replicator) readFromLeader(ctx context.Context, shard string, id strfmt
 	}
 
 	if store.IsLeader() {
-		if err := store.VerifyLeader(); err != nil {
+		if err := store.VerifyLeader(ctx); err != nil {
 			return nil, fmt.Errorf("verify leader: %w", err)
 		}
 		return r.readLocalObject(ctx, shard, id, props, adds)
@@ -692,7 +692,7 @@ func (r *replicator) existsFromLeader(ctx context.Context, shard string, id strf
 	}
 
 	if store.IsLeader() {
-		if err := store.VerifyLeader(); err != nil {
+		if err := store.VerifyLeader(ctx); err != nil {
 			return false, fmt.Errorf("verify leader: %w", err)
 		}
 		return r.existsLocal(ctx, shard, id)
@@ -733,7 +733,7 @@ func (r *replicator) EnsureReadConsistency(ctx context.Context, shardName string
 	case routerTypes.ConsistencyLevelDirect:
 		store := r.raft.GetStore(shardName)
 		if store.IsLeader() {
-			if err := store.VerifyLeader(); err != nil {
+			if err := store.VerifyLeader(ctx); err != nil {
 				return false, err
 			}
 			return true, nil

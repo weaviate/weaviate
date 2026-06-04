@@ -183,13 +183,14 @@ func (f *FSM) setApplied(index uint64) {
 // request-ID prefix); index is the entry's RAFT log index. It must be
 // deterministic and is invoked single-threaded from the Store's Ready loop.
 func (f *FSM) Dispatch(payload []byte, index uint64) Response {
+	defer f.setApplied(index)
+
 	f.mu.RLock()
 	shard := f.shard
 	f.mu.RUnlock()
 
 	if shard == nil {
 		f.log.Error("shard not set, cannot apply log entry")
-		f.setApplied(index)
 		return Response{Version: index, Error: fmt.Errorf("shard not set")}
 	}
 
@@ -197,7 +198,7 @@ func (f *FSM) Dispatch(payload []byte, index uint64) Response {
 	var req shardproto.ApplyRequest
 	if err := proto.Unmarshal(payload, &req); err != nil {
 		f.log.WithError(err).Error("failed to unmarshal command")
-		f.setApplied(index)
+
 		return Response{Version: index, Error: fmt.Errorf("unmarshal command: %w", err)}
 	}
 
@@ -208,7 +209,6 @@ func (f *FSM) Dispatch(payload []byte, index uint64) Response {
 		decompressed, err := s2.Decode(nil, req.SubCommand)
 		if err != nil {
 			f.log.WithError(err).Error("failed to decompress sub_command")
-			f.setApplied(index)
 			return Response{Version: index, Error: fmt.Errorf("decompress: %w", err)}
 		}
 		req.SubCommand = decompressed
@@ -233,9 +233,6 @@ func (f *FSM) Dispatch(payload []byte, index uint64) Response {
 		applyErr = fmt.Errorf("unknown command type: %v", req.Type)
 		f.log.WithField("type", req.Type).Error("unknown command type")
 	}
-
-	// Update last applied index and notify waiters.
-	f.setApplied(index)
 
 	if applyErr != nil {
 		// This should not happen after the retry changes — all handlers now

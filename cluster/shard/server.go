@@ -218,7 +218,7 @@ func (s *Server) GetLastAppliedIndex(ctx context.Context, req *shardproto.GetLas
 		return nil, status.Errorf(codes.NotFound, "store not found for %s/%s", req.Class, req.Shard)
 	}
 	if req.VerifyLeader {
-		if err := store.VerifyLeader(); err != nil {
+		if err := store.VerifyLeader(ctx); err != nil {
 			return nil, toRPCError(err)
 		}
 	}
