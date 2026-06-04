@@ -57,6 +57,7 @@ type Replicator interface {
 	Overwrite(ctx context.Context, host string, index string, shard string, xs []*objects.VObject) ([]routerTypes.RepairResponse, error)
 	PutObject(ctx context.Context, shard string, obj *storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) error
 	PutObjects(ctx context.Context, shard string, objs []*storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error
+	CountObjects(ctx context.Context, shard string, l routerTypes.ConsistencyLevel) (int, error)
 }
 
 // RouterConfig holds configuration for the Router.
