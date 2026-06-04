@@ -1364,8 +1364,8 @@ func (i *Index) asyncReplicationEnabled() bool {
 // overReplicated reports whether the shard has more than one replica in the
 // sharding state, independent of the configured ReplicationFactor.
 //
-// Fails closed (false) on a schema-read error so a transient error never tears
-// down async replication on an already-running shard.
+// Fails open (true) on a schema-read error so a transient error doesn't
+// tear down async replication on an already-running shard.
 //
 // Lock order is always replicationConfigLock -> schema lock (via ShardReplicas).
 func (i *Index) overReplicated(shardName string) bool {
@@ -1376,7 +1376,8 @@ func (i *Index) overReplicated(shardName string) bool {
 			WithField("class_name", i.Config.ClassName.String()).
 			WithField("shard_name", shardName).
 			Debugf("overReplicated: could not read shard replicas: %v", err)
-		return false
+		return true
+	}
 	}
 	return len(replicas) > 1
 }
