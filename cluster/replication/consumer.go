@@ -24,6 +24,8 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
@@ -360,6 +362,10 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						c.cancelOp(operation, opLogger)
 						return
 					}
+					if isShardBusyError(err) {
+						opLogger.Infof("replication operation deferred: source shard busy: %v", err)
+						return
+					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
 					opLogger.WithError(err).Error("replication operation failed")
 				}, c.logger)
@@ -430,6 +436,13 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			}
 			if err := c.checkCancelled(logger, op); err != nil {
 				return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
+			}
+			// Skip ReplicationRegisterError so a slow structural op cannot
+			// burn the MaxErrors budget and auto-cancel the movement; the
+			// outer worker re-dispatches on the next poll.
+			if isShardBusyError(err) {
+				logger.Infof("source shard busy with structural vector op; deferring movement step: %v", err)
+				return api.ShardReplicationState(""), backoff.Permanent(err)
 			}
 			logger.WithError(err).Warn("state transition handler failed")
 			// Otherwise, register the error with the FSM
@@ -834,4 +847,15 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), err
 	}
 	return DELETED, nil
+}
+
+func isShardBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	return st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), enterrors.ErrShardBusyStructuralOp.Error())
 }

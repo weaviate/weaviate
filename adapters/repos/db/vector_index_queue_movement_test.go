@@ -52,6 +52,7 @@ type movementFakeUpgradable struct {
 func (f *movementFakeUpgradable) ShouldUpgrade() (bool, int) { return f.shouldUpgrade, f.upgradeAt }
 func (f *movementFakeUpgradable) Upgraded() bool             { return f.upgraded }
 func (f *movementFakeUpgradable) AlreadyIndexed() uint64     { return f.indexed }
+func (f *movementFakeUpgradable) UpgradeInProgress() bool    { return false }
 
 func (f *movementFakeUpgradable) Upgrade(callback func()) error {
 	f.upgradeCalled = true

@@ -277,6 +277,7 @@ type upgradableIndexer interface {
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
 	AlreadyIndexed() uint64
+	UpgradeInProgress() bool
 }
 
 // triggers compression if the index is ready to be upgraded

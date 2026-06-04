@@ -88,6 +88,7 @@ type upgradableIndexer interface {
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
 	AlreadyIndexed() uint64
+	UpgradeInProgress() bool
 }
 
 type dynamic struct {
@@ -108,18 +109,21 @@ type dynamic struct {
 	threshold                    uint64
 	index                        VectorIndex
 	upgraded                     atomic.Bool
-	upgradeOnce                  sync.Once
-	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	uc                           ent.UserConfig
-	db                           *bbolt.DB
-	ctx                          context.Context
-	cancel                       context.CancelFunc
-	hnswDisableSnapshots         bool
-	hnswSnapshotOnStartup        bool
-	hnswWaitForCachePrefill      bool
-	AllocChecker                 memwatch.AllocChecker
-	MakeBucketOptions            lsmkv.MakeBucketOptions
-	AsyncIndexingEnabled         bool
+	// upgrading spans Upgrade() through doUpgrade completion; HaltForTransfer
+	// reads it via UpgradeInProgress() to defer a replica movement.
+	upgrading               atomic.Bool
+	upgradeOnce             sync.Once
+	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	uc                      ent.UserConfig
+	db                      *bbolt.DB
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	hnswDisableSnapshots    bool
+	hnswSnapshotOnStartup   bool
+	hnswWaitForCachePrefill bool
+	AllocChecker            memwatch.AllocChecker
+	MakeBucketOptions       lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled    bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -484,6 +488,23 @@ func (dynamic *dynamic) Upgraded() bool {
 	return dynamic.upgraded.Load() && dynamic.index.(upgradableIndexer).Upgraded()
 }
 
+// UpgradeInProgress reports a flat→HNSW restructure in flight, or (post-upgrade)
+// an in-flight compression on the inner HNSW.
+func (dynamic *dynamic) UpgradeInProgress() bool {
+	if dynamic.upgrading.Load() {
+		return true
+	}
+	if !dynamic.upgraded.Load() {
+		return false
+	}
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if u, ok := dynamic.index.(upgradableIndexer); ok {
+		return u.UpgradeInProgress()
+	}
+	return false
+}
+
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
@@ -500,7 +521,11 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	}
 
 	dynamic.upgradeOnce.Do(func() {
+		// Set before GoWrapper so a movement landing in the goroutine-scheduling
+		// window cannot slip past HaltForTransfer.
+		dynamic.upgrading.Store(true)
 		enterrors.GoWrapper(func() {
+			defer dynamic.upgrading.Store(false)
 			defer callback()
 			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
