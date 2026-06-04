@@ -579,7 +579,9 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op *ShardReplic
 			logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
 			return api.ShardReplicationState(""), err
 		}
-		op.Status.SchemaVersion = schemaVersion
+		if err == nil && schemaVersion > op.Status.SchemaVersion {
+			op.Status.SchemaVersion = schemaVersion
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -702,7 +704,9 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op *ShardRepli
 				return api.ShardReplicationState(""), err
 			}
 		}
-		op.Status.SchemaVersion = schemaVersion
+		if err == nil && schemaVersion > op.Status.SchemaVersion {
+			op.Status.SchemaVersion = schemaVersion
+		}
 	}
 
 	return api.INTEGRATING, nil
