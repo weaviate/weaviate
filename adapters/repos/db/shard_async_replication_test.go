@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // uuidLow and uuidHigh are deterministic UUIDs with clear binary ordering:
@@ -554,6 +555,39 @@ func asyncSchedulerOption(t *testing.T, ctx context.Context) func(*Index) {
 		t.Cleanup(sched.Close)
 		i.asyncReplicationScheduler = sched
 	}
+}
+
+func setShardReplicas(t *testing.T, idx *Index, nodes ...string) {
+	t.Helper()
+	m, ok := idx.schemaReader.(*schemaUC.MockSchemaReader)
+	require.True(t, ok, "schemaReader is not a *MockSchemaReader")
+	for _, c := range m.ExpectedCalls {
+		if c.Method == "ShardReplicas" {
+			c.ReturnArguments = mock.Arguments{nodes, error(nil)}
+			return
+		}
+	}
+	m.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(nodes, nil).Maybe()
+}
+
+func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "ReconcileNoForceLoad"
+
+	_, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	setShardReplicas(t, idx, "node1", "node2")
+
+	// Register an unloaded lazy shard under a fresh name (disableLazyLoad=false).
+	const lazyName = "lazy-cold-shard"
+	sl, err := idx.initShard(ctx, lazyName, &models.Class{Class: class}, nil, false, false)
+	require.NoError(t, err)
+	lazy, ok := sl.(*LazyLoadShard)
+	require.True(t, ok, "expected a *LazyLoadShard")
+	require.False(t, lazy.isLoaded(), "precondition: shard must start unloaded")
+	idx.shards.Store(lazyName, sl)
+
+	require.NoError(t, idx.ReconcileAsyncReplicationForShard(ctx, lazyName))
+	require.False(t, lazy.isLoaded(), "reconcile must not force-load an unloaded shard")
 }
 
 // TestDBReconcileAsyncReplicationAggregatesErrors verifies that

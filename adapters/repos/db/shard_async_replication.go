@@ -1088,7 +1088,7 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 		// updateReplicationConfig can't interleave (see RevertAsyncReplicationOnShard).
 		s.index.replicationConfigLock.RLock()
 		defer s.index.replicationConfigLock.RUnlock()
-		if s.index.asyncReplicationEnabled() {
+		if s.index.asyncReplicationEnabledForShard(s.name) {
 			return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 		}
 		return s.disableAsyncReplication(ctx)
@@ -1107,7 +1107,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 	// removeTargetNodeOverride for the locking rationale.
 	s.index.replicationConfigLock.RLock()
 	defer s.index.replicationConfigLock.RUnlock()
-	if s.index.asyncReplicationEnabled() {
+	if s.index.asyncReplicationEnabledForShard(s.name) {
 		return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 	}
 	return s.disableAsyncReplication(ctx)
@@ -1370,7 +1370,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		return len(s.targetNodeOverrides)
 	}()
 
-	if (!s.index.AsyncReplicationEnabled() && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
+	if (!s.index.AsyncReplicationEnabledForShard(s.name) && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
 		// skip hashbeat iteration when async replication is disabled and no target node overrides are set
 		// or maintenance mode is enabled for localhost
 		if s.index.maintenanceModeEnabled() {

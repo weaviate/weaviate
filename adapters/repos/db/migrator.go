@@ -325,6 +325,14 @@ func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
 	return idx.dropShards([]string{shard})
 }
 
+func (m *Migrator) ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.ReconcileAsyncReplicationForShard(ctx, shard)
+}
+
 func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {

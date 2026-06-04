@@ -898,17 +898,17 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
 }
 
-// applyAsyncReplicationToLoadedShardsLocked (re-)applies the current
-// enable/disable decision to every loaded shard. enable/disableAsyncReplication
-// are idempotent, so this is safe to call again.
+// applyAsyncReplicationToLoadedShardsLocked (re-)applies the enable/disable
+// decision to every loaded shard. The decision is per-shard, so an
+// over-replicated shard keeps async on even at ReplicationFactor 1 (after a
+// scale-out, or while the factor is lowered before the extra replicas drain).
+// enable/disableAsyncReplication are idempotent, so this is safe to call again.
 //
 // The caller MUST hold i.replicationConfigLock for writing; holding it across
 // the apply is deadlock-free (enable/disableAsyncReplication never reacquire it).
-// Note that enableAsyncReplication does synchronous hashtree disk I/O, so the
-// write lock is held for the whole per-shard apply: hashbeat cycles for this
-// index (which read the lock via AsyncReplicationEnabled) stall until it ends.
+// enableAsyncReplication does synchronous hashtree disk I/O, so hashbeat cycles
+// (which read the lock via AsyncReplicationEnabledForShard) stall until it ends.
 func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
-	enabled := i.asyncReplicationEnabled()
 	cfg := i.Config.AsyncReplicationConfig
 
 	return i.ForEachLoadedShard(func(name string, shard ShardLike) error {
@@ -923,7 +923,7 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
 		}
 
-		if enabled {
+		if i.asyncReplicationEnabledForShard(name) {
 			if err := ctrl.enableAsyncReplication(ctx, cfg); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
@@ -940,15 +940,16 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 // index's loaded shards. It reacts to a runtime change of the global
 // AsyncReplicationDisabled flag, which would otherwise leave shards loaded
 // while disabled permanently unregistered.
+//
+// It does NOT short-circuit on ReplicationFactor <= 1: an over-replicated shard
+// still needs async replication. The per-shard decision is made in
+// applyAsyncReplicationToLoadedShardsLocked.
 func (i *Index) reconcileAsyncReplication(ctx context.Context) error {
 	// Exclusive lock (matching updateReplicationConfig) so the apply can't
 	// interleave with a concurrent reconcile or be observed half-applied.
 	i.replicationConfigLock.Lock()
 	defer i.replicationConfigLock.Unlock()
 
-	if i.Config.ReplicationFactor <= 1 {
-		return nil // never runs async replication; nothing to reconcile
-	}
 	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
 }
 
@@ -1360,6 +1361,48 @@ func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 }
 
+// overReplicated reports whether the shard has more than one replica in the
+// sharding state, independent of the configured ReplicationFactor.
+//
+// Fails closed (false) on a schema-read error so a transient error never tears
+// down async replication on an already-running shard.
+//
+// Lock order is always replicationConfigLock -> schema lock (via ShardReplicas).
+func (i *Index) overReplicated(shardName string) bool {
+	replicas, err := i.schemaReader.ShardReplicas(i.Config.ClassName.String(), shardName)
+	if err != nil {
+		i.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", i.Config.ClassName.String()).
+			WithField("shard_name", shardName).
+			Debugf("overReplicated: could not read shard replicas: %v", err)
+		return false
+	}
+	return len(replicas) > 1
+}
+
+// asyncReplicationEnabledForShard is the per-shard async-replication gate. The
+// over-replication clause keeps async running between a scale-out completing and
+// an operator (optionally) raising the configured factor.
+//
+// Caller MUST hold replicationConfigLock; this does not lock internally (cf. the
+// exported AsyncReplicationEnabledForShard).
+func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
+	if i.asyncReplicationGloballyDisabled() {
+		return false
+	}
+	return i.Config.ReplicationFactor > 1 || i.overReplicated(shardName)
+}
+
+// AsyncReplicationEnabledForShard is the lock-taking wrapper around
+// asyncReplicationEnabledForShard for callers that do not hold replicationConfigLock.
+func (i *Index) AsyncReplicationEnabledForShard(shardName string) bool {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.asyncReplicationEnabledForShard(shardName)
+}
+
 // IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async
 // replication is irrelevant (RF ≤ 1) or enabled (RF > 1 and not globally
 // disabled).
@@ -1434,7 +1477,37 @@ func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName str
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
-	if i.asyncReplicationEnabled() {
+	if i.asyncReplicationEnabledForShard(shardName) {
+		return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
+	}
+	return ctrl.disableAsyncReplication(ctx)
+}
+
+// ReconcileAsyncReplicationForShard re-applies the per-shard async-replication
+// decision after a replica was added to or removed from the shard. Called on
+// every hosting node when the sharding state changes; idempotent under RAFT
+// re-apply.
+//
+// No-op when the shard is not loaded locally (a node not hosting it, or a COLD
+// tenant): it must not be force-loaded just to toggle async — the init gate
+// re-derives the decision when it is next loaded.
+func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	// Held across the apply so a concurrent updateReplicationConfig can't
+	// interleave; deadlock-free (see RevertAsyncReplicationOnShard).
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	if i.asyncReplicationEnabledForShard(shardName) {
 		return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
 	}
 	return ctrl.disableAsyncReplication(ctx)
