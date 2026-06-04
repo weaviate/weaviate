@@ -131,6 +131,10 @@ func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
 	return s.store.replicationManager.GetReplicationFSM()
 }
 
+func (s *Raft) SetInflightDrainer(fn func(ctx context.Context, class, shard string) error) {
+	s.store.replicationManager.SetInflightDrainer(fn)
+}
+
 func (s *Raft) IsLeader() bool {
 	return s.store.IsLeader()
 }
