@@ -27,7 +27,8 @@ import (
 )
 
 func TestNamespaces_CRUD_HappyPath(t *testing.T) {
-	const name = "crudhappy"
+	t.Parallel()
+	name := uniqueNS()
 
 	helper.CreateNamespace(t, name, adminKey)
 
@@ -66,7 +67,8 @@ func TestNamespaces_CRUD_HappyPath(t *testing.T) {
 }
 
 func TestNamespaces_CreateDuplicate_Conflict(t *testing.T) {
-	const name = "duplicatens"
+	t.Parallel()
+	name := uniqueNS()
 
 	helper.CreateNamespace(t, name, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })
@@ -81,6 +83,7 @@ func TestNamespaces_CreateDuplicate_Conflict(t *testing.T) {
 }
 
 func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		candidate string
@@ -113,8 +116,9 @@ func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
 // on the original node, and (c) a subsequently created collection lands on
 // the new home_node.
 func TestNamespaces_UpdateHomeNode(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS()
 	const (
-		ns    = "updatehomenode"
 		nodeA = "weaviate-0"
 		nodeB = "weaviate-2"
 	)
@@ -174,7 +178,8 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 // TestNamespaces_CreateUserInMissingNamespace pins that CreateUser rejects
 // with 422 when the target namespace does not exist.
 func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
-	const ghost = "ghostns"
+	t.Parallel()
+	ghost := uniqueNS()
 
 	_, err := helper.Client(t).Namespaces.GetNamespace(
 		namespaces.NewGetNamespaceParams().WithNamespaceID(ghost),
@@ -199,7 +204,8 @@ func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
 
 // TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.
 func TestNamespaces_UpdateHomeNode_Invalid(t *testing.T) {
-	const name = "updatehomenodeinvalid"
+	t.Parallel()
+	name := uniqueNS()
 
 	helper.CreateNamespace(t, name, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })

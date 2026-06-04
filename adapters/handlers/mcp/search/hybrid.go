@@ -19,6 +19,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -69,8 +70,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	// Build additional properties from return_metadata
 	additionalProps := buildAdditionalProperties(args.ReturnMetadata)
 
-	// Set alpha with default of 0.5
-	alpha := 0.5
+	alpha := common_filters.DefaultAlpha
 	if args.Alpha != nil {
 		alpha = *args.Alpha
 	}

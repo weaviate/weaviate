@@ -388,6 +388,23 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// WaitForLocalInflightWrites blocks until this node's in-flight coordinated
+// writes to the given shard have drained, or ctx is done.
+func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard string) error {
+	var index *Index
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		index = db.indices[indexID(schema.ClassName(class))]
+		if index == nil || index.replicator == nil {
+			return
+		}
+		index.dropIndex.RLock()
+	}()
+	defer index.dropIndex.RUnlock()
+	return index.replicator.WaitForDrain(ctx, shard)
+}
+
 // GetLocalShardNames returns the names of all shards local to this node for
 // the given collection. Returns an error if the collection is not found or has
 // no local shards.

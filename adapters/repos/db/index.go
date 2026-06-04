@@ -1213,10 +1213,7 @@ func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool
 	if err != nil {
 		return false
 	}
-	// we're including additional replicas here to make sure we at least try to push the write
-	// to them if they exist
-	allReplicas := append(ws.NodeNames(), ws.AdditionalNodeNames()...)
-	return len(allReplicas) > 1
+	return len(ws.NodeNames()) > 1
 }
 
 func (i *Index) shardHasMultipleReplicasRead(tenantName, shardName string) bool {
@@ -1671,6 +1668,15 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	}
 	if replProps == nil {
 		replProps = defaultConsistency()
+	}
+	// Stamp once so all replicas write the same LastUpdateTime; otherwise
+	// per-replica time.Now() diverges and triggers spurious async-replication
+	// repairs. Pre-set values (forwarded batches) are kept.
+	nowMs := time.Now().UnixMilli()
+	for idx := range refs {
+		if refs[idx].UpdateTime == 0 {
+			refs[idx].UpdateTime = nowMs
+		}
 	}
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
