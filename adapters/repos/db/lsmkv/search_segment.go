@@ -38,10 +38,15 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	upperBound := float32(0)
 
 	done := ctx.Done()
+	ctxCheck := 0
 	for {
 		iterations++
 
-		if iterations%100000 == 0 {
+		// periodic cancellation check; a countdown avoids a 64-bit modulo on the
+		// hottest loop in BMW (the modulo was ~1.5% of self time).
+		ctxCheck++
+		if ctxCheck == 100000 {
+			ctxCheck = 0
 			select {
 			case <-done:
 				segmentPath := ""
@@ -88,7 +93,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			if firstNonExhausted == -1 {
 				firstNonExhausted = pivotPoint
 			}
-			cumScore += float64(results[pivotPoint].Idf())
+			cumScore += results[pivotPoint].idf
 			if cumScore >= worstDist {
 				pivotID = results[pivotPoint].idPointer
 				for i := pivotPoint + 1; i < len(results); i++ {
@@ -107,13 +112,14 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 
 		upperBound = float32(0)
 		for i := 0; i <= pivotPoint; i++ {
-			if results[i].exhausted {
-				continue
+			// exhausted terms carry currentBlockMaxId==MaxUint64 (so the shallow
+			// advance is skipped) and currentBlockImpact==0 (so the add is a no-op),
+			// so no explicit exhausted guard is needed here.
+			t := results[i]
+			if t.currentBlockMaxId < pivotID {
+				t.AdvanceAtLeastShallow(pivotID)
 			}
-			if results[i].currentBlockMaxId < pivotID {
-				results[i].AdvanceAtLeastShallow(pivotID)
-			}
-			upperBound += results[i].currentBlockImpact
+			upperBound += t.currentBlockImpact
 		}
 
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
@@ -155,15 +161,10 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 				}
 				results[nextList].AdvanceAtLeast(pivotID)
 
-				// sort partial
-				for i := nextList + 1; i < len(results); i++ {
-					if results[i].idPointer < results[i-1].idPointer {
-						// swap
-						results[i], results[i-1] = results[i-1], results[i]
-					} else {
-						break
-					}
-				}
+				// only results[nextList] moved (rightward), so a single re-insertion
+				// restores order — same permutation as the old swap bubble, one move
+				// per step instead of a two-write swap.
+				results.reinsertRight(nextList)
 
 			}
 		} else {
@@ -171,13 +172,13 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			// (over [0, pivotPoint)) and the smallest block-max id (over
 			// [0, pivotPoint]).
 			nextList := pivotPoint
-			maxWeight := results[nextList].Idf()
+			maxWeight := results[nextList].idf
 			next := uint64(math.MaxUint64) // max uint
 
 			for i := 0; i <= pivotPoint; i++ {
-				if i < pivotPoint && results[i].Idf() > maxWeight {
+				if i < pivotPoint && results[i].idf > maxWeight {
 					nextList = i
-					maxWeight = results[i].Idf()
+					maxWeight = results[i].idf
 				}
 				if results[i].currentBlockMaxId < next {
 					next = results[i].currentBlockMaxId
@@ -195,14 +196,13 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 			results[nextList].AdvanceAtLeast(next)
 
-			for i := nextList + 1; i < len(results); i++ {
-				if results[i].idPointer < results[i-1].idPointer {
-					// swap
-					results[i], results[i-1] = results[i-1], results[i]
-				} else if results[i].exhausted && i < len(results)-1 {
-					results[i], results[i+1] = results[i+1], results[i]
-				}
-			}
+			// AdvanceAtLeast only ever increases results[nextList].idPointer (or
+			// exhausts it to MaxUint64), so the slice is sorted everywhere except
+			// that one element, which must move right. Re-insert it and stop the
+			// instant it settles — the old loop had no early break and rescanned the
+			// whole tail every iteration (its exhausted-swap branch only ever
+			// reordered MaxUint64 sentinels, which no reader observes).
+			results.reinsertRight(nextList)
 
 		}
 
@@ -369,6 +369,21 @@ func (t Terms) Less(i, j int) bool {
 
 func (t Terms) Swap(i, j int) {
 	t[i], t[j] = t[j], t[i]
+}
+
+// reinsertRight restores ascending-by-idPointer order when exactly one element
+// (at index i) has had its idPointer increased and everything else is already
+// sorted. It shifts the element rightward to its slot and stops as soon as it
+// settles — O(displacement), with one move per step instead of a two-write swap.
+func (t Terms) reinsertRight(i int) {
+	cur := t[i]
+	id := cur.idPointer
+	j := i
+	for j+1 < len(t) && t[j+1].idPointer < id {
+		t[j] = t[j+1]
+		j++
+	}
+	t[j] = cur
 }
 
 // sortByID sorts the terms ascending by idPointer with a concrete insertion
