@@ -13,8 +13,8 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"io"
 	"maps"
@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -50,8 +51,6 @@ type compactorInverted struct {
 	w    io.WriteSeeker
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
-
-	scratchSpacePath string
 
 	offset int
 
@@ -78,7 +77,7 @@ type compactorInverted struct {
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool,
+	cleanupTombstones bool,
 	k1, b, avgPropLen float64, maxNewFileSize int64,
 	allocChecker memwatch.AllocChecker, enableChecksumValidation bool,
 ) *compactorInverted {
@@ -101,7 +100,6 @@ func newCompactorInverted(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		offset:                   0,
 		k1:                       k1,
 		b:                        b,
@@ -112,7 +110,7 @@ func newCompactorInverted(w io.WriteSeeker,
 	}
 }
 
-func (c *compactorInverted) do() error {
+func (c *compactorInverted) do(ctx context.Context) error {
 	var err error
 
 	if err := c.init(); err != nil {
@@ -154,7 +152,7 @@ func (c *compactorInverted) do() error {
 
 	keysOffset := segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
 
-	kis, err := c.writeKeys()
+	kis, err := c.writeKeys(ctx)
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
@@ -274,12 +272,7 @@ func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 }
 
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
-	b := new(bytes.Buffer)
-
-	e := gob.NewEncoder(b)
-
-	// Encoding the map
-	err := e.Encode(propLengths)
+	encoded, err := gobenc.Encode(propLengths)
 	if err != nil {
 		return 0, err
 	}
@@ -298,19 +291,19 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 		return 0, err
 	}
 
-	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
+	binary.LittleEndian.PutUint64(buf, uint64(len(encoded)))
 	if _, err := c.segmentFile.BodyWriter().Write(buf); err != nil {
 		return 0, err
 	}
 
-	if _, err := c.segmentFile.BodyWriter().Write(b.Bytes()); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(encoded); err != nil {
 		return 0, err
 	}
-	c.offset += b.Len() + 8 + 8 + 8
-	return b.Len() + 8 + 8 + 8, nil
+	c.offset += len(encoded) + 8 + 8 + 8
+	return len(encoded) + 8 + 8 + 8, nil
 }
 
-func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
+func (c *compactorInverted) writeKeys(ctx context.Context) ([]segmentindex.Key, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
@@ -319,7 +312,13 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 	var kis []segmentindex.Key
 	sim := newSortedMapMerger()
 
-	for {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("merge keys: %w", err)
+			}
+		}
+
 		if key1 == nil && key2 == nil {
 			break
 		}
@@ -412,15 +411,10 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 	indices := segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategyInverted,
-			"operation": "writeIndices",
-		}),
-		AllocChecker: c.allocChecker,
+		AllocChecker:        c.allocChecker,
 	}
 
-	_, err := indices.WriteTo(c.segmentFile.BodyWriter(), uint64(c.maxNewFileSize))
+	_, err := indices.WriteTo(c.segmentFile.BodyWriter())
 	return err
 }
 

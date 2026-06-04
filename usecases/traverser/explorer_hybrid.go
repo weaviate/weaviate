@@ -22,6 +22,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -42,6 +43,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 	params.Group = nil
 	params.GroupBy = nil
+	params.Boost = nil
 
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
@@ -89,6 +91,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	}
 	params.Group = nil
 	params.GroupBy = nil
+	params.Boost = nil
 
 	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
 	if err != nil {
@@ -162,6 +165,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
 	subsearchWrap.HybridSearch = nil
+	subsearchWrap.Boost = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
@@ -192,6 +196,10 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	if params.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
+	}
+
 	var err error
 	var results [][]*search.Result
 	var weights []float64
@@ -209,17 +217,25 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	// Sub-search sizing should reflect the user's actual limit, not any
+	// boost-inflated overfetch. Boost overfetch only needs to affect how many
+	// fused results Hybrid returns (controlled by origParams.Pagination.Limit).
+	subSearchLimit := params.Pagination.Limit
+	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
+		subSearchLimit = params.Boost.OriginalLimit
+	}
+
 	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(subSearchLimit))),
 		Offset:  0,
 		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(subSearchLimit))),
 		Offset:  0,
 		Autocut: -1,
 	}
@@ -430,6 +446,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 	if len(res) <= origParams.Pagination.Offset {
 		out = []search.Result{}
+	}
+
+	if origParams.AdditionalProperties.QueryProfile {
+		out = helpers.AttachQueryProfileToResults(ctx, out)
 	}
 
 	if origParams.GroupBy != nil {

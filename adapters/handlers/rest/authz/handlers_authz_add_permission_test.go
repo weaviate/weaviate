@@ -380,3 +380,57 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateNoQualifiedNamespaceInPolicies(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		policies          []authorization.Policy
+		wantErr           bool
+	}{
+		{
+			name:              "namespaces disabled: qualified resource accepted",
+			namespacesEnabled: false,
+			policies:          []authorization.Policy{{Resource: "schema/collections/customer1:Movies/shards/#"}},
+		},
+		{
+			name:              "namespaces enabled: ns-relative resource accepted",
+			namespacesEnabled: true,
+			policies:          []authorization.Policy{{Resource: "schema/collections/Movies/shards/#"}},
+		},
+		{
+			name:              "namespaces enabled: qualified collection segment rejected",
+			namespacesEnabled: true,
+			policies:          []authorization.Policy{{Resource: "schema/collections/customer1:Movies/shards/#"}},
+			wantErr:           true,
+		},
+		{
+			name:              "namespaces enabled: qualified alias segment rejected",
+			namespacesEnabled: true,
+			policies:          []authorization.Policy{{Resource: "aliases/collections/Movies/aliases/customer1:Films"}},
+			wantErr:           true,
+		},
+		{
+			name:              "namespaces enabled: rejection scans every policy",
+			namespacesEnabled: true,
+			policies: []authorization.Policy{
+				{Resource: "schema/collections/Movies/shards/#"},
+				{Resource: "data/collections/customer1:Movies/shards/.*/objects/.*"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &authZHandlers{namespacesEnabled: tt.namespacesEnabled}
+			err := h.validateNoQualifiedNamespaceInPolicies(tt.policies)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "namespace-qualified")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

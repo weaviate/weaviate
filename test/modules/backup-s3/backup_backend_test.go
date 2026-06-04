@@ -109,6 +109,16 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 			assert.Nil(t, err)
 		})
 
+		t.Run("access-check object is cleaned up after Initialize", func(t *testing.T) {
+			// Initialize must remove the temporary access-check probe from the
+			// correct bucket/path. If it used the wrong location the probe would
+			// be left behind and this GetObject call would succeed instead of
+			// returning ErrNotFound.
+			_, err := s3.GetObject(testCtx, backupID, "access-check", overrideBucket, overridePath)
+			assert.IsType(t, backup.ErrNotFound{}, err,
+				"access-check object should be removed after Initialize; got err: %v", err)
+		})
+
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
 			meta, err := s3.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath)
 			assert.Nil(t, meta)
@@ -127,7 +137,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 						Name: className,
 					},
 				},
-				Status:  string(backup.Started),
+				Status:  backup.Started,
 				Version: ubak.Version,
 			}
 
@@ -156,7 +166,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
-			assert.Equal(t, meta.Status, string(backup.Started))
+			assert.Equal(t, meta.Status, backup.Started)
 			assert.Empty(t, meta.Error)
 			assert.Len(t, meta.Classes, 1)
 			assert.Equal(t, meta.Classes[0].Name, className)

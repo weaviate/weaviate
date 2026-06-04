@@ -110,7 +110,7 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 func (r *testRepo) awaitIndexing() {
 	r.t.Helper()
 	if r.AsyncIndexingEnabled {
-		r.scheduler.WaitAll()
+		_ = r.scheduler.WaitAll(r.t.Context())
 	}
 }
 

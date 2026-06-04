@@ -28,11 +28,15 @@ import (
 
 type AggregateParser struct {
 	authorizedGetClass classGetterWithAuthzFunc
+	namespacesEnabled  bool
+	principal          *models.Principal
 }
 
-func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc) *AggregateParser {
+func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) *AggregateParser {
 	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
+		namespacesEnabled:  namespacesEnabled,
+		principal:          principal,
 	}
 }
 
@@ -76,7 +80,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled, p.principal)
 		if err != nil {
 			return nil, fmt.Errorf("extract filters: %w", err)
 		}
@@ -282,11 +286,20 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 			}
 			nearVec := search.Hybrid.NearVector
 
+			var alpha float64
+			if !hs.UseAlphaParam {
+				alpha = float64(hs.Alpha)
+			} else if hs.AlphaParam != nil {
+				alpha = float64(*hs.AlphaParam)
+			} else {
+				alpha = common_filters.DefaultAlpha
+			}
+
 			params.Hybrid = &searchparams.HybridSearch{
 				Query:           hs.Query,
 				Properties:      schema.LowercaseFirstLetterOfStrings(hs.Properties),
 				Vector:          vector,
-				Alpha:           float64(hs.Alpha),
+				Alpha:           alpha,
 				FusionAlgorithm: fusionType,
 				TargetVectors:   targetVectors,
 				Distance:        distance,

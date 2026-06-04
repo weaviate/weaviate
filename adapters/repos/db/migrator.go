@@ -109,59 +109,101 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig)
+	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
 	if err != nil {
 		return fmt.Errorf("async replication config: %w", err)
 	}
 
+	isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
-		multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+		isMultiTenant,
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
 	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
+	var totalShardSizeBytes uint64
+	var localActiveShardsCount int
+	if isMultiTenant {
+		// we need to calculate the local shards count if it's MT to be able to decide
+		// to enable lazy load shards
+		localActiveShardsCount, err = m.db.schemaReader.LocalActiveShardsCount(class.Class)
+		if err != nil {
+			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
+		}
+		// Only calculate shard sizes if the shard-count condition alone wouldn't
+		// already trigger lazy-loading. This avoids walking all shard directories
+		// on large MT setups where the count exceeds the threshold.
+		if localActiveShardsCount <= m.db.config.LazyLoadShardCountThreshold &&
+			m.db.config.LazyLoadShardSizeThresholdGB > 0 {
+			// we do need to calculate shard size if it's MT to be able to decide
+			// to enable lazy load shards based on total size
+			localShards, err := m.db.schemaReader.LocalShards(class.Class)
+			if err != nil {
+				return fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
+			}
+			sizeThresholdBytes := uint64(m.db.config.LazyLoadShardSizeThresholdGB * 1024 * 1024 * 1024)
+			totalShardSizeBytes = m.db.totalShardSizeBytes(schema.ClassName(class.Class), localShards, sizeThresholdBytes)
+		}
+	}
+
+	var lazyLoadShardEnabled bool
 	idx, err = NewIndex(ctx,
 		IndexConfig{
-			ClassName:                                    schema.ClassName(class.Class),
-			RootPath:                                     m.db.config.RootPath,
-			ResourceUsage:                                m.db.config.ResourceUsage,
-			QueryMaximumResults:                          m.db.config.QueryMaximumResults,
-			QueryHybridMaximumResults:                    m.db.config.QueryHybridMaximumResults,
-			QueryNestedRefLimit:                          m.db.config.QueryNestedRefLimit,
-			MemtablesFlushDirtyAfter:                     m.db.config.MemtablesFlushDirtyAfter,
-			MemtablesInitialSizeMB:                       m.db.config.MemtablesInitialSizeMB,
-			MemtablesMaxSizeMB:                           m.db.config.MemtablesMaxSizeMB,
-			MemtablesMinActiveSeconds:                    m.db.config.MemtablesMinActiveSeconds,
-			MemtablesMaxActiveSeconds:                    m.db.config.MemtablesMaxActiveSeconds,
-			MinMMapSize:                                  m.db.config.MinMMapSize,
-			LazySegmentsDisabled:                         m.db.config.LazySegmentsDisabled,
-			SegmentInfoIntoFileNameEnabled:               m.db.config.SegmentInfoIntoFileNameEnabled,
-			WriteMetadataFilesEnabled:                    m.db.config.WriteMetadataFilesEnabled,
-			MaxReuseWalSize:                              m.db.config.MaxReuseWalSize,
-			SegmentsCleanupIntervalSeconds:               m.db.config.SegmentsCleanupIntervalSeconds,
-			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
-			CycleManagerRoutinesFactor:                   m.db.config.CycleManagerRoutinesFactor,
-			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
-			ObjectsTTLBatchSize:                          m.db.config.ObjectsTTLBatchSize,
-			ObjectsTTLPauseEveryNoBatches:                m.db.config.ObjectsTTLPauseEveryNoBatches,
-			ObjectsTTLPauseDuration:                      m.db.config.ObjectsTTLPauseDuration,
-			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
-			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
-			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
-			UsageEnabled:                                 m.db.config.UsageEnabled,
-			AvoidMMap:                                    m.db.config.AvoidMMap,
-			EnableLazyLoadShards:                         m.db.config.EnableLazyLoadShards,
+			ClassName:                      schema.ClassName(class.Class),
+			RootPath:                       m.db.config.RootPath,
+			ResourceUsage:                  m.db.config.ResourceUsage,
+			QueryMaximumResults:            m.db.config.QueryMaximumResults,
+			QueryHybridMaximumResults:      m.db.config.QueryHybridMaximumResults,
+			QueryNestedRefLimit:            m.db.config.QueryNestedRefLimit,
+			MemtablesFlushDirtyAfter:       m.db.config.MemtablesFlushDirtyAfter,
+			MemtablesInitialSizeMB:         m.db.config.MemtablesInitialSizeMB,
+			MemtablesMaxSizeMB:             m.db.config.MemtablesMaxSizeMB,
+			MemtablesMinActiveSeconds:      m.db.config.MemtablesMinActiveSeconds,
+			MemtablesMaxActiveSeconds:      m.db.config.MemtablesMaxActiveSeconds,
+			MinMMapSize:                    m.db.config.MinMMapSize,
+			LazySegmentsDisabled:           m.db.config.LazySegmentsDisabled,
+			SegmentInfoIntoFileNameEnabled: m.db.config.SegmentInfoIntoFileNameEnabled,
+			WriteMetadataFilesEnabled:      m.db.config.WriteMetadataFilesEnabled,
+			MaxReuseWalSize:                m.db.config.MaxReuseWalSize,
+			SegmentsCleanupIntervalSeconds: m.db.config.SegmentsCleanupIntervalSeconds,
+			SeparateObjectsCompactions:     m.db.config.SeparateObjectsCompactions,
+			CycleManagerRoutinesFactor:     m.db.config.CycleManagerRoutinesFactor,
+			IndexRangeableInMemory:         m.db.config.IndexRangeableInMemory,
+			ObjectsTTLBatchSize:            m.db.config.ObjectsTTLBatchSize,
+			ObjectsTTLPauseEveryNoBatches:  m.db.config.ObjectsTTLPauseEveryNoBatches,
+			ObjectsTTLPauseDuration:        m.db.config.ObjectsTTLPauseDuration,
+			MaxSegmentSize:                 m.db.config.MaxSegmentSize,
+			TrackVectorDimensions:          m.db.config.TrackVectorDimensions,
+			TrackVectorDimensionsInterval:  m.db.config.TrackVectorDimensionsInterval,
+			UsageEnabled:                   m.db.config.UsageEnabled,
+			AvoidMMap:                      m.db.config.AvoidMMap,
+			EnableLazyLoadShards: func() bool {
+				// If explicitly set (true = always lazy, false = always eager),
+				// skip auto-detection entirely.
+				if m.db.config.EnableLazyLoadShards != nil {
+					return *m.db.config.EnableLazyLoadShards
+				}
+
+				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
+					isMultiTenant,
+					localActiveShardsCount,
+					totalShardSizeBytes,
+					m.db.config.LazyLoadShardCountThreshold,
+					m.db.config.LazyLoadShardSizeThresholdGB,
+				)
+				return lazyLoadShardEnabled
+			}(),
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
+			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
-			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationWorkersLimiter:               m.db.asyncReplicationWorkersLimiter,
+			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
@@ -171,15 +213,22 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			HNSWSnapshotOnStartup:                        m.db.config.HNSWSnapshotOnStartup,
 			HNSWSnapshotMinDeltaCommitlogsNumber:         m.db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
 			HNSWSnapshotMinDeltaCommitlogsSizePercentage: m.db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-			HNSWWaitForCachePrefill:                      m.db.config.HNSWWaitForCachePrefill,
-			HNSWFlatSearchConcurrency:                    m.db.config.HNSWFlatSearchConcurrency,
-			HNSWAcornFilterRatio:                         m.db.config.HNSWAcornFilterRatio,
-			VisitedListPoolMaxSize:                       m.db.config.VisitedListPoolMaxSize,
-			QuerySlowLogEnabled:                          m.db.config.QuerySlowLogEnabled,
-			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
-			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
-			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:                                m.db.config.HFreshEnabled,
+			HNSWWaitForCachePrefill: func() bool {
+				// don't wait if lazy load shard is enabled
+				if lazyLoadShardEnabled {
+					return false
+				}
+				return m.db.config.HNSWWaitForCachePrefill
+			}(),
+			HNSWFlatSearchConcurrency: m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:      m.db.config.HNSWAcornFilterRatio,
+			VisitedListPoolMaxSize:    m.db.config.VisitedListPoolMaxSize,
+			QuerySlowLogEnabled:       m.db.config.QuerySlowLogEnabled,
+			QuerySlowLogThreshold:     m.db.config.QuerySlowLogThreshold,
+			InvertedSorterDisabled:    m.db.config.InvertedSorterDisabled,
+			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
+			HFreshEnabled:             m.db.config.HFreshEnabled,
+			AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -188,15 +237,50 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		convertToVectorIndexConfigs(class.VectorConfig),
 		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled)
+		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled, m.db.tenantsManager)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
 
+	idx.usageLimits = m.db.usageLimits
+	idx.db = m.db
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
 
+	// NewIndex loaded shards reading the live AsyncReplicationDisabled flag, but
+	// the index was not yet in db.indices, so a concurrent runtime flag toggle's
+	// reconcile hook could have skipped it. Re-reconcile now that it is visible
+	// so its shards match the current flag. Non-fatal: a hiccup here must not
+	// fail class creation — the next toggle/schema update will correct it.
+	//
+	// Take dropIndex.RLock only after publishing the index, keeping the
+	// indexLock -> dropIndex order used everywhere else (acquiring dropIndex
+	// first would invert it against DeleteIndex). classLocks already serialises
+	// a same-class DeleteIndex, so the index cannot be dropped before this runs.
+	func() {
+		idx.dropIndex.RLock()
+		defer idx.dropIndex.RUnlock()
+		idx.closeLock.RLock()
+		defer idx.closeLock.RUnlock()
+		if idx.closed {
+			return
+		}
+		if err := idx.reconcileAsyncReplication(ctx); err != nil {
+			m.logger.WithField("action", "add_class").WithField("class", class.Class).
+				Errorf("reconcile async replication for new index: %v", err)
+		}
+	}()
+
+	m.logger.WithFields(logrus.Fields{
+		"action":                  "lazy_shard_auto_detection",
+		"class":                   class.Class,
+		"enable_lazy_load_shards": lazyLoadShardEnabled,
+		"local_shard_count":       localActiveShardsCount,
+		"total_shard_size_bytes":  totalShardSizeBytes,
+		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
+		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
+	}).Info("lazy load shard auto-detection result")
 	return nil
 }
 
@@ -445,18 +529,18 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*m
 	return idx.addProperty(ctx, prop...)
 }
 
-// DropProperty is ignored, API compliant change
-func (m *Migrator) DropProperty(ctx context.Context, className string, propertyName string) error {
-	// ignore but don't error
-	return nil
-}
+func (m *Migrator) UpdateProperty(ctx context.Context, className string, property *models.Property) error {
+	indexID := indexID(schema.ClassName(className))
 
-func (m *Migrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
-	if newName != nil {
-		return errors.New("weaviate does not support renaming of properties")
+	m.classLocks.Lock(indexID)
+	defer m.classLocks.Unlock(indexID)
+
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update property for a non-existing index for %s", className)
 	}
 
-	return nil
+	return idx.updateProperty(ctx, property)
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
@@ -498,13 +582,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	tenantName := ""
-	if idx.partitioningEnabled {
-		// If partitioning is enable it means the collection is multi tenant and the shard name must match the tenant name
-		// otherwise the tenant name is expected to be empty.
-		tenantName = shardName
-	}
-	return idx.updateShardStatus(ctx, tenantName, shardName, targetStatus, schemaVersion)
+	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
 // NewTenants creates new partitions
@@ -731,6 +809,34 @@ func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
 	return idx.updateVectorIndexConfigs(ctx, updated)
 }
 
+func (m *Migrator) GetVectorIndexNames(className string) []string {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil
+	}
+
+	configs := idx.GetVectorIndexConfigs()
+	names := make([]string, 0, len(configs))
+	for name := range configs {
+		names = append(names, name)
+	}
+	return names
+}
+
+func (m *Migrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
+	indexID := indexID(schema.ClassName(className))
+
+	m.classLocks.Lock(indexID)
+	defer m.classLocks.Unlock(indexID)
+
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot drop vector index of non-existing index for %s", className)
+	}
+
+	return idx.dropVectorIndex(ctx, targetVector)
+}
+
 func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
@@ -756,7 +862,12 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	for vecName := range old {
-		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
+		updatedCfg, exists := updated[vecName]
+		if !exists {
+			// Vector index was dropped — no config to validate.
+			continue
+		}
+		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updatedCfg); err != nil {
 			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
 	}
@@ -878,7 +989,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			props, _, err := shard.AnalyzeObject(object)
+			props, _, _, err := shard.AnalyzeObject(object)
 			if err != nil {
 				m.logger.WithField("error", err).Error("could not analyze object")
 				return nil

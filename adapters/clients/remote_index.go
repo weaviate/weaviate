@@ -28,7 +28,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -38,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -79,6 +81,22 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
 	_, err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, nil, successCode)
+	return rehydrateUsageLimit(err)
+}
+
+// rehydrateUsageLimit returns a *LimitExceededError when err is a 429
+// carrying the USAGE_LIMIT_EXCEEDED payload, else err unchanged.
+func rehydrateUsageLimit(err error) error {
+	if err == nil {
+		return nil
+	}
+	he, ok := AsHTTPError(err)
+	if !ok || he.Code != http.StatusTooManyRequests {
+		return err
+	}
+	if le, ok := usagelimits.FromBodyJSON(he.Body); ok {
+		return le
+	}
 	return err
 }
 
@@ -376,34 +394,36 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
+	selection *searchparams.Selection,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties, selection)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
 	req, err := setupRequest(ctx, http.MethodPost, host,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
 		"", bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, fmt.Errorf("create http request: %w", err)
+		return nil, nil, nil, fmt.Errorf("create http request: %w", err)
 	}
 	clusterapi.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
 
 	// send request
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
-	return resp.Objects, resp.Distributions, err
+	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
 }
 
 type searchShardResp struct {
 	Objects       []*storobj.Object
 	Distributions []float32
+	QueryProfiles []helpers.ShardQueryProfile
 }
 
 func (r *searchShardResp) decode(data []byte) (err error) {
-	r.Objects, r.Distributions, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
+	r.Objects, r.Distributions, r.QueryProfiles, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
 	return err
 }
 

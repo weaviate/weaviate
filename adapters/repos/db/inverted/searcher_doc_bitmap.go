@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -91,22 +92,23 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.bitmapFactory)
+	var rr *RowReaderRoaringSet
+	if pv.nested.isNested {
+		rr = NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, invnested.PathPrefix(pv.nested.relPath))
+	} else {
+		rr = NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
+	}
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
@@ -150,22 +152,18 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReader(b, pv.value, pv.operator, false, s.bitmapFactory)
+	rr := NewRowReader(b, pv.value, pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
@@ -188,22 +186,18 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.bitmapFactory)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}

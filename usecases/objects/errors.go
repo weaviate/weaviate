@@ -21,6 +21,7 @@ const (
 	StatusBadRequest          = 400
 	StatusNotFound            = 404
 	StatusUnprocessableEntity = 422
+	StatusGone                = 410
 	StatusInternalServerError = 500
 )
 
@@ -54,6 +55,10 @@ func (e *Error) BadRequest() bool {
 
 func (e *Error) UnprocessableEntity() bool {
 	return e.Code == StatusUnprocessableEntity
+}
+
+func (e *Error) Gone() bool {
+	return e.Code == StatusGone
 }
 
 // ErrInvalidUserInput indicates a client-side error
@@ -96,6 +101,20 @@ func (e ErrNotFound) Error() string {
 // NewErrNotFound with Errorf signature
 func NewErrNotFound(format string, args ...interface{}) ErrNotFound {
 	return ErrNotFound{msg: fmt.Sprintf(format, args...)}
+}
+
+// ErrEndpointGone marks an operation that is no longer available in the
+// current cluster configuration. The REST layer maps this to HTTP 410.
+type ErrEndpointGone struct {
+	msg string
+}
+
+func (e ErrEndpointGone) Error() string {
+	return e.msg
+}
+
+func NewErrEndpointGone(format string, args ...interface{}) ErrEndpointGone {
+	return ErrEndpointGone{msg: fmt.Sprintf(format, args...)}
 }
 
 type ErrMultiTenancy struct {

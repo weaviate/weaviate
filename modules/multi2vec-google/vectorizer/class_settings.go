@@ -23,9 +23,11 @@ import (
 )
 
 const (
+	apiEndpointProperty          = "apiEndpoint"
 	locationProperty             = "location"
 	projectIDProperty            = "projectId"
 	modelIDProperty              = "modelId"
+	modelProperty                = "model"
 	dimensionsProperty           = "dimensions"
 	videoIntervalSecondsProperty = "videoIntervalSeconds"
 )
@@ -35,6 +37,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
+	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaultModelID               = "multimodalembedding@001"
 )
 
@@ -45,7 +48,7 @@ var (
 	availableVideoIntervalSeconds = []int64{4, 8, 15, defaultVideoIntervalSeconds}
 )
 
-var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty, basesettings.VideoFieldsProperty}
+var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty, basesettings.VideoFieldsProperty, basesettings.AudioFieldsProperty}
 
 type classSettings struct {
 	base *basesettings.BaseClassMultiModalSettings
@@ -60,6 +63,10 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 // Google params
+func (ic *classSettings) ApiEndpoint() string {
+	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
+}
+
 func (ic *classSettings) Location() string {
 	return ic.getStringProperty(locationProperty, "")
 }
@@ -68,16 +75,23 @@ func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) ModelID() string {
+func (ic *classSettings) Model() string {
+	if model := ic.getStringProperty(modelProperty, ""); model != "" {
+		return model
+	}
 	return ic.getStringProperty(modelIDProperty, DefaultModelID)
 }
 
-func (ic *classSettings) Dimensions() int64 {
-	return ic.getInt64Property(dimensionsProperty, defaultDimensions1408)
+func (ic *classSettings) Dimensions() *int64 {
+	var defaultDimensions *int64
+	if ic.isLegacyModel() {
+		defaultDimensions = &defaultDimensions1408
+	}
+	return ic.getInt64Property(dimensionsProperty, defaultDimensions)
 }
 
-func (ic *classSettings) VideoIntervalSeconds() int64 {
-	return ic.getInt64Property(videoIntervalSecondsProperty, defaultVideoIntervalSeconds)
+func (ic *classSettings) VideoIntervalSeconds() *int64 {
+	return ic.getInt64Property(videoIntervalSecondsProperty, &defaultVideoIntervalSeconds)
 }
 
 // CLIP module specific settings
@@ -105,6 +119,14 @@ func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
 	return ic.base.VideoFieldsWeights()
 }
 
+func (ic *classSettings) AudioField(property string) bool {
+	return ic.base.AudioField(property)
+}
+
+func (ic *classSettings) AudioFieldsWeights() ([]float32, error) {
+	return ic.base.AudioFieldsWeights()
+}
+
 func (ic *classSettings) Properties() ([]string, error) {
 	return ic.base.VectorizableProperties(fields)
 }
@@ -117,30 +139,35 @@ func (ic *classSettings) Validate() error {
 
 	var errorMessages []string
 
-	model := ic.ModelID()
-	location := ic.Location()
-	if location == "" {
-		errorMessages = append(errorMessages, "location setting needs to be present")
+	model := ic.Model()
+	if ic.ApiEndpoint() == "" {
+		// Google Vertex AI mandatory settings validation
+		location := ic.Location()
+		if location == "" {
+			errorMessages = append(errorMessages, "location setting needs to be present")
+		}
+
+		projectID := ic.ProjectID()
+		if projectID == "" {
+			errorMessages = append(errorMessages, "projectId setting needs to be present")
+		}
 	}
 
-	projectID := ic.ProjectID()
-	if projectID == "" {
-		errorMessages = append(errorMessages, "projectId setting needs to be present")
-	}
+	if ic.isLegacyModel() {
+		dimensions := ic.Dimensions()
+		if !validateSetting(*dimensions, availableDimensions) {
+			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
+		}
 
-	dimensions := ic.Dimensions()
-	if !validateSetting(dimensions, availableDimensions) {
-		return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
-	}
+		videoIntervalSeconds := ic.VideoIntervalSeconds()
+		if !validateSetting(*videoIntervalSeconds, availableVideoIntervalSeconds) {
+			return errors.Errorf("wrong videoIntervalSeconds setting for %s model, available videoIntervalSeconds are: %v", model, availableVideoIntervalSeconds)
+		}
 
-	videoIntervalSeconds := ic.VideoIntervalSeconds()
-	if !validateSetting(videoIntervalSeconds, availableVideoIntervalSeconds) {
-		return errors.Errorf("wrong videoIntervalSeconds setting for %s model, available videoIntervalSeconds are: %v", model, availableVideoIntervalSeconds)
-	}
-
-	_, videoFieldsOk := ic.base.GetSettings()[basesettings.VideoFieldsProperty]
-	if videoFieldsOk && dimensions != defaultDimensions1408 {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s support only %d dimensions setting", basesettings.VideoFieldsProperty, defaultDimensions1408))
+		_, videoFieldsOk := ic.base.GetSettings()[basesettings.VideoFieldsProperty]
+		if videoFieldsOk && *dimensions != defaultDimensions1408 {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s support only %d dimensions setting", basesettings.VideoFieldsProperty, defaultDimensions1408))
+		}
 	}
 
 	if err := ic.base.ValidateMultiModal(fields); err != nil {
@@ -159,13 +186,14 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 	return ic.base.GetPropertyAsString(name, defaultValue)
 }
 
-func (ic *classSettings) getInt64Property(name string, defaultValue int64) int64 {
-	if val := ic.base.GetPropertyAsInt64(name, &defaultValue); val != nil {
-		return *val
-	}
-	return defaultValue
+func (ic *classSettings) getInt64Property(name string, defaultValue *int64) *int64 {
+	return ic.base.GetPropertyAsInt64(name, defaultValue)
 }
 
 func validateSetting[T string | int64](value T, availableValues []T) bool {
 	return slices.Contains(availableValues, value)
+}
+
+func (ic *classSettings) isLegacyModel() bool {
+	return ic.Model() == "multimodalembedding@001"
 }

@@ -36,7 +36,9 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
 
-	q.Pause()
+	if err := q.Pause(ctx); err != nil {
+		return errors.Wrap(err, "pause vector index")
+	}
 
 	err := vidx.Drop(ctx, false)
 	if err != nil {

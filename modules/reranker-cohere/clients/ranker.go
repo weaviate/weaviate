@@ -48,8 +48,8 @@ type client struct {
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:       apiKey,
-		httpClient:   &http.Client{Timeout: timeout},
-		urlBuilder:   cohere.NewCohereUrlBuilder("/v1/rerank"),
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilder:   cohere.NewCohereUrlBuilder("/v2/rerank"),
 		maxDocuments: 1000,
 		logger:       logger,
 	}
@@ -145,7 +145,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 
 	var rankResponse RankResponse
 	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
 	return c.toDocumentScores(documents, rankResponse.Results), nil
 }

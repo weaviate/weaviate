@@ -12,6 +12,8 @@
 package cluster
 
 import (
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -510,6 +512,157 @@ func TestGetConfigType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := getConfigType(tt.config)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		addr     string
+		expected string
+	}{
+		{
+			name:     "IPv4 with port",
+			addr:     "192.168.1.100:7946",
+			expected: "192.168.1.100",
+		},
+		{
+			name:     "IPv4 without port",
+			addr:     "192.168.1.100",
+			expected: "192.168.1.100",
+		},
+		{
+			name:     "hostname with port",
+			addr:     "node0:7946",
+			expected: "node0",
+		},
+		{
+			name:     "hostname without port",
+			addr:     "node0",
+			expected: "node0",
+		},
+		{
+			name:     "IPv6 with brackets and port",
+			addr:     "[2803:6082:5088:4fc9:9efc:a9d7:143a:0a00]:7946",
+			expected: "2803:6082:5088:4fc9:9efc:a9d7:143a:0a00",
+		},
+		{
+			name:     "IPv6 loopback with brackets and port",
+			addr:     "[::1]:7946",
+			expected: "::1",
+		},
+		{
+			name:     "IPv6 bare (no brackets, no port) — fallback",
+			addr:     "2803:6082:5088:4fc9:9efc:a9d7:143a:0a00",
+			expected: "2803:6082:5088:4fc9:9efc:a9d7:143a:0a00",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractHost(tt.addr)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractHostPreservesValidIPForLookup(t *testing.T) {
+	// Verify that extractHost returns a value that net.ParseIP accepts.
+	// This is the critical property: the old code using strings.Split(":")[0]
+	// would return "[2803" for bracketed IPv6, which is not a valid IP.
+	ipv6Addrs := []string{
+		"[2803:6082:5088:4fc9:9efc:a9d7:143a:0a00]:7946",
+		"[2001:db8::1]:8300",
+		"[::1]:7946",
+	}
+
+	for _, addr := range ipv6Addrs {
+		t.Run(addr, func(t *testing.T) {
+			host := extractHost(addr)
+			// The extracted host must be parseable as an IP address
+			ip := net.ParseIP(host)
+			assert.NotNil(t, ip, "extractHost(%q) = %q, which is not a valid IP", addr, host)
+		})
+	}
+
+	// IPv6 with zone ID: net.SplitHostPort preserves the zone encoding as-is.
+	// net.ParseIP does not accept zone IDs, but the extracted host is still
+	// usable for net.Dial and net.LookupIP which handle zones.
+	t.Run("IPv6 with zone ID", func(t *testing.T) {
+		host := extractHost("[fe80::1%25eth0]:7946")
+		assert.Equal(t, "fe80::1%25eth0", host)
+		// Zone IDs are not parseable by net.ParseIP, but that's expected.
+		assert.Nil(t, net.ParseIP(host))
+	})
+
+	// Verify the old buggy behavior would fail
+	buggyHost := func(addr string) string {
+		// This is what the old code did: strings.Split(addr, ":")[0]
+		parts := make([]string, 0)
+		for i, c := range addr {
+			if c == ':' {
+				parts = append(parts, addr[:i])
+				break
+			}
+		}
+		if len(parts) == 0 {
+			return addr
+		}
+		return parts[0]
+	}
+
+	// The old code would extract "[2803" from "[2803:...]:7946"
+	broken := buggyHost("[2803:6082:5088:4fc9:9efc:a9d7:143a:0a00]:7946")
+	assert.Equal(t, "[2803", broken)
+	assert.Nil(t, net.ParseIP(broken), "buggy extraction should NOT be a valid IP")
+}
+
+func TestIPv6AddressConstruction(t *testing.T) {
+	// Verify that net.JoinHostPort produces correct bracket notation for IPv6.
+	// This is the fix applied across multiple Weaviate source files.
+	tests := []struct {
+		name     string
+		host     string
+		port     int
+		expected string
+	}{
+		{
+			name:     "IPv4 address",
+			host:     "192.168.1.100",
+			port:     8300,
+			expected: "192.168.1.100:8300",
+		},
+		{
+			name:     "IPv6 full address",
+			host:     "2803:6082:5088:4fc9:9efc:a9d7:143a:0a00",
+			port:     8300,
+			expected: "[2803:6082:5088:4fc9:9efc:a9d7:143a:0a00]:8300",
+		},
+		{
+			name:     "IPv6 loopback",
+			host:     "::1",
+			port:     8301,
+			expected: "[::1]:8301",
+		},
+		{
+			name:     "IPv6 abbreviated",
+			host:     "2001:db8::1",
+			port:     7946,
+			expected: "[2001:db8::1]:7946",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := net.JoinHostPort(tt.host, fmt.Sprintf("%d", tt.port))
+			assert.Equal(t, tt.expected, result)
+
+			// Verify round-trip: JoinHostPort → SplitHostPort
+			host, port, err := net.SplitHostPort(result)
+			require.NoError(t, err)
+			assert.Equal(t, tt.host, host)
+			assert.Equal(t, fmt.Sprintf("%d", tt.port), port)
 		})
 	}
 }

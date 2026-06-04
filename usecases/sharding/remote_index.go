@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -89,7 +90,8 @@ type RemoteIndexClient interface {
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, error)
+		selection *searchparams.Selection,
+	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -270,6 +272,9 @@ type ReplicasSearchResult struct {
 	Objects []*storobj.Object
 	Scores  []float32
 	Node    string
+	// QueryProfiles contains per-shard profiling data returned from the remote node.
+	// Only populated when additional.QueryProfile is true.
+	QueryProfiles []helpers.ShardQueryProfile
 }
 
 func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
@@ -288,14 +293,15 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
+	selection *searchparams.Selection,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
-		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, selection)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
-		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node}, nil
+		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node, QueryProfiles: queryProfiles}, nil
 	}
 	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
 }
@@ -313,25 +319,27 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, string, error) {
-	type pair struct {
-		first  []*storobj.Object
-		second []float32
+	selection *searchparams.Selection,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, string, error) {
+	type result struct {
+		objects       []*storobj.Object
+		scores        []float32
+		queryProfiles []helpers.ShardQueryProfile
 	}
 	f := func(node, host string) (interface{}, error) {
-		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, selection)
 		if err != nil {
 			return nil, err
 		}
-		return pair{objs, scores}, err
+		return result{objs, scores, queryProfiles}, err
 	}
 	rr, node, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, nil, node, err
+		return nil, nil, nil, node, err
 	}
-	r := rr.(pair)
-	return r.first, r.second, node, err
+	r := rr.(result)
+	return r.objects, r.scores, r.queryProfiles, node, err
 }
 
 func (ri *RemoteIndex) Aggregate(

@@ -45,8 +45,11 @@ type Module struct {
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
 	nearTextSearcher         modulecapabilities.Searcher[[]float32]
 	nearVideoGraphqlProvider modulecapabilities.GraphQLArguments
-	videoVectorizer          videoVectorizer
 	nearVideoSearcher        modulecapabilities.Searcher[[]float32]
+	videoVectorizer          videoVectorizer
+	nearAudioGraphqlProvider modulecapabilities.GraphQLArguments
+	nearAudioSearcher        modulecapabilities.Searcher[[]float32]
+	audioVectorizer          audioVectorizer
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
 	logger                   logrus.FieldLogger
@@ -70,6 +73,11 @@ type textVectorizer interface {
 type videoVectorizer interface {
 	VectorizeVideo(ctx context.Context,
 		video string, cfg moduletools.ClassConfig) ([]float32, error)
+}
+
+type audioVectorizer interface {
+	VectorizeAudio(ctx context.Context,
+		audio string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 func (m *Module) Name() string {
@@ -98,6 +106,10 @@ func (m *Module) Init(ctx context.Context,
 
 	if err := m.initNearVideo(); err != nil {
 		return errors.Wrap(err, "init near video")
+	}
+
+	if err := m.initNearAudio(); err != nil {
+		return errors.Wrap(err, "init near audio")
 	}
 
 	return nil
@@ -135,6 +147,7 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	m.imageVectorizer = vectorizer.New(client)
 	m.textVectorizer = vectorizer.New(client)
 	m.videoVectorizer = vectorizer.New(client)
+	m.audioVectorizer = vectorizer.New(client)
 	m.metaClient = client
 
 	return nil

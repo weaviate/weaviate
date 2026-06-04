@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -157,7 +158,7 @@ func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap 
 	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
 		if addr := addrResolver.NodeAddress(name); addr != "" {
-			candidates[name] = fmt.Sprintf("%s:%d", addr, raftPort)
+			candidates[name] = net.JoinHostPort(addr, fmt.Sprintf("%d", raftPort))
 		}
 	}
 

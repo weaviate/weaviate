@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -40,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -219,6 +221,28 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
+// installNoLiveReindexLookup installs a ShardReindexActivityLookup
+// that reports zero live reindex tasks. Used by test fixtures so
+// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not trip
+// the conservative pre-wire refusal during tests that do not
+// exercise the gate. Tests that exercise the gate overwrite this
+// with their own lookup.
+func installNoLiveReindexLookup(db *DB) {
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return false }
+	})
+}
+
+// stubDBWithNoLiveReindex returns a minimally initialized *DB that
+// installs the no-live-reindex lookup. Useful for backup tests that
+// build a bare &Index{} literal without going through New() or the
+// shard fixtures.
+func stubDBWithNoLiveReindex() *DB {
+	db := &DB{}
+	installNoLiveReindexLookup(db)
+	return db
+}
+
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, false, indexOpts...)
@@ -248,6 +272,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		return nil
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -260,7 +286,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      true,
+		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -269,6 +295,12 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
 		shardState: shardState,
 	})
+
+	// Default empty backup-gate activity lookup so the pre-wire
+	// conservative refusal does not fire for fixtures that never
+	// exercise the gate. See setupTestShardWithSettings for the
+	// per-test counterpart.
+	installNoLiveReindexLookup(db)
 
 	require.Nil(t, db.WaitForStartup(t.Context()))
 	t.Cleanup(func() {
@@ -326,6 +358,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(name string) *models.Class {
+		return &models.Class{Class: name}
+	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
@@ -339,11 +374,17 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
-		EnableLazyLoadShards:      true,
+		EnableLazyLoadShards:      boolPtr(true),
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
+	// Install a default empty backup-gate activity lookup so
+	// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not
+	// trip the conservative pre-wire refusal in tests that do not
+	// install their own lookup. Tests that exercise the gate
+	// (reindex_inflight_test.go) overwrite this with their fixture.
+	installNoLiveReindexLookup(repo)
 	sch := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
@@ -369,6 +410,38 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	metrics, err := NewMetrics(logger, nil, class.Class, "")
 	require.NoError(t, err)
 
+	localNodeName := "node1"
+
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.WriteReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+
+	getDeletionStrategy := func() string {
+		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
+	repClient := &FakeReplicationClient{}
+	replicator, err := replica.NewReplicator(
+		class.Class,
+		mockRouter,
+		nodeResolver,
+		localNodeName,
+		getDeletionStrategy,
+		repClient,
+		monitoring.GetMetrics(),
+		logger,
+	)
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
 			EnableLazyLoadShards: true,
@@ -384,6 +457,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
 		logger:                 logger,
 		getSchema:              schemaGetter,
+		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
 		indexCheckpoints:       checkpts,
@@ -394,6 +468,18 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
 		HFreshEnabled:          true,
+		replicator:             replicator,
+		router:                 mockRouter,
+		db:                     repo,
+	}
+	{
+		var presetDetectors map[string]*stopwords.Detector
+		if class.InvertedIndexConfig != nil {
+			var err error
+			presetDetectors, err = stopwords.BuildPresetDetectors(iic.StopwordPresets)
+			require.NoError(t, err)
+		}
+		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()

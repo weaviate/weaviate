@@ -306,6 +306,10 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
 
+	if err := ValidatePQConfig(u.PQ); err != nil {
+		return err
+	}
+
 	err := ValidateRQConfig(u.RQ)
 	if err != nil {
 		return err
@@ -343,6 +347,8 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 		return hnswConfig, nil
 	}
 	switch compression {
+	case "", "none":
+		return hnswConfig, nil
 	case "pq":
 		hnswConfig.PQ.Enabled = true
 	case "sq":

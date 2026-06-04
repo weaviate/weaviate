@@ -148,6 +148,14 @@ func CreateClassAuth(t *testing.T, class *models.Class, key string) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+// CreateClassAuthWithReturn issues an authenticated class-create and returns
+// the raw response/error so the caller can assert on rejection paths.
+func CreateClassAuthWithReturn(t *testing.T, class *models.Class, key string) (*schema.SchemaObjectsCreateOK, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	return Client(t).Schema.SchemaObjectsCreate(params, CreateAuth(key))
+}
+
 func GetClass(t *testing.T, class string) *models.Class {
 	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
@@ -164,10 +172,26 @@ func GetClassAuth(t *testing.T, class string, key string) *models.Class {
 	return resp.Payload
 }
 
-func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
+// GetClassAuthWithReturn issues an authenticated class-get and returns the
+// raw response/error. Useful for asserting that a deleted/never-existed
+// class is reported missing.
+func GetClassAuthWithReturn(t *testing.T, class string, key string) (*schema.SchemaObjectsGetOK, error) {
 	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
-	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
+	return Client(t).Schema.SchemaObjectsGet(params, CreateAuth(key))
+}
+
+// GetClassWithoutAssert fetches a class without asserting on the result.
+// An empty key skips authentication; otherwise the call is made with the
+// given API key.
+func GetClassWithoutAssert(t *testing.T, class, key string) (*models.Class, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	var auth runtime.ClientAuthInfoWriter
+	if key != "" {
+		auth = CreateAuth(key)
+	}
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +204,27 @@ func UpdateClass(t *testing.T, class *models.Class) {
 		WithObjectClass(class).WithClassName(class.Class)
 	resp, err := Client(t).Schema.SchemaObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+}
+
+// UpdateClassAuth issues an authenticated class-update and asserts ok.
+// className is the path argument and may differ from class.Class — the
+// caller controls what goes in the URL vs. the body.
+func UpdateClassAuth(t *testing.T, className string, class *models.Class, key string) {
+	t.Helper()
+	params := schema.NewSchemaObjectsUpdateParams().
+		WithClassName(className).WithObjectClass(class)
+	resp, err := Client(t).Schema.SchemaObjectsUpdate(params, CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+}
+
+// UpdateClassAuthWithReturn issues an authenticated class-update and
+// returns the raw response/error. See UpdateClassAuth for the className
+// vs. class.Class distinction.
+func UpdateClassAuthWithReturn(t *testing.T, className string, class *models.Class, key string) (*schema.SchemaObjectsUpdateOK, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsUpdateParams().
+		WithClassName(className).WithObjectClass(class)
+	return Client(t).Schema.SchemaObjectsUpdate(params, CreateAuth(key))
 }
 
 func CreateObject(t *testing.T, object *models.Object) error {
@@ -209,6 +254,16 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func CreateObjectWithResponseAuth(t *testing.T, object *models.Object, key string) (*models.Object, error) {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
 	if err != nil {
 		return nil, err
 	}
@@ -359,6 +414,29 @@ func DeleteClassAuth(t *testing.T, class string, key string) {
 	AssertRequestOk(t, delRes, err, nil)
 }
 
+// DeleteClassWithoutAssert deletes a class without asserting on the
+// result. Use it for best-effort cleanup where the class may already
+// have been removed by another path (e.g. a cascading namespace delete).
+func DeleteClassWithoutAssert(t *testing.T, class, key string) {
+	t.Helper()
+	params := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	var auth runtime.ClientAuthInfoWriter
+	if key != "" {
+		auth = CreateAuth(key)
+	}
+	_, _ = Client(t).Schema.SchemaObjectsDelete(params, auth)
+}
+
+// DeleteClassAuthWithReturn issues an authenticated class-delete and
+// returns the raw error so callers can assert on rejection (e.g. malformed
+// namespace prefix in the URL).
+func DeleteClassAuthWithReturn(t *testing.T, class string, key string) error {
+	t.Helper()
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	_, err := Client(t).Schema.SchemaObjectsDelete(delParams, CreateAuth(key))
+	return err
+}
+
 func DeleteObject(t *testing.T, object *models.Object) {
 	t.Helper()
 	params := objects.NewObjectsClassDeleteParams().
@@ -418,6 +496,17 @@ func DeleteTenantObjectsBatchCL(t *testing.T, body *models.BatchDelete,
 func AddReferences(t *testing.T, refs []*models.BatchReference) ([]*models.BatchReferenceResponse, error) {
 	t.Helper()
 	params := batch.NewBatchReferencesCreateParams().WithBody(refs)
+	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func AddReferencesCL(t *testing.T, refs []*models.BatchReference, cl types.ConsistencyLevel) ([]*models.BatchReferenceResponse, error) {
+	t.Helper()
+	cls := string(cl)
+	params := batch.NewBatchReferencesCreateParams().WithBody(refs).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
 	if err != nil {
 		return nil, err
@@ -533,6 +622,28 @@ func UpdateTenantsWithAuthz(t *testing.T, class string, tenants []*models.Tenant
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func ActivateTenants(t *testing.T, class string, tenants []string) {
+	t.Helper()
+	ts := make([]*models.Tenant, len(tenants))
+	for i, tenant := range tenants {
+		ts[i] = &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusACTIVE}
+	}
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(ts)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeactivateTenants(t *testing.T, class string, tenants []string) {
+	t.Helper()
+	ts := make([]*models.Tenant, len(tenants))
+	for i, tenant := range tenants {
+		ts[i] = &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusINACTIVE}
+	}
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(ts)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
@@ -634,6 +745,15 @@ func CreateAliasAuth(t *testing.T, alias *models.Alias, key string) {
 	CreateAliasWithAuthz(t, alias, CreateAuth(key))
 }
 
+// CreateAliasAuthWithReturn issues an authenticated alias-create and
+// returns the raw response/error so the caller can assert on rejection
+// paths.
+func CreateAliasAuthWithReturn(t *testing.T, alias *models.Alias, key string) (*schema.AliasesCreateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesCreateParams().WithBody(alias)
+	return Client(t).Schema.AliasesCreate(params, CreateAuth(key))
+}
+
 func GetAliases(t *testing.T, className *string) *models.AliasResponse {
 	return GetAliasesWithAuthz(t, className, nil)
 }
@@ -670,6 +790,24 @@ func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.
 	return nil
 }
 
+// GetAliasAuthWithReturn issues an authenticated alias-get and returns
+// the raw response/error so the caller can assert on rejection paths
+// (e.g. malformed namespace prefix).
+func GetAliasAuthWithReturn(t *testing.T, aliasName, key string) (*schema.AliasesGetAliasOK, error) {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	return Client(t).Schema.AliasesGetAlias(params, CreateAuth(key))
+}
+
+// GetAliasesAuthWithReturn issues an authenticated alias-list and returns
+// the raw response/error so the caller can assert on rejection paths
+// (e.g. malformed namespace prefix on the class filter).
+func GetAliasesAuthWithReturn(t *testing.T, className *string, key string) (*schema.AliasesGetOK, error) {
+	t.Helper()
+	params := schema.NewAliasesGetParams().WithClass(className)
+	return Client(t).Schema.AliasesGet(params, CreateAuth(key))
+}
+
 func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
 	UpdateAliasWithAuthz(t, aliasName, targetClassName, nil)
 }
@@ -688,6 +826,15 @@ func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authI
 	AssertRequestOk(t, resp, err, nil)
 }
 
+// UpdateAliasAuthWithReturn issues an authenticated alias-update and
+// returns the raw response/error so the caller can assert on rejection
+// paths (e.g. malformed namespace prefix).
+func UpdateAliasAuthWithReturn(t *testing.T, aliasName, targetClassName, key string) (*schema.AliasesUpdateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
+	return Client(t).Schema.AliasesUpdate(params, CreateAuth(key))
+}
+
 func DeleteAlias(t *testing.T, aliasName string) {
 	DeleteAliasWithAuthz(t, aliasName, nil)
 }
@@ -697,6 +844,15 @@ func DeleteAliasWithReturn(t *testing.T, aliasName string) (*schema.AliasesDelet
 	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
 	resp, err := Client(t).Schema.AliasesDelete(params, nil)
 	return resp, err
+}
+
+// DeleteAliasAuthWithReturn issues an authenticated alias-delete and
+// returns the raw response/error so the caller can assert on rejection
+// paths (e.g. malformed namespace prefix).
+func DeleteAliasAuthWithReturn(t *testing.T, aliasName, key string) (*schema.AliasesDeleteNoContent, error) {
+	t.Helper()
+	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
+	return Client(t).Schema.AliasesDelete(params, CreateAuth(key))
 }
 
 func DeleteAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) {

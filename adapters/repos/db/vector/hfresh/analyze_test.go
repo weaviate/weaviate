@@ -14,7 +14,6 @@ package hfresh
 import (
 	"testing"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,8 +23,6 @@ func TestAnalyzeCentroidNotExists(t *testing.T) {
 
 	err := tf.Index.doAnalyze(t.Context(), 42)
 	require.NoError(t, err)
-
-	require.Len(t, tf.Logs.Entries, 1)
 }
 
 // Analyze when posting doesn't exist in store
@@ -47,12 +44,6 @@ func TestAnalyzePostingNotFound(t *testing.T) {
 
 	err = tf.Index.doAnalyze(t.Context(), postingID)
 	require.NoError(t, err)
-
-	require.Greater(t, len(tf.Logs.Entries), 1)
-	entry := tf.Logs.Entries[len(tf.Logs.Entries)-1]
-	require.Equal(t, logrus.DebugLevel, entry.Level)
-	require.Equal(t, "posting is empty, skipping analyze operation", entry.Message)
-	require.Equal(t, postingID, entry.Data["postingID"])
 }
 
 // Analyze when metadata is already in memory
@@ -83,13 +74,13 @@ func TestAnalyzeWithInMemoryMetadata(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
 	err = tf.Index.doAnalyze(t.Context(), postingID)
 	require.NoError(t, err)
 
-	count, err := tf.Index.PostingMap.CountVectorIDs(t.Context(), postingID)
+	count, err := tf.Index.PostingSizes.Get(t.Context(), postingID)
 	require.NoError(t, err)
 	require.Equal(t, uint32(5), count)
 }
@@ -122,7 +113,7 @@ func TestAnalyzeEnqueuesSplitWhenNeeded(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
 	originalMax := tf.Index.maxPostingSize
@@ -163,7 +154,7 @@ func TestAnalyzeDoesNotEnqueueSplitWhenNotNeeded(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
 	originalMax := tf.Index.maxPostingSize

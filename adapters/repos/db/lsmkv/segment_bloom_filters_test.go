@@ -234,7 +234,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 
-	err = b2.Delete([]byte("hello"))
+	err = b2.Delete([]byte("hello"), WithSecondaryKey(0, []byte("bonjour")))
 	assert.Nil(t, err)
 
 	v, err := b2.Get([]byte("hello"))
@@ -505,7 +505,7 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 			WithSecondaryKey(0, []byte("bonjour2"))))
 		require.NoError(t, b.FlushMemtable())
 
-		compacted, err := b.disk.compactOnce()
+		compacted, err := b.disk.compactOnce(context.Background())
 		require.NoError(t, err)
 		require.True(t, compacted)
 	})

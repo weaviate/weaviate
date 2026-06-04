@@ -34,7 +34,7 @@ func TestMaintenanceMode(t *testing.T) {
 
 	compose, err := docker.New().
 		With3NodeCluster().
-		WithWeaviateEnv("MAINTENANCE_NODES", "node3").
+		WithWeaviateEnv("MAINTENANCE_NODES", docker.Weaviate2).
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {

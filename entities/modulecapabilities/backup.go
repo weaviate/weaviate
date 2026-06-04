@@ -18,6 +18,22 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
+// BackendUseCase distinguishes callers so a module can return
+// a differently-configured backend for backup vs export.
+type BackendUseCase int
+
+const (
+	BackendUseCaseBackup BackendUseCase = iota
+	BackendUseCaseExport
+)
+
+// ExportBackendProvider is optionally implemented by backup modules
+// that provide a separate BackupBackend for export operations
+// (e.g., with different STS credentials for cross-account access).
+type ExportBackendProvider interface {
+	ExportBackend() BackupBackend
+}
+
 type BackupBackend interface {
 	// IsExternal returns whether the storage is an external storage (e.g. gcs, s3)
 	IsExternal() bool
@@ -49,6 +65,6 @@ type BackupBackend interface {
 	// Write writes the content of the reader to the object with key
 	// bucketName and bucketPath override the initialised bucketName and bucketPath
 	// Allows restores from a different bucket to the designated backup bucket
-	Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error)
+	Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error)
 	Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error)
 }

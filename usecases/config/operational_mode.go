@@ -36,6 +36,7 @@ const (
 var ReadOnlyWhitelist = map[string]struct{}{
 	"backups": {},
 	"graphql": {},
+	"mcp":     {},
 }
 
 // A slice of endpoints to whitelist when determining if an operation is allowed in WriteOnly mode
@@ -46,6 +47,7 @@ var WriteOnlyWhitelist = map[string]struct{}{
 	"replication": {},
 	".well-known": {},
 	"meta":        {},
+	"mcp":         {},
 }
 
 // A slice of endpoints to whitelist when determining if an operation is allowed in ScaleOut mode
@@ -53,6 +55,7 @@ var ScaleOutWhitelist = map[string]struct{}{
 	"backups":     {},
 	"graphql":     {},
 	"replication": {},
+	"mcp":         {},
 }
 
 func IsHTTPRead(method string) bool {

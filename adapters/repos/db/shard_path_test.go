@@ -63,7 +63,8 @@ func TestShardFileSanitize(t *testing.T) {
 
 	// now read a valid file
 	ret := &backup.ShardDescriptor{}
-	require.NoError(t, shd.ListBackupFiles(ctx, ret))
+	_, err = shd.ListBackupFiles(ctx, ret)
+	require.NoError(t, err)
 
 	file, err = shd.GetFile(ctx, ret.ShardVersionPath)
 	require.NoError(t, err)

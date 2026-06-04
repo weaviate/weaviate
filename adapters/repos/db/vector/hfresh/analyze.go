@@ -34,48 +34,19 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	}()
 
 	if !h.Centroids.Exists(postingID) {
-		h.logger.WithField("postingID", postingID).
-			Debug("posting not found, skipping analyze operation")
 		return nil
 	}
 
-	// load the posting metadata
-	meta, err := h.PostingMap.Get(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+	// load the posting and update the posting metadata on-disk and in-memory
+	p, err := h.PostingStore.Get(ctx, postingID)
+	if err != nil {
 		return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
 	}
 
-	// if the metadata was loaded from disk or the posting doesn't have a mapping entry yet, it might not be in sync with
-	// the posting store. load the posting from disk to do the analysis.
-	if err != nil || meta.fromDisk {
-		p, err := h.PostingStore.Get(ctx, postingID)
-		if err != nil {
-			if errors.Is(err, ErrPostingNotFound) {
-				h.logger.WithField("postingID", postingID).
-					Debug("posting not found, skipping analyze operation")
-				return nil
-			}
-
-			return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
-		}
-
-		if len(p) == 0 {
-			h.logger.WithField("postingID", postingID).
-				Debug("posting is empty, skipping analyze operation")
-			return nil
-		}
-
-		// update the posting map in-memory cache and persist the vector IDs
-		err = h.PostingMap.SetVectorIDs(ctx, postingID, p)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set vector IDs for posting %d", postingID)
-		}
-	} else {
-		// only persist the in-memory cache to disk
-		err = h.PostingMap.Persist(ctx, postingID)
-		if err != nil {
-			return errors.Wrapf(err, "failed to persist posting %d", postingID)
-		}
+	// update the posting map in-memory cache and persist the vector IDs
+	err = h.setPostingVectorIDs(ctx, postingID, p)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set vector IDs for posting %d", postingID)
 	}
 
 	markedAsDone = true
@@ -83,7 +54,7 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	h.taskQueue.AnalyzeDone(postingID)
 
 	// check if the posting needs to be split
-	size, err := h.PostingMap.CountVectorIDs(ctx, postingID)
+	size, err := h.PostingSizes.Get(ctx, postingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get size of posting %d", postingID)
 	}

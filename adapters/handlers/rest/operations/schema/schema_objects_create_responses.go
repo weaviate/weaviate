@@ -152,7 +152,7 @@ type SchemaObjectsCreateUnprocessableEntity struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
+	Payload *models.RestrictionViolationResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsCreateUnprocessableEntity creates SchemaObjectsCreateUnprocessableEntity with default headers values
@@ -162,13 +162,13 @@ func NewSchemaObjectsCreateUnprocessableEntity() *SchemaObjectsCreateUnprocessab
 }
 
 // WithPayload adds the payload to the schema objects create unprocessable entity response
-func (o *SchemaObjectsCreateUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *SchemaObjectsCreateUnprocessableEntity {
+func (o *SchemaObjectsCreateUnprocessableEntity) WithPayload(payload *models.RestrictionViolationResponse) *SchemaObjectsCreateUnprocessableEntity {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects create unprocessable entity response
-func (o *SchemaObjectsCreateUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+func (o *SchemaObjectsCreateUnprocessableEntity) SetPayload(payload *models.RestrictionViolationResponse) {
 	o.Payload = payload
 }
 
@@ -176,6 +176,51 @@ func (o *SchemaObjectsCreateUnprocessableEntity) SetPayload(payload *models.Erro
 func (o *SchemaObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// SchemaObjectsCreateTooManyRequestsCode is the HTTP code returned for type SchemaObjectsCreateTooManyRequests
+const SchemaObjectsCreateTooManyRequestsCode int = 429
+
+/*
+SchemaObjectsCreateTooManyRequests A configured usage limit (collections/shards) was exceeded. See the `UsageLimitExceededResponse` body for which limit and the configured value.
+
+swagger:response schemaObjectsCreateTooManyRequests
+*/
+type SchemaObjectsCreateTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.UsageLimitExceededResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsCreateTooManyRequests creates SchemaObjectsCreateTooManyRequests with default headers values
+func NewSchemaObjectsCreateTooManyRequests() *SchemaObjectsCreateTooManyRequests {
+
+	return &SchemaObjectsCreateTooManyRequests{}
+}
+
+// WithPayload adds the payload to the schema objects create too many requests response
+func (o *SchemaObjectsCreateTooManyRequests) WithPayload(payload *models.UsageLimitExceededResponse) *SchemaObjectsCreateTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects create too many requests response
+func (o *SchemaObjectsCreateTooManyRequests) SetPayload(payload *models.UsageLimitExceededResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsCreateTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

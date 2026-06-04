@@ -37,7 +37,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				assert.Equal(t, "location", location)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", model)
@@ -48,7 +48,7 @@ func TestClient(t *testing.T) {
 		expected := &ent.VectorizationResult{
 			TextVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, nil,
+		res, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, nil, nil,
 			ent.VectorizationConfig{
 				Location:  "location",
 				ProjectID: "project",
@@ -66,7 +66,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				assert.Equal(t, "location", location)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", model)
@@ -77,7 +77,7 @@ func TestClient(t *testing.T) {
 		expected := &ent.VectorizationResult{
 			ImageVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
-		res, err := c.Vectorize(context.Background(), nil, []string{"base64 encoded image"}, nil,
+		res, err := c.Vectorize(context.Background(), nil, []string{"base64 encoded image"}, nil, nil,
 			ent.VectorizationConfig{
 				Location:  "location",
 				ProjectID: "project",
@@ -95,7 +95,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -103,7 +103,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, nil, nil, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -118,12 +118,12 @@ func TestClient(t *testing.T) {
 		c := &google{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, nil,
+		_, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, nil, nil,
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
@@ -137,7 +137,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -148,7 +148,7 @@ func TestClient(t *testing.T) {
 		expected := &ent.VectorizationResult{
 			TextVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
+		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, nil, nil, ent.VectorizationConfig{})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -161,7 +161,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -169,7 +169,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, nil, nil, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Equal(t, "Google API Key: no api key found "+
@@ -190,12 +190,251 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, nil, nil, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Equal(t, "Google API Key: no api key found "+
 			"neither in request header: X-Palm-Api-Key or X-Goog-Api-Key or X-Goog-Vertex-Api-Key or X-Goog-Studio-Api-Key "+
 			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY", err.Error())
+	})
+}
+
+func TestGetApiKeyWithGeminiHeaders(t *testing.T) {
+	geminiConfig := ent.VectorizationConfig{
+		ApiEndpoint: "generativelanguage.googleapis.com",
+		Model:       "gemini-embedding-2",
+	}
+
+	tests := []struct {
+		name       string
+		headerKey  string
+		headerVal  string
+		envApiKey  string
+		wantApiKey string
+		wantErr    bool
+	}{
+		{
+			name:       "X-Goog-Studio-Api-Key header",
+			headerKey:  "X-Goog-Studio-Api-Key",
+			headerVal:  "studio-key-1",
+			wantApiKey: "studio-key-1",
+		},
+		{
+			name:       "X-Google-Studio-Api-Key header",
+			headerKey:  "X-Google-Studio-Api-Key",
+			headerVal:  "studio-key-2",
+			wantApiKey: "studio-key-2",
+		},
+		{
+			name:       "X-Goog-Api-Key header falls through for Gemini",
+			headerKey:  "X-Goog-Api-Key",
+			headerVal:  "goog-key",
+			wantApiKey: "goog-key",
+		},
+		{
+			name:       "X-Palm-Api-Key header falls through for Gemini",
+			headerKey:  "X-Palm-Api-Key",
+			headerVal:  "palm-key",
+			wantApiKey: "palm-key",
+		},
+		{
+			name:       "env api key used as fallback",
+			envApiKey:  "env-key",
+			wantApiKey: "env-key",
+		},
+		{
+			name:    "no key returns error",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&fakeGeminiHandler{t: t})
+			defer server.Close()
+			c := &google{
+				apiKey:       tt.envApiKey,
+				httpClient:   &http.Client{},
+				googleApiKey: apikey.NewGoogleApiKey(),
+				urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+					return server.URL
+				},
+				logger: nullLogger(),
+			}
+			ctx := context.Background()
+			if tt.headerKey != "" {
+				ctx = context.WithValue(ctx, tt.headerKey, []string{tt.headerVal})
+			}
+
+			res, err := c.Vectorize(ctx, []string{"hello"}, nil, nil, nil, geminiConfig)
+
+			if tt.wantErr {
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), "no api key found")
+			} else {
+				require.Nil(t, err)
+				assert.NotNil(t, res)
+			}
+		})
+	}
+}
+
+func TestGetApiKeyVertexHeadersNotUsedForGemini(t *testing.T) {
+	// Vertex-specific headers (X-Goog-Vertex-Api-Key) should NOT work for Gemini endpoint
+	server := httptest.NewServer(&fakeGeminiHandler{t: t})
+	defer server.Close()
+	c := &google{
+		apiKey:       "",
+		httpClient:   &http.Client{},
+		googleApiKey: apikey.NewGoogleApiKey(),
+		urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+			return server.URL
+		},
+		logger: nullLogger(),
+	}
+	ctx := context.WithValue(context.Background(), "X-Goog-Vertex-Api-Key", []string{"vertex-key"})
+
+	_, err := c.Vectorize(ctx, []string{"hello"}, nil, nil, nil, ent.VectorizationConfig{
+		ApiEndpoint: "generativelanguage.googleapis.com",
+		Model:       "gemini-embedding-2",
+	})
+
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "no api key found")
+}
+
+func TestGetApiKeyVertexHeaders(t *testing.T) {
+	vertexConfig := ent.VectorizationConfig{
+		Location:  "us-central1",
+		ProjectID: "my-project",
+		Model:     "multimodalembedding",
+	}
+
+	tests := []struct {
+		name       string
+		headerKey  string
+		headerVal  string
+		envApiKey  string
+		wantApiKey string
+	}{
+		{
+			name:       "X-Goog-Vertex-Api-Key header",
+			headerKey:  "X-Goog-Vertex-Api-Key",
+			headerVal:  "vertex-key-1",
+			wantApiKey: "vertex-key-1",
+		},
+		{
+			name:       "X-Google-Vertex-Api-Key header",
+			headerKey:  "X-Google-Vertex-Api-Key",
+			headerVal:  "vertex-key-2",
+			wantApiKey: "vertex-key-2",
+		},
+		{
+			name:       "X-Goog-Api-Key header falls through for Vertex",
+			headerKey:  "X-Goog-Api-Key",
+			headerVal:  "goog-key",
+			wantApiKey: "goog-key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&fakeHandler{t: t})
+			defer server.Close()
+			c := &google{
+				apiKey:       tt.envApiKey,
+				httpClient:   &http.Client{},
+				googleApiKey: apikey.NewGoogleApiKey(),
+				urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+					return server.URL
+				},
+				logger: nullLogger(),
+			}
+			ctx := context.WithValue(context.Background(), tt.headerKey, []string{tt.headerVal})
+
+			res, err := c.Vectorize(ctx, []string{"hello"}, nil, nil, nil, vertexConfig)
+
+			require.Nil(t, err)
+			assert.NotNil(t, res)
+		})
+	}
+}
+
+func TestGeminiStudioHeaderNotUsedForVertex(t *testing.T) {
+	// Studio-specific headers should NOT work for Vertex endpoint
+	server := httptest.NewServer(&fakeHandler{t: t})
+	defer server.Close()
+	c := &google{
+		apiKey:       "",
+		httpClient:   &http.Client{},
+		googleApiKey: apikey.NewGoogleApiKey(),
+		urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+			return server.URL
+		},
+		logger: nullLogger(),
+	}
+	ctx := context.WithValue(context.Background(), "X-Goog-Studio-Api-Key", []string{"studio-key"})
+
+	_, err := c.Vectorize(ctx, []string{"hello"}, nil, nil, nil, ent.VectorizationConfig{
+		Location:  "us-central1",
+		ProjectID: "my-project",
+		Model:     "multimodalembedding",
+	})
+
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "no api key found")
+}
+
+func TestGeminiClient(t *testing.T) {
+	t.Run("when all is fine we vectorize audio via Gemini API", func(t *testing.T) {
+		server := httptest.NewServer(&fakeGeminiHandler{t: t})
+		defer server.Close()
+		c := &google{
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+				return server.URL
+			},
+			logger: nullLogger(),
+		}
+		expected := &ent.VectorizationResult{
+			AudioVectors: [][]float32{{0.1, 0.2, 0.3}},
+		}
+		res, err := c.Vectorize(context.Background(), nil, nil, nil, []string{"base64-encoded-audio"},
+			ent.VectorizationConfig{
+				ApiEndpoint: "generativelanguage.googleapis.com",
+				Model:       "gemini-embedding-2",
+			})
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("when all is fine we vectorize text and audio via Gemini API", func(t *testing.T) {
+		server := httptest.NewServer(&fakeGeminiHandler{t: t})
+		defer server.Close()
+		c := &google{
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+				return server.URL
+			},
+			logger: nullLogger(),
+		}
+		expected := &ent.VectorizationResult{
+			TextVectors:  [][]float32{{0.1, 0.2, 0.3}},
+			AudioVectors: [][]float32{{0.1, 0.2, 0.3}},
+		}
+		res, err := c.Vectorize(context.Background(), []string{"some text"}, nil, nil, []string{"base64-encoded-audio"},
+			ent.VectorizationConfig{
+				ApiEndpoint: "generativelanguage.googleapis.com",
+				Model:       "gemini-embedding-2",
+			})
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
 	})
 }
 
@@ -261,6 +500,48 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outBytes, err := json.Marshal(resp)
 	require.Nil(f.t, err)
 
+	w.Write(outBytes)
+}
+
+type fakeGeminiHandler struct {
+	t           *testing.T
+	serverError error
+}
+
+func (f *fakeGeminiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	assert.Equal(f.t, http.MethodPost, r.Method)
+
+	if f.serverError != nil {
+		resp := &batchEmbedResponse{
+			Error: &googleApiError{
+				Code:    http.StatusInternalServerError,
+				Status:  "error",
+				Message: f.serverError.Error(),
+			},
+		}
+		outBytes, err := json.Marshal(resp)
+		require.Nil(f.t, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(outBytes)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	require.Nil(f.t, err)
+	defer r.Body.Close()
+
+	var req batchEmbedContents
+	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
+
+	embedding := []float32{0.1, 0.2, 0.3}
+	var embeddings []embedContentEmbedding
+	for range req.Requests {
+		embeddings = append(embeddings, embedContentEmbedding{Values: embedding})
+	}
+
+	resp := batchEmbedResponse{Embeddings: embeddings}
+	outBytes, err := json.Marshal(resp)
+	require.Nil(f.t, err)
 	w.Write(outBytes)
 }
 

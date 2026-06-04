@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -68,6 +69,42 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 			Exclude: []string{cls},
 		})
 		assert.NotNil(t, err)
+	})
+
+	t.Run("ValidateBaseBackupID", func(t *testing.T) {
+		tests := []struct {
+			name            string
+			baseID          string
+			wantBaseIDError bool
+		}{
+			{"empty string is skipped", "", false},
+			{"valid lowercase accepted", "valid_id-123", false},
+			{"uppercase rejected", "BadID", true},
+			{"special characters rejected", "bad*id", true},
+			{"whitespace rejected", "bad id", true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				// Include + Exclude is set so that valid/empty base IDs trip
+				// the downstream errIncludeExclude check (mirroring the
+				// IncludeExclude sub-test above), giving us a predictable
+				// non-mock failure path that cannot mention "base backup id".
+				_, err := s.Backup(ctx, nil, &BackupRequest{
+					Backend:      backendName,
+					ID:           "1234",
+					Include:      []string{cls},
+					Exclude:      []string{cls},
+					BaseBackupID: tc.baseID,
+				})
+				assert.NotNil(t, err)
+				if tc.wantBaseIDError {
+					assert.ErrorContains(t, err, "base backup id:")
+					assert.ErrorContains(t, err, "invalid backup id")
+				} else {
+					assert.NotContains(t, err.Error(), "base backup id:")
+				}
+			})
+		}
 	})
 
 	t.Run("RequestIncludeHasDuplicate", func(t *testing.T) {
@@ -223,7 +260,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 			backup.BackupDescriptor{
 				StartedAt:   starTime,
 				CompletedAt: completedAt,
-				Status:      string(backup.Success),
+				Status:      backup.Success,
 				// 1.5Gb
 				PreCompressionSizeBytes: 1610612736,
 			},
@@ -291,7 +328,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 	t.Run("ReadFromMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		completedAt := starTime.Add(time.Hour)
-		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: backup.Success})
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
@@ -319,7 +356,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Backend: backendName,
 		}
 		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", ""}
+		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
 
@@ -418,7 +455,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.client.On("Commit", any, node, sReq).Return(nil)
 		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
 		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil)
 
 		s := fs.scheduler()
@@ -460,7 +497,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		keyNodeA    = backupID + "/" + nodeA
 		keyNodeB    = backupID + "/" + nodeB
 		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", ""}
+		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 	meta := backup.DistributedBackupDescriptor{
@@ -488,7 +525,7 @@ func TestSchedulerRestoration(t *testing.T) {
 	rawClassBytes, _ := json.Marshal(&models.Class{Class: cls})
 	meta1 := backup.BackupDescriptor{
 		ID:     backupID,
-		Status: string(backup.Success),
+		Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
@@ -497,7 +534,7 @@ func TestSchedulerRestoration(t *testing.T) {
 	}
 	meta2 := backup.BackupDescriptor{
 		ID:     backupID,
-		Status: string(backup.Success),
+		Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
@@ -787,7 +824,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("FailedBackup", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Failed})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -821,7 +858,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -833,13 +870,22 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	t.Run("WrongBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 
-		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: backup.Success})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "wrong backup file")
+
+		assert.Contains(t, err.Error(), req.ID,
+			"error must surface the request ID")
+		assert.Contains(t, err.Error(), "123",
+			"error must surface the metadata's stored ID")
+		assert.Contains(t, err.Error(), GlobalBackupFile,
+			"error must name the descriptor file path")
+		assert.Contains(t, err.Error(), path,
+			"error must include the destination path")
 	})
 
 	t.Run("UnknownClass", func(t *testing.T) {
@@ -880,14 +926,14 @@ func TestSchedulerList(t *testing.T) {
 	t.Run("BackendNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("AllBackupsFails", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return(nil, ErrAny)
-		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.NotNil(t, err)
 		assert.Equal(t, ErrAny, err)
 	})
@@ -902,6 +948,7 @@ func TestSchedulerList(t *testing.T) {
 					"node1": {Classes: []string{cls1}},
 				},
 				PreCompressionSizeBytes: 16106127360, // 15 GB
+				BaseBackupID:            "base-1",
 			},
 			{
 				ID:     backupID2,
@@ -910,11 +957,12 @@ func TestSchedulerList(t *testing.T) {
 					"node2": {Classes: []string{cls2}},
 				},
 				PreCompressionSizeBytes: 2147483648, // 2 GB
+				BaseBackupID:            "base-2",
 			},
 		}
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, true)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 2)
@@ -924,19 +972,38 @@ func TestSchedulerList(t *testing.T) {
 		assert.Equal(t, string(backup.Success), (*resp)[0].Status)
 		assert.Equal(t, []string{cls1}, (*resp)[0].Classes)
 		assert.Equal(t, float64(15), (*resp)[0].Size)
+		assert.Equal(t, "base-1", (*resp)[0].IncrementalBaseBackupID)
 
 		// Check second backup
 		assert.Equal(t, backupID2, (*resp)[1].ID)
 		assert.Equal(t, string(backup.Failed), (*resp)[1].Status)
 		assert.Equal(t, []string{cls2}, (*resp)[1].Classes)
 		assert.Equal(t, float64(2), (*resp)[1].Size)
+		assert.Equal(t, "base-2", (*resp)[1].IncrementalBaseBackupID)
+	})
+
+	t.Run("BaseBackupIDHiddenWhenNotIncluded", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:           backupID1,
+				Status:       backup.Success,
+				BaseBackupID: "base-1",
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 1)
+		assert.Empty(t, (*resp)[0].IncrementalBaseBackupID)
 	})
 
 	t.Run("EmptyList", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{}, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 0)
@@ -981,7 +1048,7 @@ func TestSchedulerList(t *testing.T) {
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
 		t.Run("return results sorted by default (desc)", func(t *testing.T) {
-			resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+			resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 			assert.Nil(t, err)
 			assert.NotNil(t, resp)
 			assert.Len(t, *resp, 5)
@@ -1000,7 +1067,7 @@ func TestSchedulerList(t *testing.T) {
 		})
 
 		t.Run("return results sorted (asc)", func(t *testing.T) {
-			resp, err := fs.scheduler().List(ctx, nil, backendName, func(s string) *string { return &s }("asc"))
+			resp, err := fs.scheduler().List(ctx, nil, backendName, func(s string) *string { return &s }("asc"), false)
 			assert.Nil(t, err)
 			assert.NotNil(t, resp)
 			assert.Len(t, *resp, 5)
@@ -1099,7 +1166,7 @@ func TestCancellingBackup(t *testing.T) {
 	t.Run("CancellingSucceeded", func(t *testing.T) {
 		fakeScheduler := newFakeScheduler(nil)
 		ds := backup.BackupDescriptor{
-			Status: string(backup.Success),
+			Status: backup.Success,
 		}
 		b, err := json.Marshal(ds)
 		assert.Nil(t, err)

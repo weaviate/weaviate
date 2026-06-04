@@ -23,10 +23,12 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	cleanup := func() {

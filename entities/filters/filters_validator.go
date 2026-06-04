@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -81,14 +83,42 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 		propName = schema.PropertyName(lengthPropName)
 	}
 
-	prop, err := schema.GetPropertyByName(class, propName.String())
+	// Strip any [N] index from the first path segment so that "nested[0].city"
+	// correctly resolves to the "nested" property in the schema.
+	rootName := nested.RootPropName(propName.String())
+	prop, err := schema.GetPropertyByName(class, rootName)
 	if err != nil {
 		return err
 	}
 
+	// [N] indexing is only meaningful for nested object[] properties. If the
+	// user wrote it on a flat property the positional intent would otherwise
+	// be silently dropped (e.g. "tagsArray[0]" would degrade to "tagsArray"),
+	// so reject it at validation time. Inspect the first path segment
+	// directly so this branch only triggers when the user actually wrote [N];
+	// any other malformed dotted input falls through to a more appropriate
+	// error path below.
+	if nested.ParseSegments(propName.String())[0].HasIndex {
+		if _, ok := schema.AsNested(prop.DataType); !ok {
+			return fmt.Errorf("property %q: [N] indexing is only supported on nested object[] properties",
+				propName)
+		}
+	}
+
+	if _, ok := schema.AsNested(prop.DataType); ok {
+		// Preview gate — fires before any other nested validation so the user
+		// sees a single actionable message instead of a downstream
+		// "sub-property not found" / contradiction error. See
+		// entities/config/feature_flags.go.
+		if !entcfg.NestedFilteringEnabled() {
+			return entcfg.NestedFilteringDisabledError()
+		}
+		return validateNestedProp(prop, propName, isPropLengthFilter, cw)
+	}
+
 	if cw.getOperator() == OperatorIsNull {
 		if !cw.isType(schema.DataTypeBoolean) {
-			return errors.Errorf("operator IsNull requires a booleanValue, got %q instead",
+			return errors.Errorf("operator IsNull requires a booleanValue, got %v instead",
 				cw.getValueNameFromType())
 		}
 		return nil
@@ -104,7 +134,7 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 			OperatorLessThan, OperatorLessThanEqual:
 			// ok
 		default:
-			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %q instead",
+			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %v instead",
 				op)
 		}
 		if val := cw.getValue(); val.(int) < 0 {

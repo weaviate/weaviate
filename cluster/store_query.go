@@ -37,9 +37,9 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT:
-		payload, err = st.schemaManager.QueryCollectionsCount()
+		payload, err = st.schemaManager.QueryCollectionsCount(req)
 		if err != nil {
-			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get collections count: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_TENANTS:
 		payload, err = st.schemaManager.QueryTenants(req)
@@ -110,6 +110,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.dynUserManager.GetUsers(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_NAMESPACES:
+		payload, err = st.namespaceManager.Get(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get namespaces: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_DETAILS:
 		payload, err = st.replicationManager.GetReplicationDetailsByReplicationId(req)

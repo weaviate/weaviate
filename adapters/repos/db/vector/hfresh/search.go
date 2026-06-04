@@ -14,10 +14,12 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -28,16 +30,20 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	vector = h.normalizeVec(vector)
+
 	if allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
 
 	rescoreLimit := int(h.rescoreLimit)
-	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
+		if atomic.LoadUint32(&h.dims) == 0 {
+			return nil, nil, nil
+		}
 		return nil, nil, errors.New("quantizer not initialized")
 	}
-	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+	queryDistancer := h.quantizer.NewDistancer(vector)
 
 	var selectedCentroids []uint64
 	var postings []Posting
@@ -70,7 +76,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
-		count, err := h.PostingMap.CountVectorIDs(ctx, centroids.data[i].ID)
+		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -89,6 +95,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
+
+	var decompressBuf []uint64
 
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
@@ -111,7 +119,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 
 			// skip duplicates
-			if visited.Visited(id) {
+			if visited.CheckAndVisit(id) {
 				continue
 			}
 
@@ -120,12 +128,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				continue
 			}
 
-			dist, err := v.Distance(h.distancer, queryVector)
+			decompressBuf = h.quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
+			dist, err := queryDistancer.Distance(decompressBuf)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
 
-			visited.Visit(id)
 			q.Insert(id, dist)
 		}
 
@@ -143,8 +151,15 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	for id := range q.Iter() {
 		vec, err := h.vectorForId(ctx, id)
 		if err != nil {
+			// The object may have been deleted between the posting scan and the
+			// rescore step (race condition). Skip stale entries gracefully.
+			var notFound storobj.ErrNotFound
+			if errors.As(err, &notFound) {
+				continue
+			}
 			return nil, nil, err
 		}
+		vec = h.normalizeVec(vec)
 		dist, err := h.distancer.distancer.SingleDist(vector, vec)
 		if err != nil {
 			return nil, nil, err

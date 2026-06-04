@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 const (
@@ -55,6 +56,12 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 
 				dist, err := h.distToNode(ctx, candidate, queryVector)
 				if err != nil {
+					// The object may have been deleted between allowList iteration
+					// and vector fetch. Skip stale entries gracefully.
+					var notFound storobj.ErrNotFound
+					if errors.As(err, &notFound) {
+						continue
+					}
 					return err
 				}
 
@@ -117,6 +124,18 @@ func (h *HFresh) distToNode(ctx context.Context, node uint64, vecB []float32) (f
 			"got a nil or zero-length vector as search vector")
 	}
 
+	// With ASYNC_INDEXING the HFRESH distancer is populated lazily as
+	// index init completes. A filtered near_vector issued in the brief
+	// window between the insert's ack and init finishing otherwise lands
+	// here with h.distancer still nil and dereferences through the inner
+	// .distancer field. Return a typed error so the caller surfaces
+	// "index not yet initialized" instead of the recovered runtime panic
+	// and the user can retry once the async pipeline catches up.
+	if h.distancer == nil {
+		return 0, fmt.Errorf("HFRESH distancer is not yet initialized")
+	}
+
+	vecA = h.normalizeVec(vecA)
 	return h.distancer.distancer.SingleDist(vecA, vecB)
 }
 

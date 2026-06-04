@@ -53,6 +53,9 @@ type NestedProperty struct {
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
+	// text analyzer
+	TextAnalyzer *TextAnalyzerConfig `json:"textAnalyzer,omitempty"`
+
 	// tokenization
 	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
 	Tokenization string `json:"tokenization,omitempty"`
@@ -63,6 +66,10 @@ func (m *NestedProperty) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateNestedProperties(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTextAnalyzer(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -97,6 +104,25 @@ func (m *NestedProperty) validateNestedProperties(formats strfmt.Registry) error
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *NestedProperty) validateTextAnalyzer(formats strfmt.Registry) error {
+	if swag.IsZero(m.TextAnalyzer) { // not required
+		return nil
+	}
+
+	if m.TextAnalyzer != nil {
+		if err := m.TextAnalyzer.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("textAnalyzer")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("textAnalyzer")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -173,6 +199,10 @@ func (m *NestedProperty) ContextValidate(ctx context.Context, formats strfmt.Reg
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateTextAnalyzer(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -194,6 +224,22 @@ func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, fo
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *NestedProperty) contextValidateTextAnalyzer(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TextAnalyzer != nil {
+		if err := m.TextAnalyzer.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("textAnalyzer")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("textAnalyzer")
+			}
+			return err
+		}
 	}
 
 	return nil

@@ -237,7 +237,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypePhoneNumber:
 		// skipping for now, see gh-1088 where it was outscoped
 		return nil, nil
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeTextArray:
 		return makePropertyField(class, property, stringPropertyFields)

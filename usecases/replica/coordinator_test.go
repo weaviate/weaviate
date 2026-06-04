@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type errorType string
@@ -125,7 +126,7 @@ func Test_coordinatorPush(t *testing.T) {
 			}
 			w.WriteHeader(status)
 			b, err := json.Marshal(replica.SimpleResponse{
-				Errors: []replica.Error{{Msg: msg}},
+				Errors: []replicaerrors.Error{{Msg: msg}},
 			})
 			require.NoError(t, err)
 			w.Write(b)
@@ -264,7 +265,8 @@ func Test_coordinatorPush(t *testing.T) {
 				replicas[i], replicas[j] = replicas[j], replicas[i]
 			}
 
-			client := clients.NewReplicationClient(&http.Client{})
+			client, err := clients.NewReplicationClient(&http.Client{})
+			require.NoError(t, err)
 			coordinator := replica.NewWriteCoordinator[replica.SimpleResponse, error](
 				client,
 				setupRouter(cl, replicas),
@@ -458,7 +460,8 @@ func Test_coordinatorPull(t *testing.T) {
 				{NodeName: "node3", ShardName: shard, HostAddr: tt.node3.URL[7:]},
 			}
 
-			client := clients.NewReplicationClient(&http.Client{})
+			client, err := clients.NewReplicationClient(&http.Client{})
+			require.NoError(t, err)
 			coordinator := replica.NewReadCoordinator[types.RepairResponse](
 				setupRouter(cl, replicas),
 				metrics,

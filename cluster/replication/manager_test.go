@@ -1189,6 +1189,37 @@ func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			name:   "op is INTEGRATING",
+			status: api.INTEGRATING,
+			hasOngoingReplicationParams: []hasOngoingReplicationParams{
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   true,
+				},
+				{
+					collection: "non-existing-collection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "non-existing-shard",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "non-existing-replica",
+					expected:   false,
+				},
+			},
+			expectedError: nil,
+		},
+		{
 			name:   "op is CANCELLED",
 			status: api.CANCELLED,
 			hasOngoingReplicationParams: []hasOngoingReplicationParams{

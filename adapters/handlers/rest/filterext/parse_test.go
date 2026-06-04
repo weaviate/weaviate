@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -180,7 +181,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false, nil)
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -286,7 +287,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false, nil)
 				assert.ErrorAs(t, err, &test.expectedErr)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -335,7 +336,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false, nil)
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -469,7 +470,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false, nil)
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -550,4 +551,123 @@ func inputGeoRangeFilter(lat, lon, max float64) *models.WhereFilterGeoRange {
 
 func ptFloat32(in float32) *float32 {
 	return &in
+}
+
+// Test_Parse_NamespacesEnabledQualifiesRefPath asserts that reference-path
+// inner class segments are qualified via QualifyRefTarget against the previous
+// level's namespace, including its policy (namespaced callers can't type a
+// prefix; admins must match the source NS; foreign-NS rejected). Non-NS
+// clusters pass through unchanged.
+func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
+	t.Parallel()
+
+	value := "v"
+	directProp := &models.WhereFilter{
+		Operator:  models.WhereFilterOperatorEqual,
+		Path:      []string{"name"},
+		ValueText: &value,
+	}
+	refPath := &models.WhereFilter{
+		Operator:  models.WhereFilterOperatorEqual,
+		Path:      []string{"inCountry", "Country", "name"},
+		ValueText: &value,
+	}
+	nestedRefPath := &models.WhereFilter{
+		Operator:  models.WhereFilterOperatorEqual,
+		Path:      []string{"inCountry", "Country", "hasCapital", "City", "name"},
+		ValueText: &value,
+	}
+	nestedAndWithRefPath := &models.WhereFilter{
+		Operator: models.WhereFilterOperatorAnd,
+		Operands: []*models.WhereFilter{directProp, refPath},
+	}
+
+	nsCaller := &models.Principal{Username: "u", Namespace: "customer1"}
+	admin := &models.Principal{Username: "admin"}
+
+	t.Run("namespaced caller short ref-path is qualified via parent NS", func(t *testing.T) {
+		out, err := Parse(refPath, "customer1:City", true, nsCaller)
+		require.NoError(t, err)
+		require.NotNil(t, out)
+		require.NotNil(t, out.Root.On)
+		require.NotNil(t, out.Root.On.Child)
+		assert.Equal(t, "customer1:City", out.Root.On.Class.String())
+		assert.Equal(t, "customer1:Country", out.Root.On.Child.Class.String(),
+			"inner class segment should inherit the source's namespace")
+	})
+
+	t.Run("multi-hop ref-path qualifies every level", func(t *testing.T) {
+		out, err := Parse(nestedRefPath, "customer1:City", true, nsCaller)
+		require.NoError(t, err)
+		require.NotNil(t, out)
+		require.NotNil(t, out.Root.On)
+		require.NotNil(t, out.Root.On.Child)
+		require.NotNil(t, out.Root.On.Child.Child)
+		assert.Equal(t, "customer1:Country", out.Root.On.Child.Class.String())
+		assert.Equal(t, "customer1:City", out.Root.On.Child.Child.Class.String(),
+			"every linked class along the chain must inherit the source's namespace")
+	})
+
+	t.Run("admin own-namespace prefix on inner class does not double-qualify", func(t *testing.T) {
+		ownNS := &models.WhereFilter{
+			Operator:  models.WhereFilterOperatorEqual,
+			Path:      []string{"inCountry", "customer1:Country", "name"},
+			ValueText: &value,
+		}
+		out, err := Parse(ownNS, "customer1:City", true, admin)
+		require.NoError(t, err)
+		require.NotNil(t, out.Root.On.Child)
+		assert.Equal(t, "customer1:Country", out.Root.On.Child.Class.String(),
+			"admin's own-NS prefix must be normalized, not stacked")
+	})
+
+	t.Run("namespaced caller cannot type any prefix on inner class", func(t *testing.T) {
+		withPrefix := &models.WhereFilter{
+			Operator:  models.WhereFilterOperatorEqual,
+			Path:      []string{"inCountry", "customer1:Country", "name"},
+			ValueText: &value,
+		}
+		_, err := Parse(withPrefix, "customer1:City", true, nsCaller)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
+	})
+
+	t.Run("foreign-namespace prefix on inner class is rejected", func(t *testing.T) {
+		foreign := &models.WhereFilter{
+			Operator:  models.WhereFilterOperatorEqual,
+			Path:      []string{"inCountry", "customer2:Country", "name"},
+			ValueText: &value,
+		}
+		_, err := Parse(foreign, "customer1:City", true, admin)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
+	})
+
+	t.Run("compound AND threads qualification into nested operands", func(t *testing.T) {
+		out, err := Parse(nestedAndWithRefPath, "customer1:City", true, nsCaller)
+		require.NoError(t, err)
+		require.NotNil(t, out)
+		// The compound has two operands: a direct-prop and a ref-path.
+		require.Len(t, out.Root.Operands, 2)
+		var refOperand *filters.Clause
+		for i := range out.Root.Operands {
+			if out.Root.Operands[i].On != nil && out.Root.Operands[i].On.Child != nil {
+				refOperand = &out.Root.Operands[i]
+			}
+		}
+		require.NotNil(t, refOperand, "expected a ref-path operand in the AND")
+		assert.Equal(t, "customer1:Country", refOperand.On.Child.Class.String())
+	})
+
+	t.Run("namespacesEnabled accepts direct property filter", func(t *testing.T) {
+		out, err := Parse(directProp, "customer1:City", true, nsCaller)
+		require.NoError(t, err)
+		assert.NotNil(t, out)
+	})
+
+	t.Run("namespacesEnabled=false still accepts ref-path (pass-through)", func(t *testing.T) {
+		out, err := Parse(refPath, "City", false, nil)
+		require.NoError(t, err)
+		assert.NotNil(t, out)
+	})
 }

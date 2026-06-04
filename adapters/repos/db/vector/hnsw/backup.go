@@ -31,6 +31,11 @@ func (h *hnsw) PrepareForBackup(ctx context.Context) error {
 	return nil
 }
 
+func (h *hnsw) ResumeAfterBackup(ctx context.Context) error {
+	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	return nil
+}
+
 // ListFiles lists all files that are part of the part of the HNSW
 // except the last commit-log which is writable. This operation is typically
 // called immediately after calling SwitchCommitlogs which means that the

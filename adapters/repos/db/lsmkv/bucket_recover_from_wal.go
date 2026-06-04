@@ -107,8 +107,16 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			cl.pause()
 			defer cl.unpause()
 
-			mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
-				cl, b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker, b.shouldSkipKey)
+			mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
+				path:                         path,
+				strategy:                     b.strategy,
+				secondaryIndices:             b.secondaryIndices,
+				enableChecksumValidation:     b.enableChecksumValidation,
+				writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
+				shouldSkipKeyFunc:            b.shouldSkipKey,
+				skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
+				bm25config:                   b.bm25Config,
+			})
 			if err != nil {
 				return err
 			}
@@ -127,7 +135,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			}
 
 			if mt.strategy == StrategyInverted {
-				mt.averagePropLength, _ = sg.GetAveragePropertyLength()
+				mt.averagePropLength, mt.propLengthCount = sg.GetAveragePropertyLength()
 			}
 
 			// immediately flush the .wal file if there have been any damages during recovery. This means that the file is

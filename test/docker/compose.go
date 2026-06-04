@@ -20,8 +20,12 @@ import (
 	"strings"
 	"time"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
+	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
+	"github.com/testcontainers/testcontainers-go"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"golang.org/x/sync/errgroup"
 
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -56,6 +60,7 @@ import (
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	moddigitalocean "github.com/weaviate/weaviate/modules/text2vec-digitalocean"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
@@ -101,6 +106,7 @@ const (
 )
 
 type Compose struct {
+	netOctet                    int // second octet of this cluster's subnet, set in Start
 	enableModules               []string
 	defaultVectorizerModule     string
 	withMinIO                   bool
@@ -135,6 +141,7 @@ type Compose struct {
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
+	withWeaviateNamespaces         bool
 	withWeaviateRbac               bool
 	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
@@ -152,8 +159,10 @@ type Compose struct {
 	withAutoschema                 bool
 	withMockOIDC                   bool
 	withMockOIDCWithCertificate    bool
+	withMockOIDCNamespacedUsers    bool
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
+	weaviateFiles                  []testcontainers.ContainerFile
 }
 
 func New() *Compose {
@@ -331,6 +340,12 @@ func (d *Compose) WithText2VecMorph(apiKey string) *Compose {
 func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modcohere.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecDigitalOcean(apiKey string) *Compose {
+	d.weaviateEnvs["DIGITALOCEAN_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, moddigitalocean.Name)
 	return d
 }
 
@@ -539,6 +554,22 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMCP() *Compose {
+	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
+	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_ENABLED", "true")
+	return d
+}
+
+func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
+	d.weaviateFiles = append(d.weaviateFiles, testcontainers.ContainerFile{
+		HostFilePath:      hostPath,
+		ContainerFilePath: containerPath,
+		FileMode:          0o644,
+	})
+	d.WithWeaviateEnv("MCP_SERVER_CONFIG_PATH", containerPath)
+	return d
+}
+
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeDebugPort = true
@@ -587,6 +618,14 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+// WithWeaviateFiles copies the given files into each Weaviate container
+// before it starts. Useful for injecting configuration files such as runtime
+// override YAML.
+func (d *Compose) WithWeaviateFiles(files ...testcontainers.ContainerFile) *Compose {
+	d.weaviateFiles = append(d.weaviateFiles, files...)
+	return d
+}
+
 func (d *Compose) WithMockOIDC() *Compose {
 	d.withMockOIDC = true
 	return d
@@ -594,6 +633,14 @@ func (d *Compose) WithMockOIDC() *Compose {
 
 func (d *Compose) WithMockOIDCWithCertificate() *Compose {
 	d.withMockOIDCWithCertificate = true
+	return d
+}
+
+// WithMockOIDCNamespacedUsers preseeds mockoidc with users that pass
+// OIDC classification on a namespace-enabled cluster
+// (oidc-namespaced-customer1, oidc-namespaced-customer2, oidc-global).
+func (d *Compose) WithMockOIDCNamespacedUsers() *Compose {
+	d.withMockOIDCNamespacedUsers = true
 	return d
 }
 
@@ -620,6 +667,16 @@ func (d *Compose) WithRBAC() *Compose {
 
 func (d *Compose) WithDbUsers() *Compose {
 	d.withWeaviateDbUsers = true
+	return d
+}
+
+// WithNamespaces enables NAMESPACES_ENABLED on the Weaviate container and
+// disables GraphQL, which Config.Validate requires whenever namespaces are on.
+// Config.Validate also requires RBAC on namespace-enabled clusters, so callers
+// that need a bootable NS cluster must pair this with WithRBAC()/WithRbacRoots().
+// This helper does not auto-enable RBAC.
+func (d *Compose) WithNamespaces() *Compose {
+	d.withWeaviateNamespaces = true
 	return d
 }
 
@@ -669,10 +726,26 @@ func (d *Compose) WithAutoschema() *Compose {
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
-	network, err := tescontainersnetwork.New(
-		ctx,
-		tescontainersnetwork.WithAttachable(),
-	)
+	// Each cluster gets its own subnet (10.<octet>.0.0/16). Two networks can
+	// still draw the same random octet — including several within one test
+	// binary — so re-roll and retry when Docker reports an overlap.
+	newNet := func() (*testcontainers.DockerNetwork, error) {
+		return tescontainersnetwork.New(
+			ctx,
+			tescontainersnetwork.WithAttachable(),
+			tescontainersnetwork.WithIPAM(&dockernetwork.IPAM{
+				Config: []dockernetwork.IPAMConfig{
+					{Subnet: subnetForOctet(d.netOctet), Gateway: gatewayForOctet(d.netOctet)},
+				},
+			}),
+		)
+	}
+	d.netOctet = pickNetOctet()
+	network, err := newNet()
+	for retries := 0; err != nil && retries < 9 && strings.Contains(err.Error(), "overlaps"); retries++ {
+		d.netOctet = pickNetOctet()
+		network, err = newNet()
+	}
 	if err != nil {
 		return nil, errors.Wrapf(err, "connecting to network")
 	}
@@ -684,7 +757,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
-		container, err := startMinIO(ctx, networkName, d.withBackendS3Buckets)
+		container, err := startMinIO(ctx, networkName, d.netOctet, d.withBackendS3Buckets)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
@@ -869,7 +942,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			}
 		}
 		image := os.Getenv(envTestMockOIDCImage)
-		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey)
+		preseedMode := ""
+		if d.withMockOIDCNamespacedUsers {
+			preseedMode = "namespaces"
+		}
+		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey, preseedMode)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
@@ -896,7 +973,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 				containers = append(containers, c)
 			}
 		}
-		return &DockerCompose{network, containers}, err
+		return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, err
 	}
 
 	if d.withSecondWeaviate {
@@ -914,17 +991,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
 		if err != nil {
-			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
+			return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, errors.Wrapf(err, "start %s", hostname)
 		}
 	}
 
-	return &DockerCompose{network, containers}, nil
+	return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, nil
 }
 
 func (d *Compose) With1NodeCluster() *Compose {
@@ -952,11 +1029,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		delete(settings, k)
 	}
 
-	raft_join := "node1,node2,node3"
+	raft_join := Weaviate0 + "," + Weaviate1 + "," + Weaviate2
 	if size == 1 {
-		raft_join = "node1"
+		raft_join = Weaviate0
 	} else if size == 2 {
-		raft_join = "node1,node2"
+		raft_join = Weaviate0 + "," + Weaviate1
 	}
 
 	cs := make([]*DockerContainer, size)
@@ -1026,6 +1103,19 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
 	}
 
+	if d.withWeaviateNamespaces {
+		settings["NAMESPACES_ENABLED"] = "true"
+		settings["DISABLE_GRAPHQL"] = "true"
+		// Namespaces pin each namespace's shards to a single home_node;
+		// the startup invariant rejects RF>1 because the home_node would
+		// silently disagree with the configured replication.
+		settings["REPLICATION_MAXIMUM_FACTOR"] = "1"
+		// Tight cleanup tick for acceptance: deletion tests poll for the
+		// 404 that arrives once the leader has finished tearing down the
+		// namespace's classes, aliases, and users.
+		settings["NAMESPACE_CLEANUP_INTERVAL"] = "1s"
+	}
+
 	if d.withAutoschema {
 		settings["AUTOSCHEMA_ENABLED"] = "true"
 	}
@@ -1037,60 +1127,132 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 
 	// first node
 	config1 := copySettings(settings)
-	config1["CLUSTER_HOSTNAME"] = "node1"
+	config1["CLUSTER_HOSTNAME"] = Weaviate0
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
-	eg := errgroup.Group{}
-	wellKnownEndpointFunc := func(hostname string) string {
+	// Cluster startup mimics k8s behavior: all pods start concurrently, become
+	// "live" quickly (process running, ports listening), then become "ready"
+	// only after Raft quorum is established. This is critical because Raft
+	// bootstrap requires all RAFT_BOOTSTRAP_EXPECT nodes to be running — if we
+	// waited for weaviate-0 to be fully "ready" before starting weaviate-1/weaviate-2, we'd
+	// deadlock since readiness requires quorum which requires all nodes.
+	//
+	// Phase 1: Start all nodes concurrently with liveness-only wait (live endpoint).
+	// Phase 2: After all nodes are live, wait for readiness on each (ready endpoint).
+
+	// Liveness endpoint: process is running, can accept memberlist joins.
+	livenessEndpoint := "/v1/.well-known/live"
+
+	// Readiness endpoint: Raft quorum formed, API fully serving.
+	readinessEndpointFunc := func(hostname string) string {
 		if slices.Contains(strings.Split(settings["MAINTENANCE_NODES"], ","), hostname) {
 			return "/v1/.well-known/live"
 		}
 		return "/v1/.well-known/ready"
 	}
-	eg.Go(func() (err error) {
-		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node1"))
-		if err != nil {
-			return errors.Wrapf(err, "start %s", Weaviate1)
+
+	// startNodeWithRetry wraps startWeaviate with retry logic, mimicking k8s
+	// pod restart behavior. If a node crashes on startup (e.g. memberlist join
+	// fails because another node isn't listening yet), it retries instead of
+	// failing permanently.
+	const maxRetries = 3
+	const perAttemptTimeout = 90 * time.Second
+	const readinessTimeout = 120 * time.Second
+
+	startNodeWithRetry := func(cfg map[string]string, hostname string) (*DockerContainer, error) {
+		var lastErr error
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("startCluster[%s]: caller context expired before attempt %d (caller ctx: %w)",
+					hostname, attempt+1, ctx.Err())
+			}
+			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
+			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
+			cancel()
+			if err == nil {
+				if attempt > 0 {
+					fmt.Printf("startCluster[%s]: recovered on attempt %d/%d\n",
+						hostname, attempt+1, maxRetries+1)
+				}
+				return c, nil
+			}
+			lastErr = err
+			if attempt < maxRetries {
+				fmt.Printf("startCluster[%s]: liveness failed (attempt %d/%d, timeout=%s): %v — retrying\n",
+					hostname, attempt+1, maxRetries+1, perAttemptTimeout, err)
+			}
 		}
-		return nil
+		return nil, fmt.Errorf("startCluster[%s]: all %d liveness attempts failed (timeout=%s each): %w",
+			hostname, maxRetries+1, perAttemptTimeout, lastErr)
+	}
+
+	// Phase 1: Start all nodes concurrently — each blocks until live.
+	// Static IPs are derived from hostnames via StaticIPForHostname.
+	eg := errgroup.Group{}
+
+	eg.Go(func() (err error) {
+		cs[0], err = startNodeWithRetry(config1, Weaviate0)
+		return err
 	})
 
 	if size > 1 {
 		config2 := copySettings(settings)
-		config2["CLUSTER_HOSTNAME"] = "node2"
+		config2["CLUSTER_HOSTNAME"] = Weaviate1
 		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
-		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
-			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node2"))
-			if err != nil {
-				return errors.Wrapf(err, "start %s", Weaviate2)
-			}
-			return nil
+			cs[1], err = startNodeWithRetry(config2, Weaviate1)
+			return err
 		})
 	}
 
 	if size > 2 {
 		config3 := copySettings(settings)
-		config3["CLUSTER_HOSTNAME"] = "node3"
+		config3["CLUSTER_HOSTNAME"] = Weaviate2
 		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
-		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
-			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node3"))
-			if err != nil {
-				return errors.Wrapf(err, "start %s", Weaviate3)
+			cs[2], err = startNodeWithRetry(config3, Weaviate2)
+			return err
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return cs, fmt.Errorf("startCluster phase 1 (liveness): %w", err)
+	}
+
+	// Phase 2: All nodes are live. Wait for each to become ready (Raft quorum
+	// formed, API serving). This runs concurrently since readiness depends on
+	// the cluster converging, not on individual node ordering.
+	readyEg := errgroup.Group{}
+	for i := 0; i < size; i++ {
+		c := cs[i]
+		if c == nil {
+			continue
+		}
+		hostname := []string{Weaviate0, Weaviate1, Weaviate2}[i]
+		readyEg.Go(func() error {
+			readyCtx, cancel := context.WithTimeout(context.Background(), readinessTimeout)
+			defer cancel()
+			endpoint := readinessEndpointFunc(hostname)
+			if err := wait.ForHTTP(endpoint).
+				WithPort(nat.Port("8080/tcp")).
+				WaitUntilReady(readyCtx, c.container); err != nil {
+				return fmt.Errorf("startCluster[%s]: readiness check failed (endpoint=%s, timeout=%s): %w",
+					hostname, endpoint, readinessTimeout, err)
 			}
 			return nil
 		})
 	}
 
-	return cs, eg.Wait()
+	if err := readyEg.Wait(); err != nil {
+		return cs, fmt.Errorf("startCluster phase 2 (readiness): %w", err)
+	}
+
+	return cs, nil
 }
 
 func copySettings(s map[string]string) map[string]string {

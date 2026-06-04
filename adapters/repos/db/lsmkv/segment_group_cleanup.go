@@ -475,8 +475,6 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 			filename = "segment-" + segmentId + ".db.tmp"
 		}
 		tmpSegmentPath = filepath.Join(c.sg.dir, filename)
-		scratchSpacePath := oldSegment.getPath() + "cleanup.scratch.d"
-
 		start := time.Now()
 		c.sg.logger.WithFields(logrus.Fields{
 			"action":       "lsm_cleanup",
@@ -509,7 +507,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		case StrategyReplace:
 			c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 				c.sg.makeKeyExistsOnUpperSegments(segments, startIdx, lastIdx), oldSegment.getLevel(),
-				oldSegment.getSecondaryIndexCount(), scratchSpacePath, c.sg.enableChecksumValidation)
+				oldSegment.getSecondaryIndexCount(), c.sg.enableChecksumValidation)
 			if err = c.do(shouldAbort); err != nil {
 				return false, err
 			}
@@ -594,28 +592,7 @@ func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 		return nil, fmt.Errorf("replace cleaned segment (blocking): %w", err)
 	}
 
-	// NOTE: The delete logic will wait for the ref count to reach zero, to
-	// ensure we are not deleting any segments that are still being referenced,
-	// e.g. from cursor or other "slow" readers.
-	//
-	// The whole compaction cycle is single-threaded, so waiting for a delete,
-	// also means we are essentially delaying the next compaction. That is not
-	// ideal and also not strictly necessary. We could extract the delete logic
-	// into a simple job queue that runs in a separate goroutine.
-	//
-	// However, https://github.com/weaviate/weaviate/pull/9104, where
-	// ref-counting is introduced, is already a significant change at the point
-	// of writing this comment. Thus, to minimize further risks, we keep the
-	// existing logic for now.
-	if err := sg.deleteOldSegmentsFromDisk(oldSegment); err != nil {
-		// don't abort if the delete fails, we can still continue (albeit
-		// without freeing disk space that should have been freed). The
-		// compaction itself was successful.
-		sg.logger.WithError(err).WithFields(logrus.Fields{
-			"action": "lsm_replace_cleaned_segment_delete_file",
-			"file":   oldSegment.getPath(),
-		}).Error("failed to delete file already marked for deletion")
-	}
+	sg.addSegmentsToAwaitingDrop(oldSegment)
 
 	return newSegment, nil
 }

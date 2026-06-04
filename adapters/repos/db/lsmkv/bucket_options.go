@@ -47,6 +47,17 @@ func WithStrategy(strategy string) BucketOption {
 	}
 }
 
+// WithClassName attaches the canonical class name to the bucket. Set on the
+// objects bucket so storobj decoders stamp the canonical class on every
+// decoded object instead of trusting the on-disk className field. Leave unset
+// for buckets that do not hold storobj payloads.
+func WithClassName(className string) BucketOption {
+	return func(b *Bucket) error {
+		b.className = className
+		return nil
+	}
+}
+
 func WithMemtableThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.memtableThreshold = threshold
@@ -283,6 +294,37 @@ func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Context) (bool, error)) BucketOption {
 	return func(b *Bucket) error {
 		b.shouldSkipKey = shouldSkipKey
+		return nil
+	}
+}
+
+func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
+	return func(b *Bucket) error {
+		b.skipSecondaryKeyCheck = skip
+		return nil
+	}
+}
+
+// WithImmutable marks the bucket as immutable. All write operations (Put,
+// Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrImmutable.
+// Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
+//
+// This is distinct from the shard-level read-only status
+// (storagestate.StatusReadOnly) which temporarily halts flushes during
+// backup/compaction operations.
+func WithImmutable(immutable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.immutable = immutable
+		return nil
+	}
+}
+
+// WithSequentialAccess hints the kernel (via fadvise) that segment files will
+// be read sequentially, enabling aggressive read-ahead. Used by snapshot
+// buckets where the export cursor scans from start to end.
+func WithSequentialAccess(v bool) BucketOption {
+	return func(b *Bucket) error {
+		b.sequentialAccess = v
 		return nil
 	}
 }

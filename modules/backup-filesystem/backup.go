@@ -24,15 +24,23 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
-	var metaPath string
-	var err error
+func (m *Module) resolvePath(overridePath string) (string, error) {
+	p := m.backupsPath
 	if overridePath != "" {
-		metaPath, err = m.getObjectPath(ctx, overridePath, backupID, key)
-	} else {
-		metaPath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+		p = overridePath
 	}
+	if p == "" {
+		return "", fmt.Errorf("backup path must not be empty")
+	}
+	return p, nil
+}
 
+func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
+	basePath, err := m.resolvePath(overridePath)
+	if err != nil {
+		return nil, err
+	}
+	metaPath, err := m.getObjectPath(ctx, basePath, backupID, key)
 	if err != nil {
 		return nil, err
 	}
@@ -102,10 +110,11 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overrideP
 		m.logger.Info("bucket parameter not supported for filesystem backup module!")
 	}
 
-	backupPath := path.Join(m.makeBackupDirPath(m.backupsPath, backupID), key)
-	if overridePath != "" {
-		backupPath = path.Join(overridePath, backupID, key)
+	basePath, err := m.resolvePath(overridePath)
+	if err != nil {
+		return err
 	}
+	backupPath := path.Join(basePath, backupID, key)
 
 	dir := path.Dir(backupPath)
 
@@ -131,13 +140,11 @@ func (m *Module) Initialize(ctx context.Context, backupID, overrideBucket, overr
 }
 
 func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	var objectPath string
-	var err error
-	if overridePath != "" {
-		objectPath = filepath.Join(overridePath, backupID, key)
-	} else {
-		objectPath = filepath.Join(m.backupsPath, backupID, key)
+	basePath, err := m.resolvePath(overridePath)
+	if err != nil {
+		return err
 	}
+	objectPath := filepath.Join(basePath, backupID, key)
 
 	bytesWritten, err := m.copyFile(objectPath, destPath)
 	if err != nil {
@@ -152,16 +159,18 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overr
 	return nil
 }
 
-func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
 
-	var backupPath string
-	var err error
-	if overridePath != "" {
-		backupPath = filepath.Join(overridePath, backupID, key)
-	} else {
-		backupPath = filepath.Join(m.backupsPath, backupID, key)
+	basePath, err := m.resolvePath(overridePath)
+	if err != nil {
+		return 0, err
 	}
+	backupPath := filepath.Join(basePath, backupID, key)
 	dir := path.Dir(backupPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return 0, fmt.Errorf("make dir %q: %w", dir, err)
@@ -172,9 +181,9 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 	}
 	defer f.Close()
 
-	written, err := io.Copy(f, r)
+	written, err = io.Copy(f, r)
 	if err != nil {
-		return 0, fmt.Errorf("write file %q: %w", backupPath, err)
+		return written, fmt.Errorf("write file %q: %w", backupPath, err)
 	}
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
 		GetMetricWithLabelValues(m.Name(), "class"); err == nil {
@@ -187,13 +196,11 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 func (m *Module) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
-	var sourcePath string
-	var err error
-	if overridePath != "" {
-		sourcePath, err = m.getObjectPath(ctx, overridePath, backupID, key)
-	} else {
-		sourcePath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+	basePath, err := m.resolvePath(overridePath)
+	if err != nil {
+		return -1, err
 	}
+	sourcePath, err := m.getObjectPath(ctx, basePath, backupID, key)
 	if err != nil {
 		return 0, fmt.Errorf("source path %s/%s: %w", backupID, key, err)
 	}

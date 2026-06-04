@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -38,92 +39,8 @@ type Client interface {
 	WClient
 }
 
-// StatusCode is communicate the cause of failure during replication
-type StatusCode int
-
-const (
-	StatusOK            = 0
-	StatusClassNotFound = iota + 200
-	StatusShardNotFound
-	StatusNotFound
-	StatusAlreadyExisted
-	StatusNotReady
-	StatusConflict = iota + 300
-	StatusPreconditionFailed
-	StatusReadOnly
-	StatusObjectNotFound
-)
-
-// Error reports error happening during replication
-type Error struct {
-	Code StatusCode `json:"code"`
-	Msg  string     `json:"msg,omitempty"`
-	Err  error      `json:"-"`
-}
-
-// Empty checks whether e is an empty error which equivalent to e == nil
-func (e *Error) Empty() bool {
-	return e.Code == StatusOK && e.Msg == "" && e.Err == nil
-}
-
-// NewError create new replication error
-func NewError(code StatusCode, msg string) *Error {
-	return &Error{code, msg, nil}
-}
-
-func (e *Error) Clone() *Error {
-	return &Error{Code: e.Code, Msg: e.Msg, Err: e.Err}
-}
-
-// Unwrap underlying error
-func (e *Error) Unwrap() error { return e.Err }
-
-func (e *Error) Error() string {
-	return fmt.Sprintf("%s %q: %v", StatusText(e.Code), e.Msg, e.Err)
-}
-
-func (e *Error) IsStatusCode(sc StatusCode) bool {
-	return e.Code == sc
-}
-
-// StatusText returns a text for the status code. It returns the empty
-// string if the code is unknown.
-func StatusText(code StatusCode) string {
-	switch code {
-	case StatusOK:
-		return "ok"
-	case StatusNotFound:
-		return "not found"
-	case StatusClassNotFound:
-		return "class not found"
-	case StatusShardNotFound:
-		return "shard not found"
-	case StatusConflict:
-		return "conflict"
-	case StatusPreconditionFailed:
-		return "precondition failed"
-	case StatusAlreadyExisted:
-		return "already existed"
-	case StatusNotReady:
-		return "local index not ready"
-	case StatusReadOnly:
-		return "read only"
-	case StatusObjectNotFound:
-		return "object not found"
-	default:
-		return ""
-	}
-}
-
-func (e *Error) Timeout() bool {
-	t, ok := e.Err.(interface {
-		Timeout() bool
-	})
-	return ok && t.Timeout()
-}
-
 type SimpleResponse struct {
-	Errors []Error `json:"errors,omitempty"`
+	Errors []replicaerrors.Error `json:"errors,omitempty"`
 }
 
 func (r *SimpleResponse) FirstError() error {
@@ -141,8 +58,8 @@ type DeleteBatchResponse struct {
 }
 
 type UUID2Error struct {
-	UUID  string `json:"uuid,omitempty"`
-	Error Error  `json:"error,omitempty"`
+	UUID  string              `json:"uuid,omitempty"`
+	Error replicaerrors.Error `json:"error,omitempty"`
 }
 
 // FirstError returns the first found error
@@ -219,8 +136,25 @@ type RClient interface {
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
 		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
 
+	// CompareDigests sends the source's local digests to the target and returns
+	// only the subset needing source-side action: objects missing on the target
+	// (UpdateTime==0 — also how target-side tombstones surface; the source then
+	// proposes an Overwrite and settles any deletion conflict per DeletionStrategy)
+	// and objects the source holds a strictly newer version of. Equal-timestamp
+	// objects are never returned (identical hashtree digests, hence already
+	// invisible to the hashtree diff that drives this call).
+	CompareDigests(ctx context.Context, host, index, shard string,
+		digests []types.RepairResponse) ([]types.RepairResponse, error)
+
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+
+	CountObjects(ctx context.Context, host, index, shard string) (int, error)
+
+	// Async-checkpoint RPCs: createdAt is the initiator's value, propagated unchanged.
+	GetAsyncCheckpointStatus(ctx context.Context, host, index string, shardNames []string) (map[string]AsyncCheckpointShardStatus, error)
+	CreateAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error
+	DeleteAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string) error
 }
 
 // FinderClient extends RClient with consistency checks
@@ -267,6 +201,13 @@ func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairResponse, error) {
 	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
+}
+
+func (fc FinderClient) CompareDigests(ctx context.Context,
+	host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
 }
 
 // FullReads read full objects

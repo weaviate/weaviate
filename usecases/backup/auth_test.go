@@ -87,7 +87,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:     "List",
-			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
+			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc"), false},
 			classes:        []string{"ABC"},
 			ignoreAuthZ:    true,
 		},
@@ -119,7 +119,7 @@ func Test_Authorization(t *testing.T) {
 				nodeResolver := NewMockNodeResolver(t)
 				modcapabilities := modulecapabilities.NewMockBackupBackend(t)
 
-				backupProvider.On("BackupBackend", mock.Anything).Return(modcapabilities, nil).Maybe()
+				backupProvider.On("BackupBackend", mock.Anything, mock.Anything).Return(modcapabilities, nil).Maybe()
 
 				modcapabilities.On("IsExternal").Return(false).Maybe()
 				modcapabilities.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/").Maybe()

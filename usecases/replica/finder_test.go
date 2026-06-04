@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []types.RepairResponse) {
@@ -124,7 +125,7 @@ func TestFinderCantReachEnoughReplicas(t *testing.T) {
 			)
 
 			finder.CheckConsistency(ctx, types.ConsistencyLevelAll, []*storobj.Object{objectEx("1", 1, "S", "N")})
-			f.assertLogErrorContains(t, replica.ErrReplicas.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrReplicas.Error())
 		})
 	}
 }
@@ -216,7 +217,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
 
 			assert.Equal(t, nilObject, got)
@@ -276,7 +277,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 			if s := time.Since(before); s > time.Second {
 				assert.Failf(t, "GetOne took too long to return after context was cancelled", "took: %v", s)
 			}
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			assert.Equal(t, nilObject, got)
 			f.assertLogErrorContains(t, errAny.Error())
 		})
@@ -335,11 +336,16 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 				digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, errAny)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
 
+			// Use a short deadline so the retry worker exits quickly instead of
+			// waiting the full 20s hardcoded in finder.GetOne. workerCtx inherits
+			// the deadline from ctx, so it also expires in ~500ms.
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelQuorum, shard, id, proj, adds)
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
 			assert.Equal(t, nilObject, got)
 		})
@@ -417,13 +423,16 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 			// - Worker 1: DigestObjects on nodes[1] (fullRead=false) - fails
 			// Worker 1 will retry from retry queue (nodes[2] is in retry queue), but it will also fail
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
 			// Worker 1 retries from retry queue (nodes[2])
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
 
+			// Short deadline so the retry worker exits quickly (same reasoning as AllButOne).
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelQuorum, shard, id, proj, adds)
 
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
 			assert.Equal(t, nilObject, got)
 		})
@@ -441,14 +450,17 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 			// - Worker 0: FetchObject on nodes[0] (fullRead=true) - fails
 			// - Worker 1: DigestObjects on nodes[1] (fullRead=false) - succeeds
 			// Worker 0 will retry from retry queue (nodes[2] is in retry queue), but it will also fail
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, errAny)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, errAny).Maybe()
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, nil)
 			// Worker 0 retries from retry queue (nodes[2])
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, 0).Return(item, errAny).Maybe()
 
+			// Short deadline so the retry worker exits quickly (same reasoning as AllButOne).
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelQuorum, shard, id, proj, adds)
 
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
 			assert.Equal(t, nilObject, got)
 		})
@@ -531,7 +543,7 @@ func TestFinderGetOneWithConsistencyLevelOne(t *testing.T) {
 			}
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelOne, shard, id, proj, adds)
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
 			assert.Equal(t, nilObject, got)
 		})
@@ -593,7 +605,7 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
 			assert.Equal(t, false, got)
 		})
@@ -663,7 +675,7 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, errAny)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
 			assert.Equal(t, false, got)
 		})
@@ -785,9 +797,9 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 
 			err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 			want := setObjectsConsistency(xs, false)
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			assert.ElementsMatch(t, want, xs)
-			f.assertLogErrorContains(t, replica.ErrRead.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrRead.Error())
 		})
 
 		t.Run(fmt.Sprintf("OneShard_%v", tc.variant), func(t *testing.T) {
@@ -979,9 +991,9 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 
 			err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
 			want := setObjectsConsistency(xs, false)
-			assert.ErrorIs(t, err, replica.ErrRead)
+			assert.ErrorIs(t, err, replicaerrors.ErrRead)
 			assert.ElementsMatch(t, want, xs)
-			f.assertLogErrorContains(t, replica.ErrRead.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrRead.Error())
 		})
 
 		t.Run(fmt.Sprintf("Success_%v", tc.variant), func(t *testing.T) {
@@ -1009,6 +1021,67 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 			err := finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs)
 			assert.Nil(t, err)
 			assert.ElementsMatch(t, want, xs)
+		})
+	}
+}
+
+// TestFinderCheckConsistencyRepairPreservesOriginalObject verifies that when
+// CheckConsistency triggers read-repair (because replicas hold a newer version),
+// the original objects in xs are NOT replaced with the newer versions. Callers
+// that applied filter criteria to obtain xs must still see the objects they
+// originally retrieved; the repair only propagates the newer version to stale
+// replicas behind the scenes.
+func TestFinderCheckConsistencyRepairPreservesOriginalObject(t *testing.T) {
+	var (
+		id    = strfmt.UUID("1")
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B", "C"}
+		ids   = []strfmt.UUID{id}
+		ctx   = context.Background()
+	)
+
+	testCases := []struct {
+		variant       string
+		isMultiTenant bool
+	}{
+		{"MultiTenant", true},
+		{"SingleTenant", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("RepairDoesNotReplaceObject_%v", tc.variant), func(t *testing.T) {
+			var (
+				f           = newFakeFactory(t, cls, shard, nodes, tc.isMultiTenant)
+				finder      = f.newFinder("A")
+				staleObj    = objectEx(id, 1, shard, "A") // local object with stale version
+				newerRepl   = repl(id, 2, false)          // newer version held by replicas
+				digestNewer = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+				overwriteR  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			)
+
+			// B and C both have the newer version in their digests
+			f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids, 0).Return(digestNewer, nil)
+			f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids, 0).Return(digestNewer, nil)
+
+			// repair fetches the full newer object from whichever replica is selected
+			// (routing order may differ between single-tenant and multi-tenant)
+			f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, ids).Return([]replica.Replica{newerRepl}, nil).Maybe()
+			f.RClient.On("FetchObjects", anyVal, nodes[2], cls, shard, ids).Return([]replica.Replica{newerRepl}, nil).Maybe()
+
+			// repair writes the newer object back to the stale local node (A)
+			f.RClient.On("OverwriteObjects", anyVal, nodes[0], cls, shard, anyVal).Return(overwriteR, nil).Maybe()
+
+			xs := []*storobj.Object{staleObj}
+			err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+
+			assert.NoError(t, err)
+			// The pointer must still refer to the original object – not replaced.
+			assert.Same(t, staleObj, xs[0], "CheckConsistency must not replace original object pointer")
+			// The original content must be unchanged.
+			assert.Equal(t, int64(1), xs[0].LastUpdateTimeUnix(), "original LastUpdateTimeUnix must be preserved")
+			// Consistency flag must be set.
+			assert.True(t, xs[0].IsConsistent, "object must be marked as consistent after successful repair")
 		})
 	}
 }

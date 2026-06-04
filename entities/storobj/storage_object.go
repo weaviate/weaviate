@@ -12,12 +12,10 @@
 package storobj
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"runtime"
 
@@ -107,16 +105,44 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-func FromBinary(data []byte) (*Object, error) {
+// FromBinaryNetwork decodes a payload and reads Object.Class from the data
+// bytes. Network methods are used for node to node communication.
+// Use FromBinaryDisk when reading from disk, as the on-disk class-name may
+// be empty.
+func FromBinaryNetwork(data []byte) (*Object, error) {
 	ko := &Object{}
-	if err := ko.UnmarshalBinary(data); err != nil {
+	if err := ko.UnmarshalBinaryNetwork(data); err != nil {
 		return nil, err
 	}
 
 	return ko, nil
 }
 
-func FromBinaryUUIDOnly(data []byte) (*Object, error) {
+// FromBinaryDisk decodes a payload and stamps the caller-supplied class name
+// on the decoded object, ignoring whatever is in the on-disk class-name field.
+// className must be non-empty; the function returns an error otherwise. Use
+// FromBinaryNetwork for the on-disk-fallback path used by wire-receive callers
+// that have no canonical class to supply.
+func FromBinaryDisk(data []byte, className string) (*Object, error) {
+	ko := &Object{}
+	if err := ko.UnmarshalBinaryDisk(data, className); err != nil {
+		return nil, err
+	}
+
+	return ko, nil
+}
+
+// FromBinaryUUIDOnlyDisk is a header-only fast path that decodes the ID, doc
+// ID, timestamps, and class — vectors, properties, and the rest of the
+// payload are skipped. The caller-supplied class name is stamped on the
+// decoded object, ignoring the on-disk class-name field. className must be
+// non-empty; the function returns an error otherwise. There is no
+// FromBinaryUUIDOnlyNetwork variant — this fast path runs only against bucket
+// reads where a bucket className is always available.
+func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
+	if className == "" {
+		return nil, errors.New("className is required for FromBinaryUUIDOnlyDisk")
+	}
 	ko := &Object{}
 
 	rw := byteops.NewReadWriter(data)
@@ -138,16 +164,41 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	ko.Object.CreationTimeUnix = int64(rw.ReadUint64())
 	ko.Object.LastUpdateTimeUnix = int64(rw.ReadUint64())
 
-	vecLen := rw.ReadUint16()
-	rw.MoveBufferPositionForward(uint64(vecLen * 4))
-	classNameLen := rw.ReadUint16()
-
-	ko.Object.Class = string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	// Vector bytes are ignored, as are all vector bytes, because this is a header-only fast path
+	// On-disk class-name bytes are ignored: className is guaranteed non-empty
+	// by the entry guard above, so the caller-supplied value is what we use.
+	ko.Object.Class = className
 
 	return ko, nil
 }
 
-func FromBinaryOptional(data []byte,
+// FromBinaryOptionalNetwork decodes a payload, optionally including/excluding
+// vectors and properties via addProp, and reads Object.Class from the on-disk
+// bytes. The on-disk class is not authoritative; use FromBinaryOptionalDisk
+// when you have a className in scope.
+func FromBinaryOptionalNetwork(data []byte,
+	addProp additional.Properties, properties *PropertyExtraction,
+) (*Object, error) {
+	return fromBinaryOptionalInternal(data, "", addProp, properties)
+}
+
+// FromBinaryOptionalDisk lets the caller supply an authoritative
+// class name; an empty className falls back to the on-disk bytes.
+func FromBinaryOptionalDisk(data []byte, className string,
+	addProp additional.Properties, properties *PropertyExtraction,
+) (*Object, error) {
+	if className == "" {
+		return nil, errors.New("className is required for FromBinaryOptionalDisk; use FromBinaryOptionalNetwork if you want to fall back to on-disk value")
+	}
+	return fromBinaryOptionalInternal(data, className, addProp, properties)
+}
+
+// fromBinaryOptionalInternal is the shared implementation behind
+// FromBinaryOptionalDisk and FromBinaryOptionalNetwork. A non-empty className
+// is stamped on the decoded object (Disk-side semantics); an empty className
+// falls back to the on-disk value (Network-side semantics). Callers should
+// use the exported wrappers, which encode their respective contracts.
+func fromBinaryOptionalInternal(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
@@ -172,19 +223,27 @@ func FromBinaryOptional(data []byte,
 	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
 		ko.Object.Vector = make([]float32, vectorLength)
-		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength) * 4)
-		for i := 0; i < int(vectorLength); i++ {
-			bits := binary.LittleEndian.Uint32(vectorBytes[i*4 : (i+1)*4])
-			ko.Object.Vector[i] = math.Float32frombits(bits)
-		}
+		byteops.CopyBytesToSlice(ko.Object.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 	} else {
 		rw.MoveBufferPositionForward(uint64(vectorLength) * 4)
 		ko.Object.Vector = nil
 	}
 	ko.Vector = ko.Object.Vector
 
-	classNameLen := rw.ReadUint16()
-	className := string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	// className precedence: a non-empty caller-supplied className wins and
+	// the on-disk class-name bytes are skipped. An empty caller className
+	// falls back to the on-disk value. If both are empty there is no class
+	// to attach to the decoded object — return an error rather than produce
+	// a silent empty Class.
+	classNameLength := uint64(rw.ReadUint16())
+	if className == "" {
+		if classNameLength == 0 {
+			return nil, errors.New("storobj: cannot decode object with empty className: caller supplied no className and on-disk class-name field is empty")
+		}
+		className = string(rw.ReadBytesFromBuffer(classNameLength))
+	} else {
+		rw.MoveBufferPositionForward(classNameLength)
+	}
 
 	propLength := rw.ReadUint32()
 	var props []byte
@@ -307,20 +366,53 @@ func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
 type bucket interface {
 	GetBySecondary(context.Context, int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
+	// ClassName returns the canonical class name attached to the bucket. The
+	// storobj helpers (ObjectsByDocID*) use it to stamp Object.Class on every
+	// decoded payload via FromBinaryOptionalDisk. Implementations must return
+	// a non-nil error when the bucket has no class context (e.g. test fakes,
+	// non-objects buckets); the helpers propagate that error rather than fall
+	// back to the on-disk class name.
+	ClassName() (string, error)
 }
 
+// ObjectsByDocID resolves a batch of doc IDs against the given bucket and
+// returns the decoded objects, dropping entries whose payload is missing.
+// Object.Class on each decoded object is stamped from bucket.ClassName(); the
+// bucket must have been opened with lsmkv.WithClassName, otherwise
+// bucket.ClassName() returns an error and the call fails.
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequential(bucket, ids, additional, properties)
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
 	}
 
-	return objectsByDocIDParallel(bucket, ids, additional, properties, logger)
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
+}
+
+// ObjectsByDocIDWithEmpty is like ObjectsByDocID but preserves nil entries at
+// positions where a doc ID has no payload, so the returned slice always has
+// the same length as ids. Object.Class is stamped from bucket.ClassName() —
+// see ObjectsByDocID for the bucket-resolution contract.
+func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
+	}
+
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
+}
+
+func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
+	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+	includeEmpty bool,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
@@ -346,7 +438,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties)
+			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty)
 			if err != nil {
 				return err
 			}
@@ -357,6 +449,11 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 
 	if err := eg.Wait(); err != nil {
 		return nil, err
+	}
+
+	if includeEmpty {
+		// Positions are meaningful: nils indicate missing objects; do not compact.
+		return out, nil
 	}
 
 	// fix gaps in the output array
@@ -374,8 +471,20 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
+	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+}
+
+func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string,
+	includeEmpty bool,
+) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
 	var (
@@ -418,10 +527,13 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 		// The user has already been alerted about ppossible data loss when the WAL recovery happened.
 		// TODO: consider deleting these entries from the inverted index and alerting the user
 		if res == nil {
+			if includeEmpty {
+				i++
+			}
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional, props)
+		unmarshalled, err := FromBinaryOptionalDisk(res, className, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -681,39 +793,20 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	if len(in) < 9 {
 		return 0, errors.Errorf("binary data too short")
 	}
-	// first by is kind, then 8 bytes for the docID
+	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
 }
 
-func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err error) {
-	r := bytes.NewReader(in)
-
-	var version uint8
-
-	le := binary.LittleEndian
-
-	if err := binary.Read(r, le, &version); err != nil {
-		return 0, 0, err
+func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
+	// Additional fields may follow after the header and are ignored.
+	if len(in) < marshallerV1HeaderLen {
+		return 0, 0, errors.Errorf("binary data too short")
 	}
-
-	if version != 1 {
-		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", version)
+	if in[0] != 1 {
+		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", in[0])
 	}
-
-	err = binary.Read(r, le, &docID)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	var buf [1 + 16 + 8 + 8]byte // kind uuid createtime updatetime
-
-	_, err = io.ReadFull(r, buf[:])
-	if err != nil {
-		return 0, 0, err
-	}
-
-	updateTime = int64(binary.LittleEndian.Uint64(buf[1+16+8:]))
-
+	docID := binary.LittleEndian.Uint64(in[1:9])
+	updateTime := int64(binary.LittleEndian.Uint64(in[marshallerV1UpdateTimeOffset:marshallerV1HeaderLen]))
 	return docID, updateTime, nil
 }
 
@@ -750,6 +843,13 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // 4 + (2 + n*4) | uint32 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
 // TODO vec lengths immediately following num vecs so you can jump straight to specific vec?
 
+// Binary header layout (version 1):
+// version(1) + docID(8) + kind(1) + uuid(16) + createTime(8) + updateTime(8) = 42 bytes
+const (
+	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8 // 42
+	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
+)
+
 const (
 	maxVectorLength               int = math.MaxUint16
 	maxClassNameLength            int = math.MaxUint16
@@ -773,6 +873,10 @@ const (
 //   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors is empty, NO target vectors are included
 //   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors has specific names, only those are included
 func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte, error) {
+	return ko.marshalBinaryInternal(addProps, false)
+}
+
+func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClassName bool) ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
 	}
@@ -804,6 +908,9 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
 	}
 	classNameLength := uint32(len(className))
+	if skipClassName {
+		classNameLength = 0
+	}
 
 	// Conditionally include properties based on addProps.NoProps
 	var schema []byte
@@ -969,15 +1076,16 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	rw.WriteUint16(uint16(vectorLength))
 
 	if addProps.Vector {
-		for j := uint32(0); j < vectorLength; j++ {
-			rw.WriteUint32(math.Float32bits(ko.Vector[j]))
-		}
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vectorLength)*byteops.Uint32Len], ko.Vector)
+		rw.MoveBufferPositionForward(uint64(vectorLength) * byteops.Uint32Len)
 	}
 
 	rw.WriteUint16(uint16(classNameLength))
-	err = rw.CopyBytesToBuffer(className)
-	if err != nil {
-		return byteBuffer, errors.Wrap(err, "Could not copy className")
+	if classNameLength > 0 {
+		err = rw.CopyBytesToBuffer(className)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy className")
+		}
 	}
 
 	rw.WriteUint32(schemaLength)
@@ -1014,9 +1122,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		vecLen := len(vec)
 
 		rw.WriteUint16(uint16(vecLen))
-		for j := 0; j < vecLen; j++ {
-			rw.WriteUint32(math.Float32bits(vec[j]))
-		}
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+		rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
 	}
 
 	rw.WriteUint32(multiVectorsOffsetsLength)
@@ -1034,9 +1141,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		for _, vec := range vecs {
 			vecLen := len(vec)
 			rw.WriteUint16(uint16(vecLen))
-			for j := 0; j < vecLen; j++ {
-				rw.WriteUint32(math.Float32bits(vec[j]))
-			}
+			byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+			rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
 		}
 	}
 
@@ -1050,6 +1156,17 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		Vector:                  true,
 		IncludeAllTargetVectors: true,
 	})
+}
+
+// MarshalBinaryDisk produces the on-disk representation of the object. When
+// skipClassName is true, the className body is omitted (the 2-byte length
+// prefix is written as 0). Disk readers stamp the className from the bucket
+// onto the decoded object via FromBinaryDisk.
+func (ko *Object) MarshalBinaryDisk(skipClassName bool) ([]byte, error) {
+	return ko.marshalBinaryInternal(additional.Properties{
+		Vector:                  true,
+		IncludeAllTargetVectors: true,
+	}, skipClassName)
 }
 
 // UnmarshalPropertiesFromObject accepts marshaled object as data and populates resultProperties map with the properties specified by propertyPaths.
@@ -1181,9 +1298,29 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 	}
 }
 
-// UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
-// see MarshalBinary for the exact contents of each version
-func (ko *Object) UnmarshalBinary(data []byte) error {
+// UnmarshalBinaryNetwork is the object-method form of FromBinaryNetwork: it
+// decodes onto ko and reads Object.Class from the data bytes.
+// Network methods are used for node to node communication.
+// Use UnmarshalBinaryDisk when reading from disk, as the on-disk class-name
+// may be empty.
+func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
+	return ko.unmarshalInternal(data, "")
+}
+
+// UnmarshalBinaryDisk decodes onto ko and stamps the supplied className on
+// Object.Class, skipping the on-disk class-name bytes. className must be
+// non-empty.
+func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
+	if className == "" {
+		return errors.New("className is required for UnmarshalBinaryDisk; use UnmarshalBinaryNetwork to fall back to the on-disk value")
+	}
+	return ko.unmarshalInternal(data, className)
+}
+
+// unmarshalInternal is the shared decoder behind UnmarshalBinaryDisk and
+// UnmarshalBinaryNetwork. A non-empty className stamps Object.Class; an empty
+// className falls back to the on-disk value.
+func (ko *Object) unmarshalInternal(data []byte, className string) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
@@ -1206,14 +1343,21 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	vectorLength := rw.ReadUint16()
 	ko.VectorLen = int(vectorLength)
 	ko.Vector = make([]float32, vectorLength)
-	for j := 0; j < int(vectorLength); j++ {
-		ko.Vector[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
+	// className precedence: a non-empty caller-supplied className wins and
+	// the on-disk class-name bytes are skipped. An empty caller className
+	// falls back to the on-disk value (the UnmarshalBinaryNetwork path). If
+	// both are empty there is no class to attach to the decoded object —
+	// return an error rather than produce a silent empty Class.
 	classNameLength := uint64(rw.ReadUint16())
-	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy class name")
+	if className == "" {
+		if classNameLength == 0 {
+			return errors.New("storobj: cannot decode object with empty className: caller supplied no className and on-disk class-name field is empty")
+		}
+		className = string(rw.ReadBytesFromBuffer(classNameLength))
+	} else {
+		rw.MoveBufferPositionForward(classNameLength)
 	}
 
 	schemaLength := uint64(rw.ReadUint32())
@@ -1250,7 +1394,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
 		updateTime,
-		string(className),
+		className,
 		schema,
 		meta,
 		vectorWeights, nil, 0,
@@ -1277,9 +1421,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				vecLen := rw.ReadUint16()
 				vec := make([]float32, vecLen)
-				for j := uint16(0); j < vecLen; j++ {
-					vec[j] = math.Float32frombits(rw.ReadUint32())
-				}
+				byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 				targetVectors[name] = vec
 			}
 
@@ -1314,7 +1456,7 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 	offset, ok := tvOffsets[targetVector]
 	if !ok {
 		rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
-		return nil, fmt.Errorf("target vector %q not found", targetVector)
+		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 
 	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
@@ -1327,9 +1469,7 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 		out = make([]float32, vecLen)
 	}
 
-	for j := uint16(0); j < vecLen; j++ {
-		out[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(out, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 
 	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
 	return out, nil
@@ -1372,9 +1512,7 @@ func unmarshalMultiVectors(
 				for i := 0; i < int(numVecs); i++ {
 					vecLen := rw.ReadUint16()
 					vec := make([]float32, vecLen)
-					for j := uint16(0); j < vecLen; j++ {
-						vec[j] = math.Float32frombits(rw.ReadUint32())
-					}
+					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 					vecs = append(vecs, vec)
 				}
 				multiVectors[name] = vecs
@@ -1423,7 +1561,10 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	if vecLen == 0 {
+		return nil, fmt.Errorf("vector length is 0")
+	}
 
 	var out []float32
 	if cap(buffer) >= int(vecLen) {
@@ -1434,12 +1575,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
-	}
+	byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 
 	return out, nil
 }
@@ -1474,22 +1610,19 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
-		out = buffer[:vecLen]
-	} else {
-		out = make([]float32, vecLen)
-	}
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
+	if vecLen > 0 {
+		if cap(buffer) >= int(vecLen) {
+			out = buffer[:vecLen]
+		} else {
+			out = make([]float32, vecLen)
+		}
+		byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 	}
 
 	pos := vecEnd

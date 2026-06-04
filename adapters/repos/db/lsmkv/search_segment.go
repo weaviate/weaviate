@@ -54,7 +54,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 					if r.segment != nil {
 						segmentPath = r.segment.path
 						if r.filterDocIds != nil {
-							filterCardinality = r.filterDocIds.GetCardinality()
+							filterCardinality = r.filterDocIds.Len()
 						}
 					}
 					terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
@@ -242,7 +242,7 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 				if r.segment != nil {
 					segmentPath = r.segment.path
 					if r.filterDocIds != nil {
-						filterCardinality = r.filterDocIds.GetCardinality()
+						filterCardinality = r.filterDocIds.Len()
 					}
 				}
 				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "

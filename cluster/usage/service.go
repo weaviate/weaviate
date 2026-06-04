@@ -85,11 +85,14 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
 		// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
 		// as it is no longer relevant for the current node usage
-		if errors.Is(err, clusterSchema.ErrClassNotFound) || collectionUsage == nil {
+		if errors.Is(err, clusterSchema.ErrClassNotFound) {
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
+		}
+		if collectionUsage == nil {
+			continue
 		}
 
 		usage.Collections = append(usage.Collections, collectionUsage)

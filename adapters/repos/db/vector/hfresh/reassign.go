@@ -58,11 +58,13 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
 	version, err = h.VersionMap.Increment(ctx, op.VectorID, version)
-	if err != nil {
+	if errors.Is(err, ErrVersionIncrementFailed) {
 		h.logger.WithField("vectorID", op.VectorID).
-			WithError(err).
-			Error("failed to increment version map for vector, skipping reassign operation")
+			Debug("version changed concurrently, skipping reassign operation")
 		return nil
+	}
+	if err != nil {
+		return errors.Wrapf(err, "failed to increment version map for vector %d", op.VectorID)
 	}
 
 	// create a new vector with the updated version

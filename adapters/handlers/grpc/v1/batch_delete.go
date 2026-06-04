@@ -17,12 +17,14 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	tenant := ""
@@ -52,7 +54,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, namespacesEnabled, principal)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
@@ -65,7 +67,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 	return params, nil
 }
 
-func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose bool) (*pb.BatchDeleteReply, error) {
+func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose bool, principal *models.Principal) (*pb.BatchDeleteReply, error) {
 	var successful, failed int64
 
 	var objs []*pb.BatchDeleteObject
@@ -85,7 +87,7 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			}
 			errorString := ""
 			if obj.Err != nil {
-				errorString = obj.Err.Error()
+				errorString = namespacing.StripErrorMessage(principal, obj.Err.Error())
 			}
 
 			resultObj := &pb.BatchDeleteObject{

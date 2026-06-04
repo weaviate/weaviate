@@ -72,8 +72,8 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			},
 			// Anthropic
 			{
-				name:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
-				generativeModel: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				name:            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+				generativeModel: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				maxTokens:       4000,
 			},
 			{

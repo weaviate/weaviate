@@ -1001,7 +1001,8 @@ func Test_NoRace_QuantizerBuilder(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			quantizer := builder.CreateQuantizer(tc.compressionType, 128)
+			quantizer, err := builder.CreateQuantizer(tc.compressionType, 128)
+			require.NoError(t, err)
 
 			if tc.shouldBeNil {
 				require.Nil(t, quantizer)

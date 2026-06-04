@@ -15,17 +15,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be empty, need at least one object for batching")
@@ -38,8 +40,10 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
-		obj.Class = schema.UppercaseClassName(obj.Class)
-		cls, _ := b.resolveAlias(obj.Class)
+		cls, _, err := b.resolveNS(principal, obj.Class)
+		if err != nil {
+			return nil, NewErrInvalidUserInput("%v", err)
+		}
 		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
@@ -89,13 +93,36 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	var maxSchemaVersion uint64
-	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
+	for _, vc := range fetchedClasses {
+		maxSchemaVersion = max(maxSchemaVersion, vc.Version)
+	}
+
+	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
+	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
+
 	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects, fetchedClasses)
 	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
 	}
-	if schemaVersion > maxSchemaVersion {
-		maxSchemaVersion = schemaVersion
+
+	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
+
+	// ensure tenants are active when AutoTenantActivation is enabled
+	classTenants := make(map[string][]string)
+	for _, obj := range objects {
+		if obj.Tenant == "" {
+			continue
+		}
+		classTenants[obj.Class] = append(classTenants[obj.Class], obj.Tenant)
+	}
+	for className, tenants := range classTenants {
+		slices.Sort(tenants)
+		tenants = slices.Compact(tenants)
+		activationVersion, err := b.schemaManager.EnsureTenantActiveForWrite(ctx, className, tenants...)
+		if err != nil {
+			return nil, fmt.Errorf("ensure tenant active: %w", err)
+		}
+		maxSchemaVersion = max(maxSchemaVersion, activationVersion)
 	}
 
 	b.metrics.BatchTenants(tenantCount)
@@ -115,7 +142,33 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
+	// Reaggregate a unanimous limit-exceeded into a top-level error so
+	// the REST/gRPC handler can map it to 429 / RESOURCE_EXHAUSTED.
+	if le := unanimousLimitExceeded(res); le != nil {
+		return nil, le
+	}
+
 	return res, nil
+}
+
+// unanimousLimitExceeded returns a *usagelimits.LimitExceededError if and
+// only if every BatchObject in res carries the same limit-exceeded error
+// (matching Limit + Value). Otherwise nil.
+func unanimousLimitExceeded(res BatchObjects) *usagelimits.LimitExceededError {
+	if len(res) == 0 {
+		return nil
+	}
+	first, ok := usagelimits.AsLimitExceeded(res[0].Err)
+	if !ok {
+		return nil
+	}
+	for i := 1; i < len(res); i++ {
+		got, ok := usagelimits.AsLimitExceeded(res[i].Err)
+		if !ok || got.Limit != first.Limit || got.Value != first.Value {
+			return nil
+		}
+	}
+	return first
 }
 
 func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,
@@ -127,7 +180,8 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 
 		objectsPerClass       = make(map[string][]*models.Object)
 		originalIndexPerClass = make(map[string][]int)
-		validator             = validation.New(b.vectorRepo.Exists, b.config, repl)
+		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
+			principal, b.config.Config.Namespaces.Enabled)
 	)
 
 	// validate each object and sort by class (==vectorizer)
@@ -200,6 +254,10 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		for i, err := range errorsPerObj {
 			origIndex := originalIndexPerClass[className][i]
 			batchObjects[origIndex].Err = err
+		}
+		// Convert BlobHash properties from raw base64 to hashes after vectorization.
+		for _, obj := range objectsForClass {
+			schema.HashBlobHashProperties(class.Class, obj)
 		}
 	}
 
