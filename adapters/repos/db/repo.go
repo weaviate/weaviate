@@ -421,14 +421,16 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 // WaitForLocalInflightWrites blocks until this node's in-flight coordinated
 // writes to the given shard have drained, or ctx is done.
 func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard string) error {
-	db.indexLock.RLock()
-	index := db.indices[indexID(schema.ClassName(class))]
-	if index == nil || index.replicator == nil {
-		db.indexLock.RUnlock()
-		return nil
-	}
-	index.dropIndex.RLock()
-	db.indexLock.RUnlock()
+	var index *Index
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		index = db.indices[indexID(schema.ClassName(class))]
+		if index == nil || index.replicator == nil {
+			return
+		}
+		index.dropIndex.RLock()
+	}()
 	defer index.dropIndex.RUnlock()
 	return index.replicator.WaitForDrain(ctx, shard)
 }
