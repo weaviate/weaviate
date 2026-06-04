@@ -1750,7 +1750,7 @@ func TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget(t *testing.T) {
 // FSM-converge-and-drain primitives that pair with it during DEHYDRATING.
 // Tests that don't reach FINALIZING (cancellation, deletion) still pass.
 func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpdater) {
-	m.EXPECT().StartChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.EXPECT().StartChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
