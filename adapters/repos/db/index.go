@@ -1361,26 +1361,6 @@ func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 }
 
-// overReplicated reports whether the shard has more than one replica in the
-// sharding state, independent of the configured ReplicationFactor.
-//
-// Fails closed (false) on a schema-read error so a transient error never tears
-// down async replication on an already-running shard.
-//
-// Lock order is always replicationConfigLock -> schema lock (via ShardReplicas).
-func (i *Index) overReplicated(shardName string) bool {
-	replicas, err := i.schemaReader.ShardReplicas(i.Config.ClassName.String(), shardName)
-	if err != nil {
-		i.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", i.Config.ClassName.String()).
-			WithField("shard_name", shardName).
-			Debugf("overReplicated: could not read shard replicas: %v", err)
-		return false
-	}
-	return len(replicas) > 1
-}
-
 // asyncReplicationEnabledForShard is the per-shard async-replication gate. The
 // over-replication clause keeps async running between a scale-out completing and
 // an operator (optionally) raising the configured factor.
@@ -1391,7 +1371,24 @@ func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
 	if i.asyncReplicationGloballyDisabled() {
 		return false
 	}
-	return i.Config.ReplicationFactor > 1 || i.overReplicated(shardName)
+
+	if i.Config.ReplicationFactor > 1 {
+		return true
+	}
+
+	replicas, err := i.schemaReader.ShardReplicas(i.Config.ClassName.String(), shardName)
+	if err != nil {
+		i.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", i.Config.ClassName.String()).
+			WithField("shard_name", shardName).
+			Debugf("overReplicated: could not read shard replicas: %v", err)
+		return false
+	}
+
+	// Over-replication is a state where we are mid-scale-out and an operator hasn't bumped
+	// Config.ReplicationFactor at the index level yet
+	return len(replicas) > 1
 }
 
 // AsyncReplicationEnabledForShard is the lock-taking wrapper around
