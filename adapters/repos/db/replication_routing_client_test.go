@@ -171,30 +171,43 @@ func TestLocalReplicationClient_remoteDelegation(t *testing.T) {
 	})
 }
 
-func TestAssignSimpleResponse(t *testing.T) {
-	want := replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "x"}}}
-	tests := []struct {
-		name    string
-		result  any
-		resp    any
-		wantErr bool
-	}{
-		{name: "value into pointer", result: want, resp: &replica.SimpleResponse{}},
-		{name: "pointer into pointer", result: &want, resp: &replica.SimpleResponse{}},
-		{name: "wrong container type", result: want, resp: replica.SimpleResponse{}, wantErr: true},
-		{name: "wrong result type", result: 42, resp: &replica.SimpleResponse{}, wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := assignSimpleResponse(tt.result, tt.resp)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, want.Errors[0].Msg, tt.resp.(*replica.SimpleResponse).Errors[0].Msg)
-		})
-	}
+func TestAssignCommitResponse(t *testing.T) {
+	simple := replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "x"}}}
+	batch := replica.DeleteBatchResponse{Batch: []replica.UUID2Error{
+		{UUID: "u", Error: replicaerrors.Error{Msg: "boom"}},
+	}}
+
+	t.Run("SimpleResponse value into *SimpleResponse", func(t *testing.T) {
+		var got replica.SimpleResponse
+		require.NoError(t, assignCommitResponse(simple, &got, "r"))
+		assert.Equal(t, simple, got)
+	})
+	t.Run("SimpleResponse pointer into *SimpleResponse", func(t *testing.T) {
+		var got replica.SimpleResponse
+		require.NoError(t, assignCommitResponse(&simple, &got, "r"))
+		assert.Equal(t, simple, got)
+	})
+	// DeleteObjects commit path — regressed before this was supported.
+	t.Run("DeleteBatchResponse value into *DeleteBatchResponse", func(t *testing.T) {
+		var got replica.DeleteBatchResponse
+		require.NoError(t, assignCommitResponse(batch, &got, "r"))
+		assert.Equal(t, batch, got)
+	})
+	// A precheck error arrives as a SimpleResponse even on the delete path.
+	t.Run("shard error on delete path surfaces", func(t *testing.T) {
+		require.Error(t, assignCommitResponse(simple, &replica.DeleteBatchResponse{}, "r"))
+	})
+	t.Run("nil result is request-not-found", func(t *testing.T) {
+		err := assignCommitResponse(nil, &replica.SimpleResponse{}, "req-1")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+	t.Run("non-pointer container errors", func(t *testing.T) {
+		require.Error(t, assignCommitResponse(simple, replica.SimpleResponse{}, "r"))
+	})
+	t.Run("incompatible result errors", func(t *testing.T) {
+		require.Error(t, assignCommitResponse(42, &replica.SimpleResponse{}, "r"))
+	})
 }
 
 func TestToSimpleResponse(t *testing.T) {

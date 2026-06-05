@@ -246,7 +246,7 @@ func (c *routingReplicationClient) AddReferences(ctx context.Context, host, inde
 
 func (c *routingReplicationClient) Commit(ctx context.Context, host, index, shard, requestID string, resp any) error {
 	if c.isLocal(host) {
-		return assignSimpleResponse(c.local.CommitReplication(ctx, index, shard, requestID), resp)
+		return assignCommitResponse(c.local.CommitReplication(ctx, index, shard, requestID), resp, requestID)
 	}
 	return c.remote.Commit(ctx, host, index, shard, requestID, resp)
 }
@@ -258,24 +258,41 @@ func (c *routingReplicationClient) Abort(ctx context.Context, host, index, shard
 	return c.remote.Abort(ctx, host, index, shard, requestID)
 }
 
-// assignSimpleResponse copies a local CommitReplication result into resp,
-// mirroring the network client's JSON-unmarshal-into-resp. The coordinator
-// always passes a *replica.SimpleResponse (see Replicator.simpleCommit).
-func assignSimpleResponse(result any, resp any) error {
-	target, ok := resp.(*replica.SimpleResponse)
-	if !ok {
+// assignCommitResponse copies a local CommitReplication result into the caller's
+// container (*replica.SimpleResponse for most writes, *replica.DeleteBatchResponse
+// for DeleteObjects). A nil result means the request id was not found.
+func assignCommitResponse(result any, resp any, requestID string) error {
+	if result == nil {
+		return fmt.Errorf("commit: request %q not found", requestID)
+	}
+	switch target := resp.(type) {
+	case *replica.SimpleResponse:
+		sr, err := toSimpleResponse(result)
+		if err != nil {
+			return err
+		}
+		*target = sr
+	case *replica.DeleteBatchResponse:
+		// The delete path returns a DeleteBatchResponse on success, but a
+		// SimpleResponse when a startup/class/shard precheck fails.
+		switch v := result.(type) {
+		case replica.DeleteBatchResponse:
+			*target = v
+		case replica.SimpleResponse:
+			if err := v.FirstError(); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("commit: unexpected local result %T for delete batch", result)
+		}
+	default:
 		return fmt.Errorf("commit: unexpected response container type %T", resp)
 	}
-	sr, err := toSimpleResponse(result)
-	if err != nil {
-		return err
-	}
-	*target = sr
 	return nil
 }
 
-// toSimpleResponse narrows the any returned by Commit/AbortReplication; both
-// the success and error paths return a SimpleResponse, so anything else is a bug.
+// toSimpleResponse narrows the any returned by Abort/CommitReplication; anything
+// other than a SimpleResponse is a bug.
 func toSimpleResponse(result any) (replica.SimpleResponse, error) {
 	switch v := result.(type) {
 	case replica.SimpleResponse:
