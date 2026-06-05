@@ -12,6 +12,7 @@
 package nested
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -604,6 +605,117 @@ func orLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult {
 	}
 }
 
+// andN folds N operands via andLeaves, sorted by TruthScope depth
+// (deepest first) with CP=true breaking ties before CP=false within
+// the same scope. The pairwise dispatch is order-invariant for
+// correctness; the sort is purely to minimise intermediate work:
+//
+//   - Deepest-first keeps consecutive same-TS operands adjacent at the
+//     front so the same-TS branch of andLeaves folds them with no
+//     lifts. The running result stays at the deepest TS as long as
+//     subsequent shallower operands have CP=true (Row 1 of the
+//     dispatch matrix — cheap no-lift merge at child.TS).
+//
+//   - CP=true-first within a same-TS run lets the running accumulator
+//     stay CP=true for as long as possible across subsequent
+//     ancestor-child merges, again favouring Row 1.
+//
+// Panics on an empty input. A single-operand call returns the operand
+// unchanged.
+//
+// TODO aliszka:nested_filtering — add a grouping pass for CP=false
+// operands that share a TruthScope. The current strategy folds left-
+// deep, which is optimal when CP=true operands can be absorbed
+// individually via the ancestor-child direct-merge shortcut. It is
+// sub-optimal when many CP=false operands share a TS and the running
+// accumulator needs a real LiftToAncestor at every sibling boundary.
+//
+// Sketch: bucket operands by TruthScope; within each bucket fold
+// CP=false operands together first (no lift, just bitmap intersection
+// at the shared TS). The per-bucket result is then lifted ONCE to the
+// LCA of the buckets, instead of one real lift per operand. CP=true
+// operands stay outside the buckets and feed into the sequential fold
+// as today so they keep hitting Row 2's no-lift path. With this split
+// the total lift count is bounded by the number of CP=false buckets
+// rather than the number of CP=false operands.
+func andN(idx *fastPathIndex, operands ...*fastPathResult) *fastPathResult {
+	if len(operands) == 0 {
+		panic("andN requires at least one operand")
+	}
+	if len(operands) == 1 {
+		return operands[0]
+	}
+	sorted := make([]*fastPathResult, len(operands))
+	copy(sorted, operands)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		di := pathDepth(sorted[i].TruthScope)
+		dj := pathDepth(sorted[j].TruthScope)
+		if di != dj {
+			return di > dj
+		}
+		return sorted[i].CanProjectParentByAnchor && !sorted[j].CanProjectParentByAnchor
+	})
+	result := sorted[0]
+	for i := 1; i < len(sorted); i++ {
+		result = andLeaves(idx, result, sorted[i])
+	}
+	return result
+}
+
+// orN folds N operands via orLeaves, sorted by TruthScope depth
+// (deepest first) with CP=true breaking ties before CP=false within
+// the same scope. The pairwise dispatch is order-invariant for
+// correctness; the sort is purely to minimise intermediate work.
+//
+// Unlike andN, OR always lands at the LCA of all operands — there is
+// no Row 1 "stay at the deepest TS" shortcut to exploit, because
+// merging below the LCA would lose any operand's "container exists"
+// contribution at the higher scope. The sort still helps in two
+// secondary ways:
+//
+//   - Deepest-first clusters same-TS operands at the front. Same-TS
+//     OR folds are pure unions with no lift, regardless of CP.
+//
+//   - CP=true-first within a same-TS run keeps the running accumulator
+//     CP=true as long as possible. When subsequent shallower operands
+//     promote the result to a higher LCA, each lift is a cheap
+//     anchor-intersect rather than a full LiftToAncestor — but only if
+//     the accumulator was CP=true at promotion time.
+//
+// Panics on an empty input. A single-operand call returns the operand
+// unchanged.
+//
+// TODO aliszka:nested_filtering — add a grouping pass for CP=false
+// operands that share a TruthScope. Same motivation as the andN TODO:
+// folding CP=false operands locally first (pure same-TS union, no
+// lift) and lifting the per-bucket result ONCE to the LCA reduces the
+// total LiftToAncestor count from O(operands) to O(buckets) when
+// CP=false operands dominate. CP=true operands stay in the sequential
+// fold so they keep using the cheap anchor-intersect lift path.
+func orN(idx *fastPathIndex, operands ...*fastPathResult) *fastPathResult {
+	if len(operands) == 0 {
+		panic("orN requires at least one operand")
+	}
+	if len(operands) == 1 {
+		return operands[0]
+	}
+	sorted := make([]*fastPathResult, len(operands))
+	copy(sorted, operands)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		di := pathDepth(sorted[i].TruthScope)
+		dj := pathDepth(sorted[j].TruthScope)
+		if di != dj {
+			return di > dj
+		}
+		return sorted[i].CanProjectParentByAnchor && !sorted[j].CanProjectParentByAnchor
+	})
+	result := sorted[0]
+	for i := 1; i < len(sorted); i++ {
+		result = orLeaves(idx, result, sorted[i])
+	}
+	return result
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -613,6 +725,16 @@ func parentPath(path string) string {
 		return path[:i]
 	}
 	return ""
+}
+
+// pathDepth returns the number of segments in a dot-separated path.
+// The empty string (root) has depth 0; "countries" has depth 1;
+// "countries.garages.cars" has depth 3.
+func pathDepth(path string) int {
+	if path == "" {
+		return 0
+	}
+	return strings.Count(path, ".") + 1
 }
 
 func cloneOrEmpty(bm *sroar.Bitmap) *sroar.Bitmap {
@@ -1716,6 +1838,225 @@ func TestFastPathL2_Merge(t *testing.T) {
 			// Every other doc: no garages in inner → all garages survive
 			// the subtract → docs pass.
 			wantDocs: []uint64{200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		// andN orchestration: sorts the 3 operands by TS depth (deepest
+		// first, CP=true breaking ties) before sequential folding via
+		// andLeaves. cars.tires.width=205 (TS=cars.tires, depth 4) lands
+		// first; cars.make=honda and cars.year=2020 (TS=cars, depth 3,
+		// both CP=true) fold after. The dispatch keeps the running
+		// result at the deepest TS (cars.tires) for both subsequent
+		// merges because each shallower ancestor is CP=true (Row 1 of
+		// the AND dispatch: merge at child.TS, CP=child.CP).
+		//
+		// A naive left-to-right nested call (((make AND year) AND
+		// tires)) lands at cars / CP=false because the first same-TS
+		// AND already collapses to CP=false. andN gets the same wantDocs
+		// but at a strictly more informative TruthScope.
+		{
+			name: "andN(cars.make=honda, cars.year=2020, cars.tires.width=205)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andN(idx,
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.year", 2020),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205))
+			},
+			wantTruthScope: "countries.garages.cars.tires",
+			wantCanProject: true,
+			// Only doc 200 cars[1] satisfies all three (make=honda,
+			// year=2020, tires.width=205) in the same car. Other
+			// candidates fail one of the conjuncts:
+			// - doc 100 cars[0]: toyota/2020/205 → fails honda.
+			// - doc 100 cars[1]: honda/2018/195 → fails year and tires.
+			// - doc 200 cars[0]: honda/2015/205 → fails year.
+			// - doc 810 cars[0]: honda/2020/no-tires → fails tires.
+			// - doc 820 cars[1]: honda/2020/no-tires → fails tires.
+			wantDocs: []uint64{200},
+		},
+		// andN equivalent of the ghost-mitigation case above. Inputs:
+		// accessories (depth 4, CP=true), tires (depth 4, CP=true),
+		// garages.city (depth 2, CP=true). Sort places accessories and
+		// tires first (siblings under cars), then warsaw. Fold:
+		//   - accessories AND tires → sibling lift to LCA=cars, same-TS,
+		//     CP=false, TS=cars.
+		//   - result AND warsaw → ancestor=warsaw(garages, CP=true),
+		//     child=result(cars, CP=false). Row 1: merge at cars,
+		//     CP=child.CP=false.
+		// Same wantDocs / TS / CP as the pairwise version.
+		{
+			name: "andN(spoiler, tires.width=205, garages.city=warsaw)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andN(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205),
+					leafPositive(idx, "countries.garages.city", "warsaw"))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// doc 800 warsaw cars[0] has spoiler+205 under a warsaw
+			// garage. krakow split spoiler/205 ghost gets filtered by
+			// the warsaw constraint at garages.
+			wantDocs: []uint64{800},
+		},
+		// andN over three same-depth siblings (accessories, tires,
+		// doors — all sub-objects of cars, depth 4, CP=true). Sort
+		// leaves the input order intact (all same depth+CP). Fold:
+		//   - accessories AND tires → sibling at LCA=cars, CP=false.
+		//   - result(cars, CP=false) AND doors(cars.doors, CP=true) →
+		//     Row 2 (A.CP=false, C.CP=true): merge at A.TS=cars,
+		//     CP=false.
+		// Same result as the pairwise contrast test above. Useful as
+		// a regression check that the N-ary dispatch handles a uniform
+		// sibling triple without surprises.
+		{
+			name: "andN(spoiler, tires.width=205, doors.count=4)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andN(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205),
+					leafPositive(idx, "countries.garages.cars.doors.count", 4))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Only doc 800 warsaw cars[0] has all three in a single car.
+			wantDocs: []uint64{800},
+		},
+		// andN over four leaves spanning two TS levels (two siblings at
+		// depth 4, two same-TS leaves at depth 3). Inputs:
+		//   - cars.accessories.type=spoiler (TS=accessories, depth 4)
+		//   - cars.tires.width=205          (TS=tires,       depth 4)
+		//   - cars.make=honda               (TS=cars,        depth 3)
+		//   - cars.year=2020                (TS=cars,        depth 3)
+		// All CP=true. Sort yields depth-4 pair first, then the depth-3
+		// pair. Fold:
+		//   - accessories AND tires → sibling lift to cars, same-TS at
+		//     cars, CP=false.
+		//   - result(cars, CP=false) AND make(cars, CP=true) → same-TS,
+		//     CP=false.
+		//   - result(cars, CP=false) AND year(cars, CP=true) → same-TS,
+		//     CP=false.
+		// Per-car semantics: car with spoiler accessory AND 205 tire AND
+		// make=honda AND year=2020 simultaneously.
+		{
+			name: "andN(spoiler, tires.width=205, make=honda, year=2020)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andN(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205),
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.year", 2020))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Only doc 200 cars[1] has all four (spoiler, 205, honda,
+			// 2020) in the same car. Other candidates fail at least one:
+			// - doc 100 cars[0]: spoiler+205+toyota+2020 → fails make.
+			// - doc 200 cars[0]: spoiler+205+honda+2015 → fails year.
+			// - doc 800 warsaw cars[0]: spoiler+205+no make → fails make.
+			wantDocs: []uint64{200},
+		},
+		// andN with three leaves spanning two TS levels and mixed CP.
+		// Inputs:
+		//   - NOT cars[1].year=2020 (TS=garages, depth 2, CP=false)
+		//   - cars.make=honda          (TS=cars,   depth 3, CP=true)
+		//   - cars.year=2018           (TS=cars,   depth 3, CP=true)
+		// Sort places the two depth-3 CP=true leaves first, then the
+		// depth-2 CP=false one. Fold:
+		//   - make AND year → same-TS at cars, CP=false.
+		//   - result(cars, CP=false) AND NOT(garages, CP=false) → Row 3
+		//     (both CP=false): lift result to garages, same-TS at
+		//     garages, CP=false.
+		// Per-garage semantics: garage where some car has make=honda
+		// AND year=2018 simultaneously, AND cars[1] is not year=2020.
+		{
+			name: "andN(NOT cars[1].year=2020, cars.make=honda, cars.year=2018)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andN(idx,
+					leafPinnedNot(idx,
+						"countries.garages.cars.year", 2020,
+						[]pinSpec{{"countries.garages.cars", 1}}),
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.year", 2018))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// doc 100 g[0]: cars[1] is honda/2018 — same car has both.
+			// cars[1].year=2018 ≠ 2020 → NOT also satisfied → PASS.
+			// All other docs fail at least one conjunct in same-car or
+			// same-garage form.
+			wantDocs: []uint64{100},
+		},
+		// orN over three same-TS positive leaves (all at cars, all
+		// CP=true). Sort is a no-op (input order preserved). Fold:
+		//   - make OR year → same-TS at cars, no lifts. CP=true.
+		//   - result OR colors → same-TS at cars, no lifts. CP=true.
+		// Verifies the orchestration on the simplest path (no scope
+		// transitions, no lifts).
+		{
+			name: "orN(cars.make=honda, cars.year=2018, cars.colors=blue)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orN(idx,
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.year", 2018),
+					leafPositive(idx, "countries.garages.cars.colors", "blue"))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: true,
+			// make=honda: {100, 200, 300, 810, 820}.
+			// year=2018: {100, 500, 600, 820} (cars with year=2018).
+			// colors=blue: {100, 200} (cars with blue in their colors).
+			// Union: {100, 200, 300, 500, 600, 810, 820}.
+			wantDocs: []uint64{100, 200, 300, 500, 600, 810, 820},
+		},
+		// orN over three sibling sub-object leaves under cars (all CP=
+		// true, all depth 4). Sort is a no-op. Fold:
+		//   - spoiler OR 205 → sibling lift to LCA=cars (both cheap
+		//     since CP=true), same-TS at cars. CP=true.
+		//   - result(cars, CP=true) OR doors(cars.doors, CP=true) →
+		//     LCA=cars. result no-op (already at LCA). doors cheap
+		//     lift to cars. Union. CP=true.
+		// Verifies the matrix's "OR always lands at LCA" rule across a
+		// 3-way sibling union with full CP preservation.
+		{
+			name: "orN(spoiler, tires.width=205, doors.count=4)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orN(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205),
+					leafPositive(idx, "countries.garages.cars.doors.count", 4))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: true,
+			// spoiler: {100, 200, 800, 830, 900}.
+			// 205-tires: {100, 200, 800, 900}.
+			// doors=4: {800, 900}.
+			// Union: {100, 200, 800, 830, 900}. doc 830 only via spoiler.
+			wantDocs: []uint64{100, 200, 800, 830, 900},
+		},
+		// orN spanning three TS levels (garages, cars, cars.tires), all
+		// CP=true. Sort places tires (depth 4), then cars-level honda
+		// (depth 3), then warsaw (depth 2). Fold:
+		//   - tires OR honda → LCA=cars. tires cheap lift to cars
+		//     (CP=true). honda no-op. CP=true.
+		//   - result(cars, CP=true) OR warsaw(garages, CP=true) →
+		//     LCA=garages. result cheap lift to garages (CP=true).
+		//     warsaw no-op. Union at garages. CP=true.
+		// Verifies the container-exists semantic in a 3-way OR: doc 800
+		// passes via warsaw alone, doc 810/820 via honda alone, etc.
+		{
+			name: "orN(garages.city=warsaw, cars.make=honda, cars.tires.width=205)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orN(idx,
+					leafPositive(idx, "countries.garages.city", "warsaw"),
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: true,
+			// warsaw garages: {800, 900}.
+			// make=honda: {100, 200, 300, 810, 820}.
+			// 205-tires: {100, 200, 800, 900}.
+			// Union: {100, 200, 300, 800, 810, 820, 900}.
+			wantDocs: []uint64{100, 200, 300, 800, 810, 820, 900},
 		},
 		// Sibling AND with mixed CP: A=radio at accessories (CP=true) AND
 		// B=NOT 205 at tires (CP=false). Both lifts land at LCA=cars: A
