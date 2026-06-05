@@ -82,6 +82,64 @@ import (
 // and CP value vary.
 
 // ---------------------------------------------------------------------------
+// OR merge dispatch matrix
+// ---------------------------------------------------------------------------
+//
+// orLeaves dispatches on the same axes as andLeaves: scope relation × CP
+// combinations. Unlike AND, OR never creates new ghosts — a chain bit at
+// parent in (A.Rich ∪ B.Rich) legitimately means "this parent contains a
+// matching element of either kind." OR always lands at the LCA: merging
+// below A.TS would lose A's "container exists" semantic (a doc with a
+// warsaw garage but zero cars must still satisfy `warsaw OR cars.X`).
+//
+//   scope relation       (A.CP, B.CP)   merge scope   result.CP        per-operand action
+//   ─────────────────────────────────────────────────────────────────────────────────────
+//   same TS              (any, any)     A.TS          A.CP && B.CP     none
+//   ─────────────────────────────────────────────────────────────────────────────────────
+//   ancestor + child     (any,  true)   A.TS          A.CP             C: no lift (cheap anchor-intersect)
+//   ancestor + child     (any,  false)  A.TS          false            C: LiftToAncestor on C.ES
+//   ─────────────────────────────────────────────────────────────────────────────────────
+//   siblings (LCA above) (true,  true)  LCA           true             both: cheap anchor-intersect
+//   siblings             (true,  false) LCA           false            A: cheap; B: real lift
+//   siblings             (false, true)  LCA           false            A: real lift; B: cheap
+//   siblings             (false, false) LCA           false            both: real lift
+//
+// "Cheap anchor-intersect" = X.Rich ∩ _anchor(LCA) — works because X.CP=true
+// guarantees X.Rich is clean at every scope from X.TS up to root.
+// "Real lift" = LiftToAncestor on X.ES + Rich reconstruction at LCA — needed
+// when X.CP=false because X.Rich at LCA carries ghost chain bits that would
+// leak into the union's ES.
+//
+// Why each rule:
+//
+//   - Same TS: union preserves authentic chain bits from each side; no new
+//     ghosts. Result CP = A.CP && B.CP — whatever ghosts an operand carried
+//     above its TS persist in the union.
+//
+//   - Ancestor+child, C.CP=true: C.Rich is authentic at every scope ≥ C.TS
+//     up to root, including A.TS. Direct union at A.TS works without
+//     lifting. Result CP = A.CP (∧ true) — only A's ghost characteristics
+//     above A.TS matter.
+//
+//   - Ancestor+child, C.CP=false: C.Rich at A.TS may have ghosts that would
+//     leak into ES at A.TS via the anchor intersection. Lift C up so its
+//     A.TS bits are rebuilt from authentic ES. Result CP=false because
+//     C's ghosts above A.TS persist in lifted.Rich (lift only fixes target
+//     scope and below).
+//
+//   - Siblings: same logic per-operand — each CP=true operand contributes
+//     authentically at LCA without lifting; each CP=false operand needs
+//     a real lift to clean its LCA bits. CP=true on both sides preserves
+//     CP=true overall (rare but real); any CP=false makes the result
+//     CP=false.
+//
+// The core merge formula (rich = lifted_A.Rich ∪ lifted_B.Rich, support =
+// lifted_A.ES ∪ lifted_B.ES) is identical in every branch; only the per-
+// operand lift strategy and result CP vary. The shortcut for ES (union of
+// per-operand ES instead of rich ∩ _anchor(LCA)) is cheaper than the AND
+// formula and correct because union of authentic sets is authentic.
+
+// ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
@@ -528,29 +586,21 @@ func liftToScope(idx *fastPathIndex, leaf *fastPathResult, targetScope string) *
 	}
 }
 
-// orLeaves performs a same-scope OR merge of two leaf results. Both inputs
-// must share TruthScope.
-//
-//	Rich         = left.Rich ∪ right.Rich
-//	ExactSupport = left.ExactSupport ∪ right.ExactSupport   (cheaper than rich ∩ anchor)
-//	TruthScope   = left.TruthScope
-//	CanProjectParentByAnchor = left && right
-//
-// Unlike same-scope AND, OR preserves CanProject when both inputs do:
-// chain bits at parent scope in Rich legitimately indicate "some matching
-// element under this parent" — which is exactly the existential OR semantic.
-// No ghost ancestors are introduced.
+// orLeaves performs an OR merge of two leaf results. See the OR merge
+// dispatch matrix near the top of this file for the full table of cases.
+// The implementation is a single rule: lift both operands to their LCA
+// (no-op when already there; cheap anchor-intersect when CP=true; full
+// LiftToAncestor when CP=false) and union them. The CP-based shortcuts
+// are entirely encoded inside liftToScope.
 func orLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult {
-	if left.TruthScope != right.TruthScope {
-		panic("orLeaves requires same TruthScope")
-	}
-	rich := left.Rich.Clone().Or(right.Rich)
-	support := left.ExactSupport.Clone().Or(right.ExactSupport)
+	lca := commonScope(left.TruthScope, right.TruthScope)
+	l := liftToScope(idx, left, lca)
+	r := liftToScope(idx, right, lca)
 	return &fastPathResult{
-		TruthScope:               left.TruthScope,
-		Rich:                     rich,
-		ExactSupport:             support,
-		CanProjectParentByAnchor: left.CanProjectParentByAnchor && right.CanProjectParentByAnchor,
+		TruthScope:               lca,
+		Rich:                     l.Rich.Clone().Or(r.Rich),
+		ExactSupport:             l.ExactSupport.Clone().Or(r.ExactSupport),
+		CanProjectParentByAnchor: l.CanProjectParentByAnchor && r.CanProjectParentByAnchor,
 	}
 }
 
@@ -1407,6 +1457,290 @@ func TestFastPathL2_Merge(t *testing.T) {
 			// krakow cars split spoiler/205 like in 800 → ghost only.
 			// Net witness across all garages: only doc 800 warsaw car.
 			wantDocs: []uint64{800},
+		},
+		// Sibling OR with both operands CP=true. accessories and tires are
+		// sibling sub-objects under cars; their LCA is cars. Both lifts
+		// take the cheap anchor-intersect path because each operand's Rich
+		// is already authentic at the LCA (chain bits propagate up via the
+		// chain+self+descendantSelves encoding). Result CP=true: union
+		// preserves cleanness when both inputs are clean.
+		{
+			name: "cars.accessories.type=spoiler OR cars.tires.width=205",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: true,
+			// spoiler-accessory contributors: doc 100 cars[0], doc 200
+			// cars[0], doc 800 g[0] cars[0] + g[1] cars[0], doc 830 cars[0]
+			// (accessories[1]), doc 900 g[1] cars[0] — docs {100, 200, 800,
+			// 830, 900}.
+			// 205-tire contributors: doc 100 cars[0], doc 200 cars[0], doc
+			// 800 g[0] cars[0] + g[1] cars[1], doc 900 g[1] cars[1] — docs
+			// {100, 200, 800, 900}.
+			// Union: {100, 200, 800, 830, 900}. doc 830 only via
+			// accessories (no tires); all others appear in both.
+			wantDocs: []uint64{100, 200, 800, 830, 900},
+		},
+		// Ancestor+child OR with both operands CP=true. Pins the
+		// "container exists" semantic: docs 800 and 900 have warsaw
+		// garages but no ford cars, and must still pass via the warsaw
+		// branch alone. A bug that merged at C.TS=cars (instead of LCA
+		// = A.TS = garages) would drop them, because A's value bits at
+		// cars-self exist only for cars under warsaw garages — empty for
+		// warsaw garages with cars that don't satisfy B. The correct
+		// merge at A.TS keeps "garages where A or B fires" without
+		// requiring B to fire under A.
+		//
+		// A.TS=garages is already the LCA, so A's lift is a no-op.
+		// B (TS=cars, CP=true) gets the cheap anchor-intersect lift.
+		// Result CP=true: both inputs clean above their TS, union clean
+		// above garages.
+		{
+			name: "garages.city=warsaw OR cars.make=ford",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafPositive(idx, "countries.garages.city", "warsaw"),
+					leafPositive(idx, "countries.garages.cars.make", "ford"))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: true,
+			// warsaw garages: doc 800 g[0], doc 900 g[0] — docs {800, 900}.
+			// ford-cars (make=ford): doc 300, 400, 500 (g[0] cars[1]),
+			// 600 (country 0 g[0] cars[0]), 700 (g[1] cars[0]), 820
+			// (country 0 g[0] cars[0]) — docs {300, 400, 500, 600, 700,
+			// 820}. doc 200 has name=ford (not make=ford) → not a match.
+			// Union: docs where some garage has city=warsaw OR some car
+			// in any garage has make=ford. Docs 800 and 900 pass via
+			// warsaw garage despite having no ford cars at all.
+			wantDocs: []uint64{300, 400, 500, 600, 700, 800, 820, 900},
+		},
+		// Ancestor+child OR with C.CP=false. A=warsaw (TS=garages,
+		// CP=true) is already at the LCA. C=inner AND of colors (TS=cars,
+		// CP=false) carries chain ghosts at garages — different cars in
+		// the same garage satisfying each colors leaf could leave a garage
+		// chain bit even with no single car matching both. The lift uses
+		// LiftToAncestor on C.ES to rebuild lifted_C.Rich at garages from
+		// authentic ExactSupport, wiping those ghost bits before the
+		// union. Result CP=false because A.CP && C.CP = false.
+		{
+			name: "garages.city=warsaw OR (cars.colors=red AND cars.colors=blue)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafPositive(idx, "countries.garages.city", "warsaw"),
+					andLeaves(idx,
+						leafPositive(idx, "countries.garages.cars.colors", "red"),
+						leafPositive(idx, "countries.garages.cars.colors", "blue")))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// Inner AND matches only doc 100 cars[1] — the only car with
+			// both red and blue colors in any fixture. Lifted to garages
+			// = doc 100 g[0]. warsaw garages = doc 800 g[0], doc 900 g[0].
+			// Union → {100, 800, 900}.
+			wantDocs: []uint64{100, 800, 900},
+		},
+		// Sibling OR with asymmetric CP. A=NOT spoiler (TS=accessories,
+		// CP=false) requires the real LiftToAncestor + Rich reconstruction
+		// path because A.Rich at cars carries chain bits for every car
+		// that owns any accessory — including cars whose accessories are
+		// all spoiler (no non-spoiler witness). LiftToAncestor on A.ES
+		// gives only cars with at least one non-spoiler accessory.
+		// B=205-tires (TS=tires, CP=true) takes the cheap anchor-intersect
+		// lift; B.Rich at cars is already authentic. Result CP=false
+		// because A.CP && B.CP = false.
+		//
+		// Note: wantDocs at the doc level coincides with the simpler
+		// spoiler-OR-205 case above because MaskRootLeaf collapses to
+		// docID — the lift's per-car correction (excluding all-spoiler
+		// cars from A's contribution at cars-self) doesn't surface as a
+		// different doc set. The harness still verifies the trustworthy-
+		// scope invariant (Rich ∩ _anchor(cars) == ES), which would fail
+		// if A were merged without lifting.
+		{
+			name: "NOT cars.accessories.type=spoiler OR cars.tires.width=205",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafNot(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// NOT spoiler witness cars (per-car non-spoiler accessory):
+			// doc 100 cars[1] (radio), doc 830 cars[0] (radio at idx 0).
+			// 205-tire cars: doc 100 cars[0], doc 200 cars[0], doc 800
+			// warsaw cars[0], doc 800 krakow cars[1], doc 900 krakow
+			// cars[1].
+			// Union at cars-self covers docs {100, 200, 800, 830, 900}.
+			wantDocs: []uint64{100, 200, 800, 830, 900},
+		},
+		// Same-TS OR with mixed CP: inner AND (TS=cars, CP=false) ORed
+		// with a leaf at cars (CP=true). Both operands at the same TS, so
+		// no lifts; result CP = false && true = false. Verifies the
+		// CP-propagation rule for same-TS OR with mixed input — the
+		// existing same-TS OR test only covers (true, true).
+		{
+			name: "(cars.accessories.type=spoiler AND cars.tires.width=205) OR cars.make=ford",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					andLeaves(idx,
+						leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+						leafPositive(idx, "countries.garages.cars.tires.width", 205)),
+					leafPositive(idx, "countries.garages.cars.make", "ford"))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Inner AND (spoiler+205 same car): docs {100, 200, 800}.
+			// ford-cars: docs {300, 400, 500, 600, 700, 820}.
+			// Union: {100, 200, 300, 400, 500, 600, 700, 800, 820}.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 800, 820},
+		},
+		// AND consuming an OR result. Inner OR at cars (CP=true, since
+		// both inputs are clean positives at the same TS); outer leaf at
+		// cars (CP=true). Same-TS AND, result CP=false structurally.
+		// Verifies that andLeaves correctly dispatches on an OR-produced
+		// input — the OR's clean output gets ANDed without surprises.
+		{
+			name: "(cars.make=honda OR cars.make=ford) AND cars.year=2018",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					orLeaves(idx,
+						leafPositive(idx, "countries.garages.cars.make", "honda"),
+						leafPositive(idx, "countries.garages.cars.make", "ford")),
+					leafPositive(idx, "countries.garages.cars.year", 2018))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Per-car: (make=honda OR make=ford) AND year=2018 in the
+			// same car.
+			// doc 100: cars[1] make=honda year=2018 ✓ → PASS.
+			// doc 820 country 0: cars[0] make=ford year=2018 ✓ → PASS.
+			// All other docs: no single car matches both predicates
+			// (e.g. doc 500 cars[1] is ford/2019, doc 600 country 0
+			// cars[0] is ford/2010, doc 300 cars[0] is ford/2011 etc).
+			wantDocs: []uint64{100, 820},
+		},
+		// Ancestor+child OR with both operands CP=false. A=pinned NOT
+		// (TS=garages, CP=false) is already at the LCA. C=inner same-TS
+		// AND at cars (TS=cars, CP=false) carries chain ghosts at
+		// garages — different cars in the same garage matching each leaf
+		// would leave a garage bit even when no single car matches both.
+		// C goes through LiftToAncestor on its ExactSupport, rebuilding
+		// lifted_C.Rich at garages from authentic ES (wiping the ghost
+		// bits before the union). Result CP = false && false = false.
+		// Verifies the (A.CP=false, C.CP=false) cell of ancestor+child
+		// OR, which the prior tests didn't cover.
+		{
+			name: "NOT cars[1].year=2020 OR (cars.make=honda AND cars.year=2020)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafPinnedNot(idx,
+						"countries.garages.cars.year", 2020,
+						[]pinSpec{{"countries.garages.cars", 1}}),
+					andLeaves(idx,
+						leafPositive(idx, "countries.garages.cars.make", "honda"),
+						leafPositive(idx, "countries.garages.cars.year", 2020)))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// A (NOT cars[1].year=2020 at garages): garages where cars[1]
+			// missing or year≠2020 → docs {100, 300, 400, 500, 600, 700,
+			// 800, 830, 900}.
+			// Inner AND (same car has make=honda AND year=2020): doc 200
+			// cars[1], doc 810 cars[0], doc 820 country 0 cars[1] → docs
+			// {200, 810, 820}. Lifted to garages: doc 200 g[0], doc 810
+			// g[0], doc 820 country 0 g[0].
+			// Union covers every fixture: {100, 200, 300, 400, 500, 600,
+			// 700, 800, 810, 820, 830, 900}. C meaningfully contributes
+			// 200/810/820 — none are in A.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		// Owner-level IS NULL true combined with a positive child via OR.
+		// A=cars IS NULL true at garages (CP=false; the IS-NULL-true
+		// shape carries chain ghosts at parent garages by construction).
+		// C=make=honda at cars (CP=true). Ancestor+child OR, C.CP=true →
+		// cheap anchor-intersect lift for C; A is already at LCA. Result
+		// CP = false && true = false. Verifies that owner-level IS NULL
+		// composes correctly as an operand — no prior merge test uses it.
+		{
+			name: "cars IS NULL true OR cars.make=honda",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafIsNullTrue(idx, "countries.garages.cars"),
+					leafPositive(idx, "countries.garages.cars.make", "honda"))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// cars IS NULL true at garages: only doc 700 g[0] (the empty
+			// cars garage). All other garages have at least one car so
+			// IS NULL true fails.
+			// make=honda at cars: docs with a car whose make field is
+			// "honda" — {100, 200, 300, 810, 820}. Docs 500/600 only
+			// have name=honda (not make), so they don't qualify.
+			// Union → {100, 200, 300, 700, 810, 820}.
+			wantDocs: []uint64{100, 200, 300, 700, 810, 820},
+		},
+		// NOT applied to a compound (AND) result. The algorithm exposes
+		// negate as a generic universe-subtract at the compound's
+		// TruthScope: NOT-ES = _anchor(TS) ANDNOT compound.ES. That gives
+		// per-element-existential semantics at the compound's TS — "some
+		// element at TS does NOT satisfy the compound." A doc passes if
+		// any TS-element falls outside the compound's ES.
+		//
+		// Note: NOT-of-compound is a deferred design area (per-element vs
+		// owner-level semantics differ for non-trivial doc shapes). This
+		// test pins the algorithmic behavior of negate(), not a chosen
+		// user-facing semantic.
+		{
+			name: "NOT (NOT cars[1].year=2020 AND cars[2].name=honda)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, andLeaves(idx,
+					leafPinnedNot(idx,
+						"countries.garages.cars.year", 2020,
+						[]pinSpec{{"countries.garages.cars", 1}}),
+					leafPinnedPositive(idx,
+						"countries.garages.cars.name", "honda",
+						[]pinSpec{{"countries.garages.cars", 2}})))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// Inner AND ES at garages = {doc 100 g[0], doc 500 g[1]}.
+			// negate at garages = _anchor(garages) ANDNOT inner.ES = every
+			// garage except those two.
+			// doc 100: only g[0], which IS in inner → NOT has zero garages
+			// → doc 100 fails.
+			// doc 500: g[0] not in inner, g[1] in inner → NOT has g[0] →
+			// doc 500 passes.
+			// Every other doc: no garages in inner → all garages survive
+			// the subtract → docs pass.
+			wantDocs: []uint64{200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		// Sibling AND with mixed CP: A=radio at accessories (CP=true) AND
+		// B=NOT 205 at tires (CP=false). Both lifts land at LCA=cars: A
+		// via cheap anchor-intersect (CP=true), B via real LiftToAncestor
+		// on its ExactSupport (CP=false). Per-car AND requires the same
+		// car to have a radio accessory AND a non-205 tire.
+		{
+			name: "cars.accessories.type=radio AND NOT cars.tires.width=205",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "radio"),
+					leafNot(idx, "countries.garages.cars.tires.width", 205))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// radio cars: doc 100 cars[1] (accessories=[radio]) and
+			// doc 830 cars[0] (accessories=[radio, spoiler]). doc 200's
+			// cars all have spoiler, not radio.
+			// non-205 tire cars (per-element witness): doc 100 cars[1]
+			// (tire=195), doc 200 cars[1] (tire=195). Other tire-bearing
+			// cars have only 205. Cars without tires have no per-element
+			// witness (empty scope).
+			// Intersection at cars-self: doc 100 cars[1]. doc 830 cars[0]
+			// has radio but no tires → no non-205 witness.
+			wantDocs: []uint64{100},
 		},
 	}
 
