@@ -1231,10 +1231,7 @@ func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool
 	if err != nil {
 		return false
 	}
-	// we're including additional replicas here to make sure we at least try to push the write
-	// to them if they exist
-	allReplicas := append(ws.NodeNames(), ws.AdditionalNodeNames()...)
-	return len(allReplicas) > 1
+	return len(ws.NodeNames()) > 1
 }
 
 func (i *Index) shardHasMultipleReplicasRead(tenantName, shardName string) bool {

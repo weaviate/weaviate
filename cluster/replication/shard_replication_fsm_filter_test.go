@@ -35,46 +35,40 @@ func TestShardReplicationFSM_FilterReplicas_ByState(t *testing.T) {
 	replicas := []string{source, target}
 
 	cases := []struct {
-		name           string
-		state          api.ShardReplicationState
-		wantRead       []string
-		wantWrite      []string
-		wantAdditional []string
+		name      string
+		state     api.ShardReplicationState
+		wantRead  []string
+		wantWrite []string
 	}{
 		{
-			name:           "REGISTERED: target not yet routable",
-			state:          api.REGISTERED,
-			wantRead:       []string{source},
-			wantWrite:      []string{source},
-			wantAdditional: []string{},
+			name:      "REGISTERED: target not yet routable",
+			state:     api.REGISTERED,
+			wantRead:  []string{source},
+			wantWrite: []string{source},
 		},
 		{
-			name:           "HYDRATING: target not yet routable",
-			state:          api.HYDRATING,
-			wantRead:       []string{source},
-			wantWrite:      []string{source},
-			wantAdditional: []string{},
+			name:      "HYDRATING: target not yet routable",
+			state:     api.HYDRATING,
+			wantRead:  []string{source},
+			wantWrite: []string{source},
 		},
 		{
-			name:           "FINALIZING: target receives no direct writes (CCL-only catchup)",
-			state:          api.FINALIZING,
-			wantRead:       []string{source},
-			wantWrite:      []string{source},
-			wantAdditional: []string{},
+			name:      "FINALIZING: target receives no direct writes (CCL-only catchup)",
+			state:     api.FINALIZING,
+			wantRead:  []string{source},
+			wantWrite: []string{source},
 		},
 		{
-			name:           "INTEGRATING: target is a counted read+write replica, not additional",
-			state:          api.INTEGRATING,
-			wantRead:       []string{source, target},
-			wantWrite:      []string{source, target},
-			wantAdditional: []string{},
+			name:      "INTEGRATING: target is a counted read+write replica, not additional",
+			state:     api.INTEGRATING,
+			wantRead:  []string{source, target},
+			wantWrite: []string{source, target},
 		},
 		{
-			name:           "READY: target fully promoted",
-			state:          api.READY,
-			wantRead:       []string{source, target},
-			wantWrite:      []string{source, target},
-			wantAdditional: []string{},
+			name:      "READY: target fully promoted",
+			state:     api.READY,
+			wantRead:  []string{source, target},
+			wantWrite: []string{source, target},
 		},
 	}
 
@@ -87,9 +81,8 @@ func TestShardReplicationFSM_FilterReplicas_ByState(t *testing.T) {
 			gotRead := fsm.FilterOneShardReplicasRead(class, shard, replicas)
 			assert.ElementsMatch(t, tc.wantRead, gotRead, "read replicas")
 
-			gotWrite, gotAdditional := fsm.FilterOneShardReplicasWrite(class, shard, replicas)
+			gotWrite := fsm.FilterOneShardReplicasWrite(class, shard, replicas)
 			assert.ElementsMatch(t, tc.wantWrite, gotWrite, "write replicas")
-			assert.ElementsMatch(t, tc.wantAdditional, gotAdditional, "additional write replicas")
 		})
 	}
 }
