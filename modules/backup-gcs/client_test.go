@@ -31,6 +31,13 @@ import (
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
+func TestInitialize_SkipAccessCheck(t *testing.T) {
+	// With SkipAccessCheck set, Initialize must be a no-op: it returns
+	// before touching the (nil) GCS client or running the write+delete probe.
+	c := &gcsClient{config: clientConfig{Bucket: "my-bucket", SkipAccessCheck: true}}
+	require.NoError(t, c.Initialize(context.Background(), "backup-1", "", ""))
+}
+
 func TestFindBucket_EmptyBucket(t *testing.T) {
 	// Note: cases where the resolved bucket is non-empty cannot be tested
 	// without a real GCS connection (client.Bucket panics on a nil client),

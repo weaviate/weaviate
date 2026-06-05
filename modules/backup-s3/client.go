@@ -356,6 +356,10 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 }
 
 func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+	if s.config.SkipAccessCheck {
+		return nil
+	}
+
 	client, err := s.getClient(ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to get client")

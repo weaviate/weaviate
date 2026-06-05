@@ -282,6 +282,10 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 }
 
 func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+	if g.config.SkipAccessCheck {
+		return nil
+	}
+
 	// Each call gets a unique access-check file so concurrent Initialize calls
 	// from different nodes (or the same node) never interfere with each other.
 	seq := g.counter.Add(1)

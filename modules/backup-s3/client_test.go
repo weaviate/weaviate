@@ -12,12 +12,22 @@
 package modstgs3
 
 import (
+	"context"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInitialize_SkipAccessCheck(t *testing.T) {
+	// With SkipAccessCheck set, Initialize must be a no-op: no client is
+	// built and no PutObject/RemoveObject probe runs, so it returns nil
+	// even though the client has no working S3 connection.
+	c := &s3Client{config: &clientConfig{Bucket: "my-bucket", SkipAccessCheck: true}}
+	err := c.Initialize(context.Background(), "backup-1", "", "")
+	require.NoError(t, err)
+}
 
 // setEnvVars sets environment variables and returns a cleanup function
 // that restores the original values.

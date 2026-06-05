@@ -22,7 +22,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/config"
 )
+
+func TestInitialize_SkipAccessCheck(t *testing.T) {
+	// With SkipAccessCheck set, Initialize must be a no-op: it returns
+	// before resolving the container or running the write+delete probe.
+	c := &azureClient{config: clientConfig{Container: "my-container", SkipAccessCheck: true}}
+	require.NoError(t, c.Initialize(context.Background(), "backup-1", "", ""))
+}
 
 // Test user overrides
 func TestUploadParams(t *testing.T) {
@@ -39,6 +47,7 @@ func TestUploadParams(t *testing.T) {
 	params := moduletools.NewMockModuleInitParams(t)
 	params.EXPECT().GetLogger().Return(logrus.New())
 	params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+	params.EXPECT().GetConfig().Return(&config.Config{})
 	err := azure.Init(testCtx, params)
 	require.Nil(t, err)
 
@@ -53,6 +62,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
@@ -66,6 +76,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
@@ -109,6 +120,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
@@ -122,6 +134,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 

@@ -43,6 +43,11 @@ type clientConfig struct {
 	// the backup to be stored in a specific
 	// directory inside the provided bucket
 	BackupPath string
+
+	// SkipAccessCheck disables the write+delete probe in Initialize.
+	// Set it when the credentials are intentionally restricted
+	// (e.g. a least-privilege role without delete permission).
+	SkipAccessCheck bool
 }
 
 type Module struct {
@@ -79,8 +84,9 @@ func (m *Module) Init(ctx context.Context,
 	m.dataPath = params.GetStorageProvider().DataPath()
 
 	config := &clientConfig{
-		Bucket:     os.Getenv(gcsBucket),
-		BackupPath: os.Getenv(gcsPath),
+		Bucket:          os.Getenv(gcsBucket),
+		BackupPath:      os.Getenv(gcsPath),
+		SkipAccessCheck: params.GetConfig().Backup.SkipAccessCheck,
 	}
 	if config.Bucket == "" {
 		return errors.Errorf("backup init: '%s' must be set", gcsBucket)
@@ -93,8 +99,9 @@ func (m *Module) Init(ctx context.Context,
 	m.gcsClient = client
 
 	exportConfig := &clientConfig{
-		Bucket:     "", // export scheduler provides bucket via EXPORT_DEFAULT_BUCKET
-		BackupPath: "", // export scheduler provides path via EXPORT_DEFAULT_PATH
+		Bucket:          "", // export scheduler provides bucket via EXPORT_DEFAULT_BUCKET
+		BackupPath:      "", // export scheduler provides path via EXPORT_DEFAULT_PATH
+		SkipAccessCheck: params.GetConfig().Export.SkipAccessCheck,
 	}
 	exportClient, err := newClient(ctx, exportConfig, m.dataPath, m.logger)
 	if err != nil {

@@ -733,6 +733,12 @@ type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
+
+	// SkipAccessCheck disables the write+delete probe that the backup client
+	// runs on initialize. Set it when the backup credentials are
+	// intentionally restricted (e.g. lacking DeleteObject).
+	// Env: BACKUP_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
@@ -929,6 +935,12 @@ type Export struct {
 	// so this value is used directly.
 	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
 	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+
+	// SkipAccessCheck disables the write+delete probe that the export client
+	// runs on initialize. Set it when the export credentials are
+	// intentionally restricted (e.g. a least-privilege role without
+	// DeleteObject). Env: EXPORT_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
 const (
