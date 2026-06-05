@@ -439,39 +439,6 @@ func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
 	return nil
 }
 
-func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) bool {
-	ops, ok := s.opsBySourceFQDN[sourceFQDN]
-	if !ok {
-		return false
-	}
-
-	for _, op := range ops {
-		status, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-
-		if status.ShouldConsumeOps() {
-			return true
-		} else {
-			continue
-		}
-	}
-	return false
-}
-
-func (s *ShardReplicationFSM) hasOngoingTargetReplication(targetFQDN shardFQDN) bool {
-	op, ok := s.opsByTargetFQDN[targetFQDN]
-	if !ok {
-		return false
-	}
-	status, ok := s.statusById[op.ID]
-	if !ok {
-		return false
-	}
-	return status.ShouldConsumeOps()
-}
-
 // TODO: Improve the error handling in that function
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error
