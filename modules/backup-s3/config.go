@@ -28,8 +28,6 @@ type clientConfig struct {
 	RoleSessionName string
 
 	// SkipAccessCheck disables the write+delete probe in Initialize.
-	// Set it when the credentials are intentionally restricted (e.g. a
-	// least-privilege export role without DeleteObject).
 	SkipAccessCheck bool
 }
 

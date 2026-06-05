@@ -26,10 +26,27 @@ import (
 )
 
 func TestInitialize_SkipAccessCheck(t *testing.T) {
-	// With SkipAccessCheck set, Initialize validates the container name but
-	// skips the write+delete probe, so it returns nil without any network call.
-	c := &azureClient{config: clientConfig{Container: "my-container", SkipAccessCheck: true}}
-	require.NoError(t, c.Initialize(context.Background(), "backup-1", "", ""))
+	// Validation runs before the SkipAccessCheck short-circuit: a valid
+	// container skips the probe, an empty one still errors.
+	tests := []struct {
+		name      string
+		container string
+		wantErr   string
+	}{
+		{name: "valid container skips probe", container: "my-container"},
+		{name: "empty container still validates", container: "", wantErr: "container must not be empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &azureClient{config: clientConfig{Container: tt.container, SkipAccessCheck: true}}
+			err := c.Initialize(context.Background(), "backup-1", "", "")
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
 }
 
 // Test user overrides

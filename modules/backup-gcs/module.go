@@ -45,8 +45,6 @@ type clientConfig struct {
 	BackupPath string
 
 	// SkipAccessCheck disables the write+delete probe in Initialize.
-	// Set it when the credentials are intentionally restricted
-	// (e.g. a least-privilege role without delete permission).
 	SkipAccessCheck bool
 }
 
