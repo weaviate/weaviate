@@ -224,6 +224,22 @@ func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, sha
 	return s.getOpsWithStatus(ops), true
 }
 
+func (s *ShardReplicationFSM) HasNonTerminalOpsForShard(collection, shard string) bool {
+	ops, ok := s.GetOpsForCollectionAndShard(collection, shard)
+	if !ok {
+		return false
+	}
+	for _, o := range ops {
+		switch o.Status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			// terminal — does not block async-repl gating
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
 	opsWithStatus := make([]ShardReplicationOpAndStatus, 0, len(ops))
 	for _, op := range ops {

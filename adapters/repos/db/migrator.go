@@ -244,6 +244,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 	idx.usageLimits = m.db.usageLimits
 	idx.db = m.db
+	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()

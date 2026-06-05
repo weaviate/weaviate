@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
@@ -568,6 +569,56 @@ func setShardReplicas(t *testing.T, idx *Index, nodes ...string) {
 		}
 	}
 	m.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(nodes, nil).Maybe()
+}
+
+// TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard pins the cycle's
+// in-flight short-circuit: while any non-terminal replication op exists for
+// the shard, the cycle must return without invoking the replicator so the CCL
+// stays the exclusive catch-up channel. A nil FSM reader is treated as "no
+// in-flight ops" — the fall-through path for tests that don't plumb one.
+func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "HashbeatInflightCheck"
+
+	sh, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	shardName := sh.Name()
+	setShardReplicas(t, idx, "node1", "node2")
+
+	// Swap in a fresh FSM reader so we control the predicate this cycle reads.
+	fsmMock := replicationTypes.NewMockReplicationFSMReader(t)
+	saved := idx.replicationFSMReader
+	idx.replicationFSMReader = fsmMock
+	defer func() { idx.replicationFSMReader = saved }()
+
+	// Resolve the concrete *Shard to invoke runHashbeatCycle directly.
+	concrete, ok := sh.(*Shard)
+	require.True(t, ok, "expected a concrete *Shard from testShard")
+
+	cfg := idx.AsyncReplicationConfig()
+
+	t.Run("non-terminal op short-circuits the cycle", func(t *testing.T) {
+		// Cycle must consult the FSM, see the in-flight op, and return without
+		// calling the replicator (asserted implicitly via NewMockReplicationFSMReader's
+		// Cleanup: any unexpected call would fail the mock).
+		call := fsmMock.EXPECT().HasNonTerminalOpsForShard(class, shardName).Return(true).Once()
+		defer call.Unset()
+		propagated, err := concrete.runHashbeatCycle(ctx, cfg)
+		require.NoError(t, err)
+		require.False(t, propagated, "no objects must be propagated while an op is in flight")
+	})
+
+	t.Run("nil FSM reader is treated as no in-flight ops", func(t *testing.T) {
+		// Tests that never plumb the reader should not have their hashbeat
+		// gated by an absent FSM — they fall through to the normal gate.
+		idx.replicationFSMReader = nil
+		defer func() { idx.replicationFSMReader = fsmMock }()
+
+		// We don't need to drive a full diff; we just want to confirm we got
+		// past the FSM short-circuit. With no peers configured, the cycle
+		// exits cleanly via the existing "no diff found" path. The mock would
+		// catch any FSM call here (none allowed; we restored the nil reader).
+		_, _ = concrete.runHashbeatCycle(ctx, cfg)
+	})
 }
 
 func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {

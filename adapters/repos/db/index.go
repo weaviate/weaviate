@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -230,9 +231,11 @@ type Index struct {
 
 	getSchema    schemaUC.SchemaGetter
 	schemaReader schemaUC.SchemaReader
-	logger       logrus.FieldLogger
-	remote       *sharding.RemoteIndex
-	stopwords    *stopwords.Detector
+
+	replicationFSMReader replicationTypes.ReplicationFSMReader
+	logger               logrus.FieldLogger
+	remote               *sharding.RemoteIndex
+	stopwords            *stopwords.Detector
 	// stopwordProvider bundles the collection-level stopword detector and the
 	// cached user-defined preset detectors. It is replaced atomically when
 	// invertedIndexConfig is updated, so reads on hot query paths do not need
@@ -1382,7 +1385,7 @@ func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
 			WithField("action", "async_replication").
 			WithField("class_name", i.Config.ClassName.String()).
 			WithField("shard_name", shardName).
-			Debugf("overReplicated: could not read shard replicas: %v", err)
+			Warnf("asyncReplicationEnabledForShard: could not read shard replicas: %v", err)
 		return false
 	}
 
@@ -1398,6 +1401,10 @@ func (i *Index) AsyncReplicationEnabledForShard(shardName string) bool {
 	defer i.replicationConfigLock.RUnlock()
 
 	return i.asyncReplicationEnabledForShard(shardName)
+}
+
+func (i *Index) SetReplicationFSMReader(r replicationTypes.ReplicationFSMReader) {
+	i.replicationFSMReader = r
 }
 
 // IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async

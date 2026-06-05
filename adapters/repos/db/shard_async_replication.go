@@ -1370,6 +1370,15 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		return len(s.targetNodeOverrides)
 	}()
 
+	// Skip the cycle while any non-terminal replication op exists for this
+	// shard: the CCL is the exclusive catch-up channel for that op. If we run async repl
+	// during this, there are windows where a un-caught-up target would push a write
+	// back to the source erroneously.
+	if s.index.replicationFSMReader != nil &&
+		s.index.replicationFSMReader.HasNonTerminalOpsForShard(s.class.Class, s.name) {
+		return false, nil
+	}
+
 	if (!s.index.AsyncReplicationEnabledForShard(s.name) && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
 		// skip hashbeat iteration when async replication is disabled and no target node overrides are set
 		// or maintenance mode is enabled for localhost
