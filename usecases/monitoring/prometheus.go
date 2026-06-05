@@ -126,6 +126,10 @@ type PrometheusMetrics struct {
 	ShardsLoading   prometheus.Gauge
 	ShardsUnloading prometheus.Gauge
 
+	// ShardHaltForTransferForceResume: non-zero means a transfer was
+	// force-resumed mid-stream — compaction may have raced the transfer.
+	ShardHaltForTransferForceResume *prometheus.CounterVec
+
 	// RAFT-based schema metrics
 	SchemaWrites         *prometheus.SummaryVec
 	SchemaReadsLocal     *prometheus.SummaryVec
@@ -767,6 +771,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
 		}),
+
+		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "shard_halt_for_transfer_force_resume_total",
+			Help: "Halt-for-transfer inactivity watchdog firings. Non-zero indicates a transfer was force-resumed mid-stream.",
+		}, []string{"class_name", "shard_name"}),
 
 		// Schema TX-metrics. Can be removed when RAFT is ready
 		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{

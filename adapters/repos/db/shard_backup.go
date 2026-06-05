@@ -132,6 +132,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	return nil
 }
 
+// MayResetTransferInactivityTimer counts an in-flight transfer RPC as
+// activity so the halt watchdog doesn't force-resume mid-stream.
+func (s *Shard) MayResetTransferInactivityTimer() {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+	s.mayResetInactivityTimer()
+}
+
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 	if s.haltForTransferInactivityTimeout != 0 && s.haltForTransferInactivityTimeout <= inactivityTimeout {
 		// no need to update current inactivity timeout
@@ -215,15 +223,15 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
 
-	for _, relPath := range files {
-		src := filepath.Join(s.index.Config.RootPath, relPath)
-		dst := filepath.Join(stagingRoot, relPath)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return nil, fmt.Errorf("create staging subdir for %s: %w", relPath, err)
+	pairs := make([]file.HardlinkPair, len(files))
+	for idx, relPath := range files {
+		pairs[idx] = file.HardlinkPair{
+			Src: filepath.Join(s.index.Config.RootPath, relPath),
+			Dst: filepath.Join(stagingRoot, relPath),
 		}
-		if err := os.Link(src, dst); err != nil {
-			return nil, fmt.Errorf("hardlink %s to staging: %w", relPath, err)
-		}
+	}
+	if err := file.HardlinkFiles(pairs); err != nil {
+		return nil, fmt.Errorf("hardlink backup files to staging: %w", err)
 	}
 
 	return files, nil
@@ -302,6 +310,13 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	if forced {
 		s.haltForTransferCount = 0
+		// Non-zero in steady state means a transfer was force-resumed
+		// mid-stream — i.e. the read-path timer reset isn't reaching us.
+		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
+			s.promMetrics.ShardHaltForTransferForceResume.
+				WithLabelValues(s.index.Config.ClassName.String(), s.name).
+				Inc()
+		}
 	} else {
 		s.haltForTransferCount--
 
