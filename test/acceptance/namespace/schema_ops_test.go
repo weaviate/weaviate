@@ -407,8 +407,12 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		helper.CreateClassAuth(t, makeClass("Movies"), user1Key)
 		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
-		shards, err := getShards(t, "Movies", user1Key)
-		require.NoError(t, err)
+		var shards models.ShardStatusList
+		retryOnAliasLag(t, func() error {
+			var err error
+			shards, err = getShards(t, "Movies", user1Key)
+			return err
+		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
@@ -419,8 +423,12 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		helper.CreateClassAuth(t, makeClass("Shows"), user1Key)
 		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
 
-		shards, err := getShards(t, ns1+":Shows", adminKey)
-		require.NoError(t, err)
+		var shards models.ShardStatusList
+		retryOnAliasLag(t, func() error {
+			var err error
+			shards, err = getShards(t, ns1+":Shows", adminKey)
+			return err
+		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
@@ -525,8 +533,12 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		helper.CreateClassAuth(t, newClass("Movies"), user1Key)
 		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
-		shards, err := getShards(t, "Movies", user1Key)
-		require.NoError(t, err)
+		var shards models.ShardStatusList
+		retryOnAliasLag(t, func() error {
+			var err error
+			shards, err = getShards(t, "Movies", user1Key)
+			return err
+		})
 		require.Len(t, shards, 1)
 		shardName := shards[0].Name
 
@@ -539,8 +551,12 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		helper.CreateClassAuth(t, newClass("Shows"), user1Key)
 		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
 
-		shards, err := getShards(t, ns1+":Shows", adminKey)
-		require.NoError(t, err)
+		var shards models.ShardStatusList
+		retryOnAliasLag(t, func() error {
+			var err error
+			shards, err = getShards(t, ns1+":Shows", adminKey)
+			return err
+		})
 		require.Len(t, shards, 1)
 		shardName := shards[0].Name
 
@@ -555,8 +571,12 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
-		shards, err := getShards(t, "Concerts", user1Key)
-		require.NoError(t, err)
+		var shards models.ShardStatusList
+		retryOnAliasLag(t, func() error {
+			var err error
+			shards, err = getShards(t, "Concerts", user1Key)
+			return err
+		})
 		require.Len(t, shards, 1)
 		shardName := shards[0].Name
 		initialStatus := shards[0].Status
@@ -572,7 +592,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 			return err
 		})
 
-		err = updateShard(t, "Gigs", shardName, "READONLY", user1Key)
+		err := updateShard(t, "Gigs", shardName, "READONLY", user1Key)
 		require.Error(t, err, "UpdateShardStatus must not resolve aliases on namespaced clusters")
 
 		after, err := getShards(t, ns1+":Concerts", adminKey)
@@ -589,8 +609,12 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 
 		// Shard ids are per-class, so ns1:Books and ns2:Books
 		// have disjoint shard name sets.
-		shards2, err := getShards(t, ns2+":Books", adminKey)
-		require.NoError(t, err)
+		var shards2 models.ShardStatusList
+		retryOnAliasLag(t, func() error {
+			var err error
+			shards2, err = getShards(t, ns2+":Books", adminKey)
+			return err
+		})
 		require.Len(t, shards2, 1)
 		shardName := shards2[0].Name
 
@@ -643,9 +667,15 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	})
 
 	t.Run("global admin gets node status by qualified class name", func(t *testing.T) {
-		params := nodes.NewNodesGetClassParams().WithClassName(ns1 + ":Movies").WithOutput(&verbose)
-		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
-		require.NoError(t, err)
+		// Class-scoped node status needs the index present on every node, so it
+		// stays 404 until the slowest follower has replicated the class create.
+		var resp *nodes.NodesGetClassOK
+		retryOnAliasLag(t, func() error {
+			params := nodes.NewNodesGetClassParams().WithClassName(ns1 + ":Movies").WithOutput(&verbose)
+			var err error
+			resp, err = helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
+			return err
+		})
 		require.NotNil(t, resp.Payload)
 		assert.NotEmpty(t, resp.Payload.Nodes)
 	})
