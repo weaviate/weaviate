@@ -14,7 +14,7 @@ package common_filters
 import (
 	"testing"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/searchparams"

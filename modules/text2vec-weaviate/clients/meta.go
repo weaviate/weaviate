@@ -14,6 +14,6 @@ package clients
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Weaviate Embedding Module",
-		"documentationHref": "https://api.embedding.weaviate.io",
+		"documentationHref": "https://docs.weaviate.io/cloud/embeddings",
 	}, nil
 }

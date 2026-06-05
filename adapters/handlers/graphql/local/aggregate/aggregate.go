@@ -14,7 +14,7 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
@@ -237,7 +237,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypePhoneNumber:
 		// skipping for now, see gh-1088 where it was outscoped
 		return nil, nil
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeTextArray:
 		return makePropertyField(class, property, stringPropertyFields)

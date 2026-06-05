@@ -21,9 +21,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -35,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -192,22 +195,46 @@ type hnsw struct {
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
-	allocChecker            memwatch.AllocChecker
-	tombstoneCleanupRunning atomic.Bool
+	allocChecker              memwatch.AllocChecker
+	tombstoneMemCheckInterval time.Duration
+	tombstoneCleanupRunning   atomic.Bool
 
 	visitedListPoolMaxSize int
 
+	asyncIndexingEnabled bool
+
 	// only used for multivector mode
-	multivector     atomic.Bool
-	muvera          atomic.Bool
-	muveraEncoder   *multivector.MuveraEncoder
-	docIDVectors    map[uint64][]uint64
-	vecIDcounter    uint64
-	maxDocID        uint64
-	MinMMapSize     int64
-	MaxWalReuseSize int64
+	multivector       atomic.Bool
+	muvera            atomic.Bool
+	muveraEncoder     *multivector.MuveraEncoder
+	docIDVectors      map[uint64][]uint64
+	vecIDcounter      uint64
+	maxDocID          uint64
+	makeBucketOptions lsmkv.MakeBucketOptions
 
 	fs common.FS
+}
+
+func (h *hnsw) Get(id uint64) ([]float32, error) {
+	if !h.compressed.Load() {
+		return h.cache.Get(context.Background(), id)
+	}
+	return h.compressor.Get(id)
+}
+
+// GetCompressedVector retrieves the compressed vector for a given ID.
+// The index must be compressed, otherwise an error is returned.
+func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
+	if !h.compressed.Load() {
+		return nil, errors.New("index is not compressed")
+	}
+
+	v, err := h.compressor.GetCompressed(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]T), nil
 }
 
 type CommitLogger interface {
@@ -226,12 +253,12 @@ type CommitLogger interface {
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
-	SwitchCommitLogs(bool) error
-	AddPQCompression(compressionhelpers.PQData) error
-	AddSQCompression(compressionhelpers.SQData) error
+	PrepareForBackup(bool) error
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
-	AddRQCompression(compressionhelpers.RQData) error
-	AddBRQCompression(compressionhelpers.BRQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -282,9 +309,7 @@ func New(cfg Config, uc ent.UserConfig,
 			err := store.CreateOrLoadBucket(
 				context.Background(),
 				cfg.ID+"_muvera_vectors",
-				lsmkv.WithStrategy(lsmkv.StrategyReplace),
-				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
@@ -342,7 +367,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
 		shardName: cfg.ShardName,
 
 		randFunc:                          rand.Float64,
@@ -361,15 +386,16 @@ func New(cfg Config, uc ent.UserConfig,
 		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
-		store:                  store,
-		allocChecker:           cfg.AllocChecker,
-		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+		store:                     store,
+		allocChecker:              cfg.AllocChecker,
+		tombstoneMemCheckInterval: 500 * time.Millisecond,
+		visitedListPoolMaxSize:    cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:      cfg.AsyncIndexingEnabled,
 
-		docIDVectors:    make(map[uint64][]uint64),
-		muveraEncoder:   muveraEncoder,
-		MinMMapSize:     cfg.MinMMapSize,
-		MaxWalReuseSize: cfg.MaxWalReuseSize,
-		fs:              common.NewOSFS(),
+		docIDVectors:      make(map[uint64][]uint64),
+		muveraEncoder:     muveraEncoder,
+		makeBucketOptions: cfg.MakeBucketOptions,
+		fs:                common.NewOSFS(),
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
 		"shard":        cfg.ShardName,
@@ -386,11 +412,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err
@@ -410,13 +436,7 @@ func New(cfg Config, uc ent.UserConfig,
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
 				cfg.ID+"_mv_mappings",
-				lsmkv.WithStrategy(lsmkv.StrategyReplace),
-				lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
-				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
-				lsmkv.WithAllocChecker(cfg.AllocChecker),
-				lsmkv.WithMinMMapSize(cfg.MinMMapSize),
-				lsmkv.WithMinWalThreshold(cfg.MaxWalReuseSize),
+				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
@@ -898,6 +918,13 @@ func (h *hnsw) AlreadyIndexed() uint64 {
 		return uint64(h.compressor.CountVectors())
 	}
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) CurrentVectorsLen() uint64 {
+	if h.compressed.Load() {
+		return h.compressor.MaxVectorID()
+	}
+	return uint64(h.cache.Len())
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {

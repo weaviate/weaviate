@@ -20,6 +20,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -28,7 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"go.etcd.io/bbolt"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TempVectorForIDWithViewThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice, common.BucketView) ([]float32, error) {
@@ -79,6 +82,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 		ID:               indexID,
 		Logger:           logger,
 		DistanceProvider: distancer,
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(dirName, indexID, logger, noopCallback)
 		},
@@ -91,6 +95,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 		},
 		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 	}
 
 	idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
@@ -226,6 +231,8 @@ func TestRestoreQuantization_Integration(t *testing.T) {
 					return &noopBucketView{}
 				},
 				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				AllocChecker:                 memwatch.NewDummyMonitor(),
+				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			}
 
 			idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), store)

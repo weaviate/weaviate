@@ -32,6 +32,7 @@ const (
 	ApplyRequest_TYPE_DELETE_CLASS                                               ApplyRequest_Type = 3
 	ApplyRequest_TYPE_RESTORE_CLASS                                              ApplyRequest_Type = 4
 	ApplyRequest_TYPE_ADD_PROPERTY                                               ApplyRequest_Type = 5
+	ApplyRequest_TYPE_UPDATE_PROPERTY                                            ApplyRequest_Type = 6
 	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                                        ApplyRequest_Type = 10
 	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD                                       ApplyRequest_Type = 11
 	ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD                                  ApplyRequest_Type = 12
@@ -53,7 +54,11 @@ const (
 	ApplyRequest_TYPE_SUSPEND_USER                                               ApplyRequest_Type = 83
 	ApplyRequest_TYPE_ACTIVATE_USER                                              ApplyRequest_Type = 84
 	ApplyRequest_TYPE_CREATE_USER_WITH_KEY                                       ApplyRequest_Type = 85
-	ApplyRequest_TYPE_STORE_SCHEMA_V1                                            ApplyRequest_Type = 99
+	ApplyRequest_TYPE_ADD_NAMESPACE                                              ApplyRequest_Type = 90
+	ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE                                  ApplyRequest_Type = 91
+	ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE                                     ApplyRequest_Type = 92
+	ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY                                    ApplyRequest_Type = 93
+	ApplyRequest_TYPE_UPDATE_NAMESPACE                                           ApplyRequest_Type = 94
 	ApplyRequest_TYPE_REPLICATION_REPLICATE                                      ApplyRequest_Type = 200
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE                         ApplyRequest_Type = 201
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR                       ApplyRequest_Type = 202
@@ -67,6 +72,7 @@ const (
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD                           ApplyRequest_Type = 210
 	ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION                        ApplyRequest_Type = 211
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD                 ApplyRequest_Type = 212
+	ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE                             ApplyRequest_Type = 213
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL                     ApplyRequest_Type = 220
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION           ApplyRequest_Type = 221
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD ApplyRequest_Type = 222
@@ -74,8 +80,14 @@ const (
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID                 ApplyRequest_Type = 224
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD                                       ApplyRequest_Type = 300
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL                                    ApplyRequest_Type = 301
-	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED                     ApplyRequest_Type = 302
-	ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP                                  ApplyRequest_Type = 303
+	// Deprecated: kept for backward compat with existing Raft logs.
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED           ApplyRequest_Type = 302
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP                        ApplyRequest_Type = 303
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED           ApplyRequest_Type = 304
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS            ApplyRequest_Type = 305
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED                  ApplyRequest_Type = 306
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK      ApplyRequest_Type = 307
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK ApplyRequest_Type = 308
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -87,6 +99,7 @@ var (
 		3:   "TYPE_DELETE_CLASS",
 		4:   "TYPE_RESTORE_CLASS",
 		5:   "TYPE_ADD_PROPERTY",
+		6:   "TYPE_UPDATE_PROPERTY",
 		10:  "TYPE_UPDATE_SHARD_STATUS",
 		11:  "TYPE_ADD_REPLICA_TO_SHARD",
 		12:  "TYPE_DELETE_REPLICA_FROM_SHARD",
@@ -108,7 +121,11 @@ var (
 		83:  "TYPE_SUSPEND_USER",
 		84:  "TYPE_ACTIVATE_USER",
 		85:  "TYPE_CREATE_USER_WITH_KEY",
-		99:  "TYPE_STORE_SCHEMA_V1",
+		90:  "TYPE_ADD_NAMESPACE",
+		91:  "TYPE_DELETE_USERS_IN_NAMESPACE",
+		92:  "TYPE_CHANGE_NAMESPACE_STATE",
+		93:  "TYPE_REMOVE_NAMESPACE_ENTITY",
+		94:  "TYPE_UPDATE_NAMESPACE",
 		200: "TYPE_REPLICATION_REPLICATE",
 		201: "TYPE_REPLICATION_REPLICATE_UPDATE_STATE",
 		202: "TYPE_REPLICATION_REPLICATE_REGISTER_ERROR",
@@ -122,6 +139,7 @@ var (
 		210: "TYPE_REPLICATION_REPLICATE_SYNC_SHARD",
 		211: "TYPE_REPLICATION_REGISTER_SCHEMA_VERSION",
 		212: "TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD",
+		213: "TYPE_REPLICATION_NODE_REACHED_STATE",
 		220: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL",
 		221: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION",
 		222: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD",
@@ -131,6 +149,11 @@ var (
 		301: "TYPE_DISTRIBUTED_TASK_CANCEL",
 		302: "TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED",
 		303: "TYPE_DISTRIBUTED_TASK_CLEAN_UP",
+		304: "TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED",
+		305: "TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS",
+		306: "TYPE_DISTRIBUTED_TASK_MARK_FINALIZED",
+		307: "TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK",
+		308: "TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK",
 	}
 	ApplyRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":                                                0,
@@ -139,6 +162,7 @@ var (
 		"TYPE_DELETE_CLASS":                                               3,
 		"TYPE_RESTORE_CLASS":                                              4,
 		"TYPE_ADD_PROPERTY":                                               5,
+		"TYPE_UPDATE_PROPERTY":                                            6,
 		"TYPE_UPDATE_SHARD_STATUS":                                        10,
 		"TYPE_ADD_REPLICA_TO_SHARD":                                       11,
 		"TYPE_DELETE_REPLICA_FROM_SHARD":                                  12,
@@ -160,7 +184,11 @@ var (
 		"TYPE_SUSPEND_USER":                                               83,
 		"TYPE_ACTIVATE_USER":                                              84,
 		"TYPE_CREATE_USER_WITH_KEY":                                       85,
-		"TYPE_STORE_SCHEMA_V1":                                            99,
+		"TYPE_ADD_NAMESPACE":                                              90,
+		"TYPE_DELETE_USERS_IN_NAMESPACE":                                  91,
+		"TYPE_CHANGE_NAMESPACE_STATE":                                     92,
+		"TYPE_REMOVE_NAMESPACE_ENTITY":                                    93,
+		"TYPE_UPDATE_NAMESPACE":                                           94,
 		"TYPE_REPLICATION_REPLICATE":                                      200,
 		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":                         201,
 		"TYPE_REPLICATION_REPLICATE_REGISTER_ERROR":                       202,
@@ -174,6 +202,7 @@ var (
 		"TYPE_REPLICATION_REPLICATE_SYNC_SHARD":                           210,
 		"TYPE_REPLICATION_REGISTER_SCHEMA_VERSION":                        211,
 		"TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD":                 212,
+		"TYPE_REPLICATION_NODE_REACHED_STATE":                             213,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL":                     220,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION":           221,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD": 222,
@@ -183,6 +212,11 @@ var (
 		"TYPE_DISTRIBUTED_TASK_CANCEL":                                    301,
 		"TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED":                     302,
 		"TYPE_DISTRIBUTED_TASK_CLEAN_UP":                                  303,
+		"TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED":                     304,
+		"TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS":                      305,
+		"TYPE_DISTRIBUTED_TASK_MARK_FINALIZED":                            306,
+		"TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK":                307,
+		"TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK":           308,
 	}
 )
 
@@ -232,6 +266,7 @@ const (
 	QueryRequest_TYPE_GET_USERS_OR_GROUPS_WITH_ROLES                  QueryRequest_Type = 34
 	QueryRequest_TYPE_GET_USERS                                       QueryRequest_Type = 61
 	QueryRequest_TYPE_USER_IDENTIFIER_EXISTS                          QueryRequest_Type = 62
+	QueryRequest_TYPE_GET_NAMESPACES                                  QueryRequest_Type = 63
 	QueryRequest_TYPE_RESOLVE_ALIAS                                   QueryRequest_Type = 100
 	QueryRequest_TYPE_GET_ALIASES                                     QueryRequest_Type = 101
 	QueryRequest_TYPE_GET_REPLICATION_DETAILS                         QueryRequest_Type = 200
@@ -265,6 +300,7 @@ var (
 		34:  "TYPE_GET_USERS_OR_GROUPS_WITH_ROLES",
 		61:  "TYPE_GET_USERS",
 		62:  "TYPE_USER_IDENTIFIER_EXISTS",
+		63:  "TYPE_GET_NAMESPACES",
 		100: "TYPE_RESOLVE_ALIAS",
 		101: "TYPE_GET_ALIASES",
 		200: "TYPE_GET_REPLICATION_DETAILS",
@@ -295,6 +331,7 @@ var (
 		"TYPE_GET_USERS_OR_GROUPS_WITH_ROLES":                  34,
 		"TYPE_GET_USERS":                                       61,
 		"TYPE_USER_IDENTIFIER_EXISTS":                          62,
+		"TYPE_GET_NAMESPACES":                                  63,
 		"TYPE_RESOLVE_ALIAS":                                   100,
 		"TYPE_GET_ALIASES":                                     101,
 		"TYPE_GET_REPLICATION_DETAILS":                         200,
@@ -1254,19 +1291,74 @@ func (x *Tenant) GetStatus() string {
 	return ""
 }
 
+type UnitSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	GroupId       string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnitSpec) Reset() {
+	*x = UnitSpec{}
+	mi := &file_api_message_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnitSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnitSpec) ProtoMessage() {}
+
+func (x *UnitSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnitSpec.ProtoReflect.Descriptor instead.
+func (*UnitSpec) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *UnitSpec) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UnitSpec) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
 type AddDistributedTaskRequest struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Payload               []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
-	SubmittedAtUnixMillis int64                  `protobuf:"varint,5,opt,name=submitted_at_unix_millis,json=submittedAtUnixMillis,proto3" json:"submitted_at_unix_millis,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Namespace               string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                      string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Payload                 []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
+	SubmittedAtUnixMillis   int64                  `protobuf:"varint,5,opt,name=submitted_at_unix_millis,json=submittedAtUnixMillis,proto3" json:"submitted_at_unix_millis,omitempty"`
+	UnitIds                 []string               `protobuf:"bytes,6,rep,name=unit_ids,json=unitIds,proto3" json:"unit_ids,omitempty"`
+	UnitSpecs               []*UnitSpec            `protobuf:"bytes,7,rep,name=unit_specs,json=unitSpecs,proto3" json:"unit_specs,omitempty"`
+	NeedsPreparationBarrier bool                   `protobuf:"varint,8,opt,name=needs_preparation_barrier,json=needsPreparationBarrier,proto3" json:"needs_preparation_barrier,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *AddDistributedTaskRequest) Reset() {
 	*x = AddDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[16]
+	mi := &file_api_message_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1278,7 +1370,7 @@ func (x *AddDistributedTaskRequest) String() string {
 func (*AddDistributedTaskRequest) ProtoMessage() {}
 
 func (x *AddDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[16]
+	mi := &file_api_message_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1291,7 +1383,7 @@ func (x *AddDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*AddDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{16}
+	return file_api_message_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AddDistributedTaskRequest) GetNamespace() string {
@@ -1322,6 +1414,28 @@ func (x *AddDistributedTaskRequest) GetSubmittedAtUnixMillis() int64 {
 	return 0
 }
 
+func (x *AddDistributedTaskRequest) GetUnitIds() []string {
+	if x != nil {
+		return x.UnitIds
+	}
+	return nil
+}
+
+func (x *AddDistributedTaskRequest) GetUnitSpecs() []*UnitSpec {
+	if x != nil {
+		return x.UnitSpecs
+	}
+	return nil
+}
+
+func (x *AddDistributedTaskRequest) GetNeedsPreparationBarrier() bool {
+	if x != nil {
+		return x.NeedsPreparationBarrier
+	}
+	return false
+}
+
+// Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
 type RecordDistributedTaskNodeCompletionRequest struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	Namespace            string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -1336,7 +1450,7 @@ type RecordDistributedTaskNodeCompletionRequest struct {
 
 func (x *RecordDistributedTaskNodeCompletionRequest) Reset() {
 	*x = RecordDistributedTaskNodeCompletionRequest{}
-	mi := &file_api_message_proto_msgTypes[17]
+	mi := &file_api_message_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1348,7 +1462,7 @@ func (x *RecordDistributedTaskNodeCompletionRequest) String() string {
 func (*RecordDistributedTaskNodeCompletionRequest) ProtoMessage() {}
 
 func (x *RecordDistributedTaskNodeCompletionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[17]
+	mi := &file_api_message_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1361,7 +1475,7 @@ func (x *RecordDistributedTaskNodeCompletionRequest) ProtoReflect() protoreflect
 
 // Deprecated: Use RecordDistributedTaskNodeCompletionRequest.ProtoReflect.Descriptor instead.
 func (*RecordDistributedTaskNodeCompletionRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{17}
+	return file_api_message_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RecordDistributedTaskNodeCompletionRequest) GetNamespace() string {
@@ -1418,7 +1532,7 @@ type CancelDistributedTaskRequest struct {
 
 func (x *CancelDistributedTaskRequest) Reset() {
 	*x = CancelDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[18]
+	mi := &file_api_message_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1430,7 +1544,7 @@ func (x *CancelDistributedTaskRequest) String() string {
 func (*CancelDistributedTaskRequest) ProtoMessage() {}
 
 func (x *CancelDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[18]
+	mi := &file_api_message_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1443,7 +1557,7 @@ func (x *CancelDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*CancelDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{18}
+	return file_api_message_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CancelDistributedTaskRequest) GetNamespace() string {
@@ -1485,7 +1599,7 @@ type CleanUpDistributedTaskRequest struct {
 
 func (x *CleanUpDistributedTaskRequest) Reset() {
 	*x = CleanUpDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[19]
+	mi := &file_api_message_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1497,7 +1611,7 @@ func (x *CleanUpDistributedTaskRequest) String() string {
 func (*CleanUpDistributedTaskRequest) ProtoMessage() {}
 
 func (x *CleanUpDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[19]
+	mi := &file_api_message_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1510,7 +1624,7 @@ func (x *CleanUpDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanUpDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*CleanUpDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{19}
+	return file_api_message_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CleanUpDistributedTaskRequest) GetNamespace() string {
@@ -1545,7 +1659,7 @@ type SyncShardRequest struct {
 
 func (x *SyncShardRequest) Reset() {
 	*x = SyncShardRequest{}
-	mi := &file_api_message_proto_msgTypes[20]
+	mi := &file_api_message_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1557,7 +1671,7 @@ func (x *SyncShardRequest) String() string {
 func (*SyncShardRequest) ProtoMessage() {}
 
 func (x *SyncShardRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[20]
+	mi := &file_api_message_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1570,7 +1684,7 @@ func (x *SyncShardRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncShardRequest.ProtoReflect.Descriptor instead.
 func (*SyncShardRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{20}
+	return file_api_message_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SyncShardRequest) GetCollection() string {
@@ -1604,7 +1718,7 @@ type CreateAliasRequest struct {
 
 func (x *CreateAliasRequest) Reset() {
 	*x = CreateAliasRequest{}
-	mi := &file_api_message_proto_msgTypes[21]
+	mi := &file_api_message_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1616,7 +1730,7 @@ func (x *CreateAliasRequest) String() string {
 func (*CreateAliasRequest) ProtoMessage() {}
 
 func (x *CreateAliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[21]
+	mi := &file_api_message_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1629,7 +1743,7 @@ func (x *CreateAliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAliasRequest.ProtoReflect.Descriptor instead.
 func (*CreateAliasRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{21}
+	return file_api_message_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CreateAliasRequest) GetCollection() string {
@@ -1656,7 +1770,7 @@ type ReplaceAliasRequest struct {
 
 func (x *ReplaceAliasRequest) Reset() {
 	*x = ReplaceAliasRequest{}
-	mi := &file_api_message_proto_msgTypes[22]
+	mi := &file_api_message_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1668,7 +1782,7 @@ func (x *ReplaceAliasRequest) String() string {
 func (*ReplaceAliasRequest) ProtoMessage() {}
 
 func (x *ReplaceAliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[22]
+	mi := &file_api_message_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1681,7 +1795,7 @@ func (x *ReplaceAliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplaceAliasRequest.ProtoReflect.Descriptor instead.
 func (*ReplaceAliasRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{22}
+	return file_api_message_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ReplaceAliasRequest) GetCollection() string {
@@ -1707,7 +1821,7 @@ type DeleteAliasRequest struct {
 
 func (x *DeleteAliasRequest) Reset() {
 	*x = DeleteAliasRequest{}
-	mi := &file_api_message_proto_msgTypes[23]
+	mi := &file_api_message_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1719,7 +1833,7 @@ func (x *DeleteAliasRequest) String() string {
 func (*DeleteAliasRequest) ProtoMessage() {}
 
 func (x *DeleteAliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[23]
+	mi := &file_api_message_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1732,7 +1846,7 @@ func (x *DeleteAliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAliasRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAliasRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{23}
+	return file_api_message_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DeleteAliasRequest) GetAlias() string {
@@ -1740,6 +1854,471 @@ func (x *DeleteAliasRequest) GetAlias() string {
 		return x.Alias
 	}
 	return ""
+}
+
+type RecordDistributedTaskUnitCompletionRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Namespace            string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                   string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version              uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	NodeId               string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	UnitId               string                 `protobuf:"bytes,5,opt,name=unit_id,json=unitId,proto3" json:"unit_id,omitempty"`
+	Error                string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	FinishedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=finished_at_unix_millis,json=finishedAtUnixMillis,proto3" json:"finished_at_unix_millis,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) Reset() {
+	*x = RecordDistributedTaskUnitCompletionRequest{}
+	mi := &file_api_message_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordDistributedTaskUnitCompletionRequest) ProtoMessage() {}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordDistributedTaskUnitCompletionRequest.ProtoReflect.Descriptor instead.
+func (*RecordDistributedTaskUnitCompletionRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetUnitId() string {
+	if x != nil {
+		return x.UnitId
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetFinishedAtUnixMillis() int64 {
+	if x != nil {
+		return x.FinishedAtUnixMillis
+	}
+	return 0
+}
+
+type UpdateDistributedTaskUnitProgressRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Namespace           string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                  string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version             uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	NodeId              string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	UnitId              string                 `protobuf:"bytes,5,opt,name=unit_id,json=unitId,proto3" json:"unit_id,omitempty"`
+	Progress            float32                `protobuf:"fixed32,6,opt,name=progress,proto3" json:"progress,omitempty"`
+	UpdatedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=updated_at_unix_millis,json=updatedAtUnixMillis,proto3" json:"updated_at_unix_millis,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) Reset() {
+	*x = UpdateDistributedTaskUnitProgressRequest{}
+	mi := &file_api_message_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateDistributedTaskUnitProgressRequest) ProtoMessage() {}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateDistributedTaskUnitProgressRequest.ProtoReflect.Descriptor instead.
+func (*UpdateDistributedTaskUnitProgressRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) GetUnitId() string {
+	if x != nil {
+		return x.UnitId
+	}
+	return ""
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) GetProgress() float32 {
+	if x != nil {
+		return x.Progress
+	}
+	return 0
+}
+
+func (x *UpdateDistributedTaskUnitProgressRequest) GetUpdatedAtUnixMillis() int64 {
+	if x != nil {
+		return x.UpdatedAtUnixMillis
+	}
+	return 0
+}
+
+// MarkTaskFinalizedRequest transitions a task from SWAPPING to
+// FINISHED. The scheduler issues this from OnTaskCompleted once
+// every post-task callback (per-node swap, cluster-wide schema flip)
+// has succeeded, so callers polling for FINISHED can trust the
+// terminal status to mean "all side-effects committed." Idempotent at
+// the FSM layer — every node's scheduler fires the same command after
+// its local OnTaskCompleted returns; only the first commit actually
+// flips the status.
+type MarkTaskFinalizedRequest struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version               uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	FinalizedAtUnixMillis int64                  `protobuf:"varint,4,opt,name=finalized_at_unix_millis,json=finalizedAtUnixMillis,proto3" json:"finalized_at_unix_millis,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *MarkTaskFinalizedRequest) Reset() {
+	*x = MarkTaskFinalizedRequest{}
+	mi := &file_api_message_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarkTaskFinalizedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarkTaskFinalizedRequest) ProtoMessage() {}
+
+func (x *MarkTaskFinalizedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarkTaskFinalizedRequest.ProtoReflect.Descriptor instead.
+func (*MarkTaskFinalizedRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *MarkTaskFinalizedRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *MarkTaskFinalizedRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MarkTaskFinalizedRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *MarkTaskFinalizedRequest) GetFinalizedAtUnixMillis() int64 {
+	if x != nil {
+		return x.FinalizedAtUnixMillis
+	}
+	return 0
+}
+
+// RecordDistributedTaskPostCompletionAckRequest captures one node's
+// SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
+// OnSwapRequested for barrier tasks) — i.e. did every local unit's
+// swap/finalize phase succeed? Emitted by every node that has local
+// units, after the SWAP callback returns, before the cluster-wide
+// MarkTaskFinalized commit lands.
+//
+// The scheduler gates MarkTaskFinalized on having an ack from every
+// node with local units in the task. If any ack reports success=false,
+// the FSM transitions the task to FAILED instead of FINISHED, which
+// makes OnTaskCompleted skip the cluster-wide schema flip — so a
+// node that silently failed its local swap can no longer let the
+// cluster-wide schema commit while one replica is broken.
+//
+// Idempotent: the FSM keeps the first ack per (task, node) — duplicate
+// acks (from retries on the scheduler's wake/tick loop) are no-ops.
+//
+// The recorder closes the crash-safety gap where a node whose
+// RunSwapOnShard silently failed could otherwise let the
+// cluster-wide schema flip commit while one replica's bucket pointer
+// never moved.
+type RecordDistributedTaskPostCompletionAckRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Namespace         string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version           uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	NodeId            string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Success           bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
+	Error             string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	AckedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=acked_at_unix_millis,json=ackedAtUnixMillis,proto3" json:"acked_at_unix_millis,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) Reset() {
+	*x = RecordDistributedTaskPostCompletionAckRequest{}
+	mi := &file_api_message_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordDistributedTaskPostCompletionAckRequest) ProtoMessage() {}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordDistributedTaskPostCompletionAckRequest.ProtoReflect.Descriptor instead.
+func (*RecordDistributedTaskPostCompletionAckRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetAckedAtUnixMillis() int64 {
+	if x != nil {
+		return x.AckedAtUnixMillis
+	}
+	return 0
+}
+
+type RecordDistributedTaskPreparationCompleteAckRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Namespace         string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version           uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	NodeId            string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Success           bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
+	Error             string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	AckedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=acked_at_unix_millis,json=ackedAtUnixMillis,proto3" json:"acked_at_unix_millis,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) Reset() {
+	*x = RecordDistributedTaskPreparationCompleteAckRequest{}
+	mi := &file_api_message_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordDistributedTaskPreparationCompleteAckRequest) ProtoMessage() {}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordDistributedTaskPreparationCompleteAckRequest.ProtoReflect.Descriptor instead.
+func (*RecordDistributedTaskPreparationCompleteAckRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetAckedAtUnixMillis() int64 {
+	if x != nil {
+		return x.AckedAtUnixMillis
+	}
+	return 0
 }
 
 var File_api_message_proto protoreflect.FileDescriptor
@@ -1760,20 +2339,21 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\x91\x0f\n" +
+	"\x12NotifyPeerResponse\"\xdc\x12\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xed\r\n" +
+	"subCommand\"\xb8\x11\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
 	"\x11TYPE_UPDATE_CLASS\x10\x02\x12\x15\n" +
 	"\x11TYPE_DELETE_CLASS\x10\x03\x12\x16\n" +
 	"\x12TYPE_RESTORE_CLASS\x10\x04\x12\x15\n" +
-	"\x11TYPE_ADD_PROPERTY\x10\x05\x12\x1c\n" +
+	"\x11TYPE_ADD_PROPERTY\x10\x05\x12\x18\n" +
+	"\x14TYPE_UPDATE_PROPERTY\x10\x06\x12\x1c\n" +
 	"\x18TYPE_UPDATE_SHARD_STATUS\x10\n" +
 	"\x12\x1d\n" +
 	"\x19TYPE_ADD_REPLICA_TO_SHARD\x10\v\x12\"\n" +
@@ -1795,8 +2375,12 @@ const file_api_message_proto_rawDesc = "" +
 	"\x18TYPE_ROTATE_USER_API_KEY\x10R\x12\x15\n" +
 	"\x11TYPE_SUSPEND_USER\x10S\x12\x16\n" +
 	"\x12TYPE_ACTIVATE_USER\x10T\x12\x1d\n" +
-	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x18\n" +
-	"\x14TYPE_STORE_SCHEMA_V1\x10c\x12\x1f\n" +
+	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x16\n" +
+	"\x12TYPE_ADD_NAMESPACE\x10Z\x12\"\n" +
+	"\x1eTYPE_DELETE_USERS_IN_NAMESPACE\x10[\x12\x1f\n" +
+	"\x1bTYPE_CHANGE_NAMESPACE_STATE\x10\\\x12 \n" +
+	"\x1cTYPE_REMOVE_NAMESPACE_ENTITY\x10]\x12\x19\n" +
+	"\x15TYPE_UPDATE_NAMESPACE\x10^\x12\x1f\n" +
 	"\x1aTYPE_REPLICATION_REPLICATE\x10\xc8\x01\x12,\n" +
 	"'TYPE_REPLICATION_REPLICATE_UPDATE_STATE\x10\xc9\x01\x12.\n" +
 	")TYPE_REPLICATION_REPLICATE_REGISTER_ERROR\x10\xca\x01\x12&\n" +
@@ -1809,7 +2393,8 @@ const file_api_message_proto_rawDesc = "" +
 	",TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS\x10\xd1\x01\x12*\n" +
 	"%TYPE_REPLICATION_REPLICATE_SYNC_SHARD\x10\xd2\x01\x12-\n" +
 	"(TYPE_REPLICATION_REGISTER_SCHEMA_VERSION\x10\xd3\x01\x124\n" +
-	"/TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD\x10\xd4\x01\x120\n" +
+	"/TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD\x10\xd4\x01\x12(\n" +
+	"#TYPE_REPLICATION_NODE_REACHED_STATE\x10\xd5\x01\x120\n" +
 	"+TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL\x10\xdc\x01\x12:\n" +
 	"5TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION\x10\xdd\x01\x12D\n" +
 	"?TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD\x10\xde\x01\x12;\n" +
@@ -1818,14 +2403,19 @@ const file_api_message_proto_rawDesc = "" +
 	"\x19TYPE_DISTRIBUTED_TASK_ADD\x10\xac\x02\x12!\n" +
 	"\x1cTYPE_DISTRIBUTED_TASK_CANCEL\x10\xad\x02\x120\n" +
 	"+TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED\x10\xae\x02\x12#\n" +
-	"\x1eTYPE_DISTRIBUTED_TASK_CLEAN_UP\x10\xaf\x02\"A\n" +
+	"\x1eTYPE_DISTRIBUTED_TASK_CLEAN_UP\x10\xaf\x02\x120\n" +
+	"+TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED\x10\xb0\x02\x12/\n" +
+	"*TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS\x10\xb1\x02\x12)\n" +
+	"$TYPE_DISTRIBUTED_TASK_MARK_FINALIZED\x10\xb2\x02\x125\n" +
+	"0TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK\x10\xb3\x02\x12:\n" +
+	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\x91\b\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\x9d\a\n" +
+	"subCommand\"\xb6\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -1842,7 +2432,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x17TYPE_GET_USERS_FOR_ROLE\x10!\x12'\n" +
 	"#TYPE_GET_USERS_OR_GROUPS_WITH_ROLES\x10\"\x12\x12\n" +
 	"\x0eTYPE_GET_USERS\x10=\x12\x1f\n" +
-	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12\x16\n" +
+	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12\x17\n" +
+	"\x13TYPE_GET_NAMESPACES\x10?\x12\x16\n" +
 	"\x12TYPE_RESOLVE_ALIAS\x10d\x12\x14\n" +
 	"\x10TYPE_GET_ALIASES\x10e\x12!\n" +
 	"\x1cTYPE_GET_REPLICATION_DETAILS\x10\xc8\x01\x12/\n" +
@@ -1884,12 +2475,19 @@ const file_api_message_proto_rawDesc = "" +
 	"\atenants\x18\x01 \x03(\tR\atenants\"4\n" +
 	"\x06Tenant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"\x9c\x01\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"5\n" +
+	"\bUnitSpec\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\xb7\x02\n" +
 	"\x19AddDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\apayload\x18\x04 \x01(\fR\apayload\x127\n" +
-	"\x18submitted_at_unix_millis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\"\xe9\x01\n" +
+	"\x18submitted_at_unix_millis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\x12\x19\n" +
+	"\bunit_ids\x18\x06 \x03(\tR\aunitIds\x12B\n" +
+	"\n" +
+	"unit_specs\x18\a \x03(\v2#.weaviate.internal.cluster.UnitSpecR\tunitSpecs\x12:\n" +
+	"\x19needs_preparation_barrier\x18\b \x01(\bR\x17needsPreparationBarrier\"\xe9\x01\n" +
 	"*RecordDistributedTaskNodeCompletionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -1924,7 +2522,44 @@ const file_api_message_proto_rawDesc = "" +
 	"collection\x12\x14\n" +
 	"\x05alias\x18\x02 \x01(\tR\x05alias\"*\n" +
 	"\x12DeleteAliasRequest\x12\x14\n" +
-	"\x05alias\x18\x01 \x01(\tR\x05alias2\x8d\x04\n" +
+	"\x05alias\x18\x01 \x01(\tR\x05alias\"\xf3\x01\n" +
+	"*RecordDistributedTaskUnitCompletionRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x17\n" +
+	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x17\n" +
+	"\aunit_id\x18\x05 \x01(\tR\x06unitId\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x125\n" +
+	"\x17finished_at_unix_millis\x18\a \x01(\x03R\x14finishedAtUnixMillis\"\xf5\x01\n" +
+	"(UpdateDistributedTaskUnitProgressRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x17\n" +
+	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x17\n" +
+	"\aunit_id\x18\x05 \x01(\tR\x06unitId\x12\x1a\n" +
+	"\bprogress\x18\x06 \x01(\x02R\bprogress\x123\n" +
+	"\x16updated_at_unix_millis\x18\a \x01(\x03R\x13updatedAtUnixMillis\"\x9b\x01\n" +
+	"\x18MarkTaskFinalizedRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x127\n" +
+	"\x18finalized_at_unix_millis\x18\x04 \x01(\x03R\x15finalizedAtUnixMillis\"\xf1\x01\n" +
+	"-RecordDistributedTaskPostCompletionAckRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x17\n" +
+	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
+	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"\xf6\x01\n" +
+	"2RecordDistributedTaskPreparationCompleteAckRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x17\n" +
+	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
+	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis2\x8d\x04\n" +
 	"\x0eClusterService\x12k\n" +
 	"\n" +
 	"RemovePeer\x12,.weaviate.internal.cluster.RemovePeerRequest\x1a-.weaviate.internal.cluster.RemovePeerResponse\"\x00\x12e\n" +
@@ -1948,36 +2583,42 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_api_message_proto_goTypes = []any{
-	(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
-	(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
-	(TenantsProcess_Op)(0),                             // 2: weaviate.internal.cluster.TenantsProcess.Op
-	(TenantProcessRequest_Action)(0),                   // 3: weaviate.internal.cluster.TenantProcessRequest.Action
-	(*JoinPeerRequest)(nil),                            // 4: weaviate.internal.cluster.JoinPeerRequest
-	(*JoinPeerResponse)(nil),                           // 5: weaviate.internal.cluster.JoinPeerResponse
-	(*RemovePeerRequest)(nil),                          // 6: weaviate.internal.cluster.RemovePeerRequest
-	(*RemovePeerResponse)(nil),                         // 7: weaviate.internal.cluster.RemovePeerResponse
-	(*NotifyPeerRequest)(nil),                          // 8: weaviate.internal.cluster.NotifyPeerRequest
-	(*NotifyPeerResponse)(nil),                         // 9: weaviate.internal.cluster.NotifyPeerResponse
-	(*ApplyRequest)(nil),                               // 10: weaviate.internal.cluster.ApplyRequest
-	(*ApplyResponse)(nil),                              // 11: weaviate.internal.cluster.ApplyResponse
-	(*QueryRequest)(nil),                               // 12: weaviate.internal.cluster.QueryRequest
-	(*QueryResponse)(nil),                              // 13: weaviate.internal.cluster.QueryResponse
-	(*AddTenantsRequest)(nil),                          // 14: weaviate.internal.cluster.AddTenantsRequest
-	(*UpdateTenantsRequest)(nil),                       // 15: weaviate.internal.cluster.UpdateTenantsRequest
-	(*TenantsProcess)(nil),                             // 16: weaviate.internal.cluster.TenantsProcess
-	(*TenantProcessRequest)(nil),                       // 17: weaviate.internal.cluster.TenantProcessRequest
-	(*DeleteTenantsRequest)(nil),                       // 18: weaviate.internal.cluster.DeleteTenantsRequest
-	(*Tenant)(nil),                                     // 19: weaviate.internal.cluster.Tenant
-	(*AddDistributedTaskRequest)(nil),                  // 20: weaviate.internal.cluster.AddDistributedTaskRequest
-	(*RecordDistributedTaskNodeCompletionRequest)(nil), // 21: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
-	(*CancelDistributedTaskRequest)(nil),               // 22: weaviate.internal.cluster.CancelDistributedTaskRequest
-	(*CleanUpDistributedTaskRequest)(nil),              // 23: weaviate.internal.cluster.CleanUpDistributedTaskRequest
-	(*SyncShardRequest)(nil),                           // 24: weaviate.internal.cluster.SyncShardRequest
-	(*CreateAliasRequest)(nil),                         // 25: weaviate.internal.cluster.CreateAliasRequest
-	(*ReplaceAliasRequest)(nil),                        // 26: weaviate.internal.cluster.ReplaceAliasRequest
-	(*DeleteAliasRequest)(nil),                         // 27: weaviate.internal.cluster.DeleteAliasRequest
+	(ApplyRequest_Type)(0),                                     // 0: weaviate.internal.cluster.ApplyRequest.Type
+	(QueryRequest_Type)(0),                                     // 1: weaviate.internal.cluster.QueryRequest.Type
+	(TenantsProcess_Op)(0),                                     // 2: weaviate.internal.cluster.TenantsProcess.Op
+	(TenantProcessRequest_Action)(0),                           // 3: weaviate.internal.cluster.TenantProcessRequest.Action
+	(*JoinPeerRequest)(nil),                                    // 4: weaviate.internal.cluster.JoinPeerRequest
+	(*JoinPeerResponse)(nil),                                   // 5: weaviate.internal.cluster.JoinPeerResponse
+	(*RemovePeerRequest)(nil),                                  // 6: weaviate.internal.cluster.RemovePeerRequest
+	(*RemovePeerResponse)(nil),                                 // 7: weaviate.internal.cluster.RemovePeerResponse
+	(*NotifyPeerRequest)(nil),                                  // 8: weaviate.internal.cluster.NotifyPeerRequest
+	(*NotifyPeerResponse)(nil),                                 // 9: weaviate.internal.cluster.NotifyPeerResponse
+	(*ApplyRequest)(nil),                                       // 10: weaviate.internal.cluster.ApplyRequest
+	(*ApplyResponse)(nil),                                      // 11: weaviate.internal.cluster.ApplyResponse
+	(*QueryRequest)(nil),                                       // 12: weaviate.internal.cluster.QueryRequest
+	(*QueryResponse)(nil),                                      // 13: weaviate.internal.cluster.QueryResponse
+	(*AddTenantsRequest)(nil),                                  // 14: weaviate.internal.cluster.AddTenantsRequest
+	(*UpdateTenantsRequest)(nil),                               // 15: weaviate.internal.cluster.UpdateTenantsRequest
+	(*TenantsProcess)(nil),                                     // 16: weaviate.internal.cluster.TenantsProcess
+	(*TenantProcessRequest)(nil),                               // 17: weaviate.internal.cluster.TenantProcessRequest
+	(*DeleteTenantsRequest)(nil),                               // 18: weaviate.internal.cluster.DeleteTenantsRequest
+	(*Tenant)(nil),                                             // 19: weaviate.internal.cluster.Tenant
+	(*UnitSpec)(nil),                                           // 20: weaviate.internal.cluster.UnitSpec
+	(*AddDistributedTaskRequest)(nil),                          // 21: weaviate.internal.cluster.AddDistributedTaskRequest
+	(*RecordDistributedTaskNodeCompletionRequest)(nil),         // 22: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
+	(*CancelDistributedTaskRequest)(nil),                       // 23: weaviate.internal.cluster.CancelDistributedTaskRequest
+	(*CleanUpDistributedTaskRequest)(nil),                      // 24: weaviate.internal.cluster.CleanUpDistributedTaskRequest
+	(*SyncShardRequest)(nil),                                   // 25: weaviate.internal.cluster.SyncShardRequest
+	(*CreateAliasRequest)(nil),                                 // 26: weaviate.internal.cluster.CreateAliasRequest
+	(*ReplaceAliasRequest)(nil),                                // 27: weaviate.internal.cluster.ReplaceAliasRequest
+	(*DeleteAliasRequest)(nil),                                 // 28: weaviate.internal.cluster.DeleteAliasRequest
+	(*RecordDistributedTaskUnitCompletionRequest)(nil),         // 29: weaviate.internal.cluster.RecordDistributedTaskUnitCompletionRequest
+	(*UpdateDistributedTaskUnitProgressRequest)(nil),           // 30: weaviate.internal.cluster.UpdateDistributedTaskUnitProgressRequest
+	(*MarkTaskFinalizedRequest)(nil),                           // 31: weaviate.internal.cluster.MarkTaskFinalizedRequest
+	(*RecordDistributedTaskPostCompletionAckRequest)(nil),      // 32: weaviate.internal.cluster.RecordDistributedTaskPostCompletionAckRequest
+	(*RecordDistributedTaskPreparationCompleteAckRequest)(nil), // 33: weaviate.internal.cluster.RecordDistributedTaskPreparationCompleteAckRequest
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
@@ -1988,21 +2629,22 @@ var file_api_message_proto_depIdxs = []int32{
 	19, // 5: weaviate.internal.cluster.TenantsProcess.tenant:type_name -> weaviate.internal.cluster.Tenant
 	3,  // 6: weaviate.internal.cluster.TenantProcessRequest.action:type_name -> weaviate.internal.cluster.TenantProcessRequest.Action
 	16, // 7: weaviate.internal.cluster.TenantProcessRequest.tenants_processes:type_name -> weaviate.internal.cluster.TenantsProcess
-	6,  // 8: weaviate.internal.cluster.ClusterService.RemovePeer:input_type -> weaviate.internal.cluster.RemovePeerRequest
-	4,  // 9: weaviate.internal.cluster.ClusterService.JoinPeer:input_type -> weaviate.internal.cluster.JoinPeerRequest
-	8,  // 10: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
-	10, // 11: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
-	12, // 12: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
-	7,  // 13: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
-	5,  // 14: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
-	9,  // 15: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
-	11, // 16: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
-	13, // 17: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	20, // 8: weaviate.internal.cluster.AddDistributedTaskRequest.unit_specs:type_name -> weaviate.internal.cluster.UnitSpec
+	6,  // 9: weaviate.internal.cluster.ClusterService.RemovePeer:input_type -> weaviate.internal.cluster.RemovePeerRequest
+	4,  // 10: weaviate.internal.cluster.ClusterService.JoinPeer:input_type -> weaviate.internal.cluster.JoinPeerRequest
+	8,  // 11: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
+	10, // 12: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
+	12, // 13: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
+	7,  // 14: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
+	5,  // 15: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
+	9,  // 16: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
+	11, // 17: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
+	13, // 18: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
+	14, // [14:19] is the sub-list for method output_type
+	9,  // [9:14] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_api_message_proto_init() }
@@ -2010,14 +2652,14 @@ func file_api_message_proto_init() {
 	if File_api_message_proto != nil {
 		return
 	}
-	file_api_message_proto_msgTypes[17].OneofWrappers = []any{}
+	file_api_message_proto_msgTypes[18].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   24,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

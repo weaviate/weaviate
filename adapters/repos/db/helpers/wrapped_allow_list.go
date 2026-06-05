@@ -188,3 +188,7 @@ func (i *composedAllowListIterator) Next() (uint64, bool) {
 func (i *composedAllowListIterator) Len() int {
 	return i.it1.Len() + i.it2.Len()
 }
+
+func (i *composedAllowListIterator) Stop() {
+	// No-op for composed iterator as there's no cleanup needed
+}

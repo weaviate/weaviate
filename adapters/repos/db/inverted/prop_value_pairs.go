@@ -37,11 +37,11 @@ type propValuePair struct {
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
 	valueGeoRange      *filters.GeoRange
-	docIDs             docBitmap
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
 	hasRangeableIndex  bool
+	nested             nestedInfo
 	Class              *models.Class // The schema
 }
 
@@ -49,12 +49,37 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
+	return &propValuePair{Class: class}, nil
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	if err := ctx.Err(); err != nil {
+	if err := ctxExpired(ctx); err != nil {
 		return nil, err
+	}
+
+	// Correlated nested AND created during extraction: all children target the
+	// same root property (stored in pv.prop) and require same-element semantics.
+	if pv.nested.isWithinRootSubtree {
+		return pv.resolveNestedSubtree(ctx, s)
+	}
+
+	// Nested ContainsNone is a first-class operator (first-class-operator approach) with the
+	// scalar-array path on pv.nested.relPath. Dispatch BEFORE the isNested
+	// check because the ContainsNone wrapper itself is not a leaf — its
+	// children are the per-value pvps.
+	if pv.operator == filters.ContainsNone && pv.nested.relPath != "" {
+		return pv.fetchNestedContainsNone(ctx, s)
+	}
+
+	// All nested-specific dispatch: IsNull, value filters, and correlated AND
+	// are all routed here so nested logic stays out of the flat fetch path.
+	if pv.nested.isNested {
+		switch {
+		case pv.operator == filters.OperatorIsNull:
+			return pv.fetchNestedIsNull(s)
+		case pv.operator.OnValue():
+			return pv.fetchNestedDocIDs(ctx, s)
+		}
 	}
 
 	if pv.operator.OnValue() {
@@ -80,7 +105,7 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		case 1:
 			return pv.resolveDocIDsNot(ctx, s)
 		default:
-			return nil, fmt.Errorf("too many children for operator %q. Expected 1, given %q", pv.operator.Name(), ln)
+			return nil, fmt.Errorf("too many children for operator %q. Expected 1, given %d", pv.operator.Name(), ln)
 		}
 
 	default:
@@ -105,14 +130,14 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 		processDocIDs(maxN, pv.operator, dbmCh, resultCh)
 	}, s.logger)
 
-	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	if outerConcurrencyLimit <= 1 {
 		// resolve docIDs sequentially in main goroutine
 		for i, child := range pv.children {
 			dbm, err2 := child.resolveDocIDs(ctx, s, limit)
 			if err2 != nil {
 				// break on first error
-				err = errors.Wrapf(err, "nested child %d", i)
+				err = errors.Wrapf(err2, "nested child %d", i)
 				break
 			}
 			dbmCh <- dbm
@@ -135,7 +160,7 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 					return nil
 				}
 
-				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
 				dbm, err := child.resolveDocIDs(ctx, s, limit)
 				if err != nil {
 					err = errors.Wrapf(err, "nested child %d", i)
@@ -244,8 +269,8 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *
 	// swapForEfficiency puts the larger bitmap in `a` for Or (fewer union ops),
 	// or the smaller bitmap in `a` for And (fewer intersection ops).
 	swapForEfficiency := func(op filters.Operator) {
-		if (op == filters.OperatorOr && a.docIDs.CompareNumKeys(b.docIDs) < 0) ||
-			(op == filters.OperatorAnd && a.docIDs.CompareNumKeys(b.docIDs) > 0) {
+		if (op == filters.OperatorOr && a.docIDs.NumContainers() < b.docIDs.NumContainers()) ||
+			(op == filters.OperatorAnd && a.docIDs.NumContainers() > b.docIDs.NumContainers()) {
 			a, b = b, a
 		}
 	}
@@ -308,7 +333,13 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 	return dbms[:1]
 }
 
+// fetchDocIDs resolves a value filter on a flat (non-nested) property.
 func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
+	return pv.readFromBucket(ctx, s, limit)
+}
+
+// readFromBucket is the shared low-level implementation for all fetch methods.
+func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	// TODO text_rbm_inverted_index find better way check whether prop len
 	if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 		!pv.Class.InvertedIndexConfig.IndexPropertyLength {
@@ -348,6 +379,13 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 }
 
 func (pv *propValuePair) getBucketName() string {
+	if pv.nested.isNested {
+		if pv.hasFilterableIndex {
+			return helpers.BucketNestedFromPropNameLSM(pv.prop)
+		}
+		return ""
+	}
+
 	if pv.hasRangeableIndex {
 		switch pv.operator {
 		// decide whether handle equal/not_equal with rangeable index

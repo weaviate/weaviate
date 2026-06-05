@@ -83,11 +83,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -98,28 +98,27 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
 		}
-		h.compressor.PersistCompression(h.commitLog)
 	} else if cfg.BQ.Enabled {
 		var err error
 		if singleVector {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.MinMMapSize,
-				h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.vectorForID)
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.MinMMapSize,
-				h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
 		}
 		if err != nil {
 			return err
@@ -150,6 +149,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			})
 	}
 
+	h.compressor.PersistCompression(h.commitLog)
 	h.compressed.Store(true)
 	h.cache.Drop()
 	return nil

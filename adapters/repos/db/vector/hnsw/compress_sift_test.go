@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -35,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
@@ -78,6 +80,7 @@ func TestRecall(t *testing.T) {
 		ID:                    "recallbenchmark",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
@@ -188,6 +191,7 @@ func TestHnswPqGist(t *testing.T) {
 				ID:                    "recallbenchmark",
 				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 				DistanceProvider:      distancer,
+				AllocChecker:          memwatch.NewDummyMonitor(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},
@@ -355,6 +359,7 @@ func TestHnswPqSift(t *testing.T) {
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -455,6 +460,7 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 				ID:                    "recallbenchmark",
 				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 				DistanceProvider:      distancer,
+				AllocChecker:          memwatch.NewDummyMonitor(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},
@@ -548,6 +554,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 				ID:                    "recallbenchmark",
 				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 				DistanceProvider:      distancer,
+				AllocChecker:          memwatch.NewDummyMonitor(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},

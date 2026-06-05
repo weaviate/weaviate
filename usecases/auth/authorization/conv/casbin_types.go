@@ -42,24 +42,26 @@ const (
 	InternalPlaceHolder = "wv_internal_empty"
 )
 
-var (
-	BuiltInPolicies = map[string]string{
-		authorization.Viewer:   authorization.READ,
-		authorization.Admin:    VALID_VERBS,
-		authorization.Root:     VALID_VERBS,
-		authorization.ReadOnly: authorization.READ,
-	}
-	weaviate_actions_prefixes = map[string]string{
-		CRUD:                           "manage",
-		CRU:                            "manage",
-		authorization.ROLE_SCOPE_MATCH: "manage",
-		authorization.CREATE:           "create",
-		authorization.READ:             "read",
-		authorization.UPDATE:           "update",
-		authorization.DELETE:           "delete",
-		authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
-	}
-)
+// BuiltInWildcardVerb is the wildcard verb pattern Casbin registers for each
+// built-in role: Admin/Root get full CRUD, Viewer/ReadOnly get READ. The
+// matcher specializes namespace-bearing resources at enforce time.
+var BuiltInWildcardVerb = map[string]string{
+	authorization.Admin:    VALID_VERBS,
+	authorization.Root:     VALID_VERBS,
+	authorization.Viewer:   authorization.READ,
+	authorization.ReadOnly: authorization.READ,
+}
+
+var weaviate_actions_prefixes = map[string]string{
+	CRUD:                           "manage",
+	CRU:                            "manage",
+	authorization.ROLE_SCOPE_MATCH: "manage",
+	authorization.CREATE:           "create",
+	authorization.READ:             "read",
+	authorization.UPDATE:           "update",
+	authorization.DELETE:           "delete",
+	authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
+}
 
 var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.GroupsDomain),
@@ -69,6 +71,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
+	fmt.Sprintf(`^%s$`, authorization.McpDomain),
 	fmt.Sprintf(`^%s/verbosity/minimal$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
@@ -81,6 +84,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+$`, authorization.ReplicateDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/aliases/[^/]+$`, authorization.AliasesDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.NamespacesDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -182,7 +186,7 @@ func CasbinAliases(collection, alias string) string {
 	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
-func CasbinData(collection, shard, object string) string {
+func CasbinData(collection, shard string) string {
 	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
@@ -190,13 +194,32 @@ func CasbinData(collection, shard, object string) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if object == "" {
-		object = "*"
-	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-	object = strings.ReplaceAll(object, "*", ".*")
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/.*", authorization.DataDomain, collection, shard)
+}
+
+func CasbinMcp() string {
+	return authorization.McpDomain
+}
+
+// CasbinNamespaces returns the casbin resource string for a namespace name.
+// An empty name expands to the wildcard pattern.
+func CasbinNamespaces(name string) string {
+	if name == "" {
+		name = "*"
+	}
+	name = strings.ReplaceAll(name, "*", ".*")
+	return fmt.Sprintf("%s/%s", authorization.NamespacesDomain, name)
+}
+
+// ContainsNamespaceSeparator reports whether a casbin resource path contains
+// the namespace separator. The separator never appears in any other valid
+// resource path segment (collection, shard, tenant, role, and user names all
+// forbid it), so a plain byte scan unambiguously detects namespace
+// qualification regardless of the path shape.
+func ContainsNamespaceSeparator(resource string) bool {
+	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -299,17 +322,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
-		object := "*"
 		if permission.Data != nil && permission.Data.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Data.Collection)
 		}
 		if permission.Data != nil && permission.Data.Tenant != nil {
 			tenant = *permission.Data.Tenant
 		}
-		if permission.Data != nil && permission.Data.Object != nil {
-			object = *permission.Data.Object
-		}
-		resource = CasbinData(collection, tenant, object)
+		resource = CasbinData(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {
@@ -354,6 +373,14 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinAliases(collection, alias)
+	case authorization.McpDomain:
+		resource = CasbinMcp()
+	case authorization.NamespacesDomain:
+		name := "*"
+		if permission.Namespaces != nil && permission.Namespaces.Namespace != nil {
+			name = *permission.Namespaces.Namespace
+		}
+		resource = CasbinNamespaces(name)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -424,7 +451,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Data = &models.PermissionData{
 			Collection: &splits[2],
 			Tenant:     &splits[4],
-			Object:     &splits[6],
+			Object:     authorization.All,
 		}
 	case authorization.RolesDomain:
 		permission.Roles = &models.PermissionRoles{
@@ -471,6 +498,12 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Group:     &splits[2],
 			GroupType: models.GroupType(splits[1]),
 		}
+	case authorization.McpDomain:
+		// do nothing
+	case authorization.NamespacesDomain:
+		permission.Namespaces = &models.PermissionNamespaces{
+			Namespace: &splits[1],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -482,6 +515,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Replicate = authorization.AllReplicate
 		permission.Aliases = authorization.AllAliases
 		permission.Groups = authorization.AllOIDCGroups
+		permission.Namespaces = authorization.AllNamespaces
 	case authorization.ClusterDomain:
 		// do nothing
 	default:
@@ -539,10 +573,16 @@ func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
+// GetUserAndPrefix splits an internal casbin user key into the user
+// identifier and its prefix and returns them as (user, prefix). The key is
+// `<prefix>:<user>` where prefix is "db", "oidc", or "group" and `<user>`
+// is itself either a bare name or a namespace-qualified `<namespace>:<name>`.
+// Splitting on the first ":" only is what keeps namespaced principals (e.g.
+// `oidc:customer1:alice`) from being mistaken for malformed input.
 func GetUserAndPrefix(name string) (string, string, error) {
-	splits := strings.Split(name, PREFIX_SEPARATOR)
-	if len(splits) != 2 {
+	prefix, user, ok := strings.Cut(name, PREFIX_SEPARATOR)
+	if !ok || prefix == "" || user == "" {
 		return "", "", fmt.Errorf("invalid name: %s", name)
 	}
-	return splits[1], splits[0], nil
+	return user, prefix, nil
 }

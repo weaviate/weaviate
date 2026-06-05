@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -45,18 +46,17 @@ type Config struct {
 	AcornFilterRatio                  float64
 	DisableSnapshots                  bool
 	SnapshotOnStartup                 bool
-	LazyLoadSegments                  bool
-	WriteSegmentInfoIntoFileName      bool
-	WriteMetadataFilesEnabled         bool
-
-	MinMMapSize     int64
-	MaxWalReuseSize int64
+	MakeBucketOptions                 lsmkv.MakeBucketOptions
 
 	// metadata for monitoring
 	ShardName string
 	ClassName string
 
 	VisitedListPoolMaxSize int
+
+	AsyncIndexingEnabled bool
+
+	HFreshMode bool
 }
 
 func (c Config) Validate() error {

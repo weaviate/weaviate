@@ -64,6 +64,12 @@ func (o *ObjectsClassReferencesPutReader) ReadResponse(response runtime.ClientRe
 			return nil, err
 		}
 		return nil, result
+	case 410:
+		result := NewObjectsClassReferencesPutGone()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewObjectsClassReferencesPutUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -381,6 +387,74 @@ func (o *ObjectsClassReferencesPutNotFound) String() string {
 }
 
 func (o *ObjectsClassReferencesPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsClassReferencesPutGone creates a ObjectsClassReferencesPutGone with default headers values
+func NewObjectsClassReferencesPutGone() *ObjectsClassReferencesPutGone {
+	return &ObjectsClassReferencesPutGone{}
+}
+
+/*
+ObjectsClassReferencesPutGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ObjectsClassReferencesPutGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects class references put gone response has a 2xx status code
+func (o *ObjectsClassReferencesPutGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references put gone response has a 3xx status code
+func (o *ObjectsClassReferencesPutGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put gone response has a 4xx status code
+func (o *ObjectsClassReferencesPutGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references put gone response has a 5xx status code
+func (o *ObjectsClassReferencesPutGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references put gone response a status code equal to that given
+func (o *ObjectsClassReferencesPutGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the objects class references put gone response
+func (o *ObjectsClassReferencesPutGone) Code() int {
+	return 410
+}
+
+func (o *ObjectsClassReferencesPutGone) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsClassReferencesPutGone) String() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsClassReferencesPutGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassReferencesPutGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

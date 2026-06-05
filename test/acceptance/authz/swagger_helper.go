@@ -17,7 +17,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -107,11 +107,17 @@ func (c *collector) collectEndpoints() ([]endpoint, error) {
 	// NOTE: Sorting is done to keep the endpoints order deterministic,
 	// because the default order returned by swagger apis are random
 	// which can cause trouble say if GET is called after DELETE endpoints.
-	sort.Slice(c.endpoints, func(i, j int) bool {
-		if c.endpoints[i].path == c.endpoints[j].path {
-			return c.endpoints[i].method > c.endpoints[j].method
+
+	// Note on Logic:
+	// 1. Sort by Path :Ascending
+	// 2. If Paths are equal, sort by Method (Descending) to ensure GET runs before DELETE
+	slices.SortFunc(c.endpoints, func(a, b endpoint) int {
+		// Primary sort: Path (Ascending)
+		if n := strings.Compare(a.path, b.path); n != 0 {
+			return n
 		}
-		return c.endpoints[i].path < c.endpoints[j].path
+		// Secondary sort: Method (Descending) ------------> Compare b against a
+		return strings.Compare(b.method, a.method)
 	})
 
 	return c.endpoints, nil

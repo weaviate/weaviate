@@ -14,17 +14,19 @@ package modstggcs
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
@@ -41,6 +43,9 @@ type gcsClient struct {
 	config    clientConfig
 	projectID string
 	dataPath  string
+	logger    logrus.FieldLogger
+	nodeID    string        // hostname, used to make access-check paths unique across nodes
+	counter   atomic.Uint64 // monotonic counter for unique access-check paths within a node
 }
 
 func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
@@ -83,7 +88,7 @@ func projectID() string {
 	return projectID
 }
 
-func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
+func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
 	opts, err := storageOptions(ctx)
 	if err != nil {
 		return nil, err
@@ -102,7 +107,11 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		storage.WithPolicy(storage.RetryAlways),
 		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)
-	return &gcsClient{client: client, config: *config, projectID: projectID(), dataPath: dataPath}, nil
+	nodeID, err := os.Hostname()
+	if err != nil {
+		nodeID = strconv.Itoa(os.Getpid())
+	}
+	return &gcsClient{client: client, config: *config, projectID: projectID(), dataPath: dataPath, logger: logger, nodeID: nodeID}, nil
 }
 
 func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
@@ -145,15 +154,21 @@ func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) strin
 }
 
 func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
 	bucket, err := g.findBucket(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("find bucket: %w", err)
 	}
 
-	iter := bucket.Objects(ctx, &storage.Query{Prefix: g.config.BackupPath, MatchGlob: "**/" + ubak.GlobalBackupFile})
+	// Use delimiter listing to get one-level-deep prefixes (one per backup ID)
+	// instead of scanning all objects
+	prefix := g.config.BackupPath
+	if prefix != "" {
+		prefix += "/"
+	}
+	iter := bucket.Objects(ctx, &storage.Query{Prefix: prefix, Delimiter: "/"})
+
+	var keys []string
 	for {
-		// Check context before each iteration
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -166,23 +181,22 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 			return nil, fmt.Errorf("get next object: %w", err)
 		}
 
-		// mostly needed for testing on the emulator
-		if !strings.HasSuffix(next.Name, ubak.GlobalBackupFile) {
-			continue
+		if next.Prefix != "" {
+			keys = append(keys, next.Prefix+ubak.GlobalBackupFile)
 		}
-
-		contents, err := g.getObject(ctx, bucket, next.Name)
-		if err != nil {
-			return nil, fmt.Errorf("read object %q: %w", next.Name, err)
-		}
-		var desc backup.DistributedBackupDescriptor
-		if err := json.Unmarshal(contents, &desc); err != nil {
-			return nil, fmt.Errorf("unmarshal object %q: %w", next.Name, err)
-		}
-		meta = append(meta, &desc)
 	}
 
-	return meta, nil
+	return ubak.FetchBackupDescriptors(ctx, g.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
+		data, err := g.getObject(ctx, bucket, key)
+		if err != nil {
+			if errors.Is(err, storage.ErrObjectNotExist) {
+				return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", key))
+			}
+			return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", key))
+		}
+
+		return data, nil
+	})
 }
 
 func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
@@ -190,6 +204,9 @@ func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*sto
 
 	if bucketOverride != "" {
 		b = bucketOverride
+	}
+	if b == "" {
+		return nil, fmt.Errorf("bucket must not be empty")
 	}
 	bucket := g.client.Bucket(b)
 
@@ -265,7 +282,10 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 }
 
 func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
-	key := "access-check"
+	// Each call gets a unique access-check file so concurrent Initialize calls
+	// from different nodes (or the same node) never interfere with each other.
+	seq := g.counter.Add(1)
+	key := "access-check-" + g.nodeID + "-" + strconv.FormatUint(seq, 10)
 
 	if err := g.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
 		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v", overrideBucket, overridePath, backupID, key)

@@ -64,6 +64,12 @@ const (
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
+// ErrImmutable is returned by write operations on a structurally immutable
+// bucket (e.g. a snapshot bucket opened via NewSnapshotBucket). This is
+// distinct from storagestate.ErrStatusReadOnly which indicates a transient
+// operational state set by the parent shard.
+var ErrImmutable = errors.New("bucket is immutable")
+
 // memtableNames is used for error messages and metrics when iterating memtables
 var memtableNames = [2]string{"active_memtable", "flushing_memtable"}
 
@@ -84,7 +90,27 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock        sync.RWMutex
+	flushLock sync.RWMutex
+	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
+	// designed assuming a single triggerer at a time (the periodic flush
+	// callback or a control-plane caller — backup, runtime migration,
+	// startup finalize); the data hot path never invokes
+	// [FlushAndSwitch] directly (writes go through memtable.put without
+	// it). When two callers overlap — most visibly seen on the objects
+	// bucket with concurrent runtime-reindex migrations — the second
+	// caller's atomicallySwitchMemtable observes `active.Size() == 0`
+	// and returns early, racing the first caller's still-in-flight
+	// flush. Any follow-up `CursorOnDisk` would miss data parked in
+	// `b.flushing`. Serializing here gives every caller the invariant
+	// "after FlushAndSwitch returns, all data written before the call
+	// is durably in segments." See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issues C+D.
+	//
+	// Lock ordering: flushAndSwitchMu MUST be acquired BEFORE flushLock.
+	// FlushAndSwitch takes flushAndSwitchMu for its full duration and
+	// internally takes flushLock during atomicallySwitchMemtable +
+	// atomicallyAddDiskSegmentAndRemoveFlushing. Reverse-order callers
+	// would deadlock.
+	flushAndSwitchMu sync.Mutex
 	haltedFlushTimer *interval.BackoffTimer
 
 	minWalThreshold   uint64
@@ -122,7 +148,14 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	pauseTimer *prometheus.Timer // Times the pause
+	// pauseCompactionMu ref-counts reindex pause/resume (weaviate/0-weaviate-issues#251).
+	pauseCompactionMu    sync.Mutex
+	pauseCompactionCount int
+
+	// pauseTimerMu ref-counts the timer across backup + reindex pause paths.
+	pauseTimerMu    sync.Mutex
+	pauseTimerCount int
+	pauseTimer      *prometheus.Timer
 
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.
@@ -151,6 +184,16 @@ type Bucket struct {
 	forceCompaction    bool
 	disableCompaction  bool
 	lazySegmentLoading bool
+
+	// Canonical class name carried by the bucket. Required for any bucket
+	// whose readers go through the storobj decoders (the objects bucket); set
+	// via WithClassName at creation time so the decoders can stamp the
+	// canonical class on every decoded object instead of trusting the (no
+	// longer authoritative) on-disk class-name field. ClassName() returns an
+	// error when this is empty — buckets that do not hold storobj payloads
+	// (inverted, prop-length, etc.) leave it unset because those readers
+	// never call ClassName() in the first place.
+	className string
 
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
@@ -188,6 +231,22 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	// function to decide whether a key should be skipped
+	// during compaction for the SetCollection strategy
+	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
+
+	skipSecondaryKeyCheck bool
+
+	// immutable prevents all write operations. Set via WithImmutable, used by
+	// snapshot buckets to guarantee they never modify data. This is distinct
+	// from the shard-level read-only status (storagestate.StatusReadOnly)
+	// checked by isReadOnly().
+	immutable bool
+
+	// sequentialAccess hints the kernel (via fadvise) that segment files will
+	// be read sequentially. Set via WithSequentialAccess for snapshot buckets.
+	sequentialAccess bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -236,6 +295,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.strategy == unsetStrategy {
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
+	}
+
+	if !b.immutable && IsSnapshotDir(dir) {
+		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
 
 	if b.memtableResizer != nil {
@@ -291,6 +354,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			sequentialAccess:             b.sequentialAccess,
+			shouldSkipKey:                b.shouldSkipKey,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -365,8 +430,12 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 	i := 0
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryDisk(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -380,12 +449,42 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
+// pauseCompaction / resumeCompaction are ref-counted at the bucket level so
+// snapshot, ApplyToObjectDigests, and runtime-reindex callers share one pause
+// (weaviate/0-weaviate-issues#251 + weaviate/weaviate#11486 review).
 func (b *Bucket) pauseCompaction(ctx context.Context) error {
-	return b.disk.pauseCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	b.pauseCompactionCount++
+	if b.pauseCompactionCount > 1 {
+		return nil
+	}
+	if err := b.disk.pauseCompaction(ctx); err != nil {
+		b.pauseCompactionCount--
+		return err
+	}
+	b.doStartPauseTimer()
+	return nil
 }
 
 func (b *Bucket) resumeCompaction(ctx context.Context) error {
-	return b.disk.resumeCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	if b.pauseCompactionCount == 0 {
+		return nil
+	}
+	if b.pauseCompactionCount > 1 {
+		b.pauseCompactionCount--
+		return nil
+	}
+	if err := b.disk.resumeCompaction(ctx); err != nil {
+		return err
+	}
+	b.doStopPauseTimer()
+	b.pauseCompactionCount--
+	return nil
 }
 
 // ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
@@ -408,12 +507,12 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		ec := errorcompounder.New()
 
 		if err != nil {
-			ec.AddWrap(err, "during ApplyToObjectDigests")
+			ec.AddWrapf(err, "during ApplyToObjectDigests")
 		}
 
 		err = b.resumeCompaction(ctx)
 		if err != nil {
-			ec.AddWrap(err, "resuming compaction after ApplyToObjectDigests")
+			ec.AddWrapf(err, "resuming compaction after ApplyToObjectDigests")
 		}
 
 		err = ec.ToError()
@@ -939,7 +1038,10 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 		b.metrics.ObserveBucketWriteOpDuration("put", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.put(key, value, opts...)
@@ -952,7 +1054,11 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // is ongoing, because the actual flush only happens once the writer count
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
-func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
+func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), err error) {
+	if err := b.readOnlyErr(); err != nil {
+		return nil, nil, err
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -963,7 +1069,7 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 		active.decWriterCount()
 	}
 
-	return active, release
+	return active, release, nil
 }
 
 // SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
@@ -982,7 +1088,10 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 // SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
 // Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, newSetEncoder().Do(values))
@@ -1001,7 +1110,10 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 // [Bucket.Delete] to delete the entire row, for Maps use [Bucket.MapDeleteKey]
 // to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, []value{
@@ -1230,7 +1342,10 @@ func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, 
 //
 // MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.appendMapSorted(rowKey, kv)
@@ -1239,7 +1354,10 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 // MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
 // [MapPair] objects at the same time.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	for _, kv := range kvs {
@@ -1263,7 +1381,10 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 // MapDeleteKey is specific to the Map Strategy. For Replace, you can use
 // [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	pair := MapPair{
@@ -1305,7 +1426,10 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) (err error) {
 		b.metrics.ObserveBucketWriteOpDuration("delete", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstone(key, opts...)
@@ -1328,7 +1452,10 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstoneWith(key, deletionTime, opts...)
@@ -1342,8 +1469,16 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		return nil, errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
+	mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
+		path:                         path,
+		strategy:                     b.strategy,
+		secondaryIndices:             b.secondaryIndices,
+		enableChecksumValidation:     b.enableChecksumValidation,
+		writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
+		shouldSkipKeyFunc:            b.shouldSkipKey,
+		skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
+		bm25config:                   b.bm25Config,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1606,10 +1741,30 @@ func (b *Bucket) UpdateStatus(status storagestate.Status) {
 }
 
 func (b *Bucket) isReadOnly() bool {
+	if b.immutable {
+		return true
+	}
 	b.statusLock.Lock()
 	defer b.statusLock.Unlock()
 
 	return b.status == storagestate.StatusReadOnly
+}
+
+// readOnlyErr returns the appropriate error when the bucket is read-only, or
+// nil if the bucket is writable. This preserves the distinction between
+// structurally immutable buckets (snapshots → ErrImmutable) and operationally
+// read-only buckets (shard status → storagestate.ErrStatusReadOnly).
+func (b *Bucket) readOnlyErr() error {
+	if b.immutable {
+		return ErrImmutable
+	}
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	if b.status == storagestate.StatusReadOnly {
+		return storagestate.ErrStatusReadOnly
+	}
+	return nil
 }
 
 // FlushAndSwitch is the main way to flush a memtable, replace it with a new
@@ -1660,6 +1815,20 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
+	if err := b.readOnlyErr(); err != nil {
+		return err
+	}
+
+	// Serialize against any other in-flight FlushAndSwitch on this bucket.
+	// See the [flushAndSwitchMu] godoc and GH https://github.com/weaviate/0-weaviate-issues/issues/212
+	// Issues C+D for the rationale. This ensures the invariant
+	// "after FlushAndSwitch returns, all data written before the call is
+	// durably in segments" holds even when two callers race — the second
+	// caller waits for the first's flush to land before its own
+	// atomicallySwitchMemtable runs.
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
+
 	before := time.Now()
 	var err error
 
@@ -1880,6 +2049,21 @@ func (b *Bucket) Strategy() string {
 
 func (b *Bucket) DesiredStrategy() string {
 	return b.desiredStrategy
+}
+
+// ClassName returns the canonical class name supplied at bucket creation via
+// WithClassName. Storobj decoders use this value as the authoritative class
+// name and stamp it on every decoded object, ignoring the on-disk class-name
+// field. Buckets that do not hold storobj payloads (inverted, prop-length,
+// etc.) are not opened with WithClassName; calling ClassName() on them
+// returns an error rather than silently producing decoded objects with an
+// empty class — readers that need a class name must come from a bucket that
+// has one.
+func (b *Bucket) ClassName() (string, error) {
+	if b.className == "" {
+		return "", fmt.Errorf("bucket does not have a class name")
+	}
+	return b.className, nil
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
@@ -2350,4 +2534,11 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 		return "", err
 	}
 	return defaultStrategy, nil
+}
+
+// PrependSegmentsFromBucket copies all segments from srcDir and prepends them
+// into this bucket's segment group. See SegmentGroup.PrependSegmentsFromBucket
+// for full semantics and preconditions.
+func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
+	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
 }

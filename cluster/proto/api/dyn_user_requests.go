@@ -28,6 +28,7 @@ type CreateUsersRequest struct {
 	SecureHash         string
 	UserIdentifier     string
 	ApiKeyFirstLetters string
+	Namespace          string
 	CreatedAt          time.Time
 	Version            int
 }
@@ -52,6 +53,12 @@ type RotateUserApiKeyRequest struct {
 type DeleteUsersRequest struct {
 	UserId  string
 	Version int
+}
+
+// DeleteUsersInNamespaceRequest deletes every DB user bound to Namespace.
+type DeleteUsersInNamespaceRequest struct {
+	Namespace string
+	Version   int
 }
 
 type ActivateUsersRequest struct {

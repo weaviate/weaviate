@@ -21,11 +21,22 @@ import (
 )
 
 type Searcher[T dto.Embedding] struct {
-	vectorizer bindVectorizer[T]
+	vectorForParams modulecapabilities.VectorForParams[T]
 }
 
 func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
-	return &Searcher[T]{vectorizer}
+	return &Searcher[T]{func(ctx context.Context, params any, className string,
+		findVectorFn modulecapabilities.FindVectorFn[T],
+		cfg moduletools.ClassConfig,
+	) (T, error) {
+		// find vector for given search query
+		vector, err := vectorizer.VectorizeVideo(ctx, params.(*NearVideoParams).Video, cfg)
+		if err != nil {
+			return nil, errors.Errorf("vectorize video: %v", err)
+		}
+
+		return vector, nil
+	}}
 }
 
 type bindVectorizer[T dto.Embedding] interface {
@@ -34,23 +45,6 @@ type bindVectorizer[T dto.Embedding] interface {
 
 func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
-	vectorSearches["nearVideo"] = &vectorForParams[T]{s.vectorizer}
+	vectorSearches["nearVideo"] = s.vectorForParams
 	return vectorSearches
-}
-
-type vectorForParams[T dto.Embedding] struct {
-	vectorizer bindVectorizer[T]
-}
-
-func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
-	findVectorFn modulecapabilities.FindVectorFn[T],
-	cfg moduletools.ClassConfig,
-) (T, error) {
-	// find vector for given search query
-	vector, err := v.vectorizer.VectorizeVideo(ctx, params.(*NearVideoParams).Video, cfg)
-	if err != nil {
-		return nil, errors.Errorf("vectorize video: %v", err)
-	}
-
-	return vector, nil
 }

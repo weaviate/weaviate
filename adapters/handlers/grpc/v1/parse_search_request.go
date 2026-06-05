@@ -45,6 +45,7 @@ import (
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type generativeParser interface {
@@ -59,17 +60,20 @@ type generativeParser interface {
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
-	aliasGetter        aliasGetter
+	principal          *models.Principal
+	namespacesEnabled  bool
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
-	aliasGetter aliasGetter,
+	principal *models.Principal,
+	namespacesEnabled bool,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
-		aliasGetter:        aliasGetter,
+		principal:          principal,
+		namespacesEnabled:  namespacesEnabled,
 	}
 }
 
@@ -80,7 +84,6 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return out, err
 	}
 
-	out.Alias = p.aliasGetter(req.Collection)
 	out.ClassName = class.Class
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
@@ -100,7 +103,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, targetVectors, vectorSearch)
+	out.Properties, err = p.extractPropertiesRequest(req.Properties, req.Collection, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -140,6 +143,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			out.NearVector.Distance = *nv.Distance
 			out.NearVector.WithDistance = true
 		}
+
+		out.Selection = parseSelection(nv.Selection)
 	}
 
 	if no := req.NearObject; no != nil {
@@ -150,6 +155,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			ID:            no.Id,
 			TargetVectors: targetVectors,
 		}
+		out.Selection = parseSelection(no.Selection)
 
 		// The following business logic should not sit in the API. However, it is
 		// also part of the GraphQL API, so we need to duplicate it in order to get
@@ -291,16 +297,26 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 		nearVec := req.HybridSearch.NearVector
 
+		var alpha float64
+		if !hs.UseAlphaParam {
+			alpha = float64(hs.Alpha)
+		} else if hs.AlphaParam != nil {
+			alpha = float64(*hs.AlphaParam)
+		} else {
+			alpha = common_filters.DefaultAlpha
+		}
+
 		out.HybridSearch = &searchparams.HybridSearch{
 			Query:           hs.Query,
 			Properties:      schema.LowercaseFirstLetterOfStrings(hs.Properties),
 			Vector:          vector,
-			Alpha:           float64(hs.Alpha),
+			Alpha:           alpha,
 			FusionAlgorithm: fusionType,
 			TargetVectors:   targetVectors,
 			Distance:        distance,
 			WithDistance:    withDistance,
 		}
+		out.Selection = parseSelection(hs.Selection)
 
 		if hs.Bm25SearchOperator != nil {
 			if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
@@ -346,6 +362,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			out.ModuleParams = make(map[string]interface{})
 		}
 		out.ModuleParams["nearText"] = nearText
+		out.Selection = parseSelection(req.NearText.Selection)
 	}
 
 	if req.Generative != nil {
@@ -362,12 +379,20 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
 	}
 
+	if req.Boost != nil {
+		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, p.namespacesEnabled)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.Boost = boost
+	}
+
 	if len(req.After) > 0 {
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled, p.principal)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -403,6 +428,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
+	}
+	if out.Selection != nil {
+		for _, tv := range targetVectors {
+			if isTargetVectorMultiVector(class, tv) {
+				return dto.GetParams{}, fmt.Errorf("MMR selection is not supported with multi-vector indexes (target vector %q)", tv)
+			}
+		}
 	}
 	if err := p.extractPropertiesForModules(&out); err != nil {
 		return dto.GetParams{}, err
@@ -618,6 +650,192 @@ func extractRerank(req *pb.SearchRequest) *rank.Params {
 	return &rerank
 }
 
+func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespacesEnabled bool) (*filters.Boost, error) {
+	if boost == nil {
+		return nil, nil
+	}
+
+	weight := float32(0.5)
+	if boost.Weight != nil {
+		weight = boost.GetWeight()
+	}
+
+	conditions := make([]filters.BoostCondition, 0, len(boost.GetConditions()))
+	for i, cond := range boost.GetConditions() {
+		pc, err := p.extractBoostCondition(cond, className, tenant, i, namespacesEnabled)
+		if err != nil {
+			return nil, err
+		}
+		conditions = append(conditions, pc)
+	}
+
+	var depth int
+	if boost.Depth != nil {
+		depth = int(boost.GetDepth())
+	}
+
+	result := &filters.Boost{
+		Conditions: conditions,
+		Weight:     weight,
+		Depth:      depth,
+	}
+
+	if err := filters.ValidateBoost(result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tenant string, idx int, namespacesEnabled bool) (filters.BoostCondition, error) {
+	weight := float32(1.0)
+	if cond.Weight != nil {
+		weight = cond.GetWeight()
+	}
+
+	pc := filters.BoostCondition{
+		Weight: weight,
+	}
+
+	switch c := cond.GetCondition().(type) {
+	case *pb.Boost_Condition_Filter:
+		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant, namespacesEnabled, p.principal)
+		if err != nil {
+			return filters.BoostCondition{}, fmt.Errorf("boost condition[%d] filter: %w", idx, err)
+		}
+		pc.Filter = &filters.LocalFilter{Root: &clause}
+	case *pb.Boost_Condition_TimeDecay:
+		decay, err := extractTimeDecayFunction(c.TimeDecay, idx)
+		if err != nil {
+			return filters.BoostCondition{}, err
+		}
+		pc.Decay = decay
+	case *pb.Boost_Condition_NumericDecay:
+		decay, err := extractNumericDecayFunction(c.NumericDecay, idx)
+		if err != nil {
+			return filters.BoostCondition{}, err
+		}
+		pc.Decay = decay
+	case *pb.Boost_Condition_PropertyValue:
+		fv, err := extractPropertyValueFunction(c.PropertyValue, idx)
+		if err != nil {
+			return filters.BoostCondition{}, err
+		}
+		pc.PropertyValue = fv
+	default:
+		return filters.BoostCondition{}, fmt.Errorf("boost condition[%d]: exactly one of 'filter', 'decay', or 'property_value' must be set", idx)
+	}
+
+	return pc, nil
+}
+
+func extractPropertyValueFunction(fv *pb.Boost_PropertyValueFunction, condIdx int) (*filters.PropertyValue, error) {
+	if fv == nil {
+		return nil, nil
+	}
+
+	prop := fv.GetProperty()
+	if prop == "" {
+		return nil, fmt.Errorf("boost condition[%d] property_value: property is required", condIdx)
+	}
+
+	modifier := filters.PropertyValueModifierNone
+	switch fv.GetModifier() {
+	case pb.Boost_PROPERTY_VALUE_MODIFIER_LOG1P:
+		modifier = filters.PropertyValueModifierLog1p
+	case pb.Boost_PROPERTY_VALUE_MODIFIER_SQRT:
+		modifier = filters.PropertyValueModifierSqrt
+	case pb.Boost_PROPERTY_VALUE_MODIFIER_UNSPECIFIED:
+		modifier = filters.PropertyValueModifierNone
+	}
+
+	return &filters.PropertyValue{
+		Path:     &filters.Path{Property: schema.PropertyName(prop)},
+		Modifier: modifier,
+	}, nil
+}
+
+func extractDecayCurve(curve pb.Boost_DecayCurve) filters.DecayCurveType {
+	switch curve {
+	case pb.Boost_DECAY_CURVE_GAUSS:
+		return filters.DecayCurveGauss
+	case pb.Boost_DECAY_CURVE_LINEAR:
+		return filters.DecayCurveLinear
+	default:
+		return filters.DecayCurveExp
+	}
+}
+
+func extractTimeDecayFunction(d *pb.Boost_TimeDecayFunction, condIdx int) (*filters.Decay, error) {
+	if d == nil {
+		return nil, nil
+	}
+
+	prop := d.GetProperty()
+	if prop == "" {
+		return nil, fmt.Errorf("boost condition[%d] time_decay: property is required", condIdx)
+	}
+
+	decayValue := float32(0.5)
+	if d.DecayValue != nil {
+		decayValue = d.GetDecayValue()
+	}
+
+	offset := "0"
+	if d.Offset != nil {
+		offset = d.GetOffset()
+	}
+
+	origin := d.GetOrigin()
+	if origin == "" {
+		origin = "now"
+	}
+
+	return &filters.Decay{
+		Path:       &filters.Path{Property: schema.PropertyName(prop)},
+		Origin:     origin,
+		Scale:      d.GetScale(),
+		Offset:     offset,
+		Curve:      extractDecayCurve(d.GetCurve()),
+		DecayValue: decayValue,
+	}, nil
+}
+
+func extractNumericDecayFunction(d *pb.Boost_NumericDecayFunction, condIdx int) (*filters.Decay, error) {
+	if d == nil {
+		return nil, nil
+	}
+
+	prop := d.GetProperty()
+	if prop == "" {
+		return nil, fmt.Errorf("boost condition[%d] numeric_decay: property is required", condIdx)
+	}
+
+	if d.GetScale() <= 0 {
+		return nil, fmt.Errorf("boost condition[%d] numeric_decay: scale must be > 0", condIdx)
+	}
+
+	decayValue := float32(0.5)
+	if d.DecayValue != nil {
+		decayValue = d.GetDecayValue()
+	}
+
+	var offset float64
+	if d.Offset != nil {
+		offset = d.GetOffset()
+	}
+
+	return &filters.Decay{
+		Path:          &filters.Path{Property: schema.PropertyName(prop)},
+		IsNumeric:     true,
+		OriginNumeric: d.GetOrigin(),
+		ScaleNumeric:  d.GetScale(),
+		OffsetNumeric: offset,
+		Curve:         extractDecayCurve(d.GetCurve()),
+		DecayValue:    decayValue,
+	}, nil
+}
+
 func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch, targetVectors []string) (*nearText2.NearTextParams, error) {
 	if nearTextIn == nil {
 		return nil, nil
@@ -678,20 +896,20 @@ func isNested(dataType []string) bool {
 	return len(dataType) == 1 && schema.IsNested(schema.DataType(dataType[0]))
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
 		// No properties selected at all, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		nonRefProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
+		nonRefProps, err := getAllNonRefNonBlobProperties(p.authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
 		return nonRefProps, nil
 	}
 
-	class, err := authorizedGetClass(className)
+	class, err := p.authorizedGetClass(className)
 	if err != nil {
 		return nil, err
 	}
@@ -699,7 +917,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 	if reqProps.ReturnAllNonrefProperties {
 		// No non-ref return properties selected, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
+		returnProps, err := getAllNonRefNonBlobProperties(p.authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -736,6 +954,9 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 	}
 
 	if len(reqProps.RefProperties) > 0 {
+		// className is pre-qualified upstream. Single-target uses pre-qualified
+		// Property.DataType; multi-target routes caller TargetCollection
+		// through QualifyRefTarget.
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
@@ -745,25 +966,27 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 
 			var linkedClassName string
 			if len(schemaProp.DataType) == 1 {
-				// use datatype of the reference property to get the name of the linked class
 				linkedClassName = schemaProp.DataType[0]
 			} else {
-				linkedClassName = prop.TargetCollection
-				if linkedClassName == "" {
+				if prop.TargetCollection == "" {
 					return nil, fmt.Errorf(
 						"multi target references from collection %v and property %v with need an explicit"+
 							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
+				linkedClassName, _, err = namespacing.QualifyRefTarget(p.principal, p.namespacesEnabled, className, prop.TargetCollection)
+				if err != nil {
+					return nil, err
+				}
 			}
-			linkedClass, err := authorizedGetClass(linkedClassName)
+			linkedClass, err := p.authorizedGetClass(linkedClassName)
 			if err != nil {
 				return nil, err
 			}
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
+				refProperties, err = p.extractPropertiesRequest(prop.Properties, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -776,7 +999,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(p.authorizedGetClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -844,6 +1067,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		ExplainScore:       prop.ExplainScore,
 		IsConsistent:       prop.IsConsistent,
 		Vectors:            prop.Vectors,
+		QueryProfile:       prop.QueryProfile,
 	}
 
 	// certainty is not compatible with
@@ -892,7 +1116,7 @@ func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, 
 		if err != nil {
 			return []search.SelectProperty{}, errors.Wrap(err, "get property data type")
 		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
 			continue
 		}
 		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
@@ -927,7 +1151,7 @@ func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P)
 		if err != nil {
 			return []search.SelectProperty{}, errors.Wrap(err, "get nested property data type")
 		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
 			continue
 		}
 		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
@@ -1276,6 +1500,25 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 	}, targetCombination, nil
 }
 
+func parseSelection(sel *pb.Selection) *searchparams.Selection {
+	if sel == nil {
+		return nil
+	}
+	if mmr := sel.GetMmr(); mmr != nil {
+		out := &searchparams.Selection{
+			MMR: &searchparams.SelectionMMR{},
+		}
+		if mmr.Limit != nil {
+			out.MMR.Limit = *mmr.Limit
+		}
+		if mmr.Balance != nil {
+			out.MMR.Balance = *mmr.Balance
+		}
+		return out
+	}
+	return nil
+}
+
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user
 func (p *Parser) extractPropertiesForModules(params *dto.GetParams) error {
 	var additionalProps []string
@@ -1302,8 +1545,8 @@ OUTER:
 				continue OUTER
 			}
 		}
-		if propDataTypes[additionalProp] == schema.DataTypeBlob {
-			// make sure that blobs aren't added to the response payload by accident
+		if propDataTypes[additionalProp] == schema.DataTypeBlob || propDataTypes[additionalProp] == schema.DataTypeBlobHash {
+			// make sure that blobs/blobHash aren't added to the response payload by accident
 			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: false})
 		} else {
 			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})

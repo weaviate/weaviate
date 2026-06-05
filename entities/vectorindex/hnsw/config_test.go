@@ -546,6 +546,18 @@ func Test_UserConfig(t *testing.T) {
 		},
 
 		{
+			name: "with negative pq segments",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled":  true,
+					"segments": float64(-1),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "pq segments must be non-negative",
+		},
+
+		{
 			// opposed to from the API
 			name: "with rounded vectorCacheMaxObjects that would otherwise overflow",
 			input: map[string]interface{}{
@@ -1127,6 +1139,44 @@ func Test_UserConfig(t *testing.T) {
 				assert.Nil(t, err)
 				assert.Equal(t, test.expected, cfg)
 			}
+		})
+	}
+}
+
+func Test_ParseDefaultQuantization(t *testing.T) {
+	tests := []struct {
+		name        string
+		compression string
+		expectErr   bool
+		expectPQ    bool
+		expectSQ    bool
+		expectBQ    bool
+		expectRQ    bool
+	}{
+		{name: "empty string is no-op", compression: "", expectErr: false},
+		{name: "none is no-op", compression: "none", expectErr: false},
+		{name: "pq enables PQ", compression: "pq", expectPQ: true},
+		{name: "sq enables SQ", compression: "sq", expectSQ: true},
+		{name: "bq enables BQ", compression: "bq", expectBQ: true},
+		{name: "rq-1 enables RQ", compression: "rq-1", expectRQ: true},
+		{name: "rq-8 enables RQ", compression: "rq-8", expectRQ: true},
+		{name: "invalid compression", compression: "invalid", expectErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := NewDefaultUserConfig()
+			result, err := ParseDefaultQuantization(uc, tt.compression)
+			if tt.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			cfg := result.(UserConfig)
+			assert.Equal(t, tt.expectPQ, cfg.PQ.Enabled, "PQ.Enabled")
+			assert.Equal(t, tt.expectSQ, cfg.SQ.Enabled, "SQ.Enabled")
+			assert.Equal(t, tt.expectBQ, cfg.BQ.Enabled, "BQ.Enabled")
+			assert.Equal(t, tt.expectRQ, cfg.RQ.Enabled, "RQ.Enabled")
 		})
 	}
 }

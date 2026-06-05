@@ -14,29 +14,30 @@ package queue
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
-	maxRetry = 3
+	maxBackoffDuration = 30 * time.Second
 )
 
 type Worker struct {
-	logger        logrus.FieldLogger
-	retryInterval time.Duration
-	ch            chan *Batch
+	logger logrus.FieldLogger
+	ch     chan *Batch
 }
 
-func NewWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*Worker, chan *Batch) {
+func NewWorker(logger logrus.FieldLogger) (*Worker, chan *Batch) {
 	ch := make(chan *Batch)
 
 	return &Worker{
-		logger:        logger,
-		retryInterval: retryInterval,
-		ch:            ch,
+		logger: logger.WithField("action", "queue_worker"),
+		ch:     ch,
 	}, ch
 }
 
@@ -99,32 +100,60 @@ func (w *Worker) do(batch *Batch) (err error) {
 			return nil // all tasks succeeded
 		}
 
-		if attempts >= maxRetry {
+		hasPermanentErrs := hasPermanentErrors(errs)
+		if hasPermanentErrs {
+			w.logger.WithError(errors.Join(errs...)).
+				WithField("failed", len(failed)).Error("permanent errors detected, discarding batch")
+			return nil
+		}
+
+		hasTransientErrs := hasTransientErrors(errs)
+		if hasTransientErrs {
+			retryIn := w.calculateBackoff(attempts)
 			w.logger.
 				WithError(errors.Join(errs...)).
 				WithField("failed", len(failed)).
 				WithField("attempts", attempts).
-				Error("failed to process task, discarding")
-			return nil
-		}
+				WithField("retry_in", retryIn).
+				Warnf("transient errors detected, retrying batch in %s", retryIn)
 
-		w.logger.
-			WithError(errors.Join(errs...)).
-			WithField("failed", len(failed)).
-			WithField("attempts", attempts).
-			Infof("failed to process task, retrying in %s", w.retryInterval.String())
-		attempts++
-
-		t := time.NewTimer(w.retryInterval)
-		select {
-		case <-batch.Ctx.Done():
-			// drain the timer
-			if !t.Stop() {
-				<-t.C
+			attempts++
+			retryTimer := time.NewTimer(retryIn)
+			select {
+			case <-batch.Ctx.Done():
+				if !retryTimer.Stop() {
+					<-retryTimer.C
+				}
+				return batch.Ctx.Err()
+			case <-retryTimer.C:
+				// try again
 			}
-
-			return batch.Ctx.Err()
-		case <-t.C:
 		}
 	}
+}
+
+func (w *Worker) calculateBackoff(attempts int) time.Duration {
+	// Cap attempts to prevent bit-shift overflow
+	const maxAttemptsBeforeCap = 5
+
+	if attempts > maxAttemptsBeforeCap {
+		return maxBackoffDuration
+	}
+
+	return time.Second << (attempts - 1)
+}
+
+func hasTransientErrors(errs []error) bool {
+	return slices.ContainsFunc(errs, enterrors.IsTransient)
+}
+
+func hasPermanentErrors(errs []error) bool {
+	for _, err := range errs {
+		if !enterrors.IsTransient(err) &&
+			!errors.Is(err, context.Canceled) &&
+			!errors.Is(err, context.DeadlineExceeded) {
+			return true
+		}
+	}
+	return false
 }

@@ -24,7 +24,7 @@ fi
 go install golang.org/x/tools/cmd/goimports@v0.1.12
 
 # Explicitly get yamplc package
-(go get github.com/go-openapi/runtime/yamlpc@v0.24.2)
+(go get github.com/go-openapi/runtime/yamlpc@v0.29.2)
 
 # Remove old stuff.
 (cd "$DIR"/..; rm -rf entities/models client adapters/handlers/rest/operations/)

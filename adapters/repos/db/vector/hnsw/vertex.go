@@ -14,7 +14,7 @@ package hnsw
 import (
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 type vertex struct {

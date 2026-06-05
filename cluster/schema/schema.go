@@ -171,6 +171,15 @@ func (s *schema) Read(class string, retryIfClassNotFound bool, reader func(*mode
 	return meta.RLockGuard(reader)
 }
 
+// ReadSchema performs a read operation `reader` on the schema
+func (s *schema) ReadSchema(reader func(models.Class, uint64)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, meta := range s.classes {
+		reader(meta.Class, meta.ClassVersion)
+	}
+}
+
 func (s *schema) metaClass(class string) *metaClass {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -239,11 +248,25 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	return cp
 }
 
-func (s *schema) CollectionsCount() int {
+// CollectionsCount returns the number of stored classes. With an empty
+// namespace it is the cluster-global total. With a non-empty namespace it
+// counts only classes whose internal name carries that namespace prefix.
+func (s *schema) CollectionsCount(namespace string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return len(s.classes)
+	if namespace == "" {
+		return len(s.classes)
+	}
+
+	prefix := namespace + entSchema.NamespaceSeparator
+	count := 0
+	for name := range s.classes {
+		if strings.HasPrefix(name, prefix) {
+			count++
+		}
+	}
+	return count
 }
 
 // ShardOwner returns the node owner of the specified shard
@@ -455,6 +478,24 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 		return ErrClassNotFound
 	}
 	return meta.AddProperty(v, props...)
+}
+
+// updateProperty merges `property` into the named class. When `mask` is
+// non-empty, only the listed fields are merged onto an existing property
+// of the same name (see MergePropsMasked).
+//
+// Returns the merged property (post-merge view) so the FSM apply path can
+// pass it to the storage layer, which needs the full property to decide
+// which buckets to create / remove.
+func (s *schema) updateProperty(class string, v uint64, property *models.Property, mask []string) (*models.Property, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	meta := s.unsafeResolveClass(class)
+	if meta == nil {
+		return nil, ErrClassNotFound
+	}
+	return meta.UpdateProperty(v, property, mask)
 }
 
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
@@ -721,16 +762,12 @@ func (s *schema) unsafeAliasExists(alias string) bool {
 	return false
 }
 
+// canonicalAlias normalizes an alias name to its stored form. On
+// namespaced names ("<ns>:<Name>") only the class portion is uppercased;
+// the lowercase namespace prefix is preserved verbatim so namespace-prefix
+// matchers (e.g. AliasesInNamespace) and the canonical store key agree.
 func (s *schema) canonicalAlias(alias string) string {
-	if len(alias) < 1 {
-		return alias
-	}
-
-	if len(alias) == 1 {
-		return strings.ToUpper(alias)
-	}
-
-	return strings.ToUpper(string(alias[0])) + alias[1:]
+	return entSchema.UppercaseClassName(alias)
 }
 
 func (s *schema) GetAliasesForClass(class string) []*models.Alias {

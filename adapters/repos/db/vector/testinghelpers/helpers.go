@@ -329,7 +329,11 @@ func RecallAndLatency(ctx context.Context, queries [][]float32, k int, index Vec
 		before := time.Now()
 		results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
 		ellapsed := time.Since(before)
-		hits := MatchesInLists(truths[i], results)
+		matches := truths[i]
+		if len(matches) > k {
+			matches = matches[:k]
+		}
+		hits := MatchesInLists(matches, results)
 		mutex.Lock()
 		querying += ellapsed
 		relevant += hits

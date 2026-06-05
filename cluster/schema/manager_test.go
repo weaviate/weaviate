@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -472,4 +473,436 @@ type MockShardReader struct {
 
 func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
+}
+
+// fakeReplicationFSM stands in for the real FSM here because importing
+// cluster/replication would cycle through cluster/schema. Unused interface
+// methods panic so an unexpected call surfaces immediately.
+type fakeReplicationFSM struct {
+	setUnCancellableCalls    []uint64
+	setUnCancellableReturnFn func(id uint64) error
+}
+
+func (f *fakeReplicationFSM) SetUnCancellable(id uint64) error {
+	f.setUnCancellableCalls = append(f.setUnCancellableCalls, id)
+	if f.setUnCancellableReturnFn != nil {
+		return f.setUnCancellableReturnFn(id)
+	}
+	return nil
+}
+
+func (f *fakeReplicationFSM) HasOngoingReplication(string, string, string) bool {
+	panic("unexpected HasOngoingReplication call")
+}
+
+func (f *fakeReplicationFSM) DeleteReplicationsByCollection(string) error {
+	panic("unexpected DeleteReplicationsByCollection call")
+}
+
+func (f *fakeReplicationFSM) DeleteReplicationsByTenants(string, []string) error {
+	panic("unexpected DeleteReplicationsByTenants call")
+}
+
+// TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable
+// firewalls the success-path co-occurrence invariant that the deleted
+// conflicts acceptance tests depended on: a successful apply both flips
+// UnCancellable on the FSM AND adds the replica to the schema, with
+// SetUnCancellable running first so its failure short-circuits the schema add.
+func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(t *testing.T) {
+	const (
+		className  = "TestClass"
+		shardName  = "shard1"
+		sourceNode = "node1"
+		targetNode = "node-target"
+		opID       = uint64(42)
+		schemaVer  = uint64(1)
+		applyVer   = uint64(2)
+	)
+
+	buildManager := func(t *testing.T, fsm *fakeReplicationFSM) *SchemaManager {
+		t.Helper()
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("local-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetReplicationFSM(fsm)
+
+		ss := &sharding.State{Physical: map[string]sharding.Physical{
+			shardName: {Name: shardName, BelongsToNodes: []string{sourceNode}},
+		}}
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: className}, ss, schemaVer))
+		return sm
+	}
+
+	buildCmd := func(t *testing.T) *cmd.ApplyRequest {
+		t.Helper()
+		sub, err := json.Marshal(&cmd.ReplicationAddReplicaToShard{
+			OpId: opID, Class: className, Shard: shardName,
+			TargetNode: targetNode, SchemaVersion: schemaVer,
+		})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD,
+			Class:      className,
+			Version:    applyVer,
+			SubCommand: sub,
+		}
+	}
+
+	t.Run("success path co-occurs UnCancellable flip and replica add", func(t *testing.T) {
+		fsm := &fakeReplicationFSM{}
+		sm := buildManager(t, fsm)
+
+		require.NoError(t, sm.ReplicationAddReplicaToShard(buildCmd(t), false))
+
+		require.Equal(t, []uint64{opID}, fsm.setUnCancellableCalls,
+			"SetUnCancellable must be called exactly once with the op id")
+
+		// Replica in the sharding state confirms addReplicaToShard committed.
+		require.NoError(t, sm.schema.Read(className, false, func(_ *models.Class, ss *sharding.State) error {
+			require.Contains(t, ss.Physical[shardName].BelongsToNodes, targetNode,
+				"target node must be present in the shard's BelongsToNodes")
+			return nil
+		}))
+	})
+
+	t.Run("SetUnCancellable failure short-circuits addReplicaToShard", func(t *testing.T) {
+		// Failure injection proves SetUnCancellable runs first — otherwise
+		// the schema would already have mutated by the time we observe error.
+		injectedErr := errors.New("synthetic SetUnCancellable failure")
+		fsm := &fakeReplicationFSM{
+			setUnCancellableReturnFn: func(uint64) error { return injectedErr },
+		}
+		sm := buildManager(t, fsm)
+
+		err := sm.ReplicationAddReplicaToShard(buildCmd(t), false)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrSchema)
+		require.ErrorContains(t, err, injectedErr.Error())
+
+		// Schema untouched ⇒ addReplicaToShard never ran.
+		require.NoError(t, sm.schema.Read(className, false, func(_ *models.Class, ss *sharding.State) error {
+			require.NotContains(t, ss.Physical[shardName].BelongsToNodes, targetNode,
+				"target node must NOT be added when SetUnCancellable fails first")
+			return nil
+		}))
+	})
+}
+
+// recordingMutationGuard captures every CheckPropertyUpdate call and
+// optionally rejects with a configured error. Used to pin the
+// SchemaManager.UpdateProperty guard call site (https://github.com/weaviate/0-weaviate-issues/issues/218).
+type recordingMutationGuard struct {
+	called     int
+	lastClass  string
+	lastProp   string
+	rejectWith error
+}
+
+func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop string) error {
+	g.called++
+	g.lastClass = class
+	g.lastProp = prop
+	return g.rejectWith
+}
+
+func (g *recordingMutationGuard) CheckClassMutation(class string) error {
+	g.called++
+	g.lastClass = class
+	return g.rejectWith
+}
+
+func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []string) error {
+	g.called++
+	g.lastClass = class
+	return g.rejectWith
+}
+
+// TestSchemaManager_UpdateProperty_MutationGuard pins the cross-FSM
+// MutationGuard wiring on the UpdateProperty apply path
+// (https://github.com/weaviate/0-weaviate-issues/issues/218). The guard:
+//
+//   - MUST be consulted before the schema apply on any external
+//     UpdateProperty.
+//   - MUST be bypassed when FromInFlightMigration is true on the
+//     request (the migration-completion path uses this to flip its
+//     own scheduled schema update past the guard that would otherwise
+//     reject it during FINALIZING).
+//   - MUST short-circuit before the guard on malformed requests, so a
+//     bad payload doesn't waste a detector dispatch.
+//
+// We construct a SchemaManager only enough to exercise the guard
+// branch; the downstream apply intentionally errors because no class
+// is registered. The point of the test is to pin the guard
+// pre-condition, not the apply itself.
+func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
+	mkRequest := func(class, prop string, fromMigration bool, fields ...string) *cmd.ApplyRequest {
+		req := cmd.UpdatePropertyRequest{
+			Property:              &models.Property{Name: prop},
+			FieldsToUpdate:        fields,
+			FromInFlightMigration: fromMigration,
+		}
+		sub, err := json.Marshal(&req)
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			Class:      class,
+			SubCommand: sub,
+		}
+	}
+
+	newSM := func(guard MutationGuard) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		if guard != nil {
+			sm.SetMutationGuard(guard)
+		}
+		return sm
+	}
+
+	t.Run("guard rejects external UpdateProperty before apply", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("reindex task X in flight on C.name"),
+		}
+		sm := newSM(guard)
+		// schemaOnly=true skips the store (db) apply step, so the test
+		// doesn't need a real Indexer. We still expect an error from
+		// the guard.
+		err := sm.UpdateProperty(mkRequest("C", "name", false), true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "reindex task X in flight",
+			"guard rejection must propagate to the caller")
+		require.Equal(t, 1, guard.called,
+			"guard MUST be consulted exactly once for an external request")
+		require.Equal(t, "C", guard.lastClass)
+		require.Equal(t, "name", guard.lastProp)
+	})
+
+	t.Run("guard bypassed when FromInFlightMigration=true", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("guard rejection that MUST be bypassed"),
+		}
+		sm := newSM(guard)
+		// FromInFlightMigration=true bypasses the guard. The downstream
+		// apply still errors (no class set up), but the guard
+		// rejection text must NOT appear in the returned error and the
+		// guard call counter must stay at zero.
+		err := sm.UpdateProperty(mkRequest("C", "name", true), true, false)
+		require.Error(t, err, "downstream apply still errors on missing class, but the error must not be a guard rejection")
+		require.NotContains(t, err.Error(), "MUST be bypassed",
+			"FromInFlightMigration=true MUST bypass the guard rejection")
+		require.Equal(t, 0, guard.called,
+			"guard MUST NOT be consulted when FromInFlightMigration=true")
+	})
+
+	t.Run("no guard registered → no extra rejection", func(t *testing.T) {
+		sm := newSM(nil) // no mutationGuard set
+		err := sm.UpdateProperty(mkRequest("C", "name", false), true, false)
+		// Downstream apply still fails (no class), but the error must
+		// not be a guard rejection. We assert that no MutationGuard
+		// rejection text shape appears.
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "in flight on",
+			"with no guard registered, the in-flight error template must not appear")
+	})
+
+	t.Run("bad request body short-circuits before the guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard)
+		bad := &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			Class:      "C",
+			SubCommand: []byte("not-json"),
+		}
+		err := sm.UpdateProperty(bad, true, false)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrBadRequest)
+		require.Equal(t, 0, guard.called,
+			"unparseable request must not reach the guard")
+	})
+
+	t.Run("empty Property short-circuits before the guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard)
+		req := cmd.UpdatePropertyRequest{Property: nil}
+		sub, _ := json.Marshal(&req)
+		bad := &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			Class:      "C",
+			SubCommand: sub,
+		}
+		err := sm.UpdateProperty(bad, true, false)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrBadRequest)
+		require.Equal(t, 0, guard.called,
+			"empty property must not reach the guard")
+	})
+}
+
+// TestSchemaManager_DeleteClass_MutationGuard pins the class-wide
+// guard wiring on the DeleteClass apply path
+// (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). DeleteClass mid-reindex destroys
+// every property's bucket state at once; the guard rejection must
+// fire BEFORE any class-deletion side effect.
+func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
+	mkRequest := func(class string) *cmd.ApplyRequest {
+		return &cmd.ApplyRequest{
+			Type:  cmd.ApplyRequest_TYPE_DELETE_CLASS,
+			Class: class,
+		}
+	}
+
+	newSM := func(guard MutationGuard) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		if guard != nil {
+			sm.SetMutationGuard(guard)
+		}
+		return sm
+	}
+
+	t.Run("guard rejects DeleteClass before apply", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("reindex task on class C is in flight"),
+		}
+		sm := newSM(guard)
+		err := sm.DeleteClass(mkRequest("C"), true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "reindex task on class C is in flight")
+		require.Equal(t, 1, guard.called)
+		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("no guard registered → DeleteClass proceeds", func(t *testing.T) {
+		sm := newSM(nil)
+		// DeleteClass with schemaOnly=true short-circuits the db side; the
+		// schema side will just delete a non-existent class, which is a no-op.
+		err := sm.DeleteClass(mkRequest("C"), true, false)
+		require.NoError(t, err,
+			"with no guard registered and schemaOnly=true, DeleteClass on a non-existent class is a no-op")
+	})
+}
+
+// TestSchemaManager_DeleteTenants_MutationGuard pins the tenant-level
+// guard wiring on the DeleteTenants apply path.
+func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
+	mkRequest := func(class string, tenants []string) *cmd.ApplyRequest {
+		req := &cmd.DeleteTenantsRequest{Tenants: tenants}
+		sub, err := gproto.Marshal(req)
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_DELETE_TENANT,
+			Class:      class,
+			SubCommand: sub,
+		}
+	}
+
+	newSM := func(guard MutationGuard) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		if guard != nil {
+			sm.SetMutationGuard(guard)
+		}
+		return sm
+	}
+
+	t.Run("guard rejects DeleteTenants before apply", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("reindex task on class C is in flight, tenants blocked"),
+		}
+		sm := newSM(guard)
+		err := sm.DeleteTenants(mkRequest("C", []string{"t1", "t2"}), true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tenants blocked")
+		require.Equal(t, 1, guard.called)
+		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("empty tenants list does not consult the guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard)
+		// schemaOnly=true so we don't need a real schema/db.
+		err := sm.DeleteTenants(mkRequest("C", nil), true)
+		// schema may error on the empty list itself, but the guard MUST NOT
+		// have been called — there's nothing to mutate.
+		_ = err
+		require.Equal(t, 0, guard.called,
+			"empty tenants list means no mutation; guard MUST NOT be invoked")
+	})
+}
+
+// TestTenantsTransitioningAwayFromActive pins the helper that
+// narrows UpdateTenants guard invocation to tenants whose target
+// status would make their shards locally unavailable.
+func TestTenantsTransitioningAwayFromActive(t *testing.T) {
+	tests := []struct {
+		name    string
+		tenants []*cmd.Tenant
+		want    []string
+	}{
+		{
+			name:    "empty list → empty result",
+			tenants: nil,
+			want:    nil,
+		},
+		{
+			name: "all transitioning toward ACTIVE → empty result",
+			tenants: []*cmd.Tenant{
+				{Name: "t1", Status: models.TenantActivityStatusACTIVE},
+				{Name: "t2", Status: models.TenantActivityStatusHOT},
+				{Name: "t3", Status: models.TenantActivityStatusONLOADING},
+				{Name: "t4", Status: models.TenantActivityStatusUNFREEZING},
+			},
+			want: nil,
+		},
+		{
+			name: "all transitioning AWAY from ACTIVE → all returned",
+			tenants: []*cmd.Tenant{
+				{Name: "t1", Status: models.TenantActivityStatusINACTIVE},
+				{Name: "t2", Status: models.TenantActivityStatusCOLD},
+				{Name: "t3", Status: models.TenantActivityStatusOFFLOADED},
+				{Name: "t4", Status: models.TenantActivityStatusOFFLOADING},
+				{Name: "t5", Status: models.TenantActivityStatusFROZEN},
+				{Name: "t6", Status: models.TenantActivityStatusFREEZING},
+			},
+			want: []string{"t1", "t2", "t3", "t4", "t5", "t6"},
+		},
+		{
+			name: "mixed → only away-from-ACTIVE returned",
+			tenants: []*cmd.Tenant{
+				{Name: "active", Status: models.TenantActivityStatusACTIVE},
+				{Name: "frozen", Status: models.TenantActivityStatusFROZEN},
+				{Name: "hot", Status: models.TenantActivityStatusHOT},
+				{Name: "cold", Status: models.TenantActivityStatusCOLD},
+			},
+			want: []string{"frozen", "cold"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tenantsTransitioningAwayFromActive(tc.tenants)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestSchemaManager_SetMutationGuard pins the setter contract — nil
+// removes the guard, replacement overwrites, no panics.
+func TestSchemaManager_SetMutationGuard(t *testing.T) {
+	sm := &SchemaManager{}
+	require.Nil(t, sm.mutationGuard)
+
+	g1 := &recordingMutationGuard{}
+	sm.SetMutationGuard(g1)
+	require.Equal(t, MutationGuard(g1), sm.mutationGuard)
+
+	g2 := &recordingMutationGuard{}
+	sm.SetMutationGuard(g2)
+	require.Equal(t, MutationGuard(g2), sm.mutationGuard, "subsequent calls overwrite")
+
+	sm.SetMutationGuard(nil)
+	require.Nil(t, sm.mutationGuard, "nil clears the guard")
 }

@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -1415,6 +1416,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
+			NamespacesController:   usecasesNamespaces.NewController(logger),
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}

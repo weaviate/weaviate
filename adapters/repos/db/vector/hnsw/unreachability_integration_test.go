@@ -25,9 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type unreachabilityNoopBucketView struct{}
@@ -53,6 +54,7 @@ func TestUnreachablePoints(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
 
 		index, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,

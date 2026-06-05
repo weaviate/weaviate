@@ -52,11 +52,16 @@ func TestRemoveTmpScratchOrHiddenFiles(t *testing.T) {
 		MockDirEntry{name: ".mystery-folder", isDir: false},
 		MockDirEntry{name: "1682473161.condensed", isDir: false},
 		MockDirEntry{name: "1682473161.scratch.tmp", isDir: false},
+		MockDirEntry{name: "1682473161.sorted", isDir: false},
+		MockDirEntry{name: "1000_1500.snapshot", isDir: false},
+		MockDirEntry{name: "1000_1500.sorted", isDir: false},
 	}
 
 	expected := []os.DirEntry{
 		MockDirEntry{name: "1682473161", isDir: false},
 		MockDirEntry{name: "1682473161.condensed", isDir: false},
+		MockDirEntry{name: "1682473161.sorted", isDir: false},
+		MockDirEntry{name: "1000_1500.sorted", isDir: false},
 	}
 
 	result := skipTmpScratchOrHiddenFiles(entries)
@@ -70,6 +75,85 @@ func TestRemoveTmpScratchOrHiddenFiles(t *testing.T) {
 			t.Errorf("Expected entry %d to be %s, got %s", i, expected[i].Name(), entry.Name())
 		}
 	}
+}
+
+func TestAsTimeStamp(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int64
+		wantErr  bool
+	}{
+		{"raw file", "1682473161", 1682473161, false},
+		{"condensed file", "1682473161.condensed", 1682473161, false},
+		{"sorted file", "1682473161.sorted", 1682473161, false},
+		{"snapshot file", "1682473161.snapshot", 1682473161, false},
+		{"range sorted file", "1000_1500.sorted", 1000, false},
+		{"range snapshot file", "1000_1500.snapshot", 1000, false},
+		{"invalid file", "not-a-number", 0, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := asTimeStamp(tc.input)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestEndTimeStamp(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int64
+		wantErr  bool
+	}{
+		{"raw file", "1682473161", 1682473161, false},
+		{"condensed file", "1682473161.condensed", 1682473161, false},
+		{"sorted file", "1682473161.sorted", 1682473161, false},
+		{"range sorted - returns end", "1000_1500.sorted", 1500, false},
+		{"range snapshot - returns end", "1000_1500.snapshot", 1500, false},
+		{"invalid file", "not-a-number", 0, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := endTimeStamp(tc.input)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestFilterNewerCommitLogFiles(t *testing.T) {
+	entries := []os.DirEntry{
+		MockDirEntry{name: "1000.condensed"},
+		MockDirEntry{name: "1400_1600.sorted"},
+		MockDirEntry{name: "1501.sorted"},
+		MockDirEntry{name: "1502"},
+	}
+
+	// Filter with stateTimestamp=1500 (snapshot covers up to 1500)
+	result, err := filterNewerCommitLogFiles(entries, 1500)
+	require.NoError(t, err)
+
+	// 1000.condensed (end=1000) <= 1500 → filtered out
+	// 1400_1600.sorted (end=1600) > 1500 → included
+	// 1501.sorted (end=1501) > 1500 → included
+	// 1502 (end=1502) > 1500 → included
+	require.Len(t, result, 3)
+	assert.Equal(t, "1400_1600.sorted", result[0].Name())
+	assert.Equal(t, "1501.sorted", result[1].Name())
+	assert.Equal(t, "1502", result[2].Name())
 }
 
 func TestCondenseLoop(t *testing.T) {

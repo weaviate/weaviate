@@ -100,6 +100,9 @@ type BackupListResponseItems0 struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
+	// The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.
+	IncrementalBaseBackupID string `json:"incremental_base_backup_id,omitempty"`
+
 	// Size of the backup in Gibs
 	Size float64 `json:"size,omitempty"`
 
@@ -108,7 +111,7 @@ type BackupListResponseItems0 struct {
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// Status of backup process.
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
+	// Enum: [STARTED TRANSFERRING TRANSFERRED FINALIZING SUCCESS FAILED CANCELLING CANCELED]
 	Status string `json:"status,omitempty"`
 }
 
@@ -162,7 +165,7 @@ var backupListResponseItems0TypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","FINALIZING","SUCCESS","FAILED","CANCELLING","CANCELED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -181,11 +184,17 @@ const (
 	// BackupListResponseItems0StatusTRANSFERRED captures enum value "TRANSFERRED"
 	BackupListResponseItems0StatusTRANSFERRED string = "TRANSFERRED"
 
+	// BackupListResponseItems0StatusFINALIZING captures enum value "FINALIZING"
+	BackupListResponseItems0StatusFINALIZING string = "FINALIZING"
+
 	// BackupListResponseItems0StatusSUCCESS captures enum value "SUCCESS"
 	BackupListResponseItems0StatusSUCCESS string = "SUCCESS"
 
 	// BackupListResponseItems0StatusFAILED captures enum value "FAILED"
 	BackupListResponseItems0StatusFAILED string = "FAILED"
+
+	// BackupListResponseItems0StatusCANCELLING captures enum value "CANCELLING"
+	BackupListResponseItems0StatusCANCELLING string = "CANCELLING"
 
 	// BackupListResponseItems0StatusCANCELED captures enum value "CANCELED"
 	BackupListResponseItems0StatusCANCELED string = "CANCELED"

@@ -78,6 +78,14 @@ func (m memberlist) NodeGRPCPort(name string) (int, error) {
 	return 0, nil
 }
 
+func (m memberlist) ClusterHealthScore() int {
+	return 0
+}
+
+func (m memberlist) NodeCount() int {
+	return len(m.nodes)
+}
+
 func NewMockNodeSelector(node ...string) memberlist {
 	return memberlist{nodes: node}
 }

@@ -18,9 +18,6 @@ import (
 	"testing"
 	"time"
 
-	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
-	"github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -170,10 +169,12 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
+				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -347,7 +348,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
-		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
+		EnableLazyLoadShards:  false, // we have to make sure lazyload shard disabled to load directly
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
@@ -371,6 +372,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
+		false,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -447,7 +450,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
-		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
+		EnableLazyLoadShards:  true, // we have to make sure lazyload enabled
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
@@ -471,6 +474,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
+		false,
+		nil,
 	)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)

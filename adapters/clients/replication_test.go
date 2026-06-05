@@ -13,12 +13,15 @@ package clients
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,13 +30,14 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -63,7 +67,7 @@ func newFakeReplicationServer(t *testing.T, method, path string, schemaVersion u
 	return &fakeServer{
 		method:                method,
 		path:                  path,
-		RequestError:          replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}},
+		RequestError:          replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}},
 		RequestSuccess:        replica.SimpleResponse{},
 		ExpectedSchemaVersion: fmt.Sprint(schemaVersion),
 	}
@@ -205,7 +209,7 @@ func TestReplicationPutObjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects", 123)
-	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replicaerrors.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
@@ -287,7 +291,7 @@ func TestReplicationAddReferences(t *testing.T) {
 
 	ctx := context.Background()
 	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references", 0)
-	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replicaerrors.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
@@ -323,7 +327,7 @@ func TestReplicationDeleteObjects(t *testing.T) {
 
 	ctx := context.Background()
 	fs := newFakeReplicationServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects", 0)
-	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replicaerrors.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(t, ts.Client())
@@ -365,6 +369,10 @@ func TestReplicationAbort(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(t, ts.Client())
+	// Pin timeoutUnit to the retry budget so Abort's deadline
+	// (timeoutUnit*ABORT_TIMEOUT_VALUE = 4s) dwarfs the round-trip and retries
+	// for every subtest below, independent of the helper default.
+	client.timeoutUnit = client.maxBackOff * 100
 
 	t.Run("ConnectionError", func(t *testing.T) {
 		client := newReplicationClient(t, ts.Client())
@@ -385,7 +393,7 @@ func TestReplicationAbort(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
-	client.timeoutUnit = client.maxBackOff * 3
+
 	t.Run("ServerInternalError", func(t *testing.T) {
 		_, err := client.Abort(ctx, fs.host, "C1", "S1", RequestInternalError)
 		assert.NotNil(t, err)
@@ -437,7 +445,8 @@ func TestReplicationFetchObject(t *testing.T) {
 		Object: &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
-				ID: UUID1,
+				Class: "C1",
+				ID:    UUID1,
 				Properties: map[string]interface{}{
 					"stringProp": "abc",
 				},
@@ -469,7 +478,8 @@ func TestReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID1,
+					Class: "C1",
+					ID:    UUID1,
 					Properties: map[string]interface{}{
 						"stringProp": "abc",
 					},
@@ -483,7 +493,8 @@ func TestReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID2,
+					Class: "C1",
+					ID:    UUID2,
 					Properties: map[string]interface{}{
 						"floatProp": float64(123),
 					},
@@ -601,7 +612,9 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		{0xdeadbeefcafebabe, 0x0123456789abcdef},
 	}
 
-	discriminant := hashtree.NewBitset(4)
+	// level-local discriminant: size must equal hashtree.LeavesCount(level)
+	// = 8 for level 3.
+	discriminant := hashtree.NewBitset(hashtree.LeavesCount(3))
 	discriminant.Set(0)
 	discriminant.Set(2)
 
@@ -777,6 +790,7 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		_, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest in range record")
@@ -832,7 +846,7 @@ func TestReplicationOverwriteObjectsCompression(t *testing.T) {
 			raw, err := io.ReadAll(dec)
 			require.NoError(t, err)
 
-			got, err := clusterapi.IndicesPayloads.VersionedObjectList.UnmarshalV2(raw)
+			got, err := shared.IndicesPayloads.VersionedObjectList.UnmarshalV2(raw)
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			assert.Equal(t, input[0].LatestObject.ID, got[0].LatestObject.ID)
@@ -846,6 +860,63 @@ func TestReplicationOverwriteObjectsCompression(t *testing.T) {
 		_, err := c.OverwriteObjects(context.Background(), server.URL[7:], "C1", "S1", input)
 		require.NoError(t, err)
 	})
+}
+
+func TestReplicationOverwriteObjectsConcurrent(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	input := []*objects.VObject{
+		{
+			LatestObject: &models.Object{
+				ID:                 UUID1,
+				Class:              "C1",
+				LastUpdateTimeUnix: now.UnixMilli(),
+			},
+			StaleUpdateTime: now.UnixMilli(),
+		},
+	}
+	expected := []types.RepairResponse{
+		{ID: UUID1.String(), UpdateTime: now.UnixMilli()},
+	}
+
+	// Each request handler decompresses the body independently to verify the
+	// pooled encoder produces correct output under concurrent use.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dec, err := zstd.NewReader(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer dec.Close()
+		if _, err := io.ReadAll(dec); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		b, _ := json.Marshal(expected)
+		w.Write(b)
+	}))
+	defer server.Close()
+
+	// A single client is shared across all goroutines to exercise the encoder
+	// pool under concurrent use. Run with -race to detect data races.
+	c := newReplicationClient(t, server.Client())
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	errs := make([]error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = c.OverwriteObjects(context.Background(), server.URL[7:], "C1", "S1", input)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.NoErrorf(t, err, "goroutine %d failed", i)
+	}
 }
 
 func TestExpBackOff(t *testing.T) {
@@ -863,10 +934,170 @@ func TestExpBackOff(t *testing.T) {
 
 func newReplicationClient(t *testing.T, httpClient *http.Client) *replicationClient {
 	t.Helper()
-	rc := NewReplicationClient(httpClient)
-	c := rc.(*replicationClient)
+	c, err := NewReplicationClient(httpClient)
+	require.NoError(t, err)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
-	c.timeoutUnit = time.Millisecond * 20
+	// Generous deadline: a localhost round-trip under -race CI load otherwise
+	// loses to it, surfacing "context deadline exceeded" instead of the real error.
+	c.timeoutUnit = time.Second
 	return c
+}
+
+// ---------------------------------------------------------------------------
+// Async-checkpoint client tests
+// ---------------------------------------------------------------------------
+
+// asyncCheckpointFakeServer is a focused httptest-based stub for the three
+// async-checkpoint endpoints. Tests can assert on what the client sent
+// (path, method, body shape) and control what comes back so the client
+// encoder/decoder is exercised end-to-end.
+type asyncCheckpointFakeServer struct {
+	gotMethod string
+	gotPath   string
+	gotQuery  url.Values
+	gotBody   []byte
+
+	respCode int
+	respBody []byte
+}
+
+func (f *asyncCheckpointFakeServer) handler(t *testing.T) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		f.gotMethod = r.Method
+		f.gotPath = r.URL.Path
+		f.gotQuery = r.URL.Query()
+		f.gotBody, _ = io.ReadAll(r.Body)
+		r.Body.Close()
+		if f.respCode == 0 {
+			f.respCode = http.StatusOK
+		}
+		w.WriteHeader(f.respCode)
+		if len(f.respBody) > 0 {
+			w.Write(f.respBody)
+		}
+	}
+}
+
+func TestReplicationClient_CreateAsyncCheckpoint_EncodesBody(t *testing.T) {
+	t.Parallel()
+	srv := &asyncCheckpointFakeServer{}
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+	host := ts.URL[len("http://"):]
+
+	createdAt := time.UnixMilli(1_700_000_000_000).UTC()
+	client := newReplicationClient(t, ts.Client())
+	require.NoError(t, client.CreateAsyncCheckpoint(
+		context.Background(), host, "MyClass", []string{"s1", "s2"}, 1234, createdAt))
+
+	assert.Equal(t, http.MethodPost, srv.gotMethod)
+	assert.Equal(t, "/replicas/indices/MyClass/async-checkpoint", srv.gotPath)
+
+	// Body must serialise the fields the receiver REST handler decodes.
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(srv.gotBody, &got))
+	assert.Equal(t, []any{"s1", "s2"}, got["shards"])
+	assert.Equal(t, float64(1234), got["cutoff_ms"])
+	assert.Equal(t, float64(createdAt.UnixMilli()), got["created_at_ms"])
+}
+
+func TestReplicationClient_CreateAsyncCheckpoint_NonOKReturnsError(t *testing.T) {
+	t.Parallel()
+	srv := &asyncCheckpointFakeServer{respCode: http.StatusConflict, respBody: []byte("stale")}
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+	host := ts.URL[len("http://"):]
+
+	client := newReplicationClient(t, ts.Client())
+	err := client.CreateAsyncCheckpoint(
+		context.Background(), host, "MyClass", []string{"s1"}, 1, time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status code: 409")
+	assert.Contains(t, err.Error(), "stale")
+}
+
+func TestReplicationClient_DeleteAsyncCheckpoint_EncodesBody(t *testing.T) {
+	t.Parallel()
+	srv := &asyncCheckpointFakeServer{}
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+	host := ts.URL[len("http://"):]
+
+	client := newReplicationClient(t, ts.Client())
+	require.NoError(t, client.DeleteAsyncCheckpoint(
+		context.Background(), host, "MyClass", []string{"s1", "s2"}))
+
+	assert.Equal(t, http.MethodDelete, srv.gotMethod)
+	assert.Equal(t, "/replicas/indices/MyClass/async-checkpoint", srv.gotPath)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(srv.gotBody, &got))
+	assert.Equal(t, []any{"s1", "s2"}, got["shards"])
+}
+
+func TestReplicationClient_GetAsyncCheckpointStatus_QueryStringAndDecode(t *testing.T) {
+	t.Parallel()
+	// Server response carries one active entry (s1) with a 16-byte
+	// base64-encoded root and one inactive entry (s2) with empty root and
+	// CreatedAtMs=0 — the wire shape produced by the receiver REST
+	// handler. The client decoder must round-trip the active root to a
+	// real Digest and map the inactive case to time.Time{}.
+	activeRoot := hashtree.Digest{0xDEADBEEF, 0xCAFEBABE}
+	activeRootBytes, err := activeRoot.MarshalBinary()
+	require.NoError(t, err)
+	wirePayload := fmt.Sprintf(
+		`{"s1":{"root":"%s","cutoff_ms":555,"created_at_ms":1700000000000},`+
+			`"s2":{"root":"","cutoff_ms":0,"created_at_ms":0}}`,
+		base64.StdEncoding.EncodeToString(activeRootBytes))
+	srv := &asyncCheckpointFakeServer{respBody: []byte(wirePayload)}
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+	host := ts.URL[len("http://"):]
+
+	client := newReplicationClient(t, ts.Client())
+	out, err := client.GetAsyncCheckpointStatus(
+		context.Background(), host, "MyClass", []string{"s1", "s2"})
+	require.NoError(t, err)
+
+	// The shards must arrive as repeated query parameters, matching what
+	// the receiver handler reads via r.URL.Query()["shards"].
+	assert.Equal(t, http.MethodGet, srv.gotMethod)
+	assert.Equal(t, "/replicas/indices/MyClass/async-checkpoint", srv.gotPath)
+	assert.Equal(t, []string{"s1", "s2"}, srv.gotQuery["shards"])
+
+	require.Contains(t, out, "s1")
+	require.Contains(t, out, "s2")
+
+	// Active entry: root round-trips, cutoff intact, createdAt has
+	// millisecond precision.
+	assert.Equal(t, activeRoot, out["s1"].Root)
+	assert.Equal(t, int64(555), out["s1"].CutoffMs)
+	assert.Equal(t, int64(1700000000000), out["s1"].CreatedAt.UnixMilli())
+
+	// Inactive entry: root decodes to zero Digest, CreatedAt is the
+	// zero time.Time (NOT 1970-01-01). This is what makes
+	// IsZero() the simple "inactive" check on the consumer side.
+	assert.Equal(t, hashtree.Digest{}, out["s2"].Root)
+	assert.Equal(t, int64(0), out["s2"].CutoffMs)
+	assert.True(t, out["s2"].CreatedAt.IsZero(),
+		"inactive entry must decode CreatedAt as zero time.Time, got %v", out["s2"].CreatedAt)
+}
+
+func TestReplicationClient_GetAsyncCheckpointStatus_RootLengthMismatchSurfaces(t *testing.T) {
+	t.Parallel()
+	// Wire payload with a malformed root (wrong byte length). The decoder
+	// must surface this as an error rather than silently zeroing — a
+	// length mismatch indicates a protocol violation and should be loud.
+	srv := &asyncCheckpointFakeServer{respBody: []byte(
+		`{"s1":{"root":"AAAA","cutoff_ms":1,"created_at_ms":1}}`)}
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+	host := ts.URL[len("http://"):]
+
+	client := newReplicationClient(t, ts.Client())
+	_, err := client.GetAsyncCheckpointStatus(
+		context.Background(), host, "MyClass", []string{"s1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode async-checkpoint root for shard")
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type backupIntegrationNoopBucketView struct{}
@@ -64,6 +65,7 @@ func TestBackup_Integration(t *testing.T) {
 	combinedCtrl := cyclemanager.NewCombinedCallbackCtrl(2, logger, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
 
 	idx, err := New(Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
@@ -96,7 +98,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("switch commit logs", func(t *testing.T) {
-		err = idx.SwitchCommitLogs(ctx)
+		err = idx.PrepareForBackup(ctx)
 		require.Nil(t, err)
 	})
 
@@ -113,7 +115,7 @@ func TestBackup_Integration(t *testing.T) {
 
 		// by this point there should be two files in the commitlog directory.
 		// one is the active log file, and the other is the previous active
-		// log which was in use prior to `SwitchCommitLogs`. additionally,
+		// log which was in use prior to `PrepareForBackup`. additionally,
 		// maintenance has been paused, so we shouldn't see any .condensed
 		// files either.
 		//

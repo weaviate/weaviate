@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -27,7 +28,8 @@ import (
 
 type fakeSchemaManager struct {
 	mock.Mock
-	countClassEqual bool
+	countClassEqual   bool
+	storageCandidates []string
 }
 
 func (f *fakeSchemaManager) AddClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
@@ -52,6 +54,16 @@ func (f *fakeSchemaManager) DeleteClass(_ context.Context, name string) (uint64,
 
 func (f *fakeSchemaManager) AddProperty(_ context.Context, class string, p ...*models.Property) (uint64, error) {
 	args := f.Called(class, p)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+	args := f.Called(class, property, fields)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+	args := f.Called(class, property, fields)
 	return 0, args.Error(0)
 }
 
@@ -100,10 +112,6 @@ func (f *fakeSchemaManager) Stats() map[string]any {
 	return map[string]any{}
 }
 
-func (f *fakeSchemaManager) StoreSchemaV1() error {
-	return nil
-}
-
 func (f *fakeSchemaManager) ClassEqual(name string) string {
 	if f.countClassEqual {
 		args := f.Called(name)
@@ -128,6 +136,9 @@ func (f *fakeSchemaManager) ClassInfo(class string) (ci clusterSchema.ClassInfo)
 }
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
+	if len(f.storageCandidates) > 0 {
+		return f.storageCandidates
+	}
 	return []string{"node-1"}
 }
 
@@ -141,8 +152,8 @@ func (f *fakeSchemaManager) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeSchemaManager) QueryCollectionsCount() (int, error) {
-	args := f.Called()
+func (f *fakeSchemaManager) QueryCollectionsCount(namespace string) (int, error) {
+	args := f.Called(namespace)
 	return args.Get(0).(int), args.Error(1)
 }
 
@@ -268,6 +279,11 @@ func (f *fakeSchemaManager) Read(class string, retryIfClassNotFound bool, reader
 	return args.Error(0)
 }
 
+func (f *fakeSchemaManager) ReadSchema(reader func(models.Class, uint64)) error {
+	args := f.Called(reader)
+	return args.Error(0)
+}
+
 func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
 	args := f.Called(class)
 	return args.Get(0).([]string), args.Error(1)
@@ -276,6 +292,11 @@ func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
 func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
 	args := f.Called(class)
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (f *fakeSchemaManager) LocalActiveShardsCount(class string) (int, error) {
+	args := f.Called(class)
+	return args.Get(0).(int), args.Error(1)
 }
 
 func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
@@ -320,7 +341,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil, nil),
 	}
 }
 

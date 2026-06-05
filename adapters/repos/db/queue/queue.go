@@ -9,6 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// Queue package implements a queue system for background operations using disk storage.
+// It provides a DiskQueue that stores tasks in chunk files on disk, allowing for
+// efficient handling of large volumes of tasks without consuming excessive memory.
+// The Scheduler manages multiple queues and schedules task processing to a fixed number of workers.
 package queue
 
 import (
@@ -200,7 +204,7 @@ func (q *DiskQueue) Init() error {
 }
 
 // Close the queue, prevent further pushes and unregister it from the scheduler.
-func (q *DiskQueue) Close() error {
+func (q *DiskQueue) Close(ctx context.Context) error {
 	if q == nil {
 		return nil
 	}
@@ -213,7 +217,7 @@ func (q *DiskQueue) Close() error {
 	q.closed = true
 	q.m.Unlock()
 
-	q.scheduler.UnregisterQueue(q.id)
+	q.scheduler.UnregisterQueue(ctx, q.id)
 
 	q.m.Lock()
 	defer q.m.Unlock()
@@ -403,7 +407,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	return &Batch{
 		Tasks:  tasks,
-		onDone: doneFn,
+		OnDone: doneFn,
 	}, nil
 }
 
@@ -453,28 +457,58 @@ func (q *DiskQueue) Size() int64 {
 	return int64(q.recordCount)
 }
 
-func (q *DiskQueue) Pause() {
+// Pause the dequeuing of tasks. If nowait is true, it returns immediately
+// without waiting for the currently running tasks to finish.
+// This does not prevent pushing new tasks to the queue.
+func (q *DiskQueue) Pause(ctx context.Context, nowait ...bool) error {
 	q.scheduler.PauseQueue(q.id)
+	if len(nowait) == 0 || !nowait[0] {
+		return q.scheduler.Wait(ctx, q.id)
+	}
+	return nil
 }
 
+// Resume the dequeuing of tasks.
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
 }
 
-func (q *DiskQueue) Wait() {
-	q.scheduler.Wait(q.id)
+// Wait blocks until all currently running tasks are finished.
+func (q *DiskQueue) Wait(ctx context.Context) error {
+	return q.scheduler.Wait(ctx, q.id)
 }
 
-// PrepareForBackup pauses the queue and flushes all tasks to disk to prepare for backup.
-// It also enables maintenance mode, which prevents processed chunk files from being deleted until the backup is complete.
+// PrepareForBackup pauses the queue and flushes all tasks to disk to prepare
+// for backup. It also promotes the current partial chunk into a sealed file
+// and enables maintenance mode, which prevents processed chunk files from
+// being deleted until the backup is complete.
+//
+// Promoting the partial chunk ensures that no open writer can modify files in
+// the queue directory while they are being uploaded. Without this, the resumed
+// queue writer could modify chunk files mid-upload, causing checksum mismatches
+// (e.g. S3 BadDigest errors).
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
-	q.Pause()
-	defer q.Resume()
-	q.Wait()
-
-	err := q.Flush()
+	err := q.Pause(ctx)
 	if err != nil {
 		return err
+	}
+	defer q.Resume()
+
+	err = q.Flush()
+	if err != nil {
+		return err
+	}
+
+	// Seal the current partial chunk so the writer starts a fresh file on
+	// Resume. This guarantees all existing chunk files are immutable during
+	// the upload.
+	q.m.Lock()
+	if q.w != nil {
+		err = q.w.Promote()
+	}
+	q.m.Unlock()
+	if err != nil {
+		return errors.Wrap(err, "promote partial chunk for backup")
 	}
 
 	q.EnableMaintenanceMode()
@@ -489,7 +523,7 @@ func (q *DiskQueue) ForceSwitch(ctx context.Context, basePath string) ([]string,
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	// if the writer is nil, the queue is is not initialized
+	// if the writer is nil, the queue is not initialized
 	if q.w == nil {
 		return nil, nil
 	}
@@ -503,12 +537,12 @@ func (q *DiskQueue) ForceSwitch(ctx context.Context, basePath string) ([]string,
 	return q.listFilesNoLock(ctx, basePath)
 }
 
-func (q *DiskQueue) Drop() error {
+func (q *DiskQueue) Drop(ctx context.Context) error {
 	if q == nil {
 		return nil
 	}
 
-	err := q.Close()
+	err := q.Close(ctx)
 	if err != nil {
 		q.Logger.WithError(err).Error("failed to close queue")
 	}
@@ -1303,8 +1337,8 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 func (r *chunkReader) ReleaseChunk(c *chunk) {
 	_ = c.Close()
 	r.m.Lock()
+	defer r.m.Unlock()
 	delete(r.chunks, c.path)
-	r.m.Unlock()
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {

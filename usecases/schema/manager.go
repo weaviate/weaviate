@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -70,6 +71,12 @@ type SchemaGetter interface {
 	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
+}
+
+type TenantsActivityManager interface {
+	ActivateTenants(ctx context.Context, class string, tenants ...string) error
+	DeactivateTenants(ctx context.Context, class string, tenants ...string) error
+	TenantsStatus(class string, tenants ...string) (map[string]string, error)
 }
 
 type VectorizerValidator interface {
@@ -204,6 +211,7 @@ func NewManager(validator validator,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
+	namespacesExister namespaces.Exister,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -213,6 +221,7 @@ func NewManager(validator validator,
 		schemaConfig,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
+		namespacesExister,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
@@ -229,80 +238,6 @@ func NewManager(validator validator,
 
 	return m, nil
 }
-
-// func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
-// 	// introduced when Weaviate started supporting multi-shards per class in v1.8
-// 	if err := m.checkSingleShardMigration(ctx, localSchema); err != nil {
-// 		return errors.Wrap(err, "migrating sharding state from previous version")
-// 	}
-
-// 	// introduced when Weaviate started supporting replication in v1.17
-// 	if err := m.checkShardingStateForReplication(ctx, localSchema); err != nil {
-// 		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
-// 	}
-
-// 	// if other migrations become necessary in the future, you can add them here.
-// 	return nil
-// }
-
-// func (m *Manager) checkSingleShardMigration(ctx context.Context, localSchema *State) error {
-// 	for _, c := range localSchema.ObjectSchema.Classes {
-// 		if _, ok := localSchema.ShardingState[c.Class]; ok { // there is sharding state for this class. Nothing to do
-// 			continue
-// 		}
-
-// 		m.logger.WithField("className", c.Class).WithField("action", "initialize_schema").
-// 			Warningf("No sharding state found for class %q, initializing new state. "+
-// 				"This is expected behavior if the schema was created with an older Weaviate "+
-// 				"version, prior to supporting multi-shard indices.", c.Class)
-
-// 		// there is no sharding state for this class, let's create the correct
-// 		// config. This class must have been created prior to the sharding feature,
-// 		// so we now that the shardCount==1 - we do not care about any of the other
-// 		// parameters and simply use the defaults for those
-// 		c.ShardingConfig = map[string]interface{}{
-// 			"desiredCount": 1,
-// 		}
-// 		if err := m.praser.parseShardingConfig(c); err != nil {
-// 			return err
-// 		}
-
-// 		if err := replica.ValidateConfig(c, m.config.Replication); err != nil {
-// 			return fmt.Errorf("validate replication config: %w", err)
-// 		}
-// 		shardState, err := sharding.InitState(c.Class,
-// 			c.ShardingConfig.(sharding.Config),
-// 			m.clusterState, c.ReplicationConfig.Factor,
-// 			schema.MultiTenancyEnabled(c))
-// 		if err != nil {
-// 			return errors.Wrap(err, "init sharding state")
-// 		}
-
-// 		if localSchema.ShardingState == nil {
-// 			localSchema.ShardingState = map[string]*sharding.State{}
-// 		}
-// 		localSchema.ShardingState[c.Class] = shardState
-
-// 	}
-
-// 	return nil
-// }
-
-// func (m *Manager) checkShardingStateForReplication(ctx context.Context, localSchema *State) error {
-// 	for _, classState := range localSchema.ShardingState {
-// 		classState.MigrateFromOldFormat()
-// 	}
-// 	return nil
-// }
-
-// func newSchema() *State {
-// 	return &State{
-// 		ObjectSchema: &models.Schema{
-// 			Classes: []*models.Class{},
-// 		},
-// 		ShardingState: map[string]*sharding.State{},
-// 	}
-// }
 
 func (m *Manager) ClusterHealthScore() int {
 	return m.clusterState.ClusterHealthScore()
@@ -446,6 +381,45 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 	})
 
 	return allow
+}
+
+func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
+	tenantsMap, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	return tenantsMap, err
+}
+
+func (m *Manager) ActivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusHOT)
+}
+
+func (m *Manager) DeactivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusCOLD)
+}
+
+func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string, tenants []string, status string) error {
+	switch ln := len(tenants); ln {
+	case 0:
+		return nil
+	case 1:
+		// proceed
+	default:
+		slices.Sort(tenants)
+		tenants = slices.Compact(tenants)
+	}
+
+	req := &api.UpdateTenantsRequest{
+		Tenants:               make([]*api.Tenant, len(tenants)),
+		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ImplicitUpdateRequest: true,
+	}
+	for i := range tenants {
+		req.Tenants[i] = &api.Tenant{Name: tenants[i], Status: status}
+	}
+
+	if _, err := m.schemaManager.UpdateTenants(ctx, class, req); err != nil {
+		return fmt.Errorf("change tenants %s status to %s: %w", tenants, status, err)
+	}
+	return nil
 }
 
 // EnsureTenantActiveForWrite activates COLD tenants when AutoTenantActivation is enabled.

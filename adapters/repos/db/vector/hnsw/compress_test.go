@@ -21,10 +21,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -33,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
@@ -80,6 +82,8 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
@@ -198,6 +202,8 @@ func Test_CompressAndInsertDoNotRace(t *testing.T) {
 		GetViewThunk: func() common.BucketView {
 			return &noopBucketView{}
 		},
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	t.Cleanup(func() {
 		_ = index.Shutdown(context.Background())
@@ -271,6 +277,8 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
 	}
 }
 
@@ -438,6 +446,8 @@ func Test_CompressRQWithSlowCachePrefill(t *testing.T) {
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -472,6 +482,8 @@ func Test_CompressRQWithSlowCachePrefill(t *testing.T) {
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
 		WaitForCachePrefill:   false,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			time.Sleep(100 * time.Millisecond)
 			if int(id) >= len(vectors) {
@@ -540,6 +552,8 @@ func Test_CompressRQAfterCachePrefillCompletes(t *testing.T) {
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -574,6 +588,8 @@ func Test_CompressRQAfterCachePrefillCompletes(t *testing.T) {
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
 		WaitForCachePrefill:   true,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -642,6 +658,8 @@ func Test_CompressRQInsertDuringSlowPrefillDoesNotTrigger(t *testing.T) {
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -678,6 +696,8 @@ func Test_CompressRQInsertDuringSlowPrefillDoesNotTrigger(t *testing.T) {
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
 		WaitForCachePrefill:   false,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			time.Sleep(100 * time.Millisecond)
 			if int(id) >= len(vectors) {
@@ -738,6 +758,8 @@ func Test_CompressRQInsertAfterPrefillTriggers(t *testing.T) {
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -774,6 +796,8 @@ func Test_CompressRQInsertAfterPrefillTriggers(t *testing.T) {
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
 		WaitForCachePrefill:   true,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -836,6 +860,8 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -869,6 +895,8 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
 		WaitForCachePrefill:   false,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			time.Sleep(100 * time.Millisecond)
 			if int(id) >= len(vectors) {
@@ -930,6 +958,8 @@ func Test_NoRaceRQCompressAndPrefillCache(t *testing.T) {
 		ID:                    "rq-cache-race",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -1016,6 +1046,8 @@ func Test_CompressSkipsTargetVectorNotFound(t *testing.T) {
 				ID:                    "target_vector_not_found",
 				MakeCommitLoggerThunk: MakeNoopCommitLogger,
 				DistanceProvider:      dist,
+				AllocChecker:          memwatch.NewDummyMonitor(),
+				MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					if int(id) >= len(vectors) {
 						return nil, storobj.NewErrNotFoundf(id, "out of range")

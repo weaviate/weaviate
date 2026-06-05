@@ -12,16 +12,13 @@
 package hnsw
 
 import (
-	"os"
 	"sync/atomic"
 
-	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -64,14 +61,6 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 		{
 			name:     "muvera enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
-		},
-		{
-			name:     "skipDefaultQuantization",
-			accessor: func(c ent.UserConfig) interface{} { return c.SkipDefaultQuantization },
-		},
-		{
-			name:     "trackDefaultQuantization",
-			accessor: func(c ent.UserConfig) interface{} { return c.TrackDefaultQuantization },
 		},
 	}
 
@@ -139,8 +128,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	h.bqConfig = parsed.BQ
 	h.rqConfig = parsed.RQ
 	h.compressActionLock.Unlock()
-
-	if asyncEnabled() {
+	if h.asyncIndexingEnabled {
 		callback()
 		return nil
 	}
@@ -158,10 +146,6 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		callback()
 		return nil
 	}
-}
-
-func asyncEnabled() bool {
-	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 func (h *hnsw) Upgrade(callback func()) error {

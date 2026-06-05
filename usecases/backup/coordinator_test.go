@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -97,7 +99,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		coordinator := *fc.coordinator()
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
-		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
 		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
@@ -181,7 +183,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		coordinator := *fc.coordinator()
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
-		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
 		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
@@ -254,7 +256,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		coordinator.timeoutNodeDown = 0
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
-		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Twice()
 
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
@@ -443,7 +445,10 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		// PutMeta is called 3 times: initial (TRANSFERRING), Finalizing, and final (SUCCESS)
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Times(3)
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
@@ -466,6 +471,8 @@ func TestCoordinatedRestore(t *testing.T) {
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(&CanCommitResponse{}, nil)
 		fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
@@ -489,6 +496,8 @@ func TestCoordinatedRestore(t *testing.T) {
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(cresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(ErrAny).Once()
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
@@ -577,7 +586,10 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		fc.client.On("Status", any, newNodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, newNodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		// PutMeta is called 3 times: initial (TRANSFERRING), Finalizing, and final (SUCCESS)
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Times(3)
 
 		coordinator := *fc.coordinator()
 		descReq := genReq()
@@ -722,4 +734,339 @@ func newReq(classes []string, backendName, backupID string) Request {
 			CPUPercentage: DefaultCPUPercentage,
 		},
 	}
+}
+
+func TestCoordinatorCommitCancellation(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		backupID     = "test-backup"
+		ctx          = context.Background()
+		nodes        = []string{"N1", "N2"}
+		nodeResolver = newFakeNodeResolver(nodes)
+		any          = mock.Anything
+	)
+
+	t.Run("DetectCancelledStatusInCommit", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		// Initialize descriptor with nodes that match participant node names
+		// The node names in Nodes must match what ToOriginalNodeName will return
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string), // Empty mapping means ToOriginalNodeName returns node as-is
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+				"N2": {Classes: []string{"Class2"}},
+			},
+		}
+
+		// Pre-populate Participants - these must exist before commitAll/queryAll run
+		// The node names must match the keys in node2Addr
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+		coordinator.Participants["N2"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+
+		// Mock commitAll - Commit calls should succeed (no errors)
+		// commitAll doesn't modify Participants on success, so they stay as Transferring
+		fc.client.On("Commit", any, "N1", mock.Anything).Return(nil)
+		fc.client.On("Commit", any, "N2", mock.Anything).Return(nil)
+
+		// Mock queryAll - return cancelled status for N1, success for N2
+		// This will be called in the retry loop and will update Participants
+		// The Status response must have Status field set to backup.Cancelled
+		cancelledStatusResp := &StatusResponse{
+			Status: backup.Cancelled,
+			Err:    "restore cancelled",
+			ID:     backupID,
+			Method: OpRestore,
+		}
+		successStatusResp := &StatusResponse{
+			Status: backup.Success,
+			Err:    "",
+			ID:     backupID,
+			Method: OpRestore,
+		}
+		fc.client.On("Status", any, "N1", mock.Anything).Return(cancelledStatusResp, nil)
+		fc.client.On("Status", any, "N2", mock.Anything).Return(successStatusResp, nil)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1", "N2": "N2"}
+
+		// Set a very short timeout to avoid waiting in the retry loop
+		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
+		coordinator.timeoutNextRound = 1 * time.Millisecond
+
+		coordinator.commit(ctx, req, node2Addr, true)
+
+		// After commit, queryAll should have updated Participants with Cancelled status
+		// Verify that queryAll was called and updated the status
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status, "N1 should have Cancelled status after queryAll")
+		assert.Equal(t, "restore cancelled", coordinator.Participants["N1"].Reason, "N1 should have cancellation reason")
+		assert.Equal(t, backup.Success, coordinator.Participants["N2"].Status, "N2 should have Success status")
+
+		// The overall descriptor status should be Cancelled because N1 is Cancelled
+		assert.Equal(t, backup.Cancelled, coordinator.descriptor.Status, "Overall status should be Cancelled")
+		assert.Contains(t, coordinator.descriptor.Error, "restore cancelled", "Error message should contain cancellation reason")
+	})
+
+	t.Run("DetectCancelledStatusInQueryAll", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string),
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+			},
+		}
+
+		// Set up participant with initial status
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+
+		// Return cancelled status from node
+		cancelledResp := &StatusResponse{
+			Status: backup.Cancelled,
+			Err:    "restore cancelled",
+			ID:     backupID,
+			Method: OpRestore,
+		}
+		fc.client.On("Status", any, "N1", mock.Anything).Return(cancelledResp, nil)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1"}
+
+		nFailures := coordinator.queryAll(ctx, req, node2Addr)
+
+		assert.Equal(t, 1, nFailures)
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
+		assert.Equal(t, "restore cancelled", coordinator.Participants["N1"].Reason)
+	})
+
+	t.Run("DetectContextCanceledInCommitAll", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string),
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+			},
+		}
+
+		// Set up participant
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+
+		// Return context.Canceled error
+		fc.client.On("Commit", any, "N1", mock.Anything).Return(context.Canceled)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1"}
+
+		nFailures := coordinator.commitAll(ctx, req, node2Addr)
+
+		assert.Equal(t, 1, nFailures)
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
+		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
+	})
+
+	t.Run("DetectCancelledStatusInQueryAllTimeout", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string),
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: []string{"Class1"}},
+			},
+		}
+
+		// Set up participant with old timestamp to trigger timeout
+		coordinator.Participants["N1"] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now().Add(-10 * time.Minute), // Old timestamp
+		}
+
+		// Return context.Canceled error
+		fc.client.On("Status", any, "N1", mock.Anything).Return(nil, context.Canceled)
+
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		node2Addr := map[string]string{"N1": "N1"}
+
+		// Set timeoutNodeDown to a small value for testing
+		coordinator.timeoutNodeDown = 1 * time.Second
+
+		nFailures := coordinator.queryAll(ctx, req, node2Addr)
+
+		assert.Equal(t, 1, nFailures)
+		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
+		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
+	})
+}
+
+// TestCoordinator_TypesErrorFromRemoteErrKind verifies that a refused
+// CanCommitResponse with ErrKind == CanCommitErrInFlightReindex is promoted
+// to a typed backup.ErrBackupBlockedByInFlightReindex by the coordinator,
+// so upstream `errors.Is` checks succeed across the RPC boundary. Older
+// nodes that don't populate ErrKind must continue to surface as
+// errCannotCommit for backward compatibility.
+func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		any         = mock.Anything
+		backupID    = "type-err-test"
+		ctx         = context.Background()
+		nodes       = []string{"N1", "N2"}
+		classes     = []string{"Class-A"}
+		// One participant always accepts so we can isolate the refusal path.
+		acceptResp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+	)
+
+	tests := []struct {
+		name            string
+		refusalResp     *CanCommitResponse
+		expectInFlight  bool
+		expectCanCommit bool
+		expectContain   string
+	}{
+		{
+			name: "ErrKind=in_flight_reindex maps to typed sentinel",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "Node-2/Class-A: " + backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard \"shard-a\" has 1 active tracker(s)",
+				ErrKind: CanCommitErrInFlightReindex,
+			},
+			expectInFlight: true,
+			expectContain:  backup.ErrBackupBlockedByInFlightReindex.Error(),
+		},
+		{
+			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "some other refusal",
+				ErrKind: CanCommitErrCannotCommit,
+			},
+			expectCanCommit: true,
+			expectContain:   "some other refusal",
+		},
+		{
+			name: "empty ErrKind (older node) falls back to errCannotCommit",
+			refusalResp: &CanCommitResponse{
+				Method: OpCreate,
+				ID:     backupID,
+				// Err empty + ErrKind empty + Timeout == 0 still triggers
+				// the refusal path; this models a buggy older participant
+				// returning a zero-value response.
+			},
+			expectCanCommit: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			nodeResolver := newFakeNodeResolver(nodes)
+			fc := newFakeCoordinator(nodeResolver)
+			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+
+			// N1 (the leader) accepts; N2 refuses with the response shape under test.
+			fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+				return r.Method == OpCreate && r.ID == backupID
+			})).Return(acceptResp, nil).Maybe()
+			fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+				return r.Method == OpCreate && r.ID == backupID
+			})).Return(tc.refusalResp, nil)
+
+			// On refusal the coordinator aborts the participant that accepted.
+			fc.client.On("Abort", any, nodes[0], mock.Anything).Return(nil).Maybe()
+			fc.client.On("Abort", any, nodes[1], mock.Anything).Return(nil).Maybe()
+			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+
+			coordinator := *fc.coordinator()
+			req := newReq(classes, backendName, backupID)
+			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+			err := coordinator.Backup(ctx, store, &req)
+			assert.Error(t, err)
+
+			if tc.expectInFlight {
+				assert.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+					"expected errors.Is(err, backup.ErrBackupBlockedByInFlightReindex), got: %v", err)
+				// errCannotCommit must NOT be in the chain when we have the
+				// typed sentinel — keep the two paths cleanly separable.
+				assert.False(t, errors.Is(err, errCannotCommit),
+					"in-flight-reindex error must not also match errCannotCommit, got: %v", err)
+			}
+			if tc.expectCanCommit {
+				assert.True(t, errors.Is(err, errCannotCommit),
+					"expected errors.Is(err, errCannotCommit), got: %v", err)
+				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+					"generic refusal must not match the typed sentinel, got: %v", err)
+			}
+			if tc.expectContain != "" {
+				assert.Contains(t, err.Error(), tc.expectContain)
+			}
+			// Surface the offending node so the operator knows where to look.
+			assert.Contains(t, err.Error(), nodes[1])
+		})
+	}
+}
+
+// TestErrInFlightReindex_IsShared pins that the in-flight-reindex sentinel
+// is a single value drawn from entities/backup, not duplicated in either
+// the coordinator (usecases/backup) or the storage layer (adapters/repos/db).
+//
+// Catches the regression where someone re-introduces a parallel
+// `var ErrBackupBlockedByInFlightReindex = errors.New(...)` in either
+// layer: a parallel declaration would compare equal by string but fail
+// pointer-identity, breaking errors.Is across the RPC seam.
+//
+// We verify identity from this package by:
+//  1. Wrapping the shared sentinel through canCommitErrFromResponse — the
+//     public coordinator path that consumes a remote CanCommitResponse.
+//  2. Asserting errors.Is succeeds against backup.ErrBackupBlockedByInFlightReindex
+//     (the entities/backup symbol).
+//
+// Identity from the adapters/repos/db side is enforced by
+// reindex_inflight_test.go, which calls errors.Is against the same shared
+// symbol. Both layers therefore depend on the entities/backup value; a
+// drift would make one layer's tests red.
+func TestErrInFlightReindex_IsShared(t *testing.T) {
+	t.Parallel()
+
+	// Shared symbol must be non-nil and carry the expected operator text.
+	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
+	require.Equal(t,
+		"backup blocked: runtime-reindex in flight on this shard",
+		backup.ErrBackupBlockedByInFlightReindex.Error(),
+		"operator-visible sentinel text is part of the contract; do not edit lightly",
+	)
+
+	// Round-trip through the coordinator's canCommit error promoter: a
+	// CanCommitErrInFlightReindex response must produce an error chain
+	// that errors.Is matches against the SHARED sentinel.
+	resp := &CanCommitResponse{
+		Method:  OpCreate,
+		ID:      "shared-sentinel-id",
+		Err:     "Node-2/Class-A: shard \"sa\" has 1 active tracker(s)",
+		ErrKind: CanCommitErrInFlightReindex,
+	}
+	err := canCommitErrFromResponse(resp)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+		"coordinator must wrap the shared sentinel from entities/backup; "+
+			"if this fails, a parallel declaration has been re-introduced")
 }

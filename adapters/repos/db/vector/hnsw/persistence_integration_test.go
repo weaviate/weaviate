@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type persistenceIntegrationNoopBucketView struct{}
@@ -49,6 +50,7 @@ func TestHnswPersistence(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -87,6 +89,7 @@ func TestHnswPersistence(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -121,6 +124,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -194,6 +198,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 
 	// build a new index from the (uncondensed, corrupted) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -230,6 +235,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -277,6 +283,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -312,6 +319,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -366,6 +374,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -411,6 +420,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	thirdIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
@@ -451,6 +461,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log
 	fourthIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,

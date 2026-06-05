@@ -158,7 +158,8 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 func (db *DB) localNodeBatchStats() *models.BatchStats {
 	rate := db.ratePerSecond.Load()
 	stats := &models.BatchStats{RatePerSecond: rate}
-	if !asyncEnabled() {
+	if !db.AsyncIndexingEnabled {
+
 		ql := int64(len(db.jobQueueCh))
 		stats.QueueLength = &ql
 	}
@@ -213,6 +214,10 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		// FIXME stats of target vectors
 		var queueLen int64
 		_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+			queueLen += queue.Size()
+			return nil
+		})
+		_ = shard.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
 			queueLen += queue.Size()
 			return nil
 		})

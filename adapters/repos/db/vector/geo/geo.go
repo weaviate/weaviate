@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const DefaultHNSWEF = 800
@@ -69,6 +70,7 @@ type Config struct {
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+	AllocChecker                             memwatch.AllocChecker
 }
 
 func (c Config) hnswEF() int {
@@ -89,6 +91,7 @@ func NewIndex(config Config,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		DisableSnapshots:      config.SnapshotDisabled,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
+		AllocChecker:          config.AllocChecker,
 		GetViewThunk:          func() common.BucketView { return nil },
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
@@ -174,4 +177,10 @@ func (i *Index) Flush() error {
 
 func (i *Index) Shutdown(ctx context.Context) error {
 	return i.vectorIndex.Shutdown(ctx)
+}
+
+// UnderlyingVectorIndex returns the underlying vector index (typically HNSW)
+// so it can be wrapped in a VectorIndexQueue for async indexing.
+func (i *Index) UnderlyingVectorIndex() interface{} {
+	return i.vectorIndex
 }

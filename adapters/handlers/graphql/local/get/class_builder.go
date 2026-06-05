@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -187,6 +187,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
+	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
@@ -279,6 +280,14 @@ func (b *classBuilder) additionalScoreField() *graphql.Field {
 }
 
 func (b *classBuilder) additionalExplainScoreField() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.String,
+	}
+}
+
+// additionalQueryProfileField returns the GraphQL field definition for per-query
+// profiling data, returned as a JSON string.
+func (b *classBuilder) additionalQueryProfileField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,
 	}

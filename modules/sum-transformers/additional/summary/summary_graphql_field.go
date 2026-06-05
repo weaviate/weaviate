@@ -14,7 +14,7 @@ package summary
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 )
 
 func (p *SummaryProvider) additionalSummaryField(classname string) *graphql.Field {

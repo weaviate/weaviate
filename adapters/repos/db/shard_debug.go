@@ -25,7 +25,7 @@ import (
 // This function assumes the node is not receiving any traffic besides the
 // debug endpoints and that async indexing is enabled.
 func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
-	if !asyncEnabled() {
+	if !s.index.AsyncIndexingEnabled {
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
@@ -36,8 +36,9 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
 
-	q.Pause()
-	q.Wait()
+	if err := q.Pause(ctx); err != nil {
+		return errors.Wrap(err, "pause vector index")
+	}
 
 	err := vidx.Drop(ctx, false)
 	if err != nil {

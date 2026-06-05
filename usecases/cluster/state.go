@@ -29,33 +29,44 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// NodeSelector is an interface to select a portion of the available nodes in memberlist
-type NodeSelector interface {
+// NodeResolver provides read-only access to cluster nodes and their addresses.
+type NodeResolver interface {
+	// NodeCount returns the current number of nodes in the cluster.
+	NodeCount() int
+	// AllHostnames returns the hostnames of all known cluster nodes.
+	AllHostnames() []string
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeHostname resolves a node id into an ip address with internal cluster api port.
+	NodeHostname(nodeName string) (string, bool)
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses.
+	// This is useful for bootstrap when the join config is incomplete.
+	AllOtherClusterMembers(port int) map[string]string
+}
+
+// NodeSelector builds on NodeResolver and adds selection, health and lifecycle operations.
+// It is used to select a portion of the available nodes in memberlist.
+type NodeSelector interface {
+	NodeResolver
+
 	// NodeGRPCPort returns the gRPC port for a specific node id.
 	NodeGRPCPort(id string) (int, error)
 	// StorageCandidates returns list of storage nodes (names)
-	// sorted by the free amount of disk space in descending orders
+	// sorted by the free amount of disk space in descending order.
 	StorageCandidates() []string
 	// NonStorageNodes return nodes from member list which
-	// they are configured not to be voter only
+	// they are configured not to be voter only.
 	NonStorageNodes() []string
-	// SortCandidates Sort passed nodes names by the
-	// free amount of disk space in descending order
+	// SortCandidates sorts passed node names by the
+	// free amount of disk space in descending order.
 	SortCandidates(nodes []string) []string
-	// LocalName() return local node name
+	// ClusterHealthScore returns an aggregate health score for the cluster.
+	ClusterHealthScore() int
+	// LocalName returns the local node name.
 	LocalName() string
-	// NodeHostname return hosts address for a specific node name
-	NodeHostname(name string) (string, bool)
-	AllHostnames() []string
-	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
-	// This is useful for bootstrap when the join config is incomplete
-	// TODO-RAFT: shall be removed once unifying with raft package
-	AllOtherClusterMembers(port int) map[string]string
-	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	// Leave marks the node as leaving the cluster (still visible but shutting down).
 	Leave() error
-	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+	// Shutdown is called when leaving the cluster gracefully and shutting down the memberlist instance.
 	Shutdown() error
 }
 
@@ -220,7 +231,8 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+		joinHost := extractHost(joinAddr[0])
+		_, err := net.LookupIP(joinHost)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
@@ -266,7 +278,7 @@ func (s *State) Hostnames() []string {
 			continue
 		}
 
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
+		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
 		i++
 	}
 
@@ -310,7 +322,7 @@ func (s *State) AllHostnames() []string {
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
+		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
 	}
 
 	return out
@@ -407,14 +419,24 @@ func (s *State) ClusterHealthScore() int {
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), s.dataPort(mem)), true
+			return net.JoinHostPort(mem.Addr.String(), fmt.Sprintf("%d", s.dataPort(mem))), true
 		}
 	}
 
 	return "", false
 }
 
-// NodeAddress is used to resolve the node name into an ip address without the port
+// extractHost extracts the host portion from an address string,
+// correctly handling IPv6 bracket notation (e.g., "[2001:db8::1]:7946" → "2001:db8::1").
+// Falls back to the original string if it doesn't contain a port.
+func extractHost(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
+}
+
+// NodeAddress resolves a node name to its IP address without the port.
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	addr, ok := s.NodeHostname(id)
@@ -422,7 +444,7 @@ func (s *State) NodeAddress(id string) string {
 		return ""
 	}
 
-	return strings.Split(addr, ":")[0] // get address without port
+	return extractHost(addr)
 }
 
 // AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
@@ -440,7 +462,7 @@ func (s *State) AllOtherClusterMembers(port int) map[string]string {
 			// skip self
 			continue
 		}
-		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), port)
+		result[m.Name] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", port))
 	}
 
 	return result

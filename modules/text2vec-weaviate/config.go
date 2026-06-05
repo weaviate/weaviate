@@ -25,7 +25,6 @@ import (
 func (m *WeaviateEmbedModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"model":              ent.DefaultWeaviateModel,
-		"truncate":           ent.DefaultTruncate,
 		"baseURL":            ent.DefaultBaseURL,
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
 	}

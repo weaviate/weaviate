@@ -28,9 +28,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoadSegments bool) error {
+func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	before := time.Now()
 	defer func() {
 		took := time.Since(before)
@@ -82,7 +83,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
-	s.initProperties(eg, class, lazyLoadSegments)
+	s.initProperties(eg, class)
 
 	err := eg.Wait()
 	if err != nil {
@@ -91,17 +92,43 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
-	// Object bucket must be available, initAsyncReplication depends on it
 	if s.index.AsyncReplicationEnabled() {
-		s.asyncReplicationRWMux.Lock()
-		defer s.asyncReplicationRWMux.Unlock()
+		config := s.index.AsyncReplicationConfig()
 
-		err = s.initAsyncReplication(s.index.AsyncReplicationConfig())
+		// Compute the effective config (needed for hashtreeHeight) before taking
+		// the write lock so we can load the cached hashtree from disk outside it.
+		// tryLoadHashtreeFromDisk does synchronous I/O (ReadDir, OpenFile, Remove,
+		// Fsync); holding the write lock for its duration would block all concurrent
+		// RLock callers (hashbeat readers, object writes, commit handlers).
+		effectiveConfig := config
+		if s.index.globalreplicationConfig != nil {
+			effectiveConfig = config.Effective(*s.index.globalreplicationConfig)
+		}
+		var cached hashtree.AggregatedHashTree
+		cached, err = s.tryLoadHashtreeFromDisk(effectiveConfig.hashtreeHeight)
+		if err != nil {
+			return fmt.Errorf("load hashtree from disk on shard %q: %w", s.ID(), err)
+		}
+
+		func() {
+			s.asyncReplicationRWMux.Lock()
+			defer s.asyncReplicationRWMux.Unlock()
+			err = s.initAsyncReplication(config, cached)
+		}()
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
-	} else if s.index.replicationEnabled() {
-		s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
+	} else {
+		// Discard any .ht left by a previous async-enabled shutdown: the shard
+		// will serve writes with async off, which would invalidate the
+		// snapshot, and a later runtime enable would otherwise load it stale.
+		// See disableAsyncReplication for the symmetric rationale.
+		if err := s.removePersistedHashtree(); err != nil {
+			return fmt.Errorf("discard stale hashtree on shard %q: %w", s.ID(), err)
+		}
+		if s.index.replicationEnabled() {
+			s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
+		}
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
@@ -146,24 +173,13 @@ func (s *Shard) initLSMStore() error {
 }
 
 func (s *Shard) initObjectBucket(ctx context.Context) error {
-	opts := []lsmkv.BucketOption{
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
+	opts := s.makeDefaultBucketOptions(lsmkv.StrategyReplace,
 		lsmkv.WithSecondaryIndices(1),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
-		s.dynamicMemtableSizing(),
-		s.memtableDirtyConfig(),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
-		s.segmentCleanupConfig(),
-		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithCalcCountNetAdditions(true),
-		// dont lazy segment load object bucket - we need it in most (all?) operations
-		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
-		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
-	}
+		lsmkv.WithLazySegmentLoading(false), // always load
+		lsmkv.WithClassName(s.index.Config.ClassName.String()),
+	)
 
 	if s.metrics != nil && !s.metrics.grouped {
 		// If metrics are grouped we cannot observe the count of an individual

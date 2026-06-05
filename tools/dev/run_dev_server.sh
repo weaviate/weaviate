@@ -21,9 +21,7 @@ export TRACK_VECTOR_DIMENSIONS=true
 export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
-export PERSISTENCE_HNSW_DISABLE_SNAPSHOTS=${PERSISTENCE_HNSW_DISABLE_SNAPSHOTS:-"false"}
 export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
-export EXPERIMENTAL_SPFRESH_ENABLED=true
 # inject build info into binaries.
 GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -66,6 +64,47 @@ case $CONFIG in
       RUNTIME_OVERRIDES_ENABLED=true \
       RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
       RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-telemetry)
+      # Single-node config for testing client telemetry.
+      # Telemetry is enabled and configured to push to http://localhost:9696.
+      #
+      # Start the dashboard separately in another terminal:
+      #   ./tools/dev/run_telemetry_dashboard.sh
+
+      if ! lsof -i :9696 -sTCP:LISTEN >/dev/null 2>&1; then
+          echo "Note: Telemetry dashboard not running on port 9696."
+          echo "Start it in another terminal: ./tools/dev/run_telemetry_dashboard.sh"
+          echo ""
+      fi
+
+      echo "Starting Weaviate with telemetry enabled (push interval: 5s)..."
+
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      DISABLE_TELEMETRY=false \
+      TELEMETRY_URL="http://localhost:9696/weaviate-telemetry" \
+      TELEMETRY_PUSH_INTERVAL="5s" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -1175,6 +1214,26 @@ local-usage-s3)
       --read-timeout=600s \
       --write-timeout=600s
     ;;
+  local-mcp)
+    AUTOSCHEMA_ENABLED=false \
+    AUTHENTICATION_APIKEY_ENABLED=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
+    AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,custom-key' \
+    AUTHENTICATION_APIKEY_USERS='admin,custom-user' \
+    AUTHORIZATION_RBAC_ROOT_USERS='admin' \
+    MCP_SERVER_ENABLED='true' \
+    MCP_SERVER_WRITE_ACCESS_ENABLED='true' \
+    MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.json" \
+    DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
+    TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
+    ENABLE_MODULES="text2vec-transformers" \
+    go_run ./cmd/weaviate-server \
+      --scheme http \
+      --host "127.0.0.1" \
+      --port 8082 \
+      --read-timeout=600s \
+      --write-timeout=600s
+  ;;
   *)
     echo "Invalid config" 2>&1
     exit 1

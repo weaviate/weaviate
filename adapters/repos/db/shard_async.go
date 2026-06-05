@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -31,7 +32,7 @@ import (
 // It detects if the queue has a checkpoint then it enqueues all the
 // remaining vectors to the on-disk queue, then deletes the checkpoint.
 func (s *Shard) ConvertQueue(targetVector string) error {
-	if !asyncEnabled() {
+	if !s.index.AsyncIndexingEnabled {
 		return nil
 	}
 
@@ -61,7 +62,7 @@ func (s *Shard) ConvertQueue(targetVector string) error {
 // FillQueue is a helper function that enqueues all vectors from the
 // LSM store to the on-disk queue.
 func (s *Shard) FillQueue(targetVector string, from uint64) error {
-	if !asyncEnabled() {
+	if !s.index.AsyncIndexingEnabled {
 		return nil
 	}
 
@@ -222,6 +223,11 @@ func (s *Shard) iterateOnLSMObjects(
 	maxDocID := s.Counter().Get()
 	bucket := s.Store().Bucket(helpers.ObjectsBucketLSM)
 
+	className, err := bucket.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
+
 	buf := make([]byte, 8)
 	for i := fromID; i < maxDocID; i++ {
 		if ctx.Err() != nil {
@@ -237,7 +243,7 @@ func (s *Shard) iterateOnLSMObjects(
 		if v == nil {
 			continue
 		}
-		obj, err := storobj.FromBinaryOptional(v, addProps, properties)
+		obj, err := storobj.FromBinaryOptionalDisk(v, className, addProps, properties)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
@@ -257,7 +263,7 @@ func (s *Shard) iterateOnLSMObjects(
 // It it safe to call or interrupt this method at any time.
 // If ASYNC_INDEXING is disabled, it's a no-op.
 func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
-	if !asyncEnabled() {
+	if !s.index.AsyncIndexingEnabled {
 		return nil
 	}
 

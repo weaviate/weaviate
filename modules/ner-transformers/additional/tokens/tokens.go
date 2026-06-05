@@ -19,8 +19,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
 )

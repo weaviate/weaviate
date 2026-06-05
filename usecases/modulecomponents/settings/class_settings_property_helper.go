@@ -223,6 +223,11 @@ func (h *classPropertyValuesHelper) ValidateBaseURL(baseURL string) error {
 		return nil
 	}
 
+	// We accept that baseURL might be empty
+	if baseURL == "" {
+		return nil
+	}
+
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		return fmt.Errorf("invalid baseURL: %w", err)

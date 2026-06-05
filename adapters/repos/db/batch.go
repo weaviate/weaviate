@@ -38,9 +38,16 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
-	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
-		db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
-		return nil, fmt.Errorf("cannot process batch: %w", err)
+	// Only check memory if async indexing is disabled. If async indexing is
+	// enabled, the allocation (and therefore the decision on whether enough
+	// memory is available) is deferred until the dequeue step. This way, pushing
+	// onto the queue is not blocked, and dequeing does not accidentally run OOM
+	// because enqueuing was too fast.
+	if !db.AsyncIndexingEnabled {
+		if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
+			db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
+			return nil, fmt.Errorf("cannot process batch: %w", err)
+		}
 	}
 
 	for _, item := range objs {
@@ -181,7 +188,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl)
+	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl, 0)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}

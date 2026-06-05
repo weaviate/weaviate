@@ -243,7 +243,7 @@ func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{},
 func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
 
-	vectorSearches["nearText"] = &vectorForParams{m.VectorFromParams}
+	vectorSearches["nearText"] = m.VectorFromParams
 	return vectorSearches
 }
 
@@ -302,18 +302,3 @@ func (m *BigramModule) ValidateClass(ctx context.Context, class *models.Class, c
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())
-
-type vectorForParams struct {
-	fn func(ctx context.Context,
-		params interface{}, className string,
-		findVectorFn modulecapabilities.FindVectorFn[[]float32],
-		cfg moduletools.ClassConfig,
-	) ([]float32, error)
-}
-
-func (v *vectorForParams) VectorForParams(ctx context.Context, params interface{}, className string,
-	findVectorFn modulecapabilities.FindVectorFn[[]float32],
-	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	return v.fn(ctx, params, className, findVectorFn, cfg)
-}

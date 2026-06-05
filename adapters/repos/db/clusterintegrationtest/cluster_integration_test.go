@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,9 +25,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -74,14 +73,15 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		overallShardState := multiShardState(numberOfNodes)
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
-				name: fmt.Sprintf("node-%d", i),
+				name:        fmt.Sprintf("node-%d", i),
+				objectCount: numberOfObjects / len(overallShardState.Physical),
 			}
 
 			nodes = append(nodes, node)
 		}
 
 		for _, node := range nodes {
-			node.init(t, dirName, &nodes, overallShardState)
+			node.init(t, dirName, &nodes, overallShardState, false)
 		}
 	})
 
@@ -159,7 +159,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		for _, node := range nodes {
 			time.Sleep(100 * time.Millisecond)
 			node.repo.GetScheduler().Schedule(context.Background())
-			node.repo.GetScheduler().WaitAll()
+			_ = node.repo.GetScheduler().WaitAll(t.Context())
 		}
 	})
 
@@ -210,8 +210,16 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				ClassName: distributedClass,
 			}, []string{""}, []models.Vector{query})
 			assert.Nil(t, err)
-			for i, obj := range res {
-				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
+			// Compare as a set, not by position: each shard runs its own
+			// approximate HNSW search and the merged result at the K-th
+			// boundary is not guaranteed to match the brute-force order.
+			expectedIDs := make(map[strfmt.UUID]struct{}, len(res))
+			for i := 0; i < len(res); i++ {
+				expectedIDs[groundTruth[i].ID] = struct{}{}
+			}
+			for _, obj := range res {
+				_, ok := expectedIDs[obj.ID]
+				assert.True(t, ok, fmt.Sprintf("unexpected id %s in results", obj.ID))
 			}
 		}
 
@@ -688,27 +696,29 @@ func TestDistributedVectorDistance(t *testing.T) {
 	rnd := getRandomSeed()
 	ctx := context.Background()
 	cases := []struct {
-		asyncIndexing bool
+		asyncIndexingEnabled bool
 	}{
-		{asyncIndexing: true},
-		{asyncIndexing: false},
+		{asyncIndexingEnabled: true},
+		{asyncIndexingEnabled: false},
 	}
 	for _, tt := range cases {
-		t.Run("async indexing:"+strconv.FormatBool(tt.asyncIndexing), func(t *testing.T) {
-			os.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexing))
+		t.Run("async indexing:"+strconv.FormatBool(tt.asyncIndexingEnabled), func(t *testing.T) {
+			t.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexingEnabled))
 
-			collection := multiVectorClass(tt.asyncIndexing)
+			collection := multiVectorClass(tt.asyncIndexingEnabled)
+
 			overallShardState := multiShardState(numberOfNodes)
 			var nodes []*node
 			for i := 0; i < numberOfNodes; i++ {
 				node := &node{
 					name: fmt.Sprintf("node-%d", i),
 				}
+
 				nodes = append(nodes, node)
 			}
 
 			for _, node := range nodes {
-				node.init(t, dirName, &nodes, overallShardState)
+				node.init(t, dirName, &nodes, overallShardState, tt.asyncIndexingEnabled)
 			}
 
 			for i := range nodes {
@@ -767,15 +777,11 @@ func TestDistributedVectorDistance(t *testing.T) {
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, []models.Vector{vectors[1], vectors[2]})
-					if !assert.Nil(collect, err) {
-						return
-					}
-					if !assert.Equal(collect, res[0].ID, obj.ID) {
-						return
-					}
-					if !assert.Equal(collect, res[0].Dist, float32(1)) {
-						return
-					}
+
+					require.NoError(collect, err)
+					require.Len(collect, res, 1)
+					assert.Equal(collect, res[0].ID, obj.ID)
+					assert.Equal(collect, res[0].Dist, float32(1))
 
 					assert.Nil(collect, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
 				}, 20*time.Second, 1*time.Second)

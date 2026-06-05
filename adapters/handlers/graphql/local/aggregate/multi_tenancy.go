@@ -12,7 +12,7 @@
 package aggregate
 
 import (
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 

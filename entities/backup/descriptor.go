@@ -24,6 +24,10 @@ import (
 // removed after backup completion. In case of a crash they are deleted at the next startup.
 const DeleteMarker = "__DELETE_ME_AFTER_BACKUP__"
 
+// BackupStagingPrefix is the prefix for staging directories used during backup.
+// These directories contain hard-linked snapshot files and are cleaned up after backup completion.
+const BackupStagingPrefix = ".backup-staging-"
+
 func DeleteMarkerAdd(filename string) string {
 	return fmt.Sprintf("%s%s", DeleteMarker, filename)
 }
@@ -255,6 +259,22 @@ type ShardDescriptor struct {
 	Version               []byte `json:"version,omitempty"`
 }
 
+// TrackBigFileChunk records that the file at relPath (with the given size and modTime)
+// has a part stored in the chunk identified by chunkKey. It initialises BigFilesChunk
+// lazily and appends the key to the existing entry when called multiple times for the
+// same file (e.g. split files that span several chunks).
+func (s *ShardDescriptor) TrackBigFileChunk(relPath string, size int64, modTime time.Time, chunkKey string) {
+	if s.BigFilesChunk == nil {
+		s.BigFilesChunk = make(map[string]BigFileInfo)
+	}
+	info, exists := s.BigFilesChunk[relPath]
+	if !exists {
+		info = BigFileInfo{Size: size, ModifiedAt: modTime}
+	}
+	info.ChunkKeys = append(info.ChunkKeys, chunkKey)
+	s.BigFilesChunk[relPath] = info
+}
+
 // ClearTemporary clears fields that are no longer needed once compression is done.
 // These fields are not required in versions > 1 because they are stored in the tarball.
 func (s *ShardDescriptor) ClearTemporary() {
@@ -396,15 +416,14 @@ func (f *FileList) RemoveIndices(indices []int) {
 	// All removed indices are >= f.start, so start stays the same.
 }
 
-// GetFileSize returns the pre-collected size for a file, or -1 if not found
-func (f *FileList) GetFileSize(relPath string) int64 {
-	if f == nil || f.FileSizes == nil {
-		return -1
+// GetFileSize returns the pre-collected size for a file.
+// Returns an error if the file is not in the map, since createFileList must always populate all sizes.
+func (f *FileList) GetFileSize(relPath string) (int64, error) {
+	size, ok := f.FileSizes[relPath]
+	if !ok {
+		return 0, fmt.Errorf("file %q not found in FileSizes map", relPath)
 	}
-	if size, ok := f.FileSizes[relPath]; ok {
-		return size
-	}
-	return -1
+	return size, nil
 }
 
 type IncrementalBackupInfos struct {
@@ -440,6 +459,7 @@ type ClassDescriptor struct {
 	// aliases
 	AliasesIncluded         bool               `json:"aliasesIncluded"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
+	StagingDir              string             `json:"-"` // non-serialized; staging dir for hard-linked snapshot files
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }

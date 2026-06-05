@@ -20,8 +20,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	moduleadditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -88,7 +88,7 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Type:        obj,
 			Resolve:     resolvePhoneNumber,
 		}
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return &graphql.Field{
 			Description: property.Description,
 			Name:        property.Name,
@@ -590,7 +590,7 @@ func (ac *additionalCheck) isAdditional(parentName, name string) bool {
 			name == "distance" || name == "id" || name == "vector" || name == "vectors" ||
 			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
 			name == "score" || name == "explainScore" || name == "isConsistent" ||
-			name == "group" {
+			name == "group" || name == "queryProfile" {
 			return true
 		}
 		if ac.isModuleAdditional(name) {
@@ -695,6 +695,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "explainScore" {
 							additionalProps.ExplainScore = true
+							continue
+						}
+						if additionalProperty == "queryProfile" {
+							additionalProps.QueryProfile = true
 							continue
 						}
 						if additionalProperty == "lastUpdateTimeUnix" {
@@ -878,7 +882,7 @@ func extractFragmentSpread(class string, spread *ast.FragmentSpread,
 }
 
 // It seems there's no proper way to extract this info unfortunately:
-// https://github.com/tailor-inc/graphql/issues/455
+// https://github.com/tailor-platform/graphql/issues/455
 func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string, error) {
 	loc := def.GetLoc()
 	raw := loc.Source.Body[loc.Start:loc.End]

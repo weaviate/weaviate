@@ -21,6 +21,15 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+type SelectionMMR struct {
+	Limit   uint32  `json:"limit"`
+	Balance float32 `json:"balance"`
+}
+
+type Selection struct {
+	MMR *SelectionMMR `json:"mmr,omitempty"`
+}
+
 type NearVector struct {
 	Certainty     float64         `json:"certainty"`
 	Distance      float64         `json:"distance"`

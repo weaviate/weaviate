@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
@@ -37,7 +39,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -131,6 +132,7 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 func (e *Explorer) GetClass(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	searchStartTime := time.Now()
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
@@ -146,12 +148,40 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 
+	// When boost is set, overfetch to give boost room to reorder results.
+	// The candidate pool size is controlled by boost.Depth (per-query) with
+	// a default of QueryBoostDefaultDepth. Capped at QueryMaximumResults.
+	// We also zero the offset so boost sees all top candidates from position 0;
+	// the original offset/limit are stored on the Boost struct and applied
+	// after boost re-sorts.
+	if params.Boost != nil && params.Boost.Weight > 0 {
+		params.Boost.OriginalOffset = params.Pagination.Offset
+		params.Boost.OriginalLimit = params.Pagination.Limit
+
+		overfetch := params.Boost.Depth
+		if overfetch == 0 {
+			overfetch = e.config.QueryBoostDefaultDepth
+		}
+		if overfetch > int(e.config.QueryMaximumResults) {
+			overfetch = int(e.config.QueryMaximumResults)
+		}
+		// Need at least offset+limit candidates so the original page is reachable.
+		minCandidates := params.Boost.OriginalOffset + params.Boost.OriginalLimit
+		if overfetch < minCandidates {
+			overfetch = minCandidates
+		}
+		pagination := *params.Pagination
+		pagination.Limit = overfetch
+		pagination.Offset = 0
+		params.Pagination = &pagination
+	}
+
 	if params.KeywordRanking != nil {
 		res, err := e.getClassKeywordBased(ctx, params)
 		if err != nil {
 			return nil, err
 		}
-		return e.searchResultsToGetResponse(ctx, res, nil, params)
+		return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
@@ -159,14 +189,30 @@ func (e *Explorer) GetClass(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		return e.searchResultsToGetResponse(ctx, res, searchVector, params)
+		return e.searchResultsToGetResponse(ctx, res, searchVector, params, searchStartTime)
 	}
 
+	// Hybrid and plain list searches go through getClassList, which handles
+	// Group workarounds, ListExploreAdditionalExtend, and usage tracking.
 	res, err := e.getClassList(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return e.searchResultsToGetResponse(ctx, res, nil, params)
+	return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
+}
+
+// applyBoostIfNeeded applies boost post-scoring when boost conditions are
+// present and weight > 0. For vector searches, distances are converted to
+// scores first since vector search populates Dist but not Score.
+// The original pagination (offset/limit) is read from the Boost struct.
+func (e *Explorer) applyBoostIfNeeded(res []search.Result, boost *filters.Boost, isVectorSearch bool) []search.Result {
+	if boost == nil || boost.Weight <= 0 || len(res) == 0 {
+		return res
+	}
+	if isVectorSearch {
+		distToScore(res)
+	}
+	return applyBoostScoring(res, boost)
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -193,6 +239,8 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		}
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
+
+	res = e.applyBoostIfNeeded(res, params.Boost, false)
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
@@ -295,6 +343,12 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res = grouped
 	}
 
+	// Apply boost before module extensions (rerankers) so the order is:
+	// vector search → boost → reranker. Only for non-hybrid paths.
+	if params.HybridSearch == nil {
+		res = e.applyBoostIfNeeded(res, params.Boost, true)
+	}
+
 	// This operation cannot be performed with hybrid search.
 	// In case of hybrid it needs to be done later with combined results from vector and keyword search
 	if e.modulesProvider != nil && params.HybridSearch == nil {
@@ -390,8 +444,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
-	if e.modulesProvider != nil {
+	res = e.applyBoostIfNeeded(res, params.Boost, false)
 
+	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, params.ModuleParams)
 		if err != nil {
@@ -406,13 +461,13 @@ func (e *Explorer) getClassList(ctx context.Context,
 	return res, nil
 }
 
-func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams) ([]interface{}, error) {
-	output := make([]interface{}, 0, len(input))
-	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
+func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams, searchStartTime time.Time) ([]interface{}, error) {
+	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params, searchStartTime)
 	if err != nil {
 		return nil, err
 	}
 
+	output := make([]interface{}, 0, len(results))
 	if params.GroupBy != nil {
 		for _, result := range results {
 			wrapper := map[string]interface{}{}
@@ -427,7 +482,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	return output, nil
 }
 
-func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams) ([]search.Result, error) {
+func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector models.Vector, params dto.GetParams, searchStartTime time.Time) ([]search.Result, error) {
 	var output []search.Result
 	replEnabled, err := e.replicationEnabled(params)
 	if err != nil {
@@ -437,6 +492,15 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+
+		keep, err := e.keepObjectsWithTTL(params, res, searchStartTime)
+		if err != nil {
+			return nil, errors.Errorf("object ttl filtering: %v", err)
+		}
+		if !keep {
+			continue
+		}
+
 		additionalProperties := make(map[string]interface{})
 
 		if res.AdditionalProperties != nil {
@@ -725,7 +789,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 ) ([]float32, string, error) {
 	if e.modulesProvider != nil {
 		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
-			paramName, paramValue, generictypes.FindVectorFn(e.nearParamsVector.findVector),
+			paramName, paramValue, e.nearParamsVector.findVector,
 		)
 		if err != nil {
 			return nil, "", errors.Errorf("vectorize params: %v", err)
@@ -750,6 +814,52 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 	}
 
 	return class.ReplicationConfig != nil && class.ReplicationConfig.Factor > 1, nil
+}
+
+func (e *Explorer) keepObjectsWithTTL(params dto.GetParams, input search.Result, searchStartTime time.Time) (bool, error) {
+	if e.schemaGetter == nil {
+		return false, fmt.Errorf("schemaGetter not set")
+	}
+
+	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+	if class == nil {
+		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
+	}
+
+	// Skip TTL filtering if searchStartTime is zero (e.g., during hybrid search)
+	if searchStartTime.IsZero() {
+		return true, nil
+	}
+	if !ttl.IsTtlEnabled(class.ObjectTTLConfig) || !class.ObjectTTLConfig.FilterExpiredObjects {
+		return true, nil
+	}
+
+	var expirationTime time.Time
+
+	switch class.ObjectTTLConfig.DeleteOn {
+	case filters.InternalPropCreationTimeUnix:
+		expirationTime = time.UnixMilli(input.Created)
+
+	case filters.InternalPropLastUpdateTimeUnix:
+		expirationTime = time.UnixMilli(input.Updated)
+	default:
+		dateTime, exists := input.Schema.(map[string]interface{})[class.ObjectTTLConfig.DeleteOn]
+		if !exists {
+			// if object has no TTL date set, we keep it
+			return true, nil
+		}
+		deleteOnTimeStr, ok := dateTime.(string)
+		if !ok {
+			return false, fmt.Errorf("date as string expected, got %T", dateTime)
+		}
+		var err error
+		expirationTime, err = time.Parse(time.RFC3339, deleteOnTimeStr)
+		if err != nil {
+			return false, fmt.Errorf("parse date: %w", err)
+		}
+	}
+	expirationThreshold := expirationTime.Add(time.Second * time.Duration(class.ObjectTTLConfig.DefaultTTL))
+	return expirationThreshold.After(searchStartTime), nil
 }
 
 func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDistance bool) {

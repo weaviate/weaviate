@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type graphIntegrityNoopBucketView struct{}
@@ -60,6 +61,7 @@ func TestGraphIntegrity(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "graphintegrity",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},

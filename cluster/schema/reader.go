@@ -17,6 +17,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
@@ -126,6 +127,19 @@ func (rs SchemaReader) Read(class string, retryIfClassNotFound bool, reader func
 	})
 }
 
+// ReadSchema performs a read operation `reader` on the specified class and sharding state
+func (rs SchemaReader) ReadSchema(reader func(models.Class, uint64)) error {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadSchema"))
+	defer t.ObserveDuration()
+
+	return rs.retry(func(s *schema) error {
+		s.ReadSchema(func(class models.Class, version uint64) {
+			reader(class, version)
+		})
+		return nil
+	})
+}
+
 func (rs SchemaReader) Shards(class string) ([]string, error) {
 	var shards []string
 	err := rs.Read(class, true, func(class *models.Class, state *sharding.State) error {
@@ -143,6 +157,15 @@ func (rs SchemaReader) LocalShards(class string) ([]string, error) {
 		return nil
 	})
 	return shards, err
+}
+
+func (rs SchemaReader) LocalActiveShardsCount(class string) (int, error) {
+	var count int
+	err := rs.Read(class, true, func(class *models.Class, state *sharding.State) error {
+		count = state.LocalActivePhysicalShardsCount()
+		return nil
+	})
+	return count, err
 }
 
 // ReadOnlyClass returns a shallow copy of a class.

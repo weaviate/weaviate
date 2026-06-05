@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -63,6 +64,10 @@ func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, sha
 	return replica.SimpleResponse{}
 }
 
+func (f *fakeReplicator) FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+	return []strfmt.UUID{}, nil
+}
+
 // CommitReplication waits to return until a message is received on the commitBlock channel
 func (f *fakeReplicator) CommitReplication(_ context.Context, indexName, shardName, requestID string) any {
 	// Signal that the operation has started
@@ -103,6 +108,26 @@ func (f *fakeReplicator) DigestObjectsInRange(ctx context.Context, class, shardN
 
 func (f *fakeReplicator) HashTreeLevel(ctx context.Context, index, shard string, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
 	return []hashtree.Digest{}, nil
+}
+
+func (f *fakeReplicator) CountObjects(ctx context.Context, index, shard string) (int, error) {
+	return 0, nil
+}
+
+func (f *fakeReplicator) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeReplicator) CreateAsyncCheckpoint(_ context.Context, _ string, _ []string, _ int64, _ time.Time) error {
+	return nil
+}
+
+func (f *fakeReplicator) DeleteAsyncCheckpoint(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+
+func (f *fakeReplicator) GetAsyncCheckpointStatus(_ context.Context, _ string, _ []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	return map[string]replica.AsyncCheckpointShardStatus{}, nil
 }
 
 func (f *fakeReplicator) Done() {

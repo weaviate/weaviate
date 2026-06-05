@@ -23,7 +23,7 @@ import (
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-func TestKMeansEncoderEncodesToNearestCentroid(t *testing.T) {
+func Test_NoRaceKMeansEncoderEncodesToNearestCentroid(t *testing.T) {
 	l2 := distancer.NewL2SquaredProvider()
 	vectors := [][]float32{
 		{0, 5},
@@ -52,7 +52,7 @@ func TestKMeansEncoderEncodesToNearestCentroid(t *testing.T) {
 	}
 }
 
-func TestKMeansEncoderTerminatesOnRandomData(t *testing.T) {
+func Test_NoRaceKMeansEncoderTerminatesOnRandomData(t *testing.T) {
 	vectorsSize := 10000
 	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, 128)
 	before := time.Now()

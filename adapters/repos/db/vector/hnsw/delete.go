@@ -29,12 +29,17 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
+
+// tombstoneCleanupMemoryNeeded is the estimated memory (in bytes) required for
+// HNSW tombstone cleanup. Used both for the pre-check before starting cleanup
+// and for periodic checks during cleanup to abort on memory pressure.
+const tombstoneCleanupMemoryNeeded = 100 * 1024 * 1024
 
 type breakCleanUpTombstonedNodesFunc func() bool
 
@@ -326,6 +331,57 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
+	// Start a background goroutine that periodically checks memory pressure.
+	// If pressure is detected, memCancel is called and the cleanup aborts
+	// gracefully via the breakCleanUpTombstonedNodes check. This is started
+	// after copyTombstonesToAllowList to avoid spawning a goroutine/ticker
+	// on cycles where there are no tombstones to clean.
+	memCtx, memCancel := context.WithCancel(resetCtx)
+	defer memCancel()
+
+	// Re-bind the break function to include the memory pressure context
+	// before spawning the monitor goroutine (which checks immediately).
+	breakCleanUpTombstonedNodes = func() bool {
+		return resetCtx.Err() != nil || memCtx.Err() != nil || shouldAbort()
+	}
+
+	if h.allocChecker != nil {
+		check := func() bool {
+			if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
+				h.logger.WithFields(logrus.Fields{
+					"action": "hnsw_tombstone_cleanup",
+					"event":  "tombstone_cleanup_aborted_memory_pressure",
+					"class":  h.className,
+					"shard":  h.shardName,
+					"id":     h.id,
+				}).Error(err)
+				memCancel()
+				return true
+			}
+			return false
+		}
+
+		// Check synchronously before starting cleanup. Only spawn the
+		// periodic monitor if the initial check passes.
+		if !check() {
+			enterrors.GoWrapper(func() {
+				ticker := time.NewTicker(h.tombstoneMemCheckInterval)
+				defer ticker.Stop()
+
+				for {
+					select {
+					case <-ticker.C:
+						if check() {
+							return
+						}
+					case <-memCtx.Done():
+						return
+					}
+				}
+			}, h.logger)
+		}
+	}
+
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
 	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
 
@@ -395,6 +451,7 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	}
 
 	it := deleteList.Iterator()
+	defer it.Stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if h.getEntrypoint() == id {
 			// this a special case because:
@@ -663,47 +720,50 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 
 	h.metrics.TombstoneFindGlobalEntrypoint()
 
-	for l := targetLevel; l >= 0; l-- {
-		// ideally we can find a new entrypoint at the same level of the
-		// to-be-deleted node. However, there is a chance it was the only node on
-		// that level, in that case we need to look at the next lower level for a
-		// better candidate
+	// First pass: find the node with the highest level that is not in the denyList.
+	// This handles cases where nodes may have higher levels than both targetLevel
+	// and currentMaximumLayer (e.g., due to corrupt commit log replay or
+	// deserialization bugs).
+	h.RLock()
+	maxNodes := len(h.nodes)
+	h.RUnlock()
 
-		h.RLock()
-		maxNodes := len(h.nodes)
-		h.RUnlock()
+	bestCandidate := uint64(0)
+	bestLevel := -1
+	foundCandidate := false
 
-		for i := 0; i < maxNodes; i++ {
-			if h.getEntrypoint() != oldEntrypoint {
-				// entrypoint has already been changed (this could be due to a new import
-				// for example, nothing to do for us
-				return 0, 0, false
-			}
-
-			if denyList.Contains(uint64(i)) {
-				continue
-			}
-
-			h.shardedNodeLocks.RLock(uint64(i))
-			candidate := h.nodes[i]
-			h.shardedNodeLocks.RUnlock(uint64(i))
-
-			if candidate == nil {
-				continue
-			}
-
-			candidate.Lock()
-			candidateLevel := candidate.level
-			candidate.Unlock()
-
-			if candidateLevel != l {
-				// not reaching up to the current level, skip in hope of finding another candidate
-				continue
-			}
-
-			// we have a node that matches
-			return uint64(i), l, true
+	for i := 0; i < maxNodes; i++ {
+		if h.getEntrypoint() != oldEntrypoint {
+			// entrypoint has already been changed (this could be due to a new import
+			// for example, nothing to do for us
+			return 0, 0, false
 		}
+
+		if denyList.Contains(uint64(i)) {
+			continue
+		}
+
+		h.shardedNodeLocks.RLock(uint64(i))
+		candidate := h.nodes[i]
+		h.shardedNodeLocks.RUnlock(uint64(i))
+
+		if candidate == nil {
+			continue
+		}
+
+		candidate.Lock()
+		candidateLevel := candidate.level
+		candidate.Unlock()
+
+		if candidateLevel > bestLevel {
+			bestCandidate = uint64(i)
+			bestLevel = candidateLevel
+			foundCandidate = true
+		}
+	}
+
+	if foundCandidate {
+		return bestCandidate, bestLevel, true
 	}
 
 	if h.isEmpty() {
@@ -841,6 +901,7 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	it := deleteList.Iterator()
+	defer it.Stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if breakCleanUpTombstonedNodes() {
 			return false, nil

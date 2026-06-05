@@ -52,6 +52,12 @@ func (o *GraphqlPostReader) ReadResponse(response runtime.ClientResponse, consum
 			return nil, err
 		}
 		return nil, result
+	case 410:
+		result := NewGraphqlPostGone()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewGraphqlPostUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -250,6 +256,74 @@ func (o *GraphqlPostForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewGraphqlPostGone creates a GraphqlPostGone with default headers values
+func NewGraphqlPostGone() *GraphqlPostGone {
+	return &GraphqlPostGone{}
+}
+
+/*
+GraphqlPostGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type GraphqlPostGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this graphql post gone response has a 2xx status code
+func (o *GraphqlPostGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this graphql post gone response has a 3xx status code
+func (o *GraphqlPostGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this graphql post gone response has a 4xx status code
+func (o *GraphqlPostGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this graphql post gone response has a 5xx status code
+func (o *GraphqlPostGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this graphql post gone response a status code equal to that given
+func (o *GraphqlPostGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the graphql post gone response
+func (o *GraphqlPostGone) Code() int {
+	return 410
+}
+
+func (o *GraphqlPostGone) Error() string {
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostGone  %+v", 410, o.Payload)
+}
+
+func (o *GraphqlPostGone) String() string {
+	return fmt.Sprintf("[POST /graphql][%d] graphqlPostGone  %+v", 410, o.Payload)
+}
+
+func (o *GraphqlPostGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GraphqlPostGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

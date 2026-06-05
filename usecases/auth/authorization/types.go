@@ -17,8 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
-	"github.com/go-openapi/strfmt"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -51,8 +49,10 @@ const (
 	CollectionsDomain = "collections"
 	TenantsDomain     = "tenants"
 	DataDomain        = "data"
+	McpDomain         = "mcp"
 	ReplicateDomain   = "replicate"
 	AliasesDomain     = "aliases"
+	NamespacesDomain  = "namespaces"
 )
 
 var (
@@ -96,6 +96,9 @@ var (
 		Collection: All,
 		Alias:      All,
 	}
+	AllNamespaces = &models.PermissionNamespaces{
+		Namespace: All,
+	}
 
 	ComponentName = "RBAC"
 
@@ -120,6 +123,8 @@ var (
 	DeleteUsers          = "delete_users"
 
 	ManageBackups = "manage_backups"
+
+	ManageNamespaces = "manage_namespaces"
 
 	CreateCollections = "create_collections"
 	ReadCollections   = "read_collections"
@@ -146,6 +151,10 @@ var (
 	UpdateAliases = "update_aliases"
 	DeleteAliases = "delete_aliases"
 
+	CreateMcp = "create_mcp"
+	ReadMcp   = "read_mcp"
+	UpdateMcp = "update_mcp"
+
 	availableWeaviateActions = []string{
 		// Roles domain
 		CreateRoles,
@@ -155,6 +164,9 @@ var (
 
 		// Backups domain
 		ManageBackups,
+
+		// Namespaces domain
+		ManageNamespaces,
 
 		// Users domain
 		AssignAndRevokeUsers,
@@ -202,6 +214,11 @@ var (
 		ReadAliases,
 		UpdateAliases,
 		DeleteAliases,
+
+		// MCP domain
+		CreateMcp,
+		ReadMcp,
+		UpdateMcp,
 	}
 )
 
@@ -214,17 +231,29 @@ var (
 	ReadOnly     = "read-only"
 	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
 
-	// viewer : can view everything , roles, users, schema, data
-	// editor : can create/read/update everything , roles, users, schema, data
-	// Admin : aka basically super Admin or root
-	BuiltInPermissions = map[string][]*models.Permission{
-		Viewer:   viewerPermissions(),
-		Admin:    adminPermissions(),
+	EnvVarRoles = []string{ReadOnly, Root}
+)
+
+// BuiltInPermissionsFor returns the canonical permission shape of the four
+// built-in roles. On namespace-enabled clusters admin/viewer are narrowed
+// to collections/schema, data, multi-tenancy, aliases, and MCP; root/read-only
+// keep wildcard CRUD/READ across all domains.
+func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
+	if !namespacesEnabled {
+		return map[string][]*models.Permission{
+			Viewer:   viewerPermissions(),
+			Admin:    adminPermissions(),
+			Root:     adminPermissions(),
+			ReadOnly: viewerPermissions(),
+		}
+	}
+	return map[string][]*models.Permission{
+		Viewer:   tenantSafeViewerPermissions(),
+		Admin:    tenantSafeAdminPermissions(),
 		Root:     adminPermissions(),
 		ReadOnly: viewerPermissions(),
 	}
-	EnvVarRoles = []string{ReadOnly, Root}
-)
+}
 
 type Policy struct {
 	Resource string
@@ -373,6 +402,20 @@ func CollectionsMetadata(classes ...string) []string {
 	return resources
 }
 
+// Namespaces generates a list of namespace resource strings based on the
+// provided names. If no names are provided (or a single empty/"*"), it
+// returns the wildcard resource string "namespaces/*".
+func Namespaces(names ...string) []string {
+	if len(names) == 0 || (len(names) == 1 && (names[0] == "" || names[0] == "*")) {
+		return []string{fmt.Sprintf("%s/*", NamespacesDomain)}
+	}
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = fmt.Sprintf("%s/%s", NamespacesDomain, n)
+	}
+	return out
+}
+
 func Aliases(class string, aliases ...string) []string {
 	class = schema.UppercaseClassName(class)
 	aliases = schema.UppercaseClassesNames(aliases...)
@@ -401,12 +444,12 @@ func CollectionsData(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{Objects("*", "*", "*")}
+		return []string{Objects("*", "*")}
 	}
 
 	var paths []string
 	for _, class := range classes {
-		paths = append(paths, Objects(class, "*", "*"))
+		paths = append(paths, Objects(class, "*"))
 	}
 	return paths
 }
@@ -454,27 +497,21 @@ func ShardsData(class string, shards ...string) []string {
 	class = schema.UppercaseClassesNames(class)[0]
 	var paths []string
 	for _, shard := range shards {
-		paths = append(paths, Objects(class, shard, "*"))
+		paths = append(paths, Objects(class, shard))
 	}
 	return paths
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.
-// The path format varies based on the provided class, shard, and id parameters.
+// Object-level RBAC is not supported — the objects segment is always wildcarded.
 //
 // Parameters:
 // - class: the class of the collection (string)
 // - shard: the shard identifier (string)
-// - id: the unique identifier of the object (strfmt.UUID)
 //
 // Returns:
 // - A string representing the path to the objects, with wildcards (*) used for any empty parameters.
-//
-// Example outputs:
-// - "collections/*/shards/*/objects/*" if all parameters are empty
-// - "collections/*/shards/*/objects/{id}" if only id is provided
-// - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
-func Objects(class, shard string, id strfmt.UUID) string {
+func Objects(class, shard string) string {
 	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
@@ -482,10 +519,7 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if id == "" {
-		id = "*"
-	}
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/*", DataDomain, class, shard)
 }
 
 // Backups generates a resource string for the given classes.
@@ -538,6 +572,18 @@ func Replications(class, shard string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicateDomain, class, shard)
 }
 
+// Mcp generates a resource string covering the MCP endpoint.
+// For now, this gates nothing specific to the MCP server besides its entirety
+//
+// Returns:
+// - A string representing the resource path.
+//
+// Example outputs:
+// - mcp
+func Mcp() string {
+	return McpDomain
+}
+
 // WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
 // The domain is expected to be the first part of the resource path.
 func WildcardPath(resource string) string {
@@ -569,6 +615,7 @@ func viewerPermissions() []*models.Permission {
 			Users:       AllUsers,
 			Aliases:     AllAliases,
 			Groups:      AllOIDCGroups,
+			Namespaces:  AllNamespaces,
 		})
 	}
 
@@ -591,9 +638,90 @@ func adminPermissions() []*models.Permission {
 			Users:       AllUsers,
 			Aliases:     AllAliases,
 			Groups:      AllOIDCGroups,
+			Namespaces:  AllNamespaces,
 		})
 	}
 
+	return perms
+}
+
+// tenantSafeActions is the ordered list of actions whose resource paths are
+// namespace-bearing (collections, data, tenants, aliases). The matcher
+// specializes these to the principal's namespace, so they are safe to grant
+// to API-assignable built-in roles on namespace-enabled clusters.
+var tenantSafeActions = []string{
+	CreateCollections, ReadCollections, UpdateCollections, DeleteCollections,
+	CreateData, ReadData, UpdateData, DeleteData,
+	CreateTenants, ReadTenants, UpdateTenants, DeleteTenants,
+	CreateAliases, ReadAliases, UpdateAliases, DeleteAliases,
+}
+
+// tenantSafeMcpActions are namespace-safe because the MCP tools self-scope to
+// principal.Namespace; the mcp resource carries no collection field. A future
+// non-self-scoping MCP tool would require revisiting this.
+var tenantSafeMcpActions = []string{CreateMcp, ReadMcp, UpdateMcp}
+
+// tenantSafeUserActions is the user-CRUD subset granted alongside the
+// namespace-bearing actions. AssignAndRevokeUsers is excluded.
+var tenantSafeUserActions = []string{
+	CreateUsers, ReadUsers, UpdateUsers, DeleteUsers,
+}
+
+// tenantSafeAdminPermissions returns the narrowed admin shape for
+// namespace-enabled clusters: CRUD over the namespace-bearing domains plus
+// MCP and user CRUD. Cluster-only domains (backups, replicate, nodes,
+// cluster, roles, groups, namespaces) and AssignAndRevokeUsers are excluded.
+func tenantSafeAdminPermissions() []*models.Permission {
+	perms := make([]*models.Permission, 0, len(tenantSafeActions)+len(tenantSafeMcpActions)+len(tenantSafeUserActions))
+	for _, action := range tenantSafeActions {
+		perms = append(perms, &models.Permission{
+			Action:      &action,
+			Data:        AllData,
+			Collections: AllCollections,
+			Tenants:     AllTenants,
+			Aliases:     AllAliases,
+		})
+	}
+	for _, action := range tenantSafeMcpActions {
+		perms = append(perms, &models.Permission{Action: &action})
+	}
+	for _, action := range tenantSafeUserActions {
+		perms = append(perms, &models.Permission{
+			Action: &action,
+			Users:  AllUsers,
+		})
+	}
+	return perms
+}
+
+// tenantSafeViewerPermissions returns the read-only subset of
+// tenantSafeAdminPermissions.
+func tenantSafeViewerPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range tenantSafeActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{
+			Action:      &action,
+			Data:        AllData,
+			Collections: AllCollections,
+			Tenants:     AllTenants,
+			Aliases:     AllAliases,
+		})
+	}
+	for _, action := range tenantSafeMcpActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{Action: &action})
+	}
+	for _, action := range tenantSafeUserActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{Action: &action, Users: AllUsers})
+	}
 	return perms
 }
 

@@ -51,9 +51,9 @@ jobs:
       pull-requests: read  # required for gh pr diff to fetch the PR diff via the API
     steps:
       # Clones the BASE branch (main) — trusted code only.
-      # Both this workflow and the composite action it invokes are loaded
-      # from main, so an attacker cannot tamper with either via their PR.
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      # The linter script at tools/linter_hidden_unicode.sh comes from main,
+      # not from the PR, so an attacker cannot tamper with it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # Delegates to the reusable composite at .github/actions/security-lint.
       # The composite fetches the PR diff via the GitHub API (no PR code is

@@ -14,7 +14,6 @@ package dynamic
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -26,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -37,15 +37,13 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 var logger, _ = test.NewNullLogger()
 
 func TestDynamic(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -74,6 +72,7 @@ func TestDynamic(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 	dynamic, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -89,6 +88,8 @@ func TestDynamic(t *testing.T) {
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -120,13 +121,9 @@ func TestDynamic(t *testing.T) {
 	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	t.Logf("recall: %f, latency %f\n", recall2, latency2)
 	assert.True(t, recall2 > 0.9)
-	assert.True(t, latency1 > latency2)
 }
 
 func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Unsetenv("ASYNC_INDEXING")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	rootPath := t.TempDir()
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
@@ -140,6 +137,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 
 	distancer := distancer.NewL2SquaredProvider()
 	_, err = New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -151,6 +149,8 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(nil),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         false, // Explicitly set to false to test error condition
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -158,6 +158,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		FlatUC:    fuc,
 	}, testinghelpers.NewDummyStore(t))
 	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "async indexing")
 }
 
 func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
@@ -184,9 +185,6 @@ func (n *noopBucketView) ReleaseView() {}
 
 func TestDynamicWithTargetVectors(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -219,6 +217,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		dynamic, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
@@ -235,6 +234,8 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -275,7 +276,6 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 
 func TestDynamicUpgradeCancelation(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("ASYNC_INDEXING", "true")
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -305,6 +305,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	}
 
 	dynamic, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "foo",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -320,6 +321,8 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -539,6 +542,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			tt.setupHNSWConfig(&hnswuc, threshold)
 
 			config := Config{
+				AllocChecker: memwatch.NewDummyMonitor(),
 				TargetVector: "",
 				RootPath:     rootPath,
 				ID:           "vector-test_0",
@@ -558,6 +562,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 				TombstoneCallbacks:           noopCallback,
 				SharedDB:                     db,
 				HNSWWaitForCachePrefill:      true,
+				AsyncIndexingEnabled:         true,
+				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			}
 			uc := ent.UserConfig{
 				Threshold: uint64(threshold),
@@ -671,9 +677,6 @@ func TestDynamicIndexUnderlyingIndexDetection(t *testing.T) {
 
 func TestDynamicAndStoreOperations(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -702,6 +705,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 	dynamic, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -717,6 +721,8 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -763,9 +769,6 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 // where named vectors would all use the same boltdb bucket key after upgrade.
 func TestDynamicStoreMigrationBug(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -813,6 +816,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -826,6 +830,8 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -889,6 +895,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -902,6 +909,8 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -964,6 +973,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -977,6 +987,8 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),

@@ -20,7 +20,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
@@ -38,13 +37,15 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 		return []error{err}
 	}
 
-	return s.putBatch(ctx, objects)
-}
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
+		errs := make([]error, len(objects))
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs
+	}
 
-// asyncEnabled is a quick and dirty way to create a feature flag for async
-// indexing.
-func asyncEnabled() bool {
-	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
+	return s.putBatch(ctx, objects)
 }
 
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
@@ -54,7 +55,7 @@ func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	s.activityTrackerWrite.Add(1)
-	if asyncEnabled() {
+	if s.index.AsyncIndexingEnabled {
 		return s.putBatchAsync(ctx, objects)
 	}
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
@@ -235,6 +236,15 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		if err := queue.Delete(docIDsToDelete...); err != nil {
 			for _, pos := range positions {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), pos)
 			}
 		}
 		return nil
@@ -474,6 +484,15 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			for i := range ob.objects {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), i)
 			}
 		}
 		return nil

@@ -15,11 +15,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -466,8 +468,8 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 			},
 		}
 
-		t.Run("sync pool", func(t *testing.T) {
-			syncMaxBufSize := 1024
+		t.Run("sync pools return buffers of sizes", func(t *testing.T) {
+			syncMaxBufSize := 1024 // all sync pools
 			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, nil, ranges...)
 
 			for i, tc := range testCases {
@@ -481,8 +483,8 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 			}
 		})
 
-		t.Run("sync + inmemo pools", func(t *testing.T) {
-			syncMaxBufSize := 256
+		t.Run("sync + inmemo pools return buffers of sizes", func(t *testing.T) {
+			syncMaxBufSize := 256 // sync pools + inmemo pools (512, 1024)
 			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, nil, ranges...)
 
 			for i, tc := range testCases {
@@ -503,7 +505,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		ranges := []int{32, 64, 128, 256, 512, 1024}
 		pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, limits, ranges...)
 
-		// get and write to 3 buffers of each inmemo size
+		// get and write to 3 inmemo buffers of each size
 		buf256_1, put256_1 := pool.Get(254)
 		binary.BigEndian.PutUint16(buf256_1[:2], 10254)
 		buf256_2, put256_2 := pool.Get(255)
@@ -522,6 +524,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		binary.BigEndian.PutUint16(buf1024_2[:2], 11023)
 		buf1024_3tmp, put1024_3tmp := pool.Get(1024)
 		binary.BigEndian.PutUint16(buf1024_3tmp[:2], 11024)
+		// only 2 buffers will be returned to 1024 pool (due to limit=2)
 		put256_1()
 		put256_2()
 		put256_3()
@@ -532,6 +535,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		put1024_2()
 		put1024_3tmp()
 
+		// read data from buffers (buffers are not reset, previous values should still be there)
 		buf256_4, put256_4 := pool.Get(256)
 		val256_4 := binary.BigEndian.Uint16(buf256_4[:2])
 		buf256_5, put256_5 := pool.Get(256)
@@ -550,6 +554,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		val1024_5 := binary.BigEndian.Uint16(buf1024_5[:2])
 		buf1024_6tmp, put1024_6tmp := pool.Get(1024)
 		val1024_6tmp := binary.BigEndian.Uint16(buf1024_6tmp[:2])
+		// return buffers to the pool
 		put256_4()
 		put256_5()
 		put256_6()
@@ -560,6 +565,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		put1024_5()
 		put1024_6tmp()
 
+		// 3rd 1024 buffer should be empty (newly created)
 		assert.Equal(t, uint16(10254), val256_4)
 		assert.Equal(t, uint16(10255), val256_5)
 		assert.Equal(t, uint16(10256), val256_6)
@@ -570,11 +576,13 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		assert.Equal(t, uint16(11023), val1024_5)
 		assert.Equal(t, uint16(0), val1024_6tmp)
 
+		// remove up to 3 buffers from the pool
 		cleaned := pool.cleanup(3)
 
 		// 3 of 4 256s, 3 of 3 512s, 2 of 2 1024s buffers should be cleaned
 		assert.Equal(t, map[int]int{256: 3, 512: 3, 1024: 2}, cleaned)
 
+		// take 1 buffer of each size
 		buf256_7, put := pool.Get(256)
 		val256_7 := binary.BigEndian.Uint16(buf256_7[:2])
 		put()
@@ -585,6 +593,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		val1024_7 := binary.BigEndian.Uint16(buf1024_7[:2])
 		put()
 
+		// all buffers should be empty (newly created)
 		assert.Equal(t, uint16(0), val256_7)
 		assert.Equal(t, uint16(0), val512_7)
 		assert.Equal(t, uint16(0), val1024_7)
@@ -598,16 +607,19 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		ranges := []int{32, 64, 128, 256, 512, 1024}
 		pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, limits, ranges...)
 
+		// get and write to 1 inmemo buffer of each size
 		buf256_1, put256_1 := pool.Get(256)
 		binary.BigEndian.PutUint16(buf256_1[:2], 10256)
 		buf512_1, put512_1 := pool.Get(512)
 		binary.BigEndian.PutUint16(buf512_1[:2], 10512)
 		buf1024_1, put1024_1 := pool.Get(1024)
 		binary.BigEndian.PutUint16(buf1024_1[:2], 11024)
+		// return buffers to the pool
 		put256_1()
 		put512_1()
 		put1024_1()
 
+		// read data from buffers (buffers are not reset, previous values should still be there)
 		buf256_2, put := pool.Get(256)
 		val256_2 := binary.BigEndian.Uint16(buf256_2[:2])
 		put()
@@ -618,16 +630,22 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		val1024_2 := binary.BigEndian.Uint16(buf1024_2[:2])
 		put()
 
+		// buffers contain previous values
 		assert.Equal(t, uint16(10256), val256_2)
 		assert.Equal(t, uint16(10512), val512_2)
 		assert.Equal(t, uint16(11024), val1024_2)
 
-		stop := pool.StartPeriodicCleanup(logger, 2, 500*time.Microsecond)
-		defer stop()
+		// remove buffers from the pool (periodically)
+		synctest.Test(t, func(t *testing.T) {
+			stop := pool.StartPeriodicCleanup(logger, 2, time.Millisecond)
+			defer stop()
 
-		// wait for cleanup
-		time.Sleep(5 * time.Millisecond)
+			// wait for cleanup
+			time.Sleep(time.Millisecond)
+			synctest.Wait()
+		})
 
+		// read data from buffers
 		buf256_3, put := pool.Get(256)
 		val256_3 := binary.BigEndian.Uint16(buf256_3[:2])
 		put()
@@ -638,6 +656,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		val1024_3 := binary.BigEndian.Uint16(buf1024_3[:2])
 		put()
 
+		// all buffers should be empty (newly created)
 		assert.Equal(t, uint16(0), val256_3)
 		assert.Equal(t, uint16(0), val512_3)
 		assert.Equal(t, uint16(0), val1024_3)
@@ -829,4 +848,86 @@ func TestValidateBufferRanges(t *testing.T) {
 			require.Equal(t, tc.expectedRanges, ranges)
 		})
 	}
+}
+
+func TestBitmapBufPoolTracking_Get(t *testing.T) {
+	t.Run("outstanding increments on Get and decrements on release", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+		assert.Equal(t, int64(0), pool.Outstanding())
+
+		_, rel1 := pool.Get(64)
+		assert.Equal(t, int64(1), pool.Outstanding())
+
+		_, rel2 := pool.Get(64)
+		assert.Equal(t, int64(2), pool.Outstanding())
+
+		rel1()
+		assert.Equal(t, int64(1), pool.Outstanding())
+
+		rel2()
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+
+	t.Run("release zeroes backing buffer", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+		buf, release := pool.Get(64)
+		// Write into the backing array through the cap slice.
+		full := buf[:cap(buf)]
+		full[0] = 0xFF
+		full[cap(buf)-1] = 0xFF
+
+		release()
+
+		// Backing array must be zeroed after release.
+		for i, b := range full {
+			if b != 0 {
+				t.Errorf("buf[%d] = %d after release, want 0", i, b)
+			}
+		}
+	})
+
+	t.Run("double release panics", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+		_, release := pool.Get(64)
+		release()
+		assert.Panics(t, release)
+	})
+}
+
+func TestBitmapBufPoolTracking_CloneToBuf(t *testing.T) {
+	t.Run("outstanding increments on CloneToBuf and decrements on release", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+
+		bm := sroar.NewBitmap()
+		bm.SetMany([]uint64{1, 2, 3})
+
+		cloned, release := pool.CloneToBuf(bm)
+		assert.Equal(t, int64(1), pool.Outstanding())
+		assert.Equal(t, bm.ToArray(), cloned.ToArray())
+
+		release()
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+
+	t.Run("release zeroes cloned bitmap backing buffer", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+
+		bm := sroar.NewBitmap()
+		bm.SetMany([]uint64{10, 20, 30})
+
+		cloned, release := pool.CloneToBuf(bm)
+		assert.False(t, cloned.IsEmpty())
+
+		// ToBuffer returns a view into the backing memory while the bitmap is
+		// non-empty. Capture it before release so we can inspect it afterward.
+		full := cloned.ToBuffer()
+		release()
+
+		// Backing array must be zeroed after release.
+		for i, b := range full {
+			if b != 0 {
+				t.Errorf("buf[%d] = %d after release, want 0", i, b)
+			}
+		}
+	})
 }
