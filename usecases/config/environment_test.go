@@ -14,7 +14,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -360,13 +359,6 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 
 func TestEnvironmentParseClusterConfig(t *testing.T) {
 	hostname, _ := os.Hostname()
-	defaultRequestQueueConfig := cluster.RequestQueueConfig{
-		IsEnabled:                   configRuntime.NewDynamicValue(false),
-		NumWorkers:                  runtime.GOMAXPROCS(0) * 2,
-		QueueSize:                   2000,
-		QueueFullHttpStatus:         429,
-		QueueShutdownTimeoutSeconds: 90,
-	}
 	tests := []struct {
 		name           string
 		envVars        map[string]string
@@ -382,24 +374,22 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     7100,
-				DataBindPort:       7101,
-				AdvertiseAddr:      "193.0.0.1",
-				AdvertisePort:      9999,
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   7100,
+				DataBindPort:     7101,
+				AdvertiseAddr:    "193.0.0.1",
+				AdvertisePort:    9999,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
 			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     DefaultGossipBindPort,
-				DataBindPort:       DefaultGossipBindPort + 1,
-				AdvertiseAddr:      "",
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   DefaultGossipBindPort,
+				DataBindPort:     DefaultGossipBindPort + 1,
+				AdvertiseAddr:    "",
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -408,11 +398,10 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7777",
 			},
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     7777,
-				DataBindPort:       7778,
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   7777,
+				DataBindPort:     7778,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -422,11 +411,10 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_DATA_BIND_PORT":   "7111",
 			},
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     7100,
-				DataBindPort:       7111,
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   7100,
+				DataBindPort:     7111,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -440,30 +428,6 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
 				MaintenanceNodes:        make([]string, 0),
-				RequestQueueConfig:      defaultRequestQueueConfig,
-			},
-		},
-		{
-			name: "request queue enabled with custom config",
-			envVars: map[string]string{
-				"REPLICATED_INDICES_REQUEST_QUEUE_ENABLED":                  "true",
-				"REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS":              "10",
-				"REPLICATED_INDICES_REQUEST_QUEUE_SIZE":                     "100",
-				"REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS":         "504",
-				"REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS": "120",
-			},
-			expectedResult: cluster.Config{
-				Hostname:         hostname,
-				GossipBindPort:   7946,
-				DataBindPort:     7947,
-				MaintenanceNodes: make([]string, 0),
-				RequestQueueConfig: cluster.RequestQueueConfig{
-					IsEnabled:                   configRuntime.NewDynamicValue(true),
-					NumWorkers:                  10,
-					QueueSize:                   100,
-					QueueFullHttpStatus:         504,
-					QueueShutdownTimeoutSeconds: 120,
-				},
 			},
 		},
 	}
