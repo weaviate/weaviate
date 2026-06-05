@@ -26,8 +26,8 @@ import (
 )
 
 func TestInitialize_SkipAccessCheck(t *testing.T) {
-	// With SkipAccessCheck set, Initialize must be a no-op: it returns
-	// before resolving the container or running the write+delete probe.
+	// With SkipAccessCheck set, Initialize validates the container name but
+	// skips the write+delete probe, so it returns nil without any network call.
 	c := &azureClient{config: clientConfig{Container: "my-container", SkipAccessCheck: true}}
 	require.NoError(t, c.Initialize(context.Background(), "backup-1", "", ""))
 }

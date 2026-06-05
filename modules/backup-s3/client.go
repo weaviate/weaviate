@@ -356,6 +356,13 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 }
 
 func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+	key := "access-check"
+
+	bucket, objectName, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	if err != nil {
+		return err
+	}
+
 	if s.config.SkipAccessCheck {
 		return nil
 	}
@@ -365,16 +372,10 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 		return errors.Wrap(err, "failed to get client")
 	}
 
-	key := "access-check"
-
 	if err := s.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 
-	bucket, objectName, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
-	if err != nil {
-		return err
-	}
 	opt := minio.RemoveObjectOptions{}
 	if err := client.RemoveObject(ctx, bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")

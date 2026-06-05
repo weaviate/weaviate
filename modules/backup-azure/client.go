@@ -227,13 +227,13 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, overrideBuck
 }
 
 func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
-	if a.config.SkipAccessCheck {
-		return nil
-	}
-
 	containerName, err := a.resolveContainer(overrideBucket)
 	if err != nil {
 		return err
+	}
+
+	if a.config.SkipAccessCheck {
+		return nil
 	}
 
 	key := "access-check"
