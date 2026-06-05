@@ -140,7 +140,7 @@ jobs:
       matrix:
         include:
           - arch: "amd64"
-            runner: ubicloud-standard-2
+            runner: ubicloud-premium-2
             push-args: "--amd64-only"
           - arch: "arm64"
             runner: ubuntu-24.04-arm
