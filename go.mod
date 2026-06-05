@@ -53,6 +53,7 @@ require (
 	github.com/hashicorp/memberlist v0.5.4
 	github.com/hashicorp/raft v1.7.2
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
+	github.com/hashicorp/yamux v0.1.2
 	github.com/ikawaha/kagome-dict v1.1.7
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome-dict/ipa v1.2.6
@@ -91,6 +92,7 @@ require (
 	github.com/weaviate/tiktoken-go v0.0.3
 	github.com/zeebo/xxh3 v1.1.0
 	go.etcd.io/bbolt v1.4.3
+	go.etcd.io/raft/v3 v3.6.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
@@ -183,6 +185,7 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.25.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/pprof v0.0.0-20240625030939-27f56978b8b0 // indirect

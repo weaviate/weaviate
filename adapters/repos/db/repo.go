@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/shard"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -53,22 +54,23 @@ import (
 )
 
 type DB struct {
-	logger                    logrus.FieldLogger
-	localNodeName             string
-	schemaGetter              schemaUC.SchemaGetter
-	config                    Config
-	indices                   map[string]*Index
-	remoteIndex               sharding.RemoteIndexClient
-	asyncReplicationScheduler *AsyncReplicationScheduler
-	replicaClient             replica.Client
-	nodeResolver              cluster.NodeResolver
-	remoteNode                *sharding.RemoteNode
-	promMetrics               *monitoring.PrometheusMetrics
-	indexCheckpoints          *indexcheckpoint.Checkpoints
-	shutdown                  chan struct{}
-	startupComplete           atomic.Bool
-	resourceScanState         *resourceScanState
-	memMonitor                *memwatch.Monitor
+	logger                         logrus.FieldLogger
+	localNodeName                  string
+	schemaGetter                   schemaUC.SchemaGetter
+	config                         Config
+	indices                        map[string]*Index
+	remoteIndex                    sharding.RemoteIndexClient
+	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
+	replicaClient                  replica.Client
+	raftClient                     shardproto.ShardReplicationServiceClient
+	nodeResolver                   cluster.NodeResolver
+	remoteNode                     *sharding.RemoteNode
+	promMetrics                    *monitoring.PrometheusMetrics
+	indexCheckpoints               *indexcheckpoint.Checkpoints
+	shutdown                       chan struct{}
+	startupComplete                atomic.Bool
+	resourceScanState              *resourceScanState
+	memMonitor                     *memwatch.Monitor
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -392,6 +394,7 @@ type Config struct {
 	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
 
+	ShardRegistry           *shard.Registry
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 }
 

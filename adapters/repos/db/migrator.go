@@ -228,6 +228,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			InvertedSorterDisabled:    m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
 			HFreshEnabled:             m.db.config.HFreshEnabled,
+			RaftReplicationEnabled:    class.ReplicationConfig.RaftEnabled,
+			ShardRegistry:             m.db.config.ShardRegistry,
 			AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will

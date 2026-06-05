@@ -236,6 +236,9 @@ type Bucket struct {
 	// during compaction for the SetCollection strategy
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
+	// walDisabled skips WAL creation for this bucket. When true, durability
+	// is assumed to be provided externally (e.g. by a RAFT log).
+	walDisabled           bool
 	skipSecondaryKeyCheck bool
 
 	// immutable prevents all write operations. Set via WithImmutable, used by
@@ -1464,9 +1467,15 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newLazyCommitLogger(path, b.strategy)
-	if err != nil {
-		return nil, errors.Wrap(err, "init commit logger")
+	var cl memtableCommitLogger
+	if b.walDisabled {
+		cl = &nopCommitLogger{}
+	} else {
+		var err error
+		cl, err = newLazyCommitLogger(path, b.strategy)
+		if err != nil {
+			return nil, errors.Wrap(err, "init commit logger")
+		}
 	}
 
 	mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
