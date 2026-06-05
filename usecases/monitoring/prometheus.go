@@ -387,13 +387,11 @@ var (
 	// It also includes request that served *very* fast and *very* slow
 	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
 
-	// RequestLatencyBuckets extends LatencyBuckets with sub-ms boundaries (down to
-	// 100µs) for the HTTP/gRPC request-duration histograms, so histogram_quantile
-	// resolves sub-5ms requests instead of collapsing them into one bucket.
-	RequestLatencyBuckets = []float64{
-		.0001, .00025, .0005, .001, .0025,
-		.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100,
-	}
+	// RequestLatencyBuckets prepends sub-ms boundaries (down to 100µs) to
+	// LatencyBuckets for the HTTP/gRPC request-duration histograms, so
+	// histogram_quantile resolves sub-5ms requests instead of collapsing them into
+	// one bucket. Derived from LatencyBuckets so the shared tail can't drift.
+	RequestLatencyBuckets = append([]float64{.0001, .00025, .0005, .001, .0025}, LatencyBuckets...)
 
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
