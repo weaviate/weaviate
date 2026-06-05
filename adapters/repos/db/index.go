@@ -1408,18 +1408,61 @@ func (i *Index) SetReplicationFSMReader(r replicationTypes.ReplicationFSMReader)
 }
 
 // IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async
-// replication is irrelevant (RF ≤ 1) or enabled (RF > 1 and not globally
-// disabled).
+// replication is irrelevant (RF ≤ 1 and no shard has a non-terminal movement
+// op) or enabled (RF > 1 and not globally disabled).
 //
-// It is config-level by design — per-shard readiness inspection is unstable
-// for multi-tenant classes (tenant shards constantly transition) and would
-// reject create-then-export during warm-up. Reconciliation keeps this view
-// honest by applying the config to loaded shards.
+// The non-terminal-op clause covers the replica-movement window: while a copy
+// is in flight, BelongsToNodes transiently contains source and target, and the
+// export selector would otherwise route the snapshot to either replica via
+// least-loaded scheduling.
+//
+// It remains config-level for per-shard readiness — per-shard readiness
+// inspection is unstable for multi-tenant classes (tenant shards constantly
+// transition) and would reject create-then-export during warm-up. The FSM/
+// sharding-state check, in contrast, reads RAFT-replicated state that only
+// flips on FSM apply, so it is safe to consult here. Reconciliation keeps the
+// per-shard view honest by applying the config to loaded shards.
 func (i *Index) IsAsyncReplicationEnabledOrIrrelevant() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
-	return i.Config.ReplicationFactor <= 1 || i.asyncReplicationEnabled()
+	if i.Config.ReplicationFactor > 1 {
+		return i.asyncReplicationEnabled()
+	}
+
+	// RF ≤ 1: safe to export only if no shard is mid-movement. A schema-read
+	// failure is treated as unsafe — silently downgrading to "exportable"
+	// would defeat the purpose of the gate.
+	midMovement, err := i.anyShardMidMovement()
+	if err != nil {
+		i.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", i.Config.ClassName.String()).
+			Warnf("IsAsyncReplicationEnabledOrIrrelevant: could not read sharding state, refusing export: %v", err)
+		return false
+	}
+	return !midMovement
+}
+
+func (i *Index) anyShardMidMovement() (bool, error) {
+	var midMovement bool
+	className := i.Config.ClassName.String()
+	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
+		}
+		for shardName := range state.Physical {
+			if i.replicationFSMReader.HasNonTerminalOpsForShard(className, shardName) {
+				midMovement = true
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return midMovement, nil
 }
 
 func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
