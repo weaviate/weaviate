@@ -21,7 +21,7 @@ env:
 jobs:
   Multi-Arch-Docker-Build:
     name: docker build (multi-arch)
-    runs-on: ubicloud-premium-2
+    runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
     timeout-minutes: 45
     env:
