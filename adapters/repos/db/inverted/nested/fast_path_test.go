@@ -426,21 +426,32 @@ func leafPinnedPositive(idx *fastPathIndex, valuePath string, value any, pins []
 	if len(pins) == 0 {
 		panic("multi-pin needs at least one pin")
 	}
-
-	innerAnchor := idx.anchor[parentPath(valuePath)]
-	truthScope := parentPath(pins[0].path)
-	truthAnchor := idx.anchor[truthScope]
-
 	a := cloneOrEmpty(idx.values[valuePath][value])
 	for _, pin := range pins {
 		a.And(idx.idx[pin.path][pin.index])
 	}
+	return pinnedFromValueSet(idx, a, valuePath, pins)
+}
+
+// pinnedFromValueSet runs the shared pin-lift / Rich-reconstruction
+// stage of every value-based pinned helper (leafPinnedPositive plus
+// the pinned ContainsAny / ContainsAll variants below). Callers
+// supply the already-aggregated value bitmap `a` — single bucket,
+// union of buckets, or intersection of buckets — narrowed by every
+// pin's _idx bitmap. The function takes care of mPin, the narrowed-
+// anchor lift, and Rich = (a ANDNOT truthAnchor) ∪ ExactSupport.
+//
+// Result shape matches leafPinnedPositive: TS at the outermost pin's
+// parent, ExactSupport at TS, Rich preserving chain bits inside the
+// pinned subtree, CP=false.
+func pinnedFromValueSet(idx *fastPathIndex, a *sroar.Bitmap, valuePath string, pins []pinSpec) *fastPathResult {
+	innerAnchor := idx.anchor[parentPath(valuePath)]
+	truthScope := parentPath(pins[0].path)
+	truthAnchor := idx.anchor[truthScope]
 
 	mPin := a.Clone().And(innerAnchor)
-
 	narrowedAnchor := cloneOrEmpty(truthAnchor).And(a)
 	exactSupport, _ := idx.ops.LiftToAncestor(mPin, narrowedAnchor)
-
 	rich := a.AndNot(truthAnchor).Or(exactSupport)
 
 	return &fastPathResult{
@@ -461,6 +472,147 @@ func leafPinnedPositive(idx *fastPathIndex, valuePath string, value any, pins []
 // universe \ ∅ = universe, so those owners survive.
 func leafPinnedNot(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
 	return negate(idx, leafPinnedPositive(idx, valuePath, value, pins))
+}
+
+// leafContainsAny realizes `path ContainsAny [values]` directly as
+// the union of the per-value buckets. Every sub-leaf shares the same
+// TS (parent of path) and would be CP=true at construction, so
+// dispatching through orN would only add overhead: sort the slice
+// (no-op when all keys are equal), allocate a fastPathResult per
+// value, then fold via the same-TS branch of orLeaves. Computing the
+// bitmap union directly skips all of that.
+//
+// Semantics: a TS-element satisfies ContainsAny if it contains at
+// least one of the listed values. For scalar arrays (e.g. text[]),
+// "contains" means a per-element match somewhere in the array; for
+// scalar fields it means the field equals one of the values.
+//
+// Result shape matches what orN over leafPositive(path, v) would
+// produce: TS=parent(path), Rich=union of value buckets, ES=Rich ∩
+// _anchor(TS), CP=true.
+//
+// Panics on an empty value list — ContainsAny over an empty set has
+// no positive support and is better caught at the call site.
+func leafContainsAny(idx *fastPathIndex, path string, values ...any) *fastPathResult {
+	if len(values) == 0 {
+		panic("leafContainsAny requires at least one value")
+	}
+	truthScope := parentPath(path)
+	rich := sroar.NewBitmap()
+	for _, v := range values {
+		if bm := idx.values[path][v]; bm != nil {
+			rich.Or(bm)
+		}
+	}
+	support := rich.Clone().And(idx.anchor[truthScope])
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     rich,
+		ExactSupport:             support,
+		CanProjectParentByAnchor: true,
+	}
+}
+
+// leafContainsAll realizes `path ContainsAll [values]` directly as
+// the intersection of the per-value buckets. Same reasoning as
+// leafContainsAny: every sub-leaf shares TS and CP, so andN's sort
+// and sequential fold are pure overhead. Intersecting the value
+// bitmaps directly enforces per-TS-element co-occurrence — only
+// chain bits that appear in EVERY value's elementPositions survive,
+// which means the same TS-element must match every value.
+//
+// CanProject is false in the result: same-TS AND structurally
+// produces CP=false because chain bits at parent can survive even
+// when different sub-elements satisfy different values.
+//
+// For scalar arrays (e.g. text[]), this means the same array must
+// contain every listed value (across its elements).
+//
+// Bails out early when any value is missing from the index — the
+// intersection would be empty regardless of the remaining values.
+//
+// Panics on an empty value list — ContainsAll over an empty set is
+// vacuously true and should be optimised away upstream.
+func leafContainsAll(idx *fastPathIndex, path string, values ...any) *fastPathResult {
+	if len(values) == 0 {
+		panic("leafContainsAll requires at least one value")
+	}
+	truthScope := parentPath(path)
+	rich := cloneOrEmpty(idx.values[path][values[0]])
+	for _, v := range values[1:] {
+		bm := idx.values[path][v]
+		if bm == nil {
+			rich = sroar.NewBitmap()
+			break
+		}
+		rich.And(bm)
+	}
+	support := rich.Clone().And(idx.anchor[truthScope])
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     rich,
+		ExactSupport:             support,
+		CanProjectParentByAnchor: false,
+	}
+}
+
+// leafPinnedContainsAny realizes `<pinned path>.x ContainsAny [values]`
+// — for example `garages[1].cars[2].colors ContainsAny [red, blue]`.
+// Mirrors the optimisation used by the unpinned leafContainsAny:
+// compute the union of per-value buckets directly, narrow with every
+// pin's _idx bitmap, then hand off to the shared pin-lift stage.
+//
+// Panics on an empty pin list (the function would have no TruthScope)
+// or an empty value list (no positive support possible).
+func leafPinnedContainsAny(idx *fastPathIndex, valuePath string, pins []pinSpec, values ...any) *fastPathResult {
+	if len(pins) == 0 {
+		panic("pinned ContainsAny needs at least one pin")
+	}
+	if len(values) == 0 {
+		panic("pinned ContainsAny requires at least one value")
+	}
+	a := sroar.NewBitmap()
+	for _, v := range values {
+		if bm := idx.values[valuePath][v]; bm != nil {
+			a.Or(bm)
+		}
+	}
+	for _, pin := range pins {
+		a.And(idx.idx[pin.path][pin.index])
+	}
+	return pinnedFromValueSet(idx, a, valuePath, pins)
+}
+
+// leafPinnedContainsAll realizes `<pinned path>.x ContainsAll [values]`
+// — for example `cars[1].colors ContainsAll [red, blue]`, "cars[1]'s
+// colors array contains both red and blue."
+//
+// Computes the intersection of per-value buckets directly, then
+// narrows with every pin's _idx bitmap before the pin-lift stage.
+// Bails out early when any value is absent from the index — the
+// intersection is already empty.
+//
+// Panics on an empty pin list or empty value list.
+func leafPinnedContainsAll(idx *fastPathIndex, valuePath string, pins []pinSpec, values ...any) *fastPathResult {
+	if len(pins) == 0 {
+		panic("pinned ContainsAll needs at least one pin")
+	}
+	if len(values) == 0 {
+		panic("pinned ContainsAll requires at least one value")
+	}
+	a := cloneOrEmpty(idx.values[valuePath][values[0]])
+	for _, v := range values[1:] {
+		bm := idx.values[valuePath][v]
+		if bm == nil {
+			a = sroar.NewBitmap()
+			break
+		}
+		a.And(bm)
+	}
+	for _, pin := range pins {
+		a.And(idx.idx[pin.path][pin.index])
+	}
+	return pinnedFromValueSet(idx, a, valuePath, pins)
 }
 
 // ---------------------------------------------------------------------------
@@ -2057,6 +2209,301 @@ func TestFastPathL2_Merge(t *testing.T) {
 			// 205-tires: {100, 200, 800, 900}.
 			// Union: {100, 200, 300, 800, 810, 820, 900}.
 			wantDocs: []uint64{100, 200, 300, 800, 810, 820, 900},
+		},
+		// NOT applied to an AND of ancestor + descendant. Inner AND:
+		// warsaw(TS=garages, CP=true) AND doors=4(TS=cars.doors,
+		// CP=true). Row 1 dispatch merges at child.TS=cars.doors with
+		// CP=true; inner.ES = doors under warsaw garages with count=4.
+		// negate at cars.doors: doors NOT in inner.ES. The result is
+		// at the compound's TS (cars.doors), per-element-existential.
+		{
+			name: "NOT (garages.city=warsaw AND cars.doors.count=4)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, andLeaves(idx,
+					leafPositive(idx, "countries.garages.city", "warsaw"),
+					leafPositive(idx, "countries.garages.cars.doors.count", 4)))
+			},
+			wantTruthScope: "countries.garages.cars.doors",
+			wantCanProject: false,
+			// Inner ES at cars.doors: doors under warsaw garages with
+			// count=4 = doc 800 warsaw cars[0].doors[0], doc 900 warsaw
+			// cars[0].doors[0].
+			// NOT at cars.doors: every other doors-self position.
+			// MaskRootLeaf: docs with some door NOT in inner.
+			// - docs 100-700, 810-830: no doors-self bits at all → no
+			//   witness possible → fail.
+			// - doc 800: krakow cars[0/1].doors[0]=4 NOT in inner →
+			//   witnesses → PASS.
+			// - doc 900: krakow cars[0/1].doors[0]=4 NOT in inner →
+			//   witnesses → PASS.
+			wantDocs: []uint64{800, 900},
+		},
+		// NOT applied to an AND of siblings under cars. Inner AND:
+		// spoiler(TS=accessories) AND 205(TS=tires) → sibling lift to
+		// LCA=cars, same-TS AND at cars, CP=false. inner.ES = cars
+		// with both spoiler accessory and 205 tire in the same car.
+		// negate at cars: cars NOT in inner.ES.
+		//
+		// Result is trivially true at the doc level for these fixtures
+		// because every doc has at least one car that fails one of the
+		// conjuncts. The test still pins the algorithm's behavior:
+		// negate at the sibling-AND TS (cars) and per-element-
+		// existential semantics.
+		{
+			name: "NOT (cars.accessories.type=spoiler AND cars.tires.width=205)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, andLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205)))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Inner ES at cars: cars with spoiler+205 in the same car =
+			// doc 100 cars[0], doc 200 cars[0], doc 200 cars[1], doc 800
+			// warsaw cars[0]. Every doc has at least one other car that
+			// is not in inner.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		// NOT applied to an OR of same-scope leaves. Inner OR:
+		// make=honda OR make=ford at cars (both CP=true). Union ES at
+		// cars = cars whose make is honda or ford. negate at cars:
+		// cars without honda/ford make. A doc fails only when every
+		// car has make in {honda, ford}.
+		{
+			name: "NOT (cars.make=honda OR cars.make=ford)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.make", "ford")))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Docs where every car has make in {honda, ford}:
+			// - doc 300: cars[0]=ford, cars[1]=honda → all in → FAIL.
+			// - doc 400: cars[0]=ford → all in → FAIL.
+			// - doc 700: g[1] cars[0]=ford → all (one) in → FAIL.
+			// Other docs have at least one car with a different make
+			// (or no make at all → also not honda/ford).
+			wantDocs: []uint64{100, 200, 500, 600, 800, 810, 820, 830, 900},
+		},
+		// NOT applied to an OR of ancestor + descendant. Inner OR:
+		// warsaw(TS=garages, CP=true) OR honda(TS=cars, CP=true) → OR
+		// always lands at LCA=garages. honda gets cheap lift to garages.
+		// inner.ES at garages = warsaw garages ∪ garages-with-honda-
+		// cars. negate at garages: garages with neither.
+		{
+			name: "NOT (garages.city=warsaw OR cars.make=honda)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPositive(idx, "countries.garages.city", "warsaw"),
+					leafPositive(idx, "countries.garages.cars.make", "honda")))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// Inner ES at garages: warsaw garages {800 g[0], 900 g[0]}
+			// ∪ honda-car garages {100 g[0], 200 g[0], 300 g[0],
+			// 810 g[0], 820 country 0 g[0]}.
+			// NOT at garages: garages with neither. Docs that pass:
+			// - 400, 500, 600, 700: no warsaw, no honda → garages pass.
+			// - 800: g[1] krakow has no honda → witness.
+			// - 820: country 1 g[0] has no warsaw no honda → witness.
+			// - 830: g[0] no warsaw, only car has no make → witness.
+			// - 900: g[1] krakow no warsaw no honda → witness.
+			// Docs that fail (every garage has warsaw or honda):
+			// - 100, 200, 300, 810: only garage has honda.
+			wantDocs: []uint64{400, 500, 600, 700, 800, 820, 830, 900},
+		},
+		// NOT applied to an OR of siblings under cars. Inner OR:
+		// spoiler(TS=accessories) OR 205(TS=tires) → sibling lift to
+		// LCA=cars. Each operand's CP=true so both lifts are cheap.
+		// inner.ES at cars = cars with spoiler accessory or 205 tire.
+		// negate at cars: cars without either.
+		{
+			name: "NOT (cars.accessories.type=spoiler OR cars.tires.width=205)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205)))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Docs that fail (every car has spoiler or 205):
+			// - 800: warsaw cars[0] (spoiler+205), krakow cars[0]
+			//   (spoiler), krakow cars[1] (205) — all in inner → FAIL.
+			// - 830: only car has spoiler → FAIL.
+			// All other docs have at least one car without either.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 810, 820, 900},
+		},
+		// ContainsAny over a scalar field at TS=cars. Equivalent to
+		// orN of make=honda and make=ford with both at the same TS.
+		// Same-TS OR: pure union with no lifts, CP=true preserved.
+		{
+			name: "cars.make ContainsAny [honda, ford]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafContainsAny(idx, "countries.garages.cars.make", "honda", "ford")
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: true,
+			// honda: {100, 200, 300, 810, 820}.
+			// ford:  {300, 400, 500, 600, 700, 820}.
+			// Union: {100, 200, 300, 400, 500, 600, 700, 810, 820}.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 810, 820},
+		},
+		// ContainsAny with a rarer value set. Verifies orN over makes
+		// not covered by the main fixtures (bmw, kia).
+		{
+			name: "cars.make ContainsAny [bmw, kia]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafContainsAny(idx, "countries.garages.cars.make", "bmw", "kia")
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: true,
+			// bmw: doc 500 g[1] cars[0], doc 600 country 1 g[0] cars[0].
+			// kia: doc 820 country 1 g[0] cars[0].
+			// Union: {500, 600, 820}.
+			wantDocs: []uint64{500, 600, 820},
+		},
+		// ContainsAll over a scalar-array field at TS=cars. Equivalent
+		// to andN of colors=red and colors=blue, both at TS=cars. Same-
+		// TS AND enforces per-car co-occurrence: only cars whose colors
+		// array contains BOTH values survive.
+		{
+			name: "cars.colors ContainsAll [red, blue]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafContainsAll(idx, "countries.garages.cars.colors", "red", "blue")
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Only doc 100 cars[1].colors = ["blue", "red"] satisfies
+			// both. Other docs either lack one of the values or have
+			// them split across different cars (e.g. doc 200 cars[0]
+			// has red, cars[1] has blue).
+			wantDocs: []uint64{100},
+		},
+		// Pinned ContainsAny on cars[1].make. Narrows the value-union
+		// (honda ∪ ford) with the cars[1] pin idx before lifting to
+		// TS=garages.
+		{
+			name: "cars[1].make ContainsAny [honda, ford]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsAny(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages.cars", 1}},
+					"honda", "ford")
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// cars[1].make=honda: doc 100, 200, 300, 820 country 0.
+			// cars[1].make=ford:  doc 500 g[0].
+			// Union: {100, 200, 300, 500, 820}.
+			wantDocs: []uint64{100, 200, 300, 500, 820},
+		},
+		// Pinned ContainsAll on cars[1].colors. The value-intersection
+		// (red ∩ blue) collapses to cars where the same cars[1].colors
+		// array contains both, then the cars[1] pin narrows to garages
+		// whose cars[1] qualifies.
+		{
+			name: "cars[1].colors ContainsAll [red, blue]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsAll(idx,
+					"countries.garages.cars.colors",
+					[]pinSpec{{"countries.garages.cars", 1}},
+					"red", "blue")
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// Only doc 100 cars[1].colors = ["blue", "red"] satisfies
+			// both at cars[1]. doc 200 cars[1] = [blue] (no red); doc
+			// 300 cars[1] = [red] (no blue).
+			wantDocs: []uint64{100},
+		},
+		// Multi-pin ContainsAll: garages[0].cars[1].colors ContainsAll
+		// [red, blue]. Two pins narrow the value-intersection at every
+		// level of the chain (garages[0] AND cars[1]). TS = parent of
+		// outermost pin = countries.
+		{
+			name: "garages[0].cars[1].colors ContainsAll [red, blue]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsAll(idx,
+					"countries.garages.cars.colors",
+					[]pinSpec{
+						{"countries.garages", 0},
+						{"countries.garages.cars", 1},
+					},
+					"red", "blue")
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// Only doc 100 g[0].cars[1].colors = ["blue", "red"]
+			// satisfies both at the pinned slot. doc 200 g[0].cars[1]
+			// has only blue; doc 300 g[0].cars[1] has only red.
+			wantDocs: []uint64{100},
+		},
+		// Intermediate-pin ContainsAny: garages[1].cars.make ContainsAny
+		// [honda, ford]. Pinned at garages level only; cars unpinned, so
+		// any car under garages[1] can satisfy. TS = countries.
+		{
+			name: "garages[1].cars.make ContainsAny [honda, ford]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsAny(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages", 1}},
+					"honda", "ford")
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// Need a doc with garages[1] whose cars include make=honda
+			// or make=ford. Only doc 700 g[1].cars[0]=ford qualifies.
+			// doc 500 g[1] cars have only "name" fields (no make).
+			// doc 800/900 g[1] cars have no make at all.
+			// Other docs have no g[1].
+			wantDocs: []uint64{700},
+		},
+		// Multi-pin ContainsAny: garages[0].cars[2].name ContainsAny
+		// [honda, ford]. Two pins narrow the value-union at every
+		// chain level. TS = countries.
+		{
+			name: "garages[0].cars[2].name ContainsAny [honda, ford]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsAny(idx,
+					"countries.garages.cars.name",
+					[]pinSpec{
+						{"countries.garages", 0},
+						{"countries.garages.cars", 2},
+					},
+					"honda", "ford")
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// doc 100 g[0].cars[2].name=honda ✓.
+			// doc 200 g[0].cars[2].name=ford ✓.
+			// doc 600 country 0 g[0].cars[2].name=ford ✓; country 1
+			//   g[0].cars[2].name=honda ✓.
+			// doc 500 g[0] has only 2 cars → no cars[2].
+			// Other docs either lack cars[2] in g[0] or have no name
+			// field there.
+			wantDocs: []uint64{100, 200, 600},
+		},
+		// Intermediate-pin ContainsAll: garages[0].cars.colors ContainsAll
+		// [red, blue]. Pinned at garages only; cars unpinned. Value-
+		// intersection at cars (per-car co-occurrence) narrowed by
+		// garages[0]; the same car under g[0] must contain both colors.
+		// TS = countries.
+		{
+			name: "garages[0].cars.colors ContainsAll [red, blue]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsAll(idx,
+					"countries.garages.cars.colors",
+					[]pinSpec{{"countries.garages", 0}},
+					"red", "blue")
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// doc 100 g[0].cars[1].colors=[blue, red] satisfies both
+			// at a single car. doc 200 has red and blue split across
+			// cars[0] and cars[1] → no per-car co-occurrence. doc 300
+			// has only red. No other doc has both colors anywhere.
+			wantDocs: []uint64{100},
 		},
 		// Sibling AND with mixed CP: A=radio at accessories (CP=true) AND
 		// B=NOT 205 at tires (CP=false). Both lifts land at LCA=cars: A
