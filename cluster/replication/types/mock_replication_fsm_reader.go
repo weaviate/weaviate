@@ -128,12 +128,12 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) RunAndRetur
 	return _c
 }
 
-// HasNonTerminalOpsForShard provides a mock function with given fields: collection, shard
-func (_m *MockReplicationFSMReader) HasNonTerminalOpsForShard(collection string, shard string) bool {
+// HasOngoingReplication provides a mock function with given fields: collection, shard
+func (_m *MockReplicationFSMReader) HasOngoingReplication(collection string, shard string) bool {
 	ret := _m.Called(collection, shard)
 
 	if len(ret) == 0 {
-		panic("no return value specified for HasNonTerminalOpsForShard")
+		panic("no return value specified for HasOngoingReplication")
 	}
 
 	var r0 bool
@@ -146,31 +146,79 @@ func (_m *MockReplicationFSMReader) HasNonTerminalOpsForShard(collection string,
 	return r0
 }
 
-// MockReplicationFSMReader_HasNonTerminalOpsForShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasNonTerminalOpsForShard'
-type MockReplicationFSMReader_HasNonTerminalOpsForShard_Call struct {
+// MockReplicationFSMReader_HasOngoingReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasOngoingReplication'
+type MockReplicationFSMReader_HasOngoingReplication_Call struct {
 	*mock.Call
 }
 
-// HasNonTerminalOpsForShard is a helper method to define mock.On call
+// HasOngoingReplication is a helper method to define mock.On call
 //   - collection string
 //   - shard string
-func (_e *MockReplicationFSMReader_Expecter) HasNonTerminalOpsForShard(collection interface{}, shard interface{}) *MockReplicationFSMReader_HasNonTerminalOpsForShard_Call {
-	return &MockReplicationFSMReader_HasNonTerminalOpsForShard_Call{Call: _e.mock.On("HasNonTerminalOpsForShard", collection, shard)}
+func (_e *MockReplicationFSMReader_Expecter) HasOngoingReplication(collection interface{}, shard interface{}) *MockReplicationFSMReader_HasOngoingReplication_Call {
+	return &MockReplicationFSMReader_HasOngoingReplication_Call{Call: _e.mock.On("HasOngoingReplication", collection, shard)}
 }
 
-func (_c *MockReplicationFSMReader_HasNonTerminalOpsForShard_Call) Run(run func(collection string, shard string)) *MockReplicationFSMReader_HasNonTerminalOpsForShard_Call {
+func (_c *MockReplicationFSMReader_HasOngoingReplication_Call) Run(run func(collection string, shard string)) *MockReplicationFSMReader_HasOngoingReplication_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockReplicationFSMReader_HasNonTerminalOpsForShard_Call) Return(_a0 bool) *MockReplicationFSMReader_HasNonTerminalOpsForShard_Call {
+func (_c *MockReplicationFSMReader_HasOngoingReplication_Call) Return(_a0 bool) *MockReplicationFSMReader_HasOngoingReplication_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockReplicationFSMReader_HasNonTerminalOpsForShard_Call) RunAndReturn(run func(string, string) bool) *MockReplicationFSMReader_HasNonTerminalOpsForShard_Call {
+func (_c *MockReplicationFSMReader_HasOngoingReplication_Call) RunAndReturn(run func(string, string) bool) *MockReplicationFSMReader_HasOngoingReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// HasOngoingTargetReplication provides a mock function with given fields: collection, shard, targetNode
+func (_m *MockReplicationFSMReader) HasOngoingTargetReplication(collection string, shard string, targetNode string) bool {
+	ret := _m.Called(collection, shard, targetNode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasOngoingTargetReplication")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string, string, string) bool); ok {
+		r0 = rf(collection, shard, targetNode)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockReplicationFSMReader_HasOngoingTargetReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasOngoingTargetReplication'
+type MockReplicationFSMReader_HasOngoingTargetReplication_Call struct {
+	*mock.Call
+}
+
+// HasOngoingTargetReplication is a helper method to define mock.On call
+//   - collection string
+//   - shard string
+//   - targetNode string
+func (_e *MockReplicationFSMReader_Expecter) HasOngoingTargetReplication(collection interface{}, shard interface{}, targetNode interface{}) *MockReplicationFSMReader_HasOngoingTargetReplication_Call {
+	return &MockReplicationFSMReader_HasOngoingTargetReplication_Call{Call: _e.mock.On("HasOngoingTargetReplication", collection, shard, targetNode)}
+}
+
+func (_c *MockReplicationFSMReader_HasOngoingTargetReplication_Call) Run(run func(collection string, shard string, targetNode string)) *MockReplicationFSMReader_HasOngoingTargetReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasOngoingTargetReplication_Call) Return(_a0 bool) *MockReplicationFSMReader_HasOngoingTargetReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasOngoingTargetReplication_Call) RunAndReturn(run func(string, string, string) bool) *MockReplicationFSMReader_HasOngoingTargetReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }

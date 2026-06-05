@@ -472,14 +472,6 @@ func (s *ShardReplicationFSM) hasOngoingTargetReplication(targetFQDN shardFQDN) 
 	return status.ShouldConsumeOps()
 }
 
-func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard string, replica string) bool {
-	s.opsLock.RLock()
-	defer s.opsLock.RUnlock()
-
-	FQDN := newShardFQDN(replica, collection, shard)
-	return s.hasOngoingSourceReplication(FQDN) || s.hasOngoingTargetReplication(FQDN)
-}
-
 // TODO: Improve the error handling in that function
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error

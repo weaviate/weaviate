@@ -271,11 +271,11 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 
 				fsm := replicationTypes.NewMockReplicationFSMReader(t)
 				// Set up a permissive expectation: the gate may call
-				// HasNonTerminalOpsForShard 0..N times (short-circuits on
+				// HasOngoingReplication 0..N times (short-circuits on
 				// the first true). Maybe() keeps the test honest without
 				// forcing a specific iteration count.
 				fsm.EXPECT().
-					HasNonTerminalOpsForShard(className, mock.Anything).
+					HasOngoingReplication(className, mock.Anything).
 					RunAndReturn(func(_, shard string) bool {
 						return tt.shardsWithOps[shard]
 					}).
@@ -330,7 +330,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 		fsm := replicationTypes.NewMockReplicationFSMReader(t)
 		fsm.EXPECT().
-			HasNonTerminalOpsForShard(className, mock.Anything).
+			HasOngoingReplication(className, mock.Anything).
 			RunAndReturn(func(_, shard string) bool { return shardsWithOps[shard] }).
 			Maybe()
 

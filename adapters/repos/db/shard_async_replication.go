@@ -1375,7 +1375,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 	// during this, there are windows where a un-caught-up target would push a write
 	// back to the source erroneously.
 	if s.index.replicationFSMReader != nil &&
-		s.index.replicationFSMReader.HasNonTerminalOpsForShard(s.class.Class, s.name) {
+		s.index.replicationFSMReader.HasOngoingTargetReplication(s.class.Class, s.name, s.index.db.localNodeName) {
 		return false, nil
 	}
 

@@ -37,7 +37,6 @@ var (
 )
 
 type replicationFSM interface {
-	HasOngoingReplication(collection string, shard string, replica string) bool
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
 	SetUnCancellable(id uint64) error

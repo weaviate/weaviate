@@ -1452,7 +1452,7 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
 		for shardName := range state.Physical {
-			if i.replicationFSMReader.HasNonTerminalOpsForShard(className, shardName) {
+			if i.replicationFSMReader.HasOngoingReplication(className, shardName) {
 				midMovement = true
 				return nil
 			}
