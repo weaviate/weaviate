@@ -260,7 +260,7 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 		{
 			"ns=customer1, data path, unqualified Movies* policy → match",
 			"data/collections/customer1:Movies/shards/Tenant1/objects/obj-1",
-			conv.CasbinData("Movies*", "*", "*"),
+			conv.CasbinData("Movies*", "*"),
 			"customer1",
 			true,
 		},

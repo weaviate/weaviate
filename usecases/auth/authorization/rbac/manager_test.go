@@ -413,7 +413,7 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 			Object:     strPtr("*"),
 		}}
 		require.Equal(t,
-			"[Domain: data, Collection: customer2:Movies, Tenant: *, Object: *]",
+			"[Domain: data, Collection: customer2:Movies, Tenant: *]",
 			prettyPermissionsResources(nsCaller, perm),
 		)
 	})

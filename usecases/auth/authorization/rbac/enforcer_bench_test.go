@@ -47,7 +47,7 @@ func setupBenchEnforcer(b *testing.B, nRules int, cache bool) *casbin.SyncedCach
 		b.Fatal(err)
 	}
 	e.EnableCache(cache)
-	e.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
+	e.AddFunction("namespaceAwareMatcher", makeNamespaceAwareMatcherFunc(false))
 
 	role := conv.PrefixRoleName("bench-role")
 
@@ -85,7 +85,7 @@ func BenchmarkEnforce_ObjectWildcard(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// Simulate the new path: object segment is always *.
 				resource := fmt.Sprintf("data/collections/Collection%d/shards/shard0/objects/*", i%nRules)
-				_, _ = e.Enforce(user, resource, authorization.READ)
+				_, _ = e.Enforce(user, resource, authorization.READ, "")
 			}
 		})
 	}
@@ -104,7 +104,7 @@ func BenchmarkEnforce_ObjectUnique(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// Simulate the old path: each request has a unique object UUID.
 				resource := fmt.Sprintf("data/collections/Collection%d/shards/shard0/objects/obj-%d", i%nRules, i)
-				_, _ = e.Enforce(user, resource, authorization.READ)
+				_, _ = e.Enforce(user, resource, authorization.READ, "")
 			}
 		})
 	}
@@ -122,7 +122,7 @@ func BenchmarkEnforce_NoCache(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				resource := fmt.Sprintf("data/collections/Collection%d/shards/shard0/objects/*", i%nRules)
-				_, _ = e.Enforce(user, resource, authorization.READ)
+				_, _ = e.Enforce(user, resource, authorization.READ, "")
 			}
 		})
 	}
