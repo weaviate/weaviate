@@ -123,7 +123,7 @@ func (f *FSM) putObject(shard shard, req *shardproto.ApplyRequest) error {
 		return fmt.Errorf("unmarshal PutObject subcommand: %w", err)
 	}
 
-	obj, err := storobj.FromBinary(subreq.Object)
+	obj, err := storobj.FromBinaryNetwork(subreq.Object)
 	if err != nil {
 		return fmt.Errorf("get object from command: %w", err)
 	}
