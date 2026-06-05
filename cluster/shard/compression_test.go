@@ -53,7 +53,7 @@ func TestCompression_RoundTrip(t *testing.T) {
 	var recovered shardproto.PutObjectRequest
 	require.NoError(t, proto.Unmarshal(decompressed, &recovered))
 
-	recoveredObj, err := storobj.FromBinary(recovered.Object)
+	recoveredObj, err := storobj.FromBinaryNetwork(recovered.Object)
 	require.NoError(t, err)
 	assert.Equal(t, obj.Object.ID, recoveredObj.Object.ID)
 	assert.Equal(t, obj.Object.Class, recoveredObj.Object.Class)
@@ -237,7 +237,7 @@ func TestCompression_PutObjectsBatch_RoundTrip(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(decompressed, &recovered))
 	assert.Len(t, recovered.Objects, 2)
 
-	recoveredObj, err := storobj.FromBinary(recovered.Objects[0])
+	recoveredObj, err := storobj.FromBinaryNetwork(recovered.Objects[0])
 	require.NoError(t, err)
 	assert.Equal(t, obj.Object.ID, recoveredObj.Object.ID)
 }

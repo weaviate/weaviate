@@ -309,7 +309,7 @@ func (f *FSM) putObject(shard shard, req *shardproto.ApplyRequest) error {
 		return nil
 	}
 
-	obj, err := storobj.FromBinary(subreq.Object)
+	obj, err := storobj.FromBinaryNetwork(subreq.Object)
 	if err != nil {
 		f.log.WithError(err).Error("FSM apply: permanent deserialize error in putObject, swallowing")
 		return nil
@@ -372,7 +372,7 @@ func (f *FSM) putObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
 
 	objs := make([]*storobj.Object, len(subreq.Objects))
 	for i, raw := range subreq.Objects {
-		obj, err := storobj.FromBinary(raw)
+		obj, err := storobj.FromBinaryNetwork(raw)
 		if err != nil {
 			f.log.WithError(err).WithField("index", i).Error("FSM apply: permanent deserialize error in putObjectsBatch, swallowing")
 			return nil
