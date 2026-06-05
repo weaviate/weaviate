@@ -29,6 +29,59 @@ import (
 // AssignPositions output, skipping the parser / planner / shard write layers.
 
 // ---------------------------------------------------------------------------
+// AND merge dispatch matrix
+// ---------------------------------------------------------------------------
+//
+// andLeaves dispatches on (a) the relationship between the two inputs'
+// TruthScopes and (b) their CanProjectParentByAnchor (CP) flags. Three
+// scope relations × four CP combinations = 12 cells; many collapse to a
+// small number of distinct rules.
+//
+// Notation: A = ancestor (higher TS), C = child (lower TS).
+//
+//   scope relation       (A.CP, C.CP)   merge scope   result.CP   action
+//   ─────────────────────────────────────────────────────────────────────
+//   same TS              (any, any)     left.TS       false       andAtScope
+//   ─────────────────────────────────────────────────────────────────────
+//   ancestor + child     (true,  true)  C.TS          true        andAtScope
+//   ancestor + child     (true,  false) C.TS          false       andAtScope
+//   ancestor + child     (false, true)  A.TS          false       andAtScope (no lift)
+//   ancestor + child     (false, false) A.TS          false       liftToScope(C, A.TS) then andAtScope
+//   ─────────────────────────────────────────────────────────────────────
+//   siblings (LCA above) (any, any)     LCA           false       lift both to LCA, recurse same-TS
+//
+// Why each rule:
+//
+//   - Same TS: chain bits at parent can survive even when different
+//     elements satisfy each leaf, producing ghost ancestors → CP=false.
+//
+//   - Ancestor+child, A.CP=true: A.Rich is clean above A.TS and broadcasts
+//     to descendants (via the chain+self+descendantSelves encoding from
+//     assign.go). Intersection at C.TS is a correct same-element filter.
+//     Intersection never invents bits, so result CP = C.CP — A cannot
+//     mask C's ghosts that coincide with A's authentic positions.
+//
+//   - Ancestor+child, A.CP=false / C.CP=true: A.Rich has ghosts above
+//     A.TS but is trustworthy at A.TS itself (Rich ∩ _anchor(A.TS) = ES).
+//     C.Rich is authentic at every scope from C.TS up to root, including
+//     A.TS — its chain bits at A.TS are already clean. Direct intersection
+//     at A.TS works without lifting. Result CP=false because A's ghosts
+//     above A.TS remain.
+//
+//   - Ancestor+child, A.CP=false / C.CP=false: C.Rich may carry ghosts at
+//     A.TS that would coincide with A's authentic ES and leak into the
+//     result. Lift C up first — LiftToAncestor reconstructs C.Rich at
+//     A.TS from authentic ExactSupport, wiping ghost bits — then merge
+//     same-scope.
+//
+//   - Siblings: same-scope AND at LCA, structurally CP=false (same
+//     reason as same-TS).
+//
+// The core merge formula (rich = left.Rich ∩ right.Rich, support = rich ∩
+// _anchor(mergeScope)) is identical in every branch; only the merge scope
+// and CP value vary.
+
+// ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
@@ -180,7 +233,7 @@ func leafIsNullFalse(idx *fastPathIndex, path string) *fastPathResult {
 // `universe \ pos.ExactSupport` for both ExactSupport (over _anchor) and
 // Rich (over _exists). CanProject flips to false because Rich keeps chain
 // bits above TruthScope after subtract — projecting up by anchor would
-// falsely include docs where the negation actually fails (§2.2.2.A).
+// falsely include docs where the negation actually fails.
 //
 //	TruthScope   = pos.TruthScope
 //	ExactSupport = _anchor(TruthScope) ANDNOT pos.ExactSupport
@@ -203,9 +256,9 @@ func leafIsNullTrue(idx *fastPathIndex, path string) *fastPathResult {
 }
 
 // leafNot realizes `NOT path = value` — universe-subtract of leafPositive's
-// positive support. Per §4.1.1.A, empty array scope (no elements) does NOT
-// count as a witness — that falls out because pos.ExactSupport already
-// requires at least one TruthScope-element to exist.
+// positive support. Empty array scope (no elements) does NOT count as a
+// witness — that falls out because pos.ExactSupport already requires at
+// least one TruthScope-element to exist.
 func leafNot(idx *fastPathIndex, path string, value any) *fastPathResult {
 	return negate(idx, leafPositive(idx, path, value))
 }
@@ -343,12 +396,162 @@ func leafPinnedPositive(idx *fastPathIndex, valuePath string, value any, pins []
 // of leafPinnedPositive's positive support. Works for any pin count (single,
 // intermediate, multi) since leafPinnedPositive is unified.
 //
-// Missing pinned slot counts as success (per design's owner-centric pinned
-// semantic — both "year != 2020" and "no pinned slot" make the NOT true):
-// pos.ExactSupport is empty for docs whose pinned slot doesn't exist, and
-// universe \ ∅ = universe, so those docs survive.
+// Missing pinned slot counts as success: both "value mismatch" and "no
+// pinned slot" satisfy the NOT. This falls out of the universe-subtract —
+// pos.ExactSupport is empty for owners whose pinned slot doesn't exist, and
+// universe \ ∅ = universe, so those owners survive.
 func leafPinnedNot(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
 	return negate(idx, leafPinnedPositive(idx, valuePath, value, pins))
+}
+
+// ---------------------------------------------------------------------------
+// Merge builders
+// ---------------------------------------------------------------------------
+
+// commonScope returns the longest common ancestor of two qualified path
+// strings (segments delimited by "."). For schemas with linear hierarchy
+// it's either a prefix of both inputs or equal to one of them.
+func commonScope(a, b string) string {
+	if a == b {
+		return a
+	}
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	n := min(len(bParts), len(aParts))
+	i := 0
+	for i < n && aParts[i] == bParts[i] {
+		i++
+	}
+	return strings.Join(aParts[:i], ".")
+}
+
+// andLeaves performs an AND merge of two leaf results. See the AND merge
+// dispatch matrix near the top of this file for the full table of cases;
+// inline comments below mark each branch.
+func andLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult {
+	if left.TruthScope == right.TruthScope {
+		return andAtScope(idx, left, right, left.TruthScope, false)
+	}
+
+	common := commonScope(left.TruthScope, right.TruthScope)
+
+	// Siblings (LCA is above both) → lift both up, recurse as same-scope.
+	if common != left.TruthScope && common != right.TruthScope {
+		return andLeaves(idx,
+			liftToScope(idx, left, common),
+			liftToScope(idx, right, common))
+	}
+
+	// One is ancestor of the other.
+	var ancestor, child *fastPathResult
+	if common == left.TruthScope {
+		ancestor, child = left, right
+	} else {
+		ancestor, child = right, left
+	}
+
+	if ancestor.CanProjectParentByAnchor {
+		// A clean above A.TS, broadcasts to descendants → safe filter at
+		// C.TS. Result CP propagates from child: A cannot mask C's ghosts
+		// that coincide with A's authentic positions.
+		return andAtScope(idx, child, ancestor, child.TruthScope, child.CanProjectParentByAnchor)
+	}
+	if child.CanProjectParentByAnchor {
+		// C.Rich is authentic at every scope from C.TS up to root, so its
+		// chain bits at A.TS are already clean. Intersect directly at A.TS
+		// — no lift needed. A.Rich is trustworthy at A.TS by the
+		// scope invariant, so support = (A.Rich ∩ C.Rich) ∩ _anchor(A.TS)
+		// is correct. Result CP=false: A's ghosts above A.TS remain.
+		return andAtScope(idx, ancestor, child, ancestor.TruthScope, false)
+	}
+	// Both carry ghosts; C's may reach A.TS. Lift C up so its A.TS bits
+	// are rebuilt from authentic ExactSupport, then merge same-scope.
+	lifted := liftToScope(idx, child, ancestor.TruthScope)
+	return andAtScope(idx, ancestor, lifted, ancestor.TruthScope, false)
+}
+
+// andAtScope is the shared core merge formula used by every branch of
+// andLeaves once the merge scope and CanProject value are known.
+func andAtScope(idx *fastPathIndex, left, right *fastPathResult, scope string, canProject bool) *fastPathResult {
+	rich := left.Rich.Clone().And(right.Rich)
+	support := rich.Clone().And(idx.anchor[scope])
+	return &fastPathResult{
+		TruthScope:               scope,
+		Rich:                     rich,
+		ExactSupport:             support,
+		CanProjectParentByAnchor: canProject,
+	}
+}
+
+// liftToScope re-wraps a leaf result at a higher (ancestor) TruthScope.
+// Useful when sibling leaves with different natural witness scopes share a
+// common ancestor where the merge should land (e.g. `cars.accessories.type`
+// at TruthScope=accessories and `cars.tires.width` at TruthScope=tires both
+// merge at cars).
+//
+// The lift method depends on leaf.CanProjectParentByAnchor:
+//
+//   - true: anchor intersection is safe — no ghost ancestors above the
+//     original TruthScope, so Rich ∩ _anchor(targetScope) equals the
+//     correct lifted ExactSupport. Rich is reused unchanged.
+//
+//   - false: Rich carries ghosts at intermediate scopes. Use a real
+//     predecessor lift (LiftToAncestor) on ExactSupport to project to
+//     targetScope, then reconstruct Rich at the new scope by stripping
+//     target-scope ghost bits and OR-ing back the authentic lifted ES —
+//     mirroring how pinned positive helpers strip TS ghosts.
+//
+// targetScope must be an ancestor of leaf.TruthScope in the schema (or
+// equal, in which case the input is returned unchanged). Caller is
+// responsible for ensuring this — no schema lookup happens here.
+//
+// CanProject is preserved (lift doesn't change ghost characteristics above
+// the original TruthScope).
+func liftToScope(idx *fastPathIndex, leaf *fastPathResult, targetScope string) *fastPathResult {
+	if leaf.TruthScope == targetScope {
+		return leaf
+	}
+	targetAnchor := idx.anchor[targetScope]
+	var rich, support *sroar.Bitmap
+	if leaf.CanProjectParentByAnchor {
+		rich = leaf.Rich
+		support = leaf.Rich.Clone().And(targetAnchor)
+	} else {
+		support, _ = idx.ops.LiftToAncestor(leaf.ExactSupport, targetAnchor)
+		rich = leaf.Rich.Clone().AndNot(targetAnchor).Or(support)
+	}
+	return &fastPathResult{
+		TruthScope:               targetScope,
+		Rich:                     rich,
+		ExactSupport:             support,
+		CanProjectParentByAnchor: leaf.CanProjectParentByAnchor,
+	}
+}
+
+// orLeaves performs a same-scope OR merge of two leaf results. Both inputs
+// must share TruthScope.
+//
+//	Rich         = left.Rich ∪ right.Rich
+//	ExactSupport = left.ExactSupport ∪ right.ExactSupport   (cheaper than rich ∩ anchor)
+//	TruthScope   = left.TruthScope
+//	CanProjectParentByAnchor = left && right
+//
+// Unlike same-scope AND, OR preserves CanProject when both inputs do:
+// chain bits at parent scope in Rich legitimately indicate "some matching
+// element under this parent" — which is exactly the existential OR semantic.
+// No ghost ancestors are introduced.
+func orLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult {
+	if left.TruthScope != right.TruthScope {
+		panic("orLeaves requires same TruthScope")
+	}
+	rich := left.Rich.Clone().Or(right.Rich)
+	support := left.ExactSupport.Clone().Or(right.ExactSupport)
+	return &fastPathResult{
+		TruthScope:               left.TruthScope,
+		Rich:                     rich,
+		ExactSupport:             support,
+		CanProjectParentByAnchor: left.CanProjectParentByAnchor && right.CanProjectParentByAnchor,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -541,6 +744,58 @@ func l2Docs() map[uint64]any {
 				}},
 			}},
 		},
+		// 800: positive fixture for ghost recovery. One garage (warsaw)
+		// contains a single car that satisfies spoiler+205+door=4. The
+		// other garage (krakow) splits spoiler and 205 across two cars —
+		// produces a ghost ancestor at the krakow garage when (spoiler AND
+		// 205) is merged at cars. An ancestor constraint city=warsaw filters
+		// the krakow ghost; a same-scope sibling like doors.count=4 doesn't.
+		800: []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "warsaw", "cars": []any{
+					map[string]any{
+						"accessories": []any{map[string]any{"type": "spoiler"}},
+						"tires":       []any{map[string]any{"width": 205}},
+						"doors":       []any{map[string]any{"count": 4}},
+					},
+				}},
+				map[string]any{"city": "krakow", "cars": []any{
+					map[string]any{
+						"accessories": []any{map[string]any{"type": "spoiler"}},
+						"doors":       []any{map[string]any{"count": 4}},
+					},
+					map[string]any{
+						"tires": []any{map[string]any{"width": 205}},
+						"doors": []any{map[string]any{"count": 4}},
+					},
+				}},
+			}},
+		},
+		// 900: negative fixture for ghost recovery. Same krakow split as
+		// 800, but the warsaw garage has no spoiler+205 witness —
+		// only doors. With city=warsaw the result is empty (ghost in krakow
+		// is filtered, no witness in warsaw). With doors.count=4 it stays
+		// empty (sibling matches in krakow too, ghost survives but no real
+		// car witness anywhere).
+		900: []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "warsaw", "cars": []any{
+					map[string]any{
+						"doors": []any{map[string]any{"count": 4}},
+					},
+				}},
+				map[string]any{"city": "krakow", "cars": []any{
+					map[string]any{
+						"accessories": []any{map[string]any{"type": "spoiler"}},
+						"doors":       []any{map[string]any{"count": 4}},
+					},
+					map[string]any{
+						"tires": []any{map[string]any{"width": 205}},
+						"doors": []any{map[string]any{"count": 4}},
+					},
+				}},
+			}},
+		},
 	}
 }
 
@@ -559,6 +814,62 @@ func buildL2(t *testing.T) *fastPathIndex {
 	return idx
 }
 
+// fastPathTestCase is the table row used by both single-leaf and merge tests.
+// build constructs the result lazily so each subtest captures its own
+// expression — easier to scan than a slice of *fastPathResult.
+type fastPathTestCase struct {
+	name           string
+	build          func(*fastPathIndex) *fastPathResult
+	wantTruthScope string
+	wantCanProject bool
+	wantDocs       []uint64 // after the real MaskRootLeaf projection
+}
+
+// runFastPathCases drives the standard assertion suite for any
+// fastPathTestCase table: scope/CanProject equality, ES non-empty iff wantDocs
+// non-empty, trustworthy-scope invariant, doc-id equality, and (when
+// CanProject=true) the no-ghost-at-parent contract.
+func runFastPathCases(t *testing.T, idx *fastPathIndex, cases []fastPathTestCase) {
+	t.Helper()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := tc.build(idx)
+			assert.Equal(t, tc.wantTruthScope, r.TruthScope)
+			assert.Equal(t, tc.wantCanProject, r.CanProjectParentByAnchor)
+			// ExactSupport mirrors wantDocs: non-empty iff wantDocs non-empty.
+			// Rich is non-empty in the populated case; for empty-result we
+			// skip the Rich check because some negation shapes can leave
+			// ancestor chain bits in Rich even when ExactSupport is empty.
+			if len(tc.wantDocs) == 0 {
+				assert.True(t, r.ExactSupport.IsEmpty(), "ExactSupport must be empty when wantDocs is empty")
+			} else {
+				assert.False(t, r.Rich.IsEmpty(), "Rich must not be empty")
+				assert.False(t, r.ExactSupport.IsEmpty(), "ExactSupport must not be empty")
+			}
+			// Trustworthy-scope invariant: Rich ∩ _anchor(TruthScope) must
+			// equal ExactSupport. Holds regardless of CanProjectParentByAnchor
+			// — the flag only governs whether projection ABOVE TruthScope by
+			// anchor is safe.
+			richAtTruth := r.Rich.Clone().And(idx.anchor[r.TruthScope])
+			assert.Equal(t, r.ExactSupport.ToArray(), richAtTruth.ToArray(),
+				"Rich ∩ _anchor(TruthScope) must equal ExactSupport")
+			assert.ElementsMatch(t, tc.wantDocs, idx.docIDs(r))
+
+			// Ghost-free contract for CanProjectParentByAnchor=true: projecting
+			// Rich to the parent anchor and masking to docIDs must give exactly
+			// wantDocs. Any extra doc means a chain bit from a non-matching
+			// element leaked through (a ghost ancestor).
+			if r.CanProjectParentByAnchor {
+				parent := parentPath(r.TruthScope)
+				richAtParent := r.Rich.Clone().And(idx.anchor[parent])
+				parentDoc, _ := idx.ops.MaskRootLeaf(richAtParent)
+				assert.ElementsMatch(t, tc.wantDocs, parentDoc.ToArray(),
+					"CanProject=true: Rich ∩ _anchor(parent) must yield wantDocs (no ghost ancestors)")
+			}
+		})
+	}
+}
+
 // TestFastPathL2_SingleLeaf exercises the single-leaf shapes against the L2
 // schema. Each subtest verifies the full result quadruple (TruthScope, Rich,
 // ExactSupport, CanProjectParentByAnchor) plus the masked doc IDs from
@@ -566,18 +877,7 @@ func buildL2(t *testing.T) *fastPathIndex {
 func TestFastPathL2_SingleLeaf(t *testing.T) {
 	idx := buildL2(t)
 
-	cases := []struct {
-		// name documents the query under test.
-		name string
-		// build constructs the result lazily so each subtest captures its own
-		// expression — easier to scan than a slice of *fastPathResult.
-		build func(*fastPathIndex) *fastPathResult
-		// Expected result fields.
-		wantTruthScope string
-		wantCanProject bool
-		// Expected docs after the real MaskRootLeaf projection.
-		wantDocs []uint64
-	}{
+	cases := []fastPathTestCase{
 		{
 			name: "cars.year=2020",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -626,7 +926,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			},
 			wantTruthScope: "countries.garages.cars",
 			wantCanProject: false,
-			wantDocs:       []uint64{200, 300, 500, 600, 830},
+			wantDocs:       []uint64{200, 300, 500, 600, 800, 830, 900},
 		},
 		{
 			name: "cars[1].year IS NULL true",
@@ -637,7 +937,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			},
 			wantTruthScope: "countries.garages",
 			wantCanProject: false,
-			wantDocs:       []uint64{300, 400, 700, 830},
+			wantDocs:       []uint64{300, 400, 700, 800, 830, 900},
 		},
 		{
 			name: "NOT cars.year=2020",
@@ -648,8 +948,9 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			wantCanProject: false,
 			// 810 FAILS: every car has year=2020. 820 PASSES: each country
 			// has cars[0] with year != 2020 (a per-element witness). 830
-			// PASSES: car has no year, which counts as "not 2020".
-			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 820, 830},
+			// PASSES: car has no year, which counts as "not 2020". 800/900
+			// PASS: cars in those docs have no year.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 800, 820, 830, 900},
 		},
 		{
 			name: "NOT cars[1].year=2020",
@@ -663,8 +964,9 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			wantCanProject: false,
 			// 810 FAILS: cars[1].year=2020 in the only garage. 820 FAILS:
 			// every country's cars[1] has year=2020 — no garage witness anywhere.
-			// 830 PASSES: no cars[1] → missing slot ≡ true (§4.1.1.B).
-			wantDocs: []uint64{100, 300, 400, 500, 600, 700, 830},
+			// 830 PASSES: no cars[1] → missing pinned slot satisfies NOT.
+			// 800/900 PASS: cars[1] missing or has no year.
+			wantDocs: []uint64{100, 300, 400, 500, 600, 700, 800, 830, 900},
 		},
 		{
 			name: "cars IS NULL false",
@@ -673,7 +975,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			},
 			wantTruthScope: "countries.garages",
 			wantCanProject: true,
-			wantDocs:       []uint64{100, 200, 300, 400, 500, 600, 700, 810, 820, 830},
+			wantDocs:       []uint64{100, 200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
 		},
 		{
 			name: "cars IS NULL true",
@@ -706,7 +1008,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			// Every doc has at least one car lacking "red" (most fixtures
 			// have no colors property at all — cars stay in _anchor(cars)
 			// but contribute no posExact). All docs pass.
-			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 810, 820, 830},
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
 		},
 		// Depth-4 nested scalar (cars → accessories → type) — verifies chain
 		// propagation through an extra level of walkNestedArray.
@@ -718,8 +1020,10 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			wantTruthScope: "countries.garages.cars.accessories",
 			wantCanProject: true,
 			// 830 PASSES via accessories[1] — verifies walker positions for
-			// non-first array elements at depth 4.
-			wantDocs: []uint64{100, 200, 830},
+			// non-first array elements at depth 4. 800 PASSES via spoiler
+			// accessories in both g[0].cars[0] and g[1].cars[0]; 900 PASSES
+			// via spoiler in g[1].cars[0].
+			wantDocs: []uint64{100, 200, 800, 830, 900},
 		},
 		{
 			name: "NOT cars.accessories.type=spoiler",
@@ -730,7 +1034,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			wantCanProject: false,
 			// doc 100: cars[1]'s radio is non-spoiler witness.
 			// doc 200: all spoilers → no witness → FAIL.
-			// 300-820: no accessories → empty scope (§4.1.1.A) → FAIL.
+			// 300-820: no accessories → empty scope, no witness possible → FAIL.
 			// 830: accessories[0] is radio → witness.
 			wantDocs: []uint64{100, 830},
 		},
@@ -795,8 +1099,10 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			wantCanProject: false,
 			// All countries pass except doc 500's (which has the full
 			// pinned path with a name). Missing-pin cases (no garages[1] or
-			// no cars[2]) all count as witnesses per §4.1.1.B.
-			wantDocs: []uint64{100, 200, 300, 400, 600, 700, 810, 820, 830},
+			// no cars[2]) all count as witnesses — a missing pinned slot
+			// satisfies IS NULL true.
+			// 800/900 PASS: g[1] exists but cars[2] missing.
+			wantDocs: []uint64{100, 200, 300, 400, 600, 700, 800, 810, 820, 830, 900},
 		},
 		{
 			name: "NOT garages[1].cars[2].name=honda",
@@ -814,7 +1120,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			// Same set as the IS NULL true case — the only doc where the
 			// full pinned path has name=honda is doc 500. Every other doc
 			// passes either via missing pin or via name != honda.
-			wantDocs: []uint64{100, 200, 300, 400, 600, 700, 810, 820, 830},
+			wantDocs: []uint64{100, 200, 300, 400, 600, 700, 800, 810, 820, 830, 900},
 		},
 		// Intermediate-pin: pin at garages[1] with cars unpinned. Discriminates
 		// from single-pin `cars.make=bmw` (which would also include doc 600).
@@ -848,41 +1154,261 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := tc.build(idx)
-			assert.Equal(t, tc.wantTruthScope, r.TruthScope)
-			assert.Equal(t, tc.wantCanProject, r.CanProjectParentByAnchor)
-			// ExactSupport mirrors wantDocs: non-empty iff wantDocs non-empty.
-			// Rich is non-empty in the populated case; for empty-result we
-			// skip the Rich check because some negation shapes can leave
-			// ancestor chain bits in Rich even when ExactSupport is empty.
-			if len(tc.wantDocs) == 0 {
-				assert.True(t, r.ExactSupport.IsEmpty(), "ExactSupport must be empty when wantDocs is empty")
-			} else {
-				assert.False(t, r.Rich.IsEmpty(), "Rich must not be empty")
-				assert.False(t, r.ExactSupport.IsEmpty(), "ExactSupport must not be empty")
-			}
-			// Trustworthy-scope invariant: Rich ∩ _anchor(TruthScope) must
-			// equal ExactSupport. Holds regardless of CanProjectParentByAnchor
-			// — the flag only governs whether projection ABOVE TruthScope by
-			// anchor is safe.
-			richAtTruth := r.Rich.Clone().And(idx.anchor[r.TruthScope])
-			assert.Equal(t, r.ExactSupport.ToArray(), richAtTruth.ToArray(),
-				"Rich ∩ _anchor(TruthScope) must equal ExactSupport")
-			assert.ElementsMatch(t, tc.wantDocs, idx.docIDs(r))
+	runFastPathCases(t, idx, cases)
+}
 
-			// Ghost-free contract for CanProjectParentByAnchor=true: projecting
-			// Rich to the parent anchor and masking to docIDs must give exactly
-			// wantDocs. Any extra doc means a chain bit from a non-matching
-			// element leaked through (a ghost ancestor).
-			if r.CanProjectParentByAnchor {
-				parent := parentPath(r.TruthScope)
-				richAtParent := r.Rich.Clone().And(idx.anchor[parent])
-				parentDoc, _ := idx.ops.MaskRootLeaf(richAtParent)
-				assert.ElementsMatch(t, tc.wantDocs, parentDoc.ToArray(),
-					"CanProject=true: Rich ∩ _anchor(parent) must yield wantDocs (no ghost ancestors)")
-			}
-		})
+// TestFastPathL2_Merge exercises compound (AND/OR) shapes against the L2
+// schema, building on the single-leaf helpers. Each case constructs a
+// compound via merge builders (andLeaves, …) operating on leaf results.
+func TestFastPathL2_Merge(t *testing.T) {
+	idx := buildL2(t)
+
+	cases := []fastPathTestCase{
+		// Positive AND at the same scope. Same-element semantics fall out
+		// from intersecting chain-bearing Riches: only cars that satisfy
+		// BOTH predicates simultaneously survive at the car self level.
+		// CanProject=false: Rich at parent (garages) keeps chain bits for
+		// docs where different cars in the same garage satisfy each leaf
+		// (e.g. doc 100 cars[0]=2020/toyota + cars[1]=2018/honda) — that
+		// would falsely project to garage level.
+		{
+			name: "cars.make=honda AND cars.year=2020",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.year", 2020))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// doc 200: cars[1] has both year=2020 and make=honda.
+			// doc 810: cars[0] has both year=2020 and make=honda.
+			// doc 820 country 0: cars[1] has both. (Country 1 has neither in
+			// the same car — but doc passes existentially via country 0.)
+			// All other docs have year=2020 and make=honda in different cars
+			// or not at all.
+			wantDocs: []uint64{200, 810, 820},
+		},
+		// Positive OR at the same scope. Each leaf contributes its own
+		// matching cars; the merged result is "exists a car matching either
+		// predicate". CanProject=true is preserved because Rich chain bits at
+		// parent legitimately indicate "garages with at least one matching
+		// car for either leaf" — the existential OR semantic at parent.
+		{
+			name: "cars.make=honda OR cars.year=2020",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.make", "honda"),
+					leafPositive(idx, "countries.garages.cars.year", 2020))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: true,
+			// 100: cars[0].year=2020. 200: cars[0].make=honda. 300:
+			// cars[1].make=honda. 600 country 1: cars[1].year=2020.
+			// 810: cars[0] year=2020 (and make=honda). 820 country 0:
+			// cars[1] year=2020 (and make=honda). 400/500/700/830 lack both.
+			wantDocs: []uint64{100, 200, 300, 600, 810, 820},
+		},
+		// Same property, different values — AND requires the same car's
+		// scalar-array (colors) to contain BOTH values. Same shape as the
+		// scalar-AND case above but on text[]: each colors element emits at
+		// its own leaf position while sharing the car's chain. Intersection
+		// at car self level survives only when a single car has both colors.
+		{
+			name: "cars.colors=blue AND cars.colors=red",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.colors", "blue"),
+					leafPositive(idx, "countries.garages.cars.colors", "red"))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// doc 100: cars[1].colors=["blue","red"]. Other docs either lack
+			// colors entirely (500/600/700/810/820/830), have only one of the
+			// values (200 has blue and red split across cars[0]/cars[1]; 300
+			// has only red; 400 has only "yellow"), or have neither.
+			wantDocs: []uint64{100},
+		},
+		// Sibling branches under a shared owner. Each leaf's natural
+		// TruthScope is its own array element (accessories vs tires); the
+		// merge must land at the common ancestor (cars). andLeaves detects
+		// the sibling relationship and lifts both operands to the LCA before
+		// merging.
+		{
+			name: "cars.accessories.type=spoiler AND cars.tires.width=205",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafPositive(idx, "countries.garages.cars.tires.width", 205))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// doc 100: cars[0] has both spoiler-accessory and tires.width=205.
+			// doc 200: cars[0] and cars[1] both have both. doc 800 g[0].cars[0]
+			// has both. Other docs lack either accessories or tires (or both);
+			// doc 830 has a spoiler accessory on cars[0] but no tires.
+			// doc 900 has spoiler in g[1].cars[0] and tires in g[1].cars[1] —
+			// no single car has both, FAIL.
+			wantDocs: []uint64{100, 200, 800},
+		},
+		// Pinned+pinned merge at owner. Both leaves naturally have
+		// TruthScope=garages after pin consumption, so andLeaves works
+		// without lift. Same-garage semantic: a single garage must satisfy
+		// both NOT cars[1].year=2020 (cars[1] missing or year ≠ 2020) AND
+		// cars[2].name=honda. doc 600 deliberately FAILs because its two
+		// countries each satisfy one half but no garage satisfies both —
+		// this test pins the no-cross-country-mixing property.
+		{
+			name: "NOT cars[1].year=2020 AND cars[2].name=honda",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPinnedNot(idx,
+						"countries.garages.cars.year", 2020,
+						[]pinSpec{{"countries.garages.cars", 1}}),
+					leafPinnedPositive(idx,
+						"countries.garages.cars.name", "honda",
+						[]pinSpec{{"countries.garages.cars", 2}}))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// doc 100: g[0] satisfies both. doc 500: g[1] satisfies both.
+			// doc 600: country 0 g[0] satisfies NOT but cars[2].name=ford;
+			// country 1 g[0] cars[1].year=2020 fails NOT. No same-garage
+			// witness anywhere.
+			wantDocs: []uint64{100, 500},
+		},
+		// Mixed CanProject AND: pinned negation (TS=garages, CP=false)
+		// ANDed with unpinned positive (TS=cars, CP=true). Ancestor.CP=false
+		// + child.CP=true → direct merge at ancestor.TS=garages (child's
+		// chain bits at garages are already clean since child.CP=true).
+		// Result CP=false (ancestor's ghosts above garages remain).
+		{
+			name: "NOT cars[1].year=2020 AND cars.make=honda",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPinnedNot(idx,
+						"countries.garages.cars.year", 2020,
+						[]pinSpec{{"countries.garages.cars", 1}}),
+					leafPositive(idx, "countries.garages.cars.make", "honda"))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// doc 100: g[0] cars[1]=2018 satisfies NOT, cars[1].make=honda.
+			// doc 300: g[0] cars[1] missing year satisfies NOT (missing
+			// pinned slot is a witness), cars[1].make=honda.
+			// 200/810/820: cars[1].year=2020 fails NOT. 400/500/600/700/830:
+			// no make=honda or no satisfying garage.
+			wantDocs: []uint64{100, 300},
+		},
+		// Ghost mitigation via ancestor constraint. The inner sibling-AND
+		// at cars has CP=false because chain bits at garage level can
+		// survive even when no single car satisfies both predicates (a
+		// "ghost ancestor"). AND-ing with garages.city=warsaw — a positive
+		// ancestor at garages, CP=true — masks ghosts that don't overlap
+		// with warsaw garages, but cannot mask ghosts that coincide with
+		// warsaw's authentic positions. Result CP=child.CP=false: ES at
+		// cars is correct, but parent projection stays unsafe in general.
+		//
+		// For these specific fixtures the merge happens to produce a clean
+		// result at parent — doc 800 g[1] (krakow) ghost is filtered out
+		// because krakow ≠ warsaw; doc 900 has no inner witness anywhere.
+		// But that's data-dependent; the CP flag stays false because a doc
+		// with a warsaw garage carrying its own split-spoiler/tires ghost
+		// would survive the filter and leak into a parent projection.
+		{
+			name: "(cars.accessories.type=spoiler AND cars.tires.width=205) AND garages.city=warsaw",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					andLeaves(idx,
+						leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+						leafPositive(idx, "countries.garages.cars.tires.width", 205)),
+					leafPositive(idx, "countries.garages.city", "warsaw"))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			wantDocs:       []uint64{800},
+		},
+		// Ancestor+child AND with both CP=true. Ancestor garages.city=warsaw
+		// (TS=garages) AND child cars.doors.count=4 (TS=doors). Merge at
+		// child.TS=doors with CP=child.CP=true. Ancestor.Rich broadcasts to
+		// descendants via the chain encoding, so doors-scope intersection
+		// keeps only doors whose garage chain includes a warsaw garage.
+		{
+			name: "garages.city=warsaw AND cars.doors.count=4",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPositive(idx, "countries.garages.city", "warsaw"),
+					leafPositive(idx, "countries.garages.cars.doors.count", 4))
+			},
+			wantTruthScope: "countries.garages.cars.doors",
+			wantCanProject: true,
+			// 800 g[0] (warsaw): cars[0].doors=4 → MATCH. 800 g[1] (krakow):
+			// doors=4 but chain is krakow → no warsaw overlap.
+			// 900 g[0] (warsaw): cars[0].doors=4 → MATCH. 900 g[1] (krakow):
+			// doors=4 but krakow.
+			// No other fixture sets city or doors.
+			wantDocs: []uint64{800, 900},
+		},
+		// Ancestor+child AND with both CP=false. Ancestor pinned NOT
+		// (TS=garages) AND child same-scope AND at cars (TS=cars). Both
+		// inputs carry ghosts, so child gets lifted to ancestor.TS=garages
+		// first (LiftToAncestor rebuilds child.Rich at garages from
+		// authentic ExactSupport, wiping ghost bits), then same-scope AND
+		// at garages with CP=false.
+		{
+			name: "NOT cars[1].year=2020 AND (cars.colors=red AND cars.colors=blue)",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPinnedNot(idx,
+						"countries.garages.cars.year", 2020,
+						[]pinSpec{{"countries.garages.cars", 1}}),
+					andLeaves(idx,
+						leafPositive(idx, "countries.garages.cars.colors", "red"),
+						leafPositive(idx, "countries.garages.cars.colors", "blue")))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// Inner AND matches only doc 100 cars[1] — the only car with
+			// both red and blue colors in any fixture. Outer NOT witness
+			// covers doc 100 g[0] (cars[1].year=2018 ≠ 2020). Lifted child
+			// at garages = {doc 100 g[0]}; ancestor ES at garages includes
+			// that garage. Intersection → doc 100.
+			wantDocs: []uint64{100},
+		},
+		// Contrast to the ancestor-constrained ghost-mitigation case above:
+		// adding a same-scope sibling at cars (doors.count=4) does NOT clean
+		// the ghost at the parent garage. The inner sibling-AND
+		// (spoiler AND 205) carries chain bits at BOTH the warsaw garage
+		// (real witness via cars[0]) and the krakow garage (ghost from
+		// cars[0]=spoiler / cars[1]=205 split). doors.count=4 fires in cars
+		// under BOTH garages of doc 800, so its chain bits overlap with the
+		// ghost at krakow — the same-scope intersection preserves both
+		// garages in Rich. ExactSupport at cars is still clean (only the
+		// warsaw car satisfies all three at car-self level), so wantDocs is
+		// {800}. The point of the test is the structural property that
+		// CanProject stays false after another same-scope AND: same-scope
+		// siblings cannot recover from a ghost-bearing input, while an
+		// ancestor constraint at a different scope sometimes can (data
+		// permitting).
+		{
+			name: "(cars.accessories.type=spoiler AND cars.tires.width=205) AND cars.doors.count=4",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					andLeaves(idx,
+						leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler"),
+						leafPositive(idx, "countries.garages.cars.tires.width", 205)),
+					leafPositive(idx, "countries.garages.cars.doors.count", 4))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// doc 800: warsaw cars[0] has spoiler+205+doors=4 → MATCH.
+			// krakow cars split spoiler/205 across cars, both have doors=4
+			// → no single car satisfies all three at car-self → ghost only.
+			// doc 900: warsaw cars[0] has only doors → no inner AND witness.
+			// krakow cars split spoiler/205 like in 800 → ghost only.
+			// Net witness across all garages: only doc 800 warsaw car.
+			wantDocs: []uint64{800},
+		},
 	}
+
+	runFastPathCases(t, idx, cases)
 }
