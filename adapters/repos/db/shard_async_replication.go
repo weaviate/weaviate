@@ -47,17 +47,20 @@ import (
 const (
 	defaultHashtreeHeightSingleTenant = 16
 	defaultHashtreeHeightMultiTenant  = 10
-	defaultFrequency                  = 30 * time.Second
-	defaultFrequencyWhilePropagating  = 5 * time.Second
-	defaultLoggingFrequency           = 60 * time.Second
-	defaultDiffBatchSize              = 1_000
-	defaultDiffPerNodeTimeout         = 10 * time.Second
-	defaultPrePropagationTimeout      = 300 * time.Second
-	defaultPropagationTimeout         = 60 * time.Second
-	defaultPropagationLimit           = 1_000
-	defaultPropagationConcurrency     = 1
-	defaultPropagationBatchSize       = 100
-	defaultPropagationDelay           = 30 * time.Second
+	// Multi-tenant defaults are larger: a node may host ~1k tenant shards, each hashbeating.
+	defaultFrequencySingleTenant                 = 60 * time.Second
+	defaultFrequencyMultiTenant                  = 600 * time.Second
+	defaultFrequencyWhilePropagatingSingleTenant = 20 * time.Second
+	defaultFrequencyWhilePropagatingMultiTenant  = 120 * time.Second
+	defaultLoggingFrequency                      = 60 * time.Second
+	defaultDiffBatchSize                         = 1_000
+	defaultDiffPerNodeTimeout                    = 10 * time.Second
+	defaultPrePropagationTimeout                 = 300 * time.Second
+	defaultPropagationTimeout                    = 60 * time.Second
+	defaultPropagationLimit                      = 1_000
+	defaultPropagationConcurrency                = 1
+	defaultPropagationBatchSize                  = 100
+	defaultPropagationDelay                      = 30 * time.Second
 	// asyncReplicationWorkerDrainTimeout is the maximum time mayStopAsyncReplication
 	// will wait for in-flight hashbeat workers to exit after the per-shard context
 	// has been cancelled. Workers should unblock almost immediately once their

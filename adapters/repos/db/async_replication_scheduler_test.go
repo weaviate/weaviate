@@ -1382,7 +1382,7 @@ func TestEffectiveThreeTierPrecedence(t *testing.T) {
 		// distinct minFrequencyWhilePropagating minimum.
 		const fwpClassOverride = 10 * time.Second
 		cfg := AsyncReplicationConfig{
-			frequencyWhilePropagating: defaultFrequencyWhilePropagating,
+			frequencyWhilePropagating: defaultFrequencyWhilePropagatingSingleTenant,
 			classOverrides: asyncReplicationClassOverrides{
 				frequencyWhilePropagating: durationPtr(fwpClassOverride),
 			},
