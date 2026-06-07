@@ -56,7 +56,7 @@ func TestFilterPropertyLengthNonFilterable_GH11015(t *testing.T) {
 
 	migrator, repo, schemaGetter := createRepo(t)
 	defer repo.Shutdown(context.Background())
-	require.Nil(t, migrator.AddClass(context.Background(), class))
+	require.NoError(t, migrator.AddClass(context.Background(), class))
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{class}},
 	}

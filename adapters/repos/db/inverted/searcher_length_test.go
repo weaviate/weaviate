@@ -121,7 +121,7 @@ func TestSearcher_extractPropertyNull_missingInvertedIndex(t *testing.T) {
 		}
 
 		pv, err := s.extractPropertyNull(prop, schema.DataTypeBoolean, true,
-			filters.OperatorEqual, class)
+			filters.OperatorIsNull, class)
 
 		require.Error(t, err)
 		assert.Nil(t, pv)
@@ -138,7 +138,7 @@ func TestSearcher_extractPropertyNull_missingInvertedIndex(t *testing.T) {
 		}
 
 		pv, err := s.extractPropertyNull(prop, schema.DataTypeBoolean, true,
-			filters.OperatorEqual, class)
+			filters.OperatorIsNull, class)
 
 		require.NoError(t, err)
 		require.NotNil(t, pv)
@@ -158,7 +158,7 @@ func TestSearcher_extractPropertyNull_missingInvertedIndex(t *testing.T) {
 		}
 
 		_, err := s.extractPropertyNull(prop, schema.DataTypeBoolean, true,
-			filters.OperatorEqual, class)
+			filters.OperatorIsNull, class)
 
 		require.NoError(t, err)
 	})
