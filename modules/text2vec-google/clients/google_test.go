@@ -93,11 +93,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		expected := &modulecomponents.VectorizationResult[[]float32]{
-			Text:       []string{"This is my text"},
-			Vector:     [][]float32{{0.1, 0.2, 0.3}},
-			Dimensions: 3,
-		}
+		expected := expectedTextVectorization("This is my text")
 		res, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "",
 			settings{
 				ApiEndpoint: "endpoint",
@@ -161,11 +157,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{"some-key"})
 
-		expected := &modulecomponents.VectorizationResult[[]float32]{
-			Text:       []string{"This is my text"},
-			Vector:     [][]float32{{0.1, 0.2, 0.3}},
-			Dimensions: 3,
-		}
+		expected := expectedTextVectorization("This is my text")
 		res, err := c.vectorize(ctxWithValue, []string{"This is my text"}, retrievalDocument, "", settings{})
 
 		require.Nil(t, err)
@@ -221,6 +213,14 @@ func staticURLBuilder(url string) func(bool, string, string, string, string) str
 	}
 }
 
+func expectedTextVectorization(input string) *modulecomponents.VectorizationResult[[]float32] {
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Text:       []string{input},
+		Vector:     [][]float32{{0.1, 0.2, 0.3}},
+		Dimensions: 3,
+	}
+}
+
 type fakeHandler struct {
 	t           *testing.T
 	serverError error
@@ -229,23 +229,33 @@ type fakeHandler struct {
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
-	if f.serverError != nil {
-		embeddingResponse := &embeddingsResponse{
-			Error: &googleApiError{
-				Code:    http.StatusInternalServerError,
-				Status:  "error",
-				Message: f.serverError.Error(),
-			},
-		}
-
-		outBytes, err := json.Marshal(embeddingResponse)
-		require.Nil(f.t, err)
-
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(outBytes)
+	if f.writeError(w) {
 		return
 	}
 
+	req := f.readRequest(r)
+	assert.Greater(f.t, len(req.Instances[0].Content), 0)
+	writeJSON(f.t, w, f.successResponse())
+}
+
+func (f *fakeHandler) writeError(w http.ResponseWriter) bool {
+	if f.serverError == nil {
+		return false
+	}
+
+	w.WriteHeader(http.StatusInternalServerError)
+	writeJSON(f.t, w, &embeddingsResponse{
+		Error: &googleApiError{
+			Code:    http.StatusInternalServerError,
+			Status:  "error",
+			Message: f.serverError.Error(),
+		},
+	})
+
+	return true
+}
+
+func (f *fakeHandler) readRequest(r *http.Request) embeddingsRequest {
 	bodyBytes, err := io.ReadAll(r.Body)
 	require.Nil(f.t, err)
 	defer r.Body.Close()
@@ -255,11 +265,11 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	require.NotNil(f.t, req)
 	require.Len(f.t, req.Instances, 1)
+	return req
+}
 
-	textInput := req.Instances[0].Content
-	assert.Greater(f.t, len(textInput), 0)
-
-	embeddingResponse := &embeddingsResponse{
+func (f *fakeHandler) successResponse() *embeddingsResponse {
+	return &embeddingsResponse{
 		Predictions: []prediction{
 			{
 				Embeddings: embeddings{
@@ -268,9 +278,11 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
+}
 
-	outBytes, err := json.Marshal(embeddingResponse)
-	require.Nil(f.t, err)
+func writeJSON(t *testing.T, w http.ResponseWriter, body interface{}) {
+	outBytes, err := json.Marshal(body)
+	require.Nil(t, err)
 
 	w.Write(outBytes)
 }

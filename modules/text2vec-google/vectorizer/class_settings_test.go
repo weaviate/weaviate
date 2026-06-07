@@ -158,12 +158,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.EqualError(t, ic.Validate(&models.Class{Class: "Test", Properties: []*models.Property{
-					{
-						Name:     "test",
-						DataType: []string{schema.DataTypeText.String()},
-					},
-				}}), tt.wantErr.Error())
+				assert.EqualError(t, ic.Validate(classForSettingsValidation()), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
@@ -175,6 +170,15 @@ func Test_classSettings_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func classForSettingsValidation() *models.Class {
+	return &models.Class{Class: "Test", Properties: []*models.Property{
+		{
+			Name:     "test",
+			DataType: []string{schema.DataTypeText.String()},
+		},
+	}}
 }
 
 func wantOrDefault(value, fallback string) string {
