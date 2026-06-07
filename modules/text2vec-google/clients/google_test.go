@@ -117,10 +117,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -141,10 +139,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		_, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "", settings{})
 
@@ -159,10 +155,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{"some-key"})
@@ -185,10 +179,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -221,6 +213,12 @@ func TestClient(t *testing.T) {
 			"neither in request header: X-Palm-Api-Key or X-Goog-Api-Key or X-Goog-Vertex-Api-Key or X-Goog-Studio-Api-Key "+
 			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY", err.Error())
 	})
+}
+
+func staticURLBuilder(url string) func(bool, string, string, string, string) string {
+	return func(bool, string, string, string, string) string {
+		return url
+	}
 }
 
 type fakeHandler struct {

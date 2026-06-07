@@ -45,8 +45,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
-			wantLocation:    DefaultLocation,
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -64,7 +62,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
 			wantTitle:       "title",
-			wantLocation:    DefaultLocation,
 			wantTaskType:    "CODE_RETRIEVAL_QUERY",
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
@@ -81,7 +78,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
 			wantLocation:    "europe-west1",
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -114,8 +110,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "gemini-embedding-001",
-			wantLocation:    DefaultLocation,
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -130,8 +124,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-gecko-001",
-			wantLocation:    DefaultLocation,
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
 			wantErr:         nil,
 		},
@@ -177,10 +169,17 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.Model())
 				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
-				assert.Equal(t, tt.wantLocation, ic.Location())
-				assert.Equal(t, tt.wantTaskType, ic.TaskType())
+				assert.Equal(t, wantOrDefault(tt.wantLocation, DefaultLocation), ic.Location())
+				assert.Equal(t, wantOrDefault(tt.wantTaskType, DefaultTaskType), ic.TaskType())
 				assert.Equal(t, tt.wantDimensions, ic.Dimensions())
 			}
 		})
 	}
+}
+
+func wantOrDefault(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }
