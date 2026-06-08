@@ -17,6 +17,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -171,6 +172,101 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Equal(t, "READY", nodeStatus.Shards[0].VectorIndexingStatus)
 	assert.Equal(t, int64(0), nodeStatus.Shards[0].VectorQueueLength)
 	assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+}
+
+// TestNodesAPI_ByClassScopesStats pins by-class Stats scoping: with two classes
+// present, a by-class GetNodeStatus must count only the queried class. The
+// namespace /nodes endpoint's leak prevention depends on it — its by-class branch
+// drops node-wide BatchStats but trusts the DB to scope Stats, so a regression to
+// node-wide aggregation here would leak other classes' counts to a scoped caller.
+func TestNodesAPI_ByClassScopesStats(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		ServerVersion:             "server-version",
+		GitHash:                   "git-hash",
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger, "node1")
+
+	newClass := func(name string) *models.Class {
+		return &models.Class{
+			Class:               name,
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+			Properties: []*models.Property{
+				{
+					Name:         "stringProp",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				},
+			},
+		}
+	}
+	classA, classB := newClass("ClassScopedA"), newClass("ClassScopedB")
+	require.Nil(t, migrator.AddClass(context.Background(), classA))
+	require.Nil(t, migrator.AddClass(context.Background(), classB))
+	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{classA, classB}}
+
+	put := func(class, id string) {
+		res, err := repo.BatchPutObjects(context.Background(), objects.BatchObjects{
+			objects.BatchObject{
+				Object: &models.Object{Class: class, ID: strfmt.UUID(id), Properties: map[string]interface{}{"stringProp": "x"}},
+				UUID:   strfmt.UUID(id),
+			},
+		}, nil, 0)
+		require.Nil(t, err)
+		require.Nil(t, res[0].Err)
+	}
+	put("ClassScopedA", "8d5a3aa2-3c8d-4589-9ae1-3f638f506970")
+	put("ClassScopedB", "86a380e9-cb60-4b2a-bc48-51f52acd72d6")
+	put("ClassScopedB", "a3c1b8d4-0000-4000-8000-000000000001")
+
+	nodeWide, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
+	require.Nil(t, err)
+	require.Len(t, nodeWide, 1)
+	require.NotNil(t, nodeWide[0].Stats)
+	assert.Equal(t, int64(2), nodeWide[0].Stats.ShardCount, "node-wide must count both classes' shards")
+	assert.Len(t, nodeWide[0].Shards, 2)
+
+	byClass, err := repo.GetNodeStatus(context.Background(), "ClassScopedA", "", verbosity.OutputVerbose)
+	require.Nil(t, err)
+	require.Len(t, byClass, 1)
+	require.NotNil(t, byClass[0].Stats)
+	assert.Equal(t, int64(1), byClass[0].Stats.ShardCount,
+		"by-class Stats.ShardCount must reflect only the queried class, not the node-wide total")
+	require.Len(t, byClass[0].Shards, 1, "by-class must return only the queried class's shards")
+	assert.Equal(t, "ClassScopedA", byClass[0].Shards[0].Class)
 }
 
 func TestLazyLoadedShards(t *testing.T) {

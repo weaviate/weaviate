@@ -355,6 +355,56 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"",
 			true,
 		},
+		// nodes/verbosity/verbose/collections/<class> — terminal namespace-bearing shape.
+		{
+			"ns=customer1, in-ns verbose nodes, wildcard policy → match (specialize)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			conv.CasbinNodes("verbose", "*"),
+			"customer1",
+			true,
+		},
+		{
+			"ns=customer1, cross-ns verbose nodes, wildcard policy → mismatch (cross-ns deny)",
+			"nodes/verbosity/verbose/collections/customer2:Films",
+			conv.CasbinNodes("verbose", "*"),
+			"customer1",
+			false,
+		},
+		{
+			"empty ns, qualified verbose nodes, wildcard policy → match (any-ns widen)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			conv.CasbinNodes("verbose", "*"),
+			"",
+			true,
+		},
+		{
+			"empty ns, unqualified verbose nodes, exact policy → passthrough match",
+			"nodes/verbosity/verbose/collections/Movies",
+			conv.CasbinNodes("verbose", "Movies"),
+			"",
+			true,
+		},
+		{
+			"ns=customer1, minimal nodes request, verbose wildcard policy → mismatch (minimal not covered)",
+			"nodes/verbosity/minimal",
+			conv.CasbinNodes("verbose", "*"),
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, in-ns verbose nodes, exact-name policy → match",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			conv.CasbinNodes("verbose", "Movies"),
+			"customer1",
+			true,
+		},
+		{
+			"ns=customer1, in-ns Films verbose nodes, exact Movies policy → mismatch",
+			"nodes/verbosity/verbose/collections/customer1:Films",
+			conv.CasbinNodes("verbose", "Movies"),
+			"customer1",
+			false,
+		},
 		// no bleed: roles/ is not namespace-bearing, so it stays global.
 		{
 			"ns=customer1, roles/ path → not specialized (still global)",
@@ -554,6 +604,29 @@ func TestRewritePolicy(t *testing.T) {
 			fixedNs: true,
 			wantOK:  false,
 		},
+		{
+			name:     "nodes verbose path, fixed-ns specialize, unqualified col",
+			policy:   "nodes/verbosity/verbose/collections/.*",
+			prefix:   "customer1:",
+			fixedNs:  true,
+			wantOK:   true,
+			wantText: "nodes/verbosity/verbose/collections/customer1:.*",
+		},
+		{
+			name:     "nodes verbose path, any-ns widen, unqualified col",
+			policy:   "nodes/verbosity/verbose/collections/.*",
+			prefix:   anyNamespacePattern,
+			fixedNs:  false,
+			wantOK:   true,
+			wantText: "nodes/verbosity/verbose/collections/[^/:]+:.*",
+		},
+		{
+			name:    "nodes verbose path, fixed-ns, already-qualified mismatching col → cross-NS deny",
+			policy:  "nodes/verbosity/verbose/collections/customer2:Movies",
+			prefix:  "customer1:",
+			fixedNs: true,
+			wantOK:  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -640,8 +713,15 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.UPDATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.DELETE))
+	// Narrowed admin gets verbose nodes (scoped to its namespace by the matcher)
+	// but NOT the node-wide minimal view.
+	assert.True(t, roleHasResourceVerb(adminRows, "nodes/verbosity/verbose/", authorization.READ),
+		"admin (NS-enabled) must have verbose read_nodes")
+	for _, row := range adminRows {
+		assert.NotContains(t, row[1], "nodes/verbosity/minimal", "admin (NS-enabled) must not have minimal read_nodes")
+	}
 	for _, prohibited := range []string{
-		"backups/", "cluster/", "nodes/", "roles/", "groups/", "namespaces/", "replicate/",
+		"backups/", "cluster/", "roles/", "groups/", "namespaces/", "replicate/",
 	} {
 		for _, row := range adminRows {
 			assert.NotContains(t, row[1], prohibited, "admin (NS-enabled) must not have policy on %s domain", prohibited)
@@ -660,6 +740,10 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.True(t, roleHasResourceVerb(viewerRows, "data/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, conv.CasbinMcp(), authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "users/", authorization.READ))
+	// Regular namespace users (viewer) get no nodes access.
+	for _, row := range viewerRows {
+		assert.NotContains(t, row[1], "nodes/", "viewer (NS-enabled) must not have any nodes policy")
+	}
 
 	// root and read-only keep wildcard cluster-wide policies.
 	require.Len(t, rootRows, 1)

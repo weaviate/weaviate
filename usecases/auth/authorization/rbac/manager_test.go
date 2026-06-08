@@ -209,6 +209,7 @@ func TestRestoreEmptyData(t *testing.T) {
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
 	require.NoError(t, err)
 
+	// 4 built-in wildcard roles + the extra admin policy added just above.
 	policies, err := m.casbin.GetPolicy()
 	require.NoError(t, err)
 	require.Len(t, policies, 5)
