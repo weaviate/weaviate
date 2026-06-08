@@ -1179,13 +1179,15 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 
 	switch m[1] {
 	case "json":
-		err := json.Unmarshal(file, &config)
-		if err != nil {
+		dec := json.NewDecoder(strings.NewReader(string(file)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&config); err != nil {
 			return config, fmt.Errorf("error unmarshalling the json config file: %w", err)
 		}
 	case "yaml":
-		err := yaml.Unmarshal(file, &config)
-		if err != nil {
+		dec := yaml.NewDecoder(strings.NewReader(string(file)))
+		dec.KnownFields(true)
+		if err := dec.Decode(&config); err != nil {
 			return config, fmt.Errorf("error unmarshalling the yaml config file: %w", err)
 		}
 	default:
