@@ -919,6 +919,9 @@ func TestSchedulerList(t *testing.T) {
 		fs.backendErr = ErrAny
 		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.NotNil(t, err)
+		assert.ErrorAs(t, err, &backup.ErrUnprocessable{}, "missing backend module should map to 422 unprocessable")
+		assert.Contains(t, err.Error(), backendName)
+		assert.Contains(t, err.Error(), ErrAny.Error())
 	})
 
 	t.Run("AllBackupsFails", func(t *testing.T) {
