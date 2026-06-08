@@ -2100,7 +2100,11 @@ func setupGoProfiling(appState *state.State) {
 
 	enabled := config.Profiling.DebugEndpointsEnabled
 	gateOpen := enabled != nil && enabled.Get()
-	logger.Infof("debug HTTP listener bound on :%d (DebugEndpointsEnabled=%t; requests return 404 until enabled)", port, gateOpen)
+	if gateOpen {
+		logger.Infof("debug HTTP listener bound on :%d (DebugEndpointsEnabled=true; requests are served)", port)
+	} else {
+		logger.Infof("debug HTTP listener bound on :%d (DebugEndpointsEnabled=false; requests return 404 until enabled)", port)
+	}
 	debugHandler := makeDebugEndpointsGate(enabled)(http.DefaultServeMux)
 	enterrors.GoWrapper(func() {
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), debugHandler); err != nil {
