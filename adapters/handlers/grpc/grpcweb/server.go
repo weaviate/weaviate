@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // NewHandler transcodes grpc-web/Connect requests into calls against the
@@ -37,24 +38,41 @@ func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, erro
 	if err != nil {
 		return nil, fmt.Errorf("build grpc-web transcoder: %w", err)
 	}
-	corsCfg := state.ServerConfig.Config.CORS
-	// Honor the operator-configured CORS_ALLOW_HEADERS (same split as the REST
-	// middleware) and add the grpc-web protocol headers browsers send that
-	// aren't part of the general REST allowlist.
-	allowedHeaders := append(strings.Split(corsCfg.AllowHeaders, ","),
-		"X-Grpc-Web", "X-User-Agent", "Grpc-Timeout", "X-Weaviate-Client")
-	return cors.New(cors.Options{
-		AllowedOrigins: strings.Split(corsCfg.AllowOrigin, ","),
+	return cors.New(corsOptions(state.ServerConfig.Config.CORS)).Handler(transcoder), nil
+}
+
+// corsOptions builds the CORS config for the grpc-web handler: the
+// operator-configured allowlists plus the grpc-web protocol headers browsers
+// send, with the gRPC trailers exposed so the browser can read the RPC status.
+func corsOptions(cfg config.CORS) cors.Options {
+	// grpc-web protocol headers not present in the general REST allowlist.
+	headers := append([]string{"X-Grpc-Web", "X-User-Agent", "Grpc-Timeout", "X-Weaviate-Client"},
+		splitTrim(cfg.AllowHeaders)...)
+	return cors.Options{
+		AllowedOrigins: splitTrim(cfg.AllowOrigin),
 		AllowedMethods: []string{http.MethodPost}, // grpc-web is POST-only
-		AllowedHeaders: allowedHeaders,
-		// Browsers need the gRPC trailers exposed to read the RPC status.
+		AllowedHeaders: headers,
 		ExposedHeaders: []string{"Grpc-Status", "Grpc-Message", "Grpc-Status-Details-Bin"},
 		// No CORS credentials mode: Weaviate auth is a bearer token in the
 		// Authorization header (not cookies), so it buys nothing, and
 		// Allow-Credentials:true with a wildcard Allow-Origin is a combo
 		// browsers reject. Matches the REST handler's posture.
 		AllowCredentials: false,
-	}).Handler(transcoder), nil
+	}
+}
+
+// splitTrim splits a comma-separated config value and trims each element.
+// The trim is load-bearing: DefaultCORSAllowHeaders is ", "-separated and
+// rs/cors matches header names verbatim, so a leading space on " Authorization"
+// would silently fail the browser's preflight and block authenticated requests.
+func splitTrim(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Mount routes requests under prefix to grpcWeb (with prefix stripped, so the
