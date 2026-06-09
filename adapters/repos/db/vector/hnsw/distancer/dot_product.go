@@ -21,12 +21,24 @@ import (
 // This default will always work, regardless of architecture. An init function
 // will overwrite it on amd64 if AVX is present.
 var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32) float32 {
-	var sum float32
+	var sum float64
 	for i := range a {
-		sum += a[i] * b[i]
+		sum += float64(a[i]) * float64(b[i])
 	}
 
-	return sum
+	return float32(sum)
+}
+
+// dotProductPrecise always uses Go float64 accumulation, regardless of
+// architecture. It is never overridden by AVX/NEON/SVE init functions.
+// Use this when numerical precision matters (e.g., exact/flat search)
+// rather than raw throughput (e.g., HNSW traversal).
+var dotProductPrecise = func(a, b []float32) float32 {
+	var sum float64
+	for i := range a {
+		sum += float64(a[i]) * float64(b[i])
+	}
+	return float32(sum)
 }
 
 func DotProductFloatGo(a, b []float32) float32 {
@@ -55,7 +67,7 @@ func (d *DotProduct) Distance(b []float32) (float32, error) {
 			len(d.a), len(b))
 	}
 
-	dist := -dotProductImplementation(d.a, b)
+	dist := -dotProductPrecise(d.a, b)
 	return dist, nil
 }
 
@@ -71,7 +83,7 @@ func (d DotProductProvider) SingleDist(a, b []float32) (float32, error) {
 			len(a), len(b))
 	}
 
-	prod := -dotProductImplementation(a, b)
+	prod := -dotProductPrecise(a, b)
 
 	return prod, nil
 }
@@ -85,12 +97,12 @@ func (d DotProductProvider) New(a []float32) Distancer {
 }
 
 func (d DotProductProvider) Step(x, y []float32) float32 {
-	var sum float32
+	var sum float64
 	for i := range x {
-		sum += x[i] * y[i]
+		sum += float64(x[i]) * float64(y[i])
 	}
 
-	return sum
+	return float32(sum)
 }
 
 func (d DotProductProvider) Wrap(x float32) float32 {
