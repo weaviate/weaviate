@@ -160,20 +160,26 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		return nil, errors.Wrap(err, "prepare aggregators for props")
 	}
 
-	scan := func(properties *models.PropertySchema, docID uint64) error {
-		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
-			return errors.Wrapf(err, "analyze object %d", docID)
-		}
-		return nil
-	}
-	propertyNames := make([]string, 0, len(propAggs))
-	for k := range propAggs {
-		propertyNames = append(propertyNames, k)
+	// Columnar-backed properties are aggregated straight from their column
+	// buckets; only the rest pays for the per-docID object fetch + unmarshal.
+	// The object scan below cannot double-count columnar-served properties:
+	// it only unmarshals the property paths passed to it.
+	propertyNames, err := fa.aggregateColumnarProps(ctx, propAggs, ids)
+	if err != nil {
+		return nil, err
 	}
 
-	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames, fa.logger)
-	if err != nil {
-		return nil, errors.Wrap(err, "properties view tx")
+	if len(propertyNames) > 0 {
+		scan := func(properties *models.PropertySchema, docID uint64) error {
+			if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
+				return errors.Wrapf(err, "analyze object %d", docID)
+			}
+			return nil
+		}
+		err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames, fa.logger)
+		if err != nil {
+			return nil, errors.Wrap(err, "properties view tx")
+		}
 	}
 
 	return propAggs.results()

@@ -124,6 +124,12 @@ func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	return a.addRow(ts, 1)
 }
 
+// AddTimestampNano adds a single timestamp given as unix epoch nanoseconds,
+// the representation used by the columnar index.
+func (a *dateAggregator) AddTimestampNano(epochNano int64) error {
+	return a.addRow(newTimestamp(epochNano), 1)
+}
+
 func (a *dateAggregator) AddTimestampRow(b []byte, count uint64) error {
 	nsec, err := inverted.ParseLexicographicallySortableInt64(b)
 	if err != nil {
