@@ -40,9 +40,18 @@ var dateLayouts = [...]string{
 	"2006-01-02T15:04:05", "2006-01-02",
 }
 
-func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.Result {
+// applyBoostScoring rescores results. typedValues, when non-nil, is aligned
+// with results and carries property values served from columnar buckets
+// (float64 for int/number, time.Time for dates); it takes precedence over
+// the result's materialized properties, which remain the fallback.
+func applyBoostScoring(results []search.Result, boost *filters.Boost,
+	typedValues []map[string]any,
+) []search.Result {
 	if boost == nil || len(boost.Conditions) == 0 || len(results) == 0 {
 		return results
+	}
+	if typedValues != nil && len(typedValues) != len(results) {
+		typedValues = nil // misaligned input — fall back to props everywhere
 	}
 
 	weight := boost.Weight
@@ -60,14 +69,21 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 		}
 	}
 
+	// Per-result value getters: typed columnar values first, materialized
+	// props as fallback.
+	getters := make([]func(string) any, len(results))
+	for i := range results {
+		getters[i] = boostValueGetter(typedValuesAt(typedValues, i), extractProps(&results[i]))
+	}
+
 	// Pre-compute normalized property value scores for each property_value condition.
 	// These need the full result set for min-max normalization.
-	propertyValueScores := precomputePropertyValueScores(results, boost.Conditions)
+	propertyValueScores := precomputePropertyValueScores(getters, boost.Conditions)
 
 	// Compute boost score for each result.
 	boostScores := make([]float32, len(results))
 	for i := range results {
-		boostScores[i] = scoreResult(&results[i], boost.Conditions, decayParams, propertyValueScores, i)
+		boostScores[i] = scoreResult(getters[i], boost.Conditions, decayParams, propertyValueScores, i)
 	}
 
 	// Normalize primary scores to [0,1] using min-max.
@@ -161,12 +177,10 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 // scoreResult computes the weighted boost score for a single search result.
 // Negative per-condition weights demote matching documents. The denominator
 // uses abs(weight) so the score range is [-1, 1].
-func scoreResult(r *search.Result, conditions []filters.BoostCondition,
+func scoreResult(getValue func(string) any, conditions []filters.BoostCondition,
 	decayParams []parsedDecay, propertyValueScores [][]float32, resultIdx int,
 ) float32 {
 	var weightedSum, weightSum float32
-
-	props := extractProps(r)
 
 	for i, cond := range conditions {
 		weight := cond.Weight
@@ -177,11 +191,11 @@ func scoreResult(r *search.Result, conditions []filters.BoostCondition,
 		var condScore float32
 
 		if cond.Filter != nil {
-			if matchesFilter(cond.Filter, props) {
+			if matchesFilter(cond.Filter, getValue) {
 				condScore = 1.0
 			}
 		} else if cond.Decay != nil {
-			condScore = computeDecayForResult(cond.Decay, decayParams[i], props)
+			condScore = computeDecayForResult(cond.Decay, decayParams[i], getValue)
 		} else if cond.PropertyValue != nil {
 			condScore = propertyValueScores[i][resultIdx]
 		}
@@ -213,7 +227,7 @@ func distToScore(results []search.Result) {
 // property_value condition across all results. Min-max normalization is applied
 // after the modifier so that the highest value in the result set scores 1.0.
 // Returns a slice indexed by [conditionIdx][resultIdx].
-func precomputePropertyValueScores(results []search.Result, conditions []filters.BoostCondition) [][]float32 {
+func precomputePropertyValueScores(getters []func(string) any, conditions []filters.BoostCondition) [][]float32 {
 	scores := make([][]float32, len(conditions))
 
 	hasPropertyValue := false
@@ -227,12 +241,6 @@ func precomputePropertyValueScores(results []search.Result, conditions []filters
 		return scores
 	}
 
-	// Extract props once per result to avoid re-extracting for each condition.
-	propsByIdx := make([]map[string]any, len(results))
-	for j := range results {
-		propsByIdx[j] = extractProps(&results[j])
-	}
-
 	for i, cond := range conditions {
 		if cond.PropertyValue == nil {
 			continue
@@ -240,13 +248,10 @@ func precomputePropertyValueScores(results []search.Result, conditions []filters
 
 		fv := cond.PropertyValue
 		propName := string(fv.Path.Property)
-		raw := make([]float64, len(results))
+		raw := make([]float64, len(getters))
 
-		for j := range results {
-			if propsByIdx[j] == nil {
-				continue
-			}
-			val, err := toFloat64(propsByIdx[j][propName])
+		for j := range getters {
+			val, err := toFloat64(getters[j](propName))
 			if err != nil {
 				continue
 			}
@@ -264,7 +269,7 @@ func precomputePropertyValueScores(results []search.Result, conditions []filters
 			}
 		}
 
-		scores[i] = make([]float32, len(results))
+		scores[i] = make([]float32, len(getters))
 		rangeVal := maxVal - minVal
 		if rangeVal > 0 {
 			for j := range raw {
@@ -303,20 +308,44 @@ func extractProps(r *search.Result) map[string]any {
 	return props
 }
 
-// matchesFilter evaluates a LocalFilter against an object's properties in-memory.
-// This handles the common filter operators used in boost conditions.
-func matchesFilter(filter *filters.LocalFilter, props map[string]any) bool {
-	if filter == nil || filter.Root == nil || props == nil {
-		return false
+func typedValuesAt(typedValues []map[string]any, i int) map[string]any {
+	if typedValues == nil {
+		return nil
 	}
-	return matchesClause(filter.Root, props)
+	return typedValues[i]
 }
 
-func matchesClause(clause *filters.Clause, props map[string]any) bool {
+// boostValueGetter resolves a property value with typed columnar values
+// taking precedence over materialized props.
+func boostValueGetter(typed, props map[string]any) func(string) any {
+	return func(name string) any {
+		if typed != nil {
+			if v, ok := typed[name]; ok {
+				return v
+			}
+		}
+		if props == nil {
+			return nil
+		}
+		return props[name]
+	}
+}
+
+// matchesFilter evaluates a LocalFilter against an object's property values
+// in-memory. This handles the common filter operators used in boost
+// conditions.
+func matchesFilter(filter *filters.LocalFilter, getValue func(string) any) bool {
+	if filter == nil || filter.Root == nil || getValue == nil {
+		return false
+	}
+	return matchesClause(filter.Root, getValue)
+}
+
+func matchesClause(clause *filters.Clause, getValue func(string) any) bool {
 	switch clause.Operator {
 	case filters.OperatorAnd:
 		for i := range clause.Operands {
-			if !matchesClause(&clause.Operands[i], props) {
+			if !matchesClause(&clause.Operands[i], getValue) {
 				return false
 			}
 		}
@@ -324,7 +353,7 @@ func matchesClause(clause *filters.Clause, props map[string]any) bool {
 
 	case filters.OperatorOr:
 		for i := range clause.Operands {
-			if matchesClause(&clause.Operands[i], props) {
+			if matchesClause(&clause.Operands[i], getValue) {
 				return true
 			}
 		}
@@ -332,23 +361,22 @@ func matchesClause(clause *filters.Clause, props map[string]any) bool {
 
 	case filters.OperatorNot:
 		if len(clause.Operands) > 0 {
-			return !matchesClause(&clause.Operands[0], props)
+			return !matchesClause(&clause.Operands[0], getValue)
 		}
 		return false
 
 	default:
-		return matchesValueClause(clause, props)
+		return matchesValueClause(clause, getValue)
 	}
 }
 
-func matchesValueClause(clause *filters.Clause, props map[string]any) bool {
+func matchesValueClause(clause *filters.Clause, getValue func(string) any) bool {
 	if clause.On == nil || clause.Value == nil {
 		return false
 	}
 
-	propName := string(clause.On.Property)
-	propVal, exists := props[propName]
-	if !exists {
+	propVal := getValue(string(clause.On.Property))
+	if propVal == nil {
 		return false
 	}
 
@@ -518,14 +546,13 @@ func parseDecayParams(d *filters.Decay, nowTime time.Time) parsedDecay {
 	return p
 }
 
-func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[string]any) float32 {
-	if !parsed.valid || props == nil || decay.Path == nil {
+func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, getValue func(string) any) float32 {
+	if !parsed.valid || getValue == nil || decay.Path == nil {
 		return 0
 	}
 
-	propName := string(decay.Path.Property)
-	propVal, exists := props[propName]
-	if !exists || propVal == nil {
+	propVal := getValue(string(decay.Path.Property))
+	if propVal == nil {
 		return 0
 	}
 

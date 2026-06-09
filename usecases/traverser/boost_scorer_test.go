@@ -80,13 +80,13 @@ func withOriginalPagination(b *filters.Boost, offset, limit int) *filters.Boost 
 
 func TestApplyBoostScoring_NilRank(t *testing.T) {
 	results := []search.Result{makeResult("a", 1.0, nil)}
-	got := applyBoostScoring(results, nil)
+	got := applyBoostScoring(results, nil, nil)
 	assert.Equal(t, results, got)
 }
 
 func TestApplyBoostScoring_EmptyConditions(t *testing.T) {
 	results := []search.Result{makeResult("a", 1.0, nil)}
-	got := applyBoostScoring(results, &filters.Boost{Conditions: nil, Weight: 0.5, OriginalLimit: 10})
+	got := applyBoostScoring(results, &filters.Boost{Conditions: nil, Weight: 0.5, OriginalLimit: 10}, nil)
 	assert.Equal(t, results, got)
 }
 
@@ -101,7 +101,7 @@ func TestApplyBoostScoring_WeightZero(t *testing.T) {
 		},
 		Weight: 0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// weight=0 → no change, original order preserved
 	assert.Equal(t, strfmt.UUID("a"), got[0].ID)
 	assert.Equal(t, strfmt.UUID("b"), got[1].ID)
@@ -118,7 +118,7 @@ func TestApplyBoostScoring_FilterPromotesMatchingResults(t *testing.T) {
 		},
 		Weight: 1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// With weight=1.0, only boost score matters. in-stock should be first.
 	assert.Equal(t, strfmt.UUID("in-stock"), got[0].ID)
 	assert.Equal(t, strfmt.UUID("no-stock"), got[1].ID)
@@ -136,7 +136,7 @@ func TestApplyBoostScoring_Truncation(t *testing.T) {
 		},
 		Weight: 0.5,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 2))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 2), nil)
 	assert.Len(t, got, 2)
 }
 
@@ -158,7 +158,7 @@ func TestApplyBoostScoring_DepthPromotesDeepResult(t *testing.T) {
 		},
 		Weight: 1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 3))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 3), nil)
 	require.Len(t, got, 3)
 	// item-9 (promoted=true, boost=1.0) should be first despite worst primary score.
 	assert.Equal(t, strfmt.UUID("item-9"), got[0].ID)
@@ -181,7 +181,7 @@ func TestApplyBoostScoring_SmallDepthMissesDeepResult(t *testing.T) {
 		},
 		Weight: 1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 3))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 3), nil)
 	require.Len(t, got, 3)
 	// No promoted items in the candidate pool, so order is unchanged.
 	assert.Equal(t, strfmt.UUID("item-0"), got[0].ID)
@@ -204,7 +204,7 @@ func TestApplyBoostScoring_DepthTruncatesToOriginalLimit(t *testing.T) {
 		},
 		Weight: 0.8,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 5))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 5), nil)
 	require.Len(t, got, 5)
 	// With weight=0.8, inStock items should dominate the top-5.
 	inStockCount := 0
@@ -230,7 +230,7 @@ func TestApplyBoostScoring_AllSamePrimaryScore(t *testing.T) {
 		},
 		Weight: 0.5,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// match has boost=1.0, no-match has boost=0.0
 	// final(match) = 0.5*1.0 + 0.5*1.0 = 1.0
 	// final(no-match) = 0.5*1.0 + 0.5*0.0 = 0.5
@@ -264,7 +264,7 @@ func TestApplyBoostScoring_WithDistConvertedScores(t *testing.T) {
 		},
 		Weight: 0.5,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// "medium": decent distance (normalized ~0.9) + streaming (1.0) → best combined
 	// "close": best distance (normalized 1.0) but no streaming (0.0) → 0.5
 	// "far": worst distance (normalized 0.0) but streaming (1.0) → 0.5
@@ -278,7 +278,7 @@ func TestApplyBoostScoring_EmptyResults(t *testing.T) {
 		},
 		Weight: 0.5,
 	}
-	got := applyBoostScoring(nil, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(nil, withOriginalLimit(boost, 10), nil)
 	assert.Nil(t, got)
 }
 
@@ -289,7 +289,7 @@ func TestScoreResult_FilterMatch(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 1.0, float64(score), 0.001)
 }
 
@@ -298,7 +298,7 @@ func TestScoreResult_FilterNoMatch(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -307,7 +307,7 @@ func TestScoreResult_FilterMissingProperty(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -316,7 +316,7 @@ func TestScoreResult_NilSchema(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -343,7 +343,7 @@ func TestScoreResult_WeightedAverage(t *testing.T) {
 			Weight: 1.0, // doesn't match → score 0.0
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	// (2*1.0 + 1*0.0) / (2+1) = 0.6667
 	assert.InDelta(t, 0.6667, float64(score), 0.01)
 }
@@ -360,7 +360,7 @@ func TestScoreResult_ZeroWeight(t *testing.T) {
 			Weight: 0, // zero weight defaults to 1.0
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	assert.InDelta(t, 1.0, float64(score), 0.001)
 }
 
@@ -375,10 +375,10 @@ func TestMatchesFilter_And(t *testing.T) {
 			{On: &filters.Path{Property: "b"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual},
 		},
 	}}
-	assert.True(t, matchesFilter(filter, props))
+	assert.True(t, matchesFilter(filter, boostValueGetter(nil, props)))
 
 	props["b"] = false
-	assert.False(t, matchesFilter(filter, props))
+	assert.False(t, matchesFilter(filter, boostValueGetter(nil, props)))
 }
 
 func TestMatchesFilter_Or(t *testing.T) {
@@ -390,10 +390,10 @@ func TestMatchesFilter_Or(t *testing.T) {
 			{On: &filters.Path{Property: "b"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual},
 		},
 	}}
-	assert.True(t, matchesFilter(filter, props))
+	assert.True(t, matchesFilter(filter, boostValueGetter(nil, props)))
 
 	props["b"] = false
-	assert.False(t, matchesFilter(filter, props))
+	assert.False(t, matchesFilter(filter, boostValueGetter(nil, props)))
 }
 
 func TestMatchesFilter_Not(t *testing.T) {
@@ -404,12 +404,12 @@ func TestMatchesFilter_Not(t *testing.T) {
 			{On: &filters.Path{Property: "a"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual},
 		},
 	}}
-	assert.True(t, matchesFilter(filter, props))
+	assert.True(t, matchesFilter(filter, boostValueGetter(nil, props)))
 }
 
 func TestMatchesFilter_NilInputs(t *testing.T) {
-	assert.False(t, matchesFilter(nil, map[string]any{}))
-	assert.False(t, matchesFilter(&filters.LocalFilter{}, map[string]any{}))
+	assert.False(t, matchesFilter(nil, boostValueGetter(nil, map[string]any{})))
+	assert.False(t, matchesFilter(&filters.LocalFilter{}, boostValueGetter(nil, map[string]any{})))
 	assert.False(t, matchesFilter(&filters.LocalFilter{Root: &filters.Clause{
 		On: &filters.Path{Property: "a"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual,
 	}}, nil))
@@ -540,7 +540,7 @@ func TestComputeDecayForResult_NumericProperty(t *testing.T) {
 	}
 	parsed := parseDecayParams(decay, time.Now())
 	props := map[string]any{"price": float64(300)} // dist=200=scale → 0.5
-	score := computeDecayForResult(decay, parsed, props)
+	score := computeDecayForResult(decay, parsed, boostValueGetter(nil, props))
 	assert.InDelta(t, 0.5, float64(score), 0.001)
 }
 
@@ -552,7 +552,7 @@ func TestComputeDecayForResult_MissingProperty(t *testing.T) {
 	}
 	parsed := parseDecayParams(decay, time.Now())
 	props := map[string]any{}
-	score := computeDecayForResult(decay, parsed, props)
+	score := computeDecayForResult(decay, parsed, boostValueGetter(nil, props))
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -572,12 +572,12 @@ func TestComputeDecayForResult_DateProperty(t *testing.T) {
 	// 7 days ago → dist=scale → 0.5
 	t7dAgo := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
 	props := map[string]any{"createdAt": t7dAgo}
-	score := computeDecayForResult(decay, parsed, props)
+	score := computeDecayForResult(decay, parsed, boostValueGetter(nil, props))
 	assert.InDelta(t, 0.5, float64(score), 0.05)
 
 	// Now → dist=0 → 1.0
 	props = map[string]any{"createdAt": now.Format(time.RFC3339)}
-	score = computeDecayForResult(decay, parsed, props)
+	score = computeDecayForResult(decay, parsed, boostValueGetter(nil, props))
 	assert.InDelta(t, 1.0, float64(score), 0.05)
 }
 
@@ -731,7 +731,7 @@ func TestApplyBoostScoring_DecayReorders(t *testing.T) {
 		},
 		Weight: 1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// close (dist=10) should rank first, far (dist=900) last
 	assert.Equal(t, strfmt.UUID("close"), got[0].ID)
 	assert.Equal(t, strfmt.UUID("far"), got[1].ID)
@@ -757,7 +757,7 @@ func TestApplyBoostScoring_MixedConditions(t *testing.T) {
 		},
 		Weight: 1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// c: inStock=true(w=2,s=1) + price=100(w=1,s=1.0) → (2*1+1*1)/3 = 1.0
 	// a: inStock=true(w=2,s=1) + price=500(w=1,s=0.5) → (2*1+1*0.5)/3 = 0.833
 	// b: inStock=false(w=2,s=0) + price=100(w=1,s=1.0) → (2*0+1*1.0)/3 = 0.333
@@ -779,7 +779,7 @@ func TestScoreResult_NegativeWeightDemotes(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	// weight=-1, condScore=1 → weightedSum = -1*1 = -1, weightSum = 1 → -1/1 = -1
 	assert.InDelta(t, -1.0, float64(score), 0.001)
 }
@@ -808,7 +808,7 @@ func TestScoreResult_MixedPositiveNegativeWeights(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	// (2*1 + -1*1) / (2+1) = 1/3 ≈ 0.333
 	assert.InDelta(t, 0.333, float64(score), 0.01)
 }
@@ -831,7 +831,7 @@ func TestApplyBoostScoring_NegativeWeightDemotesMatchingResult(t *testing.T) {
 		},
 		Weight: 0.5,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// no-match has boost=0 (doesn't match, so condScore=0, score=0)
 	// match has boost=-1 (matches negative weight)
 	// After blending with weight=0.5: no-match ranks higher
@@ -953,7 +953,7 @@ func TestApplyBoostScoring_PropertyValuePromotesHighValues(t *testing.T) {
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierNone)},
 		Weight:     1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// With weight=1.0, only boost score matters. high-likes (normalized to 1.0) should be first.
 	assert.Equal(t, strfmt.UUID("high-likes"), got[0].ID)
 	assert.Equal(t, strfmt.UUID("low-likes"), got[1].ID)
@@ -969,7 +969,7 @@ func TestApplyBoostScoring_PropertyValueLog1p(t *testing.T) {
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierLog1p)},
 		Weight:     1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// log1p compresses the range: log1p(10000) >> log1p(100) > log1p(0)
 	assert.Equal(t, strfmt.UUID("c"), got[0].ID)
 	assert.Equal(t, strfmt.UUID("b"), got[1].ID)
@@ -987,7 +987,7 @@ func TestApplyBoostScoring_PropertyValueSqrt(t *testing.T) {
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierSqrt)},
 		Weight:     1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	assert.Equal(t, strfmt.UUID("b"), got[0].ID)
 	assert.Equal(t, strfmt.UUID("a"), got[1].ID)
 }
@@ -1001,7 +1001,7 @@ func TestApplyBoostScoring_PropertyValueAllSameValue(t *testing.T) {
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierNone)},
 		Weight:     0.5,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// All same property value → all normalize to 1.0
 	// Primary score breaks the tie: a (1.0) > b (0.5)
 	assert.Equal(t, strfmt.UUID("a"), got[0].ID)
@@ -1016,7 +1016,7 @@ func TestApplyBoostScoring_PropertyValueMissingProperty(t *testing.T) {
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierNone)},
 		Weight:     1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// Missing property → raw value 0. has-likes should rank first.
 	assert.Equal(t, strfmt.UUID("has-likes"), got[0].ID)
 }
@@ -1058,7 +1058,7 @@ func TestScoreResult_NegativeWeightNonMatch(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0)
+	score := scoreResult(boostValueGetter(nil, extractProps(&r)), conds, make([]parsedDecay, len(conds)), nil, 0)
 	// condScore=0 (no match), weight=-1 → weightedSum=-1*0=0, weightSum=1 → 0/1=0
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
@@ -1071,7 +1071,7 @@ func TestComputeDecayForResult_NonExistingField(t *testing.T) {
 	}
 	parsed := parseDecayParams(decay, time.Now())
 	props := map[string]any{"price": float64(50)}
-	score := computeDecayForResult(decay, parsed, props)
+	score := computeDecayForResult(decay, parsed, boostValueGetter(nil, props))
 	assert.InDelta(t, 0.0, float64(score), 0.001, "decay on non-existing field should score 0")
 }
 
@@ -1082,7 +1082,7 @@ func TestComputeDecayForResult_NilProps(t *testing.T) {
 		Scale:  "200",
 	}
 	parsed := parseDecayParams(decay, time.Now())
-	score := computeDecayForResult(decay, parsed, nil)
+	score := computeDecayForResult(decay, parsed, boostValueGetter(nil, nil))
 	assert.InDelta(t, 0.0, float64(score), 0.001, "decay on nil props should score 0")
 }
 
@@ -1101,7 +1101,7 @@ func TestApplyBoostScoring_PropertyValueNonExistingField(t *testing.T) {
 		}},
 		Weight: 1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// All property values are 0 → all normalize to 1.0 (same value).
 	// Primary scores break the tie: a (1.0) > b (0.5) after normalization.
 	require.Len(t, got, 2)
@@ -1123,7 +1123,7 @@ func TestApplyBoostScoring_PropertyValueNilSchema(t *testing.T) {
 		}},
 		Weight: 1.0,
 	}
-	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10), nil)
 	// a has nil schema → likes=0, b has likes=100.
 	// With weight=1.0, only boost matters. b should rank first.
 	require.Len(t, got, 2)
@@ -1148,12 +1148,12 @@ func TestApplyBoostScoring_OffsetSkipsTopResults(t *testing.T) {
 		Weight: 1.0,
 	}
 	// offset=0, limit=3: should get [item-9, item-0, item-1]
-	page1 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 0, 3))
+	page1 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 0, 3), nil)
 	require.Len(t, page1, 3)
 	assert.Equal(t, strfmt.UUID("item-9"), page1[0].ID)
 
 	// offset=3, limit=3: should skip the first 3 and return the next 3
-	page2 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 3, 3))
+	page2 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 3, 3), nil)
 	require.Len(t, page2, 3)
 
 	// Pages should not overlap
@@ -1186,12 +1186,12 @@ func TestApplyBoostScoring_OffsetPlusLimitMatchesFullResults(t *testing.T) {
 		Weight: 0.7,
 	}
 	// Get all 10 results in one go
-	all := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 0, 10))
+	all := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 0, 10), nil)
 	require.Len(t, all, 10)
 
 	// Get page 1 (offset=0, limit=5) and page 2 (offset=5, limit=5)
-	p1 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 0, 5))
-	p2 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 5, 5))
+	p1 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 0, 5), nil)
+	p2 := applyBoostScoring(cloneResults(results), withOriginalPagination(boost, 5, 5), nil)
 	require.Len(t, p1, 5)
 	require.Len(t, p2, 5)
 
@@ -1213,7 +1213,7 @@ func TestApplyBoostScoring_OffsetBeyondResults(t *testing.T) {
 		},
 		Weight: 0.5,
 	}
-	got := applyBoostScoring(results, withOriginalPagination(boost, 10, 5))
+	got := applyBoostScoring(results, withOriginalPagination(boost, 10, 5), nil)
 	assert.Nil(t, got, "offset beyond result count should return nil")
 }
 

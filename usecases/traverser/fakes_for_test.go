@@ -128,6 +128,14 @@ func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 	return nil, nil, nil
 }
 
+// BoostValues returns no typed values, so boost scoring falls back to the
+// results' materialized props in all explorer tests.
+func (f *fakeVectorSearcher) BoostValues(ctx context.Context, className, tenant string,
+	results []search.Result, props []string,
+) ([]map[string]any, error) {
+	return make([]map[string]any, len(results)), nil
+}
+
 func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenant string,
