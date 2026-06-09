@@ -56,25 +56,25 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 			withImages         bool
 		}{
 			{
-				name:             "gemini-2.0-flash-lite-001",
-				generativeModel:  "gemini-2.0-flash-lite-001",
+				name:             "gemini-3.1-flash-lite",
+				generativeModel:  "gemini-3.1-flash-lite",
 				frequencyPenalty: grpchelper.ToPtr(0.5),
 				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:             "gemini-2.0-flash-001",
-				generativeModel:  "gemini-2.0-flash-001",
+				name:             "gemini-3.5-flash",
+				generativeModel:  "gemini-3.5-flash",
 				frequencyPenalty: grpchelper.ToPtr(0.5),
 				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "gemini-2.0-flash-lite-001",
+				generativeModel:    "gemini-3.1-flash-lite",
 				absentModuleConfig: true,
 			},
 			{
-				name:            "gemini-2.0-flash-001",
-				generativeModel: "gemini-2.0-flash-001",
+				name:            "gemini-3.5-flash",
+				generativeModel: "gemini-3.5-flash",
 				withImages:      true,
 			},
 		}
