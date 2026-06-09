@@ -428,7 +428,8 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	backupBackend, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
-		return nil, err
+		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", backend, err)
+		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	backups, err := backupBackend.AllBackups(ctx)
