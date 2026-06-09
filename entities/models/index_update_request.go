@@ -28,6 +28,7 @@ import (
 //
 // swagger:model IndexUpdateRequest
 type IndexUpdateRequest struct {
+
 	// columnar
 	Columnar *IndexUpdateColumnar `json:"columnar,omitempty"`
 
@@ -170,6 +171,7 @@ func (m *IndexUpdateRequest) ContextValidate(ctx context.Context, formats strfmt
 }
 
 func (m *IndexUpdateRequest) contextValidateColumnar(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Columnar != nil {
 		if err := m.Columnar.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -185,6 +187,7 @@ func (m *IndexUpdateRequest) contextValidateColumnar(ctx context.Context, format
 }
 
 func (m *IndexUpdateRequest) contextValidateFilterable(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Filterable != nil {
 		if err := m.Filterable.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -200,6 +203,7 @@ func (m *IndexUpdateRequest) contextValidateFilterable(ctx context.Context, form
 }
 
 func (m *IndexUpdateRequest) contextValidateRangeable(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Rangeable != nil {
 		if err := m.Rangeable.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -215,6 +219,7 @@ func (m *IndexUpdateRequest) contextValidateRangeable(ctx context.Context, forma
 }
 
 func (m *IndexUpdateRequest) contextValidateSearchable(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Searchable != nil {
 		if err := m.Searchable.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

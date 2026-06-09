@@ -27,6 +27,7 @@ import (
 //
 // swagger:model IndexUpdateColumnar
 type IndexUpdateColumnar struct {
+
 	// When true, cancels the in-flight reindex task targeting this property's columnar index.
 	Cancel bool `json:"cancel,omitempty"`
 

@@ -225,7 +225,9 @@ func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry)
 }
 
 func (m *Property) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.NestedProperties); i++ {
+
 		if m.NestedProperties[i] != nil {
 			if err := m.NestedProperties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -236,12 +238,14 @@ func (m *Property) contextValidateNestedProperties(ctx context.Context, formats 
 				return err
 			}
 		}
+
 	}
 
 	return nil
 }
 
 func (m *Property) contextValidateTextAnalyzer(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.TextAnalyzer != nil {
 		if err := m.TextAnalyzer.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
