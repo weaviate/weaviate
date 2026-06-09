@@ -12,7 +12,11 @@
 package rest
 
 import (
+	"errors"
+	"net/http"
+
 	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -29,6 +33,15 @@ func startGrpcServer(server *grpc.Server, state *state.State) {
 		if err := grpcHandler.StartAndListen(server, state); err != nil {
 			state.Logger.WithField("action", "grpc_startup").WithError(err).
 				Fatal("failed to start grpc server")
+		}
+	}, state.Logger)
+}
+
+func startGrpcWebServer(srv *grpcweb.Server, state *state.State) {
+	enterrors.GoWrapper(func() {
+		if err := srv.Serve(state); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			state.Logger.WithField("action", "grpc_web_startup").WithError(err).
+				Fatal("failed to start grpc-web server")
 		}
 	}, state.Logger)
 }
