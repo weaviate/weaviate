@@ -22,40 +22,51 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestCORSPreflightAllowsConfiguredHeaders pins the trim bug: with the default
-// ", "-separated CORS_ALLOW_HEADERS, an untrimmed split leaves " Authorization"
-// which rs/cors rejects, blocking authenticated browser grpc-web requests.
+// TestCORSPreflightAllowsConfiguredHeaders pins the trim bug across several
+// CORS_ALLOW_HEADERS separator styles: an untrimmed split leaves " Authorization"
+// for the default ", "-separated value, which rs/cors rejects, blocking
+// authenticated browser grpc-web requests. Every shape must allow Authorization
+// (and the grpc-web protocol headers) regardless of separator whitespace.
 func TestCORSPreflightAllowsConfiguredHeaders(t *testing.T) {
-	handler := cors.New(corsOptions(config.CORS{
-		AllowOrigin:  config.DefaultCORSAllowOrigin,
-		AllowMethods: config.DefaultCORSAllowMethods,
-		AllowHeaders: config.DefaultCORSAllowHeaders,
-	})).Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-
-	tests := []struct {
-		name           string
-		requestHeaders string
+	shapes := []struct {
+		name         string
+		allowHeaders string
 	}{
-		{"authorization (authenticated browser request)", "authorization"},
-		{"content-type", "content-type"},
-		{"x-grpc-web protocol header", "x-grpc-web"},
-		{"authorization + content-type (real browser preflight)", "authorization,content-type"},
-		{"x-weaviate-cluster-url", "x-weaviate-cluster-url"},
+		{`default ", "-separated`, config.DefaultCORSAllowHeaders},
+		{"comma-only, no spaces", "Content-Type,Authorization"},
+		{"irregular whitespace", "Content-Type ,  Authorization ,Batch"},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodOptions, "/grpc-web/weaviate.v1.Weaviate/Search", nil)
-			req.Header.Set("Origin", "http://localhost:3000")
-			req.Header.Set("Access-Control-Request-Method", http.MethodPost)
-			req.Header.Set("Access-Control-Request-Headers", tt.requestHeaders)
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+	// Allowed in every shape: Content-Type/Authorization are present in all the
+	// configured values above, and X-Grpc-Web is always appended by corsOptions.
+	requestHeaderCases := []string{
+		"authorization", // the header the bug silently dropped
+		"content-type",
+		"x-grpc-web", // grpc-web protocol header (appended, not configured)
+		"authorization,content-type",
+	}
+	for _, sh := range shapes {
+		t.Run(sh.name, func(t *testing.T) {
+			handler := cors.New(corsOptions(config.CORS{
+				AllowOrigin:  config.DefaultCORSAllowOrigin,
+				AllowMethods: config.DefaultCORSAllowMethods,
+				AllowHeaders: sh.allowHeaders,
+			})).Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			for _, reqHeaders := range requestHeaderCases {
+				t.Run(reqHeaders, func(t *testing.T) {
+					req := httptest.NewRequest(http.MethodOptions, "/grpc-web/weaviate.v1.Weaviate/Search", nil)
+					req.Header.Set("Origin", "http://localhost:3000")
+					req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+					req.Header.Set("Access-Control-Request-Headers", reqHeaders)
+					rec := httptest.NewRecorder()
+					handler.ServeHTTP(rec, req)
 
-			// rs/cors signals "allowed" by echoing Access-Control-Allow-Origin;
-			// a rejected preflight omits it entirely.
-			require.NotEmpty(t, rec.Header().Get("Access-Control-Allow-Origin"),
-				"preflight for %q was rejected (ACAH=%q)", tt.requestHeaders,
-				rec.Header().Get("Access-Control-Allow-Headers"))
+					// rs/cors signals "allowed" by echoing Access-Control-Allow-Origin;
+					// a rejected preflight omits it entirely.
+					require.NotEmpty(t, rec.Header().Get("Access-Control-Allow-Origin"),
+						"preflight for %q rejected (ACAH=%q)", reqHeaders,
+						rec.Header().Get("Access-Control-Allow-Headers"))
+				})
+			}
 		})
 	}
 }
