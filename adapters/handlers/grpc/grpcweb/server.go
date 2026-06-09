@@ -38,10 +38,16 @@ func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, erro
 		return nil, fmt.Errorf("build grpc-web transcoder: %w", err)
 	}
 	corsCfg := state.ServerConfig.Config.CORS
+	// Honor the operator-configured CORS_ALLOW_HEADERS (same split as the REST
+	// middleware) and add the grpc-web protocol headers browsers send that
+	// aren't part of the general REST allowlist.
+	allowedHeaders := append(strings.Split(corsCfg.AllowHeaders, ","),
+		"X-Grpc-Web", "X-User-Agent", "Grpc-Timeout", "X-Weaviate-Client")
 	return cors.New(cors.Options{
-		AllowedOrigins:   strings.Split(corsCfg.AllowOrigin, ","),
-		AllowedMethods:   []string{http.MethodPost},
-		AllowedHeaders:   []string{"Content-Type", "X-Grpc-Web", "X-User-Agent", "Grpc-Timeout", "Authorization", "X-Weaviate-Client", "X-Weaviate-Cluster-Url"},
+		AllowedOrigins: strings.Split(corsCfg.AllowOrigin, ","),
+		AllowedMethods: []string{http.MethodPost}, // grpc-web is POST-only
+		AllowedHeaders: allowedHeaders,
+		// Browsers need the gRPC trailers exposed to read the RPC status.
 		ExposedHeaders:   []string{"Grpc-Status", "Grpc-Message", "Grpc-Status-Details-Bin"},
 		AllowCredentials: true,
 	}).Handler(transcoder), nil

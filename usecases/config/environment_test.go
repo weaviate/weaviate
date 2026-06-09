@@ -589,6 +589,33 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 	}
 }
 
+func TestEnvironmentGRPCWebEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"true", []string{"true"}, true},
+		{"1", []string{"1"}, true},
+		{"on", []string{"on"}, true},
+		{"enabled", []string{"enabled"}, true},
+		{"mixed case", []string{"TRUE"}, true},
+		{"false", []string{"false"}, false},
+		{"non-truthy value", []string{"yes"}, false},
+		{"not given", []string{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("GRPC_WEB_ENABLED", tt.value[0])
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expected, conf.GRPC.WebEnabled)
+		})
+	}
+}
+
 func TestEnvironmentCORS_Methods(t *testing.T) {
 	factors := []struct {
 		name        string
