@@ -232,6 +232,10 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, 
 		return err
 	}
 
+	if a.config.SkipAccessCheck {
+		return nil
+	}
+
 	key := "access-check"
 
 	if err := a.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {

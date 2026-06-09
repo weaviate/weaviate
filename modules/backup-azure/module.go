@@ -43,6 +43,9 @@ type clientConfig struct {
 	// the backup to be stored in a specific
 	// directory inside the provided bucket
 	BackupPath string
+
+	// SkipAccessCheck disables the write+delete probe in Initialize.
+	SkipAccessCheck bool
 }
 
 type Module struct {
@@ -79,8 +82,9 @@ func (m *Module) Init(ctx context.Context,
 	m.dataPath = params.GetStorageProvider().DataPath()
 
 	config := &clientConfig{
-		Container:  os.Getenv(azureContainer),
-		BackupPath: os.Getenv(azurePath),
+		Container:       os.Getenv(azureContainer),
+		BackupPath:      os.Getenv(azurePath),
+		SkipAccessCheck: params.GetConfig().Backup.SkipAccessCheck,
 	}
 	if config.Container == "" {
 		return errors.Errorf("backup init: '%s' must be set", azureContainer)
@@ -93,8 +97,9 @@ func (m *Module) Init(ctx context.Context,
 	m.azureClient = client
 
 	exportConfig := &clientConfig{
-		Container:  "", // export scheduler provides bucket via EXPORT_DEFAULT_BUCKET
-		BackupPath: "", // export scheduler provides path via EXPORT_DEFAULT_PATH
+		Container:       "", // export scheduler provides bucket via EXPORT_DEFAULT_BUCKET
+		BackupPath:      "", // export scheduler provides path via EXPORT_DEFAULT_PATH
+		SkipAccessCheck: params.GetConfig().Export.SkipAccessCheck,
 	}
 	exportClient, err := newClient(ctx, exportConfig, m.dataPath, m.logger)
 	if err != nil {

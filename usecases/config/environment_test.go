@@ -321,6 +321,48 @@ func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 	})
 }
 
+func TestEnvironmentSkipAccessCheck(t *testing.T) {
+	t.Run("unset defaults to false for both", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.False(t, conf.Backup.SkipAccessCheck)
+		assert.False(t, conf.Export.SkipAccessCheck)
+	})
+
+	t.Run("BACKUP_SKIP_ACCESS_CHECK toggles only backup", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "true")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.True(t, conf.Backup.SkipAccessCheck)
+		assert.False(t, conf.Export.SkipAccessCheck)
+	})
+
+	t.Run("EXPORT_SKIP_ACCESS_CHECK toggles only export", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "true")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.False(t, conf.Backup.SkipAccessCheck)
+		assert.True(t, conf.Export.SkipAccessCheck)
+	})
+
+	t.Run("both set toggles both independently", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "true")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "true")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.True(t, conf.Backup.SkipAccessCheck)
+		assert.True(t, conf.Export.SkipAccessCheck)
+	})
+}
+
 func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	tests := []struct {
 		name        string
