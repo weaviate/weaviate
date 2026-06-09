@@ -351,6 +351,16 @@ func TestEnvironmentSkipAccessCheck(t *testing.T) {
 		assert.False(t, conf.Backup.SkipAccessCheck)
 		assert.True(t, conf.Export.SkipAccessCheck)
 	})
+
+	t.Run("both set toggles both independently", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "true")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "true")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.True(t, conf.Backup.SkipAccessCheck)
+		assert.True(t, conf.Export.SkipAccessCheck)
+	})
 }
 
 func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
