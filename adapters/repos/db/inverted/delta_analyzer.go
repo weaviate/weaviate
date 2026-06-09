@@ -59,6 +59,9 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 			out.ToAdd = append(out.ToAdd, nextProp)
 			if nextProp.Length != -1 {
 				// if length supported, remove prev length
+				// HasColumnarIndex deliberately false: this is length-index
+				// bookkeeping with no items, and a columnar delete would
+				// tombstone the row the ToAdd entry just wrote.
 				out.ToDelete = append(out.ToDelete, Property{
 					Name:               nextProp.Name,
 					Items:              []Countable{},
@@ -109,6 +112,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 							HasFilterableIndex: nextProp.HasFilterableIndex,
 							HasSearchableIndex: false,
 							HasRangeableIndex:  nextProp.HasRangeableIndex,
+							HasColumnarIndex:   nextProp.HasColumnarIndex,
 						})
 						out.ToDelete = append(out.ToDelete, Property{
 							Name:               prevProp.Name,
@@ -117,6 +121,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 							HasFilterableIndex: prevProp.HasFilterableIndex,
 							HasSearchableIndex: false,
 							HasRangeableIndex:  prevProp.HasRangeableIndex,
+							HasColumnarIndex:   prevProp.HasColumnarIndex,
 						})
 
 						// separate entries for searchable index of StrategyInverted with complete item sets
@@ -149,6 +154,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 					HasFilterableIndex: nextProp.HasFilterableIndex,
 					HasSearchableIndex: nextProp.HasSearchableIndex,
 					HasRangeableIndex:  nextProp.HasRangeableIndex,
+					HasColumnarIndex:   nextProp.HasColumnarIndex,
 				})
 				out.ToDelete = append(out.ToDelete, Property{
 					Name:               prevProp.Name,
@@ -157,6 +163,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 					HasFilterableIndex: prevProp.HasFilterableIndex,
 					HasSearchableIndex: prevProp.HasSearchableIndex,
 					HasRangeableIndex:  prevProp.HasRangeableIndex,
+					HasColumnarIndex:   prevProp.HasColumnarIndex,
 				})
 			}
 		}

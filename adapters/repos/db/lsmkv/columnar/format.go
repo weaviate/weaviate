@@ -311,6 +311,12 @@ func (w *BlockWriter) flushBlock() error {
 		Stats:      make([]ColStats, len(w.schema.Columns)),
 	}
 
+	for r := 0; r < rows; r++ {
+		if w.live[r] != 0 {
+			entry.LiveCount++
+		}
+	}
+
 	// min/max over live rows only
 	for c := range w.schema.Columns {
 		ct := w.schema.Columns[c].Type
@@ -322,11 +328,9 @@ func (w *BlockWriter) flushBlock() error {
 			v := binary.LittleEndian.Uint64(w.pages[c][r*8:])
 			if first {
 				entry.Stats[c] = ColStats{Min: v, Max: v}
-				entry.LiveCount++
 				first = false
 				continue
 			}
-			entry.LiveCount++
 			if ct.less(v, entry.Stats[c].Min) {
 				entry.Stats[c].Min = v
 			}
