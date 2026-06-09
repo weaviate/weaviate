@@ -82,6 +82,16 @@ func (fa *filteredAggregator) columnarBucketFor(class *models.Class,
 		return nil, ""
 	}
 
+	// During an enable-columnar migration the bucket exists (created by
+	// the strategy's PreReindexHook) but is incomplete until this shard's
+	// swap lands. Serving from it would silently return partial
+	// aggregations — fall back to the object-scan path instead. Nil
+	// callback means "no readiness info wired" (tests); the
+	// bucket-existence check below remains the only gate then.
+	if fa.isColumnarLocallyReady != nil && !fa.isColumnarLocallyReady(propName) {
+		return nil, ""
+	}
+
 	bucket := fa.store.Bucket(helpers.BucketColumnarFromPropNameLSM(propName))
 	if bucket == nil || bucket.Strategy() != lsmkv.StrategyColumnar {
 		return nil, ""

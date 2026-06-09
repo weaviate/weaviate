@@ -36,5 +36,6 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 		s.index.getStopwordProvider(), s.versioner.Version(), vectorIndex, s.index.logger, s.GetPropertyLengthTracker(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules, s.index.Config.QueryHybridMaximumResults,
 		s.TokenizationFor).
+		WithColumnarLocallyReady(s.IsColumnarLocallyReady).
 		Do(ctx)
 }

@@ -399,6 +399,31 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
+	// columnarLocalReadyMu guards columnarLocalReady — the columnar twin
+	// of rangeableLocalReady above. Holds the per-prop "is this shard's
+	// columnar bucket fully populated and safe to read?" answer that
+	// gates whether the columnar read paths (filtered aggregator,
+	// boost-value lookup) may serve from the local columnar bucket.
+	//
+	// False means the columnar bucket is mid-migration on THIS replica:
+	// the enable-columnar PreReindexHook created an empty main bucket
+	// but the per-shard runtimeSwap that prepends ingest+reindex
+	// segments into it hasn't run yet on this node. During this window
+	// the cluster-wide IndexColumnar flag may already be true (the
+	// first replica to swap fires OnMigrationComplete which RAFTs the
+	// flip cluster-wide), so the read paths would otherwise serve
+	// partial aggregations from the incomplete bucket — silent data
+	// loss. IsColumnarLocallyReady forces those paths back onto the
+	// object-scan fallback until our local swap catches up.
+	//
+	// Same lifecycle as rangeableLocalReady: default (missing key)
+	// resolves via bucket existence; PreReindexHook sets explicit
+	// false; OnMigrationComplete sets explicit true BEFORE the schema
+	// flip; shard init pessimistically sets false for any in-flight
+	// enable-columnar tracker dir found on disk.
+	columnarLocalReadyMu sync.RWMutex
+	columnarLocalReady   map[string]bool
+
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
 	// that closes the FINALIZING-window misalignment of a
@@ -724,6 +749,56 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 		s.rangeableLocalReady = map[string]bool{}
 	}
 	s.rangeableLocalReady[propName] = ready
+}
+
+// IsColumnarLocallyReady reports whether this shard's local columnar
+// bucket for the given property is fully populated and safe to read.
+// Columnar twin of [IsRangeableLocallyReady] — see [columnarLocalReady]
+// for the full rationale.
+//
+// Returns true when:
+//   - The per-shard map has an explicit `true` entry (set by
+//     [setColumnarLocallyReady] after a local enable-columnar
+//     migration's swap completes), OR
+//   - There is no explicit entry AND the columnar bucket for this prop
+//     exists in the LSM store. This covers native columnar props
+//     (created with IndexColumnar=true) and props whose migrations
+//     completed before this shard restarted (the per-shard map is
+//     in-memory only and starts empty).
+//
+// Returns false when:
+//   - The per-shard map has an explicit `false` entry (set by the
+//     migration's PreReindexHook or the shard-init pessimistic scan), OR
+//   - There is no explicit entry AND the columnar bucket does not exist
+//     in the LSM store yet (another replica may already have flipped
+//     the cluster-wide flag while THIS replica's PreReindexHook hasn't
+//     fired).
+func (s *Shard) IsColumnarLocallyReady(propName string) bool {
+	s.columnarLocalReadyMu.RLock()
+	if s.columnarLocalReady != nil {
+		if ready, set := s.columnarLocalReady[propName]; set {
+			s.columnarLocalReadyMu.RUnlock()
+			return ready
+		}
+	}
+	s.columnarLocalReadyMu.RUnlock()
+
+	// Default: ready iff the columnar bucket physically exists. Same
+	// no-shadow-entry policy as IsRangeableLocallyReady — the migration
+	// hooks own the map's lifecycle.
+	return s.store.Bucket(helpers.BucketColumnarFromPropNameLSM(propName)) != nil
+}
+
+// setColumnarLocallyReady is invoked by the enable-columnar migration's
+// lifecycle hooks. Intentionally NOT exported beyond the package — see
+// [setRangeableLocallyReady] for the rationale.
+func (s *Shard) setColumnarLocallyReady(propName string, ready bool) {
+	s.columnarLocalReadyMu.Lock()
+	defer s.columnarLocalReadyMu.Unlock()
+	if s.columnarLocalReady == nil {
+		s.columnarLocalReady = map[string]bool{}
+	}
+	s.columnarLocalReady[propName] = ready
 }
 
 // SetTokenizationOverlay records that propName's query-time tokenization on

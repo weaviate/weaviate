@@ -698,6 +698,9 @@
         },
         "rangeable": {
           "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "columnar": {
+          "$ref": "#/definitions/IndexUpdateColumnar"
         }
       }
     },
@@ -759,6 +762,19 @@
         "cancel": {
           "type": "boolean",
           "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index."
+        }
+      }
+    },
+    "IndexUpdateColumnar": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, enables a columnar index on this int/number/date property and backfills it from the stored objects via the property-reindex framework. Flips indexColumnar=true on completion."
+        },
+        "cancel": {
+          "type": "boolean",
+          "description": "When true, cancels the in-flight reindex task targeting this property's columnar index."
         }
       }
     },

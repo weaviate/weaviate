@@ -160,10 +160,13 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		if !inverted.HasColumnarIndex(prop) {
-			err := s.removeBucket(ctx, helpers.BucketColumnarFromPropNameLSM(prop.Name))
+			mainBucket := helpers.BucketColumnarFromPropNameLSM(prop.Name)
+			err := s.removeBucket(ctx, mainBucket)
 			if err != nil {
 				return fmt.Errorf("cannot remove columnar index for %s property: %w", prop.Name, err)
 			}
+			s.cleanStaleMigrationDirs(prop.Name, "columnar")
+			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
 	})
@@ -375,6 +378,8 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 		return helpers.BucketSearchableFromPropNameLSM(propName), true
 	case "rangeable":
 		return helpers.BucketRangeableFromPropNameLSM(propName), true
+	case "columnar":
+		return helpers.BucketColumnarFromPropNameLSM(propName), true
 	}
 	return "", false
 }
@@ -709,4 +714,20 @@ func (s *Shard) columnarSchemaForProp(prop *models.Property) *columnar.Schema {
 			{Name: prop.Name, Type: colType},
 		},
 	}
+}
+
+// columnarSchemaForPropName resolves the property by name from the shard's
+// class and returns its columnar schema. Returns nil when the property is
+// unknown or its data type has no columnar representation. Used by the
+// enable-columnar migration, which only knows property names.
+func (s *Shard) columnarSchemaForPropName(propName string) *columnar.Schema {
+	if s.class == nil {
+		return nil
+	}
+	for _, p := range s.class.Properties {
+		if p.Name == propName {
+			return s.columnarSchemaForProp(p)
+		}
+	}
+	return nil
 }

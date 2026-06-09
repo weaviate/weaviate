@@ -59,6 +59,18 @@ import (
 // creation) or already-completed migrations.
 type IsRangeableLocallyReady func(propName string) bool
 
+// IsColumnarLocallyReady is the columnar twin of [IsRangeableLocallyReady]:
+// it returns true when this shard's local columnar bucket for the given
+// property is fully populated and safe to serve reads. During an
+// enable-columnar migration the cluster-wide `IndexColumnar` flag can flip
+// to true as soon as the first replica completes its swap, while other
+// replicas still hold an empty PreReindexHook-created columnar bucket —
+// reads from it would silently return partial aggregations. When this
+// callback returns false, the columnar read paths (filtered aggregator,
+// boost-value lookup) fall back to the object path for THIS shard only
+// (slow but correct).
+type IsColumnarLocallyReady func(propName string) bool
+
 type Searcher struct {
 	logger                  logrus.FieldLogger
 	store                   *lsmkv.Store

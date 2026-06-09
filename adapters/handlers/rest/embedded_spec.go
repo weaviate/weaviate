@@ -8502,6 +8502,19 @@ func init() {
         }
       }
     },
+    "IndexUpdateColumnar": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's columnar index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "When true, enables a columnar index on this int/number/date property and backfills it from the stored objects via the property-reindex framework. Flips indexColumnar=true on completion.",
+          "type": "boolean"
+        }
+      }
+    },
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
@@ -8540,6 +8553,9 @@ func init() {
     "IndexUpdateRequest": {
       "type": "object",
       "properties": {
+        "columnar": {
+          "$ref": "#/definitions/IndexUpdateColumnar"
+        },
         "filterable": {
           "$ref": "#/definitions/IndexUpdateFilterable"
         },
@@ -19762,6 +19778,19 @@ func init() {
         }
       }
     },
+    "IndexUpdateColumnar": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's columnar index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "When true, enables a columnar index on this int/number/date property and backfills it from the stored objects via the property-reindex framework. Flips indexColumnar=true on completion.",
+          "type": "boolean"
+        }
+      }
+    },
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
@@ -19800,6 +19829,9 @@ func init() {
     "IndexUpdateRequest": {
       "type": "object",
       "properties": {
+        "columnar": {
+          "$ref": "#/definitions/IndexUpdateColumnar"
+        },
         "filterable": {
           "$ref": "#/definitions/IndexUpdateFilterable"
         },

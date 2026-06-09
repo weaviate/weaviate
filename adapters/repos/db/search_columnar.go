@@ -81,7 +81,19 @@ func (db *DB) BoostValues(ctx context.Context, className, tenant string,
 			buckets = shardBuckets{}
 			shard, release, err := idx.GetShard(ctx, shardName)
 			if err == nil && shard != nil {
+				// The readiness gate needs the concrete *Shard; a
+				// *LazyLoadShard returned by GetShard is already loaded
+				// at this point so unwrapping is cheap.
+				concrete, _ := unwrapShard(ctx, shard)
 				for propName := range dataTypes {
+					// Skip props whose columnar bucket is mid-migration on
+					// this shard (enable-columnar backfill in flight): the
+					// bucket exists but is incomplete, and serving boost
+					// values from it would silently misscore results. The
+					// caller falls back to materialized properties.
+					if concrete != nil && !concrete.IsColumnarLocallyReady(propName) {
+						continue
+					}
 					b := shard.Store().Bucket(helpers.BucketColumnarFromPropNameLSM(propName))
 					if b != nil && b.Strategy() == lsmkv.StrategyColumnar {
 						buckets[propName] = b

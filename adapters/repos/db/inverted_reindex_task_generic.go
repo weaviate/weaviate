@@ -2031,7 +2031,7 @@ func (t *ShardReindexTaskGeneric) mergeReindexAndIngestBuckets(ctx context.Conte
 				}
 
 				if needsRecover {
-					if err := t.recoverReindexBucket(gctx, logger, shard, reindexBucketName); err != nil {
+					if err := t.recoverReindexBucket(gctx, logger, shard, propName, reindexBucketName); err != nil {
 						return err
 					}
 				} else {
@@ -2359,8 +2359,42 @@ func (t *ShardReindexTaskGeneric) loadBackupBuckets(ctx context.Context,
 	return t.loadBuckets(ctx, logger, shard, props, t.backupBucketName, bucketOpts)
 }
 
+// perPropertyBucketOptioner is an optional [MigrationStrategy] extension
+// for strategies whose target buckets require per-property bucket options
+// on top of the shared per-strategy defaults. The canonical case is
+// [EnableColumnarStrategy]: columnar buckets refuse every write until a
+// per-property *columnar.Schema is set via lsmkv.WithColumnarSchema (the
+// schema's single column is named after the property and typed from its
+// dataType), so a shared option slice cannot serve all props. The
+// returned options are appended AFTER the shared ones, so per-prop
+// options win on conflicting settings.
+type perPropertyBucketOptioner interface {
+	PerPropertyBucketOptions(shard *Shard, propName string) []lsmkv.BucketOption
+}
+
+// perPropBucketOpts combines the shared per-strategy bucket options with
+// the strategy's per-property extras (if the strategy implements
+// [perPropertyBucketOptioner]). The shared slice is never mutated — a
+// fresh slice is built when extras exist, because loadBuckets calls this
+// concurrently for multiple props off the same shared slice.
+func (t *ShardReindexTaskGeneric) perPropBucketOpts(shard *Shard, propName string,
+	shared []lsmkv.BucketOption,
+) []lsmkv.BucketOption {
+	pp, ok := t.strategy.(perPropertyBucketOptioner)
+	if !ok {
+		return shared
+	}
+	extra := pp.PerPropertyBucketOptions(shard, propName)
+	if len(extra) == 0 {
+		return shared
+	}
+	out := make([]lsmkv.BucketOption, 0, len(shared)+len(extra))
+	out = append(out, shared...)
+	return append(out, extra...)
+}
+
 func (t *ShardReindexTaskGeneric) loadBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string, bucketNamer func(string) string,
+	logger logrus.FieldLogger, shard *Shard, props []string, bucketNamer func(string) string,
 	bucketOpts []lsmkv.BucketOption,
 ) error {
 	store := shard.Store()
@@ -2373,7 +2407,8 @@ func (t *ShardReindexTaskGeneric) loadBuckets(ctx context.Context,
 		eg.Go(func() error {
 			bucketName := bucketNamer(propName)
 			logger.WithField("bucket", bucketName).Debug("loading bucket")
-			if err := store.CreateOrLoadBucket(gctx, bucketName, bucketOpts...); err != nil {
+			opts := t.perPropBucketOpts(shard, propName, bucketOpts)
+			if err := store.CreateOrLoadBucket(gctx, bucketName, opts...); err != nil {
 				return err
 			}
 			logger.WithField("bucket", bucketName).Debug("bucket loaded")
@@ -2421,10 +2456,14 @@ func (t *ShardReindexTaskGeneric) unloadBuckets(ctx context.Context,
 }
 
 func (t *ShardReindexTaskGeneric) recoverReindexBucket(ctx context.Context,
-	logger logrus.FieldLogger, shard *Shard, bucketName string,
+	logger logrus.FieldLogger, shard *Shard, propName, bucketName string,
 ) error {
 	store := shard.Store()
-	bucketOpts := t.bucketOptions(shard, t.strategy.TargetStrategy(), true, false, t.config.memtableOptFactor)
+	// Per-prop options (e.g. the columnar schema) are required here too:
+	// WAL replay of a columnar bucket without its schema would drop the
+	// recovered rows on the floor.
+	bucketOpts := t.perPropBucketOpts(shard, propName,
+		t.bucketOptions(shard, t.strategy.TargetStrategy(), true, false, t.config.memtableOptFactor))
 
 	logger.WithField("bucket", bucketName).Debug("recover wals, loading bucket")
 	if err := store.CreateOrLoadBucket(ctx, bucketName, bucketOpts...); err != nil {

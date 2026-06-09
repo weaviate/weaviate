@@ -155,6 +155,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			{"filterable", prop.IndexFilterable == nil || *prop.IndexFilterable, true, true},
 			{"searchable", prop.IndexSearchable == nil || *prop.IndexSearchable, true, true},
 			{"rangeable", prop.IndexRangeFilters != nil && *prop.IndexRangeFilters, isNumeric, false},
+			{"columnar", prop.IndexColumnar != nil && *prop.IndexColumnar, isNumeric, false},
 		}
 
 		var indexes []*models.IndexStatus
@@ -438,6 +439,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
+	case body.Columnar != nil && body.Columnar.Enabled:
+		migrationType = db.ReindexTypeEnableColumnar
+		properties = []string{propertyName}
+		if err := validateColumnarProperties(class, properties); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
+		}
+
 	default:
 		// The verb list must enumerate EVERY dispatch case above. A missing
 		// verb here ships as a confusing 400 ("you sent a valid body shape
@@ -448,7 +456,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			"no actionable change detected; set one of: "+
 				"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, "+
 				"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, "+
-				"rangeable.cancel, rangeable.enabled, rangeable.rebuild"))
+				"rangeable.cancel, rangeable.enabled, rangeable.rebuild, "+
+				"columnar.cancel, columnar.enabled"))
 	}
 
 	// --- Multi-tenancy handling ---
@@ -654,9 +663,9 @@ func principalUsername(principal *models.Principal) string {
 
 // requestedCancel returns (indexType, true) if the body asks to cancel an
 // in-flight reindex on this property, where indexType is one of
-// "filterable", "searchable", or "rangeable". Returns ("", false)
-// otherwise. validateBodyExclusivity has already guaranteed at most one
-// cancel field is set across the body.
+// "filterable", "searchable", "rangeable", or "columnar". Returns
+// ("", false) otherwise. validateBodyExclusivity has already guaranteed
+// at most one cancel field is set across the body.
 func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	switch {
 	case body.Searchable != nil && body.Searchable.Cancel:
@@ -665,6 +674,8 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 		return "filterable", true
 	case body.Rangeable != nil && body.Rangeable.Cancel:
 		return "rangeable", true
+	case body.Columnar != nil && body.Columnar.Cancel:
+		return "columnar", true
 	}
 	return "", false
 }
@@ -925,6 +936,8 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 		return []string{"filterable"}, true
 	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
 		return []string{"rangeable"}, true
+	case db.ReindexTypeEnableColumnar:
+		return []string{"columnar"}, true
 	case db.ReindexTypeChangeTokenization:
 		// change-tokenization-both runs ONE task per inverted index
 		// (searchable + filterable). Each leaves its own per-property
@@ -956,6 +969,8 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 		return indexType == "filterable", true
 	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
 		return indexType == "rangeable", true
+	case db.ReindexTypeEnableColumnar:
+		return indexType == "columnar", true
 	case db.ReindexTypeChangeTokenization:
 		// touches both searchable and filterable buckets
 		return indexType == "searchable" || indexType == "filterable", true
@@ -1207,7 +1222,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	case db.ReindexTypeRebuildSearchable,
 		db.ReindexTypeRepairFilterable,
 		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable,
-		db.ReindexTypeRepairRangeable:
+		db.ReindexTypeRepairRangeable, db.ReindexTypeEnableColumnar:
 		// No tokenization or algorithm side effects for these types.
 	}
 }

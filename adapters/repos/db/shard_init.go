@@ -162,15 +162,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
-	// migration's target property as "not locally ready" on this shard.
-	// Without this, a post-restart shard whose recovery hasn't finished
-	// the local swap yet would serve range queries from an empty
-	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
-	// flips on another node. See [Shard.rangeableLocalReady] for the
+	// / enable-columnar migration's target property as "not locally ready"
+	// on this shard. Without this, a post-restart shard whose recovery
+	// hasn't finished the local swap yet would serve range queries /
+	// columnar reads from an empty PreReindexHook'd bucket as soon as the
+	// cluster-wide schema flag flips on another node. See
+	// [Shard.rangeableLocalReady] / [Shard.columnarLocalReady] for the
 	// full rationale. Props not found in this scan default to "ready"
 	// (no migration ever ran, or every prior migration already tidied —
 	// FinalizeCompletedMigrations above promoted them to canonical).
-	markInFlightRangeableMigrationsNotReady(s)
+	markInFlightLocalReadyMigrationsNotReady(s)
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
@@ -224,12 +225,14 @@ func (s *Shard) NotifyReady() {
 		Debugf("shard=%s is ready", s.name)
 }
 
-// markInFlightRangeableMigrationsNotReady scans this shard's
-// .migrations/ directory for rangeable-related tracker dirs whose
+// markInFlightLocalReadyMigrationsNotReady scans this shard's
+// .migrations/ directory for tracker dirs of migrations gated by a
+// per-shard "locally ready" flag (enable-rangeable / repair-rangeable →
+// rangeableLocalReady; enable-columnar → columnarLocalReady) whose
 // `tidied.mig` sentinel is not present, and flips the corresponding
-// per-prop entry in Shard.rangeableLocalReady to false. See
-// [Shard.rangeableLocalReady] for rationale. Idempotent and safe to
-// call on shards with no rangeable migrations on disk.
+// per-prop ready entry to false. See [Shard.rangeableLocalReady] /
+// [Shard.columnarLocalReady] for rationale. Idempotent and safe to
+// call on shards with no such migrations on disk.
 //
 // Property names are read from the on-disk recovery payload (payload.mig
 // inside each tracker dir). Parsing them out of the dir name would be
@@ -241,23 +244,29 @@ func (s *Shard) NotifyReady() {
 // Tracker dirs whose payload.mig is unreadable or missing are skipped
 // — they are either stale (operator surgery, partial-init crash) or
 // from an old build before payload persistence. We accept the
-// default-true policy in [Shard.IsRangeableLocallyReady] for those
-// edge cases; the bucket-existence fallback inside
-// IsRangeableLocallyReady still protects queries when the
-// PreReindexHook hasn't fired yet on this replica.
+// default-true policy in [Shard.IsRangeableLocallyReady] /
+// [Shard.IsColumnarLocallyReady] for those edge cases; the
+// bucket-existence fallback inside those methods still protects reads
+// when the PreReindexHook hasn't fired yet on this replica.
 //
 // Properties that don't have a tracker dir, or whose dir has
 // `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
 // in this same startup), are left untouched — the default-true policy
-// in [Shard.IsRangeableLocallyReady] applies to them.
-func markInFlightRangeableMigrationsNotReady(s *Shard) {
+// applies to them.
+func markInFlightLocalReadyMigrationsNotReady(s *Shard) {
 	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		// No .migrations dir is the common case: nothing to do.
 		return
 	}
-	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
+	prefixedSetters := []struct {
+		prefix   string
+		setReady func(propName string, ready bool)
+	}{
+		{MigrationDirPrefixFilterableToRangeable + "_", s.setRangeableLocallyReady},
+		{MigrationDirPrefixEnableColumnar + "_", s.setColumnarLocallyReady},
+	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -267,7 +276,14 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		if !ok {
 			continue
 		}
-		if !strings.HasPrefix(base, prefix) {
+		var setReady func(propName string, ready bool)
+		for _, ps := range prefixedSetters {
+			if strings.HasPrefix(base, ps.prefix) {
+				setReady = ps.setReady
+				break
+			}
+		}
+		if setReady == nil {
 			continue
 		}
 		// tidied.mig present means FinalizeCompletedMigrations either
@@ -282,7 +298,7 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 			continue
 		}
 		for _, propName := range propNames {
-			s.setRangeableLocallyReady(propName, false)
+			setReady(propName, false)
 		}
 	}
 }

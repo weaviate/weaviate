@@ -238,6 +238,10 @@ func buildRecoveryTasks(
 		raw = []*ShardReindexTaskGeneric{
 			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, generation),
 		}
+	case ReindexTypeEnableColumnar:
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeEnableColumnarTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+		}
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("%s requires targetTokenization", payload.MigrationType)

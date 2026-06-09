@@ -79,6 +79,12 @@ const (
 	// searchable bucket from the objects store). Actual dir:
 	// "<prefix>_<prop1>_<prop2>...".
 	MigrationDirPrefixRebuildSearchable = "rebuild_searchable"
+
+	// MigrationDirPrefixEnableColumnar is the directory-name prefix for
+	// the enable-columnar migration. The actual directory is either this
+	// prefix on its own (no specific properties) or this prefix +
+	// "_<prop1>_<prop2>...".
+	MigrationDirPrefixEnableColumnar = "enable_columnar"
 )
 
 // migrationDirWithProps assembles a migration directory name from a
@@ -173,6 +179,10 @@ func migrationDirsForPropertyIndex(propName, indexType string) []string {
 	case "rangeable":
 		return []string{
 			migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName}),
+		}
+	case "columnar":
+		return []string{
+			migrationDirWithProps(MigrationDirPrefixEnableColumnar, []string{propName}),
 		}
 	}
 	return nil

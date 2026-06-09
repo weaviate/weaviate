@@ -107,7 +107,12 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 		// overridden for the duration of this analysis call.
 		effective := a.effectiveProperty(prop)
 
-		if !HasAnyInvertedIndex(effective) {
+		// Columnar is not part of HasAnyInvertedIndex (it is a column
+		// store, not an inverted index), but a columnar-indexed property
+		// must still be analyzed so the write path can feed the columnar
+		// bucket — including during an enable-columnar backfill where the
+		// overlay forces the flag on while every inverted flag is off.
+		if !HasAnyInvertedIndex(effective) && !HasColumnarIndex(effective) {
 			continue
 		}
 
@@ -157,6 +162,10 @@ func (a *Analyzer) effectiveProperty(prop *models.Property) *models.Property {
 	if o.ForceRangeable {
 		t := true
 		clone.IndexRangeFilters = &t
+	}
+	if o.ForceColumnar {
+		t := true
+		clone.IndexColumnar = &t
 	}
 	if o.Tokenization != "" {
 		clone.Tokenization = o.Tokenization
