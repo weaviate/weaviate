@@ -814,7 +814,6 @@ type GRPC struct {
 	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
 	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
 	WebEnabled      bool          `json:"webEnabled" yaml:"webEnabled"`
-	WebPort         int           `json:"webPort" yaml:"webPort"`
 }
 
 type MCP struct {

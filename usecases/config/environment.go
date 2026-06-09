@@ -940,13 +940,6 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 	config.GRPC.WebEnabled = entcfg.Enabled(os.Getenv("GRPC_WEB_ENABLED"))
-	if err := parsePositiveInt(
-		"GRPC_WEB_PORT",
-		func(val int) { config.GRPC.WebPort = val },
-		DefaultGRPCWebPort,
-	); err != nil {
-		return err
-	}
 
 	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
@@ -1814,7 +1807,6 @@ const (
 	DefaultMaxConcurrentShardLoads             = 100
 	DefaultMaxConcurrentBucketLoads            = 100
 	DefaultGRPCPort                            = 50051
-	DefaultGRPCWebPort                         = 50052
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
 	DefaultMCPEnabled                          = false

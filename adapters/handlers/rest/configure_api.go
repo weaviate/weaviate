@@ -1401,9 +1401,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
-	var grpcWebSrv *grpcweb.Server
+	var grpcWebHandler http.Handler
 	if appState.ServerConfig.Config.GRPC.WebEnabled {
-		grpcWebSrv = grpcweb.NewServer(grpcServer, appState)
+		h, err := grpcweb.NewHandler(grpcServer, appState)
+		if err != nil {
+			appState.Logger.WithField("action", "grpc_web_startup").
+				Fatalf("init grpc-web handler: %v", err)
+		}
+		grpcWebHandler = h
 	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
@@ -1489,14 +1494,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
-		if grpcWebSrv != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := grpcWebSrv.Close(shutdownCtx); err != nil {
-				appState.Logger.WithField("action", "grpc_web_shutdown").WithError(err).
-					Warn("grpc-web server shutdown error")
-			}
-			cancel()
-		}
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 
@@ -1541,11 +1538,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	startGrpcServer(grpcServer, appState)
-	if grpcWebSrv != nil {
-		startGrpcWebServer(grpcWebSrv, appState)
-	}
 	setupMCPHandlers(api, appState, objectsManager)
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+
+	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	if grpcWebHandler != nil {
+		// Serve grpc-web on the REST port under /grpc-web/ rather than a
+		// dedicated listener; the prefix lets infra route gRPC traffic
+		// separately without opening a second port.
+		return grpcweb.Mount("/grpc-web", grpcWebHandler, restHandler)
+	}
+	return restHandler
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
