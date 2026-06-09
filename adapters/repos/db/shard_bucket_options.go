@@ -53,7 +53,13 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 			lsmkv.WithUseBloomFilter(false),
 		)
 	case lsmkv.StrategyColumnar:
-		// no special options needed for columnar strategy
+		options = append(options,
+			// derived from the key index, which columnar segments don't have
+			lsmkv.WithUseBloomFilter(false),
+			lsmkv.WithCalcCountNetAdditions(false),
+			// the columnar read path requires fully loaded *segment instances
+			lsmkv.WithLazySegmentLoading(false),
+		)
 	case lsmkv.StrategyMapCollection:
 		if s.versioner.Version() < 2 {
 			options = append(options,

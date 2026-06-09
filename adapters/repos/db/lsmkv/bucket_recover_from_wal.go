@@ -121,6 +121,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 				return err
 			}
 
+			if b.strategy == StrategyColumnar && b.columnarSchema != nil {
+				mt.initColumnar(b.columnarSchema)
+			}
+
 			_, err = cl.file.Seek(0, io.SeekStart)
 			if err != nil {
 				return err

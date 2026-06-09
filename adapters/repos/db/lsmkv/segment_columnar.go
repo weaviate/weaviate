@@ -12,140 +12,96 @@
 package lsmkv
 
 import (
-	"encoding/binary"
-	"math"
+	"fmt"
+	"sort"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-// columnarSegmentData holds pre-computed offsets into the mmap'd contents
-// of a columnar segment, enabling O(log N) lookups by docID and O(1)
-// subsequent column reads.
+// columnarSegmentData holds the parsed columnar header and block directory
+// of one segment. Data pages stay in the segment's (mmap'd) contents and are
+// only touched when a block survives pruning.
 type columnarSegmentData struct {
-	numRows    uint64
-	schema     columnar.Schema
-	headerSize int // byte size of the columnar header
-
-	// Byte offsets into segment.contents (relative to file start).
-	// All offsets are past the standard LSM header.
-	docIDOffset uint64 // start of docID array
-	validOffset uint64 // start of valid array
-	colOffsets  []uint64
-	colWidths   []uint8
+	schema  columnar.Schema
+	entries []columnar.DirectoryEntry
 }
 
-func loadColumnarSegmentData(contents []byte) (*columnarSegmentData, error) {
-	// The columnar header starts right after the standard LSM header.
-	buf := contents[segmentindex.HeaderSize:]
-	ch, headerSize, err := columnar.UnmarshalColumnarHeader(buf)
+func loadColumnarSegmentData(contents []byte, indexStart uint64, version uint16) (*columnarSegmentData, error) {
+	h, _, err := columnar.UnmarshalHeader(contents[segmentindex.HeaderSize:])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse columnar header: %w", err)
 	}
 
-	d := &columnarSegmentData{
-		numRows:    ch.NumRows,
-		schema:     ch.Schema,
-		headerSize: headerSize,
+	dirEnd := uint64(len(contents))
+	if version >= segmentindex.SegmentV1 {
+		// V1 segments carry a trailing checksum after the directory.
+		dirEnd -= segmentindex.ChecksumSize
+	}
+	if indexStart > dirEnd {
+		return nil, fmt.Errorf("columnar directory start %d beyond end %d", indexStart, dirEnd)
 	}
 
-	base := uint64(segmentindex.HeaderSize) + uint64(headerSize)
-
-	// docID array: numRows × 8 bytes
-	d.docIDOffset = base
-	base += d.numRows * 8
-
-	// valid array: numRows × 1 byte
-	d.validOffset = base
-	base += d.numRows
-
-	// value columns
-	d.colOffsets = make([]uint64, len(ch.Schema.Columns))
-	d.colWidths = make([]uint8, len(ch.Schema.Columns))
-	for i, col := range ch.Schema.Columns {
-		d.colOffsets[i] = base
-		d.colWidths[i] = col.Type.Width()
-		base += d.numRows * uint64(d.colWidths[i])
+	entries, err := columnar.UnmarshalDirectory(contents[indexStart:dirEnd], len(h.Schema.Columns))
+	if err != nil {
+		return nil, fmt.Errorf("parse columnar directory: %w", err)
 	}
 
-	return d, nil
+	return &columnarSegmentData{schema: h.Schema, entries: entries}, nil
 }
 
-// bsearchDocID performs a binary search on the sorted docID array within
-// the mmap'd contents buffer. Returns the row index, or -1 if not found.
-func (d *columnarSegmentData) bsearchDocID(contents []byte, docID uint64) int {
-	lo, hi := 0, int(d.numRows)
-	docIDs := contents[d.docIDOffset:]
-	for lo < hi {
-		mid := lo + (hi-lo)/2
-		midVal := binary.LittleEndian.Uint64(docIDs[mid*8:])
-		if midVal < docID {
-			lo = mid + 1
-		} else if midVal > docID {
-			hi = mid
-		} else {
-			return mid
+// findBlock returns the index of the directory entry whose docID range
+// contains docID, or -1.
+func (d *columnarSegmentData) findBlock(docID uint64) int {
+	idx := sort.Search(len(d.entries), func(i int) bool {
+		return d.entries[i].EndDocID >= docID
+	})
+	if idx == len(d.entries) || d.entries[idx].StartDocID > docID {
+		return -1
+	}
+	return idx
+}
+
+// lookup returns (rawBits, found, isTombstone) for docID in column colIdx.
+func (d *columnarSegmentData) lookup(contents []byte, docID uint64, colIdx int) (uint64, bool, bool) {
+	blockIdx := d.findBlock(docID)
+	if blockIdx < 0 {
+		return 0, false, false
+	}
+	br, err := columnar.NewBlockReader(&d.schema, &d.entries[blockIdx], contents)
+	if err != nil {
+		// A block that fails to parse after a successful segment load means
+		// corruption past the checksum gate; treat as not-found rather than
+		// failing the entire read path.
+		return 0, false, false
+	}
+	row := br.FindRow(docID)
+	if row < 0 {
+		return 0, false, false
+	}
+	if !br.IsLive(row) {
+		return 0, true, true
+	}
+	return br.ValueBitsAt(colIdx, row), true, false
+}
+
+// scanBlocks calls visit for each block in docID order. visit returns false
+// to stop the scan early.
+func (d *columnarSegmentData) scanBlocks(contents []byte,
+	visit func(entry *columnar.DirectoryEntry, br *columnar.BlockReader) (bool, error),
+) error {
+	for i := range d.entries {
+		br, err := columnar.NewBlockReader(&d.schema, &d.entries[i], contents)
+		if err != nil {
+			return err
+		}
+		cont, err := visit(&d.entries[i], br)
+		if err != nil {
+			return err
+		}
+		if !cont {
+			return nil
 		}
 	}
-	return -1
-}
-
-// isValid returns whether the row at the given index is live (not a tombstone).
-func (d *columnarSegmentData) isValid(contents []byte, rowIdx int) bool {
-	return contents[d.validOffset+uint64(rowIdx)] != 0
-}
-
-// lookupFloat32 retrieves a float32 value for the given docID and column.
-// Returns (value, found, isTombstone).
-func (d *columnarSegmentData) lookupFloat32(contents []byte, docID uint64, colIdx int) (float32, bool, bool) {
-	rowIdx := d.bsearchDocID(contents, docID)
-	if rowIdx < 0 {
-		return 0, false, false
-	}
-	if !d.isValid(contents, rowIdx) {
-		return 0, true, true
-	}
-	off := d.colOffsets[colIdx] + uint64(rowIdx)*4
-	bits := binary.LittleEndian.Uint32(contents[off:])
-	return math.Float32frombits(bits), true, false
-}
-
-// lookupInt64 retrieves an int64 value for the given docID and column.
-// Returns (value, found, isTombstone).
-func (d *columnarSegmentData) lookupInt64(contents []byte, docID uint64, colIdx int) (int64, bool, bool) {
-	rowIdx := d.bsearchDocID(contents, docID)
-	if rowIdx < 0 {
-		return 0, false, false
-	}
-	if !d.isValid(contents, rowIdx) {
-		return 0, true, true
-	}
-	off := d.colOffsets[colIdx] + uint64(rowIdx)*8
-	val := binary.LittleEndian.Uint64(contents[off:])
-	return int64(val), true, false
-}
-
-// columnarRowAt extracts the full row at the given index as a
-// columnarMemtableRow (used during compaction).
-func (d *columnarSegmentData) columnarRowAt(contents []byte, rowIdx int) *columnarMemtableRow {
-	docID := binary.LittleEndian.Uint64(contents[d.docIDOffset+uint64(rowIdx)*8:])
-	valid := d.isValid(contents, rowIdx)
-
-	values := make([]byte, d.schema.RowWidth())
-	for i := range d.colOffsets {
-		w := uint64(d.colWidths[i])
-		off := d.colOffsets[i] + uint64(rowIdx)*w
-		copy(values[d.schema.ColOffset(i):], contents[off:off+w])
-	}
-
-	return &columnarMemtableRow{
-		docID:  docID,
-		valid:  valid,
-		values: values,
-	}
-}
-
-// docIDAt returns the docID at the given row index.
-func (d *columnarSegmentData) docIDAt(contents []byte, rowIdx int) uint64 {
-	return binary.LittleEndian.Uint64(contents[d.docIDOffset+uint64(rowIdx)*8:])
+	return nil
 }

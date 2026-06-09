@@ -21,12 +21,10 @@ import (
 
 // Columnar WAL node format:
 //
-//	[8 bytes: docID] [1 byte: valid (0=tombstone, 1=live)] [N bytes: values]
-//
-// We reuse CommitTypeReplace commit type since the WAL format is similar
-// (one entry per docID, latest wins). The strategy-level parser handles
-// the different interpretation.
+//	[8 bytes: docID] [1 byte: live (0=tombstone, 1=live)] [N bytes: values]
 
+// CommitTypeColumnar is defined explicitly (not via iota) so a future commit
+// type added to the main const block cannot silently collide with it.
 const CommitTypeColumnar CommitType = 4
 
 func (p *commitloggerParser) doColumnar() error {

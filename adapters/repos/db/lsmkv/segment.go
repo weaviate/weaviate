@@ -369,11 +369,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	// Load columnar metadata if applicable
 	if header.Strategy == segmentindex.StrategyColumnar {
-		colData, err := loadColumnarSegmentData(contents)
+		colData, err := loadColumnarSegmentData(contents, header.IndexStart, header.Version)
 		if err != nil {
 			return nil, fmt.Errorf("load columnar segment data: %w", err)
 		}
 		seg.columnarData = colData
+		// bloom filters and count-net-additions are derived from the key
+		// index, which columnar segments do not have
+		seg.useBloomFilter = false
+		seg.calcCountNetAdditions = false
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime

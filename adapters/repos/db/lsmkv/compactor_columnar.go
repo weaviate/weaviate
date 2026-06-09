@@ -13,16 +13,19 @@ package lsmkv
 
 import (
 	"bufio"
-	"encoding/binary"
+	"context"
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-// compactorColumnar merges two columnar segments using a merge-join on
-// sorted docIDs. The right (newer) segment wins on conflict.
+// compactorColumnar merges two columnar segments via a streaming merge-join
+// on sorted docIDs: the newer (right) segment wins on conflict. At most one
+// input block per side plus one output block are held in memory, so memory
+// use is independent of segment size.
 type compactorColumnar struct {
 	left  *segment
 	right *segment
@@ -50,143 +53,195 @@ func newCompactorColumnar(w io.WriteSeeker, left, right *segment,
 	}
 }
 
-func (c *compactorColumnar) do() error {
+// columnarRowCursor iterates one segment's live+tombstone rows in docID
+// order, loading one block at a time.
+type columnarRowCursor struct {
+	data     *columnarSegmentData
+	contents []byte
+
+	blockIdx int
+	rowIdx   int
+	br       *columnar.BlockReader
+
+	valid bool
+	docID uint64
+}
+
+func newColumnarRowCursor(data *columnarSegmentData, contents []byte) (*columnarRowCursor, error) {
+	c := &columnarRowCursor{data: data, contents: contents, blockIdx: -1}
+	return c, c.advanceBlockIfNeeded()
+}
+
+func (c *columnarRowCursor) advanceBlockIfNeeded() error {
+	for c.br == nil || c.rowIdx >= c.br.Rows() {
+		c.blockIdx++
+		if c.blockIdx >= len(c.data.entries) {
+			c.valid = false
+			return nil
+		}
+		br, err := columnar.NewBlockReader(&c.data.schema, &c.data.entries[c.blockIdx], c.contents)
+		if err != nil {
+			return err
+		}
+		c.br = br
+		c.rowIdx = 0
+	}
+	c.valid = true
+	c.docID = c.br.DocIDAt(c.rowIdx)
+	return nil
+}
+
+func (c *columnarRowCursor) next() error {
+	c.rowIdx++
+	return c.advanceBlockIfNeeded()
+}
+
+func (c *columnarRowCursor) isLive() bool { return c.br.IsLive(c.rowIdx) }
+
+func (c *columnarRowCursor) rowValues(dst []byte) []byte {
+	return c.br.RowValues(dst, c.rowIdx)
+}
+
+func (c *compactorColumnar) do(ctx context.Context) error {
 	ld := c.left.columnarData
 	rd := c.right.columnarData
-
 	if ld == nil || rd == nil {
 		return fmt.Errorf("compactorColumnar: segments missing columnar data")
 	}
 
-	lContents := c.left.contents
-	rContents := c.right.contents
-
-	// Merge-join: both sides are sorted by docID ascending.
-	merged := make([]*columnarMemtableRow, 0, ld.numRows+rd.numRows)
-	li, ri := 0, 0
-	lMax, rMax := int(ld.numRows), int(rd.numRows)
-
-	for li < lMax && ri < rMax {
-		lDocID := ld.docIDAt(lContents, li)
-		rDocID := rd.docIDAt(rContents, ri)
-
-		switch {
-		case lDocID < rDocID:
-			row := ld.columnarRowAt(lContents, li)
-			if !c.cleanupTombstones || row.valid {
-				merged = append(merged, row)
-			}
-			li++
-		case lDocID > rDocID:
-			row := rd.columnarRowAt(rContents, ri)
-			if !c.cleanupTombstones || row.valid {
-				merged = append(merged, row)
-			}
-			ri++
-		default: // equal — right (newer) wins
-			row := rd.columnarRowAt(rContents, ri)
-			if !c.cleanupTombstones || row.valid {
-				merged = append(merged, row)
-			}
-			li++
-			ri++
-		}
-	}
-
-	for ; li < lMax; li++ {
-		row := ld.columnarRowAt(lContents, li)
-		if !c.cleanupTombstones || row.valid {
-			merged = append(merged, row)
-		}
-	}
-	for ; ri < rMax; ri++ {
-		row := rd.columnarRowAt(rContents, ri)
-		if !c.cleanupTombstones || row.valid {
-			merged = append(merged, row)
-		}
-	}
-
-	return c.writeSegment(merged, &ld.schema)
-}
-
-func (c *compactorColumnar) writeSegment(rows []*columnarMemtableRow, schema *columnar.Schema) error {
-	numRows := uint64(len(rows))
-	rowWidth := schema.RowWidth()
-
-	ch := &columnar.ColumnarHeader{
-		NumRows: numRows,
-		Schema:  *schema,
-	}
-	chBytes := ch.MarshalBinary()
-
-	dataSize := len(chBytes) +
-		int(numRows)*8 +
-		int(numRows)*1 +
-		int(numRows)*rowWidth
-
-	header := &segmentindex.Header{
-		IndexStart:       uint64(dataSize + segmentindex.HeaderSize),
-		Level:            c.currentLevel,
-		Version:          segmentindex.ChooseHeaderVersion(c.enableChecksumValidation),
-		SecondaryIndices: 0,
-		Strategy:         segmentindex.StrategyColumnar,
+	// Dummy header now, real header via seek-back at the end — row counts
+	// are unknown until the merge completes.
+	if _, err := c.bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
+		return fmt.Errorf("write empty header: %w", err)
 	}
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
-
-	if _, err := segmentFile.WriteHeader(header); err != nil {
-		return fmt.Errorf("write header: %w", err)
-	}
-
 	w := segmentFile.BodyWriter()
 
-	// Columnar header
+	ch := &columnar.Header{Schema: ld.schema}
+	chBytes := ch.MarshalBinary()
 	if _, err := w.Write(chBytes); err != nil {
 		return fmt.Errorf("write columnar header: %w", err)
 	}
 
-	// DocID array
-	buf8 := make([]byte, 8)
-	for _, row := range rows {
-		binary.LittleEndian.PutUint64(buf8, row.docID)
-		if _, err := w.Write(buf8); err != nil {
-			return fmt.Errorf("write docID: %w", err)
-		}
-	}
-
-	// Valid array
-	for _, row := range rows {
-		v := byte(0)
-		if row.valid {
-			v = 1
-		}
-		if _, err := w.Write([]byte{v}); err != nil {
-			return fmt.Errorf("write valid: %w", err)
-		}
-	}
-
-	// Value columns
-	for colIdx, col := range schema.Columns {
-		colOff := schema.ColOffset(colIdx)
-		colWidth := int(col.Type.Width())
-		for _, row := range rows {
-			if _, err := w.Write(row.values[colOff : colOff+colWidth]); err != nil {
-				return fmt.Errorf("write column %d: %w", colIdx, err)
+	var entries []columnar.DirectoryEntry
+	bw := columnar.NewBlockWriter(&ld.schema, uint64(segmentindex.HeaderSize+len(chBytes)),
+		func(block []byte, entry columnar.DirectoryEntry) error {
+			if _, err := w.Write(block); err != nil {
+				return err
 			}
-		}
+			entries = append(entries, entry)
+			return nil
+		})
+
+	if err := c.merge(ctx, ld, rd, bw); err != nil {
+		return err
+	}
+	if err := bw.Flush(); err != nil {
+		return fmt.Errorf("flush final block: %w", err)
 	}
 
-	// Flush buffered data before writing checksum
+	dataEnd := bw.Offset()
+
+	dir := columnar.MarshalDirectory(entries, len(ld.schema.Columns))
+	if _, err := w.Write(dir); err != nil {
+		return fmt.Errorf("write directory: %w", err)
+	}
+
+	// flush buffered, so we can safely seek on the underlying writer
 	if err := c.bufw.Flush(); err != nil {
 		return fmt.Errorf("flush buffered: %w", err)
+	}
+
+	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
+	if err := compactor.WriteHeader(nil, c.w, c.bufw, segmentFile, c.currentLevel,
+		version, 0, dataEnd, segmentindex.StrategyColumnar); err != nil {
+		return fmt.Errorf("write header: %w", err)
 	}
 
 	if _, err := segmentFile.WriteChecksum(); err != nil {
 		return fmt.Errorf("write checksum: %w", err)
 	}
 
+	return nil
+}
+
+func (c *compactorColumnar) merge(ctx context.Context,
+	ld, rd *columnarSegmentData, bw *columnar.BlockWriter,
+) error {
+	lc, err := newColumnarRowCursor(ld, c.left.contents)
+	if err != nil {
+		return fmt.Errorf("left cursor: %w", err)
+	}
+	rc, err := newColumnarRowCursor(rd, c.right.contents)
+	if err != nil {
+		return fmt.Errorf("right cursor: %w", err)
+	}
+
+	rowBuf := make([]byte, 0, ld.schema.RowWidth())
+	rowsProcessed := 0
+
+	emit := func(cur *columnarRowCursor) error {
+		rowsProcessed++
+		if rowsProcessed%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		live := cur.isLive()
+		if c.cleanupTombstones && !live {
+			return nil
+		}
+		rowBuf = cur.rowValues(rowBuf[:0])
+		return bw.Append(cur.docID, live, rowBuf)
+	}
+
+	for lc.valid && rc.valid {
+		switch {
+		case lc.docID < rc.docID:
+			if err := emit(lc); err != nil {
+				return err
+			}
+			if err := lc.next(); err != nil {
+				return err
+			}
+		case lc.docID > rc.docID:
+			if err := emit(rc); err != nil {
+				return err
+			}
+			if err := rc.next(); err != nil {
+				return err
+			}
+		default: // equal — right (newer) wins
+			if err := emit(rc); err != nil {
+				return err
+			}
+			if err := lc.next(); err != nil {
+				return err
+			}
+			if err := rc.next(); err != nil {
+				return err
+			}
+		}
+	}
+	for lc.valid {
+		if err := emit(lc); err != nil {
+			return err
+		}
+		if err := lc.next(); err != nil {
+			return err
+		}
+	}
+	for rc.valid {
+		if err := emit(rc); err != nil {
+			return err
+		}
+		if err := rc.next(); err != nil {
+			return err
+		}
+	}
 	return nil
 }

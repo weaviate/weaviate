@@ -466,7 +466,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		}
 		c := newCompactorColumnar(f, leftSeg, rightSeg, level, cleanupTombstones, sg.enableChecksumValidation)
 
-		aborted, err := runCompactor(func(context.Context) error { return c.do() })
+		aborted, err := runCompactor(c.do)
 		if err != nil {
 			return false, err
 		}

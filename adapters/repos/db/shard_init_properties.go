@@ -700,7 +700,7 @@ func (s *Shard) columnarSchemaForProp(prop *models.Property) *columnar.Schema {
 	case schema.DataTypeInt, schema.DataTypeDate:
 		colType = columnar.ColumnTypeInt64
 	case schema.DataTypeNumber:
-		colType = columnar.ColumnTypeFloat32
+		colType = columnar.ColumnTypeFloat64
 	default:
 		return nil
 	}

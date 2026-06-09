@@ -107,12 +107,11 @@ type memtable interface {
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataColumnar(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
-	columnarPutFloat32(docID uint64, colIdx int, value float32) error
+	columnarPutFloat64(docID uint64, colIdx int, value float64) error
 	columnarPutInt64(docID uint64, colIdx int, value int64) error
-	columnarPutRowValues(docID uint64, values []byte) error
 	columnarDelete(docID uint64) error
-	columnarLookupFloat32(docID uint64, colIdx int) (float32, bool, bool)
-	columnarLookupInt64(docID uint64, colIdx int) (int64, bool, bool)
+	columnarLookup(docID uint64, colIdx int) (uint64, bool, bool)
+	columnarScanRows(colIdx int, fn func(docID uint64, live bool, bits uint64) bool)
 
 	incWriterCount()
 	decWriterCount()

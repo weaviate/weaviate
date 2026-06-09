@@ -236,7 +236,9 @@ func (s *Shard) addToColumnarIndex(docID uint64, property inverted.Property) err
 		if err != nil {
 			return fmt.Errorf("columnar: decode float64 for prop '%s': %w", property.Name, err)
 		}
-		return bucket.ColumnarPutFloat32(docID, 0, float32(v))
+		// stored lossless as float64 — silently narrowing user data to
+		// float32 would break the columnar store's fidelity contract
+		return bucket.ColumnarPutFloat64(docID, 0, v)
 	default: // int, date — both stored as int64
 		v, err := ent.ParseLexicographicallySortableInt64(item.Data)
 		if err != nil {

@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
@@ -23,8 +22,8 @@ import (
 // columnarMemtableRow holds one document's columnar values in memory.
 type columnarMemtableRow struct {
 	docID  uint64
-	valid  bool   // false = tombstone
-	values []byte // packed column values, same layout as schema
+	live   bool   // false = tombstone
+	values []byte // packed column values, schema layout
 }
 
 func (m *Memtable) initColumnar(schema *columnar.Schema) {
@@ -33,19 +32,18 @@ func (m *Memtable) initColumnar(schema *columnar.Schema) {
 	m.columnarWALBuf = make([]byte, 8+1+schema.RowWidth()) // reusable WAL buffer
 }
 
-func (m *Memtable) columnarPutFloat32(docID uint64, colIdx int, value float32) error {
+func (m *Memtable) columnarPutFloat64(docID uint64, colIdx int, value float64) error {
 	if m.columnarSchema == nil {
 		return fmt.Errorf("columnar schema not set")
 	}
 	m.Lock()
 	defer m.Unlock()
 
-	row := m.getOrCreateRow(docID)
-	off := m.columnarSchema.ColOffset(colIdx)
-	columnar.EncodeFloat32(row.values, off, value)
-	row.valid = true
+	row := m.getOrCreateColumnarRowLocked(docID)
+	columnar.EncodeFloat64(row.values, m.columnarSchema.ColOffset(colIdx), value)
+	row.live = true
 
-	m.size += 12
+	m.size += 16
 	m.updateDirtyAt()
 	return m.columnarWriteWALLocked(docID, row)
 }
@@ -57,50 +55,33 @@ func (m *Memtable) columnarPutInt64(docID uint64, colIdx int, value int64) error
 	m.Lock()
 	defer m.Unlock()
 
-	row := m.getOrCreateRow(docID)
-	off := m.columnarSchema.ColOffset(colIdx)
-	columnar.EncodeInt64(row.values, off, value)
-	row.valid = true
+	row := m.getOrCreateColumnarRowLocked(docID)
+	columnar.EncodeInt64(row.values, m.columnarSchema.ColOffset(colIdx), value)
+	row.live = true
 
 	m.size += 16
 	m.updateDirtyAt()
 	return m.columnarWriteWALLocked(docID, row)
 }
 
-// columnarPutRowValues writes an entire row of pre-encoded values in a single
-// lock acquisition and single WAL entry.
-func (m *Memtable) columnarPutRowValues(docID uint64, values []byte) error {
+func (m *Memtable) columnarDelete(docID uint64) error {
 	if m.columnarSchema == nil {
 		return fmt.Errorf("columnar schema not set")
 	}
 	m.Lock()
 	defer m.Unlock()
 
-	row := m.getOrCreateRow(docID)
-	copy(row.values, values)
-	row.valid = true
-
-	m.size += uint64(8 + len(values))
-	m.updateDirtyAt()
-	return m.columnarWriteWALLocked(docID, row)
-}
-
-func (m *Memtable) columnarDelete(docID uint64) error {
-	m.Lock()
-	defer m.Unlock()
-
-	row := m.getOrCreateRow(docID)
-	row.valid = false
+	row := m.getOrCreateColumnarRowLocked(docID)
+	row.live = false
 
 	m.size += 9
 	m.updateDirtyAt()
 	return m.columnarWriteWALLocked(docID, row)
 }
 
-// columnarLookupFloat32 returns (value, found, isTombstone).
-// found=true means the docID exists in this memtable.
-// isTombstone=true means it was deleted.
-func (m *Memtable) columnarLookupFloat32(docID uint64, colIdx int) (float32, bool, bool) {
+// columnarLookup returns (rawBits, found, isTombstone). found=true means the
+// docID exists in this memtable; isTombstone=true means it was deleted.
+func (m *Memtable) columnarLookup(docID uint64, colIdx int) (uint64, bool, bool) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -108,43 +89,28 @@ func (m *Memtable) columnarLookupFloat32(docID uint64, colIdx int) (float32, boo
 	if !ok {
 		return 0, false, false
 	}
-	if !row.valid {
+	if !row.live {
 		return 0, true, true
 	}
 	off := m.columnarSchema.ColOffset(colIdx)
-	return columnar.DecodeFloat32(row.values, off), true, false
+	return binary.LittleEndian.Uint64(row.values[off:]), true, false
 }
 
-// columnarLookupInt64 returns (value, found, isTombstone).
-func (m *Memtable) columnarLookupInt64(docID uint64, colIdx int) (int64, bool, bool) {
-	m.RLock()
-	defer m.RUnlock()
-
-	row, ok := m.columnarRows[docID]
-	if !ok {
-		return 0, false, false
-	}
-	if !row.valid {
-		return 0, true, true
-	}
-	off := m.columnarSchema.ColOffset(colIdx)
-	return columnar.DecodeInt64(row.values, off), true, false
-}
-
-func (m *Memtable) getOrCreateRow(docID uint64) *columnarMemtableRow {
+func (m *Memtable) getOrCreateColumnarRowLocked(docID uint64) *columnarMemtableRow {
 	row, exists := m.columnarRows[docID]
 	if !exists {
 		row = &columnarMemtableRow{
 			docID:  docID,
 			values: make([]byte, m.columnarSchema.RowWidth()),
-			valid:  true,
+			live:   true,
 		}
 		m.columnarRows[docID] = row
 	}
 	return row
 }
 
-// columnarSortedRows returns rows sorted by docID ascending.
+// columnarSortedRows returns a snapshot of all rows sorted by docID
+// ascending. Callers must hold at least a read lock.
 func (m *Memtable) columnarSortedRows() []*columnarMemtableRow {
 	rows := make([]*columnarMemtableRow, 0, len(m.columnarRows))
 	for _, r := range m.columnarRows {
@@ -162,20 +128,35 @@ func (m *Memtable) columnarSortedRows() []*columnarMemtableRow {
 	return rows
 }
 
+// columnarScanRows visits every row (live and tombstone) in docID order.
+// fn returning false stops the scan.
+func (m *Memtable) columnarScanRows(colIdx int, fn func(docID uint64, live bool, bits uint64) bool) {
+	m.RLock()
+	rows := m.columnarSortedRows()
+	colOff := m.columnarSchema.ColOffset(colIdx)
+	m.RUnlock()
+
+	for _, row := range rows {
+		if !fn(row.docID, row.live, binary.LittleEndian.Uint64(row.values[colOff:])) {
+			return
+		}
+	}
+}
+
 // columnarPutRow is used by WAL recovery to bulk-insert a row.
-func (m *Memtable) columnarPutRow(docID uint64, valid bool, values []byte) {
-	row := m.getOrCreateRow(docID)
-	row.valid = valid
+func (m *Memtable) columnarPutRow(docID uint64, live bool, values []byte) {
+	row := m.getOrCreateColumnarRowLocked(docID)
+	row.live = live
 	copy(row.values, values)
 }
 
-// columnarWriteWALLocked writes the current row state to the WAL.
-// Must be called with the memtable lock held.
-// Reuses m.columnarWALBuf to avoid per-call allocation.
+// columnarWriteWALLocked writes the current row state to the WAL. Must be
+// called with the memtable lock held. Reuses m.columnarWALBuf to avoid
+// per-call allocation.
 func (m *Memtable) columnarWriteWALLocked(docID uint64, row *columnarMemtableRow) error {
 	buf := m.columnarWALBuf
 	binary.LittleEndian.PutUint64(buf[0:], docID)
-	if row.valid {
+	if row.live {
 		buf[8] = 1
 	} else {
 		buf[8] = 0
@@ -183,6 +164,3 @@ func (m *Memtable) columnarWriteWALLocked(docID uint64, row *columnarMemtableRow
 	copy(buf[9:], row.values)
 	return m.commitlog.writeEntry(CommitTypeColumnar, buf)
 }
-
-// NaN sentinel for float32 columns that haven't been set.
-var _ = math.Float32frombits(0x7FC00001)
