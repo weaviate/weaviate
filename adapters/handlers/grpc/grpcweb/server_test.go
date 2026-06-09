@@ -41,8 +41,15 @@ func TestCORSPreflightAllowsConfiguredHeaders(t *testing.T) {
 	requestHeaderCases := []string{
 		"authorization", // the header the bug silently dropped
 		"content-type",
-		"x-grpc-web", // grpc-web protocol header (appended, not configured)
+		// grpc-web protocol + Weaviate client headers an unmodified browser
+		// client sends; appended by corsOptions, not part of CORS_ALLOW_HEADERS.
+		"x-grpc-web",
+		"x-user-agent",
+		"grpc-timeout",
+		"x-weaviate-client",
 		"authorization,content-type",
+		// the full unmodified-client preflight, all at once.
+		"authorization,content-type,x-user-agent,grpc-timeout,x-weaviate-client",
 	}
 	for _, sh := range shapes {
 		t.Run(sh.name, func(t *testing.T) {
