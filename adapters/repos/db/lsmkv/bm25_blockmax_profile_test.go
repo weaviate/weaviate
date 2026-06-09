@@ -504,6 +504,7 @@ func setupBMW(tb testing.TB) *bmwSetup {
 	// the BlockMetrics counters are gated off in production; turn them on so the
 	// harness can report per-query docsScored/blocksDecoded.
 	collectBlockMetrics = true
+	applyDeferTombstoneEnv()
 
 	bucket, cleanup := openBMWBucket(tb, dir)
 
@@ -535,6 +536,8 @@ func setupBMW(tb testing.TB) *bmwSetup {
 		}
 		N = float64(mx) + 1
 	}
+
+	injectSyntheticTombstones(tb, bucket, envFloat("BMW_TOMBSTONE_PCT", 0), N)
 
 	present := make([]string, 0, len(sampled))
 	for _, t := range sampled {
@@ -578,6 +581,39 @@ func buildFilter(tb testing.TB, selectivity, N float64) helpers.AllowList {
 	}
 	tb.Logf("filter: selectivity=%.4f (~%d of %d docIDs allowed; every %dth)", selectivity, count, upper, step)
 	return helpers.NewAllowListFromBitmap(bm)
+}
+
+// applyDeferTombstoneEnv leaves the shipping default in place unless
+// BMW_DEFER_TOMBSTONE is explicitly set (=false forces advance-time for A/B).
+func applyDeferTombstoneEnv() {
+	if v, ok := os.LookupEnv("BMW_DEFER_TOMBSTONE"); ok {
+		deferTombstoneToScore = strings.EqualFold(v, "true")
+	}
+}
+
+// injectSyntheticTombstones marks ~pct of [0,N) deleted on the active memtable,
+// whose tombstones createDiskTermFromCV ORs into memTombstones for every disk
+// segment — simulating deletes without rewriting any segment. Strided so separate
+// dump/compare processes build the identical set the bit-identical check needs.
+func injectSyntheticTombstones(tb testing.TB, b *Bucket, pct, N float64) int {
+	if pct <= 0 || N <= 0 {
+		return 0
+	}
+	if pct >= 1 {
+		pct = 0.99
+	}
+	upper := uint64(N)
+	step := uint64(1 / pct)
+	if step < 1 {
+		step = 1
+	}
+	n := 0
+	for id := uint64(0); id < upper; id += step {
+		require.NoError(tb, b.active.SetTombstone(id))
+		n++
+	}
+	tb.Logf("synthetic tombstones: pct=%.4f (~%d of %d docIDs deleted; every %dth)", pct, n, upper, step)
+	return n
 }
 
 func (s *bmwSetup) queriesOfSize(tb testing.TB, size, count int) [][]string {

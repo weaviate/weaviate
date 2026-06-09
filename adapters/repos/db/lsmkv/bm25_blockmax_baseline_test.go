@@ -126,6 +126,10 @@ func TestBMWBaseline(t *testing.T) {
 	defer bucket.Shutdown(ctx)
 	require.Equal(t, StrategyInverted, bucket.Strategy())
 
+	// dump and compare may run with different BMW_DEFER_TOMBSTONE values; both must
+	// yield the same top-K, which is what this baseline proves.
+	applyDeferTombstoneEnv()
+
 	cfg := schema.BM25Config{K1: bEnvF("BMW_K1", 1.2), B: bEnvF("BMW_B", 0.75)}
 	limit := bEnvI("BMW_LIMIT", 10)
 	andOp := strings.EqualFold(bEnv("BMW_OPERATOR", "or"), "and")
@@ -140,6 +144,8 @@ func TestBMWBaseline(t *testing.T) {
 	if N <= 0 {
 		N = 1
 	}
+	tombPct := bEnvF("BMW_TOMBSTONE_PCT", 0)
+	injectSyntheticTombstones(t, bucket, tombPct, N)
 	filter := bmwBaseFilter(t, bEnvF("BMW_FILTER", 0), N)
 
 	results := make(map[string][]bmwDocScore, len(queries))
@@ -153,6 +159,7 @@ func TestBMWBaseline(t *testing.T) {
 		"sample": bEnv("BMW_SAMPLE", "4000"), "filter": bEnv("BMW_FILTER", "0"),
 		"operator": bEnv("BMW_OPERATOR", "or"), "k1": fmt.Sprintf("%g", cfg.K1), "b": fmt.Sprintf("%g", cfg.B),
 		"N": fmt.Sprintf("%.0f", N), "avgPropLen": fmt.Sprintf("%.4f", avgPropLen),
+		"tombstonePct": fmt.Sprintf("%g", tombPct),
 	}
 
 	switch mode {
@@ -413,6 +420,8 @@ func BenchmarkBMWCompare(b *testing.B) {
 	if N <= 0 {
 		N = 1
 	}
+	applyDeferTombstoneEnv()
+	injectSyntheticTombstones(b, bucket, bEnvF("BMW_TOMBSTONE_PCT", 0), N)
 	filter := bmwBaseFilter(b, bEnvF("BMW_FILTER", 0), N)
 
 	// warm caches
