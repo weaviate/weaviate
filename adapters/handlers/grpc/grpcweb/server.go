@@ -48,8 +48,12 @@ func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, erro
 		AllowedMethods: []string{http.MethodPost}, // grpc-web is POST-only
 		AllowedHeaders: allowedHeaders,
 		// Browsers need the gRPC trailers exposed to read the RPC status.
-		ExposedHeaders:   []string{"Grpc-Status", "Grpc-Message", "Grpc-Status-Details-Bin"},
-		AllowCredentials: true,
+		ExposedHeaders: []string{"Grpc-Status", "Grpc-Message", "Grpc-Status-Details-Bin"},
+		// No CORS credentials mode: Weaviate auth is a bearer token in the
+		// Authorization header (not cookies), so it buys nothing, and
+		// Allow-Credentials:true with a wildcard Allow-Origin is a combo
+		// browsers reject. Matches the REST handler's posture.
+		AllowCredentials: false,
 	}).Handler(transcoder), nil
 }
 
