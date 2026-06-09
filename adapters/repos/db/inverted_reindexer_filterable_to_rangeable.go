@@ -33,7 +33,15 @@ func NewRuntimeFilterableToRangeableTask(
 		propNames:     propNames,
 		generation:    generation,
 	}
+	return newRuntimePerPropertyTask("FilterableToRangeable", logger, strategy, propNames, collectionName)
+}
 
+// newRuntimePerPropertyTask wires a per-property migration strategy into a
+// ShardReindexTaskGeneric with the shared runtime-migration configuration
+// (swap+tidy, all shards of one collection, uuid object iteration).
+func newRuntimePerPropertyTask(taskName string, logger logrus.FieldLogger,
+	strategy MigrationStrategy, propNames []string, collectionName string,
+) *ShardReindexTaskGeneric {
 	selectedProps := make(map[string]struct{}, len(propNames))
 	for _, p := range propNames {
 		selectedProps[p] = struct{}{}
@@ -59,7 +67,7 @@ func NewRuntimeFilterableToRangeableTask(
 	}
 
 	return NewShardReindexTaskGeneric(
-		"FilterableToRangeable", logger, strategy, cfg,
+		taskName, logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }

@@ -202,6 +202,56 @@ func runEnableColumnarTask(t *testing.T, ctx context.Context, task *ShardReindex
 	}
 }
 
+// setupEnableColumnarShard creates a test shard for the given class-name
+// prefix, imports numObjects deterministic objects, and registers shutdown
+// cleanup.
+func setupEnableColumnarShard(t *testing.T, ctx context.Context, prefix string,
+	numObjects int,
+) (*Shard, *Index, *models.Class, string) {
+	t.Helper()
+	className := prefix + "_" + uuid.NewString()[:8]
+	class := newEnableColumnarTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	for _, obj := range makeEnableColumnarTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+	return shard, idx, class, className
+}
+
+// aggregateEnableColumnarProp runs the canonical filtered aggregation
+// (count/sum/mean over propName >= 0) used by every phase assertion.
+func aggregateEnableColumnarProp(t *testing.T, ctx context.Context, shard *Shard,
+	className, propName string,
+) *aggregation.Result {
+	t.Helper()
+	res, err := shard.Aggregate(ctx, aggregation.Params{
+		ClassName:        schema.ClassName(className),
+		IncludeMetaCount: true,
+		Filters: &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorGreaterThanEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: 0},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(propName)},
+			},
+		},
+		Properties: []aggregation.ParamProperty{
+			{Name: schema.PropertyName(propName), Aggregators: []aggregation.Aggregator{
+				aggregation.CountAggregator,
+				aggregation.SumAggregator,
+				aggregation.MeanAggregator,
+			}},
+		},
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, res.Groups, 1)
+	return res
+}
+
 // TestEnableColumnar_BackfillBaseline pins the core contract: enabling
 // columnar on a property with existing objects backfills the columnar
 // bucket with every object's value via the property-reindex framework.
@@ -210,17 +260,7 @@ func TestEnableColumnar_BackfillBaseline(t *testing.T) {
 	propName := enableColumnarPropName
 
 	ctx := testCtx()
-	className := "EnableColumnarBaseline_" + uuid.NewString()[:8]
-	class := newEnableColumnarTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeEnableColumnarTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	shard, idx, _, className := setupEnableColumnarShard(t, ctx, "EnableColumnarBaseline", numObjects)
 
 	// Pre-migration: no columnar bucket, not locally ready (bucket-missing
 	// default).
@@ -280,17 +320,7 @@ func TestEnableColumnar_AggregationGatedDuringMigrationWindow(t *testing.T) {
 	propName := enableColumnarPropName
 
 	ctx := testCtx()
-	className := "EnableColumnarGating_" + uuid.NewString()[:8]
-	class := newEnableColumnarTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeEnableColumnarTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	shard, idx, class, className := setupEnableColumnarShard(t, ctx, "EnableColumnarGating", numObjects)
 
 	// Drive the migration up to (but not including) the swap. The
 	// PreReindexHook has created an empty main columnar bucket and marked
@@ -314,27 +344,7 @@ func TestEnableColumnar_AggregationGatedDuringMigrationWindow(t *testing.T) {
 	class.Properties[0].IndexColumnar = &trueVal
 
 	aggregate := func() *aggregation.Result {
-		res, err := shard.Aggregate(ctx, aggregation.Params{
-			ClassName:        schema.ClassName(className),
-			IncludeMetaCount: true,
-			Filters: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorGreaterThanEqual,
-					Value:    &filters.Value{Type: schema.DataTypeInt, Value: 0},
-					On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(propName)},
-				},
-			},
-			Properties: []aggregation.ParamProperty{
-				{Name: schema.PropertyName(propName), Aggregators: []aggregation.Aggregator{
-					aggregation.CountAggregator,
-					aggregation.SumAggregator,
-					aggregation.MeanAggregator,
-				}},
-			},
-		}, nil)
-		require.NoError(t, err)
-		require.Len(t, res.Groups, 1)
-		return res
+		return aggregateEnableColumnarProp(t, ctx, shard, className, propName)
 	}
 
 	assertCorrect := func(res *aggregation.Result, phase string) {
@@ -415,30 +425,8 @@ func TestEnableColumnar_AggregationGatedDuringMigrationWindow(t *testing.T) {
 	fp := enableColumnarFingerprint(t, shard2.store.Bucket(bucketName))
 	require.Len(t, fp, numObjects, "post-migration columnar bucket must hold every row")
 
-	aggregate2 := func() *aggregation.Result {
-		res, err := shard2.Aggregate(ctx, aggregation.Params{
-			ClassName:        schema.ClassName(className),
-			IncludeMetaCount: true,
-			Filters: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorGreaterThanEqual,
-					Value:    &filters.Value{Type: schema.DataTypeInt, Value: 0},
-					On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(propName)},
-				},
-			},
-			Properties: []aggregation.ParamProperty{
-				{Name: schema.PropertyName(propName), Aggregators: []aggregation.Aggregator{
-					aggregation.CountAggregator,
-					aggregation.SumAggregator,
-					aggregation.MeanAggregator,
-				}},
-			},
-		}, nil)
-		require.NoError(t, err)
-		require.Len(t, res.Groups, 1)
-		return res
-	}
-	assertCorrect(aggregate2(), "post-migration (columnar fast path)")
+	assertCorrect(aggregateEnableColumnarProp(t, ctx, shard2, className, propName),
+		"post-migration (columnar fast path)")
 }
 
 // TestBucketTouchPredicates_CoverEveryMigrationType pins that every known
