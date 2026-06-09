@@ -939,6 +939,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
 		config.GRPC.KeyFile = v
 	}
+	config.GRPC.WebEnabled = entcfg.Enabled(os.Getenv("GRPC_WEB_ENABLED"))
 
 	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
@@ -1963,9 +1964,11 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	cfg.IgnoreStartupSchemaSync = entcfg.Enabled(
-		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
+		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"),
+	)
 	cfg.SkipSchemaSyncRepair = entcfg.Enabled(
-		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
+		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"),
+	)
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
 	basicAuthPassword := os.Getenv("CLUSTER_BASIC_AUTH_PASSWORD")
