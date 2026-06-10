@@ -1781,10 +1781,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// instance, regardless of whether the swap completes successfully.
 	//
 	// On the happy path this runs after the in-memory pointer flip:
-	// the main bucket pointer has already been swapped, so any callback
-	// invocations between markSwappedProp and this defer would have been
-	// harmless redundant writes (the ingest bucket is reachable under
-	// both the main and ingest names).
+	// the main bucket pointer has already been swapped. Callback
+	// invocations between SwapBucketPointer and this defer resolve via
+	// [resolveDoubleWriteBucket]: the ingest NAME is unregistered by the
+	// flip (SwapBucketPointer deletes the source-name entry), so the
+	// callbacks fall back to the canonical main name — which now denotes
+	// the same physical bucket — making the mirror writes harmless,
+	// idempotent duplicates of the direct writes. (An earlier version of
+	// this comment claimed the ingest bucket stays reachable under both
+	// names; it does not — pre-resolveDoubleWriteBucket the callbacks
+	// dereferenced a nil bucket and panicked, and the REST panic
+	// middleware turned that into an empty 200 with the inverted write
+	// silently lost.)
 	//
 	// On an error path this is the load-bearing case: without it,
 	// callbacks would keep firing against buckets that may be mid-swap,

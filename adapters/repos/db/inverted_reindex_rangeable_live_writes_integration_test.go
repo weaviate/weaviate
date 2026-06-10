@@ -314,3 +314,125 @@ func rangeableDocIDs(t *testing.T, b *lsmkv.Bucket, value int64, operator filter
 	}
 	return bm.ToArray()
 }
+
+// TestEnableRangeable_LiveWriteDuringSwapWindow is the regression test for
+// the third loss mechanism behind weaviate/weaviate#11688: a live write
+// landing between [lsmkv.Store.SwapBucketPointer] (which UNREGISTERS the
+// ingest bucket name) and the deferred disableCallbacks at the end of
+// runtimeSwap. Pre-fix, the still-active double-write callback resolved
+// store.Bucket(ingestName) to nil and dereferenced it —
+// lsmkv.MustBeExpectedStrategy panicked on the write goroutine. Through
+// the REST stack the panic middleware swallows that into an empty 200
+// response with every inverted write of the call lost; in this in-process
+// test the panic fails the test directly.
+//
+// The write is injected deterministically via the task's
+// processOneSwapPropFn dispatch hook, immediately after the production
+// pointer flip for the property — exactly the window in which QA's repro
+// lost writes even with the analyzer overlay and markStarted ordering
+// fixes in place.
+//
+// Post-fix (resolveDoubleWriteBucket), the callback falls back to the
+// canonical bucket name — the same physical bucket the ingest name used
+// to denote — and the write must be range-queryable after the migration.
+func TestEnableRangeable_LiveWriteDuringSwapWindow(t *testing.T) {
+	const (
+		numObjects = 40
+		mark       = int64(999999)
+	)
+	propName := filterableToRangeablePropName
+
+	ctx := testCtx()
+	className := "EnableRangeableSwapWindow_" + uuid.NewString()[:8]
+	vFalse := false
+	class := &models.Class{
+		Class:             className,
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords:              &models.StopwordConfig{Preset: "none"},
+		},
+		Properties: []*models.Property{
+			{
+				Name:              propName,
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+			},
+		},
+	}
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	objs := make([]*storobj.Object, numObjects)
+	for i := 0; i < numObjects; i++ {
+		objs[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+				Properties: map[string]interface{}{
+					propName: int64(i % filterableToRangeableNumDistinctValues),
+				},
+			},
+		}
+		require.NoError(t, shard.PutObject(ctx, objs[i]))
+	}
+
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+
+	// Inject the write right after the production per-prop pointer flip:
+	// the ingest name is unregistered at this point, the double-write
+	// callbacks are still registered (their disable is deferred to the end
+	// of runtimeSwap), and the migration analyzer overlay is still active.
+	swapWindowWriteDone := false
+	origSwap := task.processOneSwapPropFn
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, prop string) (*lsmkv.Bucket, error) {
+		oldMain, err := origSwap(ctx, store, rt, propIdx, prop)
+		if err != nil {
+			return oldMain, err
+		}
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    objs[0].ID(),
+				Class: className,
+				Properties: map[string]interface{}{
+					propName: mark,
+				},
+				CreationTimeUnix:   time.Now().UnixMilli(),
+				LastUpdateTimeUnix: time.Now().UnixMilli(),
+			},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj),
+			"live write during the swap window must not fail (pre-fix it paniced in the double-write callback)")
+		swapWindowWriteDone = true
+		return oldMain, nil
+	}
+
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	require.True(t, wrapped.migrationCompleted, "migration must complete")
+	require.True(t, swapWindowWriteDone, "swap-window write hook must have fired")
+
+	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+	require.NotNil(t, bucket, "post-migration rangeable bucket must exist")
+
+	ids := rangeableDocIDs(t, bucket, mark, filters.OperatorEqual)
+	require.Lenf(t, ids, 1,
+		"the swap-window write must be range-queryable after the migration — got %d docs at %d",
+		len(ids), mark)
+	all := rangeableDocIDs(t, bucket, 0, filters.OperatorGreaterThanEqual)
+	require.Lenf(t, all, numObjects,
+		"every object must be in the rangeable index exactly once — got %d of %d",
+		len(all), numObjects)
+}

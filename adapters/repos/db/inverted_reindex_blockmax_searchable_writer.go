@@ -37,15 +37,26 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 	return nil
 }
 
+// swapFallbackNamer maps a property name to the canonical (main) bucket
+// name used when the sidecar name no longer resolves post-swap; nil means
+// "skip on missing sidecar" (backup-phase callbacks). See
+// resolveDoubleWriteBucket.
 func blockmaxSearchableAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if _, ok := propsByName[property.Name]; !ok {
 			return nil
 		}
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if swapFallbackNamer != nil {
+			swapFallback = swapFallbackNamer(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			return nil
+		}
 		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
 			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
@@ -58,14 +69,21 @@ func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 }
 
 func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if _, ok := propsByName[property.Name]; !ok {
 			return nil
 		}
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if swapFallbackNamer != nil {
+			swapFallback = swapFallbackNamer(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			return nil
+		}
 		for _, item := range property.Items {
 			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)

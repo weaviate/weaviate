@@ -112,7 +112,16 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if forTargetStrategy {
+			swapFallback = s.SourceBucketName(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			// Backup sidecar already tidied — skip the mirror write. See
+			// resolveDoubleWriteBucket for the post-swap nil semantics.
+			return nil
+		}
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
@@ -150,7 +159,16 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if forTargetStrategy {
+			swapFallback = s.SourceBucketName(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			// Backup sidecar already tidied — skip the mirror write. See
+			// resolveDoubleWriteBucket for the post-swap nil semantics.
+			return nil
+		}
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {

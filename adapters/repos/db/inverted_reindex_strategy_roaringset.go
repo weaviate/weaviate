@@ -92,7 +92,16 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if forTargetStrategy {
+			swapFallback = s.SourceBucketName(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			// Backup sidecar already tidied — skip the mirror write. See
+			// resolveDoubleWriteBucket for the post-swap nil semantics.
+			return nil
+		}
 		for _, item := range property.Items {
 			if err := shard.addToPropertySetBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
@@ -114,7 +123,16 @@ func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) 
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if forTargetStrategy {
+			swapFallback = s.SourceBucketName(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			// Backup sidecar already tidied — skip the mirror write. See
+			// resolveDoubleWriteBucket for the post-swap nil semantics.
+			return nil
+		}
 		for _, item := range property.Items {
 			if err := shard.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
