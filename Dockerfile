@@ -55,8 +55,12 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine:3.22 AS weaviate
+# The explicit version floors assert the CVE-2026-45447 fix AND bust the
+# remote layer cache, which had pinned the pre-fix packages (the upgrade's
+# result depends on when it last ran — see weaviate/weaviate#11693).
 RUN apk upgrade --no-cache libcrypto3 libssl3 openssl musl musl-utils zlib && \
-    apk add --no-cache bc ca-certificates openssl && mkdir ./modules
+    apk add --no-cache 'libcrypto3>=3.5.7-r0' 'libssl3>=3.5.7-r0' 'openssl>=3.5.7-r0' \
+    bc ca-certificates && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
 COPY --from=server_builder /runtime/go-ego/ /go/pkg/mod/github.com/go-ego/
 ENTRYPOINT ["/bin/weaviate"]
