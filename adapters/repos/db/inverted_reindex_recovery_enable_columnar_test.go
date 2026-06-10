@@ -14,7 +14,6 @@
 package db
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,126 +77,7 @@ func TestRecoveryConvergence_EnableColumnar_FromEachState(t *testing.T) {
 	baseline := computeEnableColumnarBaseline(t, propName, numObjects)
 	require.Len(t, baseline, numObjects, "baseline fingerprint must hold one row per object")
 
-	cases := []recoveryConvergenceCase{
-		{
-			name: "EnableColumnar_IsReindexed_via_skipSwapOnFinish",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false,
-			},
-		},
-		{
-			name: "EnableColumnar_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// runtimePrepare writes markPrepended + cleanup + markMerged
-				// in one atomic method, so we can't reach
-				// IsPrepended-without-IsMerged via production code alone.
-				// Drive to IsMerged via runtimePrepare, then remove the
-				// merged.mig sentinel by hand to synthesize a crash between
-				// markPrepended() and markMerged().
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
-				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
-				ftr := rt.(*fileReindexTracker)
-				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)),
-					"removing merged.mig to synthesize IsPrepended-only state")
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
-			},
-		},
-		{
-			name: "EnableColumnar_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// runtimeSwap writes markSwapped + tidy + markTidied
-				// atomically. Drive the migration to completion, then remove
-				// tidied.mig to synthesize a crash between markSwapped() and
-				// markTidied().
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				ftr := rt.(*fileReindexTracker)
-				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)),
-					"removing tidied.mig to synthesize IsSwapped-only state")
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
-			},
-		},
-		{
-			name: "EnableColumnar_IsMerged_via_runtimePrepare_no_runtimeSwap",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// Step 1: drive iteration to markReindexed via the
-				// production barrier path.
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-				// Step 2: call runtimePrepare directly to mark merged
-				// without running runtimeSwap.
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
-				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
-			},
-		},
-		{
-			name: "EnableColumnar_IsTidied_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
-			},
-		},
-	}
-
+	cases := recoveryConvergenceStateCases("EnableColumnar")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()

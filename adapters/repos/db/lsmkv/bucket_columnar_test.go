@@ -841,6 +841,52 @@ func TestColumnarBucket_StrategyMismatch(t *testing.T) {
 		"vector put must fail on a bucket without a vector schema")
 }
 
+// TestColumnarBucket_NilSchemaFailsLoud pins that every columnar op on a
+// bucket created WITHOUT WithColumnarSchema returns a clear error instead
+// of silently returning empty results (reads) or a generic memtable error
+// (writes). A schema-less columnar bucket can occur when bucket loading
+// runs without the per-property options (e.g. a missing property schema).
+func TestColumnarBucket_NilSchemaFailsLoud(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyColumnar))
+	require.Nil(t, err)
+	t.Cleanup(func() {
+		require.Nil(t, b.Shutdown(context.Background()))
+	})
+
+	assert.ErrorContains(t, b.ColumnarPutInt64(1, 0, 1), "no columnar schema")
+	assert.ErrorContains(t, b.ColumnarPutFloat64(1, 0, 1), "no columnar schema")
+	assert.ErrorContains(t, b.ColumnarDelete(1), "no columnar schema")
+	_, _, err = b.ColumnarLookupBits(1, 0)
+	assert.ErrorContains(t, err, "no columnar schema")
+	assert.ErrorContains(t,
+		b.ColumnarScan(0, nil, func(uint64, uint64) bool { return true }),
+		"no columnar schema")
+}
+
+// TestColumnarBucket_ColIdxOutOfRange pins that an out-of-range column
+// index surfaces as an error from every columnar op, not as an
+// index-out-of-range panic deep inside the memtable or block reader.
+func TestColumnarBucket_ColIdxOutOfRange(t *testing.T) {
+	ctx := context.Background()
+	b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64)
+	require.Nil(t, b.ColumnarPutInt64(1, 0, 42))
+
+	for _, colIdx := range []int{-1, 1, 5} {
+		assert.ErrorContains(t, b.ColumnarPutInt64(1, colIdx, 1), "out of range")
+		assert.ErrorContains(t, b.ColumnarPutFloat64(1, colIdx, 1), "out of range")
+		_, _, err := b.ColumnarLookupBits(1, colIdx)
+		assert.ErrorContains(t, err, "out of range")
+		assert.ErrorContains(t,
+			b.ColumnarScan(colIdx, nil, func(uint64, uint64) bool { return true }),
+			"out of range")
+	}
+}
+
 // guards against accidentally reintroducing a partial-width scalar type
 func TestColumnarTypes_AllEightBytes(t *testing.T) {
 	for _, ct := range []columnar.ColumnType{

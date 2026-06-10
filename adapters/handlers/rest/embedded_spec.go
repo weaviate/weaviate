@@ -9455,7 +9455,7 @@ func init() {
           "x-nullable": true
         },
         "indexColumnar": {
-          "description": "Whether to include this property in a columnar index for efficient time-based and hybrid vector queries. Applicable only to properties of data type int, number, date.",
+          "description": "Whether to include this property in a columnar index for efficient filtered aggregations. Applicable only to properties of data type int, number, date.",
           "type": "boolean",
           "x-nullable": true
         },
@@ -20916,7 +20916,7 @@ func init() {
           "x-nullable": true
         },
         "indexColumnar": {
-          "description": "Whether to include this property in a columnar index for efficient time-based and hybrid vector queries. Applicable only to properties of data type int, number, date.",
+          "description": "Whether to include this property in a columnar index for efficient filtered aggregations. Applicable only to properties of data type int, number, date.",
           "type": "boolean",
           "x-nullable": true
         },

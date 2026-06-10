@@ -150,6 +150,23 @@ func (s *Schema) IsVector() bool {
 	return len(s.Columns) == 1 && s.Columns[0].Type.isVector()
 }
 
+// Equal reports whether two schemas describe the same column layout:
+// same column count, and per column the same name, type, encoding, and dims.
+// Used by the compactor to assert that two segments are mergeable —
+// merging segments with diverging schemas would silently misinterpret
+// column offsets.
+func (s *Schema) Equal(other *Schema) bool {
+	if other == nil || len(s.Columns) != len(other.Columns) {
+		return false
+	}
+	for i := range s.Columns {
+		if s.Columns[i] != other.Columns[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Schema) validate() error {
 	if len(s.Columns) == 0 {
 		return fmt.Errorf("columnar schema requires at least one column")

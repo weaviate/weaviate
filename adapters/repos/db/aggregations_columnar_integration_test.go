@@ -139,12 +139,28 @@ func Test_Aggregations_ColumnarFastPath(t *testing.T) {
 	canonicalDate := func(nano int64) string {
 		return time.Unix(0, nano).UTC().Format(time.RFC3339Nano)
 	}
+	// Every 11th object (mod 11 == 1 so the lowest live object, idx 1, is
+	// included — it holds the date minimum of the large-filter scenarios)
+	// stores its date with a +05:00 offset instead of UTC. The instant is
+	// identical; only the serialization differs. Date aggregations must
+	// canonicalize to UTC, so the object-scan path (control class) and the
+	// columnar fast path must both return the canonical UTC string for
+	// these objects — pre-canonicalization, the filtered object path echoed
+	// the stored "+05:00" string verbatim and diverged from columnar.
+	offsetZone := time.FixedZone("UTC+5", 5*60*60)
+	offsetDate := func(nano int64) string {
+		return time.Unix(0, nano).In(offsetZone).Format(time.RFC3339Nano)
+	}
 	propsFor := func(o *modelObj) map[string]interface{} {
 		props := map[string]interface{}{"subset": float64(o.subset)}
 		if o.hasProps {
 			props["intProp"] = float64(o.intVal)
 			props["numberProp"] = o.numVal
-			props["dateProp"] = canonicalDate(o.dateNano)
+			if o.idx%11 == 1 {
+				props["dateProp"] = offsetDate(o.dateNano)
+			} else {
+				props["dateProp"] = canonicalDate(o.dateNano)
+			}
 		}
 		return props
 	}

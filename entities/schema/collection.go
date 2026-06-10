@@ -336,8 +336,8 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexSearchable = &indexSearchable
 	indexRangeFilters := p.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
-	indexColumnar2 := p.IndexColumnar
-	m.IndexColumnar = &indexColumnar2
+	indexColumnar := p.IndexColumnar
+	m.IndexColumnar = &indexColumnar
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
 	if p.TextAnalyzer != nil {

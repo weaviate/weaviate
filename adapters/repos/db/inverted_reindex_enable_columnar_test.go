@@ -430,6 +430,139 @@ func TestEnableColumnar_AggregationGatedDuringMigrationWindow(t *testing.T) {
 		"post-migration (columnar fast path)")
 }
 
+// TestEnableColumnar_ConcurrentWritesInCallbackRegistrationGap is the
+// regression test for the enable-columnar (and, generically, every
+// migration driven by ShardReindexTaskGeneric — the same gap loses rows on
+// enable-rangeable, weaviate/weaviate#11688) concurrent-write data loss:
+//
+// Pre-fix, OnAfterLsmInit captured the reindexStarted timestamp
+// (rt.markStarted(time.Now())) BEFORE loading the ingest buckets and
+// registering the double-write callbacks. A write landing in that window
+// (seconds wide — bucket loading does real disk I/O) was
+//
+//	(a) skipped by the backfill iterator, because its LastUpdateTimeUnix
+//	    is >= reindexStarted (the iterator assumes such writes are
+//	    double-written), AND
+//	(b) NOT double-written into the ingest bucket, because the callbacks
+//	    weren't registered yet.
+//
+// The row never reaches the target bucket — permanently missing after the
+// migration reports FINISHED.
+//
+// The test makes the race deterministic via the task's test-only
+// onBeforeDoubleWriteRegistration hook, which fires at the exact spot of
+// the old gap (after the old markStarted position, before callback
+// registration). Writes injected there MUST be served by the post-migration
+// columnar bucket. Against the pre-fix ordering this test fails with
+// numGapUpdates rows missing; with the fix (timestamp captured after
+// callback registration) it passes.
+//
+// A second batch of updates lands after OnAfterLsmInit returns (callbacks
+// active, iteration not yet started) to pin the double-write path the
+// iterator-skip predicate relies on.
+func TestEnableColumnar_ConcurrentWritesInCallbackRegistrationGap(t *testing.T) {
+	const (
+		numObjects        = 40
+		numGapUpdates     = 10 // updated inside the (old) gap via the hook
+		numPostInitUpdate = 5  // updated after callbacks are active
+	)
+	propName := enableColumnarPropName
+
+	ctx := testCtx()
+	className := "EnableColumnarGapWrites_" + uuid.NewString()[:8]
+	class := newEnableColumnarTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	objs := makeEnableColumnarTestObjects(t, numObjects, className)
+	for _, obj := range objs {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	// update overwrites object i with a fresh value and a CURRENT
+	// LastUpdateTimeUnix — exactly what a live PATCH/PUT does. The
+	// timestamp is what makes the backfill iterator skip the object
+	// when it is >= reindexStarted.
+	update := func(i int, val int64) {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    objs[i].ID(),
+				Class: className,
+				Properties: map[string]interface{}{
+					propName: val,
+				},
+				CreationTimeUnix:   time.Now().UnixMilli(),
+				LastUpdateTimeUnix: time.Now().UnixMilli(),
+			},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, wrapped := newEnableColumnarTask(t, idx, className, propName)
+
+	gapWritesDone := false
+	task.onBeforeDoubleWriteRegistration = func() {
+		for i := 0; i < numGapUpdates; i++ {
+			update(i, int64(1000+i))
+		}
+		gapWritesDone = true
+	}
+
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	require.True(t, gapWritesDone, "hook must have fired during OnAfterLsmInit")
+
+	// Callbacks are registered now; these updates must reach the column
+	// via the double-write path (the iterator will skip them).
+	for i := numGapUpdates; i < numGapUpdates+numPostInitUpdate; i++ {
+		update(i, int64(2000+i))
+	}
+
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	require.True(t, wrapped.migrationCompleted, "migration must complete")
+
+	bucketName := helpers.BucketColumnarFromPropNameLSM(propName)
+	postBucket := shard.store.Bucket(bucketName)
+	require.NotNil(t, postBucket, "post-migration columnar bucket must exist")
+
+	fp := enableColumnarFingerprint(t, postBucket)
+	assert.Len(t, fp, numObjects,
+		"columnar bucket must hold one row per object — missing rows mean "+
+			"writes in the markStarted→registerDoubleWriteCallbacks gap were lost")
+
+	// Value-level convergence: each updated object must be served with its
+	// post-update value, everything else with its original value.
+	valueCounts := map[int64]int{}
+	for _, v := range fp {
+		valueCounts[v]++
+	}
+	for i := 0; i < numGapUpdates; i++ {
+		assert.Equalf(t, 1, valueCounts[int64(1000+i)],
+			"gap-updated object %d must be served with its updated value", i)
+	}
+	for i := numGapUpdates; i < numGapUpdates+numPostInitUpdate; i++ {
+		assert.Equalf(t, 1, valueCounts[int64(2000+i)],
+			"post-registration-updated object %d must be served with its updated value", i)
+	}
+	unmodifiedRows := 0
+	for v, n := range valueCounts {
+		if v >= 0 && v < enableColumnarNumDistinctValues {
+			unmodifiedRows += n
+		}
+	}
+	assert.Equal(t, numObjects-numGapUpdates-numPostInitUpdate, unmodifiedRows,
+		"every non-updated object must keep its original value")
+}
+
 // TestBucketTouchPredicates_CoverEveryMigrationType pins that every known
 // ReindexMigrationType is enumerated in the TouchesSearchable /
 // TouchesFilterable exhaustive switches — a missing type panics on the
