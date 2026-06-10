@@ -109,8 +109,10 @@ type memtable interface {
 
 	columnarPutFloat64(docID uint64, colIdx int, value float64) error
 	columnarPutInt64(docID uint64, colIdx int, value int64) error
+	columnarPutPayload(docID uint64, payload []byte) error
 	columnarDelete(docID uint64) error
 	columnarLookup(docID uint64, colIdx int) (uint64, bool, bool)
+	columnarLookupPayload(docID uint64, dst []byte) ([]byte, bool, bool)
 	columnarScanRows(colIdx int, fn func(docID uint64, live bool, bits uint64) bool)
 
 	incWriterCount()

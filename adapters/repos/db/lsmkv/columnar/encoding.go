@@ -19,12 +19,21 @@ type EncodingID uint8
 
 const (
 	// EncodingRawFixedWidth stores values as contiguous fixed-width
-	// little-endian payloads, with no compression. It is deliberately a
-	// first-class encoding (not an implicit default): future column kinds
-	// with larger fixed widths — single- and multi-vector payloads — reuse
-	// this encoding unchanged, and compressed encodings (delta, FOR, dict)
-	// slot in beside it without a format break.
+	// little-endian payloads, with no compression. Scalars (8B) and single
+	// vectors (Dims×4B) share it unchanged; compressed encodings (delta,
+	// FOR, dict) slot in beside it without a format break.
 	EncodingRawFixedWidth EncodingID = 0
+	// EncodingOffsetValues stores variable-width rows as a row-offset table
+	// followed by the concatenated payloads:
+	//
+	//	[offsets: (rows+1) × uint32]   (byte offsets into the payload)
+	//	[padding to payloadAlign]
+	//	[payload: concatenated row bytes]
+	//
+	// Used by multi-vector columns, where each row is a token matrix of
+	// variable token count. The offset table is relative to the payload
+	// start; row i spans payload[offsets[i]:offsets[i+1]].
+	EncodingOffsetValues EncodingID = 1
 )
 
 // Encoding translates between the in-memory representation of a column page
@@ -66,10 +75,35 @@ var encodings = map[EncodingID]Encoding{
 	EncodingRawFixedWidth: rawFixedWidth{},
 }
 
+// EncodingByID resolves fixed-width encodings. EncodingOffsetValues is
+// variable-width and handled structurally by the block writer/reader, so it
+// is valid in schemas but not resolvable here.
 func EncodingByID(id EncodingID) (Encoding, error) {
+	if id == EncodingOffsetValues {
+		return nil, fmt.Errorf("encoding %d is variable-width and has no fixed-width codec", id)
+	}
 	e, ok := encodings[id]
 	if !ok {
 		return nil, fmt.Errorf("unknown column encoding %d", id)
 	}
 	return e, nil
+}
+
+// ValidEncoding reports whether id is a known encoding (fixed or variable).
+func ValidEncoding(id EncodingID) bool {
+	if id == EncodingOffsetValues {
+		return true
+	}
+	_, ok := encodings[id]
+	return ok
+}
+
+// payloadAlign is the byte alignment of vector payload starts within a
+// block. 64 bytes satisfies float32 access and AVX/SVE-width loads, keeping
+// the zero-copy door open (the brainstorm's alignment question: cheap to
+// design in, expensive to retrofit).
+const payloadAlign = 64
+
+func alignUp(n, align int) int {
+	return (n + align - 1) &^ (align - 1)
 }

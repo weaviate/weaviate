@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"time"
@@ -77,6 +78,81 @@ func (b *Bucket) ColumnarPutInt64(docID uint64, colIdx int, value int64) error {
 	})
 }
 
+// ColumnarPutVector writes one float32 vector for docID. The schema must
+// hold a single ColumnTypeVector column of matching dims.
+func (b *Bucket) ColumnarPutVector(docID uint64, vec []float32) error {
+	if b.columnarSchema == nil || !b.columnarSchema.IsVector() {
+		return fmt.Errorf("bucket has no vector column schema")
+	}
+	col := &b.columnarSchema.Columns[0]
+	if col.Type != columnar.ColumnTypeVector {
+		return fmt.Errorf("bucket column is %s, not vector", col.Type)
+	}
+	if len(vec) != int(col.Dims) {
+		return fmt.Errorf("vector dims %d, column expects %d", len(vec), col.Dims)
+	}
+	payload := float32sToBytes(vec, nil)
+	return b.columnarWriteOp("columnar_put", func(m memtable) error {
+		return m.columnarPutPayload(docID, payload)
+	})
+}
+
+// ColumnarPutMultiVector writes a token matrix (variable token count, fixed
+// dims per token) for docID. The schema must hold a single
+// ColumnTypeMultiVector column of matching dims.
+func (b *Bucket) ColumnarPutMultiVector(docID uint64, vecs [][]float32) error {
+	if b.columnarSchema == nil || !b.columnarSchema.IsVector() {
+		return fmt.Errorf("bucket has no vector column schema")
+	}
+	col := &b.columnarSchema.Columns[0]
+	if col.Type != columnar.ColumnTypeMultiVector {
+		return fmt.Errorf("bucket column is %s, not multivector", col.Type)
+	}
+	size := 0
+	for i := range vecs {
+		if len(vecs[i]) != int(col.Dims) {
+			return fmt.Errorf("token %d dims %d, column expects %d", i, len(vecs[i]), col.Dims)
+		}
+		size += len(vecs[i]) * 4
+	}
+	payload := make([]byte, 0, size)
+	for i := range vecs {
+		payload = float32sToBytes(vecs[i], payload)
+	}
+	return b.columnarWriteOp("columnar_put", func(m memtable) error {
+		return m.columnarPutPayload(docID, payload)
+	})
+}
+
+// ColumnarGetVectorPayload reads docID's raw vector payload (float32 bytes,
+// token-concatenated for multi-vector columns), appending to dst. The read
+// runs on a refcounted consistent view of the bucket; the copy happens while
+// the view pins the segments, so the result stays valid across compactions.
+// Returns (payload, found, err); an error means the segment list contained a
+// non-columnar segment — an invariant violation, not a "not found".
+func (b *Bucket) ColumnarGetVectorPayload(docID uint64, dst []byte) ([]byte, bool, error) {
+	if err := CheckExpectedStrategy(b.strategy, StrategyColumnar); err != nil {
+		return dst, false, err
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	if out, found, tomb := view.Active.columnarLookupPayload(docID, dst); found {
+		return out, !tomb, nil
+	}
+	if view.Flushing != nil {
+		if out, found, tomb := view.Flushing.columnarLookupPayload(docID, dst); found {
+			return out, !tomb, nil
+		}
+	}
+	out, found, tomb, err := columnarLookupPayloadSegments(view.Disk, docID, dst)
+	if err != nil {
+		return dst, false, err
+	}
+	return out, found && !tomb, nil
+}
+
 // ColumnarDelete marks a docID as deleted.
 func (b *Bucket) ColumnarDelete(docID uint64) error {
 	return b.columnarWriteOp("columnar_delete", func(m memtable) error {
@@ -140,6 +216,23 @@ func asColumnarSegment(s Segment, pos int) (*segment, error) {
 		return nil, fmt.Errorf("non-columnar segment at position %d", pos)
 	}
 	return seg, nil
+}
+
+// columnarLookupPayloadSegments iterates a consistent-view segment list
+// newest→oldest, copying the payload into dst while the view pins the
+// segments. Returns (payload, found, isTombstone, err).
+func columnarLookupPayloadSegments(segments []Segment, docID uint64, dst []byte) ([]byte, bool, bool, error) {
+	for i := len(segments) - 1; i >= 0; i-- {
+		seg, err := asColumnarSegment(segments[i], i)
+		if err != nil {
+			return dst, false, false, fmt.Errorf("columnar payload lookup: %w", err)
+		}
+		out, found, tomb := seg.columnarData.lookupPayload(seg.contents, docID, dst)
+		if found {
+			return out, true, tomb, nil
+		}
+	}
+	return dst, false, false, nil
 }
 
 // columnarLookupSegments iterates a consistent-view segment list
@@ -257,4 +350,29 @@ func columnarScanSegments(segments []Segment, colIdx int, allow, seen *sroar.Bit
 		}
 	}
 	return nil
+}
+
+// float32sToBytes appends the little-endian byte representation of vec to
+// dst.
+func float32sToBytes(vec []float32, dst []byte) []byte {
+	off := len(dst)
+	dst = append(dst, make([]byte, len(vec)*4)...)
+	for i, v := range vec {
+		binary.LittleEndian.PutUint32(dst[off+i*4:], math.Float32bits(v))
+	}
+	return dst
+}
+
+// BytesToFloat32s decodes a little-endian float32 payload into dst,
+// growing it as needed. The result length is len(payload)/4.
+func BytesToFloat32s(payload []byte, dst []float32) []float32 {
+	n := len(payload) / 4
+	if cap(dst) < n {
+		dst = make([]float32, n)
+	}
+	dst = dst[:n]
+	for i := 0; i < n; i++ {
+		dst[i] = math.Float32frombits(binary.LittleEndian.Uint32(payload[i*4:]))
+	}
+	return dst
 }

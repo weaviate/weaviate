@@ -19,10 +19,10 @@ import (
 )
 
 // flushDataColumnar writes the columnar memtable as a block-structured
-// segment (see the columnar package doc for the layout). The directory is
-// written at IndexStart, mirroring how other strategies place their key
-// index, so the shared segment machinery (checksums, previews) works
-// unchanged.
+// segment (see the columnar package doc for the layout). Blocks are built
+// first (their sizes depend on variable-width payloads and alignment
+// padding), then the header with the final IndexStart, then blocks and
+// directory through the body writer.
 func (m *Memtable) flushDataColumnar(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	m.RLock()
 	rows := m.columnarSortedRows()

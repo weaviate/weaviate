@@ -28,7 +28,7 @@ type columnarSegmentData struct {
 }
 
 func loadColumnarSegmentData(contents []byte, indexStart uint64, version uint16) (*columnarSegmentData, error) {
-	h, _, err := columnar.UnmarshalHeader(contents[segmentindex.HeaderSize:])
+	h, _, formatVersion, err := columnar.UnmarshalHeader(contents[segmentindex.HeaderSize:])
 	if err != nil {
 		return nil, fmt.Errorf("parse columnar header: %w", err)
 	}
@@ -42,7 +42,7 @@ func loadColumnarSegmentData(contents []byte, indexStart uint64, version uint16)
 		return nil, fmt.Errorf("columnar directory start %d beyond end %d", indexStart, dirEnd)
 	}
 
-	entries, err := columnar.UnmarshalDirectory(contents[indexStart:dirEnd], len(h.Schema.Columns))
+	entries, err := columnar.UnmarshalDirectory(contents[indexStart:dirEnd], &h.Schema, formatVersion)
 	if err != nil {
 		return nil, fmt.Errorf("parse columnar directory: %w", err)
 	}
@@ -83,6 +83,28 @@ func (d *columnarSegmentData) lookup(contents []byte, docID uint64, colIdx int) 
 		return 0, true, true
 	}
 	return br.ValueBitsAt(colIdx, row), true, false
+}
+
+// lookupPayload appends the row's payload bytes (vector or multi-vector)
+// to dst. Must be called while the segment's contents are pinned; the
+// returned slice extends dst and does not alias the segment buffer.
+func (d *columnarSegmentData) lookupPayload(contents []byte, docID uint64, dst []byte) ([]byte, bool, bool) {
+	blockIdx := d.findBlock(docID)
+	if blockIdx < 0 {
+		return dst, false, false
+	}
+	br, err := columnar.NewBlockReader(&d.schema, &d.entries[blockIdx], contents)
+	if err != nil {
+		return dst, false, false
+	}
+	row := br.FindRow(docID)
+	if row < 0 {
+		return dst, false, false
+	}
+	if !br.IsLive(row) {
+		return dst, true, true
+	}
+	return br.RowValues(dst, row), true, false
 }
 
 // scanBlocks calls visit for each block in docID order. visit returns false
