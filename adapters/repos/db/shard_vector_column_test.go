@@ -19,6 +19,7 @@ import (
 	"os"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -33,7 +34,15 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+// platformSupportsZeroCopyFloats reports whether this build can serve
+// mmap-aliasing []float32 reads (true on little-endian architectures).
+func platformSupportsZeroCopyFloats() bool {
+	_, ok := byteops.Float32sFromBytesZeroCopy(make([]byte, 4))
+	return ok
+}
 
 func vectorColumnTestClass(className string) *models.Class {
 	return &models.Class{
@@ -361,6 +370,86 @@ func TestVectorColumn_RescoreEquivalenceRQ8(t *testing.T) {
 	}
 }
 
+// TestVectorColumn_ZeroCopyRescoreReads pins the zero-copy rescore read
+// path: with a composite rescore view (the view a rescore pass runs on),
+// readVectorColumnIntoSliceWithView serves segment-resident rows as slices
+// that alias the pinned segment mmap — equal to the copy path's values,
+// 4-byte aligned, and stable across the view's lifetime — while
+// memtable-resident rows take the documented copy fallback.
+func TestVectorColumn_ZeroCopyRescoreReads(t *testing.T) {
+	r := getRandomSeed()
+	ctx := context.Background()
+	dims := 32
+	n := 50
+
+	cfg := enthnsw.NewDefaultUserConfig()
+	cfg.ColumnarRescore = true
+
+	shard, _ := testShardWithSettings(t, ctx, vectorColumnTestClass("VectorColumnZeroCopy"), cfg, false, false, false)
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+	waitForVectorColumnReady(t, concrete, "")
+
+	objs := createRandomObjects(r, "VectorColumnZeroCopy", n, dims)
+	for _, obj := range objs {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+	colBucket := concrete.servableVectorColumnBucket("")
+	require.NotNil(t, colBucket)
+	// move every row into a disk segment so reads hit the zero-copy path
+	require.NoError(t, colBucket.FlushAndSwitch())
+
+	// one extra object stays memtable-resident: it must be served via the
+	// copy fallback (aliasing mutable heap memory is not safe)
+	memtableObj := createRandomObjects(r, "VectorColumnZeroCopy", 1, dims)[0]
+	require.NoError(t, shard.PutObject(ctx, memtableObj))
+
+	view := concrete.getVectorColumnRescoreView("")
+	defer view.ReleaseView()
+	_, isComposite := view.(*vectorColumnRescoreView)
+	require.True(t, isComposite, "servable column must yield the composite rescore view")
+
+	t.Run("segment rows alias the mmap and equal the copy path", func(t *testing.T) {
+		zeroCopySupported := platformSupportsZeroCopyFloats()
+		for _, obj := range objs {
+			container := &common.VectorSlice{Buff8: make([]byte, 8)}
+			got, err := concrete.readVectorColumnIntoSliceWithView(ctx, obj.DocID, container, "", view)
+			require.NoError(t, err)
+			require.Equal(t, obj.Vector, got, "doc %d", obj.DocID)
+
+			if !zeroCopySupported {
+				continue
+			}
+			// aliased results are never stored in the pooled container
+			assert.Nil(t, container.Slice, "doc %d: aliased result must not be retained in the container", obj.DocID)
+			// minimum alignment for the unsafe []float32 reinterpretation
+			assert.Zero(t, uintptr(unsafe.Pointer(&got[0]))%4,
+				"doc %d: aliased vector must be at least 4-byte aligned", obj.DocID)
+
+			// copy path (plain objects view) returns the same values
+			objView := concrete.GetObjectsBucketView()
+			containerB := &common.VectorSlice{Buff8: make([]byte, 8)}
+			want, err := concrete.readVectorByIndexIDIntoSliceWithView(ctx, obj.DocID, containerB, "", objView)
+			objView.ReleaseView()
+			require.NoError(t, err)
+			assert.Equal(t, want, got, "doc %d: zero-copy and copy paths must agree", obj.DocID)
+		}
+	})
+
+	t.Run("memtable rows take the copy fallback", func(t *testing.T) {
+		container := &common.VectorSlice{Buff8: make([]byte, 8)}
+		got, err := concrete.readVectorColumnIntoSliceWithView(ctx, memtableObj.DocID, container, "", view)
+		require.NoError(t, err)
+		require.Equal(t, memtableObj.Vector, got)
+		assert.Equal(t, got, container.Slice,
+			"memtable-resident rows are decoded into the container (copy), not aliased")
+	})
+
+	// the alias-lifetime-across-compaction invariant (pinned segments are
+	// parked, not munmapped, while a view holds references) is covered at
+	// the lsmkv layer in TestColumnarBucket_GetVectorFloatsWithView
+}
+
 // TestVectorColumn_MultiVectorMuvera covers the multi-vector wiring: writes
 // feed the multi-vector column for a named target vector, the column-backed
 // readers return token matrices identical to the objects-bucket readers,
@@ -419,6 +508,20 @@ func TestVectorColumn_MultiVectorMuvera(t *testing.T) {
 
 			require.Equal(t, objVecs, colVecs, "doc %d: token matrix differs", obj.DocID)
 			require.Equal(t, obj.MultiVectors[target], colVecs)
+		}
+	})
+
+	t.Run("composite-view (zero-copy) reader matches the copy reader", func(t *testing.T) {
+		view := concrete.getVectorColumnRescoreView(target)
+		defer view.ReleaseView()
+		_, isComposite := view.(*vectorColumnRescoreView)
+		require.True(t, isComposite)
+
+		for _, obj := range objs {
+			container := &common.VectorSlice{Buff8: make([]byte, 8)}
+			viewVecs, err := concrete.readMultiVectorColumnIntoSliceWithView(ctx, obj.DocID, container, target, view)
+			require.NoError(t, err)
+			require.Equal(t, obj.MultiVectors[target], viewVecs, "doc %d: token matrix differs", obj.DocID)
 		}
 	})
 

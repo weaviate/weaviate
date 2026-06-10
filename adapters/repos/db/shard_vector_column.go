@@ -516,12 +516,43 @@ func (s *Shard) servableVectorColumnBucket(targetVector string) *lsmkv.Bucket {
 // readVectorByIndexIDIntoSliceWithView, with a per-call fallback to it.
 // Mirrors the container contract: container.Buff is the reusable byte
 // buffer, container.Slice the float32 destination; the returned slice may
-// or may not alias container.Slice. The view argument is only used by the
-// objects-bucket fallback — the column does its own copy inside the
-// segment lock window.
+// or may not alias container.Slice.
+//
+// Two view shapes reach this function:
+//
+//   - *vectorColumnRescoreView (injected by GetViewThunk when columnarRescore
+//     serves the target): the column read runs against the view's pinned
+//     segments with zero locks per call, and a disk-segment hit returns a
+//     []float32 that ALIASES the pinned mmap — zero copy, zero alloc. The
+//     alias is valid until the view is released (one view per rescore pass);
+//     memtable-resident rows are decoded by copy, see
+//     lsmkv.ColumnarGetVectorFloatsWithView for the safety analysis.
+//   - any other view (objects-bucket view from fallback callers): the column
+//     read takes its own short-lived view and copies, exactly as before.
 func (s *Shard) readVectorColumnIntoSliceWithView(ctx context.Context, indexID uint64,
 	container *common.VectorSlice, targetVector string, view common.BucketView,
 ) ([]float32, error) {
+	if cv, ok := view.(*vectorColumnRescoreView); ok {
+		floats, aliased, found, err := cv.column.Bucket.ColumnarGetVectorFloatsWithView(
+			cv.column, indexID, container.Slice)
+		if err != nil {
+			return nil, fmt.Errorf("vector column view read: %w", err)
+		}
+		if found && len(floats) > 0 {
+			if !aliased {
+				// the copy decode may have grown container.Slice; an aliased
+				// result must never be stored in the pooled container — a
+				// later reuse would decode into the read-only mmap
+				container.Slice = floats
+			}
+			return floats, nil
+		}
+		// not found in the column (docID written while the flag was
+		// disabled, or deleted): fall back to the objects bucket using the
+		// composite's pinned objects view
+		return s.readVectorByIndexIDIntoSliceWithView(ctx, indexID, container, targetVector, cv.objects)
+	}
+
 	if bucket := s.servableVectorColumnBucket(targetVector); bucket != nil {
 		floats, ok, err := bucket.ColumnarGetVectorFloats(indexID, container.Slice)
 		if err != nil {
@@ -538,14 +569,27 @@ func (s *Shard) readVectorColumnIntoSliceWithView(ctx context.Context, indexID u
 }
 
 // readMultiVectorColumnIntoSliceWithView is the column-backed twin of
-// readMultiVectorByIndexIDIntoSliceWithView. The token matrix is freshly
-// allocated (one flat allocation, sub-sliced per token): the multi-vector
-// callers return the pooled container before consuming the result, so the
-// result must not alias container.Slice — matching the objects-bucket
-// path, where MultiVectorFromBinary also allocates per token.
+// readMultiVectorByIndexIDIntoSliceWithView.
+//
+// With a *vectorColumnRescoreView (the columnarRescore rescore pass), the
+// flat float payload may ALIAS the view's pinned segment mmap: only the
+// token headers are allocated, the float data is not copied. The result is
+// valid until the view is released — the rescore loop consumes each token
+// matrix within the pass that owns the view. Memtable-resident rows are
+// decoded by copy (see lsmkv.ColumnarGetVectorFloatsWithView). The result
+// never aliases container.Slice in either case.
+//
+// With any other view the copy-based column read is used, falling back to
+// the objects bucket on a miss.
 func (s *Shard) readMultiVectorColumnIntoSliceWithView(ctx context.Context, indexID uint64,
 	container *common.VectorSlice, targetVector string, view common.BucketView,
 ) ([][]float32, error) {
+	if cv, ok := view.(*vectorColumnRescoreView); ok {
+		if vecs, ok := s.tryReadMultiVectorColumnWithView(cv, indexID); ok {
+			return vecs, nil
+		}
+		return s.readMultiVectorByIndexIDIntoSliceWithView(ctx, indexID, container, targetVector, cv.objects)
+	}
 	if vecs, ok := s.tryReadMultiVectorColumn(indexID, container, targetVector); ok {
 		return vecs, nil
 	}
@@ -601,6 +645,36 @@ func (s *Shard) tryReadMultiVectorColumn(indexID uint64, container *common.Vecto
 	// so it must not alias the pooled container)
 	flat, ok, err := bucket.ColumnarGetVectorFloats(indexID, nil)
 	if err != nil || !ok || len(flat) == 0 || len(flat)%dims != 0 {
+		return nil, false
+	}
+	tokens := len(flat) / dims
+	out := make([][]float32, tokens)
+	for i := range out {
+		out[i] = flat[i*dims : (i+1)*dims : (i+1)*dims]
+	}
+	return out, true
+}
+
+// tryReadMultiVectorColumnWithView reads docID's token matrix from the
+// column against the pass-scoped pinned view (no per-call locks). Disk hits
+// sub-slice the zero-copy flat payload: the token headers are allocated, the
+// float data aliases the pinned segment mmap and is valid until the view is
+// released. Memtable hits decode into a fresh flat slice. Returns
+// (nil, false) when the caller must fall back to the objects bucket.
+func (s *Shard) tryReadMultiVectorColumnWithView(cv *vectorColumnRescoreView,
+	indexID uint64,
+) ([][]float32, bool) {
+	schema := cv.column.Bucket.ColumnarSchema()
+	if schema == nil || !schema.IsVector() {
+		return nil, false
+	}
+	dims := int(schema.Columns[0].Dims)
+	if dims == 0 {
+		return nil, false
+	}
+
+	flat, _, found, err := cv.column.Bucket.ColumnarGetVectorFloatsWithView(cv.column, indexID, nil)
+	if err != nil || !found || len(flat) == 0 || len(flat)%dims != 0 {
 		return nil, false
 	}
 	tokens := len(flat) / dims

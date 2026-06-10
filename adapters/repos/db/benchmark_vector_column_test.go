@@ -118,6 +118,11 @@ func BenchmarkVectorColumnFetch1536d(b *testing.B) {
 		docIDs[i] = obj.DocID
 	}
 
+	// flush the column so every row is segment-resident: this is the regime
+	// that matters at scale, and the precondition for the zero-copy leg
+	// (memtable rows fall back to the copy path by design)
+	require.NoError(b, concrete.servableVectorColumnBucket("").FlushAndSwitch())
+
 	view := concrete.GetObjectsBucketView()
 	defer view.ReleaseView()
 
@@ -139,6 +144,25 @@ func BenchmarkVectorColumnFetch1536d(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			vec, err := concrete.readVectorColumnIntoSliceWithView(ctx, docIDs[i%n], container, "", view)
+			if err != nil || len(vec) != dims {
+				b.Fatalf("fetch: err=%v len=%d", err, len(vec))
+			}
+		}
+	})
+
+	// the rescore-pass shape: one composite view pins the column's segments,
+	// every fetch returns a []float32 aliasing the pinned mmap (zero copy)
+	b.Run("ColumnarZeroCopy", func(b *testing.B) {
+		zcView := concrete.getVectorColumnRescoreView("")
+		defer zcView.ReleaseView()
+		if _, ok := zcView.(*vectorColumnRescoreView); !ok {
+			b.Fatal("expected the composite rescore view")
+		}
+		container := &common.VectorSlice{Buff8: make([]byte, 8)}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			vec, err := concrete.readVectorColumnIntoSliceWithView(ctx, docIDs[i%n], container, "", zcView)
 			if err != nil || len(vec) != dims {
 				b.Fatalf("fetch: err=%v len=%d", err, len(vec))
 			}

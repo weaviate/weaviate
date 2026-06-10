@@ -50,3 +50,12 @@ func CopySliceToBytes[T float32 | uint64](dst []byte, src []T) {
 		}
 	}
 }
+
+// Float32sFromBytesZeroCopy is the big-endian stub of the zero-copy
+// reinterpretation: the on-disk little-endian float32 layout does not match
+// the in-memory representation on big-endian architectures, so aliasing is
+// never possible and callers always take the copy fallback
+// (CopyBytesToSlice).
+func Float32sFromBytesZeroCopy(b []byte) ([]float32, bool) {
+	return nil, false
+}

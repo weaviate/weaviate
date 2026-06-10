@@ -670,10 +670,19 @@ func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concret
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
-	// Normalize in-place since vec points to a pooled slice that will be
-	// returned after this function. This avoids allocating a new slice
-	// for every vector during rescoring.
-	h.normalizeVecInPlace(vec)
+	// Cosine needs the candidate vector normalized, but vec must never be
+	// normalized in place: with the columnar zero-copy rescore path it may
+	// alias a read-only segment mmap, where a write faults. Normalize
+	// out-of-place into a second pooled buffer instead (still
+	// allocation-free) — a separate container is required because vec may
+	// overlap `slice`'s backing memory at a non-zero offset (the
+	// multi-vector copy path sub-slices it), and NormalizeOut only
+	// tolerates exact or zero overlap.
+	if h.distancerProvider.Type() == "cosine-dot" {
+		normalized := h.pools.tempVectors.Get(len(vec))
+		defer h.pools.tempVectors.Put(normalized)
+		vec = distancer.NormalizeOut(normalized.Slice, vec)
+	}
 	return concreteDistancer.DistanceToFloat(vec)
 }
 

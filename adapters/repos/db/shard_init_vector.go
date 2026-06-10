@@ -112,16 +112,21 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			// with columnarRescore enabled they serve from the per-target
 			// vector-column bucket instead, with a per-call fallback to the
 			// objects bucket while the column's backfill is still running
-			// (see shard_vector_column.go)
+			// (see shard_vector_column.go). The per-pass view follows the
+			// same split: the composite rescore view pins the column bucket's
+			// segments alongside the objects bucket, enabling the zero-copy
+			// (mmap-aliasing) candidate reads — see shard_vector_column_view.go.
 			multiVectorForID := s.multiVectorByIndexID
 			tempMultiVectorForID := s.readMultiVectorByIndexIDIntoSlice
 			tempVectorForIDWithView := s.readVectorByIndexIDIntoSliceWithView
 			tempMultiVectorForIDWithView := s.readMultiVectorByIndexIDIntoSliceWithView
+			getViewThunk := func() vcommon.BucketView { return s.GetObjectsBucketView() }
 			if hnswUserConfig.ColumnarRescore {
 				multiVectorForID = s.columnMultiVectorByIndexID
 				tempMultiVectorForID = s.readMultiVectorColumnIntoSlice
 				tempVectorForIDWithView = s.readVectorColumnIntoSliceWithView
 				tempMultiVectorForIDWithView = s.readMultiVectorColumnIntoSliceWithView
+				getViewThunk = func() vcommon.BucketView { return s.getVectorColumnRescoreView(targetVector) }
 			}
 
 			vi, err := hnsw.New(hnsw.Config{
@@ -134,7 +139,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				VectorForIDThunk:                  hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, multiVectorForID),
 				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, tempMultiVectorForID),
-				GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
+				GetViewThunk:                      getViewThunk,
 				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, tempVectorForIDWithView),
 				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, tempMultiVectorForIDWithView),
 				DistanceProvider:                  distProv,
