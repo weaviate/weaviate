@@ -585,12 +585,20 @@ func (s *Shard) readMultiVectorColumnIntoSliceWithView(ctx context.Context, inde
 	container *common.VectorSlice, targetVector string, view common.BucketView,
 ) ([][]float32, error) {
 	if cv, ok := view.(*vectorColumnRescoreView); ok {
-		if vecs, ok := s.tryReadMultiVectorColumnWithView(cv, indexID); ok {
+		vecs, ok, err := s.tryReadMultiVectorColumnWithView(cv, indexID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			return vecs, nil
 		}
 		return s.readMultiVectorByIndexIDIntoSliceWithView(ctx, indexID, container, targetVector, cv.objects)
 	}
-	if vecs, ok := s.tryReadMultiVectorColumn(indexID, container, targetVector); ok {
+	vecs, ok, err := s.tryReadMultiVectorColumn(indexID, container, targetVector)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		return vecs, nil
 	}
 	return s.readMultiVectorByIndexIDIntoSliceWithView(ctx, indexID, container, targetVector, view)
@@ -602,7 +610,11 @@ func (s *Shard) readMultiVectorColumnIntoSliceWithView(ctx context.Context, inde
 func (s *Shard) readMultiVectorColumnIntoSlice(ctx context.Context, indexID uint64,
 	container *common.VectorSlice, targetVector string,
 ) ([][]float32, error) {
-	if vecs, ok := s.tryReadMultiVectorColumn(indexID, container, targetVector); ok {
+	vecs, ok, err := s.tryReadMultiVectorColumn(indexID, container, targetVector)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		return vecs, nil
 	}
 	return s.readMultiVectorByIndexIDIntoSlice(ctx, indexID, container, targetVector)
@@ -615,44 +627,53 @@ func (s *Shard) columnMultiVectorByIndexID(ctx context.Context, indexID uint64,
 	targetVector string,
 ) ([][]float32, error) {
 	var container common.VectorSlice
-	if vecs, ok := s.tryReadMultiVectorColumn(indexID, &container, targetVector); ok {
+	vecs, ok, err := s.tryReadMultiVectorColumn(indexID, &container, targetVector)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		return vecs, nil
 	}
 	return s.multiVectorByIndexID(ctx, indexID, targetVector)
 }
 
 // tryReadMultiVectorColumn reads docID's token matrix from the column.
-// Returns (nil, false) when the caller must fall back to the objects
-// bucket. The token count is derived from the payload length and the
-// column schema's dimensionality.
+// Returns (nil, false, nil) when the caller must fall back to the objects
+// bucket; a non-nil error (e.g. a non-columnar segment, an invariant
+// violation) must be propagated, not folded into the fallback. The token
+// count is derived from the payload length and the column schema's
+// dimensionality.
 func (s *Shard) tryReadMultiVectorColumn(indexID uint64, container *common.VectorSlice,
 	targetVector string,
-) ([][]float32, bool) {
+) ([][]float32, bool, error) {
 	bucket := s.servableVectorColumnBucket(targetVector)
 	if bucket == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	schema := bucket.ColumnarSchema()
 	if schema == nil || !schema.IsVector() {
-		return nil, false
+		return nil, false, nil
 	}
 	dims := int(schema.Columns[0].Dims)
 	if dims == 0 {
-		return nil, false
+		return nil, false, nil
 	}
 
 	// decode straight into a fresh flat slice (callers retain the result,
 	// so it must not alias the pooled container)
 	flat, ok, err := bucket.ColumnarGetVectorFloats(indexID, nil)
-	if err != nil || !ok || len(flat) == 0 || len(flat)%dims != 0 {
-		return nil, false
+	if err != nil {
+		return nil, false, fmt.Errorf("multi-vector column read: %w", err)
+	}
+	if !ok || len(flat) == 0 || len(flat)%dims != 0 {
+		return nil, false, nil
 	}
 	tokens := len(flat) / dims
 	out := make([][]float32, tokens)
 	for i := range out {
 		out[i] = flat[i*dims : (i+1)*dims : (i+1)*dims]
 	}
-	return out, true
+	return out, true, nil
 }
 
 // tryReadMultiVectorColumnWithView reads docID's token matrix from the
@@ -660,29 +681,34 @@ func (s *Shard) tryReadMultiVectorColumn(indexID uint64, container *common.Vecto
 // sub-slice the zero-copy flat payload: the token headers are allocated, the
 // float data aliases the pinned segment mmap and is valid until the view is
 // released. Memtable hits decode into a fresh flat slice. Returns
-// (nil, false) when the caller must fall back to the objects bucket.
+// (nil, false, nil) when the caller must fall back to the objects bucket;
+// a non-nil error (e.g. a non-columnar segment, an invariant violation)
+// must be propagated, not folded into the fallback.
 func (s *Shard) tryReadMultiVectorColumnWithView(cv *vectorColumnRescoreView,
 	indexID uint64,
-) ([][]float32, bool) {
+) ([][]float32, bool, error) {
 	schema := cv.column.Bucket.ColumnarSchema()
 	if schema == nil || !schema.IsVector() {
-		return nil, false
+		return nil, false, nil
 	}
 	dims := int(schema.Columns[0].Dims)
 	if dims == 0 {
-		return nil, false
+		return nil, false, nil
 	}
 
 	flat, _, found, err := cv.column.Bucket.ColumnarGetVectorFloatsWithView(cv.column, indexID, nil)
-	if err != nil || !found || len(flat) == 0 || len(flat)%dims != 0 {
-		return nil, false
+	if err != nil {
+		return nil, false, fmt.Errorf("multi-vector column view read: %w", err)
+	}
+	if !found || len(flat) == 0 || len(flat)%dims != 0 {
+		return nil, false, nil
 	}
 	tokens := len(flat) / dims
 	out := make([][]float32, tokens)
 	for i := range out {
 		out[i] = flat[i*dims : (i+1)*dims : (i+1)*dims]
 	}
-	return out, true
+	return out, true, nil
 }
 
 // dropVectorColumn removes the column bucket, its sentinel and the

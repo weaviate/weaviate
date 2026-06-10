@@ -472,6 +472,12 @@ func (w *BlockWriter) flushBlock() error {
 			}
 			pageSize = len(w.pages[c])
 		}
+		// ColPage offsets/sizes (and rowEnds) are uint32: fail loud rather
+		// than silently truncating if one block's payloads exceed 4GiB
+		if pageOff+pageSize > math.MaxUint32 {
+			return fmt.Errorf("columnar block column %d exceeds uint32 page bounds "+
+				"(offset %d + size %d)", c, pageOff, pageSize)
+		}
 		entry.Pages[c] = ColPage{Offset: uint32(pageOff), Size: uint32(pageSize)}
 		blockSize = pageOff + pageSize
 	}
@@ -571,6 +577,22 @@ func NewBlockReader(schema *Schema, entry *DirectoryEntry, contents []byte) (*Bl
 			}
 			r.varOffsets = page[:4*(rows+1)]
 			r.varPayload = page[headerSize:]
+			// validate the offset table once up front so per-row reads
+			// (VariableValueAt) can slice without bounds checks: a corrupt
+			// table must surface as an error here, not a panic later
+			prev := uint32(0)
+			for row := 0; row <= rows; row++ {
+				v := binary.LittleEndian.Uint32(r.varOffsets[4*row:])
+				if v < prev {
+					return nil, fmt.Errorf("columnar block column %d offset table "+
+						"not monotonic at row %d (%d < %d)", i, row, v, prev)
+				}
+				prev = v
+			}
+			if int(prev) > len(r.varPayload) {
+				return nil, fmt.Errorf("columnar block column %d offset table end %d "+
+					"exceeds payload size %d", i, prev, len(r.varPayload))
+			}
 			r.pages[i] = page
 			continue
 		}

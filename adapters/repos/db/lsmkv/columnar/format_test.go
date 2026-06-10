@@ -1098,13 +1098,9 @@ func TestBlockWriterReader_VectorRoundtrip(t *testing.T) {
 	assert.Equal(t, uint32(rows-2*VectorBlockSize), entries[2].RowCount)
 
 	t.Run("page layout and alignment", func(t *testing.T) {
-		// What the writer guarantees: each vector page offset is 64B-aligned
-		// RELATIVE TO THE BLOCK START (pageOff = alignUp(rows*9, 64)).
-		// Block starts themselves land at arbitrary file offsets (header +
-		// columnar header precede them), so absolute payload alignment
-		// additionally requires the segment writer to start blocks at
-		// aligned offsets — which it currently does not do. Assert exactly
-		// the relative guarantee.
+		// flushBlock pads block starts to payloadAlign for every vector
+		// schema, so the 64B-aligned in-block page offset
+		// (alignUp(rows*9, 64)) yields absolutely aligned payloads too.
 		for i := range entries {
 			e := &entries[i]
 			require.Len(t, e.Pages, 1)
@@ -1279,6 +1275,86 @@ func TestBlockWriterReader_MultiVectorRoundtrip(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "out of order")
 	})
+}
+
+// TestNewBlockReader_CorruptOffsetTable verifies that a corrupt variable-
+// payload offset table (which a segment-level checksum mismatch may not
+// catch) surfaces as an error from NewBlockReader instead of a panic on a
+// later VariableValueAt call (e.g. in the compaction goroutine).
+func TestNewBlockReader_CorruptOffsetTable(t *testing.T) {
+	const dims = 4
+	const tokens = 2
+	const rows = 3
+	schema := &Schema{Columns: []Column{
+		{Name: "mv", Type: ColumnTypeMultiVector, Encoding: EncodingOffsetValues, Dims: dims},
+	}}
+	require.NoError(t, schema.validate())
+
+	// one block, 3 rows × 2 tokens × 4 dims → 96B payload slab
+	buildBlock := func(t *testing.T) ([]byte, DirectoryEntry) {
+		var blocks [][]byte
+		var entries []DirectoryEntry
+		bw := NewBlockWriter(schema, 0, func(block []byte, e DirectoryEntry) error {
+			blocks = append(blocks, append([]byte(nil), block...))
+			entries = append(entries, e)
+			return nil
+		})
+		payload := make([]byte, tokens*dims*4)
+		for i := range payload {
+			payload[i] = byte(i)
+		}
+		for i := 0; i < rows; i++ {
+			require.NoError(t, bw.Append(uint64(i), true, payload))
+		}
+		require.NoError(t, bw.Flush())
+		require.Len(t, entries, 1)
+		return blocks[0], entries[0]
+	}
+
+	tests := []struct {
+		name    string
+		corrupt func(offsets []byte, payloadLen int)
+		wantErr string
+	}{
+		{
+			name:    "intact control",
+			corrupt: func([]byte, int) {},
+		},
+		{
+			name: "decreasing offsets",
+			corrupt: func(offsets []byte, _ int) {
+				// rows span [0:32][32:64][64:96]; make row 1 end before it starts
+				binary.LittleEndian.PutUint32(offsets[4:], 30)
+				binary.LittleEndian.PutUint32(offsets[8:], 10)
+			},
+			wantErr: "not monotonic",
+		},
+		{
+			name: "final offset beyond payload slab",
+			corrupt: func(offsets []byte, payloadLen int) {
+				binary.LittleEndian.PutUint32(offsets[4*rows:], uint32(payloadLen+64))
+			},
+			wantErr: "exceeds payload size",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			contents, entry := buildBlock(t)
+			pageStart := int(entry.Offset) + int(entry.Pages[0].Offset)
+			payloadLen := int(entry.Pages[0].Size) - VariablePageHeaderSize(rows)
+			tc.corrupt(contents[pageStart:pageStart+4*(rows+1)], payloadLen)
+
+			br, err := NewBlockReader(schema, &entry, contents)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				require.NotNil(t, br)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorContains(t, err, tc.wantErr)
+			assert.Nil(t, br)
+		})
+	}
 }
 
 func TestEncodingRegistry(t *testing.T) {
