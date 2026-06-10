@@ -28,6 +28,7 @@ var (
 	VectorsBucketLSM           = "vectors"
 	DimensionsBucketLSM        = "dimensions"
 	VectorsCompressedBucketLSM = "vectors_compressed"
+	VectorColumnBucketLSM      = "vector_column"
 )
 
 const ObjectsBucketLSMDocIDSecondaryIndex int = 0
@@ -44,6 +45,15 @@ func GetVectorsBucketName(targetVector string) string {
 		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
 	}
 	return VectorsBucketLSM
+}
+
+// GetVectorColumnBucketName returns the name of the columnar LSM bucket that
+// holds uncompressed vectors for rescoring (hnsw columnarRescore).
+func GetVectorColumnBucketName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorColumnBucketLSM, targetVector)
+	}
+	return VectorColumnBucketLSM
 }
 
 func GetHNSWCommitLogDirName(targetVector string) string {

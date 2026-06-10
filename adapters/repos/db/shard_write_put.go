@@ -300,6 +300,13 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "object creation in hashtree")
 		}
 
+		// Synchronous on purpose: rescore reads the column the moment the
+		// vector index serves this docID, so the column must never lag the
+		// objects bucket (the async vector queue would allow exactly that).
+		if err := s.putVectorColumnsLSM(ctx, obj, status); err != nil {
+			return errors.Wrap(err, "upsert vector columns")
+		}
+
 		return nil
 	}(); err != nil {
 		return objectInsertStatus{}, err

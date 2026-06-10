@@ -180,6 +180,11 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return errors.Wrap(err, "object merge in hashtree")
 		}
 
+		// see comment in shard_write_put.go::putObjectLSM
+		if err := s.putVectorColumnsLSM(ctx, obj, status); err != nil {
+			return errors.Wrap(err, "upsert vector columns")
+		}
+
 		return nil
 	}(); err != nil {
 		return nil, objectInsertStatus{}, err

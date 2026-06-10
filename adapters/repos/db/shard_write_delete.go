@@ -97,6 +97,10 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
+	if err = s.deleteVectorColumnsLSM(docID); err != nil {
+		return fmt.Errorf("delete from vector columns: %w", err)
+	}
+
 	if err = s.store.WriteWALs(); err != nil {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
