@@ -41,13 +41,29 @@ import (
 //   - Replace strategy is explicitly not supported because existsOnLower
 //     (used to compute countNetAdditions) is not recalculated for prepended
 //     segments, which would produce incorrect object counts.
+//   - Columnar strategy is only supported when the group keeps tombstones
+//     (keepTombstones=true). A bottom-level columnar compaction with
+//     cleanupTombstones drops delete markers, so a group that does NOT keep
+//     tombstones may already have cleaned deletes — prepending older
+//     segments BELOW such a group would resurrect deleted docIDs, because
+//     the cleaned bottom segment no longer carries the tombstones that used
+//     to shadow them. The enable-columnar migration satisfies this: its
+//     ingest buckets are loaded with keepTombstones=true until the merge
+//     completes (see ShardReindexTaskGeneric loadIngestBuckets).
 //   - Supported strategies: RoaringSet, RoaringSetRange, SetCollection,
-//     MapCollection, Inverted.
+//     MapCollection, Inverted, Columnar (keepTombstones only).
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
-	// Step 1: Validate strategy — Replace is not supported.
+	// Step 1: Validate strategy — Replace is not supported, Columnar only
+	// with tombstones kept.
 	if sg.strategy == StrategyReplace {
 		return fmt.Errorf("prepend segments: strategy %q is not supported because "+
 			"countNetAdditions cannot be recalculated for prepended segments", sg.strategy)
+	}
+	if sg.strategy == StrategyColumnar && !sg.keepTombstones {
+		return fmt.Errorf("prepend segments: strategy %q without keepTombstones is not "+
+			"supported because a bottom-level compaction may already have cleaned "+
+			"tombstones; prepending older segments below it would resurrect deleted docIDs",
+			sg.strategy)
 	}
 
 	// Step 2: Discover source segments (.db files).

@@ -120,7 +120,10 @@ func (fa *filteredAggregator) aggregateFromColumnar(ctx context.Context,
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			bits, ok := bucket.ColumnarLookupBits(docID, 0)
+			bits, ok, err := bucket.ColumnarLookupBits(docID, 0)
+			if err != nil {
+				return err
+			}
 			if !ok {
 				continue // object has no value for this property
 			}

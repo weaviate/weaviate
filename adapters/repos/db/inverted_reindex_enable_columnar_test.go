@@ -291,7 +291,8 @@ func TestEnableColumnar_BackfillBaseline(t *testing.T) {
 		require.Lessf(t, v, int64(enableColumnarNumDistinctValues), "docID %d value out of range", docID)
 		countsPerValue[v]++
 		// Cross-check the point-lookup path against the scan.
-		got, ok := postBucket.ColumnarLookupInt64(docID, 0)
+		got, ok, err := postBucket.ColumnarLookupInt64(docID, 0)
+		require.NoErrorf(t, err, "point lookup for docID %d must not error", docID)
 		require.Truef(t, ok, "point lookup for docID %d must succeed", docID)
 		require.Equalf(t, v, got, "point lookup for docID %d diverges from scan", docID)
 	}

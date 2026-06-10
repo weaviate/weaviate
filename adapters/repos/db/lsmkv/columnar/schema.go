@@ -52,7 +52,9 @@ func (ct ColumnType) String() string {
 }
 
 // less compares two raw column values of this type. Used for min/max block
-// statistics.
+// statistics. For float64, NaN compares false against everything (standard
+// IEEE 754 semantics) — callers accumulating stats must skip NaN inputs, or
+// a NaN that seeds min/max would freeze it (see BlockWriter.flushBlock).
 func (ct ColumnType) less(a, b uint64) bool {
 	switch ct {
 	case ColumnTypeInt64:

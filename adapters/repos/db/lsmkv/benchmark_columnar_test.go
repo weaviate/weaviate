@@ -195,7 +195,10 @@ func BenchmarkColumnarVsObjects_PointLookup(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				docID := candidates[i%len(candidates)]
-				got, ok := f.column.ColumnarLookupInt64(docID, 0)
+				got, ok, err := f.column.ColumnarLookupInt64(docID, 0)
+				if err != nil {
+					b.Fatalf("docID %d: %v", docID, err)
+				}
 				if !ok || got != f.expected[docID] {
 					b.Fatalf("docID %d: got %d,%v want %d", docID, got, ok, f.expected[docID])
 				}

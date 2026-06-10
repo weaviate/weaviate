@@ -24,6 +24,14 @@
 //
 // NOTE: unfiltered aggregates do NOT touch the columnar buckets, so every
 // aggregate assertion in this package carries a `where` filter.
+//
+// CI wiring: this package needs no explicit registration. test/run.sh's
+// get_fast_acceptance_packages globs `go list ./... | grep test/acceptance`
+// minus an explicit exclusion list (replication, graphql_resolvers, authz,
+// compaction, ...); columnar_index is neither excluded nor assigned to fast
+// groups 1-4 (get_aof_group), so it lands automatically in the catch-all
+// fast group 5 (get_other_packages), which runs as the "fast-group-5" job
+// in .github/workflows/pull_requests.yaml.
 package columnar_index_test
 
 import (

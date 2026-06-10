@@ -38,6 +38,7 @@ package columnar
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 // BlockSize is the maximum number of rows per block. 2048 rows keeps the
@@ -133,7 +134,9 @@ func UnmarshalHeader(buf []byte) (*Header, int, error) {
 
 // ColStats holds the min/max of a column within one block, computed over
 // live rows only. Values are the raw 8-byte little-endian payloads,
-// interpreted per the column's type.
+// interpreted per the column's type. For float64 columns, NaN values are
+// stored as row data but excluded from min/max; a block whose live values
+// are all NaN keeps zeroed stats (like a block with LiveCount 0).
 type ColStats struct {
 	Min uint64
 	Max uint64
@@ -317,7 +320,12 @@ func (w *BlockWriter) flushBlock() error {
 		}
 	}
 
-	// min/max over live rows only
+	// min/max over live rows only. NaN float64 values are stored as data but
+	// excluded from the stats: NaN compares false against everything, so a
+	// NaN that seeds Min/Max would freeze them (less(v, NaN) and less(NaN, v)
+	// are both always false) and poison block pruning. A block whose live
+	// values are all NaN keeps zeroed stats, same as a block with no live
+	// rows.
 	for c := range w.schema.Columns {
 		ct := w.schema.Columns[c].Type
 		first := true
@@ -326,6 +334,9 @@ func (w *BlockWriter) flushBlock() error {
 				continue
 			}
 			v := binary.LittleEndian.Uint64(w.pages[c][r*8:])
+			if ct == ColumnTypeFloat64 && math.IsNaN(math.Float64frombits(v)) {
+				continue
+			}
 			if first {
 				entry.Stats[c] = ColStats{Min: v, Max: v}
 				first = false

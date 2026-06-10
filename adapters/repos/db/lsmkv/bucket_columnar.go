@@ -29,6 +29,14 @@ func WithColumnarSchema(schema *columnar.Schema) BucketOption {
 	}
 }
 
+// ColumnarSchema returns the column schema of a columnar bucket, or nil for
+// buckets without one (non-columnar strategies, or a columnar bucket created
+// without WithColumnarSchema). The schema is fixed at bucket creation, so the
+// returned pointer is safe to read without holding any bucket locks.
+func (b *Bucket) ColumnarSchema() *columnar.Schema {
+	return b.columnarSchema
+}
+
 func (b *Bucket) columnarWriteOp(op string, write func(memtable) error) (err error) {
 	start := time.Now()
 	b.metrics.IncBucketWriteOpCount(op)
@@ -78,54 +86,76 @@ func (b *Bucket) ColumnarDelete(docID uint64) error {
 
 // ColumnarLookupFloat64 reads a float64 value by docID, traversing memtables
 // and segments newest-first.
-func (b *Bucket) ColumnarLookupFloat64(docID uint64, colIdx int) (float64, bool) {
-	bits, ok := b.ColumnarLookupBits(docID, colIdx)
-	return math.Float64frombits(bits), ok
+func (b *Bucket) ColumnarLookupFloat64(docID uint64, colIdx int) (float64, bool, error) {
+	bits, ok, err := b.ColumnarLookupBits(docID, colIdx)
+	return math.Float64frombits(bits), ok, err
 }
 
 // ColumnarLookupInt64 reads an int64 value by docID, traversing memtables
 // and segments newest-first.
-func (b *Bucket) ColumnarLookupInt64(docID uint64, colIdx int) (int64, bool) {
-	bits, ok := b.ColumnarLookupBits(docID, colIdx)
-	return int64(bits), ok
+func (b *Bucket) ColumnarLookupInt64(docID uint64, colIdx int) (int64, bool, error) {
+	bits, ok, err := b.ColumnarLookupBits(docID, colIdx)
+	return int64(bits), ok, err
 }
 
 // ColumnarLookupBits is the type-agnostic lookup; interpret the result per
-// the column's type.
-func (b *Bucket) ColumnarLookupBits(docID uint64, colIdx int) (uint64, bool) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	if bits, found, tomb := b.active.columnarLookup(docID, colIdx); found {
-		return bits, !tomb
+// the column's type. The read runs on a refcounted consistent view of the
+// bucket, so it never blocks flush publishing or compaction segment-swaps.
+// An error means the segment list contained a non-columnar segment — an
+// invariant violation, not a "not found".
+func (b *Bucket) ColumnarLookupBits(docID uint64, colIdx int) (uint64, bool, error) {
+	if err := CheckExpectedStrategy(b.strategy, StrategyColumnar); err != nil {
+		return 0, false, err
 	}
-	if b.flushing != nil {
-		if bits, found, tomb := b.flushing.columnarLookup(docID, colIdx); found {
-			return bits, !tomb
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	if bits, found, tomb := view.Active.columnarLookup(docID, colIdx); found {
+		return bits, !tomb, nil
+	}
+	if view.Flushing != nil {
+		if bits, found, tomb := view.Flushing.columnarLookup(docID, colIdx); found {
+			return bits, !tomb, nil
 		}
 	}
-	bits, found, tomb := b.disk.columnarLookup(docID, colIdx)
-	return bits, found && !tomb
+	bits, found, tomb, err := columnarLookupSegments(view.Disk, docID, colIdx)
+	if err != nil {
+		return 0, false, err
+	}
+	return bits, found && !tomb, nil
 }
 
-// columnarLookup on SegmentGroup iterates segments newest→oldest.
-func (sg *SegmentGroup) columnarLookup(docID uint64, colIdx int) (uint64, bool, bool) {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+// asColumnarSegment asserts that a segment-group element is a fully loaded
+// columnar *segment. Columnar buckets reject lazy segment loading at
+// construction (see NewBucket), so any other element type is an invariant
+// violation that must surface as an error rather than a silent "not found".
+func asColumnarSegment(s Segment, pos int) (*segment, error) {
+	seg, ok := s.(*segment)
+	if !ok {
+		return nil, fmt.Errorf("unexpected segment type %T at position %d "+
+			"(columnar buckets require fully loaded segments)", s, pos)
+	}
+	if seg.strategy != segmentindex.StrategyColumnar || seg.columnarData == nil {
+		return nil, fmt.Errorf("non-columnar segment at position %d", pos)
+	}
+	return seg, nil
+}
 
-	for i := len(sg.segments) - 1; i >= 0; i-- {
-		seg, ok := sg.segments[i].(*segment)
-		if !ok || seg.strategy != segmentindex.StrategyColumnar || seg.columnarData == nil {
-			// Columnar buckets never enable lazy segment loading, so every
-			// element must be a fully loaded columnar *segment.
-			continue
+// columnarLookupSegments iterates a consistent-view segment list
+// newest→oldest. Returns (bits, found, isTombstone, err).
+func columnarLookupSegments(segments []Segment, docID uint64, colIdx int) (uint64, bool, bool, error) {
+	for i := len(segments) - 1; i >= 0; i-- {
+		seg, err := asColumnarSegment(segments[i], i)
+		if err != nil {
+			return 0, false, false, fmt.Errorf("columnar lookup: %w", err)
 		}
 		bits, found, tomb := seg.columnarData.lookup(seg.contents, docID, colIdx)
 		if found {
-			return bits, true, tomb
+			return bits, true, tomb, nil
 		}
 	}
-	return 0, false, false
+	return 0, false, false, nil
 }
 
 // ColumnarScan visits the newest live value of every docID in the bucket for
@@ -137,6 +167,12 @@ func (sg *SegmentGroup) columnarLookup(docID uint64, colIdx int) (uint64, bool, 
 // Newest-wins semantics match point lookups: a docID present in a newer
 // source (active memtable, then flushing memtable, then segments newest to
 // oldest) shadows all older occurrences, and tombstones hide older values.
+//
+// The scan runs on a refcounted consistent view of the bucket: memtable and
+// segment references are taken once up front and released when the scan
+// finishes, so a slow visit callback never blocks flush publishing or
+// compaction segment-swaps. Writes that land after the view was taken are
+// not observed.
 func (b *Bucket) ColumnarScan(colIdx int, allow *sroar.Bitmap,
 	visit func(docID uint64, bits uint64) bool,
 ) error {
@@ -144,8 +180,8 @@ func (b *Bucket) ColumnarScan(colIdx int, allow *sroar.Bitmap,
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	seen := sroar.NewBitmap()
 	cont := true
@@ -167,36 +203,31 @@ func (b *Bucket) ColumnarScan(colIdx int, allow *sroar.Bitmap,
 		})
 	}
 
-	scanMemtable(b.active)
+	scanMemtable(view.Active)
 	if !cont {
 		return nil
 	}
-	if b.flushing != nil {
-		scanMemtable(b.flushing)
+	if view.Flushing != nil {
+		scanMemtable(view.Flushing)
 		if !cont {
 			return nil
 		}
 	}
 
-	return b.disk.columnarScan(colIdx, allow, seen, &cont, visit)
+	return columnarScanSegments(view.Disk, colIdx, allow, seen, &cont, visit)
 }
 
-func (sg *SegmentGroup) columnarScan(colIdx int, allow, seen *sroar.Bitmap,
+// columnarScanSegments iterates a consistent-view segment list newest→oldest.
+func columnarScanSegments(segments []Segment, colIdx int, allow, seen *sroar.Bitmap,
 	cont *bool, visit func(docID uint64, bits uint64) bool,
 ) error {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	for i := len(sg.segments) - 1; i >= 0 && *cont; i-- {
-		seg, ok := sg.segments[i].(*segment)
-		if !ok {
-			return fmt.Errorf("columnar scan: unexpected segment type at position %d", i)
-		}
-		if seg.strategy != segmentindex.StrategyColumnar || seg.columnarData == nil {
-			return fmt.Errorf("columnar scan: non-columnar segment at position %d", i)
+	for i := len(segments) - 1; i >= 0 && *cont; i-- {
+		seg, err := asColumnarSegment(segments[i], i)
+		if err != nil {
+			return fmt.Errorf("columnar scan: %w", err)
 		}
 
-		err := seg.columnarData.scanBlocks(seg.contents,
+		err = seg.columnarData.scanBlocks(seg.contents,
 			func(entry *columnar.DirectoryEntry, br *columnar.BlockReader) (bool, error) {
 				if allow != nil &&
 					(allow.Maximum() < entry.StartDocID || allow.Minimum() > entry.EndDocID) {

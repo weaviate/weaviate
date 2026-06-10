@@ -124,15 +124,27 @@ func (db *DB) BoostValues(ctx context.Context, className, tenant string,
 		for propName, bucket := range sb.buckets {
 			switch dataTypes[propName] {
 			case schema.DataTypeNumber:
-				if v, ok := bucket.ColumnarLookupFloat64(*results[i].DocID, 0); ok {
+				v, ok, err := bucket.ColumnarLookupFloat64(*results[i].DocID, 0)
+				if err != nil {
+					return nil, fmt.Errorf("boost values: columnar lookup for prop %q: %w", propName, err)
+				}
+				if ok {
 					values[propName] = v
 				}
 			case schema.DataTypeDate:
-				if v, ok := bucket.ColumnarLookupInt64(*results[i].DocID, 0); ok {
+				v, ok, err := bucket.ColumnarLookupInt64(*results[i].DocID, 0)
+				if err != nil {
+					return nil, fmt.Errorf("boost values: columnar lookup for prop %q: %w", propName, err)
+				}
+				if ok {
 					values[propName] = time.Unix(0, v).UTC()
 				}
 			default: // int
-				if v, ok := bucket.ColumnarLookupInt64(*results[i].DocID, 0); ok {
+				v, ok, err := bucket.ColumnarLookupInt64(*results[i].DocID, 0)
+				if err != nil {
+					return nil, fmt.Errorf("boost values: columnar lookup for prop %q: %w", propName, err)
+				}
+				if ok {
 					values[propName] = float64(v)
 				}
 			}

@@ -18,10 +18,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -106,14 +106,14 @@ func (s *EnableColumnarStrategy) PerPropertyBucketOptions(shard *Shard, propName
 }
 
 // writeColumnarValue decodes the analyzer's lexicographically sortable
-// 8-byte payload per the property's data type and writes it to the
-// columnar bucket. Mirrors the live write path in
-// [Shard.addToColumnarIndex] (shard_write_inverted_lsm.go): number →
-// float64, int/date → int64. Columnar holds at most one value per
-// (docID, column), so only Items[0] is consulted — same as the live path.
-func writeColumnarValue(bucket *lsmkv.Bucket, docID uint64, dataType string,
-	prop *inverted.Property,
-) error {
+// 8-byte payload per the bucket's column type and writes it to the
+// columnar bucket. The column type comes from the bucket's own schema
+// (set at creation from the property's data type, see
+// [Shard.columnarSchemaForProp]): number → float64, int/date → int64.
+// Columnar holds at most one value per (docID, column), so only Items[0]
+// is consulted. Shared by the live write path ([Shard.addToColumnarIndex])
+// and the migration's backfill/double-write paths.
+func writeColumnarValue(bucket *lsmkv.Bucket, docID uint64, prop *inverted.Property) error {
 	if len(prop.Items) == 0 {
 		return nil
 	}
@@ -122,14 +122,18 @@ func writeColumnarValue(bucket *lsmkv.Bucket, docID uint64, dataType string,
 		return fmt.Errorf("columnar prop '%s' docID %d: invalid value length %d, should be 8 bytes",
 			prop.Name, docID, len(item.Data))
 	}
-	switch dataType {
-	case string(entschema.DataTypeNumber):
+	colSchema := bucket.ColumnarSchema()
+	if colSchema == nil || len(colSchema.Columns) == 0 {
+		return fmt.Errorf("columnar prop '%s': bucket has no columnar schema", prop.Name)
+	}
+	switch colSchema.Columns[0].Type {
+	case columnar.ColumnTypeFloat64: // number
 		v, err := entinverted.ParseLexicographicallySortableFloat64(item.Data)
 		if err != nil {
 			return fmt.Errorf("columnar: decode float64 for prop '%s': %w", prop.Name, err)
 		}
 		return bucket.ColumnarPutFloat64(docID, 0, v)
-	default: // int, date — both stored as int64
+	default: // ColumnTypeInt64: int, date — both stored as int64
 		v, err := entinverted.ParseLexicographicallySortableInt64(item.Data)
 		if err != nil {
 			return fmt.Errorf("columnar: decode int64 for prop '%s': %w", prop.Name, err)
@@ -141,11 +145,7 @@ func writeColumnarValue(bucket *lsmkv.Bucket, docID uint64, dataType string,
 func (s *EnableColumnarStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
 ) error {
-	concrete, err := unwrapShard(context.Background(), shard)
-	if err != nil {
-		return fmt.Errorf("columnar prop '%s': unwrap shard: %w", prop.Name, err)
-	}
-	return writeColumnarValue(bucket, docID, concrete.columnarPropDataType(prop.Name), &prop)
+	return writeColumnarValue(bucket, docID, &prop)
 }
 
 // ShouldProcessProperty always returns true. Scope is driven by the
@@ -171,8 +171,7 @@ func (s *EnableColumnarStrategy) MakeAddCallback(bucketNamer func(string) string
 		if bucket == nil {
 			return fmt.Errorf("columnar double-write: bucket '%s' not found", bucketName)
 		}
-		if err := writeColumnarValue(bucket, docID,
-			shard.columnarPropDataType(property.Name), property); err != nil {
+		if err := writeColumnarValue(bucket, docID, property); err != nil {
 			return fmt.Errorf("adding columnar prop '%s' to bucket '%s': %w",
 				property.Name, bucketName, err)
 		}

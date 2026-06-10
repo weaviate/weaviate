@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -55,11 +56,13 @@ func TestColumnarBucket_PutLookup(t *testing.T) {
 		require.Nil(t, b.ColumnarPutInt64(7, 0, -42))
 		require.Nil(t, b.ColumnarPutInt64(9, 0, 100))
 
-		v, ok := b.ColumnarLookupInt64(7, 0)
+		v, ok, lerr := b.ColumnarLookupInt64(7, 0)
+		require.NoError(t, lerr)
 		require.True(t, ok)
 		assert.Equal(t, int64(-42), v)
 
-		_, ok = b.ColumnarLookupInt64(8, 0)
+		_, ok, lerr = b.ColumnarLookupInt64(8, 0)
+		require.NoError(t, lerr)
 		assert.False(t, ok)
 	})
 
@@ -71,7 +74,8 @@ func TestColumnarBucket_PutLookup(t *testing.T) {
 		require.Nil(t, b.ColumnarPutFloat64(1, 0, exact))
 		require.Nil(t, b.FlushAndSwitch())
 
-		v, ok := b.ColumnarLookupFloat64(1, 0)
+		v, ok, lerr := b.ColumnarLookupFloat64(1, 0)
+		require.NoError(t, lerr)
 		require.True(t, ok)
 		assert.Equal(t, exact, v, "float64 must be stored losslessly")
 		assert.NotEqual(t, float64(float32(exact)), v,
@@ -85,7 +89,8 @@ func TestColumnarBucket_PutLookup(t *testing.T) {
 		require.Nil(t, b.FlushAndSwitch())
 		require.Nil(t, b.ColumnarPutInt64(1, 0, 2))
 
-		v, ok := b.ColumnarLookupInt64(1, 0)
+		v, ok, lerr := b.ColumnarLookupInt64(1, 0)
+		require.NoError(t, lerr)
 		require.True(t, ok)
 		assert.Equal(t, int64(2), v)
 	})
@@ -97,12 +102,14 @@ func TestColumnarBucket_PutLookup(t *testing.T) {
 		require.Nil(t, b.FlushAndSwitch())
 		require.Nil(t, b.ColumnarDelete(1))
 
-		_, ok := b.ColumnarLookupInt64(1, 0)
+		_, ok, lerr := b.ColumnarLookupInt64(1, 0)
+		require.NoError(t, lerr)
 		assert.False(t, ok)
 
 		// and across another flush (tombstone in segment)
 		require.Nil(t, b.FlushAndSwitch())
-		_, ok = b.ColumnarLookupInt64(1, 0)
+		_, ok, lerr = b.ColumnarLookupInt64(1, 0)
+		require.NoError(t, lerr)
 		assert.False(t, ok)
 	})
 }
@@ -123,11 +130,13 @@ func TestColumnarBucket_MultiBlockSegments(t *testing.T) {
 		0, 1, columnar.BlockSize - 1, columnar.BlockSize,
 		columnar.BlockSize * 2, columnar.BlockSize*3 + 16,
 	} {
-		v, ok := b.ColumnarLookupInt64(docID, 0)
+		v, ok, lerr := b.ColumnarLookupInt64(docID, 0)
+		require.NoError(t, lerr)
 		require.True(t, ok, "docID %d", docID)
 		assert.Equal(t, int64(docID*10), v, "docID %d", docID)
 	}
-	_, ok := b.ColumnarLookupInt64(n, 0)
+	_, ok, lerr := b.ColumnarLookupInt64(n, 0)
+	require.NoError(t, lerr)
 	assert.False(t, ok)
 
 	// full scan sees every row exactly once
@@ -224,18 +233,22 @@ func TestColumnarBucket_Compaction(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, compacted)
 
-		v, ok := b.ColumnarLookupInt64(1, 0)
+		v, ok, lerr := b.ColumnarLookupInt64(1, 0)
+		require.NoError(t, lerr)
 		require.True(t, ok)
 		assert.Equal(t, int64(-1), v)
 
-		_, ok = b.ColumnarLookupInt64(2, 0)
+		_, ok, lerr = b.ColumnarLookupInt64(2, 0)
+		require.NoError(t, lerr)
 		assert.False(t, ok)
 
-		v, ok = b.ColumnarLookupInt64(n+5, 0)
+		v, ok, lerr = b.ColumnarLookupInt64(n+5, 0)
+		require.NoError(t, lerr)
 		require.True(t, ok)
 		assert.Equal(t, int64(555), v)
 
-		v, ok = b.ColumnarLookupInt64(n-1, 0)
+		v, ok, lerr = b.ColumnarLookupInt64(n-1, 0)
+		require.NoError(t, lerr)
 		require.True(t, ok)
 		assert.Equal(t, int64(n-1), v)
 	})
@@ -259,7 +272,8 @@ func TestColumnarBucket_Compaction(t *testing.T) {
 		}
 
 		for i := uint64(0); i < 1000; i++ {
-			v, ok := b.ColumnarLookupInt64(i, 0)
+			v, ok, lerr := b.ColumnarLookupInt64(i, 0)
+			require.NoError(t, lerr)
 			require.True(t, ok, "docID %d", i)
 			require.Equal(t, int64(3), v, "docID %d must hold newest value", i)
 		}
@@ -297,11 +311,13 @@ func TestColumnarBucket_WALRecovery(t *testing.T) {
 		require.Nil(t, b2.Shutdown(context.Background()))
 	})
 
-	v, ok := b2.ColumnarLookupFloat64(1, 0)
+	v, ok, lerr := b2.ColumnarLookupFloat64(1, 0)
+	require.NoError(t, lerr)
 	require.True(t, ok)
 	assert.Equal(t, exact, v)
 
-	_, ok = b2.ColumnarLookupFloat64(2, 0)
+	_, ok, lerr = b2.ColumnarLookupFloat64(2, 0)
+	require.NoError(t, lerr)
 	assert.False(t, ok, "tombstone must survive WAL recovery")
 }
 
@@ -466,4 +482,167 @@ func TestColumnarBucket_ConcurrentScanAndWrite(t *testing.T) {
 
 	close(done)
 	<-writerStopped
+}
+
+// TestColumnarBucket_CompactionThenScan runs multiple flush+compact cycles
+// with a mix of inserts, updates, and deletes, and asserts after every cycle
+// that both the scan and the point-lookup paths match an in-memory model.
+// Covers both tombstone modes: keepTombstones=false lets the bottom-level
+// compaction clean tombstones (deleted rows must NOT resurrect), while
+// keepTombstones=true preserves them across compactions.
+func TestColumnarBucket_CompactionThenScan(t *testing.T) {
+	ctx := context.Background()
+
+	for _, keepTombstones := range []bool{true, false} {
+		t.Run(fmt.Sprintf("keepTombstones=%v", keepTombstones), func(t *testing.T) {
+			var opts []BucketOption
+			if keepTombstones {
+				opts = append(opts, WithKeepTombstones(true))
+			}
+			b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64, opts...)
+
+			model := map[uint64]int64{}
+			deleted := map[uint64]struct{}{}
+
+			const cycles = 4
+			const writesPerCycle = 1500
+			const docIDSpace = 4000 // > BlockSize so segments span multiple blocks
+
+			for cycle := 0; cycle < cycles; cycle++ {
+				for i := 0; i < writesPerCycle; i++ {
+					docID := uint64((cycle*977 + i*13) % docIDSpace)
+					if (cycle+i)%5 == 4 {
+						require.NoError(t, b.ColumnarDelete(docID))
+						delete(model, docID)
+						deleted[docID] = struct{}{}
+					} else {
+						v := int64(cycle*1_000_000 + i)
+						require.NoError(t, b.ColumnarPutInt64(docID, 0, v))
+						model[docID] = v
+						delete(deleted, docID)
+					}
+				}
+				require.NoError(t, b.FlushAndSwitch())
+
+				for {
+					compacted, err := b.disk.compactOnce(ctx)
+					require.NoError(t, err)
+					if !compacted {
+						break
+					}
+				}
+
+				got := map[uint64]int64{}
+				require.NoError(t, b.ColumnarScan(0, nil, func(docID uint64, bits uint64) bool {
+					_, dup := got[docID]
+					require.Falsef(t, dup, "cycle %d: docID %d visited twice", cycle, docID)
+					got[docID] = int64(bits)
+					return true
+				}))
+				require.Equalf(t, model, got, "cycle %d: scan diverges from model", cycle)
+			}
+
+			// Point lookups agree with the model after the final compaction.
+			for docID, want := range model {
+				v, ok, err := b.ColumnarLookupInt64(docID, 0)
+				require.NoError(t, err)
+				require.Truef(t, ok, "docID %d must be found", docID)
+				require.Equalf(t, want, v, "docID %d", docID)
+			}
+			// Deleted rows stay deleted — in the cleanup mode the tombstones
+			// themselves are gone from the bottom segment, but the docIDs
+			// must not resurrect.
+			for docID := range deleted {
+				_, ok, err := b.ColumnarLookupInt64(docID, 0)
+				require.NoError(t, err)
+				require.Falsef(t, ok, "deleted docID %d must stay deleted after compaction", docID)
+			}
+		})
+	}
+}
+
+// TestColumnarMemtable_SizeAccounting pins the memtable size accounting for
+// fresh puts: Size() must land within 10% of N*(columnarRowOverhead+RowWidth)
+// so the size-based flush threshold trips at realistic memory use.
+func TestColumnarMemtable_SizeAccounting(t *testing.T) {
+	ctx := context.Background()
+	b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64)
+
+	const n = 1000
+	for i := uint64(0); i < n; i++ {
+		require.NoError(t, b.ColumnarPutInt64(i, 0, int64(i)))
+	}
+
+	rowWidth := b.ColumnarSchema().RowWidth()
+	expected := float64(n * (columnarRowOverhead + uint64(rowWidth)))
+	got := float64(b.active.Size())
+	assert.InDelta(t, expected, got, 0.1*expected,
+		"memtable Size() after %d fresh puts must be within 10%% of N*(%d+%d), got %.0f",
+		n, columnarRowOverhead, rowWidth, got)
+}
+
+// TestColumnarBucket_RejectsLazySegmentLoading pins the construction-time
+// guard: the columnar read paths type-assert every segment-group element to
+// a fully loaded *segment, so the lazy-loading option must be rejected at
+// NewBucket instead of surfacing later as a read error.
+func TestColumnarBucket_RejectsLazySegmentLoading(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	_, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyColumnar),
+		WithColumnarSchema(&columnar.Schema{
+			Columns: []columnar.Column{{Name: "val", Type: columnar.ColumnTypeInt64}},
+		}),
+		WithLazySegmentLoading(true))
+	require.ErrorContains(t, err, "lazy segment loading")
+}
+
+// TestColumnarBucket_CountAsyncPanics pins the strategy guard on CountAsync:
+// it sums per-segment countNetAdditions, which only replace segments compute,
+// so calling it on a columnar bucket must panic (cursor-constructor contract)
+// rather than silently report 0.
+func TestColumnarBucket_CountAsyncPanics(t *testing.T) {
+	ctx := context.Background()
+	b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64)
+	require.Panics(t, func() { _ = b.CountAsync() })
+}
+
+// TestColumnarBucket_CleanupIntervalInit pins that a columnar bucket with
+// segmentsCleanupInterval > 0 initializes (newSegmentCleaner must return the
+// noop cleaner for StrategyColumnar instead of "unrecognized strategy").
+func TestColumnarBucket_CleanupIntervalInit(t *testing.T) {
+	ctx := context.Background()
+	b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64,
+		WithSegmentsCleanupInterval(time.Hour))
+
+	require.NoError(t, b.ColumnarPutInt64(1, 0, 42))
+	v, ok, err := b.ColumnarLookupInt64(1, 0)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, int64(42), v)
+}
+
+// TestColumnarBucket_PrependRequiresKeepTombstones pins the prepend guard:
+// a columnar group that does not keep tombstones may already have cleaned
+// deletes in a bottom-level compaction, so prepending older segments below
+// it would resurrect deleted docIDs and must be rejected. With tombstones
+// kept (the enable-columnar migration's ingest-bucket configuration), the
+// prepend is allowed.
+func TestColumnarBucket_PrependRequiresKeepTombstones(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("rejected without keepTombstones", func(t *testing.T) {
+		b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64)
+		err := b.PrependSegmentsFromBucket(ctx, t.TempDir())
+		require.ErrorContains(t, err, "resurrect")
+	})
+
+	t.Run("allowed with keepTombstones", func(t *testing.T) {
+		b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64,
+			WithKeepTombstones(true))
+		// empty source dir → no-op, but the strategy gate must pass
+		require.NoError(t, b.PrependSegmentsFromBucket(ctx, t.TempDir()))
+	})
 }

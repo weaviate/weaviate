@@ -603,3 +603,138 @@ func TestEncodingRegistry(t *testing.T) {
 		assert.ErrorContains(t, err, "too short")
 	})
 }
+
+// TestBlockWriter_Stats_NaN pins the NaN handling in the per-block min/max
+// accumulation: NaN float64 values are stored as row data but excluded from
+// the stats. Without the exclusion, a NaN that seeds Min/Max freezes them —
+// less(v, NaN) and less(NaN, v) are both always false — poisoning the block
+// stats for value-range pruning.
+func TestBlockWriter_Stats_NaN(t *testing.T) {
+	singleFloat64 := &Schema{Columns: []Column{
+		{Name: "val", Type: ColumnTypeFloat64, Encoding: EncodingRawFixedWidth},
+	}}
+
+	f64 := func(v float64) []byte {
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, math.Float64bits(v))
+		return buf
+	}
+	nan := math.NaN()
+
+	tests := []struct {
+		name string
+		rows []struct {
+			docID uint64
+			live  bool
+			val   float64
+		}
+		wantMin float64
+		wantMax float64
+		// allNaNOrEmpty: stats must remain zeroed
+		allNaNOrEmpty bool
+	}{
+		{
+			name: "NaN-first live value does not freeze stats",
+			rows: []struct {
+				docID uint64
+				live  bool
+				val   float64
+			}{
+				{1, true, nan},
+				{2, true, 2.5},
+				{3, true, -1.5},
+			},
+			wantMin: -1.5,
+			wantMax: 2.5,
+		},
+		{
+			name: "NaN in the middle is skipped",
+			rows: []struct {
+				docID uint64
+				live  bool
+				val   float64
+			}{
+				{1, true, 3.5},
+				{2, true, nan},
+				{3, true, 7.25},
+			},
+			wantMin: 3.5,
+			wantMax: 7.25,
+		},
+		{
+			name: "all-NaN live rows keep zeroed stats",
+			rows: []struct {
+				docID uint64
+				live  bool
+				val   float64
+			}{
+				{1, true, nan},
+				{2, true, nan},
+			},
+			allNaNOrEmpty: true,
+		},
+		{
+			name: "tombstoned non-NaN among live NaN keeps zeroed stats",
+			rows: []struct {
+				docID uint64
+				live  bool
+				val   float64
+			}{
+				{1, false, 99.0}, // dead, excluded
+				{2, true, nan},   // live but NaN, excluded
+			},
+			allNaNOrEmpty: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var entries []DirectoryEntry
+			bw := NewBlockWriter(singleFloat64, 0, func(_ []byte, e DirectoryEntry) error {
+				entries = append(entries, e)
+				return nil
+			})
+			for _, r := range tc.rows {
+				require.NoError(t, bw.Append(r.docID, r.live, f64(r.val)))
+			}
+			require.NoError(t, bw.Flush())
+			require.Len(t, entries, 1)
+			stats := entries[0].Stats[0]
+
+			if tc.allNaNOrEmpty {
+				assert.Equal(t, ColStats{Min: 0, Max: 0}, stats,
+					"stats must remain zeroed when no usable live value exists")
+				return
+			}
+			assert.Equal(t, tc.wantMin, math.Float64frombits(stats.Min), "min")
+			assert.Equal(t, tc.wantMax, math.Float64frombits(stats.Max), "max")
+			assert.False(t, math.IsNaN(math.Float64frombits(stats.Min)), "min must not be NaN")
+			assert.False(t, math.IsNaN(math.Float64frombits(stats.Max)), "max must not be NaN")
+		})
+	}
+
+	t.Run("NaN rows are still stored as data", func(t *testing.T) {
+		var entries []DirectoryEntry
+		var blocks [][]byte
+		bw := NewBlockWriter(singleFloat64, 0, func(block []byte, e DirectoryEntry) error {
+			cp := make([]byte, len(block))
+			copy(cp, block)
+			blocks = append(blocks, cp)
+			entries = append(entries, e)
+			return nil
+		})
+		require.NoError(t, bw.Append(1, true, f64(nan)))
+		require.NoError(t, bw.Append(2, true, f64(1.0)))
+		require.NoError(t, bw.Flush())
+		require.Len(t, entries, 1)
+		assert.Equal(t, uint32(2), entries[0].LiveCount,
+			"NaN rows count as live rows — only the stats exclude them")
+
+		br, err := NewBlockReader(singleFloat64, &entries[0], blocks[0])
+		require.NoError(t, err)
+		require.Equal(t, 2, br.Rows())
+		assert.True(t, math.IsNaN(math.Float64frombits(br.ValueBitsAt(0, 0))),
+			"the NaN payload itself must survive the round trip")
+		assert.Equal(t, 1.0, math.Float64frombits(br.ValueBitsAt(0, 1)))
+	})
+}

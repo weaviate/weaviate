@@ -301,6 +301,13 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
+	if b.strategy == StrategyColumnar && b.lazySegmentLoading {
+		// The columnar read paths type-assert every segment-group element to
+		// a fully loaded *segment; a lazy placeholder would surface as a read
+		// error. Reject the combination at construction instead.
+		return nil, errors.New("lazy segment loading is not supported for the columnar strategy")
+	}
+
 	if !b.immutable && IsSnapshotDir(dir) {
 		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
@@ -1540,7 +1547,14 @@ func (b *Bucket) countFromCV(ctx context.Context, view BucketConsistentView) (in
 // reflects what has been already flushed. This in turn makes it very cheap to
 // call, so it can be used for observability purposes where eventual
 // consistency on the count is fine, but a large cost is not.
+//
+// CountAsync is specific to ReplaceStrategy: it sums the per-segment
+// countNetAdditions, which only replace segments compute. Calling it on any
+// other strategy panics (same contract as the cursor constructors) instead
+// of silently returning 0.
 func (b *Bucket) CountAsync() int {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
 	return b.disk.count()
 }
 

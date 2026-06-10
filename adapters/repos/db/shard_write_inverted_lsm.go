@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -218,46 +217,12 @@ func (s *Shard) addToColumnarIndex(docID uint64, property inverted.Property) err
 		return errors.Errorf("no bucket columnar for prop '%s' found", property.Name)
 	}
 
-	if len(property.Items) == 0 {
-		return nil
-	}
-
-	item := property.Items[0]
-	if len(item.Data) != 8 {
-		return fmt.Errorf("columnar: unexpected data length %d for prop '%s'", len(item.Data), property.Name)
-	}
-
-	// Determine the property data type from the class schema so we can
-	// decode the lexicographically sortable bytes correctly.
-	dt := s.columnarPropDataType(property.Name)
-	switch dt {
-	case "number":
-		v, err := ent.ParseLexicographicallySortableFloat64(item.Data)
-		if err != nil {
-			return fmt.Errorf("columnar: decode float64 for prop '%s': %w", property.Name, err)
-		}
-		// stored lossless as float64 — silently narrowing user data to
-		// float32 would break the columnar store's fidelity contract
-		return bucket.ColumnarPutFloat64(docID, 0, v)
-	default: // int, date — both stored as int64
-		v, err := ent.ParseLexicographicallySortableInt64(item.Data)
-		if err != nil {
-			return fmt.Errorf("columnar: decode int64 for prop '%s': %w", property.Name, err)
-		}
-		return bucket.ColumnarPutInt64(docID, 0, v)
-	}
-}
-
-func (s *Shard) columnarPropDataType(propName string) string {
-	if s.class == nil {
-		return ""
-	}
-	for _, p := range s.class.Properties {
-		if p.Name == propName && len(p.DataType) > 0 {
-			return p.DataType[0]
-		}
-	}
-	return ""
+	// The value type is read from the bucket's own columnar schema (set at
+	// bucket creation from the property's data type), avoiding an O(props)
+	// scan of class.Properties on every write. Values are stored lossless
+	// as float64/int64 — silently narrowing user data would break the
+	// columnar store's fidelity contract.
+	return writeColumnarValue(bucket, docID, &property)
 }
 
 func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
