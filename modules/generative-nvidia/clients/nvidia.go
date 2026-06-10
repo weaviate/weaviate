@@ -65,6 +65,9 @@ func (v *nvidia) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Nvidia-Baseurl"); err != nil {
+		return nil, err
+	}
 	nvidiaUrl := v.getNvidiaUrl(ctx, params.BaseURL)
 	input := v.getRequest(prompt, params)
 

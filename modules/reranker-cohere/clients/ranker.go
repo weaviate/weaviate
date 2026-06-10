@@ -94,6 +94,9 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 ) ([]ent.DocumentScore, error) {
 	settings := config.NewClassSettings(cfg)
 
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Cohere-Baseurl"); err != nil {
+		return nil, err
+	}
 	cohereUrl := c.getCohereUrl(ctx, settings.BaseURL())
 	input := RankInput{
 		Documents:       documents,

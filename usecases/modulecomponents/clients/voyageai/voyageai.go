@@ -280,6 +280,9 @@ func (c *Client) vectorize(ctx context.Context, baseURL, model string, request i
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Voyageai-Baseurl"); err != nil {
+		return nil, err
+	}
 	url := c.getVoyageAIUrl(ctx, baseURL, model)
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
