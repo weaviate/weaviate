@@ -189,7 +189,11 @@ func (c *compactorColumnar) merge(ctx context.Context,
 		return fmt.Errorf("right cursor: %w", err)
 	}
 
-	rowBuf := make([]byte, 0, ld.schema.RowWidth())
+	rowBufCap := ld.schema.RowWidth()
+	if rowBufCap < 0 {
+		rowBufCap = 4096 // variable-width rows; grown on demand
+	}
+	rowBuf := make([]byte, 0, rowBufCap)
 	rowsProcessed := 0
 
 	emit := func(cur *columnarRowCursor) error {

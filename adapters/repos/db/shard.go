@@ -446,6 +446,16 @@ type Shard struct {
 	columnarLocalReadyMu sync.RWMutex
 	columnarLocalReady   map[string]bool
 
+	// vectorColumns holds the per-target-vector state of the columnar
+	// rescore buckets (hnsw columnarRescore): lazy bucket creation, the
+	// "may writes feed the column?" flag and the "may reads serve from the
+	// column?" readiness signal. See shard_vector_column.go. Entries are
+	// created lazily under vectorColumnsMu; the per-entry fields are
+	// atomics so the read/write hot paths never take the map mutex more
+	// than once per (shard, targetVector).
+	vectorColumnsMu sync.RWMutex
+	vectorColumns   map[string]*vectorColumnState
+
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
 	// that closes the FINALIZING-window misalignment of a
@@ -598,6 +608,10 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return fmt.Errorf("vector index does not exist")
 	}
 
+	// columnarRescore is mutable: enabling starts the column backfill,
+	// disabling stops feeding/serving the column
+	s.applyVectorColumnConfig("", updated)
+
 	return index.UpdateUserConfig(updated, func() {
 		s.UpdateStatus(storagestate.StatusReady.String(), reason)
 	})
@@ -630,6 +644,9 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	var err error
 	for targetVector, targetCfg := range updated {
 		if index, ok := s.GetVectorIndex(targetVector); ok {
+			// columnarRescore is mutable: enabling starts the column
+			// backfill, disabling stops feeding/serving the column
+			s.applyVectorColumnConfig(targetVector, targetCfg)
 			wg.Add(1)
 			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
 				break

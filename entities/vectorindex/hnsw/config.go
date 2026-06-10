@@ -65,6 +65,15 @@ type UserConfig struct {
 	Multivector              MultivectorConfig `json:"multivector"`
 	SkipDefaultQuantization  bool              `json:"skipDefaultQuantization"`
 	TrackDefaultQuantization bool              `json:"trackDefaultQuantization"`
+	// ColumnarRescore serves uncompressed vectors for rescoring (and MUVERA
+	// exact reranking) from a dedicated per-target columnar LSM bucket
+	// instead of unmarshalling the full object blob from the objects bucket.
+	// Intentionally mutable: enabling triggers an idempotent background
+	// backfill of the column from the objects bucket; disabling stops
+	// feeding/serving the column and reads fall back to the objects bucket.
+	// Only meaningful for hnsw — the flat index already reads vectors from a
+	// dedicated bucket, and the dynamic index delegates to flat/hnsw.
+	ColumnarRescore bool `json:"columnarRescore"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -250,6 +259,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 
 	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "trackDefaultQuantization", func(v bool) {
 		uc.TrackDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "columnarRescore", func(v bool) {
+		uc.ColumnarRescore = v
 	}); err != nil {
 		return uc, err
 	}

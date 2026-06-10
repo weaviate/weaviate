@@ -50,6 +50,10 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return err
 	}
 
+	// kicks off the idempotent vector-column backfill for every target
+	// vector whose hnsw config enables columnarRescore
+	s.initVectorColumns()
+
 	return nil
 }
 
@@ -104,6 +108,27 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			// here we label the main vector index as such.
 			vecIdxID := s.vectorIndexID(targetVector)
 
+			// the rescore-path vector readers default to the objects bucket;
+			// with columnarRescore enabled they serve from the per-target
+			// vector-column bucket instead, with a per-call fallback to the
+			// objects bucket while the column's backfill is still running
+			// (see shard_vector_column.go). The per-pass view follows the
+			// same split: the composite rescore view pins the column bucket's
+			// segments alongside the objects bucket, enabling the zero-copy
+			// (mmap-aliasing) candidate reads — see shard_vector_column_view.go.
+			multiVectorForID := s.multiVectorByIndexID
+			tempMultiVectorForID := s.readMultiVectorByIndexIDIntoSlice
+			tempVectorForIDWithView := s.readVectorByIndexIDIntoSliceWithView
+			tempMultiVectorForIDWithView := s.readMultiVectorByIndexIDIntoSliceWithView
+			getViewThunk := func() vcommon.BucketView { return s.GetObjectsBucketView() }
+			if hnswUserConfig.ColumnarRescore {
+				multiVectorForID = s.columnMultiVectorByIndexID
+				tempMultiVectorForID = s.readMultiVectorColumnIntoSlice
+				tempVectorForIDWithView = s.readVectorColumnIntoSliceWithView
+				tempMultiVectorForIDWithView = s.readMultiVectorColumnIntoSliceWithView
+				getViewThunk = func() vcommon.BucketView { return s.getVectorColumnRescoreView(targetVector) }
+			}
+
 			vi, err := hnsw.New(hnsw.Config{
 				Logger:                            s.index.logger,
 				RootPath:                          s.path(),
@@ -112,11 +137,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				ClassName:                         s.index.Config.ClassName.String(),
 				PrometheusMetrics:                 s.promMetrics,
 				VectorForIDThunk:                  hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
-				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
-				GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
-				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
-				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
+				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, multiVectorForID),
+				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, tempMultiVectorForID),
+				GetViewThunk:                      getViewThunk,
+				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, tempVectorForIDWithView),
+				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, tempMultiVectorForIDWithView),
 				DistanceProvider:                  distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
@@ -432,6 +457,10 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	compressedBucket := helpers.GetCompressedBucketName(targetVector)
 	if err := s.removeBucket(ctx, compressedBucket); err != nil {
 		return fmt.Errorf("drop compressed vectors bucket for %q: %w", targetVector, err)
+	}
+
+	if err := s.dropVectorColumn(ctx, targetVector); err != nil {
+		return err
 	}
 
 	// Remove the index checkpoint entry for this vector.

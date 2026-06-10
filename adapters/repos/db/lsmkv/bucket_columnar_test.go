@@ -27,16 +27,14 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-func mustNewColumnarBucket(t *testing.T, ctx context.Context, dir string,
-	colType columnar.ColumnType, opts ...BucketOption,
+func mustNewColumnarBucketWithSchema(t *testing.T, ctx context.Context, dir string,
+	schema *columnar.Schema, opts ...BucketOption,
 ) *Bucket {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	allOpts := append([]BucketOption{
 		WithStrategy(StrategyColumnar),
-		WithColumnarSchema(&columnar.Schema{
-			Columns: []columnar.Column{{Name: "val", Type: colType}},
-		}),
+		WithColumnarSchema(schema),
 	}, opts...)
 	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), allOpts...)
@@ -45,6 +43,70 @@ func mustNewColumnarBucket(t *testing.T, ctx context.Context, dir string,
 		require.Nil(t, b.Shutdown(context.Background()))
 	})
 	return b
+}
+
+func mustNewColumnarBucket(t *testing.T, ctx context.Context, dir string,
+	colType columnar.ColumnType, opts ...BucketOption,
+) *Bucket {
+	t.Helper()
+	return mustNewColumnarBucketWithSchema(t, ctx, dir, &columnar.Schema{
+		Columns: []columnar.Column{{Name: "val", Type: colType}},
+	}, opts...)
+}
+
+func vectorTestSchema(dims uint32) *columnar.Schema {
+	return &columnar.Schema{Columns: []columnar.Column{{
+		Name: "vec", Type: columnar.ColumnTypeVector,
+		Encoding: columnar.EncodingRawFixedWidth, Dims: dims,
+	}}}
+}
+
+func multiVectorTestSchema(dims uint32) *columnar.Schema {
+	return &columnar.Schema{Columns: []columnar.Column{{
+		Name: "mv", Type: columnar.ColumnTypeMultiVector,
+		Encoding: columnar.EncodingOffsetValues, Dims: dims,
+	}}}
+}
+
+// mustGetVectorPayload wraps ColumnarGetVectorPayload, failing the test on
+// the (invariant-violation) error path so call sites keep the two-value
+// shape.
+func mustGetVectorPayload(t *testing.T, b *Bucket, docID uint64, dst []byte) ([]byte, bool) {
+	t.Helper()
+	out, ok, err := b.ColumnarGetVectorPayload(docID, dst)
+	require.NoError(t, err)
+	return out, ok
+}
+
+// testVector returns a deterministic vector so update-wins tests can tell
+// generations apart.
+func testVector(dims int, seed uint64) []float32 {
+	v := make([]float32, dims)
+	for i := range v {
+		v[i] = float32(seed) + float32(i)*0.25
+	}
+	return v
+}
+
+// testMultiVector returns tokens vectors of dims each; tokens may be 0.
+func testMultiVector(dims, tokens int, seed uint64) [][]float32 {
+	vecs := make([][]float32, tokens)
+	for tok := range vecs {
+		vecs[tok] = make([]float32, dims)
+		for i := range vecs[tok] {
+			vecs[tok][i] = float32(seed) + float32(tok) + float32(i)*0.5
+		}
+	}
+	return vecs
+}
+
+// flattenVectors concatenates a token matrix the way the bucket stores it.
+func flattenVectors(vecs [][]float32) []float32 {
+	var out []float32
+	for _, v := range vecs {
+		out = append(out, v...)
+	}
+	return out
 }
 
 func TestColumnarBucket_PutLookup(t *testing.T) {
@@ -321,6 +383,341 @@ func TestColumnarBucket_WALRecovery(t *testing.T) {
 	assert.False(t, ok, "tombstone must survive WAL recovery")
 }
 
+func TestColumnarBucket_VectorPutGet(t *testing.T) {
+	ctx := context.Background()
+	const dims = 16
+
+	getVec := func(t *testing.T, b *Bucket, docID uint64) ([]float32, bool) {
+		t.Helper()
+		payload, ok := mustGetVectorPayload(t, b, docID, nil)
+		if !ok {
+			return nil, false
+		}
+		return BytesToFloat32s(payload, nil), true
+	}
+
+	t.Run("memtable roundtrip", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), vectorTestSchema(dims))
+
+		want := testVector(dims, 7)
+		require.Nil(t, b.ColumnarPutVector(7, want))
+
+		got, ok := getVec(t, b, 7)
+		require.True(t, ok)
+		assert.Equal(t, want, got)
+
+		_, ok = mustGetVectorPayload(t, b, 8, nil)
+		assert.False(t, ok, "missing docID must not be found")
+	})
+
+	t.Run("dims mismatch errors", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), vectorTestSchema(dims))
+
+		err := b.ColumnarPutVector(1, testVector(dims-1, 1))
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "dims")
+
+		err = b.ColumnarPutVector(1, testVector(dims+1, 1))
+		require.Error(t, err)
+
+		// nothing must have been written
+		_, ok := mustGetVectorPayload(t, b, 1, nil)
+		assert.False(t, ok)
+	})
+
+	t.Run("vector put on scalar bucket errors", func(t *testing.T) {
+		b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64)
+		err := b.ColumnarPutVector(1, testVector(dims, 1))
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "no vector column schema")
+	})
+
+	t.Run("multi-vector put on single-vector bucket errors", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), vectorTestSchema(dims))
+		err := b.ColumnarPutMultiVector(1, testMultiVector(dims, 2, 1))
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "not multivector")
+	})
+
+	t.Run("survives flush", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), vectorTestSchema(dims))
+
+		// enough rows to span multiple vector blocks (256 rows each)
+		n := uint64(columnar.VectorBlockSize*2 + 50)
+		for i := uint64(0); i < n; i++ {
+			require.Nil(t, b.ColumnarPutVector(i, testVector(dims, i)))
+		}
+		require.Nil(t, b.FlushAndSwitch())
+
+		for _, docID := range []uint64{
+			0, 1, columnar.VectorBlockSize - 1, columnar.VectorBlockSize,
+			columnar.VectorBlockSize * 2, n - 1,
+		} {
+			got, ok := getVec(t, b, docID)
+			require.True(t, ok, "docID %d", docID)
+			assert.Equal(t, testVector(dims, docID), got, "docID %d", docID)
+		}
+		_, ok := mustGetVectorPayload(t, b, n, nil)
+		assert.False(t, ok)
+	})
+
+	t.Run("update wins over flushed value", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), vectorTestSchema(dims))
+
+		require.Nil(t, b.ColumnarPutVector(1, testVector(dims, 100)))
+		require.Nil(t, b.FlushAndSwitch())
+		require.Nil(t, b.ColumnarPutVector(1, testVector(dims, 200)))
+
+		got, ok := getVec(t, b, 1)
+		require.True(t, ok)
+		assert.Equal(t, testVector(dims, 200), got,
+			"newer memtable payload must shadow the flushed older one")
+
+		// and across another flush (both generations in segments)
+		require.Nil(t, b.FlushAndSwitch())
+		got, ok = getVec(t, b, 1)
+		require.True(t, ok)
+		assert.Equal(t, testVector(dims, 200), got)
+	})
+
+	t.Run("tombstone hides payload", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), vectorTestSchema(dims))
+
+		require.Nil(t, b.ColumnarPutVector(1, testVector(dims, 1)))
+		require.Nil(t, b.FlushAndSwitch())
+		require.Nil(t, b.ColumnarDelete(1))
+
+		_, ok := mustGetVectorPayload(t, b, 1, nil)
+		assert.False(t, ok, "memtable tombstone must hide the flushed payload")
+
+		require.Nil(t, b.FlushAndSwitch())
+		_, ok = mustGetVectorPayload(t, b, 1, nil)
+		assert.False(t, ok, "segment tombstone must hide the older segment payload")
+	})
+
+	t.Run("compaction keeps newest payloads", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), vectorTestSchema(dims),
+			WithKeepTombstones(true))
+
+		n := uint64(columnar.VectorBlockSize + 50) // multi-block output
+		for i := uint64(0); i < n; i++ {
+			require.Nil(t, b.ColumnarPutVector(i, testVector(dims, i)))
+		}
+		require.Nil(t, b.FlushAndSwitch())
+
+		require.Nil(t, b.ColumnarPutVector(1, testVector(dims, 9001)))
+		require.Nil(t, b.ColumnarDelete(2))
+		require.Nil(t, b.ColumnarPutVector(n+5, testVector(dims, n+5)))
+		require.Nil(t, b.FlushAndSwitch())
+
+		compacted, err := b.disk.compactOnce(ctx)
+		require.Nil(t, err)
+		require.True(t, compacted)
+
+		got, ok := getVec(t, b, 1)
+		require.True(t, ok)
+		assert.Equal(t, testVector(dims, 9001), got, "updated payload must win")
+
+		_, ok = mustGetVectorPayload(t, b, 2, nil)
+		assert.False(t, ok, "deleted payload must stay hidden after compaction")
+
+		got, ok = getVec(t, b, n+5)
+		require.True(t, ok)
+		assert.Equal(t, testVector(dims, n+5), got)
+
+		got, ok = getVec(t, b, n-1)
+		require.True(t, ok)
+		assert.Equal(t, testVector(dims, n-1), got, "untouched payload must survive")
+	})
+}
+
+func TestColumnarBucket_MultiVectorPutGet(t *testing.T) {
+	ctx := context.Background()
+	const dims = 4
+
+	// variable token counts, including zero-token docs
+	tokensFor := func(docID uint64) int { return int(docID % 5) }
+
+	getTokens := func(t *testing.T, b *Bucket, docID uint64) ([]float32, bool) {
+		t.Helper()
+		payload, ok := mustGetVectorPayload(t, b, docID, nil)
+		if !ok {
+			return nil, false
+		}
+		return BytesToFloat32s(payload, nil), true
+	}
+
+	assertDoc := func(t *testing.T, b *Bucket, docID uint64) {
+		t.Helper()
+		want := flattenVectors(testMultiVector(dims, tokensFor(docID), docID))
+		got, ok := getTokens(t, b, docID)
+		require.True(t, ok, "docID %d", docID)
+		assert.Equal(t, len(want), len(got), "docID %d: token count", docID)
+		if len(want) > 0 {
+			assert.Equal(t, want, got, "docID %d", docID)
+		}
+	}
+
+	t.Run("memtable roundtrip with variable token counts", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), multiVectorTestSchema(dims))
+
+		for docID := uint64(0); docID < 10; docID++ {
+			require.Nil(t, b.ColumnarPutMultiVector(docID,
+				testMultiVector(dims, tokensFor(docID), docID)))
+		}
+		for docID := uint64(0); docID < 10; docID++ {
+			assertDoc(t, b, docID)
+		}
+		_, ok := mustGetVectorPayload(t, b, 10, nil)
+		assert.False(t, ok)
+	})
+
+	t.Run("token dims mismatch errors", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), multiVectorTestSchema(dims))
+
+		vecs := testMultiVector(dims, 3, 1)
+		vecs[1] = vecs[1][:dims-1] // corrupt one token
+		err := b.ColumnarPutMultiVector(1, vecs)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "dims")
+
+		_, ok := mustGetVectorPayload(t, b, 1, nil)
+		assert.False(t, ok, "failed put must not write")
+	})
+
+	t.Run("single-vector put on multi-vector bucket errors", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), multiVectorTestSchema(dims))
+		err := b.ColumnarPutVector(1, testVector(dims, 1))
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "not vector")
+	})
+
+	t.Run("survives flush and compaction", func(t *testing.T) {
+		b := mustNewColumnarBucketWithSchema(t, ctx, t.TempDir(), multiVectorTestSchema(dims),
+			WithKeepTombstones(true))
+
+		n := uint64(columnar.VectorBlockSize + 20) // multi-block segment
+		for docID := uint64(0); docID < n; docID++ {
+			require.Nil(t, b.ColumnarPutMultiVector(docID,
+				testMultiVector(dims, tokensFor(docID), docID)))
+		}
+		require.Nil(t, b.FlushAndSwitch())
+
+		for _, docID := range []uint64{
+			0, 1, columnar.VectorBlockSize - 1, columnar.VectorBlockSize, n - 1,
+		} {
+			assertDoc(t, b, docID)
+		}
+
+		// second segment: update (different token count), delete, add
+		updated := testMultiVector(dims, 7, 9001)
+		require.Nil(t, b.ColumnarPutMultiVector(1, updated))
+		require.Nil(t, b.ColumnarDelete(2))
+		require.Nil(t, b.ColumnarPutMultiVector(n+3,
+			testMultiVector(dims, tokensFor(n+3), n+3)))
+		require.Nil(t, b.FlushAndSwitch())
+
+		compacted, err := b.disk.compactOnce(ctx)
+		require.Nil(t, err)
+		require.True(t, compacted)
+
+		got, ok := getTokens(t, b, 1)
+		require.True(t, ok)
+		assert.Equal(t, flattenVectors(updated), got,
+			"updated token matrix (different token count) must win")
+
+		_, ok = mustGetVectorPayload(t, b, 2, nil)
+		assert.False(t, ok, "deleted doc must stay hidden after compaction")
+
+		assertDoc(t, b, n+3)
+		assertDoc(t, b, n-1)
+
+		// zero-token doc survives the whole flush+compaction cycle
+		require.Equal(t, 0, tokensFor(5), "fixture: docID 5 must be a zero-token doc")
+		payload, ok := mustGetVectorPayload(t, b, 5, nil)
+		require.True(t, ok, "zero-token doc must still be found")
+		assert.Empty(t, payload)
+	})
+}
+
+func TestColumnarBucket_VectorWALRecovery(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	const dims = 16
+
+	t.Run("single vector", func(t *testing.T) {
+		dir := t.TempDir()
+		opts := []BucketOption{
+			WithStrategy(StrategyColumnar),
+			WithColumnarSchema(vectorTestSchema(dims)),
+		}
+
+		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.Nil(t, err)
+
+		require.Nil(t, b.ColumnarPutVector(1, testVector(dims, 1)))
+		require.Nil(t, b.ColumnarPutVector(2, testVector(dims, 2)))
+		require.Nil(t, b.ColumnarDelete(2))
+		require.Nil(t, b.ColumnarPutVector(3, testVector(dims, 3)))
+		require.Nil(t, b.ColumnarPutVector(3, testVector(dims, 33))) // update, last write wins
+		// no flush — shutdown leaves the WAL behind for recovery
+		require.Nil(t, b.Shutdown(ctx))
+
+		b2, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.Nil(t, err)
+		t.Cleanup(func() {
+			require.Nil(t, b2.Shutdown(context.Background()))
+		})
+
+		payload, ok := mustGetVectorPayload(t, b2, 1, nil)
+		require.True(t, ok)
+		assert.Equal(t, testVector(dims, 1), BytesToFloat32s(payload, nil),
+			"payload must survive WAL recovery intact")
+
+		_, ok = mustGetVectorPayload(t, b2, 2, nil)
+		assert.False(t, ok, "tombstone must survive WAL recovery")
+
+		payload, ok = mustGetVectorPayload(t, b2, 3, nil)
+		require.True(t, ok)
+		assert.Equal(t, testVector(dims, 33), BytesToFloat32s(payload, nil),
+			"latest update must win after WAL recovery")
+	})
+
+	t.Run("multi vector", func(t *testing.T) {
+		dir := t.TempDir()
+		opts := []BucketOption{
+			WithStrategy(StrategyColumnar),
+			WithColumnarSchema(multiVectorTestSchema(dims)),
+		}
+
+		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.Nil(t, err)
+
+		threeTokens := testMultiVector(dims, 3, 1)
+		require.Nil(t, b.ColumnarPutMultiVector(1, threeTokens))
+		require.Nil(t, b.ColumnarPutMultiVector(2, testMultiVector(dims, 0, 2))) // zero tokens
+		require.Nil(t, b.Shutdown(ctx))
+
+		b2, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.Nil(t, err)
+		t.Cleanup(func() {
+			require.Nil(t, b2.Shutdown(context.Background()))
+		})
+
+		payload, ok := mustGetVectorPayload(t, b2, 1, nil)
+		require.True(t, ok)
+		assert.Equal(t, flattenVectors(threeTokens), BytesToFloat32s(payload, nil))
+
+		payload, ok = mustGetVectorPayload(t, b2, 2, nil)
+		require.True(t, ok, "zero-token doc must survive WAL recovery")
+		assert.Empty(t, payload)
+	})
+}
+
 func TestColumnarBlockWriterReader_Roundtrip(t *testing.T) {
 	schema := &columnar.Schema{
 		Columns: []columnar.Column{{Name: "val", Type: columnar.ColumnTypeInt64}},
@@ -391,9 +788,10 @@ func TestColumnarHeaderDirectory_Roundtrip(t *testing.T) {
 		},
 	}
 	buf := h.MarshalBinary()
-	h2, n, err := columnar.UnmarshalHeader(buf)
+	h2, n, version, err := columnar.UnmarshalHeader(buf)
 	require.Nil(t, err)
 	assert.Equal(t, len(buf), n)
+	assert.Equal(t, uint8(2), version, "MarshalBinary always writes format v2")
 	assert.Equal(t, h.Schema, h2.Schema)
 
 	entries := []columnar.DirectoryEntry{
@@ -403,18 +801,23 @@ func TestColumnarHeaderDirectory_Roundtrip(t *testing.T) {
 				{Min: 1, Max: 99},
 				{Min: math.Float64bits(-1.5), Max: math.Float64bits(2.5)},
 			},
+			Pages: []columnar.ColPage{
+				{Offset: 17 * 9, Size: 17 * 8},
+				{Offset: 17*9 + 17*8, Size: 17 * 8},
+			},
 		},
 		{
 			StartDocID: 1001, EndDocID: 2000, Offset: 456, RowCount: 3, LiveCount: 0,
 			Stats: []columnar.ColStats{{}, {}},
+			Pages: []columnar.ColPage{{Offset: 27, Size: 24}, {Offset: 51, Size: 24}},
 		},
 	}
 	dirBuf := columnar.MarshalDirectory(entries, 2)
-	entries2, err := columnar.UnmarshalDirectory(dirBuf, 2)
+	entries2, err := columnar.UnmarshalDirectory(dirBuf, &h.Schema, version)
 	require.Nil(t, err)
 	assert.Equal(t, entries, entries2)
 
-	_, err = columnar.UnmarshalDirectory(dirBuf[:len(dirBuf)-1], 2)
+	_, err = columnar.UnmarshalDirectory(dirBuf[:len(dirBuf)-1], &h.Schema, version)
 	require.Error(t, err)
 }
 
@@ -434,6 +837,8 @@ func TestColumnarBucket_StrategyMismatch(t *testing.T) {
 	require.Error(t, b.ColumnarPutInt64(1, 0, 1))
 	require.Error(t, b.ColumnarDelete(1))
 	require.Error(t, b.ColumnarScan(0, nil, func(uint64, uint64) bool { return true }))
+	require.Error(t, b.ColumnarPutVector(1, []float32{1}),
+		"vector put must fail on a bucket without a vector schema")
 }
 
 // TestColumnarBucket_NilSchemaFailsLoud pins that every columnar op on a
@@ -482,12 +887,13 @@ func TestColumnarBucket_ColIdxOutOfRange(t *testing.T) {
 	}
 }
 
-// guards against accidentally reintroducing a partial-width type
+// guards against accidentally reintroducing a partial-width scalar type
 func TestColumnarTypes_AllEightBytes(t *testing.T) {
 	for _, ct := range []columnar.ColumnType{
 		columnar.ColumnTypeInt64, columnar.ColumnTypeFloat64,
 	} {
-		assert.Equal(t, 8, ct.Width(), fmt.Sprintf("type %s", ct))
+		col := columnar.Column{Type: ct}
+		assert.Equal(t, 8, col.Width(), fmt.Sprintf("type %s", ct))
 	}
 }
 

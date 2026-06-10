@@ -42,6 +42,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 				"vectorIndexConfig": map[string]interface{}{ // from default
 					"skip":                   false,
 					"cleanupIntervalSeconds": float64(300),
+					"columnarRescore":        false,
 					"efConstruction":         float64(128),
 					"flatSearchCutoff":       float64(40000),
 					"ef":                     float64(-1),

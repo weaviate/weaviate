@@ -29,15 +29,37 @@ const (
 	// Storage is intentionally lossless: a float32 column would silently
 	// truncate user data.
 	ColumnTypeFloat64 ColumnType = 2
+	// ColumnTypeVector stores one float32 vector of Column.Dims dimensions
+	// per row (fixed width Dims×4). Stored verbatim: the column's purpose
+	// is to absorb the quantization error of compressed vector indexes
+	// during rescoring, so a lossy encoding here would defeat it. Block
+	// min/max stats are meaningless for vectors and are not computed.
+	ColumnTypeVector ColumnType = 3
+	// ColumnTypeMultiVector stores a variable number of float32 vectors
+	// (token matrix, Dims columns each) per row, encoded via
+	// EncodingOffsetValues. Same losslessness contract as ColumnTypeVector.
+	ColumnTypeMultiVector ColumnType = 4
 )
 
-func (ct ColumnType) Width() int {
+// fixedWidth returns the per-row byte width for fixed-width types, or -1
+// for variable-width types. Vector widths depend on Column.Dims; use
+// Column.Width.
+func (ct ColumnType) fixedWidth(dims int) int {
 	switch ct {
 	case ColumnTypeInt64, ColumnTypeFloat64:
 		return 8
+	case ColumnTypeVector:
+		return dims * 4
+	case ColumnTypeMultiVector:
+		return -1
 	default:
 		panic(fmt.Sprintf("unknown column type %d", ct))
 	}
+}
+
+// isVector reports whether the type holds float32 vector payloads.
+func (ct ColumnType) isVector() bool {
+	return ct == ColumnTypeVector || ct == ColumnTypeMultiVector
 }
 
 func (ct ColumnType) String() string {
@@ -46,6 +68,10 @@ func (ct ColumnType) String() string {
 		return "int64"
 	case ColumnTypeFloat64:
 		return "float64"
+	case ColumnTypeVector:
+		return "vector"
+	case ColumnTypeMultiVector:
+		return "multivector"
 	default:
 		return "unknown"
 	}
@@ -70,16 +96,22 @@ func (ct ColumnType) less(a, b uint64) bool {
 type Column struct {
 	Name string
 	Type ColumnType
-	// Encoding is the on-disk encoding of the column's data pages. Only
-	// EncodingRawFixedWidth exists today; the field is in the wire format
-	// so future same-width encodings (delta, dict, FOR) can be added
-	// behind new EncodingIDs without invalidating existing segments.
-	// Wider fixed-width columns (raw N-byte vector payloads) need more
-	// than a new EncodingID: the per-column dims/page-table format
-	// extension from the stacked-vectors work, i.e. a versioned format
-	// change.
+	// Encoding is the on-disk encoding of the column's data pages:
+	// EncodingRawFixedWidth for scalars and single vectors,
+	// EncodingOffsetValues for multi-vectors.
 	Encoding EncodingID
+	// Dims is the vector dimensionality for vector column types; 0 for
+	// scalars. Part of the wire format (header v2).
+	Dims uint32
 }
+
+// Width returns the per-row byte width, or -1 for variable-width columns.
+func (c *Column) Width() int {
+	return c.Type.fixedWidth(int(c.Dims))
+}
+
+// IsVariable reports whether rows of this column have variable byte width.
+func (c *Column) IsVariable() bool { return c.Width() < 0 }
 
 // Schema defines the columns stored in a columnar bucket. It is fixed at
 // bucket creation time and embedded in every segment.
@@ -88,27 +120,38 @@ type Schema struct {
 }
 
 // RowWidth returns the total byte width of all value columns (excluding
-// docID and the tombstone flag).
+// docID and the tombstone flag). Only valid for all-fixed-width schemas;
+// variable-width (multi-vector) schemas return -1.
 func (s *Schema) RowWidth() int {
 	w := 0
-	for _, c := range s.Columns {
-		w += c.Type.Width()
+	for i := range s.Columns {
+		cw := s.Columns[i].Width()
+		if cw < 0 {
+			return -1
+		}
+		w += cw
 	}
 	return w
 }
 
 // ColOffset returns the byte offset within a row's value buffer for column
-// colIdx.
+// colIdx. Only valid for all-fixed-width schemas.
 func (s *Schema) ColOffset(colIdx int) int {
 	off := 0
 	for i := 0; i < colIdx; i++ {
-		off += s.Columns[i].Type.Width()
+		off += s.Columns[i].Width()
 	}
 	return off
 }
 
+// IsVector reports whether this schema holds a single vector or
+// multi-vector column.
+func (s *Schema) IsVector() bool {
+	return len(s.Columns) == 1 && s.Columns[0].Type.isVector()
+}
+
 // Equal reports whether two schemas describe the same column layout:
-// same column count, and per column the same name, type, and encoding.
+// same column count, and per column the same name, type, encoding, and dims.
 // Used by the compactor to assert that two segments are mergeable —
 // merging segments with diverging schemas would silently misinterpret
 // column offsets.
@@ -128,17 +171,45 @@ func (s *Schema) validate() error {
 	if len(s.Columns) == 0 {
 		return fmt.Errorf("columnar schema requires at least one column")
 	}
-	for i, c := range s.Columns {
+	for i := range s.Columns {
+		c := &s.Columns[i]
 		if c.Name == "" {
 			return fmt.Errorf("column %d: empty name", i)
 		}
 		switch c.Type {
 		case ColumnTypeInt64, ColumnTypeFloat64:
+			if c.Dims != 0 {
+				return fmt.Errorf("column %q: dims set on scalar column", c.Name)
+			}
+			if c.Encoding == EncodingOffsetValues {
+				return fmt.Errorf("column %q: offset+values encoding requires a multi-vector column", c.Name)
+			}
+		case ColumnTypeVector:
+			if c.Dims == 0 {
+				return fmt.Errorf("column %q: vector column requires dims", c.Name)
+			}
+			// lossless always: the column absorbs index quantization error
+			if c.Encoding != EncodingRawFixedWidth {
+				return fmt.Errorf("column %q: vector columns only support raw fixed-width encoding", c.Name)
+			}
+			if len(s.Columns) != 1 {
+				return fmt.Errorf("vector column %q must be the only column in its bucket", c.Name)
+			}
+		case ColumnTypeMultiVector:
+			if c.Dims == 0 {
+				return fmt.Errorf("column %q: multi-vector column requires dims", c.Name)
+			}
+			if c.Encoding != EncodingOffsetValues {
+				return fmt.Errorf("column %q: multi-vector columns require offset+values encoding", c.Name)
+			}
+			if len(s.Columns) != 1 {
+				return fmt.Errorf("multi-vector column %q must be the only column in its bucket", c.Name)
+			}
 		default:
 			return fmt.Errorf("column %q: unknown type %d", c.Name, c.Type)
 		}
-		if _, err := EncodingByID(c.Encoding); err != nil {
-			return fmt.Errorf("column %q: %w", c.Name, err)
+		if !ValidEncoding(c.Encoding) {
+			return fmt.Errorf("column %q: unknown encoding %d", c.Name, c.Encoding)
 		}
 	}
 	return nil

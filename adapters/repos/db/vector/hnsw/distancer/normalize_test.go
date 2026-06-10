@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalize(t *testing.T) {
@@ -95,5 +96,48 @@ func TestNormalizeInPlace(t *testing.T) {
 		v := []float32{}
 		NormalizeInPlace(v)
 		assert.Equal(t, []float32{}, v)
+	})
+}
+
+func TestNormalizeOut(t *testing.T) {
+	t.Run("matches Normalize without touching src", func(t *testing.T) {
+		src := []float32{3, 4, 0, -5}
+		srcCopy := append([]float32(nil), src...)
+		want := Normalize(src)
+
+		dst := make([]float32, len(src))
+		got := NormalizeOut(dst, src)
+
+		assert.Equal(t, want, got)
+		assert.Equal(t, srcCopy, src, "src must not be mutated")
+	})
+
+	t.Run("dst exactly src behaves like NormalizeInPlace", func(t *testing.T) {
+		v := []float32{1, 2, 2}
+		want := append([]float32(nil), v...)
+		NormalizeInPlace(want)
+
+		got := NormalizeOut(v, v)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("zero vector stays zero", func(t *testing.T) {
+		src := []float32{0, 0, 0}
+		dst := []float32{9, 9, 9}
+		got := NormalizeOut(dst, src)
+		assert.Equal(t, []float32{0, 0, 0}, got)
+	})
+
+	t.Run("oversized dst is trimmed to len(src)", func(t *testing.T) {
+		src := []float32{1, 0}
+		dst := make([]float32, 8)
+		got := NormalizeOut(dst, src)
+		require.Len(t, got, 2)
+		assert.Equal(t, []float32{1, 0}, got)
+	})
+
+	t.Run("empty src", func(t *testing.T) {
+		got := NormalizeOut(nil, nil)
+		assert.Empty(t, got)
 	})
 }

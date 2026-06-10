@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"encoding/binary"
 	"fmt"
 	"sort"
 
@@ -28,7 +29,7 @@ type columnarSegmentData struct {
 }
 
 func loadColumnarSegmentData(contents []byte, indexStart uint64, version uint16) (*columnarSegmentData, error) {
-	h, _, err := columnar.UnmarshalHeader(contents[segmentindex.HeaderSize:])
+	h, _, formatVersion, err := columnar.UnmarshalHeader(contents[segmentindex.HeaderSize:])
 	if err != nil {
 		return nil, fmt.Errorf("parse columnar header: %w", err)
 	}
@@ -42,7 +43,7 @@ func loadColumnarSegmentData(contents []byte, indexStart uint64, version uint16)
 		return nil, fmt.Errorf("columnar directory start %d beyond end %d", indexStart, dirEnd)
 	}
 
-	entries, err := columnar.UnmarshalDirectory(contents[indexStart:dirEnd], len(h.Schema.Columns))
+	entries, err := columnar.UnmarshalDirectory(contents[indexStart:dirEnd], &h.Schema, formatVersion)
 	if err != nil {
 		return nil, fmt.Errorf("parse columnar directory: %w", err)
 	}
@@ -83,6 +84,90 @@ func (d *columnarSegmentData) lookup(contents []byte, docID uint64, colIdx int) 
 		return 0, true, true
 	}
 	return br.ValueBitsAt(colIdx, row), true, false
+}
+
+// lookupPayload appends the row's payload bytes (vector or multi-vector)
+// to dst. Must be called while the segment's contents are pinned; the
+// returned slice extends dst and does not alias the segment buffer.
+func (d *columnarSegmentData) lookupPayload(contents []byte, docID uint64, dst []byte) ([]byte, bool, bool) {
+	ref, found, tomb := d.lookupPayloadRef(contents, docID)
+	if !found || tomb {
+		return dst, found, tomb
+	}
+	return append(dst, ref...), true, false
+}
+
+// lookupPayloadRef returns the row's payload bytes ALIASING the segment
+// buffer. Callers must copy or decode the result before releasing the
+// segment pin.
+//
+// This is the rescore hot path: it operates on the block bytes directly
+// via the directory's page table instead of constructing a BlockReader,
+// keeping it allocation-free.
+func (d *columnarSegmentData) lookupPayloadRef(contents []byte, docID uint64) ([]byte, bool, bool) {
+	blockIdx := d.findBlock(docID)
+	if blockIdx < 0 {
+		return nil, false, false
+	}
+	e := &d.entries[blockIdx]
+	rows := int(e.RowCount)
+	base := int(e.Offset)
+	if base+rows*9 > len(contents) || len(e.Pages) != 1 {
+		return nil, false, false
+	}
+	docIDs := contents[base : base+rows*8]
+
+	// in-place binary search on the sorted docID array
+	lo, hi := 0, rows
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		v := binary.LittleEndian.Uint64(docIDs[mid*8:])
+		switch {
+		case v < docID:
+			lo = mid + 1
+		case v > docID:
+			hi = mid
+		default:
+			lo = mid
+			hi = -1
+		}
+	}
+	if hi != -1 {
+		return nil, false, false
+	}
+	row := lo
+	if contents[base+rows*8+row] == 0 {
+		return nil, true, true // tombstone
+	}
+
+	pageStart := base + int(e.Pages[0].Offset)
+	pageEnd := pageStart + int(e.Pages[0].Size)
+	if pageEnd > len(contents) {
+		return nil, false, false
+	}
+	page := contents[pageStart:pageEnd]
+
+	col := &d.schema.Columns[0]
+	if col.IsVariable() {
+		// [offsets (rows+1)×u32][pad][payload]
+		headerSize := columnar.VariablePageHeaderSize(rows)
+		if len(page) < headerSize {
+			return nil, false, false
+		}
+		start := binary.LittleEndian.Uint32(page[4*row:])
+		end := binary.LittleEndian.Uint32(page[4*(row+1):])
+		payload := page[headerSize:]
+		if int(end) > len(payload) || start > end {
+			return nil, false, false
+		}
+		return payload[start:end], true, false
+	}
+
+	w := col.Width()
+	if (row+1)*w > len(page) {
+		return nil, false, false
+	}
+	return page[row*w : (row+1)*w], true, false
 }
 
 // scanBlocks calls visit for each block in docID order. visit returns false

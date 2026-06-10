@@ -40,3 +40,25 @@ func CopySliceToBytes[T float32 | uint64](dst []byte, src []T) {
 	srcBytes := unsafe.Slice((*byte)(unsafe.Pointer(&src[0])), len(src)*int(unsafe.Sizeof(src[0])))
 	copy(dst, srcBytes)
 }
+
+// Float32sFromBytesZeroCopy reinterprets a little-endian float32 payload as a
+// []float32 WITHOUT copying. The returned slice ALIASES b: it is only valid as
+// long as b's backing memory is (e.g. an mmap'd segment pinned by a refcounted
+// view) and must never be written to (the backing memory may be a read-only
+// mapping, where a write faults).
+//
+// Returns (nil, false) when the reinterpretation is not possible: empty input,
+// length not a multiple of 4, or &b[0] not 4-byte aligned (Go's unsafe.Pointer
+// alignment rule). Callers must fall back to a copy (CopyBytesToSlice) in that
+// case. The big-endian build of this function always returns (nil, false),
+// because the on-disk little-endian layout does not match the in-memory
+// representation there.
+func Float32sFromBytesZeroCopy(b []byte) ([]float32, bool) {
+	if len(b) == 0 || len(b)%4 != 0 {
+		return nil, false
+	}
+	if uintptr(unsafe.Pointer(&b[0]))%unsafe.Alignof(float32(0)) != 0 {
+		return nil, false
+	}
+	return unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(b)/4), true
+}
