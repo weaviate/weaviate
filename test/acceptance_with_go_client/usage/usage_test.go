@@ -357,7 +357,6 @@ func TestRestart(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
-		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -498,7 +497,6 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
-		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		Start(ctx)

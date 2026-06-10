@@ -321,6 +321,28 @@ func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 	})
 }
 
+func TestEnvironmentTrackVectorDimensions(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected bool
+	}{
+		{"enabled by default", "", true},
+		{"VECTOR_DIMENSION_TRACKING_DISABLED=true disables tracking", "true", false},
+		{"VECTOR_DIMENSION_TRACKING_DISABLED=false stays enabled", "false", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("VECTOR_DIMENSION_TRACKING_DISABLED", tt.value)
+
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			assert.Equal(t, tt.expected, conf.TrackVectorDimensions)
+		})
+	}
+}
+
 func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	tests := []struct {
 		name        string
