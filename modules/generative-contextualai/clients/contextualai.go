@@ -252,9 +252,15 @@ func (c *contextualai) getContextualAIURL(ctx context.Context) (string, error) {
 	baseURL := "https://api.contextual.ai"
 	if value := ctx.Value(contextKey("X-ContextualAI-Baseurl")); value != nil {
 		if urls, ok := value.([]string); ok && len(urls) > 0 {
+			if err := modulecomponents.ValidateBaseURL(urls[0]); err != nil {
+				return "", err
+			}
 			baseURL = urls[0]
 		}
 	} else if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-ContextualAI-Baseurl"); headerBaseURL != "" {
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", err
+		}
 		baseURL = headerBaseURL
 	}
 	return url.JoinPath(baseURL, "/v1/generate")

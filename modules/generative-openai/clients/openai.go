@@ -290,6 +290,9 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params)
 	resourceName := params.ResourceName
 
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", err
+		}
 		baseURL = headerBaseURL
 	}
 

@@ -255,6 +255,9 @@ func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) 
 	baseURL, resourceName, deploymentID, apiVersion, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure
 
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", err
+		}
 		baseURL = headerBaseURL
 	}
 

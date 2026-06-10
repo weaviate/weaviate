@@ -327,6 +327,26 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
 
+	// Regression for the SSRF via X-Openai-Baseurl (hackerone #3768976).
+	t.Run("when X-Openai-Baseurl header targets an internal address it is rejected", func(t *testing.T) {
+		t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+		c := New("", "", "", 0, nullLogger())
+		config := Settings{Model: "ada", Type: "text", BaseURL: "https://api.openai.com"}
+
+		for _, internal := range []string{
+			"http://169.254.169.254/",
+			"https://169.254.169.254/",
+			"https://127.0.0.1/",
+			"https://10.0.0.5/",
+			"https://localhost/",
+		} {
+			ctxWithValue := context.WithValue(context.Background(),
+				"X-Openai-Baseurl", []string{internal})
+			_, err := c.buildURL(ctxWithValue, config)
+			assert.Error(t, err, internal)
+		}
+	})
+
 	t.Run("when X-Azure-* headers are passed", func(t *testing.T) {
 		c := New("", "", "", 0, nullLogger())
 

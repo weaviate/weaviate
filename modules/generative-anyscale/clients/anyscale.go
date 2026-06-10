@@ -87,6 +87,9 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Anyscale-Baseurl"); err != nil {
+		return nil, err
+	}
 	anyscaleUrl := v.getAnyscaleUrl(ctx, params.BaseURL)
 	anyscalePrompt := []map[string]string{
 		{"role": "system", "content": "You are a helpful assistant."},
