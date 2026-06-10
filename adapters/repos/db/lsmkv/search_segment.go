@@ -136,11 +136,17 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			// so no explicit exhausted guard is needed here.
 			t := candidates[i]
 			if t.currentBlockMaxId < pivotID {
+				// a real shallow advance moves idPointer without re-sorting (and may
+				// even exhaust mid-array), so the slice may then hold inversions that
+				// only a full sortByID repairs — see the matched branch. blockEntryIdx
+				// changes on every actual move/exhaust but not on the early-return
+				// no-op (docCount==1 terms never initialize currentBlockMaxId, so the
+				// guard over-fires for them; the no-op must not defeat the fast path).
+				prevBlockIdx := t.blockEntryIdx
 				t.AdvanceAtLeastShallow(pivotID)
-				// a shallow advance moves idPointer without re-sorting (and may even
-				// exhaust mid-array), so the slice may now hold inversions that only
-				// a full sortByID repairs — see the matched branch.
-				needFullSort = true
+				if t.blockEntryIdx != prevBlockIdx {
+					needFullSort = true
+				}
 			}
 			upperBound += t.currentBlockImpact
 		}
