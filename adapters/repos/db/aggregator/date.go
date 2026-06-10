@@ -111,17 +111,20 @@ type timestampCountPair struct {
 	count uint64
 }
 
+// AddTimestamp adds a single timestamp given as an RFC 3339 string. The
+// string is canonicalized to UTC via newTimestamp rather than stored
+// verbatim, so min/max/median/mode results are identical regardless of the
+// timezone offset the value was stored with. This keeps the object-scan
+// paths (filtered, unfiltered date-array) consistent with the row-based
+// paths (AddTimestampRow, AddTimestampNano), which derive their string from
+// epoch nanoseconds and have always returned UTC.
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	t, err := time.Parse(time.RFC3339Nano, rfc3339)
 	if err != nil {
 		return fmt.Errorf("failed to parse timestamp: %w", err)
 	}
 
-	ts := timestamp{
-		epochNano: t.UnixNano(),
-		rfc3339:   rfc3339,
-	}
-	return a.addRow(ts, 1)
+	return a.addRow(newTimestamp(t.UnixNano()), 1)
 }
 
 // AddTimestampNano adds a single timestamp given as unix epoch nanoseconds,
