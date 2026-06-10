@@ -616,14 +616,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	if err = schemaRepo.Open(); err != nil {
+	schemaRepoOpen := schemaRepo.Open
+	if readOnlyFollower {
+		// The legacy schema store and classifications store both write on a
+		// normal open (bucket creation / migration); a follower opens them
+		// read-only so the read-only mount is never touched.
+		schemaRepoOpen = schemaRepo.OpenReadOnly
+	}
+	if err = schemaRepoOpen(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("could not initialize schema repo")
 		os.Exit(1)
 	}
 
-	localClassifierRepo, err := classifications.NewRepo(
+	newClassifierRepo := classifications.NewRepo
+	if readOnlyFollower {
+		newClassifierRepo = classifications.NewRepoReadOnly
+	}
+	localClassifierRepo, err := newClassifierRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.

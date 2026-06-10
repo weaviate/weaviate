@@ -145,14 +145,31 @@ type memoryOnlyData struct {
 }
 
 func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
+	return newDBUser(path, enabled, logger, false)
+}
+
+// NewDBUserReadOnly loads the dynamic-user store for a read-only follower: it
+// never creates the storage file and never starts the periodic flush ticker, so
+// the read-only copy is never written. An absent file is tolerated.
+func NewDBUserReadOnly(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
+	return newDBUser(path, enabled, logger, true)
+}
+
+func newDBUser(path string, enabled bool, logger logrus.FieldLogger, readOnly bool) (*DBUser, error) {
 	fullpath := fmt.Sprintf("%s/raft/db_users/", path)
-	err := createStorage(fullpath + FileName)
-	if err != nil {
-		return nil, err
+	// A read-only follower must not create the storage directory/file (a write);
+	// it reads the writer's db_users file from the copy, tolerating its absence.
+	if !readOnly {
+		if err := createStorage(fullpath + FileName); err != nil {
+			return nil, err
+		}
 	}
 	existingData, err := ReadFile(fullpath + FileName)
 	if err != nil {
-		return nil, err
+		if !(readOnly && os.IsNotExist(err)) {
+			return nil, err
+		}
+		existingData = nil
 	}
 	snapshot := DBUserSnapshot{}
 	if len(existingData) > 0 {
@@ -179,7 +196,9 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	// This information is not terribly important (besides WCD UX), so it does not matter much if we very rarely loose
 	// some information here. This info will also be written on shutdown so the only loss of information occurs with
 	// OOM or similar.
-	if enabled {
+	// The periodic flush is a steady-state writer: it persists every minute
+	// regardless of traffic. A read-only follower must never start it.
+	if enabled && !readOnly {
 		enterrors.GoWrapper(func() {
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
