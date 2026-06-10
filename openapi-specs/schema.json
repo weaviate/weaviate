@@ -8738,14 +8738,15 @@
           },
           {
             "name": "indexName",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the per-property index to delete from the property.",
             "in": "path",
             "required": true,
             "type": "string",
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "columnar"
             ]
           }
         ],

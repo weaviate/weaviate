@@ -5827,10 +5827,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "columnar"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the per-property index to delete from the property.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -16918,10 +16919,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "columnar"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the per-property index to delete from the property.",
             "name": "indexName",
             "in": "path",
             "required": true

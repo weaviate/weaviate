@@ -229,6 +229,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		if prop.IndexColumnar != nil && *prop.IndexColumnar {
 			notExists := false
 			prop.IndexColumnar = &notExists
+			updateFields = []string{command.PropertyFieldIndexColumnar}
 		} else {
 			// nothing to do
 			return nil
