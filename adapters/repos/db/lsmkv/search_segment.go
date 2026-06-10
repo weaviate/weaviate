@@ -111,11 +111,14 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 		}
 
 		upperBound = float32(0)
-		for i := 0; i <= pivotPoint; i++ {
+		// reslice to [0,pivotPoint] (pivotPoint < len, guaranteed by the pivotID
+		// check above) so the compiler drops the per-iteration bounds check.
+		candidates := results[:pivotPoint+1]
+		for i := range candidates {
 			// exhausted terms carry currentBlockMaxId==MaxUint64 (so the shallow
 			// advance is skipped) and currentBlockImpact==0 (so the add is a no-op),
 			// so no explicit exhausted guard is needed here.
-			t := results[i]
+			t := candidates[i]
 			if t.currentBlockMaxId < pivotID {
 				t.AdvanceAtLeastShallow(pivotID)
 			}
@@ -123,14 +126,15 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 		}
 
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
-			if additionalExplanations {
-				docInfos = make([]*terms.DocPointerWithScore, termCount)
-			}
-			if pivotID == results[firstNonExhausted].idPointer {
+			firstTerm := results[firstNonExhausted]
+			if pivotID == firstTerm.idPointer {
 				// a deferred tombstone hit: advance the aligned terms past the pivot
 				// (below) but skip scoring/enqueue. See deferTombstoneToScore.
-				pivotTombstoned := deferTombstoneToScore && results[firstNonExhausted].tombstoned(pivotID)
+				pivotTombstoned := deferTombstoneToScore && firstTerm.tombstoned(pivotID)
 				if !pivotTombstoned {
+					if additionalExplanations {
+						docInfos = make([]*terms.DocPointerWithScore, termCount)
+					}
 					score := 0.0
 					termsMatched := 0
 					for _, term := range results {
@@ -180,13 +184,15 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			maxWeight := results[nextList].idf
 			next := uint64(math.MaxUint64) // max uint
 
-			for i := 0; i <= pivotPoint; i++ {
-				if i < pivotPoint && results[i].idf > maxWeight {
+			candidates := results[:pivotPoint+1]
+			for i := range candidates {
+				t := candidates[i]
+				if i < pivotPoint && t.idf > maxWeight {
 					nextList = i
-					maxWeight = results[i].idf
+					maxWeight = t.idf
 				}
-				if results[i].currentBlockMaxId < next {
-					next = results[i].currentBlockMaxId
+				if t.currentBlockMaxId < next {
+					next = t.currentBlockMaxId
 				}
 			}
 
@@ -230,40 +236,41 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 		return topKHeap
 	}
 
+	ctxCheck := 0
 	for {
 		iterations++
 
-		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
-			segmentPath := ""
-			terms := ""
-			filterCardinality := -1
-			for _, r := range results {
-				if r == nil {
-					continue
-				}
-				if r.segment != nil {
-					segmentPath = r.segment.path
-					if r.filterDocIds != nil {
-						filterCardinality = r.filterDocIds.Len()
+		// periodic cancellation check; countdown instead of a 64-bit modulo on the
+		// hot loop (same change as DoBlockMaxWand), same every-100000 cadence.
+		ctxCheck++
+		if ctxCheck == 100000 {
+			ctxCheck = 0
+			if ctx != nil && ctx.Err() != nil {
+				segmentPath := ""
+				terms := ""
+				filterCardinality := -1
+				for _, r := range results {
+					if r == nil {
+						continue
 					}
+					if r.segment != nil {
+						segmentPath = r.segment.path
+						if r.filterDocIds != nil {
+							filterCardinality = r.filterDocIds.Len()
+						}
+					}
+					terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
 				}
-				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
-			}
-			logger.WithFields(logrus.Fields{
-				"segment":           segmentPath,
-				"iterations":        iterations,
-				"pivotID":           pivotID,
-				"lenResults":        len(results),
-				"upperBound":        upperBound,
-				"terms":             terms,
-				"filterCardinality": filterCardinality,
-				"limit":             limit,
-			}).Warnf("DoBlockMaxAnd: search timed out, returning partial results")
-			return topKHeap
-		}
-
-		for i := 0; i < len(results); i++ {
-			if results[i].exhausted {
+				logger.WithFields(logrus.Fields{
+					"segment":           segmentPath,
+					"iterations":        iterations,
+					"pivotID":           pivotID,
+					"lenResults":        len(results),
+					"upperBound":        upperBound,
+					"terms":             terms,
+					"filterCardinality": filterCardinality,
+					"limit":             limit,
+				}).Warnf("DoBlockMaxAnd: search timed out, returning partial results")
 				return topKHeap
 			}
 		}
@@ -276,12 +283,17 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 
 		pivotID = results[0].idPointer
 
+		// AND is terminal the instant any term exhausts: no higher doc id can align
+		// across every term, so the heap is frozen and we return at the advance site
+		// rather than rescanning all terms at the top of each iteration. results[0]
+		// is covered just above; the others can only exhaust here or in the
+		// candidate-advance loop below.
+		upperBound = results[0].currentBlockImpact
 		for i := 1; i < len(results); i++ {
 			results[i].AdvanceAtLeastShallow(pivotID)
-		}
-
-		upperBound = float32(0)
-		for i := 0; i < len(results); i++ {
+			if results[i].exhausted {
+				return topKHeap
+			}
 			upperBound += results[i].currentBlockImpact
 		}
 
@@ -289,6 +301,9 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 			isCandidate := true
 			for i := 1; i < len(results); i++ {
 				results[i].AdvanceAtLeast(pivotID)
+				if results[i].exhausted {
+					return topKHeap
+				}
 				if results[i].idPointer != pivotID {
 					isCandidate = false
 					break
