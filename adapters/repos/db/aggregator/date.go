@@ -112,19 +112,26 @@ type timestampCountPair struct {
 }
 
 // AddTimestamp adds a single timestamp given as an RFC 3339 string. The
-// string is canonicalized to UTC via newTimestamp rather than stored
-// verbatim, so min/max/median/mode results are identical regardless of the
-// timezone offset the value was stored with. This keeps the object-scan
-// paths (filtered, unfiltered date-array) consistent with the row-based
-// paths (AddTimestampRow, AddTimestampNano), which derive their string from
-// epoch nanoseconds and have always returned UTC.
+// string is canonicalized to UTC rather than stored verbatim, so
+// min/max/median/mode results are identical regardless of the timezone
+// offset the value was stored with, consistent with the row-based paths
+// (AddTimestampRow, AddTimestampNano) which have always returned UTC. The
+// display string is formatted from the parsed time.Time directly — NOT via
+// newTimestamp's epoch round-trip — because UnixNano wraps for dates
+// outside ~1678–2262 (2^64 ns ≈ 584.5 years: 1400-01-01 renders as
+// 1984-07-21). epochNano stays the comparison key as it always has been;
+// its pre-1678 wrap is a pre-existing limitation shared with the inverted
+// index's int64-nano storage.
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	t, err := time.Parse(time.RFC3339Nano, rfc3339)
 	if err != nil {
 		return fmt.Errorf("failed to parse timestamp: %w", err)
 	}
 
-	return a.addRow(newTimestamp(t.UnixNano()), 1)
+	return a.addRow(timestamp{
+		epochNano: t.UnixNano(),
+		rfc3339:   t.UTC().Format(time.RFC3339Nano),
+	}, 1)
 }
 
 // AddTimestampNano adds a single timestamp given as unix epoch nanoseconds,
