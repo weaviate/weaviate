@@ -68,20 +68,6 @@ type GetParams struct {
 	Tenant                  string
 	IsRefOrigin             bool   // is created by ref filter
 	Alias                   string // used only to transfer alias passed in search request, not used for actual search
-
-	// BoostDeferredFetch is set internally when a boosted search can run in
-	// skeleton mode (NoProps): every boost-referenced property is served from
-	// a columnar bucket, so candidate objects need no materialization. It
-	// stashes the user's original selection so the final page can be
-	// materialized after boost rescoring truncates the candidate pool.
-	BoostDeferredFetch *BoostDeferredFetch
-}
-
-// BoostDeferredFetch holds the user's original property selection while a
-// boosted search runs in skeleton mode. See GetParams.BoostDeferredFetch.
-type BoostDeferredFetch struct {
-	Properties search.SelectProperties
-	Additional additional.Properties
 }
 
 type Embedding interface {

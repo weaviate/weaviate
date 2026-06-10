@@ -102,11 +102,6 @@ type objectsSearcher interface {
 		props search.SelectProperties, additional additional.Properties,
 		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error)
-
-	// BoostValues serves boost-referenced numeric property values from
-	// columnar buckets; see DB.BoostValues for the contract.
-	BoostValues(ctx context.Context, className, tenant string,
-		results []search.Result, props []string) ([]map[string]any, error)
 }
 
 type hybridSearcher interface {
@@ -179,28 +174,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 		pagination.Limit = overfetch
 		pagination.Offset = 0
 		params.Pagination = &pagination
-
-		// When every boost-referenced property is columnar-backed, the
-		// candidate search runs in skeleton mode: no property/vector
-		// materialization for the overfetched pool. Boost reads its values
-		// from the column buckets and only the final page is materialized
-		// (in applyBoostIfNeeded). The user's selection is stashed and
-		// restored before building the response.
-		if e.boostCanDeferMaterialization(params) {
-			params.BoostDeferredFetch = &dto.BoostDeferredFetch{
-				Properties: params.Properties,
-				Additional: params.AdditionalProperties,
-			}
-			params.Properties = nil
-			params.AdditionalProperties = additional.Properties{NoProps: true}
-		}
-	}
-
-	restoreSelection := func() {
-		if df := params.BoostDeferredFetch; df != nil {
-			params.Properties = df.Properties
-			params.AdditionalProperties = df.Additional
-		}
 	}
 
 	if params.KeywordRanking != nil {
@@ -208,7 +181,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		restoreSelection()
 		return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
 	}
 
@@ -217,7 +189,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		restoreSelection()
 		return e.searchResultsToGetResponse(ctx, res, searchVector, params, searchStartTime)
 	}
 
@@ -227,7 +198,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	restoreSelection()
 	return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
 }
 
@@ -235,198 +205,14 @@ func (e *Explorer) GetClass(ctx context.Context,
 // present and weight > 0. For vector searches, distances are converted to
 // scores first since vector search populates Dist but not Score.
 // The original pagination (offset/limit) is read from the Boost struct.
-//
-// Boost-referenced property values are served from columnar buckets where
-// available (with the materialized props as fallback), so boost neither
-// requires its properties to be part of the requested properties nor pays
-// an object unmarshal per candidate. If the search ran in skeleton mode
-// (params.BoostDeferredFetch set), the surviving page is materialized here.
-func (e *Explorer) applyBoostIfNeeded(ctx context.Context, params dto.GetParams,
-	res []search.Result, isVectorSearch bool,
-) []search.Result {
-	boost := params.Boost
+func (e *Explorer) applyBoostIfNeeded(res []search.Result, boost *filters.Boost, isVectorSearch bool) []search.Result {
 	if boost == nil || boost.Weight <= 0 || len(res) == 0 {
 		return res
 	}
 	if isVectorSearch {
 		distToScore(res)
 	}
-
-	referencedProps := boostReferencedProps(boost)
-
-	var typedValues []map[string]any
-	if len(referencedProps) > 0 {
-		tv, err := e.searcher.BoostValues(ctx, params.ClassName, params.Tenant, res, referencedProps)
-		if err != nil {
-			// fall back to materialized props (or the per-result fetch
-			// below in skeleton mode)
-			e.logger.WithField("action", "boost_columnar_values").
-				WithField("class", params.ClassName).Error(err)
-		} else {
-			typedValues = tv
-		}
-	}
-
-	// Skeleton mode has no materialized properties to fall back to: a
-	// result the columnar path could not serve (mid-migration replica,
-	// non-local shard, racing delete) would silently score zero and
-	// corrupt the re-sort. Materialize the boost properties for exactly
-	// those results before scoring.
-	if params.BoostDeferredFetch != nil {
-		typedValues = e.fillMissingBoostValues(ctx, params, res, referencedProps, typedValues)
-	}
-
-	res = applyBoostScoring(res, boost, typedValues)
-
-	if df := params.BoostDeferredFetch; df != nil {
-		res = e.materializeBoostPage(ctx, params, df, res)
-	}
-	return res
-}
-
-// fillMissingBoostValues backfills, per result, any boost-referenced
-// property the columnar path could not serve, by fetching just those
-// properties from the object store. Only used in skeleton mode, where
-// results carry no materialized properties.
-func (e *Explorer) fillMissingBoostValues(ctx context.Context, params dto.GetParams,
-	res []search.Result, props []string, typedValues []map[string]any,
-) []map[string]any {
-	selectProps := make(search.SelectProperties, len(props))
-	for i, p := range props {
-		selectProps[i] = search.SelectProperty{Name: p, IsPrimitive: true}
-	}
-
-	if typedValues == nil {
-		typedValues = make([]map[string]any, len(res))
-	}
-
-	for i := range res {
-		missing := false
-		for _, p := range props {
-			if typedValues[i] == nil {
-				missing = true
-				break
-			}
-			if _, ok := typedValues[i][p]; !ok {
-				missing = true
-				break
-			}
-		}
-		if !missing {
-			continue
-		}
-
-		obj, err := e.searcher.Object(ctx, params.ClassName, res[i].ID,
-			selectProps, additional.Properties{}, params.ReplicationProperties, params.Tenant)
-		if err != nil || obj == nil {
-			// deleted between search and fetch — scoring zero is correct
-			continue
-		}
-		objProps, ok := obj.Schema.(map[string]any)
-		if !ok {
-			continue
-		}
-		if typedValues[i] == nil {
-			typedValues[i] = make(map[string]any, len(props))
-		}
-		for _, p := range props {
-			if _, served := typedValues[i][p]; served {
-				continue
-			}
-			if v, ok := objProps[p]; ok {
-				typedValues[i][p] = v
-			}
-		}
-	}
-	return typedValues
-}
-
-// materializeBoostPage fetches full objects for the post-boost page of a
-// skeleton-mode search. Results deleted between the skeleton search and the
-// fetch are dropped.
-func (e *Explorer) materializeBoostPage(ctx context.Context, params dto.GetParams,
-	df *dto.BoostDeferredFetch, res []search.Result,
-) []search.Result {
-	out := make([]search.Result, 0, len(res))
-	for i := range res {
-		obj, err := e.searcher.Object(ctx, params.ClassName, res[i].ID,
-			df.Properties, df.Additional, params.ReplicationProperties, params.Tenant)
-		if err != nil || obj == nil {
-			continue
-		}
-		obj.Score = res[i].Score
-		obj.SecondarySortValue = res[i].SecondarySortValue
-		obj.Dist = res[i].Dist
-		obj.Certainty = res[i].Certainty
-		obj.ExplainScore = res[i].ExplainScore
-		out = append(out, *obj)
-	}
-	return out
-}
-
-// boostReferencedProps collects every property name referenced by boost
-// conditions, including filter clauses.
-func boostReferencedProps(boost *filters.Boost) []string {
-	seen := map[string]struct{}{}
-	var clauseProps func(c *filters.Clause)
-	clauseProps = func(c *filters.Clause) {
-		if c == nil {
-			return
-		}
-		if c.On != nil {
-			seen[string(c.On.Property)] = struct{}{}
-		}
-		for i := range c.Operands {
-			clauseProps(&c.Operands[i])
-		}
-	}
-	for _, cond := range boost.Conditions {
-		switch {
-		case cond.Decay != nil && cond.Decay.Path != nil:
-			seen[string(cond.Decay.Path.Property)] = struct{}{}
-		case cond.PropertyValue != nil && cond.PropertyValue.Path != nil:
-			seen[string(cond.PropertyValue.Path.Property)] = struct{}{}
-		case cond.Filter != nil:
-			clauseProps(cond.Filter.Root)
-		}
-	}
-	props := make([]string, 0, len(seen))
-	for p := range seen {
-		props = append(props, p)
-	}
-	return props
-}
-
-// boostCanDeferMaterialization reports whether a boosted search can run in
-// skeleton mode. Conservative: plain bm25/vector/list searches only, and
-// every boost-referenced property must be columnar-backed.
-func (e *Explorer) boostCanDeferMaterialization(params dto.GetParams) bool {
-	if params.HybridSearch != nil || params.GroupBy != nil || params.Group != nil ||
-		params.Cursor != nil || len(params.Sort) > 0 {
-		return false
-	}
-
-	props := boostReferencedProps(params.Boost)
-	if len(props) == 0 {
-		return false
-	}
-
-	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
-	if class == nil {
-		return false
-	}
-	for _, propName := range props {
-		prop, err := schema.GetPropertyByName(class, propName)
-		if err != nil || prop.IndexColumnar == nil || !*prop.IndexColumnar {
-			return false
-		}
-		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
-		case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:
-		default:
-			return false
-		}
-	}
-	return true
+	return applyBoostScoring(res, boost)
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -454,7 +240,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
-	res = e.applyBoostIfNeeded(ctx, params, res, false)
+	res = e.applyBoostIfNeeded(res, params.Boost, false)
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
@@ -560,7 +346,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	// Apply boost before module extensions (rerankers) so the order is:
 	// vector search → boost → reranker. Only for non-hybrid paths.
 	if params.HybridSearch == nil {
-		res = e.applyBoostIfNeeded(ctx, params, res, true)
+		res = e.applyBoostIfNeeded(res, params.Boost, true)
 	}
 
 	// This operation cannot be performed with hybrid search.
@@ -658,7 +444,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
-	res = e.applyBoostIfNeeded(ctx, params, res, false)
+	res = e.applyBoostIfNeeded(res, params.Boost, false)
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,

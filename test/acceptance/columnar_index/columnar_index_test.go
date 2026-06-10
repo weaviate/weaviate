@@ -17,9 +17,6 @@
 //     the point-lookup path (< 2048 matched docIDs) and the scan path
 //     (>= 2048 matched docIDs), compared against an identical twin class
 //     without the flag AND against expected values tracked in the test,
-//   - gRPC boost (property_value / time_decay / numeric_decay) served from
-//     columns, including skeleton mode where the boost property is not part
-//     of the requested properties,
 //   - durability across graceful restart (flush) and crash (WAL replay).
 //
 // NOTE: unfiltered aggregates do NOT touch the columnar buckets, so every
@@ -45,13 +42,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -64,17 +59,7 @@ const (
 	batchChunkSize    = 500
 )
 
-func boolPtr(b bool) *bool          { return &b }
-func float32Ptr(f float32) *float32 { return &f }
-func uint32Ptr(u uint32) *uint32    { return &u }
-
-// boostDepth covers ALL matched docs. The BM25 query used below ties every
-// document at the same score, so with the default depth (100) the candidate
-// pool membership would depend on BM25 tie-breaking — which is docID-order
-// dependent and not guaranteed identical between the two classes (batch
-// imports may assign docIDs concurrently). With the full pool, the boost
-// score (unique per object by construction) alone determines the order.
-const boostDepth = 6000
+func boolPtr(b bool) *bool { return &b }
 
 // songModel is the in-test source of truth for every imported object. All
 // expected aggregate values are computed from this model so the test never
@@ -97,8 +82,7 @@ func uuidFor(i int) strfmt.UUID {
 //
 // Design constraints (deviations from naive choices are deliberate):
 //   - likes = (i*7) % 5000: gcd(7,5000)=1, so likes values are UNIQUE per
-//     object. Boost orderings are then free of score ties, which makes the
-//     "identical result-ID order between classes" assertions deterministic.
+//     object, which keeps min/max/sum assertions free of accidental ties.
 //   - rating = 0.25*i - 100: unique, and every value is a multiple of 0.25
 //     with bounded magnitude, so every partial float64 sum is exact and the
 //     aggregate sum is independent of visit order (the columnar scan path
@@ -231,19 +215,11 @@ func dateField(t *testing.T, row map[string]interface{}, prop, field string) tim
 	return ts.UTC()
 }
 
-func resultIDs(results []*pb.SearchResult) []string {
-	ids := make([]string, len(results))
-	for i, r := range results {
-		ids[i] = r.Metadata.Id
-	}
-	return ids
-}
-
 func TestColumnarIndex(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
-		WithWeaviateWithGRPC().
+		WithWeaviate().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -252,27 +228,6 @@ func TestColumnarIndex(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
-
-	// gRPC client is re-dialed after every container restart because the
-	// mapped host ports change.
-	var grpcConn *grpc.ClientConn
-	var grpcClient pb.WeaviateClient
-	dialGRPC := func(t *testing.T) {
-		t.Helper()
-		if grpcConn != nil {
-			grpcConn.Close()
-		}
-		conn, err := helper.CreateGrpcConnectionClient(compose.GetWeaviate().GrpcURI())
-		require.NoError(t, err)
-		grpcConn = conn
-		grpcClient = helper.CreateGrpcWeaviateClient(conn)
-	}
-	dialGRPC(t)
-	defer func() {
-		if grpcConn != nil {
-			grpcConn.Close()
-		}
-	}()
 
 	model := buildModel()
 
@@ -354,90 +309,6 @@ func TestColumnarIndex(t *testing.T) {
 			WithClassName(className).WithID(id).WithBody(obj)
 		resp, err := helper.Client(t).Objects.ObjectsClassPatch(params, nil)
 		helper.AssertRequestOk(t, resp, err, nil)
-	}
-
-	// boostedBM25IDs runs a BM25 search ("song" matches every object with
-	// identical scores, so boost is the sole tiebreaker) with the given
-	// boost and returns the result-ID order.
-	boostedBM25IDs := func(t *testing.T, className string, boost *pb.Boost, limit uint32, props *pb.PropertiesRequest) ([]string, *pb.SearchReply) {
-		t.Helper()
-		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-			Collection: className,
-			Limit:      limit,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true},
-			Properties: props,
-			Bm25Search: &pb.BM25{
-				Query:      "song",
-				Properties: []string{"name"},
-			},
-			Boost:       boost,
-			Uses_127Api: true,
-		})
-		require.NoError(t, err)
-		require.Len(t, resp.Results, int(limit))
-		return resultIDs(resp.Results), resp
-	}
-
-	allProps := &pb.PropertiesRequest{ReturnAllNonrefProperties: true}
-
-	likesBoost := &pb.Boost{
-		Weight: float32Ptr(0.7),
-		Depth:  uint32Ptr(boostDepth),
-		Conditions: []*pb.Boost_Condition{{
-			Condition: &pb.Boost_Condition_PropertyValue{PropertyValue: &pb.Boost_PropertyValueFunction{
-				Property: "likes",
-				Modifier: pb.Boost_PROPERTY_VALUE_MODIFIER_UNSPECIFIED.Enum(),
-			}},
-			Weight: float32Ptr(1.0),
-		}},
-	}
-	timeDecayBoost := &pb.Boost{
-		Weight: float32Ptr(0.8),
-		Depth:  uint32Ptr(boostDepth),
-		Conditions: []*pb.Boost_Condition{{
-			Condition: &pb.Boost_Condition_TimeDecay{TimeDecay: &pb.Boost_TimeDecayFunction{
-				Property: "published",
-				// Origin omitted = "now". The two per-class requests run a
-				// few ms apart, but with all dates in the past and a
-				// monotonic decay curve the relative order is unaffected.
-				Scale: "30d",
-				Curve: pb.Boost_DECAY_CURVE_EXPONENTIAL.Enum(),
-			}},
-			Weight: float32Ptr(1.0),
-		}},
-	}
-	numericDecayBoost := &pb.Boost{
-		Weight: float32Ptr(0.8),
-		Depth:  uint32Ptr(boostDepth),
-		Conditions: []*pb.Boost_Condition{{
-			Condition: &pb.Boost_Condition_NumericDecay{NumericDecay: &pb.Boost_NumericDecayFunction{
-				Property: "rating",
-				// origin below the smallest rating (-100) keeps the decay
-				// monotonic over the whole value range
-				Origin: -200,
-				Scale:  100,
-				Curve:  pb.Boost_DECAY_CURVE_EXPONENTIAL.Enum(),
-			}},
-			Weight: float32Ptr(1.0),
-		}},
-	}
-
-	assertBoostEquivalence := func(t *testing.T) {
-		for _, tc := range []struct {
-			name  string
-			boost *pb.Boost
-		}{
-			{"property_value likes", likesBoost},
-			{"time_decay published", timeDecayBoost},
-			{"numeric_decay rating", numericDecayBoost},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				colIDs, _ := boostedBM25IDs(t, columnarClassName, tc.boost, 50, allProps)
-				plainIDs, _ := boostedBM25IDs(t, plainClassName, tc.boost, 50, allProps)
-				require.Equal(t, plainIDs, colIDs,
-					"boosted result-ID order must be identical between the columnar-backed and the plain class")
-			})
-		}
 	}
 
 	assertAggregatesMatch := func(t *testing.T, categories ...string) {
@@ -593,68 +464,18 @@ func TestColumnarIndex(t *testing.T) {
 		model[patchIdx].likes = originalLikes
 	})
 
-	// ── 5. boost equivalence columnar vs plain ──────────────────
-
-	t.Run("boost equivalence columnar vs plain", func(t *testing.T) {
-		assertBoostEquivalence(t)
-
-		t.Run("property_value top hit is the max-likes object", func(t *testing.T) {
-			// BM25 scores are fully tied, so boost orders by likes alone.
-			// The global likes maximum (4999, idx 2857) belongs to an object
-			// without props, so the top hit is likes=4998 -> idx 714.
-			colIDs, _ := boostedBM25IDs(t, columnarClassName, likesBoost, 1, allProps)
-			plainIDs, _ := boostedBM25IDs(t, plainClassName, likesBoost, 1, allProps)
-			require.Equal(t, string(uuidFor(714)), colIDs[0])
-			require.Equal(t, string(uuidFor(714)), plainIDs[0])
-		})
-	})
-
-	// ── 6. boost works without requesting the boost property ────
-
-	t.Run("boost works without requesting the boost property", func(t *testing.T) {
-		withLikes := &pb.PropertiesRequest{NonRefProperties: []string{"name", "likes"}}
-		nameOnly := &pb.PropertiesRequest{NonRefProperties: []string{"name"}}
-
-		idsWithLikes, _ := boostedBM25IDs(t, columnarClassName, likesBoost, 30, withLikes)
-		idsNameOnly, respNameOnly := boostedBM25IDs(t, columnarClassName, likesBoost, 30, nameOnly)
-
-		require.Equal(t, idsWithLikes, idsNameOnly,
-			"boost ordering must not depend on the boost property being requested")
-
-		// skeleton-mode materialization: the name-only response must still
-		// carry UUIDs and the requested property values, and must NOT leak
-		// the boost property.
-		for _, r := range respNameOnly.Results {
-			require.NotEmpty(t, r.Metadata.Id)
-			require.NotNil(t, r.Properties)
-			require.NotNil(t, r.Properties.NonRefProps)
-			name, ok := r.Properties.NonRefProps.Fields["name"]
-			require.True(t, ok, "result %s misses requested property name", r.Metadata.Id)
-			require.NotEmpty(t, name.GetTextValue())
-			_, hasLikes := r.Properties.NonRefProps.Fields["likes"]
-			require.False(t, hasLikes, "result %s leaks unrequested property likes", r.Metadata.Id)
-		}
-	})
-
-	// ── 7. graceful restart preserves columnar data ─────────────
+	// ── 5. graceful restart preserves columnar data ─────────────
 
 	t.Run("graceful restart preserves columnar data", func(t *testing.T) {
 		require.NoError(t, compose.StopAt(ctx, 0, nil)) // SIGTERM, graceful flush
 		require.NoError(t, compose.StartAt(ctx, 0))
-		// ports remap on restart: re-setup REST client and re-dial gRPC
+		// ports remap on restart: re-setup REST client
 		helper.SetupClient(compose.GetWeaviate().URI())
-		dialGRPC(t)
 
 		assertAggregatesMatch(t, "rare", "common")
-
-		t.Run("boost equivalence after restart", func(t *testing.T) {
-			colIDs, _ := boostedBM25IDs(t, columnarClassName, likesBoost, 50, allProps)
-			plainIDs, _ := boostedBM25IDs(t, plainClassName, likesBoost, 50, allProps)
-			require.Equal(t, plainIDs, colIDs)
-		})
 	})
 
-	// ── 8. crash recovery replays columnar WAL ──────────────────
+	// ── 6. crash recovery replays columnar WAL ──────────────────
 
 	t.Run("crash recovery replays columnar WAL", func(t *testing.T) {
 		const numPostRestart = 50
@@ -687,7 +508,6 @@ func TestColumnarIndex(t *testing.T) {
 		require.NoError(t, compose.StopAt(ctx, 0, &killTimeout))
 		require.NoError(t, compose.StartAt(ctx, 0))
 		helper.SetupClient(compose.GetWeaviate().URI())
-		dialGRPC(t)
 
 		postCrash := fetchCategoryAgg(t, columnarClassName, "postrestart")
 		require.Equal(t, float64(numPostRestart), postCrash.likesCount,
