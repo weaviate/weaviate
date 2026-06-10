@@ -20,10 +20,13 @@ type EncodingID uint8
 const (
 	// EncodingRawFixedWidth stores values as contiguous fixed-width
 	// little-endian payloads, with no compression. It is deliberately a
-	// first-class encoding (not an implicit default): future column kinds
-	// with larger fixed widths — single- and multi-vector payloads — reuse
-	// this encoding unchanged, and compressed encodings (delta, FOR, dict)
-	// slot in beside it without a format break.
+	// first-class encoding (not an implicit default): compressed
+	// encodings of the SAME width (delta, FOR, dict) can be added behind
+	// new EncodingIDs without invalidating existing segments. Column
+	// kinds with widths other than 8 bytes (single- and multi-vector
+	// payloads) are NOT covered by the EncodingID alone — they require
+	// the per-column dims/page-table format extension introduced by the
+	// stacked-vectors work, i.e. a versioned format change.
 	EncodingRawFixedWidth EncodingID = 0
 )
 

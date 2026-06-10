@@ -37,6 +37,38 @@ func (b *Bucket) ColumnarSchema() *columnar.Schema {
 	return b.columnarSchema
 }
 
+// checkColumnarOp validates the shared preconditions of every columnar
+// bucket operation: the bucket uses the columnar strategy and has a
+// columnar schema. A nil schema means the bucket was created without
+// WithColumnarSchema — operating on it must fail loudly instead of
+// silently returning empty results (reads) or relying on a deeper,
+// less descriptive memtable error (writes).
+func (b *Bucket) checkColumnarOp() error {
+	if err := CheckExpectedStrategy(b.strategy, StrategyColumnar); err != nil {
+		return err
+	}
+	if b.columnarSchema == nil {
+		return fmt.Errorf("columnar bucket %q: no columnar schema set "+
+			"(bucket created without WithColumnarSchema)", b.dir)
+	}
+	return nil
+}
+
+// checkColumnarColumn validates the shared preconditions plus that colIdx
+// addresses a column of the bucket's schema. An out-of-range colIdx must
+// surface as an error, not as an index-out-of-range panic deep inside the
+// memtable or block reader.
+func (b *Bucket) checkColumnarColumn(colIdx int) error {
+	if err := b.checkColumnarOp(); err != nil {
+		return err
+	}
+	if colIdx < 0 || colIdx >= len(b.columnarSchema.Columns) {
+		return fmt.Errorf("columnar bucket %q: column index %d out of range "+
+			"(schema has %d column(s))", b.dir, colIdx, len(b.columnarSchema.Columns))
+	}
+	return nil
+}
+
 func (b *Bucket) columnarWriteOp(op string, write func(memtable) error) (err error) {
 	start := time.Now()
 	b.metrics.IncBucketWriteOpCount(op)
@@ -56,15 +88,14 @@ func (b *Bucket) columnarWriteOp(op string, write func(memtable) error) (err err
 	}
 	defer release()
 
-	if err := CheckExpectedStrategy(b.strategy, StrategyColumnar); err != nil {
-		return err
-	}
-
 	return write(active)
 }
 
 // ColumnarPutFloat64 writes a float64 value for a given docID and column.
 func (b *Bucket) ColumnarPutFloat64(docID uint64, colIdx int, value float64) error {
+	if err := b.checkColumnarColumn(colIdx); err != nil {
+		return err
+	}
 	return b.columnarWriteOp("columnar_put", func(m memtable) error {
 		return m.columnarPutFloat64(docID, colIdx, value)
 	})
@@ -72,6 +103,9 @@ func (b *Bucket) ColumnarPutFloat64(docID uint64, colIdx int, value float64) err
 
 // ColumnarPutInt64 writes an int64 value for a given docID and column.
 func (b *Bucket) ColumnarPutInt64(docID uint64, colIdx int, value int64) error {
+	if err := b.checkColumnarColumn(colIdx); err != nil {
+		return err
+	}
 	return b.columnarWriteOp("columnar_put", func(m memtable) error {
 		return m.columnarPutInt64(docID, colIdx, value)
 	})
@@ -79,6 +113,9 @@ func (b *Bucket) ColumnarPutInt64(docID uint64, colIdx int, value int64) error {
 
 // ColumnarDelete marks a docID as deleted.
 func (b *Bucket) ColumnarDelete(docID uint64) error {
+	if err := b.checkColumnarOp(); err != nil {
+		return err
+	}
 	return b.columnarWriteOp("columnar_delete", func(m memtable) error {
 		return m.columnarDelete(docID)
 	})
@@ -104,7 +141,7 @@ func (b *Bucket) ColumnarLookupInt64(docID uint64, colIdx int) (int64, bool, err
 // An error means the segment list contained a non-columnar segment — an
 // invariant violation, not a "not found".
 func (b *Bucket) ColumnarLookupBits(docID uint64, colIdx int) (uint64, bool, error) {
-	if err := CheckExpectedStrategy(b.strategy, StrategyColumnar); err != nil {
+	if err := b.checkColumnarColumn(colIdx); err != nil {
 		return 0, false, err
 	}
 
@@ -176,7 +213,7 @@ func columnarLookupSegments(segments []Segment, docID uint64, colIdx int) (uint6
 func (b *Bucket) ColumnarScan(colIdx int, allow *sroar.Bitmap,
 	visit func(docID uint64, bits uint64) bool,
 ) error {
-	if err := CheckExpectedStrategy(b.strategy, StrategyColumnar); err != nil {
+	if err := b.checkColumnarColumn(colIdx); err != nil {
 		return err
 	}
 

@@ -72,8 +72,12 @@ type Column struct {
 	Type ColumnType
 	// Encoding is the on-disk encoding of the column's data pages. Only
 	// EncodingRawFixedWidth exists today; the field is in the wire format
-	// so future encodings (delta, dict, FOR — and raw N-byte payloads for
-	// vectors) don't require a format break.
+	// so future same-width encodings (delta, dict, FOR) can be added
+	// behind new EncodingIDs without invalidating existing segments.
+	// Wider fixed-width columns (raw N-byte vector payloads) need more
+	// than a new EncodingID: the per-column dims/page-table format
+	// extension from the stacked-vectors work, i.e. a versioned format
+	// change.
 	Encoding EncodingID
 }
 
@@ -101,6 +105,23 @@ func (s *Schema) ColOffset(colIdx int) int {
 		off += s.Columns[i].Type.Width()
 	}
 	return off
+}
+
+// Equal reports whether two schemas describe the same column layout:
+// same column count, and per column the same name, type, and encoding.
+// Used by the compactor to assert that two segments are mergeable —
+// merging segments with diverging schemas would silently misinterpret
+// column offsets.
+func (s *Schema) Equal(other *Schema) bool {
+	if other == nil || len(s.Columns) != len(other.Columns) {
+		return false
+	}
+	for i := range s.Columns {
+		if s.Columns[i] != other.Columns[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Schema) validate() error {

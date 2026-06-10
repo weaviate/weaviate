@@ -108,6 +108,14 @@ func (c *compactorColumnar) do(ctx context.Context) error {
 	if ld == nil || rd == nil {
 		return fmt.Errorf("compactorColumnar: segments missing columnar data")
 	}
+	// Both segments must agree on the column layout — the merge below
+	// copies raw row bytes and writes the LEFT schema into the output
+	// header, so a layout mismatch would silently misinterpret column
+	// offsets in the merged segment.
+	if !ld.schema.Equal(&rd.schema) {
+		return fmt.Errorf("compactorColumnar: left/right segment schemas differ: %+v vs %+v",
+			ld.schema, rd.schema)
+	}
 
 	// Dummy header now, real header via seek-back at the end — row counts
 	// are unknown until the merge completes.
