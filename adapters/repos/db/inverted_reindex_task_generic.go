@@ -1181,7 +1181,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 				err = fmt.Errorf("starting backup buckets:%w", err)
 				return err
 			}
-			t.registerDoubleWriteCallbacks(shard, props, t.backupBucketName, false)
+			if _, err = t.registerDoubleWriteCallbacks(shard, props, t.backupBucketName, false); err != nil {
+				err = fmt.Errorf("registering backup double-write callbacks: %w", err)
+				return err
+			}
 		}
 	} else {
 		isMerged := rt.IsMerged()
@@ -1225,7 +1228,11 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		if t.onBeforeDoubleWriteRegistration != nil {
 			t.onBeforeDoubleWriteRegistration()
 		}
-		disableJustRegistered := t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
+		disableJustRegistered, err := t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
+		if err != nil {
+			err = fmt.Errorf("registering ingest double-write callbacks: %w", err)
+			return err
+		}
 
 		// Capture the reindexStarted timestamp ONLY NOW, strictly after the
 		// double-write callbacks are active. The iteration loop skips every
@@ -2627,9 +2634,37 @@ func dirExists(path string) bool {
 // registered by this call (idempotent — each disable is an atomic flag),
 // for failure paths that must not touch registrations made for other
 // shards by the same task instance.
+//
+// INVARIANT (enforced here, fail-loud): registration MUST NOT happen
+// before every bucket the callbacks resolve is resolvable via the exact
+// per-invocation resolution path the callbacks use — the primary lookup
+// is shard.Store().Bucket(bucketNamer(prop)) in every strategy's
+// MakeAddCallback/MakeDeleteCallback. Activating mirrors whose target is
+// unresolvable puts the shard in the worst failure shape this migration
+// family has: every property-value write 5xxs with "double-write: bucket
+// not found" AFTER the object-store half already committed (non-atomic
+// from the client's view), AND the row is permanently lost from the
+// target bucket because the backfill iterator skips it
+// (LastUpdateTimeUnix >= reindexStarted) on the assumption the mirror
+// covered it. This is the exact client-visible signature reported on
+// weaviate/weaviate#11678 against the pre-mirror-lifetime-fix build.
+// The lifecycle guarantees the invariant ([OnAfterLsmInit] loads the
+// ingest/backup buckets strictly before registering), so a failure here
+// always means an ordering regression — surface it at migration start
+// instead of as write-path 500s.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
-) func() {
+) (func(), error) {
+	store := shard.Store()
+	for _, propName := range props {
+		if bucketName := bucketNamer(propName); store.Bucket(bucketName) == nil {
+			return nil, fmt.Errorf(
+				"registering double-write callbacks: target bucket %q for prop %q is not resolvable in the shard store; "+
+					"refusing to activate mirror callbacks that would fail every concurrent write (the bucket must be loaded before registration)",
+				bucketName, propName)
+		}
+	}
+
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
@@ -2647,7 +2682,7 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 	return func() {
 		disableAdd()
 		disableDelete()
-	}
+	}, nil
 }
 
 // disableCallbacks calls all stored callback disable functions collected
