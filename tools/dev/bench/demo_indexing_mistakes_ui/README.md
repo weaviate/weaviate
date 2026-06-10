@@ -45,7 +45,7 @@ If `WCD_API_KEY` is not set, `start.py` exits with a clear error.
 | 2 | Path search | `spec_sheet_path` (text, tokenization=word) | Any-of filter on five GoPro spec-sheet paths | Top results include paths from other categories that happen to share a token like `gopro`. |
 | 3 | Equality filter | `category` (text, filterable=false) | `category == "Cameras > Action"` | Weaviate refuses the query with `requires inverted index`. The category facet is broken. |
 | 4 | Filtered aggregation (selective) | `price_cents` (int, columnar=false) | `brand == "GoPro"` (~18k matches), aggregate mean/min/max/sum of `price_cents` | The filter is fast, but the aggregation fetches + unmarshals every matching object to extract one integer. |
-| 5 | Filtered aggregation (broad) | `price_cents` (int, columnar=false) | `in_stock == true` (~700k matches), same aggregation | The object-scan path scales linearly with match count - this lands in the seconds range. |
+| 5 | Filtered aggregation (broad) | `price_cents` (int, columnar=false) | `in_stock == true` (~700k matches), same aggregation | The object-scan path scales linearly with match count. On Weaviate Cloud it outlives the gateway timeout and the connection is killed; locally it lands in the seconds range. |
 
 The displayed code snippets use the v4 Python client; the UI itself happens to
 use GraphQL over the browser fetch API for transport convenience, but the

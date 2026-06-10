@@ -185,10 +185,12 @@
       <p class="explainer">
         Same aggregation, but the filter now matches ~70% of the catalog:
         <code>in_stock == true</code>. The object-scan path scales linearly
-        with the match count, so ~700,000 object fetches put this query in
-        the seconds range. A columnar index serves the whole thing from one
-        block scan over the column bucket - its cost is near-constant no
-        matter how many objects the filter matches.
+        with the match count - ~700,000 object fetches. On a cloud cluster
+        that runs past the gateway timeout and the connection is killed
+        before a result arrives; locally it lands in the seconds range.
+        A columnar index serves the whole thing from one block scan over
+        the column bucket - its cost is near-constant no matter how many
+        objects the filter matches.
       </p>
       <p class="schema-state">
         <code>price_cents</code> <span class="type-pill">int</span>

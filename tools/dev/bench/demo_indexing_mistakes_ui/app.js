@@ -307,6 +307,29 @@ function fmtPrice(cents) {
 
 function renderError(container, err) {
   const msg = err.message || String(err);
+  // Gateway termination: on Weaviate Cloud the object-scan aggregation of
+  // card 5 runs longer than the load balancer allows (~60s), so the
+  // connection is reset with a 502/503 before the query finishes. That IS
+  // the failure mode the card demonstrates - the analytics query is
+  // effectively unusable - so frame it as a demo outcome.
+  const rawBody = typeof err.body?.raw === "string" ? err.body.raw : "";
+  const gatewayKilled =
+    /HTTP (502|503|504)/.test(msg) ||
+    /upstream connect error|connection termination|gateway/i.test(rawBody);
+  if (gatewayKilled) {
+    container.innerHTML = `
+      <div class="metrics">
+        <div class="metric latency very-slow">
+          <span class="k">outcome</span>
+          <span class="v">connection killed</span>
+        </div>
+      </div>
+      <div class="error-block">${escapeHtml(msg)} - ${escapeHtml(rawBody || "gateway terminated the connection")}
+
+The aggregation ran longer than the cloud gateway allows, so the connection was reset before a result could be returned. The query is effectively unusable at this catalog size. Enable indexColumnar on price_cents from the Weaviate console, wait for the backfill, and re-run - the same aggregation returns in well under a second.</div>
+    `;
+    return;
+  }
   // Recognise the specific "requires inverted index" error - that IS the
   // failure mode we're demonstrating for cards 1 and 4, so frame it as a
   // demo outcome rather than an unexpected error.
