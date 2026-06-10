@@ -523,7 +523,10 @@ func (s *Shard) readVectorColumnIntoSliceWithView(ctx context.Context, indexID u
 	container *common.VectorSlice, targetVector string, view common.BucketView,
 ) ([]float32, error) {
 	if bucket := s.servableVectorColumnBucket(targetVector); bucket != nil {
-		floats, ok := bucket.ColumnarGetVectorFloats(indexID, container.Slice)
+		floats, ok, err := bucket.ColumnarGetVectorFloats(indexID, container.Slice)
+		if err != nil {
+			return nil, fmt.Errorf("vector column read: %w", err)
+		}
 		container.Slice = floats
 		if ok && len(floats) > 0 {
 			return floats, nil
@@ -596,8 +599,8 @@ func (s *Shard) tryReadMultiVectorColumn(indexID uint64, container *common.Vecto
 
 	// decode straight into a fresh flat slice (callers retain the result,
 	// so it must not alias the pooled container)
-	flat, ok := bucket.ColumnarGetVectorFloats(indexID, nil)
-	if !ok || len(flat) == 0 || len(flat)%dims != 0 {
+	flat, ok, err := bucket.ColumnarGetVectorFloats(indexID, nil)
+	if err != nil || !ok || len(flat) == 0 || len(flat)%dims != 0 {
 		return nil, false
 	}
 	tokens := len(flat) / dims

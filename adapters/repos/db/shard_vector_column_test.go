@@ -63,8 +63,8 @@ func vectorColumnPayload(t *testing.T, s *Shard, targetVector string, docID uint
 	if bucket == nil {
 		return nil, false
 	}
-	payload, ok := bucket.ColumnarGetVectorPayload(docID, nil)
-	if !ok {
+	payload, ok, err := bucket.ColumnarGetVectorPayload(docID, nil)
+	if err != nil || !ok {
 		return nil, false
 	}
 	return lsmkv.BytesToFloat32s(payload, nil), true
