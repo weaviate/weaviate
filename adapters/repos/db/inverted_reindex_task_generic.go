@@ -212,6 +212,16 @@ type ShardReindexTaskGeneric struct {
 	// (markStarted before callback registration) permanently lost them.
 	// Nil in production.
 	onBeforeDoubleWriteRegistration func()
+
+	// onAfterMigrationComplete is a test-only synchronization hook
+	// invoked by [runtimeSwap] right after strategy.OnMigrationComplete
+	// returns (schema flag flipped) and BEFORE the write-quiescence
+	// barrier and the deferred disableCallbacks run. Tests use it to
+	// inject in-flight writes that analyzed under the pre-flip schema
+	// (HasColumnarIndex=false) deterministically into the window where
+	// the double-write mirror is their only route into the target
+	// bucket. Nil in production.
+	onAfterMigrationComplete func()
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -1779,11 +1789,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Always disable the double-write callbacks registered by this task
 	// instance, regardless of whether the swap completes successfully.
 	//
-	// On the happy path this runs after the in-memory pointer flip:
-	// the main bucket pointer has already been swapped, so any callback
-	// invocations between markSwappedProp and this defer would have been
-	// harmless redundant writes (the ingest bucket is reachable under
-	// both the main and ingest names).
+	// On the happy path this defer is a no-op: the explicit
+	// disableCallbacks call below (after the post-flip write-quiescence
+	// barrier) has already run, so the deferred second call finds an
+	// empty list. NOTE for callback invocations between SwapBucketPointer
+	// and the explicit disable: SwapBucketPointer removes the ingest NAME
+	// from the store's map while the bucket itself stays live under the
+	// canonical name. Strategy callbacks that resolve their target by
+	// ingest name per invocation must fall back to the canonical name to
+	// stay functional in that window (the columnar strategy does — see
+	// EnableColumnarStrategy.resolveDoubleWriteBucket — where such an
+	// invocation is a harmless redundant write into the live swapped-in
+	// bucket).
 	//
 	// On an error path this is the load-bearing case: without it,
 	// callbacks would keep firing against buckets that may be mid-swap,
@@ -1894,6 +1911,33 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
+
+	if t.onAfterMigrationComplete != nil {
+		t.onAfterMigrationComplete()
+	}
+
+	// Write-quiescence barrier + mirror disable. INVARIANT: the
+	// double-write mirror callbacks may only be disabled once no write
+	// that analyzed under the PRE-flip schema can still be in flight.
+	// Such a write carries the old Has*Index flags (e.g.
+	// HasColumnarIndex=false), so the direct write path skips the new
+	// bucket and the mirror is its only route in; disabling the mirror
+	// under it loses the write silently (the disabled wrapper returns
+	// nil). OnMigrationComplete above has flipped the schema flag, so:
+	//   - writes that analyze AFTER the barrier see the new flag and are
+	//     covered by the direct write path;
+	//   - writes that analyzed before hold the shard's inverted-write
+	//     gate until their index updates (including the mirror) have
+	//     been applied — draining the gate waits them out while the
+	//     mirror is still active.
+	// Only then is it safe to disable. The deferred disableCallbacks at
+	// the top of this function then no-ops (the list is cleared).
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard for write-quiescence barrier: %w", err)
+	}
+	concreteShard.drainInvertedIndexWrites()
+	t.disableCallbacks()
 
 	// Trim older generations on disk (best-effort cleanup of sidecar
 	// dirs from completed-and-tidied prior migrations on this prop).

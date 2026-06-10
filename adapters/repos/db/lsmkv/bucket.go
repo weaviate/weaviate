@@ -2561,6 +2561,45 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 // PrependSegmentsFromBucket copies all segments from srcDir and prepends them
 // into this bucket's segment group. See SegmentGroup.PrependSegmentsFromBucket
 // for full semantics and preconditions.
+//
+// The pre-assigned segment timestamps of this bucket's live memtables
+// (active and flushing) are passed down so the copied segments are
+// shifted strictly BELOW them. A memtable's future segment file name is
+// fixed at memtable CREATION time (createNewActiveMemtable), which can
+// predate the source segments by the whole migration duration; without
+// the shift, a later flush of that memtable would sort BELOW the
+// prepended segments under the filename-sorted order a reload uses,
+// inverting LSM recency — stale prepended values would shadow the
+// memtable's newer writes after a restart.
 func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
-	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
+	pending, err := b.pendingMemtableSegmentTimestamps()
+	if err != nil {
+		return fmt.Errorf("prepend segments: pending memtable segment timestamps: %w", err)
+	}
+	return b.disk.PrependSegmentsFromBucket(ctx, srcDir, pending...)
+}
+
+// pendingMemtableSegmentTimestamps returns the segment-file timestamps
+// pre-assigned to the bucket's active and flushing memtables — the names
+// their future .db files will carry when flushed. Captured under
+// flushLock so a concurrent active→flushing switch cannot slip a
+// memtable past the snapshot: any memtable created after this call gets
+// a strictly newer (current-time) name, and any flush completing before
+// it leaves a .db file that directory discovery sees instead.
+func (b *Bucket) pendingMemtableSegmentTimestamps() ([]int64, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	out := make([]int64, 0, 2)
+	for _, mt := range []memtable{b.active, b.flushing} {
+		if mt == nil {
+			continue
+		}
+		ts, err := parseSegmentTimestamp(filepath.Base(mt.Path()))
+		if err != nil {
+			return nil, fmt.Errorf("parse memtable segment path %q: %w", mt.Path(), err)
+		}
+		out = append(out, ts)
+	}
+	return out, nil
 }

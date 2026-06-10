@@ -505,6 +505,13 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
+	// Hold the inverted-write gate across analyze→apply so a migration's
+	// post-schema-flip quiescence barrier can wait for writes that
+	// analyzed under the pre-flip schema. See the invertedWriteGate godoc
+	// in shard.go.
+	s.invertedWriteGate.RLock()
+	defer s.invertedWriteGate.RUnlock()
+
 	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")

@@ -66,16 +66,25 @@ type cwCounts struct {
 // in QA's black-box repro. A live-control case (indexColumnar at creation)
 // guards the synchronous write path under identical load.
 //
-// KNOWN RED (on columnar-v2 INCLUDING fix 323bcf22f5): the count converges,
-// but the SUM is reliably short by a handful of patched objects — the
-// columnar bucket permanently serves the PRE-patch value while the object
-// store (verified via objectStoreNonMarkerIDs) holds the marker. The
-// backfill writes the stale snapshot value into the reindex bucket while
-// the double-write puts the new value into the ingest bucket; on swap the
-// stale reindex entry wins for those docIDs, contradicting the
-// "ingest segments are strictly newer in LSM merge order" convergence
-// assumption for the columnar strategy. Do NOT delete or skip this test:
-// it is the reproduction case for that residual stale-value bug.
+// History: this test was deliberately committed RED. The residual
+// stale-sum failure (count converged, sum short by a handful of patched
+// objects) was the flip→disable TOCTOU at the migration end: a PATCH that
+// ran AnalyzeObject before OnMigrationComplete flipped IndexColumnar
+// carried HasColumnarIndex=false, and if its property-value-index update
+// executed after runtimeSwap disabled the double-write mirror, the new
+// value reached no columnar bucket — silently (the disabled mirror
+// returns nil). A sibling window ([SwapBucketPointer, disable)) turned
+// mirror writes into "bucket not found" PATCH 5xxs whose retries
+// converged on the same permanent staleness (the object store already
+// held the marker, so the retry's delta analysis skipped the property).
+// Fixed by (a) the mirror callbacks falling back to the canonical bucket
+// name across the swap and (b) runtimeSwap draining the shard's
+// inverted-write gate after the schema flip before disabling the mirror.
+// Deterministic companions: TestEnableColumnar_MirrorWriteInSwapWindow-
+// ReachesSwappedBucket and TestEnableColumnar_PreFlipAnalyzedWrite-
+// CompletesBeforeMirrorDisable in adapters/repos/db, plus
+// TestSegmentGroup_PrependSegments_ColumnarSurvivesReload in lsmkv for
+// the durable segment-name ordering of the prepended backfill.
 func TestEnableColumnar_ConcurrentWritesDuringMigration(t *testing.T) {
 	ctx := context.Background()
 

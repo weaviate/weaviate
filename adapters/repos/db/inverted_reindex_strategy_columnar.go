@@ -156,6 +156,42 @@ func (s *EnableColumnarStrategy) ShouldProcessProperty(property *inverted.Proper
 	return true
 }
 
+// resolveDoubleWriteBucket resolves the mirror callbacks' target bucket,
+// staying correct across runtimeSwap's Phase 2a: SwapBucketPointer
+// re-registers the ingest bucket under the canonical (main) name and
+// DELETES the ingest name from the store's map. The callbacks remain
+// registered until the post-flip write-quiescence barrier, so an
+// invocation landing in the [SwapBucketPointer, disableCallbacks) window
+// must fall back to the canonical name — it resolves the SAME live
+// bucket object the ingest name pointed to a moment earlier. Without the
+// fallback such writes failed with "bucket not found" (PATCH 5xx), and
+// the doomed PATCH retry converged on a permanently stale columnar row
+// (the object store already held the new value, so the retry's delta
+// analysis skipped the property).
+//
+// Pre-swap the ingest name always resolves (callbacks are registered
+// strictly after loadIngestBuckets), so the fallback can only trigger
+// post-swap. Writes through the fallback are idempotent with the direct
+// write path: ColumnarPut*/ColumnarDelete are replace/tombstone
+// per docID.
+//
+// The fallback applies only to the ingest mirror (forTargetStrategy).
+// The backup mirror (registered on the IsSwapped-not-Tidied recovery
+// path) targets the backup sidecar, which is never renamed to the
+// canonical name — redirecting its writes would silently break the
+// backup-sync property it exists for, so it keeps strict resolution.
+func (s *EnableColumnarStrategy) resolveDoubleWriteBucket(shard *Shard,
+	bucketName, propName string, forTargetStrategy bool,
+) *lsmkv.Bucket {
+	if bucket := shard.store.Bucket(bucketName); bucket != nil {
+		return bucket
+	}
+	if !forTargetStrategy {
+		return nil
+	}
+	return shard.store.Bucket(s.SourceBucketName(propName))
+}
+
 func (s *EnableColumnarStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
@@ -167,7 +203,7 @@ func (s *EnableColumnarStrategy) MakeAddCallback(bucketNamer func(string) string
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		bucket := s.resolveDoubleWriteBucket(shard, bucketName, property.Name, forTargetStrategy)
 		if bucket == nil {
 			return fmt.Errorf("columnar double-write: bucket '%s' not found", bucketName)
 		}
@@ -189,7 +225,7 @@ func (s *EnableColumnarStrategy) MakeDeleteCallback(bucketNamer func(string) str
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		bucket := s.resolveDoubleWriteBucket(shard, bucketName, property.Name, forTargetStrategy)
 		if bucket == nil {
 			return fmt.Errorf("columnar double-write: bucket '%s' not found", bucketName)
 		}

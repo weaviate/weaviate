@@ -149,6 +149,13 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
+	// Hold the inverted-write gate across analyze→apply — same contract
+	// as updateInvertedIndexLSM; see the invertedWriteGate godoc in
+	// shard.go. Acquired while holding asyncReplicationRWMux.RLock and a
+	// docIdLock stripe (callers), which is the documented lock order.
+	s.invertedWriteGate.RLock()
+	defer s.invertedWriteGate.RUnlock()
+
 	className, err := s.store.Bucket(helpers.ObjectsBucketLSM).ClassName()
 	if err != nil {
 		return fmt.Errorf("getting bucket class name: %w", err)
