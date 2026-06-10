@@ -146,6 +146,72 @@ func BenchmarkVectorColumnFetch1536d(b *testing.B) {
 	})
 }
 
+// BenchmarkVectorColumnFetchRealistic is the fetch benchmark with
+// production-shaped objects: a 1536-dim vector plus ~4KB of text props (the
+// LLM-memory profile). The object-binary path pays for the full blob; the
+// column path is unaffected by object width.
+func BenchmarkVectorColumnFetchRealistic(b *testing.B) {
+	r := getRandomSeed()
+	ctx := context.Background()
+	dims := 1536
+	n := 10_000
+
+	cfg := enthnsw.NewDefaultUserConfig()
+	cfg.ColumnarRescore = true
+
+	shard, _ := testShardWithSettings(b, ctx, vectorColumnTestClass("BenchVectorColumnFetchReal"),
+		cfg, false, false, false)
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(b, err)
+
+	text := make([]byte, 4096)
+	for i := range text {
+		text[i] = byte('a' + i%26)
+	}
+	objs := createRandomObjects(r, "BenchVectorColumnFetchReal", n, dims)
+	for _, obj := range objs {
+		obj.Object.Properties = map[string]interface{}{
+			"conversation": string(text),
+			"title":        "memory entry",
+			"turn_count":   float64(obj.DocID % 50),
+		}
+		require.NoError(b, shard.PutObject(ctx, obj))
+	}
+	require.NotNil(b, concrete.servableVectorColumnBucket(""))
+
+	docIDs := make([]uint64, len(objs))
+	for i, obj := range objs {
+		docIDs[i] = obj.DocID
+	}
+
+	view := concrete.GetObjectsBucketView()
+	defer view.ReleaseView()
+
+	b.Run("Objects", func(b *testing.B) {
+		container := &common.VectorSlice{Buff8: make([]byte, 8)}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			vec, err := concrete.readVectorByIndexIDIntoSliceWithView(ctx, docIDs[i%n], container, "", view)
+			if err != nil || len(vec) != dims {
+				b.Fatalf("fetch: err=%v len=%d", err, len(vec))
+			}
+		}
+	})
+
+	b.Run("Columnar", func(b *testing.B) {
+		container := &common.VectorSlice{Buff8: make([]byte, 8)}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			vec, err := concrete.readVectorColumnIntoSliceWithView(ctx, docIDs[i%n], container, "", view)
+			if err != nil || len(vec) != dims {
+				b.Fatalf("fetch: err=%v len=%d", err, len(vec))
+			}
+		}
+	})
+}
+
 // BenchmarkVectorColumnMuvera measures SearchByMultiVector with MUVERA
 // encoding, where exact reranking fetches full token matrices per
 // candidate. The doc cache is capped far below the dataset size so the

@@ -523,10 +523,10 @@ func (s *Shard) readVectorColumnIntoSliceWithView(ctx context.Context, indexID u
 	container *common.VectorSlice, targetVector string, view common.BucketView,
 ) ([]float32, error) {
 	if bucket := s.servableVectorColumnBucket(targetVector); bucket != nil {
-		payload, ok := bucket.ColumnarGetVectorPayload(indexID, container.Buff[:0])
-		container.Buff = payload
-		if ok && len(payload) > 0 {
-			return lsmkv.BytesToFloat32s(payload, container.Slice), nil
+		floats, ok := bucket.ColumnarGetVectorFloats(indexID, container.Slice)
+		container.Slice = floats
+		if ok && len(floats) > 0 {
+			return floats, nil
 		}
 		// not found in the column (docID written while the flag was
 		// disabled, or deleted): fall back to the objects bucket
@@ -594,13 +594,12 @@ func (s *Shard) tryReadMultiVectorColumn(indexID uint64, container *common.Vecto
 		return nil, false
 	}
 
-	payload, ok := bucket.ColumnarGetVectorPayload(indexID, container.Buff[:0])
-	container.Buff = payload
-	if !ok || len(payload) == 0 || len(payload)%(dims*4) != 0 {
+	// decode straight into a fresh flat slice (callers retain the result,
+	// so it must not alias the pooled container)
+	flat, ok := bucket.ColumnarGetVectorFloats(indexID, nil)
+	if !ok || len(flat) == 0 || len(flat)%dims != 0 {
 		return nil, false
 	}
-
-	flat := lsmkv.BytesToFloat32s(payload, nil)
 	tokens := len(flat) / dims
 	out := make([][]float32, tokens)
 	for i := range out {

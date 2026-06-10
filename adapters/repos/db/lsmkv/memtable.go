@@ -113,6 +113,7 @@ type memtable interface {
 	columnarDelete(docID uint64) error
 	columnarLookup(docID uint64, colIdx int) (uint64, bool, bool)
 	columnarLookupPayload(docID uint64, dst []byte) ([]byte, bool, bool)
+	columnarLookupFloats(docID uint64, dst []float32) ([]float32, bool, bool)
 	columnarScanRows(colIdx int, fn func(docID uint64, live bool, bits uint64) bool)
 
 	incWriterCount()

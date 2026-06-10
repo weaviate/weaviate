@@ -229,6 +229,22 @@ func (m *Memtable) columnarScanRows(colIdx int, fn func(docID uint64, live bool,
 	}
 }
 
+// columnarLookupFloats decodes the row payload into dst. Returns
+// (floats, found, isTombstone).
+func (m *Memtable) columnarLookupFloats(docID uint64, dst []float32) ([]float32, bool, bool) {
+	m.RLock()
+	defer m.RUnlock()
+
+	row, ok := m.columnarRows[docID]
+	if !ok {
+		return dst, false, false
+	}
+	if !row.live {
+		return dst, true, true
+	}
+	return BytesToFloat32s(row.values, dst), true, false
+}
+
 // columnarPutRow is used by WAL recovery to bulk-insert a row.
 func (m *Memtable) columnarPutRow(docID uint64, live bool, values []byte) {
 	row, isNew := m.getOrCreateColumnarRowLocked(docID)

@@ -12,10 +12,11 @@
 package lsmkv
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
@@ -153,6 +154,36 @@ func (b *Bucket) ColumnarGetVectorPayload(docID uint64, dst []byte) ([]byte, boo
 	return out, found && !tomb, nil
 }
 
+// ColumnarGetVectorFloats reads docID's vector payload decoded as float32s
+// (token-concatenated for multi-vector columns), growing dst as needed. The
+// read runs on a refcounted consistent view of the bucket; the decode is a
+// single memmove that happens while the view pins the segments — no
+// intermediate byte buffer. Returns (floats, found, err); an error means the
+// segment list contained a non-columnar segment — an invariant violation,
+// not a "not found".
+func (b *Bucket) ColumnarGetVectorFloats(docID uint64, dst []float32) ([]float32, bool, error) {
+	if err := CheckExpectedStrategy(b.strategy, StrategyColumnar); err != nil {
+		return dst, false, err
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	if out, found, tomb := view.Active.columnarLookupFloats(docID, dst); found {
+		return out, !tomb, nil
+	}
+	if view.Flushing != nil {
+		if out, found, tomb := view.Flushing.columnarLookupFloats(docID, dst); found {
+			return out, !tomb, nil
+		}
+	}
+	out, found, tomb, err := columnarLookupFloatsSegments(view.Disk, docID, dst)
+	if err != nil {
+		return dst, false, err
+	}
+	return out, found && !tomb, nil
+}
+
 // ColumnarDelete marks a docID as deleted.
 func (b *Bucket) ColumnarDelete(docID uint64) error {
 	return b.columnarWriteOp("columnar_delete", func(m memtable) error {
@@ -230,6 +261,27 @@ func columnarLookupPayloadSegments(segments []Segment, docID uint64, dst []byte)
 		out, found, tomb := seg.columnarData.lookupPayload(seg.contents, docID, dst)
 		if found {
 			return out, true, tomb, nil
+		}
+	}
+	return dst, false, false, nil
+}
+
+// columnarLookupFloatsSegments iterates a consistent-view segment list
+// newest→oldest, decoding the payload into dst (single memmove) while the
+// view pins the segments. The zero-copy payload reference never escapes the
+// view window. Returns (floats, found, isTombstone, err).
+func columnarLookupFloatsSegments(segments []Segment, docID uint64, dst []float32) ([]float32, bool, bool, error) {
+	for i := len(segments) - 1; i >= 0; i-- {
+		seg, err := asColumnarSegment(segments[i], i)
+		if err != nil {
+			return dst, false, false, fmt.Errorf("columnar floats lookup: %w", err)
+		}
+		ref, found, tomb := seg.columnarData.lookupPayloadRef(seg.contents, docID)
+		if found {
+			if tomb {
+				return dst, true, true, nil
+			}
+			return BytesToFloat32s(ref, dst), true, false, nil
 		}
 	}
 	return dst, false, false, nil
@@ -353,26 +405,22 @@ func columnarScanSegments(segments []Segment, colIdx int, allow, seen *sroar.Bit
 }
 
 // float32sToBytes appends the little-endian byte representation of vec to
-// dst.
+// dst via a single memmove (byteops handles the endianness contract).
 func float32sToBytes(vec []float32, dst []byte) []byte {
 	off := len(dst)
 	dst = append(dst, make([]byte, len(vec)*4)...)
-	for i, v := range vec {
-		binary.LittleEndian.PutUint32(dst[off+i*4:], math.Float32bits(v))
-	}
+	byteops.CopySliceToBytes(dst[off:], vec)
 	return dst
 }
 
-// BytesToFloat32s decodes a little-endian float32 payload into dst,
-// growing it as needed. The result length is len(payload)/4.
+// BytesToFloat32s decodes a little-endian float32 payload into dst, growing
+// it as needed, via a single memmove. The result length is len(payload)/4.
 func BytesToFloat32s(payload []byte, dst []float32) []float32 {
 	n := len(payload) / 4
 	if cap(dst) < n {
 		dst = make([]float32, n)
 	}
 	dst = dst[:n]
-	for i := 0; i < n; i++ {
-		dst[i] = math.Float32frombits(binary.LittleEndian.Uint32(payload[i*4:]))
-	}
+	byteops.CopyBytesToSlice(dst, payload[:n*4])
 	return dst
 }

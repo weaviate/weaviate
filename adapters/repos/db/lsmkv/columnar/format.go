@@ -464,7 +464,7 @@ func (w *BlockWriter) flushBlock() error {
 			// offsets header is padded to a payloadAlign multiple, so an
 			// aligned page start keeps the payload aligned too
 			pageOff = alignUp(pageOff, payloadAlign)
-			headerSize := alignUp(4*(rows+1), payloadAlign)
+			headerSize := VariablePageHeaderSize(rows)
 			pageSize = headerSize + len(w.pages[c])
 		} else {
 			if col.Type.isVector() {
@@ -497,7 +497,7 @@ func (w *BlockWriter) flushBlock() error {
 				}
 				binary.LittleEndian.PutUint32(block[pageStart+4*r:], v)
 			}
-			payloadStart := pageStart + alignUp(4*(rows+1), payloadAlign)
+			payloadStart := pageStart + VariablePageHeaderSize(rows)
 			copy(block[payloadStart:], w.pages[c])
 		} else {
 			copy(block[pageStart:], w.pages[c])
@@ -516,6 +516,14 @@ func (w *BlockWriter) flushBlock() error {
 		w.pages[i] = w.pages[i][:0]
 	}
 	return nil
+}
+
+// VariablePageHeaderSize returns the byte size of a variable page's
+// row-offset header (offset table padded to the payload alignment) for a
+// block of the given row count. Exposed for direct page access on the
+// point-lookup hot path.
+func VariablePageHeaderSize(rows int) int {
+	return alignUp(4*(rows+1), payloadAlign)
 }
 
 // BlockReader provides access to one block's contents within an mmap'd or
@@ -557,7 +565,7 @@ func NewBlockReader(schema *Schema, entry *DirectoryEntry, contents []byte) (*Bl
 		page := contents[pageStart:pageEnd]
 
 		if col.IsVariable() {
-			headerSize := alignUp(4*(rows+1), payloadAlign)
+			headerSize := VariablePageHeaderSize(rows)
 			if len(page) < headerSize {
 				return nil, fmt.Errorf("columnar block column %d variable page too short", i)
 			}
