@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -30,6 +31,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		"type":  api.ApplyRequest_Type_name[int32(req.Type)],
 		"class": req.Class,
 	}).Debug("server.execute")
+
+	// A read-only follower has no RAFT node (st.raft == nil); st.raft.Apply
+	// below would be a nil dereference. Reject the write cleanly. This is
+	// defense-in-depth behind the API-layer write rejection.
+	if st.raft == nil {
+		return 0, errors.New("node is a read-only follower: schema writes are not permitted")
+	}
 
 	// Parse the underlying command before pre execute filtering to avoid queryinf the schema is the underlying command
 	// is invalid

@@ -154,6 +154,22 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 // bootstrap the Raft node, and restore the database state
 func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	c.logger.WithField("servers", c.config.NodeNameToPortMap).Info("open cluster service")
+
+	// A read-only follower does no RAFT networking and never joins or bootstraps
+	// a cluster: it hydrates the schema FSM from the copied raft dir (Raft.Open →
+	// hydrateReadOnly), waits for the DB to load, and serves reads. Skipping the
+	// rpc server, join/bootstrap, and the onFSMCaughtUp leader watcher keeps it
+	// fully passive.
+	if c.config.ReadOnlyFollower {
+		if err := c.Raft.Open(ctx, db); err != nil {
+			return fmt.Errorf("open raft store (read-only follower): %w", err)
+		}
+		if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
+			return fmt.Errorf("restore database (read-only follower): %w", err)
+		}
+		return nil
+	}
+
 	if err := c.rpcServer.Open(); err != nil {
 		return fmt.Errorf("start rpc service: %w", err)
 	}
