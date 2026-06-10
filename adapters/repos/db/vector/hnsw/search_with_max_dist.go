@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -25,26 +24,35 @@ import (
 func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32,
 	dist float32, ef int, allowList helpers.AllowList,
 ) ([]uint64, error) {
+	h.RLock()
 	entryPointID := h.entryPointID
+	maxLayer := h.currentMaximumLayer
+	h.RUnlock()
+
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		var returnFn compressionhelpers.ReturnDistancerFn
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
+
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "KnnSearchByVectorMaxDist")
-			return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+			var found bool
+			entryPointID, maxLayer, entryPointDistance, found = h.findFallbackEntrypoint(compressorDistancer, searchVec)
+			if !found {
+				return nil, nil
+			}
+		} else {
+			return nil, errors.Wrap(err, "knn search max dist: distance to entrypoint")
 		}
-		return nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	// stop at layer 1, not 0!
-	for level := h.currentMaximumLayer; level >= 1; level-- {
+	for level := maxLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin[any](1)
 		eps.Insert(entryPointID, entryPointDistance)
 		// ignore allowList on layers > 0
