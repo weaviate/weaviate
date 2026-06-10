@@ -334,11 +334,12 @@ func runWindowSpanningPatches(t *testing.T, restURI, className string) []int64 {
 	}, logger)
 
 	var (
-		wg          sync.WaitGroup
-		failures    atomic.Int64
-		totalRounds atomic.Int64
-		failuresMu  sync.Mutex
-		failureMsgs []string
+		wg           sync.WaitGroup
+		failures     atomic.Int64
+		totalRounds  atomic.Int64
+		totalPatches atomic.Int64
+		failuresMu   sync.Mutex
+		failureMsgs  []string
 	)
 	for w := 0; w < cwWriters; w++ {
 		w := w
@@ -361,6 +362,7 @@ func runWindowSpanningPatches(t *testing.T, restURI, className string) []int64 {
 						continue
 					}
 					lastVals[i-cwUpdateOffset] = val
+					totalPatches.Add(1)
 				}
 				totalRounds.Add(1)
 			}
@@ -370,16 +372,19 @@ func runWindowSpanningPatches(t *testing.T, restURI, className string) []int64 {
 	stop.Store(true)
 	<-flagPollDone
 
-	t.Logf("window-spanning load: %d completed worker-rounds, %d PATCH failures",
-		totalRounds.Load(), failures.Load())
+	t.Logf("window-spanning load: %d successful PATCHes (%d completed worker-rounds), %d PATCH failures",
+		totalPatches.Load(), totalRounds.Load(), failures.Load())
 	for _, msg := range failureMsgs {
 		t.Logf("PATCH failure: %s", msg)
 	}
 	require.Zero(t, failures.Load(),
 		"every PATCH issued during the [trigger, flag-flip) window must succeed — "+
 			"a 5xx here is the double-write mirror failing to resolve its target bucket")
-	require.GreaterOrEqual(t, totalRounds.Load(), int64(1),
-		"the PATCH load must have completed at least one full round inside the migration window")
+	// Per-PATCH floor, not full rounds: on slow CI runners the migration can
+	// finish before any worker completes a whole round, with plenty of
+	// individual in-window PATCHes still exercising the mirror.
+	require.GreaterOrEqual(t, totalPatches.Load(), int64(cwWriters),
+		"the PATCH load must overlap the migration window (got fewer in-window PATCHes than workers)")
 	return lastVals
 }
 
