@@ -94,6 +94,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		bitmapBufPool:                   bitmapBufPool,
 		HFreshEnabled:                   index.HFreshEnabled,
 		lazySegmentLoadingEnabled:       lazyLoadSegments,
+		readOnly:                        index.Config.ReadOnly,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -143,12 +144,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	_, err = os.Stat(s.path())
 	exists := err == nil
 
-	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
-		return nil, err
-	}
+	// A read-only follower opens an immutable copy: the shard directory already
+	// exists, and sweepChangelogDir deletes orphan .log files. Skip both so the
+	// open path performs no writes.
+	if !s.readOnly {
+		if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
+			return nil, err
+		}
 
-	if err := s.sweepChangelogDir(); err != nil {
-		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
+		if err := s.sweepChangelogDir(); err != nil {
+			return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
+		}
 	}
 
 	// init the store itself synchronously
@@ -159,7 +165,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
 	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	//
+	// A read-only follower never finalizes migrations: the function renames and
+	// removes directories under .migrations, which a read-only mount forbids. A
+	// follower asserts its copy was taken from a writer with no pending deferred
+	// finalize; the in-memory swap and the directory rename happen on the writer,
+	// so the copy already has buckets at their canonical names.
+	if !s.readOnly {
+		FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	}
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.
@@ -172,7 +186,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// FinalizeCompletedMigrations above promoted them to canonical).
 	markInFlightRangeableMigrationsNotReady(s)
 
-	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
+	// Reindexer hooks recover/finalize in-flight reindex migrations, which
+	// mutate on-disk buckets. A read-only follower never reindexes, so skip all
+	// three hooks (before/after/after-async) to keep the open path write-free.
+	if !s.readOnly {
+		_ = s.reindexer.RunBeforeLsmInit(ctx, s)
+	}
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
@@ -201,8 +220,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
 
-	_ = s.reindexer.RunAfterLsmInit(ctx, s)
-	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
+	if !s.readOnly {
+		_ = s.reindexer.RunAfterLsmInit(ctx, s)
+		_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
+	}
 	return s, nil
 }
 

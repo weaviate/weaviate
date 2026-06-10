@@ -328,3 +328,25 @@ func WithSequentialAccess(v bool) BucketOption {
 		return nil
 	}
 }
+
+// WithReadOnly opens the bucket for a read-only follower: the on-disk copy is
+// immutable and the open path must not write to it. It implies WithImmutable
+// (reject write API calls) and WithDisableCompaction (no compaction cycles), and
+// additionally neutralizes the open-time writes those two do not cover — the
+// directory MkdirAll, write-ahead-log recovery (replayed into memory instead of
+// flushed/removed/reopened), and segment sidecar regeneration (computed in
+// memory, never persisted). It also forces metadata-file and
+// segment-info-in-filename writes off, since both can rewrite or rename segment
+// files on load.
+func WithReadOnly(readOnly bool) BucketOption {
+	return func(b *Bucket) error {
+		b.readOnly = readOnly
+		if readOnly {
+			b.immutable = true
+			b.disableCompaction = true
+			b.writeMetadata = false
+			b.writeSegmentInfoIntoFileName = false
+		}
+		return nil
+	}
+}

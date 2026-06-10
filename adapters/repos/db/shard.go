@@ -491,6 +491,17 @@ type Shard struct {
 
 	lazySegmentLoadingEnabled bool
 
+	// readOnly marks this shard as a read-only follower. When set, the storage
+	// open path (LSM/HNSW/indexcounter/versioner/proplen) must not mutate the
+	// on-disk copy: no MkdirAll, no WAL replay-to-disk, no sidecar regen, no
+	// migrations, no compaction/flush cycles. It is set from
+	// IndexConfig.ReadOnly at construction and consulted by the shared init
+	// helpers and by makeDefaultBucketOptions (via lsmkv WithReadOnly). The
+	// outer ReadOnlyShard wrapper additionally rejects all mutation methods;
+	// this field guarantees the open path itself stays write-free so a future
+	// write-on-open cannot silently bypass read-only mode.
+	readOnly bool
+
 	// metricsRegistered tracks whether this shard was registered with shard lifecycle metrics
 	// (e.g., NewLoadedShard or FinishLoadingShard was called). This prevents double-counting
 	// or incorrect metric updates during partial initialization cleanup.

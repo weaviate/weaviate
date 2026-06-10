@@ -63,6 +63,46 @@ func New(shardPath string) (cr *Counter, rerr error) {
 	}, nil
 }
 
+// NewReadOnly opens the index counter for a read-only follower. It never
+// creates or writes the indexcount file: the file is opened O_RDONLY, and if it
+// is absent (an empty shard that never assigned a docID) the counter starts at
+// zero with no backing file. GetAndInc must never be called on a read-only
+// counter — there is no writable descriptor and writes are rejected upstream.
+func NewReadOnly(shardPath string) (cr *Counter, rerr error) {
+	fileName := fmt.Sprintf("%s/indexcount", shardPath)
+	f, err := os.OpenFile(fileName, os.O_RDONLY, 0o666)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No docID was ever assigned for this shard; nothing to read.
+			return &Counter{count: 0, f: nil}, nil
+		}
+		return nil, err
+	}
+
+	defer func() {
+		if rerr != nil {
+			f.Close()
+		}
+	}()
+
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	var initialCount uint64 = 0
+	if stat.Size() > 0 {
+		if err := binary.Read(f, binary.LittleEndian, &initialCount); err != nil {
+			return nil, errors.Wrap(err, "read initial count from file")
+		}
+	}
+
+	return &Counter{
+		count: initialCount,
+		f:     f,
+	}, nil
+}
+
 func (c *Counter) Get() uint64 {
 	c.Lock()
 	defer c.Unlock()
@@ -72,6 +112,11 @@ func (c *Counter) Get() uint64 {
 func (c *Counter) GetAndInc() (uint64, error) {
 	c.Lock()
 	defer c.Unlock()
+	if c.f == nil {
+		// Read-only follower counter (opened via NewReadOnly): there is no
+		// writable backing file, so a docID can never be assigned.
+		return 0, errors.New("cannot assign docID: index counter is read-only")
+	}
 	before := c.count
 	c.count++
 	c.f.Seek(0, 0)

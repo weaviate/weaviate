@@ -60,7 +60,18 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		}
 	}
 
-	return append(options, customOptions...)
+	options = append(options, customOptions...)
+
+	if s.readOnly {
+		// Read-only follower: every bucket opens write-free (no MkdirAll, WAL
+		// replayed into memory, sidecars computed but not persisted) and rejects
+		// writes. WithReadOnly also forces immutable, disableCompaction, and the
+		// metadata/segment-info-in-filename writes off. Appended last (after
+		// customOptions) so its forced flags cannot be overridden.
+		options = append(options, lsmkv.WithReadOnly(true))
+	}
+
+	return options
 }
 
 func (s *Shard) overwrittenMakeDefaultBucketOptions(overwrittenDefaults ...lsmkv.BucketOption) lsmkv.MakeBucketOptions {

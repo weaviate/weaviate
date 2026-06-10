@@ -12,6 +12,7 @@
 package common
 
 import (
+	"errors"
 	"io"
 	"os"
 )
@@ -19,7 +20,14 @@ import (
 var (
 	_ File = (*os.File)(nil)
 	_ FS   = (*osFS)(nil)
+	_ FS   = (*readOnlyFS)(nil)
 )
+
+// ErrReadOnly is returned by a read-only FS when code attempts a write that
+// read-only-follower mode does not anticipate (Create or a write-mode
+// OpenFile). It surfaces an unexpected write loudly instead of letting it
+// silently corrupt in-memory state that expects a real on-disk file.
+var ErrReadOnly = errors.New("read-only follower: filesystem write rejected")
 
 type File interface {
 	io.Reader
@@ -88,6 +96,64 @@ func (fs *osFS) Rename(oldpath, newpath string) error {
 
 func (fs *osFS) Truncate(name string, size int64) error {
 	return os.Truncate(name, size)
+}
+
+// readOnlyFS wraps an FS for read-only-follower mode. Reads pass through to the
+// inner FS; mutations are neutralized. MkdirAll/Remove/RemoveAll/Rename/Truncate
+// become no-ops — the on-disk copy already contains every directory the open
+// path needs, and cleaning up stray temp files on an immutable snapshot is
+// unnecessary. Create and write-mode OpenFile return ErrReadOnly so an
+// unexpected write fails loudly rather than corrupting state silently.
+type readOnlyFS struct {
+	inner FS
+}
+
+// NewReadOnlyFS wraps inner so that every mutation is neutralized. See readOnlyFS.
+func NewReadOnlyFS(inner FS) FS {
+	return &readOnlyFS{inner: inner}
+}
+
+func (fs *readOnlyFS) Open(name string) (File, error) {
+	return fs.inner.Open(name)
+}
+
+func (fs *readOnlyFS) OpenFile(name string, flag int, perm os.FileMode) (File, error) {
+	if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_APPEND|os.O_TRUNC) != 0 {
+		return nil, ErrReadOnly
+	}
+	return fs.inner.OpenFile(name, flag, perm)
+}
+
+func (fs *readOnlyFS) Create(name string) (File, error) {
+	return nil, ErrReadOnly
+}
+
+func (fs *readOnlyFS) MkdirAll(path string, perm os.FileMode) error {
+	return nil
+}
+
+func (fs *readOnlyFS) ReadDir(name string) ([]os.DirEntry, error) {
+	return fs.inner.ReadDir(name)
+}
+
+func (fs *readOnlyFS) Stat(name string) (os.FileInfo, error) {
+	return fs.inner.Stat(name)
+}
+
+func (fs *readOnlyFS) Remove(name string) error {
+	return nil
+}
+
+func (fs *readOnlyFS) RemoveAll(path string) error {
+	return nil
+}
+
+func (fs *readOnlyFS) Rename(oldpath, newpath string) error {
+	return nil
+}
+
+func (fs *readOnlyFS) Truncate(name string, size int64) error {
+	return nil
 }
 
 type TestFS struct {

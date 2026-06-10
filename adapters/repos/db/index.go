@@ -452,27 +452,35 @@ func NewIndex(
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
-		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
-	}
+	// In read-only-follower mode the data directory is an immutable copy
+	// mounted read-only: the directory already exists, the orphan-snapshot
+	// cleanup is a delete we must not perform, and the compaction/flush cycles
+	// are no-ops. Skip all three so index construction stays write-free.
+	if !cfg.ReadOnly {
+		if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
+			return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
+		}
 
-	// Remove the snapshots root to clean up any bucket snapshots left behind
-	// by operations that were interrupted (e.g. server crash). This runs once
-	// at index creation time — not on every shard load — so it won't interfere
-	// with a snapshot that may be in use after a tenant re-activation.
-	if err := os.RemoveAll(index.snapshotsPath()); err != nil {
-		logger.WithField("action", "remove_orphaned_snapshots").
-			WithField("path", index.snapshotsPath()).
-			Error(err)
+		// Remove the snapshots root to clean up any bucket snapshots left behind
+		// by operations that were interrupted (e.g. server crash). This runs once
+		// at index creation time — not on every shard load — so it won't interfere
+		// with a snapshot that may be in use after a tenant re-activation.
+		if err := os.RemoveAll(index.snapshotsPath()); err != nil {
+			logger.WithField("action", "remove_orphaned_snapshots").
+				WithField("path", index.snapshotsPath()).
+				Error(err)
+		}
 	}
 
 	if err := index.initAndStoreShards(ctx, class, promMetrics); err != nil {
 		return nil, err
 	}
 
-	index.cycleCallbacks.compactionCycle.Start()
-	index.cycleCallbacks.compactionAuxCycle.Start()
-	index.cycleCallbacks.flushCycle.Start()
+	if !cfg.ReadOnly {
+		index.cycleCallbacks.compactionCycle.Start()
+		index.cycleCallbacks.compactionAuxCycle.Start()
+		index.cycleCallbacks.flushCycle.Start()
+	}
 
 	return index, nil
 }
@@ -1090,6 +1098,11 @@ type IndexConfig struct {
 	AutoTenantActivation bool
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+
+	// ReadOnly marks this index (and the shards it materializes) as a
+	// read-only follower: storage opens without mutating the on-disk copy and
+	// rejects writes. See db.Config.ReadOnly.
+	ReadOnly bool
 }
 
 func indexID(class schema.ClassName) string {

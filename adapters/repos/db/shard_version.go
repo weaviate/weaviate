@@ -48,16 +48,42 @@ type shardVersioner struct {
 func newShardVersioner(baseDir string, dataPresent bool) (*shardVersioner, error) {
 	sv := &shardVersioner{}
 
-	return sv, sv.init(baseDir, dataPresent)
+	return sv, sv.init(baseDir, dataPresent, false)
 }
 
-func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
+// newShardVersionerReadOnly loads the shard version for a read-only follower.
+// The version file is opened O_RDONLY and never written. If the file is absent
+// (a shard built before the versioner existed, or never persisted), the version
+// is inferred exactly as the writable path would have inferred it, without
+// persisting it.
+func newShardVersionerReadOnly(baseDir string, dataPresent bool) (*shardVersioner, error) {
+	sv := &shardVersioner{}
+
+	return sv, sv.init(baseDir, dataPresent, true)
+}
+
+func (sv *shardVersioner) init(fileName string, dataPresent, readOnly bool) error {
 	sv.path = fileName
 
-	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
+	flags := os.O_RDWR | os.O_CREATE
+	if readOnly {
+		flags = os.O_RDONLY
+	}
+
+	f, err := os.OpenFile(fileName, flags, 0o666)
 	if err != nil {
+		if readOnly && os.IsNotExist(err) {
+			// Read-only follower with no version file in the copy. Infer the
+			// version the writable path would have stamped, but do not persist.
+			version := ShardCodeBaseVersion
+			if dataPresent {
+				version = 1
+			}
+			return sv.finishInit(version)
+		}
 		return err
 	}
+	defer f.Close()
 
 	stat, err := f.Stat()
 	if err != nil {
@@ -83,16 +109,20 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
 			version = 1
 		}
 
-		err := binary.Write(f, binary.LittleEndian, &version)
-		if err != nil {
-			return errors.Wrap(err, "write version back to file")
-		}
-
-		if err := f.Close(); err != nil {
-			return errors.Wrap(err, "close version file")
+		// A read-only follower must not write the version back; the inferred
+		// value is used in memory only.
+		if !readOnly {
+			err := binary.Write(f, binary.LittleEndian, &version)
+			if err != nil {
+				return errors.Wrap(err, "write version back to file")
+			}
 		}
 	}
 
+	return sv.finishInit(version)
+}
+
+func (sv *shardVersioner) finishInit(version uint16) error {
 	if version < ShardCodeBaseMinimumVersionForStartup {
 		return errors.Errorf("cannot start up shard: it was built with shard "+
 			"version v%d, but this version of Weaviate requires at least shard version v%d",

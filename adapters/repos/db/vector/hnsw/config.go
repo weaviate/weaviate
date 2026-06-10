@@ -48,6 +48,13 @@ type Config struct {
 	SnapshotOnStartup                 bool
 	MakeBucketOptions                 lsmkv.MakeBucketOptions
 
+	// ReadOnly opens the index for a read-only follower: the filesystem is
+	// wrapped so directory creation, temp-file cleanup, snapshot creation and
+	// commit-log appends are neutralized, and the on-disk commit log/snapshot
+	// is loaded but never written. The caller must also supply a NoopCommitLogger
+	// and leave SnapshotOnStartup false.
+	ReadOnly bool
+
 	// metadata for monitoring
 	ShardName string
 	ClassName string

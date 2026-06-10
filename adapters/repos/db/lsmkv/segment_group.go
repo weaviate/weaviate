@@ -102,6 +102,12 @@ type SegmentGroup struct {
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
 	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
+	// readOnly marks a segment group opened from a read-only-follower copy. All
+	// startup cleanup (stale scratch dirs, partial .tmp compaction files,
+	// delete-marked files, partially-written segments shadowed by a WAL) is
+	// skipped rather than executed, and segment sidecars are computed in memory
+	// without persisting.
+	readOnly bool
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// Store the average property length for segments in this sg,
@@ -131,6 +137,7 @@ type sgConfig struct {
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
 	sequentialAccess             bool
+	readOnly                     bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 }
 
@@ -168,19 +175,23 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
+		readOnly:                     cfg.readOnly,
 	}
 
 	// Clean up stale scratch directories left behind by a prior version that
 	// used scratch files during compaction/flushing. These are no longer
 	// created, but may linger after an upgrade if the process crashed mid-
-	// compaction before the old code could remove them.
-	if entries, err := os.ReadDir(cfg.dir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() && strings.HasSuffix(e.Name(), ".scratch.d") {
-				p := filepath.Join(cfg.dir, e.Name())
-				if err := os.RemoveAll(p); err != nil {
-					logger.WithError(err).WithField("path", p).
-						Warn("failed to remove stale scratch directory")
+	// compaction before the old code could remove them. A read-only follower
+	// must not delete anything; it simply ignores stale scratch dirs.
+	if !sg.readOnly {
+		if entries, err := os.ReadDir(cfg.dir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() && strings.HasSuffix(e.Name(), ".scratch.d") {
+					p := filepath.Join(cfg.dir, e.Name())
+					if err := os.RemoveAll(p); err != nil {
+						logger.WithError(err).WithField("path", p).
+							Warn("failed to remove stale scratch directory")
+					}
 				}
 			}
 		}
@@ -205,6 +216,26 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		jointSegments := segmentID(potentialCompactedSegmentFileName)
 		jointSegmentsIDs := strings.Split(jointSegments, "_")
+
+		if sg.readOnly {
+			// A read-only follower cannot remove, rename, or fsync, so it cannot
+			// resolve an in-progress compaction. It ignores the .tmp and loads the
+			// source segments instead — safe as long as both sources are still
+			// present (the common crash-consistent case: write+fsync .tmp, then
+			// delete sources, then rename). If a source is already gone, the .tmp
+			// holds the only copy of that data and we cannot promote it read-only;
+			// fail loud rather than silently drop data.
+			if len(jointSegmentsIDs) == 2 {
+				leftFound, _ := segmentExistsWithID(jointSegmentsIDs[0], files)
+				rightFound, _ := segmentExistsWithID(jointSegmentsIDs[1], files)
+				if !leftFound || !rightFound {
+					return nil, fmt.Errorf("read-only follower: in-progress compaction %q has a "+
+						"missing source segment (left=%t right=%t); the snapshot was taken mid-compaction "+
+						"and cannot be served read-only", entry, leftFound, rightFound)
+				}
+			}
+			continue
+		}
 
 		if len(jointSegmentsIDs) == 1 {
 			// cleanup leftover, to be removed
@@ -261,6 +292,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
 					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+					readOnly:                 sg.readOnly,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -332,14 +364,17 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 	for _, entry := range fileList {
 		if filepath.Ext(entry) == DeleteMarkerSuffix {
-			// marked for deletion, but never actually deleted. Delete now.
-			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
-				// don't abort if the delete fails, we can still continue (albeit
-				// without freeing disk space that should have been freed)
-				sg.logger.WithError(err).WithFields(logrus.Fields{
-					"action": "lsm_segment_init_deleted_previously_marked_files",
-					"file":   entry,
-				}).Error("failed to delete file already marked for deletion")
+			// marked for deletion, but never actually deleted. A read-only
+			// follower skips the delete and just ignores the file.
+			if !sg.readOnly {
+				if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+					// don't abort if the delete fails, we can still continue (albeit
+					// without freeing disk space that should have been freed)
+					sg.logger.WithError(err).WithFields(logrus.Fields{
+						"action": "lsm_segment_init_deleted_previously_marked_files",
+						"file":   entry,
+					}).Error("failed to delete file already marked for deletion")
+				}
 			}
 			continue
 
@@ -357,10 +392,16 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		walFileName += ".wal"
 		_, ok := files[walFileName]
 		if ok {
-			// the segment will be recovered from the WAL
-			err := os.Remove(filepath.Join(sg.dir, entry))
-			if err != nil {
-				return nil, fmt.Errorf("delete partially written segment %s: %w", entry, err)
+			// A WAL exists for this segment, so the flush never finished and the
+			// segment is partially written. The WAL is the source of truth and is
+			// replayed (into memory, for a read-only follower). A writer deletes
+			// the partial segment; a read-only follower skips the delete and just
+			// ignores the partial segment file.
+			if !sg.readOnly {
+				err := os.Remove(filepath.Join(sg.dir, entry))
+				if err != nil {
+					return nil, fmt.Errorf("delete partially written segment %s: %w", entry, err)
+				}
 			}
 
 			logger.WithField("action", "lsm_segment_init").
@@ -385,6 +426,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			readOnly:                 sg.readOnly,
 		}
 		var err error
 		if b.lazySegmentLoading {
