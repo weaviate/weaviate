@@ -55,6 +55,79 @@ func makeColumnarMirrorProp(t *testing.T, propName string, v int64) inverted.Pro
 	}
 }
 
+// TestReindex_DoubleWriteRegistrationRequiresResolvableBuckets pins the
+// fail-loud invariant on [ShardReindexTaskGeneric.registerDoubleWriteCallbacks]:
+// mirror callbacks MUST NOT activate while any bucket they resolve
+// (shard.Store().Bucket(bucketNamer(prop)) — the per-invocation primary
+// lookup in every strategy's MakeAddCallback/MakeDeleteCallback) is not
+// resolvable. Pre-guard, registering against an unloaded ingest bucket
+// silently succeeded and put the shard in the weaviate/weaviate#11678
+// client-visible failure shape: every concurrent PATCH 500s with
+// "columnar double-write: bucket 'property_<p>_columnar__columnar_ingest_1'
+// not found" AFTER its object-store half committed, while the row goes
+// permanently missing from the columnar bucket (iterator-skip +
+// failed-mirror loss quadrant). The guard turns that ordering regression
+// into a deterministic error at migration start.
+func TestReindex_DoubleWriteRegistrationRequiresResolvableBuckets(t *testing.T) {
+	const numObjects = 10
+	propName := enableColumnarPropName
+
+	ctx := testCtx()
+	shard, idx, _, className := setupEnableColumnarShard(t, ctx, "EnableColumnarRegGuard", numObjects)
+
+	t.Run("ingest mirror refuses unresolvable bucket", func(t *testing.T) {
+		task, _ := newEnableColumnarTask(t, idx, className, propName)
+
+		// The broken ordering under test: register BEFORE loadIngestBuckets.
+		disable, err := task.registerDoubleWriteCallbacks(
+			shard, []string{propName}, task.ingestBucketName, true)
+		require.Error(t, err,
+			"registration must refuse to activate mirror callbacks whose target bucket is unresolvable")
+		require.Contains(t, err.Error(), task.ingestBucketName(propName))
+		require.Nil(t, disable)
+
+		// No callback may have been left behind: a write through the
+		// property-value-index path must NOT produce the 500-after-
+		// object-commit signature.
+		prop := makeColumnarMirrorProp(t, propName, 4242)
+		require.NoError(t, shard.addToPropertyValueIndex(uint64(1<<21), prop),
+			"a refused registration must leave no active mirror that errors on writes")
+	})
+
+	t.Run("backup mirror refuses unresolvable bucket", func(t *testing.T) {
+		task, _ := newEnableColumnarTask(t, idx, className, propName)
+
+		disable, err := task.registerDoubleWriteCallbacks(
+			shard, []string{propName}, task.backupBucketName, false)
+		require.Error(t, err,
+			"the backup mirror has strict resolution (no canonical fallback) and must refuse just the same")
+		require.Contains(t, err.Error(), task.backupBucketName(propName))
+		require.Nil(t, disable)
+	})
+
+	t.Run("production ordering registers and mirrors", func(t *testing.T) {
+		task, _ := newEnableColumnarTask(t, idx, className, propName)
+
+		// OnAfterLsmInit loads the ingest buckets strictly before
+		// registering — the guard must be invisible on the happy path,
+		// and a write right after must reach the ingest bucket.
+		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+		t.Cleanup(task.disableCallbacks)
+
+		const docID = uint64(1 << 22)
+		const value = int64(31337)
+		prop := makeColumnarMirrorProp(t, propName, value)
+		require.NoError(t, shard.addToPropertyValueIndex(docID, prop))
+
+		ingest := shard.store.Bucket(task.ingestBucketName(propName))
+		require.NotNil(t, ingest)
+		got, ok, err := ingest.ColumnarLookupInt64(docID, 0)
+		require.NoError(t, err)
+		require.True(t, ok, "the mirror write must land in the ingest bucket")
+		require.Equal(t, value, got)
+	})
+}
+
 // TestEnableColumnar_MirrorWriteInSwapWindowReachesSwappedBucket pins the
 // [Phase 2a, disableCallbacks) window: SwapBucketPointer removes the
 // ingest NAME from the store's map (the bucket itself stays live under
