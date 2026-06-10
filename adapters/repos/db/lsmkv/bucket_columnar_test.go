@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func mustNewColumnarBucket(t *testing.T, ctx context.Context, dir string,
@@ -426,4 +427,43 @@ func TestColumnarTypes_AllEightBytes(t *testing.T) {
 	} {
 		assert.Equal(t, 8, ct.Width(), fmt.Sprintf("type %s", ct))
 	}
+}
+
+// TestColumnarBucket_ConcurrentScanAndWrite pins the memtable scan/write
+// race: scans must materialize row state under the lock, because writers
+// mutate row.values and row.live in place. Run with -race.
+func TestColumnarBucket_ConcurrentScanAndWrite(t *testing.T) {
+	ctx := context.Background()
+	b := mustNewColumnarBucket(t, ctx, t.TempDir(), columnar.ColumnTypeInt64)
+
+	for i := uint64(0); i < 512; i++ {
+		require.Nil(t, b.ColumnarPutInt64(i, 0, int64(i)))
+	}
+
+	done := make(chan struct{})
+	writerStopped := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(writerStopped)
+		for i := uint64(0); ; i++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			docID := i % 512
+			if i%17 == 0 {
+				assert.Nil(t, b.ColumnarDelete(docID))
+			} else {
+				assert.Nil(t, b.ColumnarPutInt64(docID, 0, int64(i)))
+			}
+		}
+	}, nil)
+
+	for n := 0; n < 200; n++ {
+		err := b.ColumnarScan(0, nil, func(uint64, uint64) bool { return true })
+		require.Nil(t, err)
+	}
+
+	close(done)
+	<-writerStopped
 }

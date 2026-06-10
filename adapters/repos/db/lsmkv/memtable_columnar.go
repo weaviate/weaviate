@@ -39,11 +39,11 @@ func (m *Memtable) columnarPutFloat64(docID uint64, colIdx int, value float64) e
 	m.Lock()
 	defer m.Unlock()
 
-	row := m.getOrCreateColumnarRowLocked(docID)
+	row, isNew := m.getOrCreateColumnarRowLocked(docID)
 	columnar.EncodeFloat64(row.values, m.columnarSchema.ColOffset(colIdx), value)
 	row.live = true
 
-	m.size += 16
+	m.size += m.columnarRowCost(isNew)
 	m.updateDirtyAt()
 	return m.columnarWriteWALLocked(docID, row)
 }
@@ -55,11 +55,11 @@ func (m *Memtable) columnarPutInt64(docID uint64, colIdx int, value int64) error
 	m.Lock()
 	defer m.Unlock()
 
-	row := m.getOrCreateColumnarRowLocked(docID)
+	row, isNew := m.getOrCreateColumnarRowLocked(docID)
 	columnar.EncodeInt64(row.values, m.columnarSchema.ColOffset(colIdx), value)
 	row.live = true
 
-	m.size += 16
+	m.size += m.columnarRowCost(isNew)
 	m.updateDirtyAt()
 	return m.columnarWriteWALLocked(docID, row)
 }
@@ -71,10 +71,10 @@ func (m *Memtable) columnarDelete(docID uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	row := m.getOrCreateColumnarRowLocked(docID)
+	row, isNew := m.getOrCreateColumnarRowLocked(docID)
 	row.live = false
 
-	m.size += 9
+	m.size += m.columnarRowCost(isNew)
 	m.updateDirtyAt()
 	return m.columnarWriteWALLocked(docID, row)
 }
@@ -96,7 +96,13 @@ func (m *Memtable) columnarLookup(docID uint64, colIdx int) (uint64, bool, bool)
 	return binary.LittleEndian.Uint64(row.values[off:]), true, false
 }
 
-func (m *Memtable) getOrCreateColumnarRowLocked(docID uint64) *columnarMemtableRow {
+// columnarRowOverhead approximates the heap cost of one new memtable row
+// beyond its value bytes: row struct (docID 8 + live 1 + padding ≈ 16),
+// slice header (24), and the map entry (~16). Size-based flush thresholds
+// depend on this not undercounting.
+const columnarRowOverhead = 56
+
+func (m *Memtable) getOrCreateColumnarRowLocked(docID uint64) (*columnarMemtableRow, bool) {
 	row, exists := m.columnarRows[docID]
 	if !exists {
 		row = &columnarMemtableRow{
@@ -106,7 +112,7 @@ func (m *Memtable) getOrCreateColumnarRowLocked(docID uint64) *columnarMemtableR
 		}
 		m.columnarRows[docID] = row
 	}
-	return row
+	return row, !exists
 }
 
 // columnarSortedRows returns a snapshot of all rows sorted by docID
@@ -130,14 +136,34 @@ func (m *Memtable) columnarSortedRows() []*columnarMemtableRow {
 
 // columnarScanRows visits every row (live and tombstone) in docID order.
 // fn returning false stops the scan.
+//
+// Row state (live flag, value bytes) is materialized into copies UNDER the
+// read lock: writers mutate row.values and row.live in place under the
+// write lock, so the pointer-snapshot shortcut other strategies use is
+// invalid here. The lock is released before the callbacks run — fn chains
+// into caller-supplied aggregation code.
 func (m *Memtable) columnarScanRows(colIdx int, fn func(docID uint64, live bool, bits uint64) bool) {
+	type rowCopy struct {
+		docID uint64
+		bits  uint64
+		live  bool
+	}
+
 	m.RLock()
 	rows := m.columnarSortedRows()
 	colOff := m.columnarSchema.ColOffset(colIdx)
+	copies := make([]rowCopy, len(rows))
+	for i, row := range rows {
+		copies[i] = rowCopy{
+			docID: row.docID,
+			bits:  binary.LittleEndian.Uint64(row.values[colOff:]),
+			live:  row.live,
+		}
+	}
 	m.RUnlock()
 
-	for _, row := range rows {
-		if !fn(row.docID, row.live, binary.LittleEndian.Uint64(row.values[colOff:])) {
+	for i := range copies {
+		if !fn(copies[i].docID, copies[i].live, copies[i].bits) {
 			return
 		}
 	}
@@ -145,9 +171,21 @@ func (m *Memtable) columnarScanRows(colIdx int, fn func(docID uint64, live bool,
 
 // columnarPutRow is used by WAL recovery to bulk-insert a row.
 func (m *Memtable) columnarPutRow(docID uint64, live bool, values []byte) {
-	row := m.getOrCreateColumnarRowLocked(docID)
+	row, isNew := m.getOrCreateColumnarRowLocked(docID)
 	row.live = live
 	copy(row.values, values)
+	m.size += m.columnarRowCost(isNew)
+}
+
+// columnarRowCost returns the size-accounting charge for a write: new rows
+// charge their full heap footprint (struct + slice header + map entry +
+// value bytes) so the size-based flush threshold trips at realistic memory
+// use; in-place updates charge only the small delta.
+func (m *Memtable) columnarRowCost(isNew bool) uint64 {
+	if isNew {
+		return columnarRowOverhead + uint64(m.columnarSchema.RowWidth())
+	}
+	return 16
 }
 
 // columnarWriteWALLocked writes the current row state to the WAL. Must be

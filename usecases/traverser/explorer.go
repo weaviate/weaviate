@@ -252,19 +252,28 @@ func (e *Explorer) applyBoostIfNeeded(ctx context.Context, params dto.GetParams,
 		distToScore(res)
 	}
 
+	referencedProps := boostReferencedProps(boost)
+
 	var typedValues []map[string]any
-	if props := boostReferencedProps(boost); len(props) > 0 {
-		tv, err := e.searcher.BoostValues(ctx, params.ClassName, params.Tenant, res, props)
+	if len(referencedProps) > 0 {
+		tv, err := e.searcher.BoostValues(ctx, params.ClassName, params.Tenant, res, referencedProps)
 		if err != nil {
-			// fall back to materialized props; only fatal in skeleton mode,
-			// where there are no props to fall back to — but skeleton mode
-			// is only entered when all properties are columnar-backed, so a
-			// total failure here means the index is gone mid-query.
+			// fall back to materialized props (or the per-result fetch
+			// below in skeleton mode)
 			e.logger.WithField("action", "boost_columnar_values").
 				WithField("class", params.ClassName).Error(err)
 		} else {
 			typedValues = tv
 		}
+	}
+
+	// Skeleton mode has no materialized properties to fall back to: a
+	// result the columnar path could not serve (mid-migration replica,
+	// non-local shard, racing delete) would silently score zero and
+	// corrupt the re-sort. Materialize the boost properties for exactly
+	// those results before scoring.
+	if params.BoostDeferredFetch != nil {
+		typedValues = e.fillMissingBoostValues(ctx, params, res, referencedProps, typedValues)
 	}
 
 	res = applyBoostScoring(res, boost, typedValues)
@@ -273,6 +282,63 @@ func (e *Explorer) applyBoostIfNeeded(ctx context.Context, params dto.GetParams,
 		res = e.materializeBoostPage(ctx, params, df, res)
 	}
 	return res
+}
+
+// fillMissingBoostValues backfills, per result, any boost-referenced
+// property the columnar path could not serve, by fetching just those
+// properties from the object store. Only used in skeleton mode, where
+// results carry no materialized properties.
+func (e *Explorer) fillMissingBoostValues(ctx context.Context, params dto.GetParams,
+	res []search.Result, props []string, typedValues []map[string]any,
+) []map[string]any {
+	selectProps := make(search.SelectProperties, len(props))
+	for i, p := range props {
+		selectProps[i] = search.SelectProperty{Name: p, IsPrimitive: true}
+	}
+
+	if typedValues == nil {
+		typedValues = make([]map[string]any, len(res))
+	}
+
+	for i := range res {
+		missing := false
+		for _, p := range props {
+			if typedValues[i] == nil {
+				missing = true
+				break
+			}
+			if _, ok := typedValues[i][p]; !ok {
+				missing = true
+				break
+			}
+		}
+		if !missing {
+			continue
+		}
+
+		obj, err := e.searcher.Object(ctx, params.ClassName, res[i].ID,
+			selectProps, additional.Properties{}, params.ReplicationProperties, params.Tenant)
+		if err != nil || obj == nil {
+			// deleted between search and fetch — scoring zero is correct
+			continue
+		}
+		objProps, ok := obj.Schema.(map[string]any)
+		if !ok {
+			continue
+		}
+		if typedValues[i] == nil {
+			typedValues[i] = make(map[string]any, len(props))
+		}
+		for _, p := range props {
+			if _, served := typedValues[i][p]; served {
+				continue
+			}
+			if v, ok := objProps[p]; ok {
+				typedValues[i][p] = v
+			}
+		}
+	}
+	return typedValues
 }
 
 // materializeBoostPage fetches full objects for the post-boost page of a

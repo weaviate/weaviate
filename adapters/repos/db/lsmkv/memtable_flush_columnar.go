@@ -29,40 +29,23 @@ func (m *Memtable) flushDataColumnar(f *segmentindex.SegmentFile) ([]segmentinde
 	schema := m.columnarSchema
 	m.RUnlock()
 
-	header := &segmentindex.Header{
-		Level:            0,
-		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
-		SecondaryIndices: 0,
-		Strategy:         segmentindex.StrategyColumnar,
-	}
-
 	ch := &columnar.Header{Schema: *schema}
 	chBytes := ch.MarshalBinary()
+	blocksStart := uint64(segmentindex.HeaderSize + len(chBytes))
 
-	// All sizes are computable up front: blocks hold fixed-width data.
-	dataSize := len(chBytes)
-	for blockStart := 0; blockStart < len(rows); blockStart += columnar.BlockSize {
-		n := min(len(rows)-blockStart, columnar.BlockSize)
-		dataSize += n * (8 + 1 + schema.RowWidth())
-	}
-	header.IndexStart = uint64(segmentindex.HeaderSize + dataSize)
-
-	if _, err := f.WriteHeader(header); err != nil {
-		return nil, fmt.Errorf("write header: %w", err)
-	}
-
-	w := f.BodyWriter()
-	if _, err := w.Write(chBytes); err != nil {
-		return nil, fmt.Errorf("write columnar header: %w", err)
-	}
-
+	// Blocks are built before the header: their byte sizes are the block
+	// writer's to decide (per-column encodings, future padding), so the
+	// header's IndexStart derives from what was actually emitted instead
+	// of duplicating the layout arithmetic here. Precomputing it from
+	// RowWidth silently breaks on the first non-raw encoding.
+	var blocks [][]byte
 	var entries []columnar.DirectoryEntry
-	bw := columnar.NewBlockWriter(schema, uint64(segmentindex.HeaderSize+len(chBytes)),
+	blocksSize := uint64(0)
+	bw := columnar.NewBlockWriter(schema, blocksStart,
 		func(block []byte, entry columnar.DirectoryEntry) error {
-			if _, err := w.Write(block); err != nil {
-				return err
-			}
+			blocks = append(blocks, block)
 			entries = append(entries, entry)
+			blocksSize += uint64(len(block))
 			return nil
 		})
 
@@ -73,6 +56,32 @@ func (m *Memtable) flushDataColumnar(f *segmentindex.SegmentFile) ([]segmentinde
 	}
 	if err := bw.Flush(); err != nil {
 		return nil, fmt.Errorf("flush block: %w", err)
+	}
+
+	if got := bw.Offset(); got != blocksStart+blocksSize {
+		return nil, fmt.Errorf("columnar flush: block writer offset %d != emitted size %d",
+			got, blocksStart+blocksSize)
+	}
+
+	header := &segmentindex.Header{
+		Level:            0,
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
+		SecondaryIndices: 0,
+		Strategy:         segmentindex.StrategyColumnar,
+		IndexStart:       blocksStart + blocksSize,
+	}
+	if _, err := f.WriteHeader(header); err != nil {
+		return nil, fmt.Errorf("write header: %w", err)
+	}
+
+	w := f.BodyWriter()
+	if _, err := w.Write(chBytes); err != nil {
+		return nil, fmt.Errorf("write columnar header: %w", err)
+	}
+	for _, block := range blocks {
+		if _, err := w.Write(block); err != nil {
+			return nil, fmt.Errorf("write block: %w", err)
+		}
 	}
 
 	// The directory is written through the body writer; header.IndexStart

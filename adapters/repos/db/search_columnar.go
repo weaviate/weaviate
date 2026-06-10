@@ -62,10 +62,23 @@ func (db *DB) BoostValues(ctx context.Context, className, tenant string,
 
 	out := make([]map[string]any, len(results))
 
-	// cache shard + bucket resolution per shard name; result sets cluster
-	// heavily on few shards
-	type shardBuckets map[string]*lsmkv.Bucket
+	// Cache shard + bucket resolution per shard name; result sets cluster
+	// heavily on few shards. The shard leases are held until every lookup
+	// below has completed: the lease is what guarantees the shard (and the
+	// mmap'd segments behind the cached bucket pointers) cannot be closed
+	// mid-read. Released via the deferred loop.
+	type shardBuckets struct {
+		buckets map[string]*lsmkv.Bucket
+		release func()
+	}
 	bucketsByShard := map[string]shardBuckets{}
+	defer func() {
+		for _, sb := range bucketsByShard {
+			if sb.release != nil {
+				sb.release()
+			}
+		}
+	}()
 
 	for i := range results {
 		if results[i].DocID == nil {
@@ -76,11 +89,12 @@ func (db *DB) BoostValues(ctx context.Context, className, tenant string,
 			continue // fall back to materialized props for this result
 		}
 
-		buckets, ok := bucketsByShard[shardName]
+		sb, ok := bucketsByShard[shardName]
 		if !ok {
-			buckets = shardBuckets{}
+			sb = shardBuckets{buckets: map[string]*lsmkv.Bucket{}}
 			shard, release, err := idx.GetShard(ctx, shardName)
 			if err == nil && shard != nil {
+				sb.release = release
 				// The readiness gate needs the concrete *Shard; a
 				// *LazyLoadShard returned by GetShard is already loaded
 				// at this point so unwrapping is cheap.
@@ -96,19 +110,18 @@ func (db *DB) BoostValues(ctx context.Context, className, tenant string,
 					}
 					b := shard.Store().Bucket(helpers.BucketColumnarFromPropNameLSM(propName))
 					if b != nil && b.Strategy() == lsmkv.StrategyColumnar {
-						buckets[propName] = b
+						sb.buckets[propName] = b
 					}
 				}
-				release()
 			}
-			bucketsByShard[shardName] = buckets
+			bucketsByShard[shardName] = sb
 		}
-		if len(buckets) == 0 {
+		if len(sb.buckets) == 0 {
 			continue // shard not local or buckets missing
 		}
 
-		values := make(map[string]any, len(buckets))
-		for propName, bucket := range buckets {
+		values := make(map[string]any, len(sb.buckets))
+		for propName, bucket := range sb.buckets {
 			switch dataTypes[propName] {
 			case schema.DataTypeNumber:
 				if v, ok := bucket.ColumnarLookupFloat64(*results[i].DocID, 0); ok {
