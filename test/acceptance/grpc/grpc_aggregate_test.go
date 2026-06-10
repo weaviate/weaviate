@@ -439,6 +439,9 @@ func TestGRPC_Aggregate(t *testing.T) {
 					}
 				}
 			}
+			// groupBy keys are raw stored values (offset preserved); date
+			// AGGREGATION outputs are UTC-canonical so filtered, unfiltered,
+			// and columnar paths agree regardless of stored offset.
 			for _, group := range resp.GetGroupedResults().GetGroups() {
 				assert.ElementsMatch(t, []string{"cityRights"}, group.GroupedBy.Path)
 				require.NotNil(t, group.Aggregations)
@@ -447,15 +450,15 @@ func TestGRPC_Aggregate(t *testing.T) {
 				case "1400-01-01T00:00:00+02:00":
 					assert.Equal(t, "1400-01-01T00:00:00+02:00", group.GroupedBy.GetText())
 					checkProperties(t, group.Aggregations.GetAggregations(),
-						2, "1400-01-01T00:00:00+02:00", 2, 4, map[string]int64{"CEST": 2, "CET": 2})
+						2, "1399-12-31T22:00:00Z", 2, 4, map[string]int64{"CEST": 2, "CET": 2})
 				case "1135-01-01T00:00:00+02:00":
 					assert.Equal(t, "1135-01-01T00:00:00+02:00", group.GroupedBy.GetText())
 					checkProperties(t, group.Aggregations.GetAggregations(),
-						1, "1135-01-01T00:00:00+02:00", 1, 2, map[string]int64{"CEST": 1, "CET": 1})
+						1, "1134-12-31T22:00:00Z", 1, 2, map[string]int64{"CEST": 1, "CET": 1})
 				case "1283-01-01T00:00:00+02:00":
 					assert.Equal(t, "1283-01-01T00:00:00+02:00", group.GroupedBy.GetText())
 					checkProperties(t, group.Aggregations.GetAggregations(),
-						1, "1283-01-01T00:00:00+02:00", 1, 2, map[string]int64{"CEST": 1, "CET": 1})
+						1, "1282-12-31T22:00:00Z", 1, 2, map[string]int64{"CEST": 1, "CET": 1})
 				default:
 					// do nothing
 				}
