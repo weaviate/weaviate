@@ -393,6 +393,14 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+
+	// ReadOnly puts the whole storage layer into read-only-follower mode: the
+	// data directory is treated as an immutable, point-in-time copy mounted
+	// read-only at the kernel level. Shards open without writing to disk (no
+	// WAL replay-to-disk, no sidecar regen, no migrations, no compaction) and
+	// reject every mutation. Propagated to IndexConfig.ReadOnly and from there
+	// to each Shard.
+	ReadOnly bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

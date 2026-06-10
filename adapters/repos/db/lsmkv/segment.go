@@ -131,6 +131,12 @@ type segment struct {
 	refCount         int
 
 	deleteMarkerSuffix string
+
+	// readOnly marks a segment loaded for a read-only follower. A missing or
+	// corrupt sidecar (bloom filter / count-net-additions / metadata) is still
+	// computed in memory so reads work, but is never persisted and an existing
+	// one is never removed — the on-disk copy is immutable.
+	readOnly bool
 }
 
 type diskIndex interface {
@@ -174,6 +180,7 @@ type segmentConfig struct {
 	precomputedCountNetAdditions *int
 	writeMetadata                bool
 	deleteMarkerCounter          int64
+	readOnly                     bool
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -358,6 +365,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		unMapContents:      unMapContents,
 		observeMetaWrite:   func(n int64) { observeWrite.Observe(float64(n)) },
 		deleteMarkerSuffix: fmt.Sprintf(".%013d%s", cfg.deleteMarkerCounter, DeleteMarkerSuffix),
+		readOnly:           cfg.readOnly,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime

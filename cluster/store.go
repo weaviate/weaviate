@@ -141,6 +141,11 @@ type Config struct {
 	// MetadataOnlyVoters configures the voters to store metadata exclusively, without storing any other data
 	MetadataOnlyVoters bool
 
+	// ReadOnlyFollower boots this node as a read-only follower: Open does not
+	// call raft.NewRaft, it hydrates the schema FSM from the copied raft dir
+	// (read-only stores), loads shards read-only, and serves only reads.
+	ReadOnlyFollower bool
+
 	// DB is the interface to the weaviate database. It is necessary so that schema changes are reflected to the DB
 	DB schema.Indexer
 	// Parser parses class field after deserialization

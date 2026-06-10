@@ -40,6 +40,10 @@ type JsonShardMetaData struct {
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
 	closed           bool
+	// readOnly marks a follower-mode tracker: the proplengths file belongs to
+	// an immutable, read-only copy. Every Flush is a no-op so the open path
+	// never writes the file back.
+	readOnly bool
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -68,6 +72,19 @@ type JsonShardMetaData struct {
 
 // NewJsonShardMetaData creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
 func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardMetaData, err error) {
+	return newJsonShardMetaData(path, logger, false)
+}
+
+// NewJsonShardMetaDataReadOnly loads the tracker for a read-only follower. It
+// reads the proplengths file into memory but never writes it back: every Flush
+// is inert (see lockFreeFlush). The legacy binary format is unsupported in
+// read-only mode — converting it would require writing the JSON file and
+// deleting the old one, both forbidden on a read-only mount — so it fails loud.
+func NewJsonShardMetaDataReadOnly(path string, logger logrus.FieldLogger) (t *JsonShardMetaData, err error) {
+	return newJsonShardMetaData(path, logger, true)
+}
+
+func newJsonShardMetaData(path string, logger logrus.FieldLogger, readOnly bool) (t *JsonShardMetaData, err error) {
 	// Recover and return empty tracker on panic
 	defer func() {
 		if r := recover(); r != nil {
@@ -77,6 +94,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 				data:             &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 				path:             path,
 				UnlimitedBuckets: false,
+				readOnly:         readOnly,
 			}
 			err = errors.Errorf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
 		}
@@ -87,6 +105,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 		path:             path,
 		UnlimitedBuckets: false,
 		logger:           logger,
+		readOnly:         readOnly,
 	}
 
 	// read the file into memory
@@ -106,6 +125,15 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 
 	// We don't have data file versioning, so we try to parse it as json.  If the parse fails, it is probably the old format file, so we call the old format loader and copy everything across.
 	if err = json.Unmarshal(bytes, &t.data); err != nil {
+		if readOnly {
+			// Converting the legacy binary format opens it O_RDWR|O_CREATE,
+			// flushes the new JSON file, and deletes the old one — all writes a
+			// read-only mount forbids. A follower asserts its copy was taken
+			// from a writer already on the JSON format; fail loud otherwise.
+			return nil, errors.Errorf("read-only follower: property length tracker file %s is in the "+
+				"unsupported legacy binary format; the snapshot must come from a writer "+
+				"that has migrated to the JSON format", path)
+		}
 		// It's probably the old format file, load the old format and convert it to the new format
 		plt, err := NewPropertyLengthTracker(path)
 		if err != nil {
@@ -345,6 +373,12 @@ func (t *JsonShardMetaData) Flush() error {
 }
 
 func (t *JsonShardMetaData) lockFreeFlush() error {
+	if t.readOnly {
+		// Read-only follower: the proplengths file is part of the immutable
+		// copy. Never write it back — this neutralizes every Flush, including
+		// the unconditional ones in the constructor.
+		return nil
+	}
 	if t.closed {
 		return fmt.Errorf("cannot flush closed tracker")
 	}

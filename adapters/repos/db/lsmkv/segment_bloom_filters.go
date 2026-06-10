@@ -120,6 +120,12 @@ func (s *segment) computeAndStoreBloomFilter(path string) error {
 		s.bloomFilter.Add(key)
 	})
 
+	if s.readOnly {
+		// A read-only follower computes the bloom filter in memory (so reads
+		// work) but never persists it — the on-disk copy is immutable.
+		return nil
+	}
+
 	if err := s.storeBloomFilterOnDisk(path); err != nil {
 		return fmt.Errorf("store bloom filter on disk: %w", err)
 	}
@@ -207,6 +213,11 @@ func (s *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) erro
 	s.secondaryIndices[pos].ForEachKey(func(key []byte) {
 		s.secondaryBloomFilters[pos].Add(key)
 	})
+
+	if s.readOnly {
+		// computed in memory only; never persisted on a read-only follower
+		return nil
+	}
 
 	if err := s.storeBloomFilterSecondaryOnDisk(path, pos); err != nil {
 		return fmt.Errorf("store secondary bloom filter on disk: %w", err)

@@ -1400,6 +1400,7 @@ func FromEnv(config *Config) error {
 func parseRAFTConfig(hostname string) (Raft, error) {
 	cfg := Raft{
 		MetadataOnlyVoters: entcfg.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
+		ReadOnlyFollower:   entcfg.Enabled(os.Getenv("RAFT_READ_ONLY_FOLLOWER")),
 	}
 
 	if err := parsePositiveInt(
