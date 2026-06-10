@@ -29,7 +29,37 @@ python tools/dev/hfresh_diag/hdf5_to_jsonl.py --hdf5 /path/to/dataset.hdf5 --ins
 
 This prints the HDF5 structure so you can identify the correct keys.
 
+Example output for object arrays with flattened multi-vectors:
+```
+=== HDF5 Structure: /path/to/dataset.hdf5 ===
+
+  train: shape=(119461,), dtype=object
+    -> sample[0]: type=ndarray, shape=(22272,), dtype=float32
+  test: shape=(661,), dtype=object
+    -> sample[0]: type=ndarray, shape=(4096,), dtype=float32
+  neighbors: shape=(661, 119461), dtype=int64
+
+Top-level keys: ['train', 'test', 'neighbors']
+```
+
 ### Step 2: Convert HDF5 to JSONL
+
+For object arrays with flattened multi-vectors, use `--dim`:
+
+```bash
+python tools/dev/hfresh_diag/hdf5_to_jsonl.py \
+    --hdf5 ~/Documents/datasets/custom-Multivector-lotte-lotte-lifestyle.hdf5 \
+    --out /tmp/hfresh_diag_lotte \
+    --docs-key train \
+    --queries-key test \
+    --gt-key neighbors \
+    --dim 128 \
+    --gt-k 100 \
+    --limit-queries 100 \
+    -v
+```
+
+For standard fixed-shape arrays:
 
 ```bash
 python tools/dev/hfresh_diag/hdf5_to_jsonl.py \
@@ -38,6 +68,7 @@ python tools/dev/hfresh_diag/hdf5_to_jsonl.py \
     --docs-key train \
     --queries-key test \
     --gt-key neighbors \
+    --gt-k 100 \
     --limit-docs 10000 \
     --limit-queries 100
 ```
@@ -47,13 +78,13 @@ python tools/dev/hfresh_diag/hdf5_to_jsonl.py \
 ```bash
 go test -v -run TestHFreshMuveraDiagnostic \
     ./adapters/repos/db/vector/hfresh/... -args \
-    -docs=/tmp/hfresh_diag_data/docs.jsonl \
-    -queries=/tmp/hfresh_diag_data/queries.jsonl \
-    -groundtruth=/tmp/hfresh_diag_data/gt.jsonl \
+    -docs=/tmp/hfresh_diag_lotte/docs.jsonl \
+    -queries=/tmp/hfresh_diag_lotte/queries.jsonl \
+    -groundtruth=/tmp/hfresh_diag_lotte/gt.jsonl \
     -k=10 \
     -searchprobe=64 \
     -rescorelimit=100 \
-    -out=/tmp/hfresh_diag_data/report.json
+    -out=/tmp/hfresh_diag_lotte/report.json
 ```
 
 ## HDF5 Structure Support
@@ -75,6 +106,18 @@ Each document will be converted to a single-vector multi-vector (1 vector per do
 /test           (Q, M, D) float32 - query multi-vectors
 /neighbors      (Q, K) int32      - ground-truth neighbor IDs
 ```
+
+### Object arrays with flattened multi-vectors (requires --dim)
+
+```
+/train          (N,) object   - each element is a flat float32 array
+/test           (Q,) object   - e.g., train[0].shape = (22272,) for 174 vectors × 128 dims
+/neighbors      (Q, K) int64  - ground-truth neighbor IDs
+```
+
+Example: if `train[0].shape = (22272,)` and `--dim=128`, it becomes `(174, 128)`.
+
+Use `--dim` flag to specify vector dimensions for reshaping.
 
 ### Multi-vector datasets (variable vectors per doc)
 
@@ -143,10 +186,11 @@ The diagnostic produces a JSON report with:
 | `--queries-key` | test | HDF5 key for query vectors |
 | `--queries-offsets-key` | none | HDF5 key for query offsets |
 | `--gt-key` | neighbors | HDF5 key for ground-truth |
+| `--dim` | none | Vector dimension for reshaping flat arrays (required for object arrays) |
 | `--limit-docs` | none | Limit number of documents |
 | `--limit-queries` | none | Limit number of queries |
-| `--gt-k` | none | Limit ground-truth to top-k |
-| `-v` | false | Verbose output |
+| `--gt-k` | none | Limit ground-truth to top-k neighbors per query |
+| `-v` | false | Verbose output with sample logging |
 
 ## Diagnostic Flags
 
