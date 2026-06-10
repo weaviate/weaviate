@@ -106,6 +106,7 @@ type Flags struct {
 	RaftSnapshotThreshold  int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
 	RaftSnapshotInterval   int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
 	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
+	RaftReadOnlyFollower   bool     `long:"raft-read-only-follower" description:"boots the node as a read-only follower: it reconstructs schema and shards from a point-in-time copy mounted read-only, does not join RAFT, and serves only reads"`
 
 	RuntimeOverridesEnabled      bool          `long:"runtime-overrides.enabled" description:"enable runtime overrides config"`
 	RuntimeOverridesPath         string        `long:"runtime-overrides.path" description:"path to runtime overrides config"`
@@ -1042,6 +1043,12 @@ type Raft struct {
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
 
+	// ReadOnlyFollower boots the node as a read-only follower: it does not call
+	// raft.NewRaft, reconstructs the schema FSM from the copied raft dir, opens
+	// shard storage read-only, and serves only reads. Distinct from
+	// MetadataOnlyVoters (which skips shard loading); a follower loads shards.
+	ReadOnlyFollower bool
+
 	EnableOneNodeRecovery bool
 	ForceOneNodeRecovery  bool
 }
@@ -1223,6 +1230,9 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	}
 	if flags.RaftMetadataOnlyVoters {
 		f.Config.Raft.MetadataOnlyVoters = true
+	}
+	if flags.RaftReadOnlyFollower {
+		f.Config.Raft.ReadOnlyFollower = true
 	}
 
 	if flags.RuntimeOverridesEnabled {
