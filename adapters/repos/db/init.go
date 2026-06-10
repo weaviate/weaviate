@@ -217,6 +217,7 @@ func (db *DB) init(ctx context.Context) error {
 				HFreshEnabled:             db.config.HFreshEnabled,
 				AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
 				DisableDimensionMetrics:   db.config.DisableDimensionMetrics,
+				ReadOnly:                  db.config.ReadOnly,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

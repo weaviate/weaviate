@@ -165,10 +165,15 @@ func (s *Shard) initLSMStore() error {
 		}
 	}
 
+	var storeOpts []lsmkv.StoreOption
+	if s.readOnly {
+		storeOpts = append(storeOpts, lsmkv.WithStoreReadOnly())
+	}
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics, s.index.bucketLoadLimiter,
 		s.cycleCallbacks.compactionCallbacks,
 		s.cycleCallbacks.compactionAuxCallbacks,
-		s.cycleCallbacks.flushCallbacks)
+		s.cycleCallbacks.flushCallbacks,
+		storeOpts...)
 	if err != nil {
 		return fmt.Errorf("init lsmkv store at %s: %w", s.pathLSM(), err)
 	}
