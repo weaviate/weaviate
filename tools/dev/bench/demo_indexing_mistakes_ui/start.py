@@ -26,7 +26,7 @@ import urllib.request
 
 CLUSTER_URL = os.environ.get(
     "WCD_URL",
-    "https://uqkg8qogqj6phkndzmyhww.c0.europe-west3.dev.gcp.weaviate.cloud",
+    "https://wvansbrstqutoijaliaxrq.c0.eu-central-1.dev.aws.weaviate.cloud",
 ).rstrip("/")
 PORT = int(os.environ.get("PORT", "8089"))
 
@@ -92,7 +92,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(int(content_length))
 
         req = urllib.request.Request(upstream_url, data=body, method=method)
-        req.add_header("Authorization", f"Bearer {os.environ.get('WCD_API_KEY', '')}")
+        # An empty WCD_API_KEY means "no auth" (anonymous local Weaviate):
+        # such servers reject requests that carry an Authorization header.
+        api_key = os.environ.get("WCD_API_KEY", "")
+        if api_key:
+            req.add_header("Authorization", f"Bearer {api_key}")
         for hdr in ("Content-Type", "Accept"):
             value = self.headers.get(hdr)
             if value:
@@ -134,10 +138,11 @@ class ThreadedServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def main() -> int:
-    if not os.environ.get("WCD_API_KEY"):
+    if "WCD_API_KEY" not in os.environ:
         print("Error: WCD_API_KEY env var not set.", file=sys.stderr)
         print("Get a token with: wcs --dev token", file=sys.stderr)
         print("Then run: WCD_API_KEY=$(wcs --dev token) ./start.py", file=sys.stderr)
+        print("For an anonymous local Weaviate, set it empty: WCD_API_KEY= ./start.py", file=sys.stderr)
         return 1
 
     print(f"Proxying /api/* -> {CLUSTER_URL}")

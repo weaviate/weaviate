@@ -1,6 +1,6 @@
 # Common Indexing Mistakes - Demo UI
 
-A visual demo of three typical Weaviate indexing misconfigurations against a
+A visual demo of five typical Weaviate indexing misconfigurations against a
 1,000,000-object product catalog. Each card runs a pre-canned query and shows
 wall-clock latency, total match count (where applicable), and the top result
 rows so the failure mode is visible at a glance.
@@ -17,7 +17,10 @@ WCD_URL=https://cluster.weaviate.cloud WCD_API_KEY=... \
 ```
 
 The script drops and recreates the `IndexingMistakesDemo` collection and
-imports 1,000,000 deterministic synthetic product objects (seed 42).
+imports 1,000,000 deterministic synthetic product objects (seed 42). Each
+object carries a ~3 KB unindexed `review_summary` payload so the catalog has
+the per-object weight of a real product database - that weight is what the
+aggregation cards (4, 5) make visible.
 
 ## 2. Open the UI
 
@@ -38,9 +41,11 @@ If `WCD_API_KEY` is not set, `start.py` exits with a clear error.
 
 | # | Card | Misconfigured property | Query | What you should see |
 |---|---|---|---|---|
-| 1 | Range query | `price_cents` (int, filterable=false, rangeable=false) | `price_cents BETWEEN 30000 AND 40000` | Weaviate refuses the query with `requires inverted index`. The storefront price filter is broken. |
-| 2 | Path search | `spec_sheet_path` (text, tokenization=word) | BM25 `"/products/cameras/gopro"` | Top results include paths from other categories that happen to contain `gopro` as a token. |
+| 1 | Range query | `price_cents` (int, filterable=true, rangeable=false) | `price_cents BETWEEN 30000 AND 40000` | The query works but walks the filterable bucket value by value - hundreds of ms instead of single-digit ms. |
+| 2 | Path search | `spec_sheet_path` (text, tokenization=word) | Any-of filter on five GoPro spec-sheet paths | Top results include paths from other categories that happen to share a token like `gopro`. |
 | 3 | Equality filter | `category` (text, filterable=false) | `category == "Cameras > Action"` | Weaviate refuses the query with `requires inverted index`. The category facet is broken. |
+| 4 | Filtered aggregation (selective) | `price_cents` (int, columnar=false) | `brand == "GoPro"` (~18k matches), aggregate mean/min/max/sum of `price_cents` | The filter is fast, but the aggregation fetches + unmarshals every matching object to extract one integer. |
+| 5 | Filtered aggregation (broad) | `price_cents` (int, columnar=false) | `in_stock == true` (~700k matches), same aggregation | The object-scan path scales linearly with match count - this lands in the seconds range. |
 
 The displayed code snippets use the v4 Python client; the UI itself happens to
 use GraphQL over the browser fetch API for transport convenience, but the
@@ -54,9 +59,11 @@ UI never caches, so the new state shows immediately.
 
 | # | Property | Fix |
 |---|---|---|
-| 1 | `price_cents` | Enable `indexRangeFilters: true` (and `indexFilterable: true`). |
+| 1 | `price_cents` | Enable `indexRangeFilters: true`. |
 | 2 | `spec_sheet_path` | Change tokenization to `field` so the path is an opaque token. |
 | 3 | `category` | Enable `indexFilterable: true` so equality has an inverted bucket. |
+| 4 | `price_cents` | Enable `indexColumnar: true` - aggregations switch to 8-byte point lookups from the column bucket. |
+| 5 | `price_cents` | Same fix as card 4 - one block scan over the column bucket, near-constant cost regardless of selectivity. |
 
 ## Notes
 

@@ -78,11 +78,12 @@ async function timedGql(query) {
 // -- Reset (re-break the schema) --------------------------------------------
 //
 // After the viewer fixes each mistake from the Weaviate console, this button
-// reverts each property to its broken state so the demo can be re-run. All
-// three operations fire in parallel - they target distinct properties so the
-// per-property submit lock added in a7bb362854 lets them all through.
+// reverts each property to its broken state so the demo can be re-run.
+// Operations on distinct properties fire in parallel (the per-property submit
+// lock added in a7bb362854 lets them through); the two price_cents deletions
+// run sequentially against that same lock.
 //
-//   1. price_cents:     DELETE the rangefilters index
+//   1. price_cents:     DELETE the rangefilters index, then the columnar one
 //   2. category:        DELETE the filterable index
 //   3. spec_sheet_path: change tokenization back to "word"
 
@@ -134,11 +135,17 @@ async function doReset() {
   const previousLabel = resetBtn.textContent;
   resetBtn.textContent = "Resetting...";
   resetStatus.className = "reset-status visible";
-  resetStatus.textContent = "firing 3 operations in parallel...";
+  resetStatus.textContent = "firing 4 operations...";
 
   const t0 = performance.now();
+  const priceCentsChain = (async () => {
+    const range = await deleteIndex("price_cents", "rangeFilters");
+    const columnar = await deleteIndex("price_cents", "columnar");
+    return [range, columnar];
+  })();
   const ops = [
-    ["price_cents (rangeFilters)",     deleteIndex("price_cents", "rangeFilters")],
+    ["price_cents (rangeFilters)",     priceCentsChain.then(r => r[0])],
+    ["price_cents (columnar)",         priceCentsChain.then(r => r[1])],
     ["category (filterable)",          deleteIndex("category", "filterable")],
     ["spec_sheet_path (tokenization)", changeTokenization("spec_sheet_path", "word")],
   ];
@@ -222,6 +229,37 @@ function qPathContainsAny() {
         limit: 10
       ) {
         spec_sheet_path category brand name
+      }
+    }
+  }`;
+}
+
+// Filtered aggregations for cards 4 and 5. The filter property is well
+// indexed in both cases - the cost being demonstrated is the aggregation
+// itself, which without a columnar index on price_cents fetches and
+// unmarshals every matching object just to extract one integer.
+
+function qAggSelective() {
+  return `{
+    Aggregate {
+      ${CLASS}(
+        where: { path: ["brand"], operator: Equal, valueText: "GoPro" }
+      ) {
+        meta { count }
+        price_cents { mean minimum maximum sum }
+      }
+    }
+  }`;
+}
+
+function qAggBroad() {
+  return `{
+    Aggregate {
+      ${CLASS}(
+        where: { path: ["in_stock"], operator: Equal, valueBoolean: true }
+      ) {
+        meta { count }
+        price_cents { mean minimum maximum sum }
       }
     }
   }`;
@@ -326,6 +364,52 @@ function renderResults(container, opts) {
   container.innerHTML = `<div class="metrics">${metrics.join("")}</div>${list}`;
 }
 
+// Renders the result of a filtered aggregation card: latency, match count,
+// and one row per requested metric on price_cents.
+function renderAggResults(container, { latencyMs, matched, metrics }) {
+  const lc = latencyClass(latencyMs);
+  const metricBoxes = [`
+    <div class="metric latency ${lc}">
+      <span class="k">latency (wall-clock)</span>
+      <span class="v">${fmtMs(latencyMs)}</span>
+    </div>`];
+  if (matched != null) {
+    metricBoxes.push(`
+      <div class="metric">
+        <span class="k">objects matched by filter</span>
+        <span class="v">${matched.toLocaleString()}</span>
+      </div>`);
+  }
+  const rows = metrics.map(([label, value]) => `<li>
+    <span class="row-key">${escapeHtml(label)}</span>
+    <span class="row-meta">${escapeHtml(value)}</span>
+  </li>`);
+  container.innerHTML =
+    `<div class="metrics">${metricBoxes.join("")}</div>` +
+    `<ul class="result-list">${rows.join("")}</ul>`;
+}
+
+function fmtPriceMetric(cents) {
+  if (cents == null) return "(null)";
+  return `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+async function runAggCard(container, query) {
+  const { body, ms } = await timedGql(query);
+  const agg = body.data.Aggregate[CLASS][0] || {};
+  const pc = agg.price_cents || {};
+  renderAggResults(container, {
+    latencyMs: ms,
+    matched: agg.meta?.count ?? null,
+    metrics: [
+      ["mean price", fmtPriceMetric(pc.mean)],
+      ["min price", fmtPriceMetric(pc.minimum)],
+      ["max price", fmtPriceMetric(pc.maximum)],
+      ["sum", fmtPriceMetric(pc.sum)],
+    ],
+  });
+}
+
 function rowGeneric(obj, keyField) {
   const keyVal = obj[keyField] ?? "(missing)";
   const meta = [];
@@ -414,5 +498,11 @@ async function onRun(btn) {
           emptyNote: "No matching rows."
         });
       });
+
+    case "run-agg-selective":
+      return runWithButton(btn, container, () => runAggCard(container, qAggSelective()));
+
+    case "run-agg-broad":
+      return runWithButton(btn, container, () => runAggCard(container, qAggBroad()));
   }
 }

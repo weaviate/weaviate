@@ -22,7 +22,7 @@
     <div class="title-block">
       <h1>Common Indexing Mistakes</h1>
       <p class="subtitle">
-        One million product-catalog objects, three deliberately wrong schema
+        One million product-catalog objects, five deliberately wrong schema
         choices. Run each card to see the failure mode. Fix it from the
         Weaviate console, then re-run to see the difference.
       </p>
@@ -30,7 +30,7 @@
     <div class="conn-status-bar">
       <span id="conn-light" class="conn-light"></span>
       <span id="conn-status-text">connecting...</span>
-      <button id="reset-btn" class="btn-secondary" title="Re-apply the broken schema (DELETE rangeable on price_cents, DELETE filterable on category, change-tokenization on spec_sheet_path back to word). Fires all three in parallel.">Reset broken state</button>
+      <button id="reset-btn" class="btn-secondary" title="Re-apply the broken schema (DELETE rangeable + columnar on price_cents, DELETE filterable on category, change-tokenization on spec_sheet_path back to word).">Reset broken state</button>
     </div>
     <div id="reset-status" class="reset-status hidden"></div>
   </div>
@@ -139,6 +139,73 @@
         <button class="btn-primary run-btn" data-action="run-category-equal">Run query</button>
       </div>
       <div class="result" id="result-category">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+  <!-- Mistake 4: selective filtered aggregation without a columnar index -->
+  <section class="card" data-card="agg_selective">
+    <header>
+      <h2>4. Filtered aggregation, selective filter</h2>
+      <p class="explainer">
+        Price stats for one brand: filter <code>brand == "GoPro"</code>
+        (~18,000 of 1M objects), aggregate <code>price_cents</code>. The
+        brand filter itself is fast - it has a filterable index. The cost
+        is in the aggregation: the engine fetches and JSON-unmarshals every
+        matching ~3&nbsp;KB object just to pull out one integer. Enable
+        <code>indexColumnar</code> on <code>price_cents</code> and the same
+        values are served as 8-byte point lookups from a dedicated column
+        bucket - the objects are never touched.
+      </p>
+      <p class="schema-state">
+        <code>price_cents</code> <span class="type-pill">int</span>
+        <span class="flag bad">columnar=false</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="language-python">products.aggregate.over_all(
+    filters=Filter.by_property("brand").equal("GoPro"),
+    return_metrics=Metrics("price_cents").integer(
+        mean=True, minimum=True, maximum=True, sum_=True,
+    ),
+)</code></pre>
+        <button class="btn-primary run-btn" data-action="run-agg-selective">Run query</button>
+      </div>
+      <div class="result" id="result-agg_selective">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mistake 5: broad filtered aggregation without a columnar index -->
+  <section class="card" data-card="agg_broad">
+    <header>
+      <h2>5. Filtered aggregation, broad filter</h2>
+      <p class="explainer">
+        Same aggregation, but the filter now matches ~70% of the catalog:
+        <code>in_stock == true</code>. The object-scan path scales linearly
+        with the match count, so ~700,000 object fetches put this query in
+        the seconds range. A columnar index serves the whole thing from one
+        block scan over the column bucket - its cost is near-constant no
+        matter how many objects the filter matches.
+      </p>
+      <p class="schema-state">
+        <code>price_cents</code> <span class="type-pill">int</span>
+        <span class="flag bad">columnar=false</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="language-python">products.aggregate.over_all(
+    filters=Filter.by_property("in_stock").equal(True),
+    return_metrics=Metrics("price_cents").integer(
+        mean=True, minimum=True, maximum=True, sum_=True,
+    ),
+)</code></pre>
+        <button class="btn-primary run-btn" data-action="run-agg-broad">Run query</button>
+      </div>
+      <div class="result" id="result-agg_broad">
         <p class="placeholder">Press <em>Run query</em> to execute.</p>
       </div>
     </div>

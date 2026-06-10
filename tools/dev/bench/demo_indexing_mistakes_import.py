@@ -86,6 +86,19 @@ PROPERTIES = [
         index_filterable=False,
         tokenization=Tokenization.WORD,
     ),
+    # Long-form marketing/review copy (~3 KB). Deliberately not indexed at
+    # all - it exists to give each object the payload weight of a realistic
+    # catalog row. This is what makes the aggregation cards honest: the
+    # object-scan path pays a fetch + JSON unmarshal of this whole blob per
+    # matching object just to extract one integer, which is exactly the cost
+    # a columnar index on the metric property removes.
+    Property(
+        name="review_summary",
+        data_type=DataType.TEXT,
+        index_searchable=False,
+        index_filterable=False,
+        tokenization=Tokenization.WORD,
+    ),
     Property(
         name="brand",
         data_type=DataType.TEXT,
@@ -293,6 +306,47 @@ DESCRIPTION_BITS = [
 # subdomain like help.brand.com. This keeps WORD tokenization confused.
 SUPPORT_DOMAIN_PREFIXES = ["support", "help", "service", "care"]
 
+# Sentence pool for the ~3 KB review_summary payload. Sentences are sampled
+# (with repetition across objects, deterministic via the seeded rng) until the
+# target size is reached.
+REVIEW_SENTENCES = [
+    "After six weeks of daily use the build quality continues to impress, with no creaks or loose fittings anywhere on the chassis.",
+    "Battery life lands almost exactly on the manufacturer's claim, which is rarer than it should be in this category.",
+    "The companion app received two updates during our review window, both of which improved pairing reliability noticeably.",
+    "In direct sunlight the controls remain legible, though the gloss finish picks up fingerprints faster than we'd like.",
+    "Packaging is fully recyclable and the quick-start guide actually answers the questions a first-time buyer would have.",
+    "Firmware updates install in under two minutes and the device preserves all settings across the upgrade.",
+    "The warranty process, which we tested with a deliberate support inquiry, produced a human response within one business day.",
+    "Low-light performance is acceptable for casual use but enthusiasts will want to look one tier higher in the lineup.",
+    "Thermal behaviour under sustained load stays well within comfortable limits, never becoming more than warm to the touch.",
+    "The included cable is generously long and braided, a small touch that signals attention to detail.",
+    "Setup from unboxing to first successful use took under four minutes in our standardized test.",
+    "Compared with the previous generation, the redesigned mounting system saves real time in day-to-day handling.",
+    "Noise levels are measurably lower than the category average, holding under 32 dBA in our chamber test.",
+    "The accessory ecosystem is broad, with third-party options covering most gaps in the first-party catalog.",
+    "Resale value for this brand has historically held up well, which matters at this price point.",
+    "Our drop test from desk height left only cosmetic marks, with all functions operating normally afterwards.",
+    "Color accuracy out of the box is close enough that most users will never feel the need to calibrate.",
+    "The user interface exposes advanced options without burying the defaults that beginners need.",
+    "Connectivity remained stable through a full week of continuous operation in a congested RF environment.",
+    "Spare parts are listed publicly and reasonably priced, suggesting genuine repairability rather than lip service.",
+]
+
+# Target payload size for review_summary. ~3 KB makes a 1M-object catalog
+# heavy enough that per-object fetch costs dominate aggregation latency,
+# matching the shape of real-world product catalogs.
+REVIEW_TARGET_BYTES = 3_000
+
+
+def _review_summary(rng: random.Random) -> str:
+    parts: list[str] = []
+    size = 0
+    while size < REVIEW_TARGET_BYTES:
+        s = rng.choice(REVIEW_SENTENCES)
+        parts.append(s)
+        size += len(s) + 1
+    return " ".join(parts)
+
 
 # -- Canonical GoPro records ---------------------------------------------------
 #
@@ -439,6 +493,7 @@ def _make_object(i: int, rng: random.Random) -> dict:
     return {
         "name": name,
         "description": _description(rng, brand, category),
+        "review_summary": _review_summary(rng),
         "brand": brand,
         "in_stock": rng.random() < 0.7,
         "release_date": release.isoformat(),
@@ -471,8 +526,10 @@ def main() -> int:
             auth_credentials=Auth.api_key(wcd_key),
         )
     else:
-        print("Connecting to local Weaviate at localhost:8080 (grpc 50051)...")
-        client = weaviate.connect_to_local(port=8080, grpc_port=50051)
+        http_port = int(os.environ.get("LOCAL_HTTP_PORT", "8080"))
+        grpc_port = int(os.environ.get("LOCAL_GRPC_PORT", "50051"))
+        print(f"Connecting to local Weaviate at localhost:{http_port} (grpc {grpc_port})...")
+        client = weaviate.connect_to_local(port=http_port, grpc_port=grpc_port)
     try:
         if client.collections.exists(COLLECTION_NAME):
             print(f"Deleting existing collection {COLLECTION_NAME}...")
@@ -494,9 +551,14 @@ def main() -> int:
             f"{NUM_OBJECTS - len(CANONICAL_GOPRO_OBJECTS):,} random)..."
         )
         t0 = time.monotonic()
+        # Canonical records get a fixed (non-rng) review payload so they
+        # carry the same object weight without shifting the seeded sequence.
+        canonical_review = " ".join(REVIEW_SENTENCES * 2)[:REVIEW_TARGET_BYTES]
         with collection.batch.fixed_size(batch_size=BATCH_SIZE) as batch:
             for canonical in CANONICAL_GOPRO_OBJECTS:
-                batch.add_object(properties=canonical)
+                batch.add_object(
+                    properties={**canonical, "review_summary": canonical_review}
+                )
             random_count = NUM_OBJECTS - len(CANONICAL_GOPRO_OBJECTS)
             for i in range(random_count):
                 batch.add_object(properties=_make_object(i, rng))
@@ -513,7 +575,7 @@ def main() -> int:
             f"  Import complete in {elapsed:.1f}s ({NUM_OBJECTS / elapsed:,.0f} obj/s)"
         )
 
-        target = wcd_url if wcd_url else "localhost:8080"
+        target = wcd_url if wcd_url else f"localhost:{os.environ.get('LOCAL_HTTP_PORT', '8080')}"
         print()
         print(f"Ready. The UI can now point at {target} and load the")
         print(f"'{COLLECTION_NAME}' collection to demonstrate each indexing mistake.")
