@@ -45,6 +45,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 	queryDistancer := h.quantizer.NewDistancer(vector)
 
+	// Check for trace collector (diagnostic mode)
+	traceCollector := TraceCollectorFromContext(ctx)
+	if traceCollector != nil {
+		traceCollector.SetSearchParams(k, int(h.searchProbe), rescoreLimit, h.muvera.Load())
+	}
+
 	var selectedCentroids []uint64
 	var postings []Posting
 
@@ -71,9 +77,17 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
+	// Track filtering stats for diagnostics
+	var filteredByDistance, filteredByEmptyPosting int
 	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
+	// Keep centroid distances for trace (only allocate if tracing)
+	var centroidDistances []float32
+	if traceCollector != nil {
+		centroidDistances = make([]float32, 0, candidateCentroidNum)
+	}
 	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
+			filteredByDistance++
 			continue
 		}
 		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
@@ -81,10 +95,24 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			return nil, nil, err
 		}
 		if count == 0 {
+			filteredByEmptyPosting++
 			continue
 		}
 
 		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
+		if traceCollector != nil {
+			centroidDistances = append(centroidDistances, centroids.data[i].Distance)
+		}
+	}
+
+	// Record centroid search stats if tracing
+	if traceCollector != nil {
+		traceCollector.RecordCentroidSearch(
+			candidateCentroidNum,
+			len(centroids.data),
+			filteredByDistance,
+			filteredByEmptyPosting,
+		)
 	}
 
 	// read all the selected postings
@@ -98,6 +126,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	var decompressBuf []uint64
 
+	// Track posting scan stats for diagnostics
+	var totalVectorsScanned, skippedDeleted, skippedDuplicate, skippedAllowList int
+
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -105,6 +136,16 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		// keep track of the posting size
 		postingSize := len(p)
+		totalVectorsScanned += postingSize
+
+		// Record selected posting if tracing
+		if traceCollector != nil {
+			var centroidDist float32
+			if i < len(centroidDistances) {
+				centroidDist = centroidDistances[i]
+			}
+			traceCollector.RecordSelectedPosting(selectedCentroids[i], i, centroidDist, postingSize)
+		}
 
 		for _, v := range p {
 			id := v.ID()
@@ -115,16 +156,19 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 			if deleted {
 				postingSize--
+				skippedDeleted++
 				continue
 			}
 
 			// skip duplicates
 			if visited.CheckAndVisit(id) {
+				skippedDuplicate++
 				continue
 			}
 
 			// skip vectors that are not in the allow list
 			if allowList != nil && !allowList.Contains(id) {
+				skippedAllowList++
 				continue
 			}
 
@@ -132,6 +176,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			dist, err := queryDistancer.Distance(decompressBuf)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
+			}
+
+			// Record candidate if tracing
+			if traceCollector != nil {
+				traceCollector.RecordCandidate(id, selectedCentroids[i], dist)
 			}
 
 			q.Insert(id, dist)
@@ -145,6 +194,13 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
 		}
+	}
+
+	// Record posting scan stats if tracing
+	if traceCollector != nil {
+		traceCollector.RecordPostingScanStats(totalVectorsScanned, skippedDeleted, skippedDuplicate, skippedAllowList)
+		// Record approximate ranking
+		traceCollector.RecordApproximateRanking(q.data)
 	}
 
 	if h.muvera.Load() {
@@ -184,6 +240,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		ids[i] = id
 		dists[i] = dist
 		i++
+	}
+
+	// Record final results if tracing (non-MUVERA path)
+	if traceCollector != nil {
+		traceCollector.RecordFinalResults(ids, dists)
 	}
 
 	return ids, dists, nil
@@ -428,6 +489,27 @@ func (h *HFresh) QueryMultiVectorDistancer(queryVectors [][]float32) common.Quer
 func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateIDs []uint64) ([]uint64, []float32, error) {
 	results := NewResultSet(k)
 
+	// Check for trace collector
+	traceCollector := TraceCollectorFromContext(ctx)
+
+	// Build a map of approximate scores for tracing (only if tracing enabled)
+	var approxScores map[uint64]float32
+	if traceCollector != nil {
+		approxScores = make(map[uint64]float32, len(candidateIDs))
+		// Get approximate scores from the approximate ranking trace
+		for _, c := range traceCollector.Trace().ApproximateRanking.TopCandidates {
+			approxScores[c.DocID] = c.ApproxScore
+		}
+		traceCollector.RecordLateInteractionStats(len(candidateIDs))
+	}
+
+	// Track exact scores for tracing
+	type exactResult struct {
+		id    uint64
+		score float32
+	}
+	var exactResults []exactResult
+
 	for _, id := range candidateIDs {
 		docVectors, err := h.multivectorForIdThunk(ctx, id)
 		if err != nil {
@@ -438,6 +520,11 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 			return nil, nil, errors.Wrapf(err, "compute maxsim for id %d", id)
 		}
 		results.Insert(id, score)
+
+		// Track for tracing
+		if traceCollector != nil {
+			exactResults = append(exactResults, exactResult{id: id, score: score})
+		}
 	}
 
 	ids := make([]uint64, results.Len())
@@ -447,6 +534,33 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 		ids[i] = id
 		dists[i] = dist
 		i++
+	}
+
+	// Record late interaction details and final results if tracing
+	if traceCollector != nil {
+		// Create a set of returned IDs for quick lookup
+		returnedSet := make(map[uint64]int, len(ids))
+		for rank, id := range ids {
+			returnedSet[id] = rank
+		}
+
+		// Record each rescored candidate
+		for _, er := range exactResults {
+			returned := false
+			exactRank := -1
+			if rank, ok := returnedSet[er.id]; ok {
+				returned = true
+				exactRank = rank
+			}
+			approxScore := float32(0)
+			if approxScores != nil {
+				approxScore = approxScores[er.id]
+			}
+			traceCollector.RecordLateInteractionCandidate(er.id, approxScore, er.score, exactRank, returned)
+		}
+
+		// Record final results
+		traceCollector.RecordFinalResults(ids, dists)
 	}
 
 	return ids, dists, nil
