@@ -2477,9 +2477,30 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// registerDoubleWriteCallbacks registers the strategy's add/delete mirror
+// callbacks on the shard's property-value-index write path, together with
+// the strategy's migration analyzer overlay.
+//
+// The overlay registration MUST precede the callback registration: the
+// callbacks only see properties the live analyzer emits, and for a
+// property whose ONLY index is the one being built (e.g.
+// indexFilterable=false mid-enable-rangeable) the analyzer drops the
+// property unless the overlay forces its flag on — leaving the callbacks
+// permanently dead for exactly the property they exist for
+// (weaviate/weaviate#11688). An overlay registered slightly before the
+// callbacks is harmless (analyzed-but-uncallbacked writes just produce a
+// property nothing consumes); callbacks active without the overlay is the
+// data-loss bug.
+//
+// Teardown is symmetric via [disableCallbacks]: the callback disable funcs
+// are stored BEFORE the overlay disable func, so the callbacks always stop
+// firing before (or at worst, at the same teardown instant as) the overlay
+// disappears.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
 ) {
+	disableOverlay := shard.registerMigrationAnalyzerOverlay(t.strategy.AnalyzerOverlay(props))
+
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
@@ -2491,7 +2512,7 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 		t.strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy))
 
 	t.callbackDisableFuncsMu.Lock()
-	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disableAdd, disableDelete)
+	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disableAdd, disableDelete, disableOverlay)
 	t.callbackDisableFuncsMu.Unlock()
 }
 

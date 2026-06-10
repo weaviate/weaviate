@@ -111,6 +111,14 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			continue
 		}
 
+		// The property is only being analyzed because the overlay forced an
+		// index flag on — the live schema has no inverted index for it. Mark
+		// every Property entry this prop produces (incl. __meta_count for
+		// refs) so the write path can skip aux indexes whose buckets only
+		// exist for live-indexed properties. See Property.ForcedViaOverlay.
+		forcedViaOverlay := !HasAnyInvertedIndex(prop)
+		prevLen := len(out)
+
 		if schema.IsRefDataType(effective.DataType) {
 			if err := a.extendPropertiesWithReference(&out, effective, input, key); err != nil {
 				return nil, nil, err
@@ -125,6 +133,11 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			}
 		}
 
+		if forcedViaOverlay {
+			for i := prevLen; i < len(out); i++ {
+				out[i].ForcedViaOverlay = true
+			}
+		}
 	}
 	return out, nestedOut, nil
 }

@@ -40,6 +40,14 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 			continue
 		}
 
+		// Overlay-forced props (live schema has no enabled index; analyzed
+		// only because of an active migration) have no null/length buckets
+		// yet — those are created with the first enabled index. Skip the aux
+		// writes; the migration backfill side has the same behavior.
+		if prop.ForcedViaOverlay {
+			continue
+		}
+
 		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
 		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
 			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
@@ -72,57 +80,74 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 	return nil
 }
 
+// addToPropertyValueIndex writes one analyzed property into its enabled
+// value-index buckets, then dispatches the registered
+// onAddToPropertyValueIndex callbacks (runtime-reindex double-writes).
+//
+// Missing-bucket handling: a nil bucket is an error for regular props, but
+// is tolerated (write skipped) for overlay-forced props — their index flag
+// is only on because of an active migration, and not every forced bucket is
+// guaranteed to exist (e.g. a ref prop's __meta_count sidecar, which the
+// migration's PreReindexHook does not create). The double-write callback at
+// the end is the load-bearing write during a migration and MUST be reached.
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
-		if bucketValue == nil {
+		if bucketValue == nil && !property.ForcedViaOverlay {
 			return errors.Errorf("no bucket for prop '%s' found", property.Name)
 		}
 
-		for _, item := range property.Items {
-			key := item.Data
-			if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+		if bucketValue != nil {
+			for _, item := range property.Items {
+				key := item.Data
+				if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
+					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+				}
 			}
 		}
 	}
 
 	if property.HasSearchableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
-		if bucketValue == nil {
+		if bucketValue == nil && !property.ForcedViaOverlay {
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
 		}
-		propLen := float32(0)
 
-		if bucketValue.Strategy() == lsmkv.StrategyInverted {
-			// Iterating over all items to calculate the property length, which is the sum of all term frequencies
-			for _, item := range property.Items {
-				propLen += item.TermFrequency
+		if bucketValue != nil {
+			propLen := float32(0)
+
+			if bucketValue.Strategy() == lsmkv.StrategyInverted {
+				// Iterating over all items to calculate the property length, which is the sum of all term frequencies
+				for _, item := range property.Items {
+					propLen += item.TermFrequency
+				}
+			} else {
+				// This is the old way of calculating the property length, which counts terms that show up multiple times only once,
+				// which is not standard for BM25
+				propLen = float32(len(property.Items))
 			}
-		} else {
-			// This is the old way of calculating the property length, which counts terms that show up multiple times only once,
-			// which is not standard for BM25
-			propLen = float32(len(property.Items))
-		}
-		for _, item := range property.Items {
-			key := item.Data
-			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			for _, item := range property.Items {
+				key := item.Data
+				pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+				if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
+					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+				}
 			}
 		}
 	}
 
 	if property.HasRangeableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(property.Name))
-		if bucketValue == nil {
+		if bucketValue == nil && !property.ForcedViaOverlay {
 			return errors.Errorf("no bucket rangeable for prop '%s' found", property.Name)
 		}
 
-		for _, item := range property.Items {
-			key := item.Data
-			if err := s.addToPropertyRangeBucket(bucketValue, docID, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+		if bucketValue != nil {
+			for _, item := range property.Items {
+				key := item.Data
+				if err := s.addToPropertyRangeBucket(bucketValue, docID, key); err != nil {
+					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+				}
 			}
 		}
 	}

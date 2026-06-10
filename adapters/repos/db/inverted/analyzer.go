@@ -38,6 +38,27 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
+
+	// ForcedViaOverlay marks a property that was analyzed ONLY because a
+	// migration schema overlay (PropertyOverlay's Force* flags) enabled an
+	// index for it — the live RAFT-stored schema has NO inverted index
+	// enabled on this property. Set by Analyzer.analyzeProps when the raw
+	// property fails HasAnyInvertedIndex but the overlay-effective one
+	// passes.
+	//
+	// Consumers on the live write path use it to:
+	//  (a) skip the null/length auxiliary index writes — those buckets are
+	//      only created for properties with an enabled inverted index, so
+	//      they don't exist yet for a mid-migration property; and
+	//  (b) tolerate a missing value-index bucket (skip instead of erroring)
+	//      — e.g. the __meta_count sidecar of a ref property under
+	//      enable-filterable, which the migration does not create.
+	//
+	// Without the flag, overlay-forced analysis would fail every live write
+	// with "no bucket for prop ... found" whenever the aux buckets are
+	// absent — turning the silent-loss bug (weaviate/weaviate#11688) into a
+	// write-availability outage during migrations.
+	ForcedViaOverlay bool
 }
 
 type NilProperty struct {

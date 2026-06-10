@@ -26,44 +26,55 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 	docID uint64,
 ) error {
 	for _, prop := range props {
+		// Missing-bucket tolerance for overlay-forced props mirrors
+		// addToPropertyValueIndex: the index flag is only on because of an
+		// active migration, so a missing bucket skips the direct write
+		// instead of failing; the onDeleteFromPropertyValueIndex callback
+		// below is the load-bearing write during a migration.
 		if prop.HasFilterableIndex {
 			bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			if bucket == nil && !prop.ForcedViaOverlay {
 				return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
-			for _, item := range prop.Items {
-				if err := s.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
-					return errors.Wrapf(err, "delete item '%s' from index",
-						string(item.Data))
+			if bucket != nil {
+				for _, item := range prop.Items {
+					if err := s.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
+						return errors.Wrapf(err, "delete item '%s' from index",
+							string(item.Data))
+					}
 				}
 			}
 		}
 
 		if prop.HasSearchableIndex {
 			bucket := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			if bucket == nil && !prop.ForcedViaOverlay {
 				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
 			}
 
-			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item,
-					docID); err != nil {
-					return errors.Wrapf(err, "delete item '%s' from index",
-						string(item.Data))
+			if bucket != nil {
+				for _, item := range prop.Items {
+					if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item,
+						docID); err != nil {
+						return errors.Wrapf(err, "delete item '%s' from index",
+							string(item.Data))
+					}
 				}
 			}
 		}
 
 		if prop.HasRangeableIndex {
 			bucket := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			if bucket == nil && !prop.ForcedViaOverlay {
 				return fmt.Errorf("no bucket rangeable for prop %q found", prop.Name)
 			}
-			for _, item := range prop.Items {
-				if err := s.deleteFromPropertyRangeBucket(bucket, docID, item.Data); err != nil {
-					return errors.Wrapf(err, "delete item '%s' from index",
-						string(item.Data))
+			if bucket != nil {
+				for _, item := range prop.Items {
+					if err := s.deleteFromPropertyRangeBucket(bucket, docID, item.Data); err != nil {
+						return errors.Wrapf(err, "delete item '%s' from index",
+							string(item.Data))
+					}
 				}
 			}
 		}
@@ -74,6 +85,12 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
 		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+			continue
+		}
+
+		// Overlay-forced props have no null/length buckets yet — skip the
+		// aux deletes (mirrors extendInvertedIndicesLSM).
+		if prop.ForcedViaOverlay {
 			continue
 		}
 

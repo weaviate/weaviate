@@ -476,6 +476,42 @@ type Shard struct {
 	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
 	propertyValueIndexCallbacksMu         sync.Mutex
+
+	// Migration analyzer overlays: per-prop Force* index-flag overrides that
+	// [Shard.AnalyzeObject] applies to LIVE writes while a runtime reindex
+	// migration's double-write callbacks are registered on this shard.
+	//
+	// Why this exists (weaviate/weaviate#11688): the live write path
+	// analyzes objects against the RAFT-stored schema, and the analyzer
+	// drops any property with no enabled inverted index
+	// (inverted.HasAnyInvertedIndex). For a property with
+	// indexFilterable=false mid-enable-rangeable (or any enable-X
+	// migration on a property with no other enabled index), the analyzed
+	// props never contain the migrating property, so the double-write
+	// callbacks registered by registerAddToPropertyValueIndex /
+	// registerDeleteFromPropertyValueIndex NEVER fire for exactly the
+	// property they exist for — every write during the migration window is
+	// permanently lost from the target index.
+	//
+	// Lifecycle: registered by
+	// [ShardReindexTaskGeneric.registerDoubleWriteCallbacks] immediately
+	// BEFORE the callbacks themselves (an analyzed-but-uncallbacked write
+	// is harmless — the callbacks ignore unknown props; an unanalyzed
+	// write with callbacks active is the bug), and unregistered together
+	// with the callbacks in disableCallbacks. This intentionally differs
+	// from the tokenizationOverlay above, which is fed from the
+	// swap-window lifecycle (per-prop with the bucket-pointer flip) —
+	// Force* flags must cover the ENTIRE double-write window, not just
+	// the swap.
+	//
+	// Same copy-on-write pattern as the callback slices: registration
+	// (rare) rebuilds the merged snapshot behind the mutex; reads (every
+	// object write) load the snapshot lock-free via the atomic.Value.
+	// Snapshot maps are immutable once stored.
+	migrationAnalyzerOverlays      atomic.Value // map[string]inverted.PropertyOverlay (merged snapshot)
+	migrationAnalyzerOverlayRegs   map[uint64]map[string]inverted.PropertyOverlay
+	migrationAnalyzerOverlayNextID uint64
+	migrationAnalyzerOverlayMu     sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -904,6 +940,95 @@ func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueInd
 	s.propertyValueIndexCallbacksMu.Unlock()
 
 	return func() { disabled.Store(true) }
+}
+
+// registerMigrationAnalyzerOverlay records per-prop Force* index-flag
+// overrides for [Shard.AnalyzeObject] so LIVE writes during a runtime
+// reindex migration analyze the migrating properties as if the target
+// schema flag were already flipped. Without it the analyzer drops a
+// property with no enabled inverted index and the migration's
+// double-write callbacks never see it (weaviate/weaviate#11688). See the
+// [migrationAnalyzerOverlays] field godoc for the full rationale and
+// lifecycle.
+//
+// Only the Force* flags of the supplied overlay are honored — a
+// Tokenization override is deliberately dropped. Tokenization changes on
+// the LIVE path are owned by the per-prop tokenization overlay
+// (SetTokenizationOverlay), which flips atomically with the bucket
+// pointer; applying a target tokenization for the whole double-write
+// window would write target-tokenized keys into the still-live OLD
+// filterable/searchable buckets and corrupt query results during the
+// backfill.
+//
+// Returns a disable func (idempotent) that removes exactly this
+// registration. Multiple concurrent migrations (different props, or even
+// the same prop targeted by different strategies) merge by OR-ing their
+// Force* flags.
+func (s *Shard) registerMigrationAnalyzerOverlay(overlay map[string]inverted.PropertyOverlay) func() {
+	projected := make(map[string]inverted.PropertyOverlay, len(overlay))
+	for name, o := range overlay {
+		if !o.ForceFilterable && !o.ForceSearchable && !o.ForceRangeable {
+			continue
+		}
+		projected[name] = inverted.PropertyOverlay{
+			ForceFilterable: o.ForceFilterable,
+			ForceSearchable: o.ForceSearchable,
+			ForceRangeable:  o.ForceRangeable,
+		}
+	}
+	if len(projected) == 0 {
+		return func() {}
+	}
+
+	s.migrationAnalyzerOverlayMu.Lock()
+	if s.migrationAnalyzerOverlayRegs == nil {
+		s.migrationAnalyzerOverlayRegs = map[uint64]map[string]inverted.PropertyOverlay{}
+	}
+	id := s.migrationAnalyzerOverlayNextID
+	s.migrationAnalyzerOverlayNextID++
+	s.migrationAnalyzerOverlayRegs[id] = projected
+	s.storeMergedMigrationAnalyzerOverlaysLocked()
+	s.migrationAnalyzerOverlayMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.migrationAnalyzerOverlayMu.Lock()
+			delete(s.migrationAnalyzerOverlayRegs, id)
+			s.storeMergedMigrationAnalyzerOverlaysLocked()
+			s.migrationAnalyzerOverlayMu.Unlock()
+		})
+	}
+}
+
+// storeMergedMigrationAnalyzerOverlaysLocked rebuilds the immutable merged
+// snapshot from the current registrations and publishes it. Caller must
+// hold migrationAnalyzerOverlayMu.
+func (s *Shard) storeMergedMigrationAnalyzerOverlaysLocked() {
+	if len(s.migrationAnalyzerOverlayRegs) == 0 {
+		s.migrationAnalyzerOverlays.Store(map[string]inverted.PropertyOverlay(nil))
+		return
+	}
+	merged := map[string]inverted.PropertyOverlay{}
+	for _, reg := range s.migrationAnalyzerOverlayRegs {
+		for name, o := range reg {
+			m := merged[name]
+			m.ForceFilterable = m.ForceFilterable || o.ForceFilterable
+			m.ForceSearchable = m.ForceSearchable || o.ForceSearchable
+			m.ForceRangeable = m.ForceRangeable || o.ForceRangeable
+			merged[name] = m
+		}
+	}
+	s.migrationAnalyzerOverlays.Store(merged)
+}
+
+// migrationAnalyzerOverlaySnapshot returns the current merged migration
+// overlay map (nil when no migration is active — the steady-state fast
+// path is a single atomic load). The returned map is immutable; callers
+// must not modify it.
+func (s *Shard) migrationAnalyzerOverlaySnapshot() map[string]inverted.PropertyOverlay {
+	m, _ := s.migrationAnalyzerOverlays.Load().(map[string]inverted.PropertyOverlay)
+	return m
 }
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {

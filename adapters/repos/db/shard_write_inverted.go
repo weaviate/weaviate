@@ -101,11 +101,54 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
 	// so writes during a change-tokenization SWAPPING window land in the
 	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
-	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+	//
+	// Additionally merge in the Force* flags of any ACTIVE migration's
+	// analyzer overlay (registered alongside the double-write callbacks).
+	// Without them, a property whose only index is the one currently being
+	// built (e.g. indexFilterable=false mid-enable-rangeable) is dropped by
+	// the analyzer and the double-write callbacks never fire for it — every
+	// write during the migration window would be permanently lost from the
+	// target index. weaviate/weaviate#11688.
+	if overlay := s.liveAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
+}
+
+// liveAnalyzerOverlay combines the two per-shard overlay sources that apply
+// to LIVE writes:
+//
+//   - the tokenization overlay (change-tokenization swap window — supplies
+//     Tokenization only, see tokenizationAnalyzerOverlay), and
+//   - the migration analyzer overlays (active double-write windows —
+//     supply Force* flags only, see registerMigrationAnalyzerOverlay).
+//
+// Per-prop merge semantics: Tokenization comes from the tokenization
+// overlay, Force* flags from the migration overlay; a prop present in both
+// gets both. Steady state (no migration) costs one atomic load plus the
+// pre-existing tokenization snapshot; when only one source is active its
+// map is returned as-is (the migration snapshot is immutable and the
+// analyzer only reads it).
+func (s *Shard) liveAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	tok := s.tokenizationAnalyzerOverlay(props)
+	mig := s.migrationAnalyzerOverlaySnapshot()
+	if len(mig) == 0 {
+		return tok
+	}
+	if len(tok) == 0 {
+		return mig
+	}
+	merged := make(map[string]inverted.PropertyOverlay, len(tok)+len(mig))
+	for name, o := range mig {
+		merged[name] = o
+	}
+	for name, o := range tok {
+		m := merged[name] // zero value when migration overlay has no entry
+		m.Tokenization = o.Tokenization
+		merged[name] = m
+	}
+	return merged
 }
 
 // tokenizationAnalyzerOverlay projects the per-shard tokenization
