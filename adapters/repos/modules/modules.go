@@ -119,6 +119,13 @@ func (s *storageBucket) Get(key []byte) ([]byte, error) {
 func (s *storageBucket) Scan(scan moduletools.ScanFn) error {
 	err := s.repo.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(s.bucketKey)
+		if b == nil {
+			// No bucket for this key — treat as an empty scan, consistent with
+			// Get/Put which both nil-check. Without this guard b.Cursor() panics
+			// on a nil bucket, which a read-only-aware storage (that skips bucket
+			// creation) would otherwise hit.
+			return nil
+		}
 
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
