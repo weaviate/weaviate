@@ -530,6 +530,26 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		shardName := shard.name
 		eg.Go(func() error {
 			switch {
+			case i.Config.ReadOnly:
+				// Read-only follower: load the shard eagerly with a read-only
+				// storage open path (Shard.readOnly) and wrap it so the shard
+				// boundary rejects writes. Lazy loading is bypassed — the copy is
+				// static, so there is nothing to defer.
+				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+					return fmt.Errorf("acquiring permit to load shard: %w", err)
+				}
+				defer i.shardLoadLimiter.Release()
+
+				inner, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
+				if err != nil {
+					return fmt.Errorf("init read-only shard %s of index %s: %w", shardName, i.ID(), err)
+				}
+
+				promMetrics.NewLoadedShard()
+				inner.metricsRegistered.Store(true)
+				i.shards.Store(shardName, NewReadOnlyShard(inner))
+				return nil
 			case i.Config.EnableLazyLoadShards:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
