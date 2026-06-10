@@ -1,10 +1,12 @@
 # HFresh + MUVERA Search Trace Instrumentation
 
-This document describes the diagnostic trace instrumentation for HFresh+MUVERA search, designed to support offline recall analysis by external benchmarking tools.
+This document describes the minimal diagnostic trace instrumentation for HFresh+MUVERA search, designed to support offline recall attribution by external benchmarking tools.
 
 ## Overview
 
-The trace instrumentation captures internal search state at each stage of the HFresh+MUVERA pipeline without modifying search behavior. Weaviate itself does not evaluate recall — it only records what happened during search. An external benchmark tool can then compare these traces against ground-truth results to classify where recall was lost.
+The trace instrumentation captures minimal membership data at each stage of the HFresh+MUVERA pipeline without modifying search behavior. Weaviate itself does not evaluate recall — it only records document IDs at each stage. An external benchmark tool can then compare these traces against ground-truth results to classify where recall was lost.
+
+**Design Principle**: All three recall failure categories (routing, approximate-ranking, exact-ranking) are membership tests. Scores are not required for attribution, so the trace captures only document IDs.
 
 ## Enabling Diagnostics
 
@@ -30,169 +32,176 @@ trace := collector.Trace()
 
 ## Trace Data Structure
 
-The `SearchTrace` struct contains:
-
-### Search Parameters
+The trace captures minimal membership data (~3.4KB per query vs ~37KB in the original design):
 
 ```go
 type SearchTrace struct {
-    QueryID      string  // Caller-provided identifier
-    IsMuvera     bool    // Whether this was a MUVERA multi-vector search
-    K            int     // Requested result count
-    SearchProbe  int     // Number of centroids to probe
-    RescoreLimit int     // Maximum candidates for exact rescoring
-    // ...
+    // QueryID is an optional caller-provided identifier for correlation.
+    QueryID string `json:"query_id,omitempty"`
+
+    // IsMuvera indicates whether this was a MUVERA multi-vector search.
+    IsMuvera bool `json:"is_muvera"`
+
+    // Search parameters
+    K            int `json:"k"`
+    SearchProbe  int `json:"search_probe"`
+    RescoreLimit int `json:"rescore_limit"`
+
+    // SelectedCentroids contains the centroid IDs of postings that were
+    // selected for scanning. External benchmark uses these IDs to check
+    // posting membership for routing failure attribution.
+    SelectedCentroids []uint64 `json:"selected_centroids"`
+
+    // ScanStats contains aggregate statistics from the posting scan phase.
+    ScanStats ScanStats `json:"scan_stats"`
+
+    // ApproxTopIDs contains document IDs that made the approximate ranking
+    // (top rescoreLimit candidates). Used to detect approximate-ranking failure.
+    ApproxTopIDs []uint64 `json:"approx_top_ids"`
+
+    // ReturnedIDs contains document IDs in the final results.
+    // Used to detect exact-ranking failure.
+    ReturnedIDs []uint64 `json:"returned_ids"`
+}
+
+type ScanStats struct {
+    // TotalScanned is the total number of vectors examined across all postings.
+    TotalScanned int `json:"total_scanned"`
+
+    // UniqueEnumerated is the number of unique candidates after filtering.
+    UniqueEnumerated int `json:"unique_enumerated"`
+
+    // SkippedDeleted is the count of vectors skipped because they were deleted.
+    SkippedDeleted int `json:"skipped_deleted"`
+
+    // SkippedDuplicate is the count of vectors skipped as duplicates.
+    SkippedDuplicate int `json:"skipped_duplicate"`
+
+    // SkippedAllowList is the count of vectors skipped due to allow list filtering.
+    SkippedAllowList int `json:"skipped_allow_list"`
 }
 ```
 
-### Centroid/Posting Selection
+## What Data is Captured
 
-```go
-type CentroidSearchTrace struct {
-    CandidateCentroidNum   int  // Centroids requested from HNSW
-    CentroidsReturned      int  // Centroids returned by HNSW
-    FilteredByDistance     int  // Skipped due to distance ratio
-    FilteredByEmptyPosting int  // Skipped due to empty postings
-    SelectedPostings       []PostingSelectionTrace
-}
-
-type PostingSelectionTrace struct {
-    CentroidID       uint64   // Centroid/posting ID
-    SelectionRank    int      // Position in centroid search results
-    CentroidDistance float32  // Distance from query to centroid
-    PostingSize      int      // Number of vectors in posting
-}
-```
-
-### Posting Scan
-
-```go
-type PostingScanTrace struct {
-    TotalVectorsScanned  int  // Total vectors examined
-    SkippedDeleted       int  // Skipped as deleted
-    SkippedDuplicate     int  // Skipped as duplicates
-    SkippedAllowList     int  // Skipped by allow list filter
-    CandidatesEnumerated []CandidateTrace
-}
-
-type CandidateTrace struct {
-    DocID          uint64   // Document ID
-    CentroidID     uint64   // Centroid where found (first occurrence)
-    ApproxScore    float32  // RQ-compressed distance score
-    ApproxRank     int      // Position in approximate ranking (-1 if not ranked)
-    KeptForRescore bool     // Whether kept for exact rescoring
-}
-```
-
-### Approximate Ranking
-
-```go
-type ApproximateRankingTrace struct {
-    TotalCandidates int  // Unique candidates after posting scan
-    KeptForRescore  int  // Candidates kept for exact rescoring
-    TopCandidates   []CandidateTrace
-}
-```
-
-### Late Interaction (MUVERA only)
-
-```go
-type LateInteractionTrace struct {
-    CandidatesRescored int  // Number rescored with MaxSim
-    RescoredCandidates []RescoredCandidateTrace
-}
-
-type RescoredCandidateTrace struct {
-    DocID       uint64   // Document ID
-    ApproxScore float32  // Approximate score from FDE search
-    ExactScore  float32  // Exact MaxSim score
-    ExactRank   int      // Position in exact ranking
-    Returned    bool     // In final top-k
-}
-```
-
-### Final Results
-
-```go
-type ResultTrace struct {
-    DocID uint64   // Document ID
-    Score float32  // Final score
-    Rank  int      // Position in results (0-indexed)
-}
-```
-
-## What Data is Available
-
-The trace captures:
+The trace records:
 
 - **Search parameters**: k, searchProbe, rescoreLimit
-- **Centroid selection**: which centroids were searched, filtered, selected
-- **Posting details**: sizes, centroid distances
-- **All enumerated candidates**: document IDs, approximate scores, centroid associations
-- **Approximate ranking**: which candidates were kept for rescoring
-- **Exact rescoring** (MUVERA): approximate vs exact scores for each rescored candidate
-- **Final results**: returned IDs and scores
+- **Selected centroids**: IDs of postings that were probed
+- **Scan statistics**: Aggregate counts of vectors scanned and filtered
+- **Approx top IDs**: Document IDs that made the approximate ranking
+- **Returned IDs**: Document IDs in the final results
 
-## What Data is NOT Available
+## What Data is NOT Captured
 
-Weaviate does not know:
+The trace does not include:
 
-- **Ground-truth results**: The correct answers for this query
-- **Whether any ID is a true/false positive**: Only the benchmark has this information
+- **Scores**: Neither approximate nor exact scores are recorded
+- **Per-candidate details**: No individual candidate information
+- **Ground-truth results**: Only the external benchmark has this
 - **Recall metrics**: Cannot be computed without ground truth
-- **Why a specific ID was missed**: Only that it wasn't present at each stage
 
-## How External Benchmarks Should Use Traces
+## Recall Attribution Workflow
 
-An external benchmark tool should:
+An external benchmark classifies recall loss by comparing the trace against ground truth:
 
-1. **Generate ground-truth results** (e.g., via brute-force MaxSim computation)
+### Step 1: External Benchmark Preparation
 
-2. **Run traced searches** against HFresh+MUVERA
+The benchmark must pre-compute:
+1. **Ground-truth results** for each query (e.g., via brute-force MaxSim)
+2. **Posting membership** for each document: which centroid postings contain each doc
 
-3. **Join traces with ground truth** to answer:
+### Step 2: Membership Classification
 
-   - **Was ground-truth ID X in any selected posting?**
-     Check if X appears in any `PostingSelectionTrace.CentroidID` that was scanned.
-     If not, this is **centroid routing failure**.
+For each ground-truth document ID, check:
 
-   - **Was X enumerated as a candidate?**
-     Check `PostingScanTrace.CandidatesEnumerated` for X.
-     If X was in a selected posting but not enumerated, it was likely **deleted, duplicate, or filtered**.
+1. **Routing failure**: Is the document in any selected posting?
+   - Check if doc's posting IDs intersect with `SelectedCentroids`
+   - If no intersection → routing failure
 
-   - **Was X kept for exact rescoring?**
-     Check if X appears in `ApproximateRankingTrace.TopCandidates` with `KeptForRescore=true`.
-     If X was enumerated but not kept, this is **approximate scoring failure**.
+2. **Approximate-ranking failure**: Is the document in `ApproxTopIDs`?
+   - If doc was in a selected posting but NOT in `ApproxTopIDs` → approx failure
 
-   - **Was X rescored?**
-     Check `LateInteractionTrace.RescoredCandidates` for X.
-     Compare `ApproxScore` vs `ExactScore` to measure **scoring correlation**.
+3. **Exact-ranking failure**: Is the document in `ReturnedIDs`?
+   - If doc was in `ApproxTopIDs` but NOT in `ReturnedIDs` → exact failure
 
-   - **Was X in final results?**
-     Check if X appears in `FinalResults` or if `RescoredCandidateTrace.Returned=true`.
-     If X was rescored but not returned, it was **outranked** by other candidates.
+4. **Success**: Document is in `ReturnedIDs`
 
-4. **Classify recall loss** by counting ground-truth IDs at each stage:
+### Example: Python Attribution Code
 
-   ```
-   total_ground_truth = len(ground_truth_ids)
-   in_selected_postings = count(gt_id in selected_posting_vectors)
-   enumerated = count(gt_id in candidates_enumerated)
-   kept_for_rescore = count(gt_id in top_candidates where kept=true)
-   rescored = count(gt_id in rescored_candidates)
-   returned = count(gt_id in final_results)
+```python
+import json
 
-   routing_loss = total_ground_truth - in_selected_postings
-   enumeration_loss = in_selected_postings - enumerated
-   approx_ranking_loss = enumerated - kept_for_rescore
-   exact_ranking_loss = kept_for_rescore - returned
-   ```
+def classify_recall(trace_json, ground_truth_ids, posting_membership):
+    """
+    Classify recall failures for a single query.
 
-## Important Limitation
+    Args:
+        trace_json: JSON string of SearchTrace
+        ground_truth_ids: list of correct document IDs for this query
+        posting_membership: dict mapping doc_id -> list of posting/centroid IDs
 
-**Weaviate traces explain the search path, but only the external benchmark can classify recall loss because only the benchmark has the reference answer set.**
+    Returns:
+        dict with classification counts and ID lists
+    """
+    trace = json.loads(trace_json)
 
-The trace provides complete visibility into what Weaviate did, but cannot answer "was this the right thing to do" without external ground truth.
+    # Build sets for fast lookup
+    selected_centroids = set(trace['selected_centroids'])
+    approx_top = set(trace['approx_top_ids'])
+    returned = set(trace['returned_ids'])
+
+    # Classify each ground-truth ID
+    routing_failures = []
+    approx_failures = []
+    exact_failures = []
+    successes = []
+
+    for gt_id in ground_truth_ids:
+        # Check if doc is in any selected posting
+        doc_postings = set(posting_membership.get(gt_id, []))
+        in_selected_posting = bool(doc_postings & selected_centroids)
+
+        if not in_selected_posting:
+            routing_failures.append(gt_id)
+        elif gt_id not in approx_top:
+            approx_failures.append(gt_id)
+        elif gt_id not in returned:
+            exact_failures.append(gt_id)
+        else:
+            successes.append(gt_id)
+
+    return {
+        'routing_failures': routing_failures,
+        'approx_failures': approx_failures,
+        'exact_failures': exact_failures,
+        'successes': successes,
+        'recall': len(successes) / len(ground_truth_ids) if ground_truth_ids else 1.0
+    }
+```
+
+### Building Posting Membership
+
+The external benchmark must build the posting membership map by either:
+
+1. **Query the index directly**: Use HFresh APIs to get posting contents per centroid
+2. **Pre-compute during indexing**: Track which posting each document was assigned to
+3. **Re-encode at benchmark time**: Run FDE encoding and centroid assignment offline
+
+## Memory Footprint
+
+Estimated per-query memory usage:
+
+| Field | Size | Typical Values |
+|-------|------|----------------|
+| SelectedCentroids | 8 bytes × searchProbe | 64 × 8 = 512 bytes |
+| ApproxTopIDs | 8 bytes × rescoreLimit | 100 × 8 = 800 bytes |
+| ReturnedIDs | 8 bytes × k | 10 × 8 = 80 bytes |
+| ScanStats | 5 × 8 bytes | 40 bytes |
+| Fixed fields | ~50 bytes | 50 bytes |
+| **Total** | | **~1.5KB typical, ~3.4KB max** |
+
+This is 90% smaller than the original design (~37KB per query) which recorded per-candidate scores and all enumerated candidates.
 
 ## Concurrency Safety
 
@@ -216,58 +225,12 @@ go func() {
 ## Performance Considerations
 
 - When no collector is in context, there is zero overhead
-- When tracing is enabled, additional allocations occur to record candidates
-- For large result sets, `CandidatesEnumerated` may contain thousands of entries
-- The trace is designed for diagnostic use, not production workloads
-
-## Example: Recall Analysis Script
-
-```python
-import json
-
-def analyze_recall(trace_json, ground_truth_ids):
-    trace = json.loads(trace_json)
-    gt_set = set(ground_truth_ids)
-
-    # Build sets from trace
-    selected_posting_ids = set()
-    for posting in trace['centroid_search']['selected_postings']:
-        # Would need posting contents - trace only shows posting metadata
-        # This requires additional instrumentation or separate lookup
-        pass
-
-    enumerated_ids = set(
-        c['doc_id'] for c in trace['posting_scan']['candidates_enumerated']
-    )
-
-    kept_ids = set(
-        c['doc_id'] for c in trace['approximate_ranking']['top_candidates']
-        if c['kept_for_rescore']
-    )
-
-    rescored_ids = set(
-        c['doc_id'] for c in trace['late_interaction']['rescored_candidates']
-    )
-
-    returned_ids = set(r['doc_id'] for r in trace['final_results'])
-
-    # Compute stage-wise recall
-    enumerated_recall = len(gt_set & enumerated_ids) / len(gt_set)
-    kept_recall = len(gt_set & kept_ids) / len(gt_set)
-    returned_recall = len(gt_set & returned_ids) / len(gt_set)
-
-    return {
-        'enumerated_recall': enumerated_recall,
-        'kept_recall': kept_recall,
-        'returned_recall': returned_recall,
-        'lost_at_enumeration': gt_set - enumerated_ids,
-        'lost_at_approx_ranking': (gt_set & enumerated_ids) - kept_ids,
-        'lost_at_final_ranking': (gt_set & kept_ids) - returned_ids,
-    }
-```
+- When tracing is enabled, minimal allocations occur (only ID slices)
+- No per-candidate recording in the hot posting-scan loop
+- Designed for diagnostic use, but low enough overhead for sampling in production
 
 ## Files
 
 - `adapters/repos/db/vector/hfresh/search_trace.go` - Trace data structures and collector
 - `adapters/repos/db/vector/hfresh/search.go` - Instrumented search code
-- `adapters/repos/db/vector/hfresh/search_trace_test.go` - Tests
+- `adapters/repos/db/vector/hfresh/search_trace_test.go` - Tests including recall attribution workflow
