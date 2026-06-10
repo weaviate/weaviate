@@ -105,6 +105,9 @@ func (c *client) performRank(ctx context.Context,
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Nvidia-Baseurl"); err != nil {
+		return nil, err
+	}
 	url := c.getNvidiaUrl(ctx, settings.BaseURL())
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))

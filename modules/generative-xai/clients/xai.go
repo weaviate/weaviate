@@ -66,6 +66,9 @@ func (v *xai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Xai-Baseurl"); err != nil {
+		return nil, err
+	}
 	xaiUrl := v.getXaiUrl(ctx, params.BaseURL)
 	input := v.getRequest(prompt, params)
 

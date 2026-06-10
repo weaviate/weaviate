@@ -208,6 +208,9 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 
 func (v *databricks) buildDatabricksEndpoint(ctx context.Context, endpoint string) (string, error) {
 	if headerEndpoint := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Endpoint"); headerEndpoint != "" {
+		if err := modulecomponents.ValidateBaseURL(headerEndpoint); err != nil {
+			return "", err
+		}
 		return headerEndpoint, nil
 	}
 	return v.buildEndpoint(endpoint)

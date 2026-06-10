@@ -165,6 +165,9 @@ func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploym
 	passedBaseURL := baseURL
 
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", err
+		}
 		passedBaseURL = headerBaseURL
 	}
 

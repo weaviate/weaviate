@@ -65,6 +65,9 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Friendli-Baseurl"); err != nil {
+		return nil, err
+	}
 	friendliUrl := v.getFriendliUrl(ctx, params.BaseURL)
 	friendliPrompt := []map[string]string{
 		{"role": "user", "content": prompt},

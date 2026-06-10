@@ -63,6 +63,9 @@ func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options, imageProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
+	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Ollama-BaseURL"); err != nil {
+		return nil, err
+	}
 	ollamaUrl := v.getOllamaUrl(ctx, params.ApiEndpoint)
 	input := generateInput{
 		Model:  params.Model,
