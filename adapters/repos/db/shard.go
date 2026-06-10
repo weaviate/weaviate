@@ -353,6 +353,28 @@ type Shard struct {
 	centralJobQueue chan job // reference to queue used by all shards
 
 	docIdLock []sync.Mutex
+
+	// invertedWriteGate brackets (read side) the analyze→apply critical
+	// section of every inverted-index object write: the section that reads
+	// the live schema via AnalyzeObject and then applies the resulting
+	// per-property index updates (updateInvertedIndexLSM on the put/merge/
+	// batch paths, cleanupInvertedIndexOnDelete on the delete paths). The
+	// docIdLock stripes do NOT cover this section — both put and merge
+	// release the stripe before updating the inverted indexes.
+	//
+	// The write side is a quiescence barrier ([Shard.drainInvertedIndexWrites])
+	// used by migrations whose completion flips a schema flag (e.g.
+	// enable-columnar's IndexColumnar): after the flip, runtimeSwap drains
+	// this gate BEFORE disabling its double-write mirror callbacks, so any
+	// in-flight write that analyzed under the pre-flip schema (and thus
+	// relies on the mirror as its only route into the new bucket) has
+	// completed while the mirror was still active.
+	//
+	// Lock order: asyncReplicationRWMux > docIdLock[poolId] >
+	// invertedWriteGate (the delete path acquires the gate while holding
+	// the first two; the barrier holder acquires none of them).
+	invertedWriteGate sync.RWMutex
+
 	// replication
 	replicationMap pendingReplicaTasks
 
@@ -956,6 +978,22 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 // Activity score for read and write
 func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
+}
+
+// drainInvertedIndexWrites is a write-quiescence barrier: it returns only
+// after every inverted-index object write that was in its analyze→apply
+// critical section when the call started has completed. Writes beginning
+// after the barrier observe schema state published before it (the gate's
+// Lock/Unlock pair establishes the happens-before edge).
+//
+// Used by ShardReindexTaskGeneric.runtimeSwap between the migration's
+// schema-flag flip and the disabling of its double-write mirror
+// callbacks — see the invertedWriteGate field godoc for the invariant.
+// The barrier holder must not hold asyncReplicationRWMux or any
+// docIdLock stripe (gate readers acquire the gate while holding those).
+func (s *Shard) drainInvertedIndexWrites() {
+	s.invertedWriteGate.Lock()
+	defer s.invertedWriteGate.Unlock()
 }
 
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
