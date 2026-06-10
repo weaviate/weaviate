@@ -381,6 +381,10 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateReplicationFactorBounds(); err != nil {
+		return configErr(err)
+	}
+
 	if err := c.validateRestrictions(); err != nil {
 		return configErr(err)
 	}
@@ -407,6 +411,28 @@ func (c *Config) validateUsageLimitsReplicationLinkage() error {
 // dynamicIntSet reports whether dv carries a configured (>=0) value.
 func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
 	return dv != nil && dv.Get() >= 0
+}
+
+// validateReplicationFactorBounds rejects configurations where the floor
+// exceeds the ceiling, which would make every class creation unsatisfiable.
+// A MaximumFactor <= 0 means "no cap" by convention (see GlobalConfig), so
+// the comparison is skipped in that case. MinimumFactor < 1 is also rejected
+// since a factor of zero is meaningless and the in-code default is 1.
+func (c *Config) validateReplicationFactorBounds() error {
+	if c.Replication.MinimumFactor < 1 {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR must be >= 1; got %d",
+			c.Replication.MinimumFactor,
+		)
+	}
+	if c.Replication.MaximumFactor > 0 &&
+		c.Replication.MinimumFactor > c.Replication.MaximumFactor {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR (%d) cannot exceed REPLICATION_MAXIMUM_FACTOR (%d)",
+			c.Replication.MinimumFactor, c.Replication.MaximumFactor,
+		)
+	}
+	return nil
 }
 
 // Mirrors entities/vectorindex/config.go; duplicated as plain strings to
