@@ -87,9 +87,10 @@ type Segment interface {
 	// map/bmw specific
 	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
+	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
-	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+	newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
 	// replace specific
 	getCountNetAdditions() int

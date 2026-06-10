@@ -251,3 +251,25 @@ func (s *segment) getDocCount(key []byte) uint64 {
 
 	return binary.LittleEndian.Uint64(buffer)
 }
+
+// getInvertedNodeAndDocCount resolves a term's index node and posting doc count
+// with a single index descent, so the BMW setup path can reuse the node instead
+// of descending again in hasKey/getDocCount/the term constructor. Inverted
+// segments only; callers check the strategy.
+func (s *segment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return segmentindex.Node{}, 0, false
+	}
+
+	node, err := s.index.Get(key)
+	if err != nil {
+		return segmentindex.Node{}, 0, false
+	}
+
+	var buf [8]byte
+	if err = s.copyNode(buf[:], nodeOffset{node.Start, node.Start + 8}); err != nil {
+		return segmentindex.Node{}, 0, false
+	}
+
+	return node, binary.LittleEndian.Uint64(buf[:]), true
+}

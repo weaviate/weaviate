@@ -692,6 +692,26 @@ func BenchmarkBlockMaxWand(b *testing.B) {
 // the slowest set with their terms, doc-frequencies and per-query work. The
 // slowest queries are also emitted as a BMW_TERMS string for replay.
 //
+// TestBMWTopTerms lists the BMW_TOP_TERMS most frequent sampled terms, plus a
+// ready-to-paste BMW_TERMS string — for building common-term stress queries.
+func TestBMWTopTerms(t *testing.T) {
+	n := envInt("BMW_TOP_TERMS", 0)
+	if n <= 0 {
+		t.Skip("set BMW_TOP_TERMS=N to list the N most frequent sampled terms")
+	}
+	s := setupBMW(t)
+	defer s.cleanup()
+	top := append([]string(nil), s.present...)
+	sort.Slice(top, func(i, j int) bool { return s.freqs[top[i]] > s.freqs[top[j]] })
+	if len(top) > n {
+		top = top[:n]
+	}
+	for _, term := range top {
+		t.Logf("%9d  %s", s.freqs[term], term)
+	}
+	t.Logf("BMW_TERMS=%s", strings.Join(top, ","))
+}
+
 //	BMW_SEGMENTS_DIR=… BMW_SLOW=true BMW_QUERY_SIZE=15 \
 //	  go test -tags integrationTest -run TestBMWSlowQueries -v ./adapters/repos/db/lsmkv/
 func TestBMWSlowQueries(t *testing.T) {
