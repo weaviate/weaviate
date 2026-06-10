@@ -2635,10 +2635,10 @@ func dirExists(path string) bool {
 // for failure paths that must not touch registrations made for other
 // shards by the same task instance.
 //
-// INVARIANT (enforced here, fail-loud): registration MUST NOT happen
-// before every bucket the callbacks resolve is resolvable via the exact
-// per-invocation resolution path the callbacks use — the primary lookup
-// is shard.Store().Bucket(bucketNamer(prop)) in every strategy's
+// INVARIANT (enforced here for each property's PRIMARY bucket name —
+// fallback resolutions inside individual strategies are not re-checked):
+// registration MUST NOT happen before shard.Store().Bucket(bucketNamer(prop))
+// resolves, which is the per-invocation primary lookup in every strategy's
 // MakeAddCallback/MakeDeleteCallback. Activating mirrors whose target is
 // unresolvable puts the shard in the worst failure shape this migration
 // family has: every property-value write 5xxs with "double-write: bucket
