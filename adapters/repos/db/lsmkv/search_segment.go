@@ -38,6 +38,15 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	pivotID := uint64(0)
 	var pivotPoint int
 	upperBound := float32(0)
+	// needFullSort tracks whether shallow advances have run since the last full
+	// sortByID. Shallow advances move idPointers (and can exhaust terms) in place,
+	// so the slice may hold inversions or mis-placed exhausted sentinels that only
+	// a full sort repairs. While false, the matched branch can restore order with
+	// a per-advanced-term re-insertion instead of re-sorting all terms — matched
+	// iterations themselves never shallow-advance (their live prefix is already
+	// aligned, so currentBlockMaxId >= pivotID), so matched-dense queries stay on
+	// the cheap path.
+	needFullSort := false
 
 	done := ctx.Done()
 	ctxCheck := 0
@@ -123,6 +132,10 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			t := candidates[i]
 			if t.currentBlockMaxId < pivotID {
 				t.AdvanceAtLeastShallow(pivotID)
+				// a shallow advance moves idPointer without re-sorting (and may even
+				// exhaust mid-array), so the slice may now hold inversions that only
+				// a full sortByID repairs — see the matched branch.
+				needFullSort = true
 			}
 			upperBound += t.currentBlockImpact
 		}
@@ -156,14 +169,29 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 						topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 					}
 				}
+				advanced := 0
 				for _, term := range results {
 					if !term.exhausted && term.idPointer != pivotID {
 						break
 					}
 					term.Advance()
+					advanced++
 				}
 
-				results.sortByID()
+				if needFullSort {
+					results.sortByID()
+					needFullSort = false
+				} else {
+					// only the advanced prefix moved (each idPointer increased) and the
+					// suffix is inversion-free, so re-inserting the prefix right-to-left
+					// yields the exact permutation a full stable sortByID would: at each
+					// step the suffix is already sorted, and reinsertRight's strict `<`
+					// settles equal ids in original index order, matching insertion-sort
+					// stability.
+					for i := advanced - 1; i >= 0; i-- {
+						results.reinsertRight(i)
+					}
+				}
 
 			} else {
 				nextList := pivotPoint
