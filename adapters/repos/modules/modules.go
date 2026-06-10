@@ -22,15 +22,32 @@ import (
 )
 
 type Repo struct {
-	logger  logrus.FieldLogger
-	baseDir string
-	db      *bolt.DB
+	logger   logrus.FieldLogger
+	baseDir  string
+	db       *bolt.DB
+	readOnly bool
 }
 
 func NewRepo(baseDir string, logger logrus.FieldLogger) (*Repo, error) {
 	r := &Repo{
 		baseDir: baseDir,
 		logger:  logger,
+	}
+
+	err := r.init()
+	return r, err
+}
+
+// NewRepoReadOnly opens the module storage for a read-only follower: the bolt
+// file is opened read-only and module storage buckets are never created. Reads
+// (Get/Scan) still work so a reader sees exactly the writer's module state (e.g.
+// contextionary extensions that affect vectorization); writes are rejected by
+// the read-only bolt and blocked at the API layer.
+func NewRepoReadOnly(baseDir string, logger logrus.FieldLogger) (*Repo, error) {
+	r := &Repo{
+		baseDir:  baseDir,
+		logger:   logger,
+		readOnly: true,
 	}
 
 	err := r.init()
@@ -46,6 +63,18 @@ func (r *Repo) DataPath() string {
 }
 
 func (r *Repo) init() error {
+	if r.readOnly {
+		// Read-only follower: the directory exists in the copy and the bolt file
+		// must be opened read-only. Skip MkdirAll and open with ReadOnly so no
+		// meta page is written.
+		boltdb, err := bolt.Open(r.DBPath(), 0o600, &bolt.Options{ReadOnly: true})
+		if err != nil {
+			return errors.Wrapf(err, "open bolt read-only at %s", r.DBPath())
+		}
+		r.db = boltdb
+		return nil
+	}
+
 	if err := os.MkdirAll(r.baseDir, 0o777); err != nil {
 		return errors.Wrapf(err, "create root path directory at %s", r.baseDir)
 	}
@@ -76,6 +105,12 @@ func (r *Repo) Storage(bucketName string) (moduletools.Storage, error) {
 }
 
 func (s *storageBucket) init() error {
+	if s.repo.readOnly {
+		// Read-only follower: never create the bucket (the bolt is read-only).
+		// If the bucket is absent in the copy, Get/Scan tolerate it (nil-checked)
+		// and return empty.
+		return nil
+	}
 	return s.repo.db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(s.bucketKey); err != nil {
 			return errors.Wrapf(err, "create module storage bucket '%s'",

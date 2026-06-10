@@ -2375,7 +2375,15 @@ func postInitModules(appState *state.State) {
 }
 
 func initModules(ctx context.Context, appState *state.State) error {
-	storageProvider, err := modulestorage.NewRepo(
+	newModuleRepo := modulestorage.NewRepo
+	if appState.ServerConfig.Config.Raft.ReadOnlyFollower {
+		// Read-only follower: open modules.db read-only (its unconditional RW
+		// open would otherwise crash on the read-only mount) and serve module
+		// state — e.g. contextionary extensions that affect vectorization — from
+		// the copy.
+		newModuleRepo = modulestorage.NewRepoReadOnly
+	}
+	storageProvider, err := newModuleRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		return errors.Wrap(err, "init storage provider")
