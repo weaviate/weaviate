@@ -49,6 +49,15 @@ func TestDateAggregatorCanonicalizesTimezones(t *testing.T) {
 			input:    "2022-06-16T17:30:17.451235Z",
 			expected: "2022-06-16T17:30:17.451235Z",
 		},
+		{
+			// pre-1678 dates overflow UnixNano (2^64 ns ≈ 584.5 years), so
+			// the display string must be formatted from the parsed time.Time,
+			// never from the epoch round-trip — caught by TestGRPC_Aggregate
+			// (1400-01-01 rendered as 1984-07-21).
+			name:     "pre-1678 date beyond UnixNano range",
+			input:    "1400-01-01T00:00:00+02:00",
+			expected: "1399-12-31T22:00:00Z",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
