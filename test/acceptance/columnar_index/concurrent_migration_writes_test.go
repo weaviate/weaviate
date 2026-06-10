@@ -41,6 +41,10 @@ const (
 	cwUpdateOffset = 1000 // indices [1000, 2000) receive the marker PATCH
 	cwWriters      = 4
 	cwMark         = 777777
+	// cwWindowCap bounds the window-spanning PATCH load: workers keep
+	// patching until the indexColumnar flag flips, but never longer than
+	// this (a hung migration must fail the test, not deadlock it).
+	cwWindowCap = 240 * time.Second
 )
 
 // cwCounts holds one filtered-Aggregate sample. Comparable struct so
@@ -109,22 +113,6 @@ func TestEnableColumnar_ConcurrentWritesDuringMigration(t *testing.T) {
 		}
 	}()
 
-	// expected final state: every object keeps vint=i except the patched
-	// band, which ends at the marker value; the count is unaffected
-	var expectedSum float64
-	for i := 0; i < cwNumObjects; i++ {
-		v := i
-		if i >= cwUpdateOffset && i < cwUpdateOffset+cwNumUpdates {
-			v = cwMark
-		}
-		expectedSum += float64(v)
-	}
-	expected := cwCounts{
-		metaCount: cwNumObjects,
-		vintCount: cwNumObjects,
-		vintSum:   expectedSum,
-	}
-
 	cases := []struct {
 		name             string
 		className        string
@@ -156,14 +144,23 @@ func TestEnableColumnar_ConcurrentWritesDuringMigration(t *testing.T) {
 			require.Equal(t, float64(cwNumObjects), base.metaCount, "import baseline broken")
 			require.Equal(t, float64(cwNumObjects), base.vintCount, "import baseline broken")
 
+			// finalVal returns the value object i must end at; filled per
+			// branch below.
+			var finalVal func(i int) int64
+
 			if tc.enableDuringLoad {
 				taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, tc.className, "vint",
 					`{"columnar":{"enabled":true}}`)
 				t.Logf("submitted enable-columnar task: %s", taskID)
 
+				// The PATCH load must span the ENTIRE migration window
+				// [trigger, flag-flip): a fixed burst completes in ~100ms
+				// and ends before the DTM scheduler even starts the
+				// migration, leaving the whole double-write window
+				// untested (the blind spot QA's live repro exposed).
 				start := time.Now()
-				runConcurrentPatches(t, restURI, tc.className)
-				t.Logf("merge-updates finished after %s", time.Since(start))
+				lastVals := runWindowSpanningPatches(t, restURI, tc.className)
+				t.Logf("window-spanning merge-updates finished after %s", time.Since(start))
 
 				reindexhelpers.AwaitReindexFinished(t, restURI, taskID,
 					reindexhelpers.WithTimeout(180*time.Second))
@@ -172,8 +169,33 @@ func TestEnableColumnar_ConcurrentWritesDuringMigration(t *testing.T) {
 					return err == nil && on
 				}, 60*time.Second, 500*time.Millisecond,
 					"indexColumnar flag must flip to true after the migration")
+
+				finalVal = func(i int) int64 {
+					if i >= cwUpdateOffset && i < cwUpdateOffset+cwNumUpdates {
+						return lastVals[i-cwUpdateOffset]
+					}
+					return int64(i)
+				}
 			} else {
 				runConcurrentPatches(t, restURI, tc.className)
+				finalVal = func(i int) int64 {
+					if i >= cwUpdateOffset && i < cwUpdateOffset+cwNumUpdates {
+						return cwMark
+					}
+					return int64(i)
+				}
+			}
+
+			// expected final state: count is unaffected by PATCHes; the sum
+			// reflects the last successfully written value per object.
+			var expectedSum float64
+			for i := 0; i < cwNumObjects; i++ {
+				expectedSum += float64(finalVal(i))
+			}
+			expected := cwCounts{
+				metaCount: cwNumObjects,
+				vintCount: cwNumObjects,
+				vintSum:   expectedSum,
 			}
 
 			// converge with a generous deadline first (rules out transient
@@ -191,10 +213,10 @@ func TestEnableColumnar_ConcurrentWritesDuringMigration(t *testing.T) {
 			require.NoError(t, err)
 			if got != expected {
 				// distinguish "columnar bucket stale/lossy" (object store has
-				// the marker, columnar does not) from "merge-update lost
-				// entirely" before failing
-				stale := objectStoreNonMarkerIDs(t, restURI, tc.className)
-				t.Logf("object store: %d of %d patched objects missing the marker value: %v",
+				// the expected value, columnar does not) from "merge-update
+				// lost entirely" before failing
+				stale := objectStoreMismatchedIDs(t, restURI, tc.className, finalVal)
+				t.Logf("object store: %d of %d patched objects missing their expected final value: %v",
 					len(stale), cwNumUpdates, stale)
 			}
 			require.Equal(t, expected, got,
@@ -267,6 +289,100 @@ func runConcurrentPatches(t *testing.T, restURI, className string) {
 	require.Zero(t, failures.Load(), "all concurrent merge-updates must succeed")
 }
 
+// runWindowSpanningPatches keeps PATCHing the band [cwUpdateOffset,
+// cwUpdateOffset+cwNumUpdates) in rounds, striped across cwWriters
+// workers, until the property's indexColumnar flag flips to true (i.e.
+// the migration completed end-to-end) or cwWindowCap elapses. Round r
+// writes vint = cwMark + r, so every PATCH is a real value change (a
+// repeat of the same value could be elided by merge delta analysis and
+// would not exercise the double-write mirror).
+//
+// Every individual PATCH must succeed: NO retries. A 5xx mid-migration
+// is itself the regression under test (the mirror's "bucket not found"
+// failure mode), so it is recorded and failed loudly rather than
+// papered over.
+//
+// Returns the last successfully written value per band index (the
+// import value i if a doc was never successfully patched), from which
+// the caller computes the exact expected aggregate.
+func runWindowSpanningPatches(t *testing.T, restURI, className string) []int64 {
+	t.Helper()
+	logger, _ := logrustest.NewNullLogger()
+
+	lastVals := make([]int64, cwNumUpdates)
+	for j := 0; j < cwNumUpdates; j++ {
+		lastVals[j] = int64(cwUpdateOffset + j)
+	}
+
+	var stop atomic.Bool
+	flagPollDone := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(flagPollDone)
+		deadline := time.Now().Add(cwWindowCap)
+		for !stop.Load() {
+			if time.Now().After(deadline) {
+				t.Logf("window cap %s reached before the indexColumnar flag flipped", cwWindowCap)
+				stop.Store(true)
+				return
+			}
+			if on, err := vintColumnarFlagOn(restURI, className); err == nil && on {
+				stop.Store(true)
+				return
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}, logger)
+
+	var (
+		wg          sync.WaitGroup
+		failures    atomic.Int64
+		totalRounds atomic.Int64
+		failuresMu  sync.Mutex
+		failureMsgs []string
+	)
+	for w := 0; w < cwWriters; w++ {
+		w := w
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			for round := int64(1); !stop.Load(); round++ {
+				val := int64(cwMark) + round
+				for i := cwUpdateOffset + w; i < cwUpdateOffset+cwNumUpdates; i += cwWriters {
+					if stop.Load() {
+						return
+					}
+					if err := patchVintValue(restURI, className, i, val); err != nil {
+						failures.Add(1)
+						failuresMu.Lock()
+						if len(failureMsgs) < 20 {
+							failureMsgs = append(failureMsgs, fmt.Sprintf("object %d round %d: %v", i, round, err))
+						}
+						failuresMu.Unlock()
+						continue
+					}
+					lastVals[i-cwUpdateOffset] = val
+				}
+				totalRounds.Add(1)
+			}
+		}, logger)
+	}
+	wg.Wait()
+	stop.Store(true)
+	<-flagPollDone
+
+	t.Logf("window-spanning load: %d completed worker-rounds, %d PATCH failures",
+		totalRounds.Load(), failures.Load())
+	for _, msg := range failureMsgs {
+		t.Logf("PATCH failure: %s", msg)
+	}
+	require.Zero(t, failures.Load(),
+		"every PATCH issued during the [trigger, flag-flip) window must succeed — "+
+			"a 5xx here is the double-write mirror failing to resolve its target bucket")
+	require.GreaterOrEqual(t, totalRounds.Load(), int64(1),
+		"the PATCH load must have completed at least one full round inside the migration window")
+	return lastVals
+}
+
 func patchVintWithRetry(restURI, className string, idx int) error {
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -281,10 +397,14 @@ func patchVintWithRetry(restURI, className string, idx int) error {
 }
 
 func patchVint(restURI, className string, idx int) error {
+	return patchVintValue(restURI, className, idx, cwMark)
+}
+
+func patchVintValue(restURI, className string, idx int, val int64) error {
 	body, err := json.Marshal(map[string]interface{}{
 		"class":      className,
 		"id":         uuidFor(idx),
-		"properties": map[string]interface{}{"vint": cwMark},
+		"properties": map[string]interface{}{"vint": val},
 	})
 	if err != nil {
 		return err
@@ -374,11 +494,11 @@ func fetchCwCounts(restURI, className string) (cwCounts, error) {
 	}, nil
 }
 
-// objectStoreNonMarkerIDs reads every patched object through the plain
-// object GET path and returns the indices whose vint is NOT the marker —
-// i.e. merge-updates that never reached the object store (as opposed to
-// updates lost only from the columnar bucket).
-func objectStoreNonMarkerIDs(t *testing.T, restURI, className string) []int {
+// objectStoreMismatchedIDs reads every patched object through the plain
+// object GET path and returns the indices whose vint is NOT the expected
+// final value — i.e. merge-updates that never reached the object store
+// (as opposed to updates lost only from the columnar bucket).
+func objectStoreMismatchedIDs(t *testing.T, restURI, className string, finalVal func(int) int64) []int {
 	t.Helper()
 	var missing []int
 	for i := cwUpdateOffset; i < cwUpdateOffset+cwNumUpdates; i++ {
@@ -397,7 +517,7 @@ func objectStoreNonMarkerIDs(t *testing.T, restURI, className string) []int {
 			continue
 		}
 		v, ok := obj.Properties["vint"].(float64)
-		if !ok || v != cwMark {
+		if !ok || v != float64(finalVal(i)) {
 			missing = append(missing, i)
 		}
 	}
