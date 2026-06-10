@@ -173,6 +173,126 @@ func TestEnableRangeable_LiveWritesDuringMigrationWindow(t *testing.T) {
 		len(all), numObjects)
 }
 
+// TestEnableRangeable_WritesInCallbackRegistrationGap is the regression
+// test for the markStarted→registerDoubleWriteCallbacks write-loss window
+// (the secondary mechanism of weaviate/weaviate#11688; first fixed for
+// enable-columnar in weaviate/weaviate#11678's branch, commit 323bcf22f5).
+//
+// Pre-fix, OnAfterLsmInit captured the reindexStarted timestamp
+// (rt.markStarted(time.Now())) BEFORE loading the ingest buckets and
+// registering the double-write callbacks. A write landing in that window
+// was (a) skipped by the backfill iterator (LastUpdateTimeUnix >=
+// reindexStarted — the iterator assumes such writes are double-written)
+// AND (b) not double-written, because the callbacks weren't registered
+// yet. Permanently missing after the migration reports FINISHED.
+//
+// The test makes the race deterministic via the task's test-only
+// onBeforeDoubleWriteRegistration hook, which fires at the exact spot of
+// the old gap. With the fix (timestamp captured ms-ceiled AFTER callback
+// registration) the injected writes are visited by the iterator (their
+// timestamp is below the ceiled threshold) or double-written, or both —
+// either way they converge into the post-migration rangeable index.
+func TestEnableRangeable_WritesInCallbackRegistrationGap(t *testing.T) {
+	const (
+		numObjects    = 40
+		numGapUpdates = 10
+		mark          = int64(888888)
+	)
+	propName := filterableToRangeablePropName
+
+	ctx := testCtx()
+	className := "EnableRangeableGapWrites_" + uuid.NewString()[:8]
+	vFalse := false
+	class := &models.Class{
+		Class:             className,
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords:              &models.StopwordConfig{Preset: "none"},
+		},
+		Properties: []*models.Property{
+			{
+				Name:              propName,
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+			},
+		},
+	}
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	objs := make([]*storobj.Object, numObjects)
+	for i := 0; i < numObjects; i++ {
+		objs[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+				Properties: map[string]interface{}{
+					propName: int64(i % filterableToRangeableNumDistinctValues),
+				},
+			},
+		}
+		require.NoError(t, shard.PutObject(ctx, objs[i]))
+	}
+
+	update := func(i int, val int64) {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    objs[i].ID(),
+				Class: className,
+				Properties: map[string]interface{}{
+					propName: val,
+				},
+				CreationTimeUnix:   time.Now().UnixMilli(),
+				LastUpdateTimeUnix: time.Now().UnixMilli(),
+			},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+
+	gapWritesDone := false
+	task.onBeforeDoubleWriteRegistration = func() {
+		for i := 0; i < numGapUpdates; i++ {
+			update(i, mark+int64(i))
+		}
+		gapWritesDone = true
+	}
+
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	require.True(t, gapWritesDone, "hook must have fired during OnAfterLsmInit")
+
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	require.True(t, wrapped.migrationCompleted, "migration must complete")
+
+	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+	require.NotNil(t, bucket, "post-migration rangeable bucket must exist")
+
+	gteMark := rangeableDocIDs(t, bucket, mark, filters.OperatorGreaterThanEqual)
+	require.Lenf(t, gteMark, numGapUpdates,
+		"every write in the markStarted→registerDoubleWriteCallbacks gap must be "+
+			"range-queryable after the migration — got %d of %d",
+		len(gteMark), numGapUpdates)
+
+	all := rangeableDocIDs(t, bucket, 0, filters.OperatorGreaterThanEqual)
+	require.Lenf(t, all, numObjects,
+		"every object must be in the rangeable index exactly once — got %d of %d",
+		len(all), numObjects)
+}
+
 // rangeableDocIDs reads the docIDs matching `value` under `operator` from a
 // RoaringSetRange bucket, using the same key encoding the write path uses.
 func rangeableDocIDs(t *testing.T, b *lsmkv.Bucket, value int64, operator filters.Operator) []uint64 {

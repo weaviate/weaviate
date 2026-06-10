@@ -203,6 +203,15 @@ type ShardReindexTaskGeneric struct {
 	// SetTokenizationOverlay's own lock is enough. Wired only for
 	// tokenization-changing migrations.
 	onPropSwapped func(propName string)
+
+	// onBeforeDoubleWriteRegistration is a test-only synchronization hook
+	// invoked by [OnAfterLsmInit] right before the ingest double-write
+	// callbacks are registered (and therefore before the reindexStarted
+	// timestamp is captured). Tests use it to inject concurrent writes
+	// deterministically at the exact point where the pre-fix ordering
+	// (markStarted before callback registration) permanently lost them.
+	// Nil in production.
+	onBeforeDoubleWriteRegistration func()
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -1106,12 +1115,19 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 
-	if !isStarted {
-		if err = rt.markStarted(time.Now()); err != nil {
-			err = fmt.Errorf("marking reindex started: %w", err)
-			return err
-		}
-	}
+	// NOTE: markStarted is intentionally NOT called here. The reindexStarted
+	// timestamp is the iterator-skip predicate (the backfill iterator skips
+	// objects with LastUpdateTimeUnix >= reindexStarted, assuming the
+	// double-write callbacks mirror them into the ingest bucket). It is
+	// therefore only safe to capture AFTER registerDoubleWriteCallbacks has
+	// run — see the markStarted call at the end of this function. Capturing
+	// it here (the pre-fix ordering) opened a window between the timestamp
+	// snapshot and callback registration (bucket loading does real disk I/O
+	// in between) during which a live write was BOTH skipped by the
+	// iterator AND not double-written — permanently lost from the target
+	// bucket. Same rationale as weaviate/weaviate#11678's commit 323bcf22f5
+	// (enable-columnar); the exposure here is every ShardReindexTaskGeneric
+	// strategy, incl. released enable-rangeable (weaviate/weaviate#11688).
 
 	// Torn-state recovery: if rt.IsReindexed() is true but the reindex
 	// bucket dirs that markReindexed() must have populated are missing on
@@ -1198,7 +1214,52 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 			err = fmt.Errorf("starting ingest buckets:%w", err)
 			return err
 		}
-		t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
+		if t.onBeforeDoubleWriteRegistration != nil {
+			t.onBeforeDoubleWriteRegistration()
+		}
+		disableJustRegistered := t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
+
+		// Capture the reindexStarted timestamp ONLY NOW, strictly after the
+		// double-write callbacks (and the migration analyzer overlay) are
+		// active. The iteration loop skips every object with
+		// LastUpdateTimeUnix >= reindexStarted on the assumption that such
+		// writes were double-written into the ingest bucket; with the
+		// timestamp captured after registration, that assumption holds for
+		// every write — there is no gap in which a write is both skipped by
+		// the iterator and missed by the callbacks.
+		//
+		// The timestamp is rounded UP to the next millisecond boundary:
+		// LastUpdateTimeUnix has millisecond resolution and the iterator's
+		// predicate is `tsMillis < reindexStarted.UnixMilli()`. Without the
+		// ceil, a write landing just before registration could share the
+		// truncated millisecond of the timestamp, get skipped, and not be
+		// double-written. Rounding up guarantees every skipped write
+		// happened at/after the millisecond boundary, which is at/after
+		// callback registration.
+		//
+		// Writes in the overlap window (after registration, before the
+		// timestamp) are BOTH double-written into ingest AND visited by the
+		// backfill iterator (their LastUpdateTimeUnix is below the
+		// threshold). This converges for every migration strategy because
+		// the reindex segments are prepended BEFORE the ingest segments
+		// (PrependSegmentsFromBucket), so the double-written ingest entries
+		// are strictly newer in LSM merge order, and each strategy's writes
+		// are idempotent per key:
+		//   - rangeable: RoaringSetRangeAdd of (value, docID) is set-
+		//     idempotent; ingest-layer deletes shadow older backfill adds
+		//   - searchable/filterable (map/set/inverted): identical
+		//     (term, docID) entries merge to one; ingest-layer tombstones
+		//     shadow older backfill entries
+		if !isStarted {
+			startedAt := time.Now().Truncate(time.Millisecond).Add(time.Millisecond)
+			if err = rt.markStarted(startedAt); err != nil {
+				// Disable only the registrations made above — the task
+				// instance may hold active registrations for other shards.
+				disableJustRegistered()
+				err = fmt.Errorf("marking reindex started: %w", err)
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -2498,7 +2559,7 @@ func dirExists(path string) bool {
 // disappears.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
-) {
+) func() {
 	disableOverlay := shard.registerMigrationAnalyzerOverlay(t.strategy.AnalyzerOverlay(props))
 
 	propsByName := map[string]struct{}{}
@@ -2514,6 +2575,17 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 	t.callbackDisableFuncsMu.Lock()
 	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disableAdd, disableDelete, disableOverlay)
 	t.callbackDisableFuncsMu.Unlock()
+
+	// The returned func disables ONLY the registrations made by this call
+	// (each disable is an idempotent atomic flag) — for failure paths that
+	// must not touch registrations made for other shards by the same task
+	// instance. Callbacks stop before the overlay disappears, preserving
+	// the "no callbacks without overlay" invariant.
+	return func() {
+		disableAdd()
+		disableDelete()
+		disableOverlay()
+	}
 }
 
 // disableCallbacks calls all stored callback disable functions collected
