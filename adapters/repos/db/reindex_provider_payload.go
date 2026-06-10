@@ -82,6 +82,15 @@ const (
 	// searchable index — change-tokenization (which targets both buckets)
 	// cannot run, so this filterable-scoped variant fills the gap.
 	ReindexTypeChangeTokenizationFilterable ReindexMigrationType = "change-tokenization-filterable"
+
+	// ReindexTypeEnableColumnar adds a columnar (per-property column store)
+	// index for numeric/date properties by rebuilding it from the objects
+	// bucket. Flips IndexColumnar=true on completion. Like enable-rangeable
+	// it is format-only (non-semantic): correctness during the migration is
+	// gated by the per-shard columnarLocalReady flag (see
+	// [Shard.columnarLocalReady]) — columnar read paths fall back to the
+	// object path on shards that haven't completed locally.
+	ReindexTypeEnableColumnar ReindexMigrationType = "enable-columnar"
 )
 
 // ReindexTaskPayload is the JSON-serialized payload stored in the DTM task.

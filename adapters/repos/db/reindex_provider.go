@@ -707,6 +707,15 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
+	case ReindexTypeEnableColumnar:
+		gen, ok := genFor(MigrationDirPrefixEnableColumnar, propsSuffix(payload.Properties))
+		if !ok {
+			return nil, nil
+		}
+		return []*ShardReindexTaskGeneric{
+			NewRuntimeEnableColumnarTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+		}, nil
+
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
@@ -1939,7 +1948,8 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"searchable"}
 	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable,
+		ReindexTypeEnableColumnar:
 		// Format-only migrations. Returning nil short-circuits
 		// LocalCallbacksDone's recovery check — they don't go through
 		// the swap barrier so there's nothing to recover at this layer.

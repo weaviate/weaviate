@@ -23,6 +23,55 @@ const (
 	DateNanoSecondsTimeZone    = ".451235Z"
 )
 
+// TestDateAggregatorCanonicalizesTimezones pins that AddTimestamp stores
+// the canonical UTC representation instead of echoing the input string, so
+// every aggregation path (filtered object scan, unfiltered array scan,
+// columnar row-based) returns identical UTC strings regardless of the
+// timezone offset the value was stored with.
+func TestDateAggregatorCanonicalizesTimezones(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "positive offset",
+			input:    "2022-06-16T22:30:17.451235+05:00",
+			expected: "2022-06-16T17:30:17.451235Z",
+		},
+		{
+			name:     "negative offset",
+			input:    "2022-06-16T10:00:17.451235-07:30",
+			expected: "2022-06-16T17:30:17.451235Z",
+		},
+		{
+			name:     "already UTC stays unchanged",
+			input:    "2022-06-16T17:30:17.451235Z",
+			expected: "2022-06-16T17:30:17.451235Z",
+		},
+		{
+			// pre-1678 dates overflow UnixNano (2^64 ns ≈ 584.5 years), so
+			// the display string must be formatted from the parsed time.Time,
+			// never from the epoch round-trip — caught by TestGRPC_Aggregate
+			// (1400-01-01 rendered as 1984-07-21).
+			name:     "pre-1678 date beyond UnixNano range",
+			input:    "1400-01-01T00:00:00+02:00",
+			expected: "1399-12-31T22:00:00Z",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agg := newDateAggregator()
+			assert.Nil(t, agg.AddTimestamp(tt.input))
+			agg.buildPairsFromCounts()
+			assert.Equal(t, tt.expected, agg.Min())
+			assert.Equal(t, tt.expected, agg.Max())
+			assert.Equal(t, tt.expected, agg.Mode())
+			assert.Equal(t, tt.expected, agg.Median())
+		})
+	}
+}
+
 func TestDateAggregatorPreEpoch(t *testing.T) {
 	// Regression test for https://github.com/weaviate/weaviate/issues/11125:
 	// maximum returned empty string for pre-1970 DATE values because the

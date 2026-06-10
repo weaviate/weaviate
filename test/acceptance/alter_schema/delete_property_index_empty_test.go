@@ -74,6 +74,7 @@ func testDeletePropertyIndexEmpty() func(t *testing.T) {
 					DataType:          []string{schema.DataTypeNumber.String()},
 					IndexFilterable:   ptrBool(true),
 					IndexRangeFilters: ptrBool(true),
+					IndexColumnar:     ptrBool(true),
 				},
 			},
 		}
@@ -89,6 +90,7 @@ func testDeletePropertyIndexEmpty() func(t *testing.T) {
 			sizeProp := getProperty(t, size)
 			assert.True(t, *sizeProp.IndexFilterable)
 			assert.True(t, *sizeProp.IndexRangeFilters)
+			assert.True(t, *sizeProp.IndexColumnar)
 		})
 
 		t.Run("delete title filterable index", func(t *testing.T) {
@@ -121,6 +123,16 @@ func testDeletePropertyIndexEmpty() func(t *testing.T) {
 			sizeProp := getProperty(t, size)
 			assert.False(t, *sizeProp.IndexFilterable)
 			assert.False(t, *sizeProp.IndexRangeFilters)
+			assert.True(t, *sizeProp.IndexColumnar)
+		})
+
+		t.Run("delete size columnar index", func(t *testing.T) {
+			deleteIndex(t, size, "columnar")
+
+			sizeProp := getProperty(t, size)
+			assert.False(t, *sizeProp.IndexFilterable)
+			assert.False(t, *sizeProp.IndexRangeFilters)
+			assert.False(t, *sizeProp.IndexColumnar)
 		})
 	}
 }

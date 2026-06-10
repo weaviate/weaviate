@@ -107,7 +107,12 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 		// overridden for the duration of this analysis call.
 		effective := a.effectiveProperty(prop)
 
-		if !HasAnyInvertedIndex(effective) {
+		// Columnar is not part of HasAnyInvertedIndex (it is a column
+		// store, not an inverted index), but a columnar-indexed property
+		// must still be analyzed so the write path can feed the columnar
+		// bucket — including during an enable-columnar backfill where the
+		// overlay forces the flag on while every inverted flag is off.
+		if !HasAnyInvertedIndex(effective) && !HasColumnarIndex(effective) {
 			continue
 		}
 
@@ -157,6 +162,10 @@ func (a *Analyzer) effectiveProperty(prop *models.Property) *models.Property {
 	if o.ForceRangeable {
 		t := true
 		clone.IndexRangeFilters = &t
+	}
+	if o.ForceColumnar {
+		t := true
+		clone.IndexColumnar = &t
 	}
 	if o.Tokenization != "" {
 		clone.Tokenization = o.Tokenization
@@ -321,6 +330,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
 		HasRangeableIndex:  HasRangeableIndex(prop),
+		HasColumnarIndex:   HasColumnarIndex(prop),
 	}, nil
 }
 
@@ -369,6 +379,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		HasFilterableIndex: hasFilterableIndex,
 		HasSearchableIndex: hasSearchableIndex,
 		HasRangeableIndex:  HasRangeableIndex(prop),
+		HasColumnarIndex:   HasColumnarIndex(prop),
 	}, nil
 }
 
@@ -517,6 +528,7 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
 		HasRangeableIndex:  HasRangeableIndex(prop),
+		HasColumnarIndex:   HasColumnarIndex(prop),
 	}, nil
 }
 
@@ -535,6 +547,7 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
 		HasRangeableIndex:  HasRangeableIndex(prop),
+		HasColumnarIndex:   HasColumnarIndex(prop),
 	}, nil
 }
 
@@ -608,6 +621,18 @@ func HasRangeableIndex(prop *models.Property) bool {
 	}
 }
 
+func HasColumnarIndex(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:
+		if prop.IndexColumnar == nil {
+			return false
+		}
+		return *prop.IndexColumnar
+	default:
+		return false
+	}
+}
+
 func HasAnyInvertedIndex(prop *models.Property) bool {
 	return HasFilterableIndex(prop) || HasSearchableIndex(prop) || HasRangeableIndex(prop)
 }
@@ -617,28 +642,33 @@ const (
 	HasFilterableIndexIdProp = true
 	HasSearchableIndexIdProp = false
 	HasRangeableIndexIdProp  = false
+	HasColumnarIndexIdProp   = false
 
 	// only if index.invertedIndexConfig.IndexTimestamps set
 	HasFilterableIndexTimestampProp = true
 	HasSearchableIndexTimestampProp = false
 	HasRangeableIndexTimestampProp  = false
+	HasColumnarIndexTimestampProp   = false
 
 	// only if property.indexFilterable or property.indexSearchable set
 	HasFilterableIndexMetaCount = true
 	HasSearchableIndexMetaCount = false
 	HasRangeableIndexMetaCount  = false
+	HasColumnarIndexMetaCount   = false
 
 	// only if index.invertedIndexConfig.IndexNullState set
 	// and either property.indexFilterable or property.indexSearchable set
 	HasFilterableIndexPropNull = true
 	HasSearchableIndexPropNull = false
 	HasRangeableIndexPropNull  = false
+	HasColumnarIndexPropNull   = false
 
 	// only if index.invertedIndexConfig.IndexPropertyLength set
 	// and either property.indexFilterable or property.indexSearchable set
 	HasFilterableIndexPropLength = true
 	HasSearchableIndexPropLength = false
 	HasRangeableIndexPropLength  = false
+	HasColumnarIndexPropLength   = false
 )
 
 func toInt64(v any) (int64, error) {

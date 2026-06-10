@@ -53,11 +53,21 @@ type Aggregator struct {
 	propLenTracker          *inverted.JsonShardMetaData
 	isFallbackToSearchable  inverted.IsFallbackToSearchable
 	isRangeableLocallyReady inverted.IsRangeableLocallyReady
-	tenant                  string
-	nestedCrossRefLimit     int64
-	bitmapFactory           *roaringset.BitmapFactory
-	modules                 *modules.Provider
-	defaultLimit            int64
+	// isColumnarLocallyReady, when non-nil, gates the columnar fast path
+	// of the filtered aggregator: while an enable-columnar migration is
+	// mid-flight on this shard, the columnar bucket exists but is
+	// incomplete, and serving aggregations from it would silently drop
+	// rows. Nil means "no readiness info" — the bucket-existence check
+	// in columnarBucketFor is the only gate (tests and callers with no
+	// in-flight migration). Wired via [Aggregator.WithColumnarLocallyReady]
+	// instead of the constructor to keep the (very wide) New signature
+	// stable.
+	isColumnarLocallyReady inverted.IsColumnarLocallyReady
+	tenant                 string
+	nestedCrossRefLimit    int64
+	bitmapFactory          *roaringset.BitmapFactory
+	modules                *modules.Provider
+	defaultLimit           int64
 	// tokResolver, when non-nil, is propagated to inverted.Searcher /
 	// inverted.BM25Searcher built by this aggregator so query input
 	// gets analyzed under the per-shard tokenization overlay during
@@ -99,6 +109,14 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		defaultLimit:            defaultLimit,
 		tokResolver:             tokResolver,
 	}
+}
+
+// WithColumnarLocallyReady wires the per-shard columnar readiness callback
+// (see [inverted.IsColumnarLocallyReady]) into the aggregator. Returns the
+// receiver for chaining at the construction site.
+func (a *Aggregator) WithColumnarLocallyReady(fn inverted.IsColumnarLocallyReady) *Aggregator {
+	a.isColumnarLocallyReady = fn
+	return a
 }
 
 func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {

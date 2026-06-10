@@ -38,6 +38,9 @@ type NestedProperty struct {
 	// description
 	Description string `json:"description,omitempty"`
 
+	// index columnar
+	IndexColumnar *bool `json:"indexColumnar,omitempty"`
+
 	// index filterable
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 

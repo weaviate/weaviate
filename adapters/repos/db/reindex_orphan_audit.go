@@ -866,6 +866,8 @@ func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
 		return []string{"filterable"}
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		return []string{"rangeable"}
+	case ReindexTypeEnableColumnar:
+		return []string{"columnar"}
 	}
 	return nil
 }

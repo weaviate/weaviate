@@ -1197,6 +1197,7 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 		{"filterable", func(p *models.Property) *bool { return p.IndexFilterable }},
 		{"searchable", func(p *models.Property) *bool { return p.IndexSearchable }},
 		{"rangeFilters", func(p *models.Property) *bool { return p.IndexRangeFilters }},
+		{"columnar", func(p *models.Property) *bool { return p.IndexColumnar }},
 	}
 
 	for _, idx := range indexNames {
@@ -1205,9 +1206,11 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 			handler, sm := newTestHandlerWithNamespaces(t, false)
 
 			trueVal := true
-			// Construct the FSM-stored property. All three flags are
-			// true so DeleteClassPropertyIndex reaches the mutation
-			// branch regardless of which indexName we exercise.
+			// Construct the FSM-stored property. All index flags valid
+			// for the data type are true so DeleteClassPropertyIndex
+			// reaches the mutation branch regardless of which indexName
+			// we exercise. Columnar requires a numeric data type (and
+			// numeric forbids searchable), so it gets its own shape.
 			fsmProp := &models.Property{
 				Name:              "title",
 				DataType:          schema.DataTypeText.PropString(),
@@ -1215,6 +1218,15 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 				IndexSearchable:   &trueVal,
 				IndexRangeFilters: &trueVal,
 				Tokenization:      "word",
+			}
+			if idx.indexName == "columnar" {
+				fsmProp = &models.Property{
+					Name:              "title",
+					DataType:          schema.DataTypeNumber.PropString(),
+					IndexFilterable:   &trueVal,
+					IndexRangeFilters: &trueVal,
+					IndexColumnar:     &trueVal,
+				}
 			}
 			fsmClass := &models.Class{
 				Class:      "Movies",
@@ -1302,6 +1314,16 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 				DataType:          schema.DataTypeNumber.PropString(),
 				IndexFilterable:   boolPtr(true),
 				IndexRangeFilters: boolPtr(true),
+			},
+		},
+		{
+			indexName: "columnar",
+			wantField: command.PropertyFieldIndexColumnar,
+			fsmProp: &models.Property{
+				Name:            "size",
+				DataType:        schema.DataTypeNumber.PropString(),
+				IndexFilterable: boolPtr(true),
+				IndexColumnar:   boolPtr(true),
 			},
 		},
 	}

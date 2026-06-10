@@ -685,3 +685,102 @@ func computeSearchableRetokenizeBaseline(t *testing.T, propName string, numObjec
 
 	return fingerprintInvertedBucket(t, shard.store.Bucket(searchBucketName))
 }
+
+// recoveryConvergenceStateCases returns the five-sentinel-state matrix used
+// by per-migration recovery convergence tests. The drive functions operate
+// purely on the generic task, so every migration type shares them; only the
+// case-name prefix differs.
+func recoveryConvergenceStateCases(namePrefix string) []recoveryConvergenceCase {
+	driveToReindexed := func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+		task.skipSwapOnFinish.Store(true)
+		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+		for {
+			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			require.NoError(t, err)
+			if rerunAt.IsZero() {
+				break
+			}
+		}
+	}
+	driveToCompletion := func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+		for {
+			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			require.NoError(t, err)
+			if rerunAt.IsZero() {
+				break
+			}
+		}
+	}
+	runtimePrepareOnly := func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+		driveToReindexed(t, ctx, shard, task)
+		rt, err := task.newReindexTracker(shard.pathLSM())
+		require.NoError(t, err)
+		props, err := task.readPropsToReindex(rt)
+		require.NoError(t, err)
+		require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+	}
+	removeSentinel := func(t *testing.T, task *ShardReindexTaskGeneric, shard *Shard, filename func(*fileReindexTrackerConfig) string, why string) {
+		rt, err := task.newReindexTracker(shard.pathLSM())
+		require.NoError(t, err)
+		ftr := rt.(*fileReindexTracker)
+		require.NoError(t, os.Remove(
+			filepath.Join(ftr.config.migrationPath, filename(&ftr.config))), why)
+	}
+
+	return []recoveryConvergenceCase{
+		{
+			name:         namePrefix + "_IsReindexed_via_skipSwapOnFinish",
+			driveToState: driveToReindexed,
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: namePrefix + "_IsPrepended_synthetic_merged_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				// runtimePrepare writes markPrepended + cleanup + markMerged
+				// in one atomic method, so IsPrepended-without-IsMerged is
+				// unreachable via production code alone: drive to IsMerged,
+				// then remove merged.mig to synthesize a crash between
+				// markPrepended() and markMerged().
+				runtimePrepareOnly(t, ctx, shard, task)
+				removeSentinel(t, task, shard,
+					func(c *fileReindexTrackerConfig) string { return c.filenameMerged },
+					"removing merged.mig to synthesize IsPrepended-only state")
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: namePrefix + "_IsSwapped_synthetic_tidied_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				// runtimeSwap writes markSwapped + tidy + markTidied
+				// atomically: drive to completion, then remove tidied.mig to
+				// synthesize a crash between markSwapped() and markTidied().
+				driveToCompletion(t, ctx, shard, task)
+				removeSentinel(t, task, shard,
+					func(c *fileReindexTrackerConfig) string { return c.filenameTidied },
+					"removing tidied.mig to synthesize IsSwapped-only state")
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
+			},
+		},
+		{
+			name:         namePrefix + "_IsMerged_via_runtimePrepare_no_runtimeSwap",
+			driveToState: runtimePrepareOnly,
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name:         namePrefix + "_IsTidied_full_migration",
+			driveToState: driveToCompletion,
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
+			},
+		},
+	}
+}

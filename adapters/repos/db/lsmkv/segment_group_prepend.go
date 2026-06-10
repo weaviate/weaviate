@@ -33,6 +33,18 @@ import (
 // source timestamp is strictly less than the lowest target timestamp, making
 // this safe across multiple successive prepends.
 //
+// pendingSegmentTimestamps carries the pre-assigned segment timestamps of
+// the owning bucket's live memtables (active/flushing — see
+// Bucket.pendingMemtableSegmentTimestamps). They participate in the shift
+// computation as if their .db files already existed: a memtable's segment
+// name is fixed at memtable creation and may predate the source segments,
+// so without them the copied segments would keep names that sort ABOVE the
+// memtable's eventual flush — correct in the in-process position order but
+// INVERTED under the filename-sorted order a reload uses, resurrecting
+// stale values after a restart. Callers going through
+// Bucket.PrependSegmentsFromBucket get this for free; direct SegmentGroup
+// callers that own live memtables must pass the timestamps themselves.
+//
 // Preconditions:
 //   - The source bucket must be shut down (or otherwise guaranteed immutable)
 //     before calling this method. If compaction or flushing modifies/deletes
@@ -41,13 +53,31 @@ import (
 //   - Replace strategy is explicitly not supported because existsOnLower
 //     (used to compute countNetAdditions) is not recalculated for prepended
 //     segments, which would produce incorrect object counts.
+//   - Columnar strategy is only supported when the group keeps tombstones
+//     (keepTombstones=true). A bottom-level columnar compaction with
+//     cleanupTombstones drops delete markers, so a group that does NOT keep
+//     tombstones may already have cleaned deletes — prepending older
+//     segments BELOW such a group would resurrect deleted docIDs, because
+//     the cleaned bottom segment no longer carries the tombstones that used
+//     to shadow them. The enable-columnar migration satisfies this: its
+//     ingest buckets are loaded with keepTombstones=true until the merge
+//     completes (see ShardReindexTaskGeneric loadIngestBuckets).
 //   - Supported strategies: RoaringSet, RoaringSetRange, SetCollection,
-//     MapCollection, Inverted.
-func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
-	// Step 1: Validate strategy — Replace is not supported.
+//     MapCollection, Inverted, Columnar (keepTombstones only).
+func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string,
+	pendingSegmentTimestamps ...int64,
+) error {
+	// Step 1: Validate strategy — Replace is not supported, Columnar only
+	// with tombstones kept.
 	if sg.strategy == StrategyReplace {
 		return fmt.Errorf("prepend segments: strategy %q is not supported because "+
 			"countNetAdditions cannot be recalculated for prepended segments", sg.strategy)
+	}
+	if sg.strategy == StrategyColumnar && !sg.keepTombstones {
+		return fmt.Errorf("prepend segments: strategy %q without keepTombstones is not "+
+			"supported because a bottom-level compaction may already have cleaned "+
+			"tombstones; prepending older segments below it would resurrect deleted docIDs",
+			sg.strategy)
 	}
 
 	// Step 2: Discover source segments (.db files).
@@ -78,7 +108,7 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 	if err != nil {
 		return fmt.Errorf("prepend segments: discover target segments: %w", err)
 	}
-	shift, err := computeTimestampShift(srcDBFiles, tgtDBFiles)
+	shift, err := computeTimestampShift(srcDBFiles, tgtDBFiles, pendingSegmentTimestamps)
 	if err != nil {
 		return fmt.Errorf("prepend segments: compute timestamp shift: %w", err)
 	}
@@ -245,23 +275,38 @@ func findAssociatedFiles(dir, segPrefix string) ([]string, error) {
 //
 //	max(source) + shift < min(target)
 //
-// If target has no segments, no shift is applied (returns 0).
-// A minimum gap of 1 second is enforced between the shifted source and the
-// target to leave room for lexicographic ordering.
-func computeTimestampShift(srcDBFiles, tgtDBFiles []string) (int64, error) {
-	if len(tgtDBFiles) == 0 {
-		// No target segments — no need to shift source timestamps at all.
+// pendingTgtTimestamps participate as target timestamps even though their
+// .db files don't exist yet: they are the pre-assigned segment names of
+// the target bucket's live memtables, whose eventual flush must also sort
+// AFTER every prepended segment (see PrependSegmentsFromBucket).
+//
+// If the target has neither segments nor pending memtable timestamps, no
+// shift is applied (returns 0). A minimum gap of 1 second is enforced
+// between the shifted source and the target to leave room for
+// lexicographic ordering.
+func computeTimestampShift(srcDBFiles, tgtDBFiles []string, pendingTgtTimestamps []int64) (int64, error) {
+	tgtMin := int64(math.MaxInt64)
+	if len(tgtDBFiles) > 0 {
+		m, err := minSegmentTimestamp(tgtDBFiles)
+		if err != nil {
+			return 0, fmt.Errorf("target timestamps: %w", err)
+		}
+		tgtMin = m
+	}
+	for _, ts := range pendingTgtTimestamps {
+		if ts < tgtMin {
+			tgtMin = ts
+		}
+	}
+	if tgtMin == math.MaxInt64 {
+		// No target segments and no pending memtables — no need to shift
+		// source timestamps at all.
 		return 0, nil
 	}
 
 	srcMax, err := maxSegmentTimestamp(srcDBFiles)
 	if err != nil {
 		return 0, fmt.Errorf("source timestamps: %w", err)
-	}
-
-	tgtMin, err := minSegmentTimestamp(tgtDBFiles)
-	if err != nil {
-		return 0, fmt.Errorf("target timestamps: %w", err)
 	}
 
 	const gap = int64(time.Second) // 1s gap for safety

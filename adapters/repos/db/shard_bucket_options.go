@@ -52,6 +52,12 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 			lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
 			lsmkv.WithUseBloomFilter(false),
 		)
+	case lsmkv.StrategyColumnar:
+		options = append(options,
+			// derived from the key index, which columnar segments don't have
+			lsmkv.WithUseBloomFilter(false),
+			lsmkv.WithCalcCountNetAdditions(false),
+		)
 	case lsmkv.StrategyMapCollection:
 		if s.versioner.Version() < 2 {
 			options = append(options,
@@ -60,7 +66,19 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		}
 	}
 
-	return append(options, customOptions...)
+	options = append(options, customOptions...)
+
+	if strategy == lsmkv.StrategyColumnar {
+		// The columnar read path requires fully loaded *segment instances;
+		// NewBucket rejects the lazy-loading combination outright. Applied
+		// AFTER customOptions so callers that overwrite the lazy-loading
+		// default (e.g. initPropertyBuckets via
+		// overwrittenMakeDefaultBucketOptions) cannot re-enable it for
+		// columnar buckets.
+		options = append(options, lsmkv.WithLazySegmentLoading(false))
+	}
+
+	return options
 }
 
 func (s *Shard) overwrittenMakeDefaultBucketOptions(overwrittenDefaults ...lsmkv.BucketOption) lsmkv.MakeBucketOptions {

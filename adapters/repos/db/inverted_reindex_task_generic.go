@@ -203,6 +203,25 @@ type ShardReindexTaskGeneric struct {
 	// SetTokenizationOverlay's own lock is enough. Wired only for
 	// tokenization-changing migrations.
 	onPropSwapped func(propName string)
+
+	// onBeforeDoubleWriteRegistration is a test-only synchronization hook
+	// invoked by [OnAfterLsmInit] right before the ingest double-write
+	// callbacks are registered (and therefore before the reindexStarted
+	// timestamp is captured). Tests use it to inject concurrent writes
+	// deterministically at the exact point where the pre-fix ordering
+	// (markStarted before callback registration) permanently lost them.
+	// Nil in production.
+	onBeforeDoubleWriteRegistration func()
+
+	// onAfterMigrationComplete is a test-only synchronization hook
+	// invoked by [runtimeSwap] right after strategy.OnMigrationComplete
+	// returns (schema flag flipped) and BEFORE the write-quiescence
+	// barrier and the deferred disableCallbacks run. Tests use it to
+	// inject in-flight writes that analyzed under the pre-flip schema
+	// (HasColumnarIndex=false) deterministically into the window where
+	// the double-write mirror is their only route into the target
+	// bucket. Nil in production.
+	onAfterMigrationComplete func()
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -1106,12 +1125,17 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 
-	if !isStarted {
-		if err = rt.markStarted(time.Now()); err != nil {
-			err = fmt.Errorf("marking reindex started: %w", err)
-			return err
-		}
-	}
+	// NOTE: markStarted is intentionally NOT called here. The reindexStarted
+	// timestamp is the iterator-skip predicate (the backfill iterator skips
+	// objects with LastUpdateTimeUnix >= reindexStarted, assuming the
+	// double-write callbacks mirror them into the ingest bucket). It is
+	// therefore only safe to capture AFTER registerDoubleWriteCallbacks has
+	// run — see the markStarted call at the end of this function. Capturing
+	// it here (the pre-fix ordering) opened a seconds-wide window between
+	// the timestamp snapshot and callback registration (bucket loading does
+	// real disk I/O in between) during which a live write was BOTH skipped
+	// by the iterator AND not double-written — permanently lost from the
+	// target bucket (weaviate/weaviate#11688).
 
 	// Torn-state recovery: if rt.IsReindexed() is true but the reindex
 	// bucket dirs that markReindexed() must have populated are missing on
@@ -1157,7 +1181,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 				err = fmt.Errorf("starting backup buckets:%w", err)
 				return err
 			}
-			t.registerDoubleWriteCallbacks(shard, props, t.backupBucketName, false)
+			if _, err = t.registerDoubleWriteCallbacks(shard, props, t.backupBucketName, false); err != nil {
+				err = fmt.Errorf("registering backup double-write callbacks: %w", err)
+				return err
+			}
 		}
 	} else {
 		isMerged := rt.IsMerged()
@@ -1198,7 +1225,57 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 			err = fmt.Errorf("starting ingest buckets:%w", err)
 			return err
 		}
-		t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
+		if t.onBeforeDoubleWriteRegistration != nil {
+			t.onBeforeDoubleWriteRegistration()
+		}
+		disableJustRegistered, err := t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
+		if err != nil {
+			err = fmt.Errorf("registering ingest double-write callbacks: %w", err)
+			return err
+		}
+
+		// Capture the reindexStarted timestamp ONLY NOW, strictly after the
+		// double-write callbacks are active. The iteration loop skips every
+		// object with LastUpdateTimeUnix >= reindexStarted on the assumption
+		// that such writes were double-written into the ingest bucket; with
+		// the timestamp captured after registration, that assumption holds
+		// for every write — there is no gap in which a write is both skipped
+		// by the iterator and missed by the callbacks.
+		//
+		// The timestamp is rounded UP to the next millisecond boundary:
+		// LastUpdateTimeUnix has millisecond resolution and the iterator's
+		// predicate is `tsMillis < reindexStarted.UnixMilli()`. Without the
+		// ceil, a write landing just before registration could share the
+		// truncated millisecond of the timestamp, get skipped, and not be
+		// double-written. Rounding up guarantees every skipped write
+		// happened at/after the millisecond boundary, which is at/after
+		// callback registration.
+		//
+		// Writes in the overlap window (after registration, before the
+		// timestamp) are BOTH double-written into ingest AND visited by the
+		// backfill iterator (their LastUpdateTimeUnix is below the
+		// threshold). This converges for every migration strategy because
+		// the reindex segments are prepended BEFORE the ingest segments
+		// (PrependSegmentsFromBucket), so the double-written ingest entries
+		// are strictly newer in LSM merge order, and each strategy's writes
+		// are idempotent per key:
+		//   - columnar: ColumnarPut* is replace-per-docID; newer ingest
+		//     entry wins (both carry the same post-write value anyway)
+		//   - rangeable: RoaringSetRangeAdd of (value, docID) is set-
+		//     idempotent; ingest-layer deletes shadow older backfill adds
+		//   - searchable/filterable (map/set/inverted): identical
+		//     (term, docID) entries merge to one; ingest-layer tombstones
+		//     shadow older backfill entries
+		if !isStarted {
+			startedAt := time.Now().Truncate(time.Millisecond).Add(time.Millisecond)
+			if err = rt.markStarted(startedAt); err != nil {
+				// Disable only the pair registered above — the task instance
+				// may hold active registrations for other shards.
+				disableJustRegistered()
+				err = fmt.Errorf("marking reindex started: %w", err)
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -1719,11 +1796,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Always disable the double-write callbacks registered by this task
 	// instance, regardless of whether the swap completes successfully.
 	//
-	// On the happy path this runs after the in-memory pointer flip:
-	// the main bucket pointer has already been swapped, so any callback
-	// invocations between markSwappedProp and this defer would have been
-	// harmless redundant writes (the ingest bucket is reachable under
-	// both the main and ingest names).
+	// On the happy path this defer is a no-op: the explicit
+	// disableCallbacks call below (after the post-flip write-quiescence
+	// barrier) has already run, so the deferred second call finds an
+	// empty list. NOTE for callback invocations between SwapBucketPointer
+	// and the explicit disable: SwapBucketPointer removes the ingest NAME
+	// from the store's map while the bucket itself stays live under the
+	// canonical name. Strategy callbacks that resolve their target by
+	// ingest name per invocation must fall back to the canonical name to
+	// stay functional in that window (the columnar strategy does — see
+	// EnableColumnarStrategy.resolveDoubleWriteBucket — where such an
+	// invocation is a harmless redundant write into the live swapped-in
+	// bucket).
 	//
 	// On an error path this is the load-bearing case: without it,
 	// callbacks would keep firing against buckets that may be mid-swap,
@@ -1834,6 +1918,33 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
+
+	if t.onAfterMigrationComplete != nil {
+		t.onAfterMigrationComplete()
+	}
+
+	// Write-quiescence barrier + mirror disable. INVARIANT: the
+	// double-write mirror callbacks may only be disabled once no write
+	// that analyzed under the PRE-flip schema can still be in flight.
+	// Such a write carries the old Has*Index flags (e.g.
+	// HasColumnarIndex=false), so the direct write path skips the new
+	// bucket and the mirror is its only route in; disabling the mirror
+	// under it loses the write silently (the disabled wrapper returns
+	// nil). OnMigrationComplete above has flipped the schema flag, so:
+	//   - writes that analyze AFTER the barrier see the new flag and are
+	//     covered by the direct write path;
+	//   - writes that analyzed before hold the shard's inverted-write
+	//     gate until their index updates (including the mirror) have
+	//     been applied — draining the gate waits them out while the
+	//     mirror is still active.
+	// Only then is it safe to disable. The deferred disableCallbacks at
+	// the top of this function then no-ops (the list is cleared).
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard for write-quiescence barrier: %w", err)
+	}
+	concreteShard.drainInvertedIndexWrites()
+	t.disableCallbacks()
 
 	// Trim older generations on disk (best-effort cleanup of sidecar
 	// dirs from completed-and-tidied prior migrations on this prop).
@@ -2031,7 +2142,7 @@ func (t *ShardReindexTaskGeneric) mergeReindexAndIngestBuckets(ctx context.Conte
 				}
 
 				if needsRecover {
-					if err := t.recoverReindexBucket(gctx, logger, shard, reindexBucketName); err != nil {
+					if err := t.recoverReindexBucket(gctx, logger, shard, propName, reindexBucketName); err != nil {
 						return err
 					}
 				} else {
@@ -2359,8 +2470,42 @@ func (t *ShardReindexTaskGeneric) loadBackupBuckets(ctx context.Context,
 	return t.loadBuckets(ctx, logger, shard, props, t.backupBucketName, bucketOpts)
 }
 
+// perPropertyBucketOptioner is an optional [MigrationStrategy] extension
+// for strategies whose target buckets require per-property bucket options
+// on top of the shared per-strategy defaults. The canonical case is
+// [EnableColumnarStrategy]: columnar buckets refuse every write until a
+// per-property *columnar.Schema is set via lsmkv.WithColumnarSchema (the
+// schema's single column is named after the property and typed from its
+// dataType), so a shared option slice cannot serve all props. The
+// returned options are appended AFTER the shared ones, so per-prop
+// options win on conflicting settings.
+type perPropertyBucketOptioner interface {
+	PerPropertyBucketOptions(shard *Shard, propName string) []lsmkv.BucketOption
+}
+
+// perPropBucketOpts combines the shared per-strategy bucket options with
+// the strategy's per-property extras (if the strategy implements
+// [perPropertyBucketOptioner]). The shared slice is never mutated — a
+// fresh slice is built when extras exist, because loadBuckets calls this
+// concurrently for multiple props off the same shared slice.
+func (t *ShardReindexTaskGeneric) perPropBucketOpts(shard *Shard, propName string,
+	shared []lsmkv.BucketOption,
+) []lsmkv.BucketOption {
+	pp, ok := t.strategy.(perPropertyBucketOptioner)
+	if !ok {
+		return shared
+	}
+	extra := pp.PerPropertyBucketOptions(shard, propName)
+	if len(extra) == 0 {
+		return shared
+	}
+	out := make([]lsmkv.BucketOption, 0, len(shared)+len(extra))
+	out = append(out, shared...)
+	return append(out, extra...)
+}
+
 func (t *ShardReindexTaskGeneric) loadBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string, bucketNamer func(string) string,
+	logger logrus.FieldLogger, shard *Shard, props []string, bucketNamer func(string) string,
 	bucketOpts []lsmkv.BucketOption,
 ) error {
 	store := shard.Store()
@@ -2373,7 +2518,8 @@ func (t *ShardReindexTaskGeneric) loadBuckets(ctx context.Context,
 		eg.Go(func() error {
 			bucketName := bucketNamer(propName)
 			logger.WithField("bucket", bucketName).Debug("loading bucket")
-			if err := store.CreateOrLoadBucket(gctx, bucketName, bucketOpts...); err != nil {
+			opts := t.perPropBucketOpts(shard, propName, bucketOpts)
+			if err := store.CreateOrLoadBucket(gctx, bucketName, opts...); err != nil {
 				return err
 			}
 			logger.WithField("bucket", bucketName).Debug("bucket loaded")
@@ -2421,10 +2567,14 @@ func (t *ShardReindexTaskGeneric) unloadBuckets(ctx context.Context,
 }
 
 func (t *ShardReindexTaskGeneric) recoverReindexBucket(ctx context.Context,
-	logger logrus.FieldLogger, shard *Shard, bucketName string,
+	logger logrus.FieldLogger, shard *Shard, propName, bucketName string,
 ) error {
 	store := shard.Store()
-	bucketOpts := t.bucketOptions(shard, t.strategy.TargetStrategy(), true, false, t.config.memtableOptFactor)
+	// Per-prop options (e.g. the columnar schema) are required here too:
+	// WAL replay of a columnar bucket without its schema would drop the
+	// recovered rows on the floor.
+	bucketOpts := t.perPropBucketOpts(shard, propName,
+		t.bucketOptions(shard, t.strategy.TargetStrategy(), true, false, t.config.memtableOptFactor))
 
 	logger.WithField("bucket", bucketName).Debug("recover wals, loading bucket")
 	if err := store.CreateOrLoadBucket(ctx, bucketName, bucketOpts...); err != nil {
@@ -2477,9 +2627,44 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// registerDoubleWriteCallbacks registers the strategy's add/delete mirror
+// callbacks on the shard's property-value-index write path. The disable
+// funcs are collected on the task for the eventual [disableCallbacks] at
+// the end of [runtimeSwap]; the returned func disables ONLY the pair
+// registered by this call (idempotent — each disable is an atomic flag),
+// for failure paths that must not touch registrations made for other
+// shards by the same task instance.
+//
+// INVARIANT (enforced here for each property's PRIMARY bucket name —
+// fallback resolutions inside individual strategies are not re-checked):
+// registration MUST NOT happen before shard.Store().Bucket(bucketNamer(prop))
+// resolves, which is the per-invocation primary lookup in every strategy's
+// MakeAddCallback/MakeDeleteCallback. Activating mirrors whose target is
+// unresolvable puts the shard in the worst failure shape this migration
+// family has: every property-value write 5xxs with "double-write: bucket
+// not found" AFTER the object-store half already committed (non-atomic
+// from the client's view), AND the row is permanently lost from the
+// target bucket because the backfill iterator skips it
+// (LastUpdateTimeUnix >= reindexStarted) on the assumption the mirror
+// covered it. This is the exact client-visible signature reported on
+// weaviate/weaviate#11678 against the pre-mirror-lifetime-fix build.
+// The lifecycle guarantees the invariant ([OnAfterLsmInit] loads the
+// ingest/backup buckets strictly before registering), so a failure here
+// always means an ordering regression — surface it at migration start
+// instead of as write-path 500s.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
-) {
+) (func(), error) {
+	store := shard.Store()
+	for _, propName := range props {
+		if bucketName := bucketNamer(propName); store.Bucket(bucketName) == nil {
+			return nil, fmt.Errorf(
+				"registering double-write callbacks: target bucket %q for prop %q is not resolvable in the shard store; "+
+					"refusing to activate mirror callbacks that would fail every concurrent write (the bucket must be loaded before registration)",
+				bucketName, propName)
+		}
+	}
+
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
@@ -2493,6 +2678,11 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 	t.callbackDisableFuncsMu.Lock()
 	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disableAdd, disableDelete)
 	t.callbackDisableFuncsMu.Unlock()
+
+	return func() {
+		disableAdd()
+		disableDelete()
+	}, nil
 }
 
 // disableCallbacks calls all stored callback disable functions collected

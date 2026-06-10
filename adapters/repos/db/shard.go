@@ -353,6 +353,28 @@ type Shard struct {
 	centralJobQueue chan job // reference to queue used by all shards
 
 	docIdLock []sync.Mutex
+
+	// invertedWriteGate brackets (read side) the analyze→apply critical
+	// section of every inverted-index object write: the section that reads
+	// the live schema via AnalyzeObject and then applies the resulting
+	// per-property index updates (updateInvertedIndexLSM on the put/merge/
+	// batch paths, cleanupInvertedIndexOnDelete on the delete paths). The
+	// docIdLock stripes do NOT cover this section — both put and merge
+	// release the stripe before updating the inverted indexes.
+	//
+	// The write side is a quiescence barrier ([Shard.drainInvertedIndexWrites])
+	// used by migrations whose completion flips a schema flag (e.g.
+	// enable-columnar's IndexColumnar): after the flip, runtimeSwap drains
+	// this gate BEFORE disabling its double-write mirror callbacks, so any
+	// in-flight write that analyzed under the pre-flip schema (and thus
+	// relies on the mirror as its only route into the new bucket) has
+	// completed while the mirror was still active.
+	//
+	// Lock order: asyncReplicationRWMux > docIdLock[poolId] >
+	// invertedWriteGate (the delete path acquires the gate while holding
+	// the first two; the barrier holder acquires none of them).
+	invertedWriteGate sync.RWMutex
+
 	// replication
 	replicationMap pendingReplicaTasks
 
@@ -398,6 +420,31 @@ type Shard struct {
 	// found on disk, and the post-tidy hook flips it back to true.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
+
+	// columnarLocalReadyMu guards columnarLocalReady — the columnar twin
+	// of rangeableLocalReady above. Holds the per-prop "is this shard's
+	// columnar bucket fully populated and safe to read?" answer that
+	// gates whether the columnar read paths (filtered aggregator,
+	// boost-value lookup) may serve from the local columnar bucket.
+	//
+	// False means the columnar bucket is mid-migration on THIS replica:
+	// the enable-columnar PreReindexHook created an empty main bucket
+	// but the per-shard runtimeSwap that prepends ingest+reindex
+	// segments into it hasn't run yet on this node. During this window
+	// the cluster-wide IndexColumnar flag may already be true (the
+	// first replica to swap fires OnMigrationComplete which RAFTs the
+	// flip cluster-wide), so the read paths would otherwise serve
+	// partial aggregations from the incomplete bucket — silent data
+	// loss. IsColumnarLocallyReady forces those paths back onto the
+	// object-scan fallback until our local swap catches up.
+	//
+	// Same lifecycle as rangeableLocalReady: default (missing key)
+	// resolves via bucket existence; PreReindexHook sets explicit
+	// false; OnMigrationComplete sets explicit true BEFORE the schema
+	// flip; shard init pessimistically sets false for any in-flight
+	// enable-columnar tracker dir found on disk.
+	columnarLocalReadyMu sync.RWMutex
+	columnarLocalReady   map[string]bool
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
@@ -726,6 +773,56 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	s.rangeableLocalReady[propName] = ready
 }
 
+// IsColumnarLocallyReady reports whether this shard's local columnar
+// bucket for the given property is fully populated and safe to read.
+// Columnar twin of [IsRangeableLocallyReady] — see [columnarLocalReady]
+// for the full rationale.
+//
+// Returns true when:
+//   - The per-shard map has an explicit `true` entry (set by
+//     [setColumnarLocallyReady] after a local enable-columnar
+//     migration's swap completes), OR
+//   - There is no explicit entry AND the columnar bucket for this prop
+//     exists in the LSM store. This covers native columnar props
+//     (created with IndexColumnar=true) and props whose migrations
+//     completed before this shard restarted (the per-shard map is
+//     in-memory only and starts empty).
+//
+// Returns false when:
+//   - The per-shard map has an explicit `false` entry (set by the
+//     migration's PreReindexHook or the shard-init pessimistic scan), OR
+//   - There is no explicit entry AND the columnar bucket does not exist
+//     in the LSM store yet (another replica may already have flipped
+//     the cluster-wide flag while THIS replica's PreReindexHook hasn't
+//     fired).
+func (s *Shard) IsColumnarLocallyReady(propName string) bool {
+	s.columnarLocalReadyMu.RLock()
+	if s.columnarLocalReady != nil {
+		if ready, set := s.columnarLocalReady[propName]; set {
+			s.columnarLocalReadyMu.RUnlock()
+			return ready
+		}
+	}
+	s.columnarLocalReadyMu.RUnlock()
+
+	// Default: ready iff the columnar bucket physically exists. Same
+	// no-shadow-entry policy as IsRangeableLocallyReady — the migration
+	// hooks own the map's lifecycle.
+	return s.store.Bucket(helpers.BucketColumnarFromPropNameLSM(propName)) != nil
+}
+
+// setColumnarLocallyReady is invoked by the enable-columnar migration's
+// lifecycle hooks. Intentionally NOT exported beyond the package — see
+// [setRangeableLocallyReady] for the rationale.
+func (s *Shard) setColumnarLocallyReady(propName string, ready bool) {
+	s.columnarLocalReadyMu.Lock()
+	defer s.columnarLocalReadyMu.Unlock()
+	if s.columnarLocalReady == nil {
+		s.columnarLocalReady = map[string]bool{}
+	}
+	s.columnarLocalReady[propName] = ready
+}
+
 // SetTokenizationOverlay records that propName's query-time tokenization on
 // this shard should be `target` instead of the schema-stored value until
 // the live schema catches up. Set by the change-tokenization migration's
@@ -881,6 +978,22 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 // Activity score for read and write
 func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
+}
+
+// drainInvertedIndexWrites is a write-quiescence barrier: it returns only
+// after every inverted-index object write that was in its analyze→apply
+// critical section when the call started has completed. Writes beginning
+// after the barrier observe schema state published before it (the gate's
+// Lock/Unlock pair establishes the happens-before edge).
+//
+// Used by ShardReindexTaskGeneric.runtimeSwap between the migration's
+// schema-flag flip and the disabling of its double-write mirror
+// callbacks — see the invertedWriteGate field godoc for the invariant.
+// The barrier holder must not hold asyncReplicationRWMux or any
+// docIdLock stripe (gate readers acquire the gate while holding those).
+func (s *Shard) drainInvertedIndexWrites() {
+	s.invertedWriteGate.Lock()
+	defer s.invertedWriteGate.Unlock()
 }
 
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {

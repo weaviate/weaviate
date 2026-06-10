@@ -38,6 +38,7 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
+	HasColumnarIndex   bool // columnar index for time/hybrid queries
 }
 
 type NilProperty struct {
@@ -103,9 +104,9 @@ func DedupItems(props []Property) []Property {
 //
 // The overlay is read by Analyzer.analyzeProps which, when an entry exists
 // for the property name, treats the property as if its IndexFilterable /
-// IndexSearchable / IndexRangeFilters flags were already true (and uses
-// Tokenization in place of the stored value, when non-empty). The live
-// schema is never mutated.
+// IndexSearchable / IndexRangeFilters / IndexColumnar flags were already
+// true (and uses Tokenization in place of the stored value, when
+// non-empty). The live schema is never mutated.
 //
 // Pointers are owned by the caller and MUST NOT be modified after handing
 // them to the analyzer.
@@ -113,6 +114,10 @@ type PropertyOverlay struct {
 	ForceFilterable bool
 	ForceSearchable bool
 	ForceRangeable  bool
+	// ForceColumnar makes the analyzer emit HasColumnarIndex=true for the
+	// property even though the schema's IndexColumnar flag is still false.
+	// Used by EnableColumnarStrategy during the backfill scan.
+	ForceColumnar bool
 	// Tokenization, when non-empty, overrides prop.Tokenization for the
 	// duration of analysis. Used by EnableSearchableStrategy to tokenize
 	// with the target tokenization before the RAFT update applies it.

@@ -5827,10 +5827,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "columnar"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the per-property index to delete from the property.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -8502,6 +8503,19 @@ func init() {
         }
       }
     },
+    "IndexUpdateColumnar": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's columnar index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "When true, enables a columnar index on this int/number/date property and backfills it from the stored objects via the property-reindex framework. Flips indexColumnar=true on completion.",
+          "type": "boolean"
+        }
+      }
+    },
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
@@ -8540,6 +8554,9 @@ func init() {
     "IndexUpdateRequest": {
       "type": "object",
       "properties": {
+        "columnar": {
+          "$ref": "#/definitions/IndexUpdateColumnar"
+        },
         "filterable": {
           "$ref": "#/definitions/IndexUpdateFilterable"
         },
@@ -8778,6 +8795,10 @@ func init() {
         },
         "description": {
           "type": "string"
+        },
+        "indexColumnar": {
+          "type": "boolean",
+          "x-nullable": true
         },
         "indexFilterable": {
           "type": "boolean",
@@ -9431,6 +9452,11 @@ func init() {
           "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
           "type": "boolean",
           "default": true,
+          "x-nullable": true
+        },
+        "indexColumnar": {
+          "description": "Whether to include this property in a columnar index for efficient filtered aggregations. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
           "x-nullable": true
         },
         "indexFilterable": {
@@ -16893,10 +16919,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "columnar"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the per-property index to delete from the property.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -19753,6 +19780,19 @@ func init() {
         }
       }
     },
+    "IndexUpdateColumnar": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's columnar index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "When true, enables a columnar index on this int/number/date property and backfills it from the stored objects via the property-reindex framework. Flips indexColumnar=true on completion.",
+          "type": "boolean"
+        }
+      }
+    },
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
@@ -19791,6 +19831,9 @@ func init() {
     "IndexUpdateRequest": {
       "type": "object",
       "properties": {
+        "columnar": {
+          "$ref": "#/definitions/IndexUpdateColumnar"
+        },
         "filterable": {
           "$ref": "#/definitions/IndexUpdateFilterable"
         },
@@ -20029,6 +20072,10 @@ func init() {
         },
         "description": {
           "type": "string"
+        },
+        "indexColumnar": {
+          "type": "boolean",
+          "x-nullable": true
         },
         "indexFilterable": {
           "type": "boolean",
@@ -20866,6 +20913,11 @@ func init() {
           "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
           "type": "boolean",
           "default": true,
+          "x-nullable": true
+        },
+        "indexColumnar": {
+          "description": "Whether to include this property in a columnar index for efficient filtered aggregations. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
           "x-nullable": true
         },
         "indexFilterable": {

@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -104,6 +105,13 @@ type memtable interface {
 	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
 	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataColumnar(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+
+	columnarPutFloat64(docID uint64, colIdx int, value float64) error
+	columnarPutInt64(docID uint64, colIdx int, value int64) error
+	columnarDelete(docID uint64) error
+	columnarLookup(docID uint64, colIdx int) (uint64, bool, bool)
+	columnarScanRows(colIdx int, fn func(docID uint64, live bool, bits uint64) bool)
 
 	incWriterCount()
 	decWriterCount()
@@ -156,6 +164,10 @@ type Memtable struct {
 	propLengthExists                       *sroar.Bitmap
 
 	skipSecondaryKeyCheck bool
+
+	columnarSchema *columnar.Schema
+	columnarRows   map[uint64]*columnarMemtableRow
+	columnarWALBuf []byte // reused per WAL write, sized 8+1+rowWidth
 }
 
 type memtableConfig struct {

@@ -136,6 +136,9 @@ type Property struct {
 	// Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date."
 	IndexRangeFilters bool `json:"indexRangeFilters,omitempty"`
 
+	// Optional. Should this property be indexed in a columnar index. Defaults to false. Applicable only to properties of data type int, number, date.
+	IndexColumnar bool `json:"indexColumnar,omitempty"`
+
 	// Configuration specific to modules this Weaviate instance has installed
 	ModuleConfig map[string]interface{} `json:"moduleConfig,omitempty"`
 
@@ -166,6 +169,9 @@ type NestedProperty struct {
 
 	// index range filters
 	IndexRangeFilters bool `json:"index_range_filters,omitempty"`
+
+	// index columnar
+	IndexColumnar bool `json:"index_columnar,omitempty"`
 
 	// nested properties
 	NestedProperties []NestedProperty `json:"nested_properties,omitempty"`
@@ -198,6 +204,11 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 		n.IndexRangeFilters = *m.IndexRangeFilters
 	} else {
 		n.IndexRangeFilters = false
+	}
+	if m.IndexColumnar != nil {
+		n.IndexColumnar = *m.IndexColumnar
+	} else {
+		n.IndexColumnar = false
 	}
 	n.Name = m.Name
 	if m.TextAnalyzer != nil {
@@ -233,6 +244,8 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	m.IndexSearchable = &indexSearchable
 	indexRangeFilters := n.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
+	indexColumnar := n.IndexColumnar
+	m.IndexColumnar = &indexColumnar
 	m.Name = n.Name
 	if n.TextAnalyzer != nil {
 		m.TextAnalyzer = &models.TextAnalyzerConfig{
@@ -280,6 +293,11 @@ func PropertyFromModel(m models.Property) Property {
 	} else {
 		p.IndexRangeFilters = false
 	}
+	if m.IndexColumnar != nil {
+		p.IndexColumnar = *m.IndexColumnar
+	} else {
+		p.IndexColumnar = false
+	}
 	if v, ok := m.ModuleConfig.(map[string]interface{}); ok {
 		p.ModuleConfig = v
 	}
@@ -318,6 +336,8 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexSearchable = &indexSearchable
 	indexRangeFilters := p.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
+	indexColumnar := p.IndexColumnar
+	m.IndexColumnar = &indexColumnar
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
 	if p.TextAnalyzer != nil {

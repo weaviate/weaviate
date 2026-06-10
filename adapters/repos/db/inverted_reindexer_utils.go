@@ -42,6 +42,14 @@ func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyI
 			IndexTypePropMetaCount,
 			helpers.BucketFromPropNameMetaCountLSM,
 		},
+		// Columnar MUST come before the plain PropValue entry: the columnar
+		// bucket name ("property_<p>_columnar") also matches PropValue's
+		// "property_(.*)" pattern, which would misparse the prop name as
+		// "<p>_columnar".
+		{
+			IndexTypePropColumnarValue,
+			helpers.BucketColumnarFromPropNameLSM,
+		},
 		{
 			IndexTypePropValue,
 			helpers.BucketFromPropNameLSM,

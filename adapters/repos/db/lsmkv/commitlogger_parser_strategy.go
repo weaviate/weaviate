@@ -60,6 +60,7 @@ func init() {
 		StrategyInverted,
 		StrategyReplace,
 		StrategySetCollection,
+		StrategyColumnar,
 	}
 
 	commitlogStrategyCompatibilityChecks = map[string]func(io.ReadSeeker) (bool, error){
@@ -69,6 +70,7 @@ func init() {
 		StrategySetCollection:   isCommitLogCompatibleSetCollection,
 		StrategyRoaringSet:      isCommitLogCompatibleRoaringSet,
 		StrategyRoaringSetRange: isCommitLogCompatibleRoaringSetRange,
+		StrategyColumnar:        isCommitLogCompatibleColumnar,
 	}
 }
 

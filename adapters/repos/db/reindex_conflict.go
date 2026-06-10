@@ -174,13 +174,15 @@ func TouchesSearchable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable:
+		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable:
 		return true
 	case ReindexTypeRepairFilterable,
 		ReindexTypeChangeTokenizationFilterable,
 		ReindexTypeEnableFilterable,
 		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
+		ReindexTypeRepairRangeable,
+		ReindexTypeEnableColumnar:
 		return false
 	default:
 		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
@@ -199,8 +201,10 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 		return true
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable,
 		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
+		ReindexTypeRepairRangeable,
+		ReindexTypeEnableColumnar:
 		return false
 	default:
 		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))

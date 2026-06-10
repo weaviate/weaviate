@@ -94,6 +94,32 @@ func validateRebuildRangeableProperty(prop *models.Property) error {
 	return nil
 }
 
+// validateColumnarProperties validates that the named properties are
+// eligible for enable-columnar: numeric/date type, not already columnar.
+// Like enable-rangeable, whether the property currently has any other
+// inverted index is deliberately NOT checked — the migration sources from
+// the objects bucket.
+func validateColumnarProperties(class *models.Class, propNames []string) error {
+	propsByName := make(map[string]*models.Property, len(class.Properties))
+	for _, p := range class.Properties {
+		propsByName[p.Name] = p
+	}
+
+	for _, pn := range propNames {
+		prop, ok := propsByName[pn]
+		if !ok {
+			return fmt.Errorf("property %q not found", pn)
+		}
+		if !isNumericProperty(prop) {
+			return fmt.Errorf("property %q is not a numeric type (int, number, date)", pn)
+		}
+		if prop.IndexColumnar != nil && *prop.IndexColumnar {
+			return fmt.Errorf("property %q already has indexColumnar enabled", pn)
+		}
+	}
+	return nil
+}
+
 // validateEnableFilterableProperty validates that the property is a
 // suitable target for enable-filterable: it must not already have a
 // filterable index, and its data type must support inverted filtering
@@ -301,11 +327,13 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 // rejects such bodies up front with a 400 listing the offending fields.
 //
 // Rules:
-//   - At most one group (Searchable / Filterable / Rangeable) may be set.
+//   - At most one group (Searchable / Filterable / Rangeable / Columnar)
+//     may be set.
 //   - Within a group, at most one verb may be set. Verbs:
 //   - Searchable: Enabled, Rebuild, Tokenization (without Enabled)
 //   - Filterable: Enabled, Rebuild
 //   - Rangeable:  Enabled
+//   - Columnar:   Enabled
 //   - Searchable.Tokenization with Searchable.Enabled is allowed:
 //     enable-searchable REQUIRES a tokenization, so they are one verb, not two.
 //   - Zero verbs total is rejected (consistent with the default arm in
@@ -390,6 +418,23 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		}
 	}
 
+	// Columnar group.
+	if body.Columnar != nil {
+		var verbs []string
+		if body.Columnar.Enabled {
+			verbs = append(verbs, "columnar.enabled")
+		}
+		if body.Columnar.Cancel {
+			verbs = append(verbs, "columnar.cancel")
+		}
+		if len(verbs) > 1 {
+			return fmt.Errorf("conflicting fields in columnar: %v — set exactly one of enabled or cancel", verbs)
+		}
+		if len(verbs) == 1 {
+			groupsSet = append(groupsSet, "columnar")
+		}
+	}
+
 	if len(groupsSet) > 1 {
 		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
 	}
@@ -399,7 +444,8 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		return fmt.Errorf("no actionable change detected; set one of: " +
 			"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
 			"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
-			"rangeable.cancel, rangeable.enabled, rangeable.rebuild")
+			"rangeable.cancel, rangeable.enabled, rangeable.rebuild, " +
+			"columnar.cancel, columnar.enabled")
 	}
 	return nil
 }

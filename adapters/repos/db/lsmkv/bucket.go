@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -238,6 +239,9 @@ type Bucket struct {
 
 	skipSecondaryKeyCheck bool
 
+	// Schema for columnar buckets. Nil for non-columnar strategies.
+	columnarSchema *columnar.Schema
+
 	// immutable prevents all write operations. Set via WithImmutable, used by
 	// snapshot buckets to guarantee they never modify data. This is distinct
 	// from the shard-level read-only status (storagestate.StatusReadOnly)
@@ -295,6 +299,13 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.strategy == unsetStrategy {
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
+	}
+
+	if b.strategy == StrategyColumnar && b.lazySegmentLoading {
+		// The columnar read paths type-assert every segment-group element to
+		// a fully loaded *segment; a lazy placeholder would surface as a read
+		// error. Reject the combination at construction instead.
+		return nil, errors.New("lazy segment loading is not supported for the columnar strategy")
 	}
 
 	if !b.immutable && IsSnapshotDir(dir) {
@@ -1483,6 +1494,10 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		return nil, err
 	}
 
+	if b.strategy == StrategyColumnar && b.columnarSchema != nil {
+		mt.initColumnar(b.columnarSchema)
+	}
+
 	return mt, nil
 }
 
@@ -1532,7 +1547,14 @@ func (b *Bucket) countFromCV(ctx context.Context, view BucketConsistentView) (in
 // reflects what has been already flushed. This in turn makes it very cheap to
 // call, so it can be used for observability purposes where eventual
 // consistency on the count is fine, but a large cost is not.
+//
+// CountAsync is specific to ReplaceStrategy: it sums the per-segment
+// countNetAdditions, which only replace segments compute. Calling it on any
+// other strategy panics (same contract as the cursor constructors) instead
+// of silently returning 0.
 func (b *Bucket) CountAsync() int {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
 	return b.disk.count()
 }
 
@@ -2539,6 +2561,45 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 // PrependSegmentsFromBucket copies all segments from srcDir and prepends them
 // into this bucket's segment group. See SegmentGroup.PrependSegmentsFromBucket
 // for full semantics and preconditions.
+//
+// The pre-assigned segment timestamps of this bucket's live memtables
+// (active and flushing) are passed down so the copied segments are
+// shifted strictly BELOW them. A memtable's future segment file name is
+// fixed at memtable CREATION time (createNewActiveMemtable), which can
+// predate the source segments by the whole migration duration; without
+// the shift, a later flush of that memtable would sort BELOW the
+// prepended segments under the filename-sorted order a reload uses,
+// inverting LSM recency — stale prepended values would shadow the
+// memtable's newer writes after a restart.
 func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
-	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
+	pending, err := b.pendingMemtableSegmentTimestamps()
+	if err != nil {
+		return fmt.Errorf("prepend segments: pending memtable segment timestamps: %w", err)
+	}
+	return b.disk.PrependSegmentsFromBucket(ctx, srcDir, pending...)
+}
+
+// pendingMemtableSegmentTimestamps returns the segment-file timestamps
+// pre-assigned to the bucket's active and flushing memtables — the names
+// their future .db files will carry when flushed. Captured under
+// flushLock so a concurrent active→flushing switch cannot slip a
+// memtable past the snapshot: any memtable created after this call gets
+// a strictly newer (current-time) name, and any flush completing before
+// it leaves a .db file that directory discovery sees instead.
+func (b *Bucket) pendingMemtableSegmentTimestamps() ([]int64, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	out := make([]int64, 0, 2)
+	for _, mt := range []memtable{b.active, b.flushing} {
+		if mt == nil {
+			continue
+		}
+		ts, err := parseSegmentTimestamp(filepath.Base(mt.Path()))
+		if err != nil {
+			return nil, fmt.Errorf("parse memtable segment path %q: %w", mt.Path(), err)
+		}
+		out = append(out, ts)
+	}
+	return out, nil
 }

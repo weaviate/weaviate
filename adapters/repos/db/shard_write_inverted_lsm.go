@@ -127,6 +127,12 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
+	if property.HasColumnarIndex {
+		if err := s.addToColumnarIndex(docID, property); err != nil {
+			return errors.Wrapf(err, "failed adding to prop '%s' columnar index", property.Name)
+		}
+	}
+
 	if err := s.onAddToPropertyValueIndex(docID, &property); err != nil {
 		return err
 	}
@@ -203,6 +209,20 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	}
 
 	return bucket.RoaringSetAddOne(key, docID)
+}
+
+func (s *Shard) addToColumnarIndex(docID uint64, property inverted.Property) error {
+	bucket := s.store.Bucket(helpers.BucketColumnarFromPropNameLSM(property.Name))
+	if bucket == nil {
+		return errors.Errorf("no bucket columnar for prop '%s' found", property.Name)
+	}
+
+	// The value type is read from the bucket's own columnar schema (set at
+	// bucket creation from the property's data type), avoiding an O(props)
+	// scan of class.Properties on every write. Values are stored lossless
+	// as float64/int64 — silently narrowing user data would break the
+	// columnar store's fidelity contract.
+	return writeColumnarValue(bucket, docID, &property)
 }
 
 func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

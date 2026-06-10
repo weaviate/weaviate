@@ -229,6 +229,8 @@ func (ct CommitType) String() string {
 		return "roaringset"
 	case CommitTypeRoaringSetList:
 		return "roaringsetlist"
+	case CommitTypeColumnar:
+		return "columnar"
 	default:
 		return "unknown"
 	}

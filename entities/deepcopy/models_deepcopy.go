@@ -74,6 +74,7 @@ func Prop(p *models.Property) *models.Property {
 		IndexFilterable:   ptrBoolCopy(p.IndexFilterable),
 		IndexSearchable:   ptrBoolCopy(p.IndexSearchable),
 		IndexRangeFilters: ptrBoolCopy(p.IndexRangeFilters),
+		IndexColumnar:     ptrBoolCopy(p.IndexColumnar),
 	}
 }
 

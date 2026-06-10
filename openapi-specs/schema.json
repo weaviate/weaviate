@@ -698,6 +698,9 @@
         },
         "rangeable": {
           "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "columnar": {
+          "$ref": "#/definitions/IndexUpdateColumnar"
         }
       }
     },
@@ -759,6 +762,19 @@
         "cancel": {
           "type": "boolean",
           "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index."
+        }
+      }
+    },
+    "IndexUpdateColumnar": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, enables a columnar index on this int/number/date property and backfills it from the stored objects via the property-reindex framework. Flips indexColumnar=true on completion."
+        },
+        "cancel": {
+          "type": "boolean",
+          "description": "When true, cancels the in-flight reindex task targeting this property's columnar index."
         }
       }
     },
@@ -1902,6 +1918,11 @@
           "type": "boolean",
           "x-nullable": true
         },
+        "indexColumnar": {
+          "description": "Whether to include this property in a columnar index for efficient filtered aggregations. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:<br/><br/>- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.<br/>- `lowercase`: Splits the text on whitespace and lowercases the tokens.<br/>- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.<br/>- `field`: Indexes the entire property value as a single token after trimming whitespace.<br/>- `trigram`: Splits the property into rolling trigrams (three-character sequences).<br/>- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).<br/>- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/>- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/><br/>See [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
@@ -2001,6 +2022,10 @@
           "x-nullable": true
         },
         "indexRangeFilters": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexColumnar": {
           "type": "boolean",
           "x-nullable": true
         },
@@ -8713,14 +8738,15 @@
           },
           {
             "name": "indexName",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the per-property index to delete from the property.",
             "in": "path",
             "required": true,
             "type": "string",
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "columnar"
             ]
           }
         ],
