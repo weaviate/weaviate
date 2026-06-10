@@ -688,6 +688,7 @@ func TestComputeTimestampShift(t *testing.T) {
 		shift, err := computeTimestampShift(
 			[]string{"segment-1000000000.db"},
 			nil,
+			nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, int64(0), shift)
@@ -697,6 +698,7 @@ func TestComputeTimestampShift(t *testing.T) {
 		shift, err := computeTimestampShift(
 			[]string{"segment-100.db"},
 			[]string{"segment-999999999999999999.db"},
+			nil,
 		)
 		require.NoError(t, err)
 		// Should return -1s gap (source already sorts before target).
@@ -707,6 +709,7 @@ func TestComputeTimestampShift(t *testing.T) {
 		shift, err := computeTimestampShift(
 			[]string{"segment-2000000000000000000.db"},
 			[]string{"segment-1000000000000000000.db"},
+			nil,
 		)
 		require.NoError(t, err)
 		assert.Less(t, shift, int64(0))
@@ -718,9 +721,45 @@ func TestComputeTimestampShift(t *testing.T) {
 		shift, err := computeTimestampShift(
 			[]string{"segment-2000000000000000000.l0.s5.db"},
 			[]string{"segment-1000000000000000000.l0.s5.db"},
+			nil,
 		)
 		require.NoError(t, err)
 		assert.Less(t, shift, int64(0))
+	})
+
+	t.Run("pending memtable timestamp alone forces shift below it", func(t *testing.T) {
+		// Empty target dir, but the target bucket's active memtable was
+		// created BEFORE the source segments (the enable-columnar ingest
+		// end state): the shift must place the source strictly below the
+		// memtable's pre-assigned segment name, or a reload after the
+		// memtable flushes would invert LSM recency.
+		shift, err := computeTimestampShift(
+			[]string{"segment-2000000000000000000.db"},
+			nil,
+			[]int64{1000000000000000000},
+		)
+		require.NoError(t, err)
+		assert.Less(t, int64(2000000000000000000)+shift, int64(1000000000000000000))
+	})
+
+	t.Run("pending memtable timestamp below disk segments wins", func(t *testing.T) {
+		shift, err := computeTimestampShift(
+			[]string{"segment-2000000000000000000.db"},
+			[]string{"segment-1500000000000000000.db"},
+			[]int64{1000000000000000000},
+		)
+		require.NoError(t, err)
+		assert.Less(t, int64(2000000000000000000)+shift, int64(1000000000000000000))
+	})
+
+	t.Run("pending memtable timestamp above disk segments is irrelevant", func(t *testing.T) {
+		shift, err := computeTimestampShift(
+			[]string{"segment-2000000000000000000.db"},
+			[]string{"segment-1000000000000000000.db"},
+			[]int64{1500000000000000000},
+		)
+		require.NoError(t, err)
+		assert.Less(t, int64(2000000000000000000)+shift, int64(1000000000000000000))
 	})
 }
 
