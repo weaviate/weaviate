@@ -492,15 +492,23 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		return
 	}
 
-	for s.blockEntryIdx < len(s.blockEntries) && docId > s.blockEntries[s.blockEntryIdx].MaxId {
-		s.blockEntryIdx++
+	// scan with locals so the index stays in a register and the decoded/freqDecoded
+	// stores happen once after the loop instead of on every skipped block.
+	entries := s.blockEntries
+	idx := s.blockEntryIdx
+	for idx < len(entries) && docId > entries[idx].MaxId {
+		idx++
+	}
+	if idx != s.blockEntryIdx {
+		s.blockEntryIdx = idx
 		s.decoded = false
 		s.freqDecoded = false
 	}
 
-	// the loop stops only at blockEntryIdx == len or docId <= this block's
-	// MaxId, so a bounds check is enough to detect exhaustion here.
-	if s.blockEntryIdx >= len(s.blockEntries) {
+	// the loop only stops when idx hits the end or docId <= this block's MaxId,
+	// so the "last block, still past it" case the old condition also tested can
+	// never hold here — a bounds check is enough.
+	if idx >= len(entries) {
 		s.exhaust()
 		return
 	}
@@ -509,9 +517,15 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.decodeBlock()
 	}
 
-	for s.blockDataIdx < s.blockDataSize-1 && docId > s.blockDataDecoded.DocIds[s.blockDataIdx] {
-		s.blockDataIdx++
+	// read after decodeBlock: it rewrites the decoded buffer in place and updates
+	// blockDataSize.
+	docIDs := s.blockDataDecoded.DocIds
+	last := s.blockDataSize - 1
+	j := s.blockDataIdx
+	for j < last && docId > docIDs[j] {
+		j++
 	}
+	s.blockDataIdx = j
 
 	s.advanceOnTombstoneOrFilter()
 }
@@ -524,8 +538,9 @@ func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
 		return
 	}
 
-	for s.blockEntryIdx < len(s.blockEntries) && docId > s.blockEntries[s.blockEntryIdx].MaxId {
-
+	// the in-loop bounds return below guarantees blockEntryIdx < len on every
+	// condition re-eval, so the index is always valid here — no length guard needed.
+	for docId > s.blockEntries[s.blockEntryIdx].MaxId {
 		s.blockEntryIdx++
 		s.blockDataIdx = 0
 		s.decoded = false
