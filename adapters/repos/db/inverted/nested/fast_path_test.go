@@ -340,38 +340,36 @@ func leafPinnedIsNullFalse(idx *fastPathIndex, valuePath string, pins []pinSpec)
 	if len(pins) == 0 {
 		panic("pinned IS NULL false needs at least one pin")
 	}
-
-	innerAnchor := idx.anchor[parentPath(valuePath)]
-	truthScope := parentPath(pins[0].path)
-	truthAnchor := idx.anchor[truthScope]
-
 	a := cloneOrEmpty(idx.exists[valuePath])
 	for _, pin := range pins {
 		a.And(idx.idx[pin.path][pin.index])
 	}
-
-	mPin := a.Clone().And(innerAnchor)
-
-	narrowedAnchor := cloneOrEmpty(truthAnchor).And(a)
-	exactSupport, _ := idx.ops.LiftToAncestor(mPin, narrowedAnchor)
-
-	rich := a.AndNot(truthAnchor).Or(exactSupport)
-
-	return &fastPathResult{
-		TruthScope:               truthScope,
-		Rich:                     rich,
-		ExactSupport:             exactSupport,
-		CanProjectParentByAnchor: false,
-	}
+	return pinnedFromValueSet(idx, a, valuePath, pins)
 }
 
-// leafPinnedIsNullTrue realizes `<pinned path>.x IS NULL true` —
-// universe-subtract of leafPinnedIsNullFalse's positive support. Works for
-// any pin count. Missing pinned slot counts as true: universe \
-// pos.ExactSupport includes every owner where no pinned match existed,
-// including those where any pinned slot itself is missing.
+// leafPinnedIsNullTrue realizes `<pinned path>.x IS NULL true`. Dispatches
+// internally based on whether the pin chain has a gap between TruthScope
+// and the value path's element scope:
+//
+//   - No gap (fully pinned at every array level): universe-subtract of
+//     leafPinnedIsNullFalse. Owner-level coincides with per-element here
+//     because the pinned slot is uniquely identified per TS-element.
+//
+//   - Gap present (intermediate pin — some array level between TS and
+//     ElementScope is unpinned): owner-level subtraction would diverge
+//     from the natural per-element reading (e.g. `g[1].cars.year IS NULL
+//     true` should pass any car under g[1] missing year, not require ALL
+//     cars under g[1] to be missing year). Use per-element computation
+//     directly: ElementWitnesses ∪ TS_missingPin lifted to TS.
+//
+// Missing pinned slot still counts as success in both branches — covered
+// by TS_missingPin in the per-element formula and by universe-subtract in
+// the no-gap branch.
 func leafPinnedIsNullTrue(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
-	return negate(idx, leafPinnedIsNullFalse(idx, valuePath, pins))
+	if !hasPinGap(pins, valuePath) {
+		return negate(idx, leafPinnedIsNullFalse(idx, valuePath, pins))
+	}
+	return perElementNotExists(idx, valuePath, pins)
 }
 
 // pinSpec describes one pin in a multi-pin path, e.g.,
@@ -462,16 +460,134 @@ func pinnedFromValueSet(idx *fastPathIndex, a *sroar.Bitmap, valuePath string, p
 	}
 }
 
-// leafPinnedNot realizes `NOT <pinned path>.x = value` — universe-subtract
-// of leafPinnedPositive's positive support. Works for any pin count (single,
-// intermediate, multi) since leafPinnedPositive is unified.
+// leafPinnedNot realizes `NOT <pinned path>.x = value`. Dispatches
+// internally based on the pin chain layout — same shape as
+// leafPinnedIsNullTrue:
 //
-// Missing pinned slot counts as success: both "value mismatch" and "no
-// pinned slot" satisfy the NOT. This falls out of the universe-subtract —
-// pos.ExactSupport is empty for owners whose pinned slot doesn't exist, and
-// universe \ ∅ = universe, so those owners survive.
+//   - No gap (fully pinned at every array level between TS and the value
+//     path's element scope): universe-subtract of leafPinnedPositive.
+//     The pinned slot is unique per TS-element, so owner-level NOT
+//     coincides with per-element NOT.
+//
+//   - Gap present (intermediate pin): use the per-element NOT formula —
+//     witnesses are the elements under the pinned subtree that fail the
+//     predicate, lifted to TS, unioned with TS-elements that lack the
+//     outermost pin slot entirely.
+//
+// Missing pinned slot counts as success in both branches.
 func leafPinnedNot(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
-	return negate(idx, leafPinnedPositive(idx, valuePath, value, pins))
+	if !hasPinGap(pins, valuePath) {
+		return negate(idx, leafPinnedPositive(idx, valuePath, value, pins))
+	}
+	return perElementNotValue(idx, valuePath, value, pins)
+}
+
+// hasPinGap reports whether the pin chain has an unpinned array level
+// between the TruthScope and the value path's element scope. The pin
+// count must equal the number of array levels descending from TS+1
+// down to ElementScope; any mismatch means an intermediate level is
+// unpinned. Used to choose between owner-level negation (no gap) and
+// per-element negation (gap present).
+func hasPinGap(pins []pinSpec, valuePath string) bool {
+	if len(pins) == 0 {
+		return false
+	}
+	elementScope := parentPath(valuePath)
+	truthScope := parentPath(pins[0].path)
+	levelsBetween := pathDepth(elementScope) - pathDepth(truthScope)
+	return len(pins) != levelsBetween
+}
+
+// perElementNotValue computes `NOT <pinned path>.x = value` directly at
+// the per-element scope when the pin chain has a gap. Wraps
+// perElementNotFromSubtractand with the value-keyed bucket as the
+// subtractand: witnesses are the elements that don't match the given
+// value within the pinned subtree.
+//
+// Worked example: `NOT garages[1].cars.make=bmw` on the L2 schema —
+// ElementScope=cars (unpinned), pins=[(garages, 1)], TS=countries.
+// A country passes if it contains any car under garages[1] whose make is
+// not bmw, OR if it has no garages[1] slot at all.
+func perElementNotValue(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
+	return perElementNotFromSubtractand(idx, valuePath, pins, idx.values[valuePath][value])
+}
+
+// perElementNotExists is the IS NULL true analogue of perElementNotValue:
+// witnesses are elements within the pinned subtree whose value-path
+// leaf is absent. The subtractand is the _exists bucket of the value
+// path instead of a specific value bucket.
+func perElementNotExists(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
+	return perElementNotFromSubtractand(idx, valuePath, pins, idx.exists[valuePath])
+}
+
+// perElementNotFromSubtractand is the shared body of perElementNotValue
+// and perElementNotExists. The two callers differ only in which bitmap
+// they subtract from the pin-narrowed element universe.
+//
+// Bitmap algebra:
+//
+//	witnesses      := ⋂_i _idx[pins[i]] ∩ _anchor(ElementScope) ANDNOT subtractand
+//	                  // candidates inside the pinned subtree that the
+//	                  // caller wants to negate (don't match a value, or
+//	                  // lack the value-path leaf)
+//	witnessesAtTS  := LiftToAncestor(witnesses, _anchor(TS))
+//	                  // TS-elements with at least one such candidate
+//	tsMissingPin   := _anchor(TS) ANDNOT _idx[outermost pin]
+//	                  // TS-elements that lack the outermost pin slot
+//	ExactSupport   := witnessesAtTS ∪ tsMissingPin
+//	Rich           := (_exists(TS) ANDNOT _anchor(TS)) ∪ ExactSupport
+//	                  // satisfies trustworthy-scope invariant
+//	                  // Rich ∩ _anchor(TS) == ExactSupport
+//
+// Algebraic shortcuts (vs. the textbook formula):
+//
+//   - Skipping elementPositive: `(pinNarrow ∩ _anchor) ANDNOT
+//     elementPositive` simplifies to `(pinNarrow ∩ _anchor) ANDNOT
+//     subtractand` because the subtractand's `pinNarrow ∩ _anchor`
+//     factors are already present in the minuend.
+//
+//   - Skipping tsWithPin: `A ANDNOT (A ∩ B) = A ANDNOT B`, so
+//     `tsMissingPin = _anchor(TS) ANDNOT _idx[outermost]` directly.
+//
+//   - Skipping the second LiftToAncestor: the outermost pin's _idx
+//     bitmap already carries chain bits through TS, so the anchor
+//     intersection is equivalent and cheaper than a full lift.
+//
+// Net: one LiftToAncestor and three clones, no per-element correlation
+// trade-off.
+func perElementNotFromSubtractand(idx *fastPathIndex, valuePath string, pins []pinSpec, subtractand *sroar.Bitmap) *fastPathResult {
+	elementScope := parentPath(valuePath)
+	truthScope := parentPath(pins[0].path)
+	truthAnchor := idx.anchor[truthScope]
+
+	// witnesses = ⋂_i _idx[pins[i]] ∩ _anchor(ElementScope) ANDNOT subtractand
+	witnesses := cloneOrEmpty(idx.idx[pins[0].path][pins[0].index])
+	for _, p := range pins[1:] {
+		witnesses.And(idx.idx[p.path][p.index])
+	}
+	witnesses.And(idx.anchor[elementScope])
+	if subtractand != nil {
+		witnesses.AndNot(subtractand)
+	}
+
+	// witnessesAtTS = LiftToAncestor(witnesses, _anchor(TS))
+	witnessesAtTS, _ := idx.ops.LiftToAncestor(witnesses, truthAnchor)
+
+	// tsMissingPin = _anchor(TS) ANDNOT _idx[outermost pin]
+	outermost := pins[0]
+	tsMissingPin := cloneOrEmpty(truthAnchor).AndNot(idx.idx[outermost.path][outermost.index])
+
+	// ExactSupport = witnessesAtTS ∪ tsMissingPin (mutate witnessesAtTS).
+	es := witnessesAtTS.Or(tsMissingPin)
+	// Rich = (_exists(TS) ANDNOT _anchor(TS)) ∪ ExactSupport
+	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(truthAnchor).Or(es)
+
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     rich,
+		ExactSupport:             es,
+		CanProjectParentByAnchor: false,
+	}
 }
 
 // leafContainsAny realizes `path ContainsAny [values]` directly as
@@ -1449,8 +1565,10 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 		// Intermediate-pin: pin at garages[1] with cars unpinned. Discriminates
 		// from single-pin `cars.make=bmw` (which would also include doc 600).
 		// Only doc 500 has garages[1] containing a car with make=bmw.
-		// NOT and IS NULL true variants have an owner-level vs per-element
-		// semantic ambiguity at intermediate-pin and are deferred.
+		// NOT and IS NULL true variants use a per-element formula because
+		// the pin chain has a gap (cars is unpinned between TS=countries
+		// and ElementScope=cars). leafPinnedNot and leafPinnedIsNullTrue
+		// dispatch internally on hasPinGap and call perElementNotFromSubtractand.
 		{
 			name: "garages[1].cars.make=bmw",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -1475,6 +1593,57 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 			// doc 500: g[1].cars[0].make=bmw. doc 700: g[1].cars[0].make=ford.
 			// All other docs lack garages[1] or have no make on any car in g[1].
 			wantDocs: []uint64{500, 700},
+		},
+		// Per-element NOT on intermediate-pin path. Every doc passes
+		// either via a per-element witness (some car under g[1] with
+		// make!=bmw, or with no make field) or via missing-pin success
+		// (the country has no g[1] slot at all).
+		{
+			name: "NOT garages[1].cars.make=bmw",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedNot(idx,
+					"countries.garages.cars.make",
+					"bmw",
+					[]pinSpec{{"countries.garages", 1}})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// Missing-pin: docs 100-400, 600 (both countries lack g[1]),
+			// 810, 820 (both countries lack g[1]), 830 — all pass via
+			// tsMissingPin.
+			// Per-element witnesses:
+			// - doc 500 g[1]: cars[0]=bmw is positive but cars[1]/[2]
+			//   have name=honda with no make field — both are non-bmw
+			//   witnesses.
+			// - doc 700 g[1].cars[0]=ford — non-bmw witness.
+			// - docs 800/900 g[1] cars have no make field at all — every
+			//   car is a non-bmw witness.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		// Per-element IS NULL true on intermediate-pin path. Passes any
+		// doc with at least one car under g[1] missing the make field,
+		// OR with no g[1] at all. Owner-level would have excluded doc
+		// 500 (g[1] has cars[0] with a make field); per-element correctly
+		// includes 500 via cars[1] and cars[2].
+		{
+			name: "garages[1].cars.make IS NULL true",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedIsNullTrue(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages", 1}})
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// Missing-pin: docs 100-400, 600, 810, 820, 830 (no g[1]).
+			// Per-element witnesses:
+			// - doc 500: g[1].cars[1] and cars[2] have name=honda but no
+			//   make field — both are IS NULL true witnesses.
+			// - docs 800/900: g[1] cars have no make at all — every car
+			//   is a witness.
+			// doc 700 FAILS: g[1].cars[0]=ford has a make field, and it's
+			// the only car under g[1]. No per-element witness; pin is
+			// present so no missing-pin contribution either.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 800, 810, 820, 830, 900},
 		},
 	}
 
