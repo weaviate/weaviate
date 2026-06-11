@@ -423,6 +423,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to false (debug surface closed) only when nothing set it.
+	if v, ok := os.LookupEnv("DEBUG_ENDPOINTS_ENABLED"); ok {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.Profiling.DebugEndpointsEnabled == nil {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(false)
+	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
