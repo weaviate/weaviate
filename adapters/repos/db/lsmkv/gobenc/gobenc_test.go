@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -625,4 +626,85 @@ func makeMap(n int) map[uint64]uint32 {
 		m[uint64(i)*7+3] = uint32(i*13 + 5)
 	}
 	return m
+}
+
+func pairsToMap(t *testing.T, ids []uint64, lens []uint32) map[uint64]uint32 {
+	t.Helper()
+	require.Equal(t, len(ids), len(lens))
+	m := make(map[uint64]uint32, len(ids))
+	for i, id := range ids {
+		_, dup := m[id]
+		require.False(t, dup, "duplicate id %d in decoded pairs", id)
+		m[id] = lens[i]
+	}
+	return m
+}
+
+func TestDecodePairsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		m    map[uint64]uint32
+	}{
+		{"empty", map[uint64]uint32{}},
+		{"single", map[uint64]uint32{1: 2}},
+		{"zero_key_value", map[uint64]uint32{0: 0}},
+		{"small_values", map[uint64]uint32{1: 2, 3: 4, 5: 6}},
+		{"large_keys", map[uint64]uint32{
+			1<<32 - 1: 100,
+			1<<48 - 1: 200,
+			1<<56 - 1: 300,
+		}},
+		{"max_values", map[uint64]uint32{math.MaxUint64: math.MaxUint32}},
+		{"boundary_127", map[uint64]uint32{127: 127}},
+		{"boundary_128", map[uint64]uint32{128: 128}},
+		{"thousand_entries", makeMap(1000)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			encoded, err := Encode(tc.m)
+			require.NoError(t, err)
+			ids, lens, err := DecodePairs(encoded)
+			require.NoError(t, err)
+			assert.Equal(t, tc.m, pairsToMap(t, ids, lens))
+			assert.Equal(t, len(tc.m), len(ids))
+		})
+	}
+}
+
+// DecodePairs must fall back to stdlib gob for streams the fast path rejects,
+// exactly like Decode does.
+func TestDecodePairsGobFallback(t *testing.T) {
+	t.Parallel()
+
+	m := makeMap(257)
+	var buf bytes.Buffer
+	require.NoError(t, gob.NewEncoder(&buf).Encode(m))
+
+	ids, lens, err := DecodePairs(buf.Bytes())
+	require.NoError(t, err)
+	assert.Equal(t, m, pairsToMap(t, ids, lens))
+}
+
+func TestDecodePairsMatchesDecode(t *testing.T) {
+	t.Parallel()
+
+	rnd := rand.New(rand.NewSource(42))
+	m := make(map[uint64]uint32, 10000)
+	for i := 0; i < 10000; i++ {
+		m[rnd.Uint64()>>rnd.Intn(40)] = uint32(rnd.Intn(1 << 20))
+	}
+
+	encoded, err := Encode(m)
+	require.NoError(t, err)
+
+	viaMap, err := Decode(encoded)
+	require.NoError(t, err)
+	ids, lens, err := DecodePairs(encoded)
+	require.NoError(t, err)
+	assert.Equal(t, viaMap, pairsToMap(t, ids, lens))
 }
