@@ -48,12 +48,21 @@ type ExistsEntry struct {
 	Positions []uint64 // positions with docID=0
 }
 
+// AnchorEntry records the marker bit of a single element at a given path.
+// Distinct from ExistsEntry: ExistsEntry stores the full elementPositions
+// (self marker + descendants); AnchorEntry stores only the self marker.
+type AnchorEntry struct {
+	Path      string   // path of the element's containing collection; empty for root-level
+	Positions []uint64 // marker positions with docID=0
+}
+
 // AssignResult holds all positioned values and metadata produced by
 // walking a nested property value.
 type AssignResult struct {
-	Values []PositionedValue
-	Idx    []IdxEntry
-	Exists []ExistsEntry
+	Values  []PositionedValue
+	Idx     []IdxEntry
+	Exists  []ExistsEntry
+	Anchors []AnchorEntry
 }
 
 // AssignPositions walks a nested property value depth-first, assigns
@@ -116,7 +125,11 @@ func AssignPositions(prop *models.Property, value any) (*AssignResult, error) {
 			result:  result,
 		}
 
-		elemPositions, err := w.walkObject("", elemMap, prop.NestedProperties)
+		// Root elements have no ancestors — the chain is empty. walkObject
+		// returns this root's subtree selves (self + every descendant marker)
+		// without any chain prefix; because the chain is empty here, those are
+		// also this root's full elementPositions.
+		elemPositions, err := w.walkObject("", elemMap, prop.NestedProperties, nil)
 		if err != nil {
 			return nil, fmt.Errorf("walk element %d of %q: %w", i, prop.Name, err)
 		}
@@ -157,13 +170,45 @@ func (w *walker) nextLeaf() (uint64, error) {
 	return pos, nil
 }
 
-// walkObject processes a single object element depth-first and returns
-// its positions. The positions are either inherited from descendant
-// leaves (intermediate node) or a newly assigned leaf position (leaf node).
+// walkObject processes a single object element depth-first.
+//
+// ancestorChain is the sequence of every enclosing element's self marker, in
+// outer-to-inner order, visible to this element. Per the encoding rule an
+// element's positions are `ancestorChain ∪ self ∪ descendant selves`; that
+// is what we emit on this element's behalf for Value, Exists, and (via the
+// caller) Idx entries.
+//
+// The returned slice contains this element's subtree selves only — the self
+// marker followed by every descendant self marker, without any chain. Callers
+// prepend their own chain when materializing full elementPositions for the
+// emissions they own (walkNestedArray for Idx/Exists at the array path; the
+// top-level AssignPositions for the root Idx/Exists).
 func (w *walker) walkObject(prefix string, obj map[string]any,
-	nestedProps []*models.NestedProperty,
+	nestedProps []*models.NestedProperty, ancestorChain []uint64,
 ) ([]uint64, error) {
-	var descendantPositions []uint64
+	// Phase 0: Allocate this element's marker BEFORE walking descendants so
+	// DFS leaf assignment puts the parent's marker ahead of its children's.
+	// Predecessor scans over a parent anchor bitmap can then lift each child
+	// position to its owning parent.
+	selfMarker, err := w.nextLeaf()
+	if err != nil {
+		return nil, err
+	}
+	w.result.Anchors = append(w.result.Anchors, AnchorEntry{
+		Path:      prefix,
+		Positions: []uint64{selfMarker},
+	})
+
+	// Chain visible to descendants extends our chain with our own marker.
+	// Fresh allocation so the caller's slice cannot be aliased by ours.
+	chainForChildren := make([]uint64, 0, len(ancestorChain)+1)
+	chainForChildren = append(chainForChildren, ancestorChain...)
+	chainForChildren = append(chainForChildren, selfMarker)
+
+	// descendantSelves accumulates every marker emitted below this element
+	// (children, grandchildren, …). Children return their own subtree selves
+	// (self + theirs), which composes naturally.
+	var descendantSelves []uint64
 
 	// Phase 1: Process nested objects/arrays and scalar arrays depth-first.
 	// This must happen before scalar properties so leaf positions are
@@ -178,36 +223,31 @@ func (w *walker) walkObject(prefix string, obj map[string]any,
 		dt := schema.DataType(np.DataType[0])
 
 		if schema.IsNested(dt) {
-			childPos, err := w.walkNestedArray(path, dt, val, np.NestedProperties)
+			childPos, err := w.walkNestedArray(path, dt, val, np.NestedProperties, chainForChildren)
 			if err != nil {
 				return nil, err
 			}
-			descendantPositions = append(descendantPositions, childPos...)
+			descendantSelves = append(descendantSelves, childPos...)
 		} else if schema.IsScalarArrayType(dt) {
-			childPos, err := w.walkScalarArray(path, dt, val, np)
+			childPos, err := w.walkScalarArray(path, dt, val, np, chainForChildren)
 			if err != nil {
 				return nil, err
 			}
-			descendantPositions = append(descendantPositions, childPos...)
+			descendantSelves = append(descendantSelves, childPos...)
 		}
 	}
 
-	// Phase 2: Determine element positions.
-	// - Has descendant leaves → intermediate: positions = union of descendants
-	// - No descendant leaves → leaf: gets its own leaf_idx
-	var elementPositions []uint64
-	if len(descendantPositions) > 0 {
-		elementPositions = descendantPositions
-	} else {
-		pos, err := w.nextLeaf()
-		if err != nil {
-			return nil, err
-		}
-		elementPositions = []uint64{pos}
-	}
+	// Phase 2: elementPositions = ancestor chain + self + descendant selves.
+	// This is the value we hand out as our own elementPositions for Phase 3
+	// scalar emissions. The returned subtree-selves slice deliberately omits
+	// the chain so the caller can prepend its own without duplication.
+	elementPositions := make([]uint64, 0, len(ancestorChain)+1+len(descendantSelves))
+	elementPositions = append(elementPositions, ancestorChain...)
+	elementPositions = append(elementPositions, selfMarker)
+	elementPositions = append(elementPositions, descendantSelves...)
 
-	// Phase 3: Process scalar properties. Scalars inherit ALL positions
-	// of their parent element.
+	// Phase 3: Process scalar properties. Scalars inherit ALL positions of
+	// their parent element — which already include the ancestor chain.
 	for _, np := range nestedProps {
 		val, exists := obj[np.Name]
 		if !exists || val == nil {
@@ -234,13 +274,27 @@ func (w *walker) walkObject(prefix string, obj map[string]any,
 		}
 	}
 
-	return elementPositions, nil
+	// Return subtree selves (self + descendant selves) without chain. The
+	// caller (walkNestedArray or top-level AssignPositions) prepends its own
+	// chain when building IdxEntry/ExistsEntry at the array level.
+	subtreeSelves := make([]uint64, 0, 1+len(descendantSelves))
+	subtreeSelves = append(subtreeSelves, selfMarker)
+	subtreeSelves = append(subtreeSelves, descendantSelves...)
+	return subtreeSelves, nil
 }
 
 // walkNestedArray processes a nested object or object[] property.
 // For object type, the value is wrapped in a 1-element array.
+//
+// ancestorChain is the chain of self markers visible to each array element
+// (i.e. the chain produced by the enclosing walkObject for its descendants).
+// We prepend it to every per-element subtree to materialize full
+// elementPositions for IdxEntry and ExistsEntry.
+//
+// The returned slice contains every element's subtree selves (no chain),
+// suitable for the caller to splice into its own descendantSelves.
 func (w *walker) walkNestedArray(path string, dt schema.DataType,
-	val any, nestedProps []*models.NestedProperty,
+	val any, nestedProps []*models.NestedProperty, ancestorChain []uint64,
 ) ([]uint64, error) {
 	var elements []any
 	switch dt {
@@ -258,44 +312,61 @@ func (w *walker) walkNestedArray(path string, dt schema.DataType,
 		return nil, fmt.Errorf("unexpected data type %q at path %q", dt, path)
 	}
 
-	var allPositions []uint64
+	var allSubtreeSelves []uint64
 	for i, elem := range elements {
 		elemMap, ok := elem.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("expected map for %s[%d], got %T", path, i, elem)
 		}
 
-		elemPositions, err := w.walkObject(path, elemMap, nestedProps)
+		subtreeSelves, err := w.walkObject(path, elemMap, nestedProps, ancestorChain)
 		if err != nil {
 			return nil, err
 		}
 
+		// IdxEntry needs the K-th element's full elementPositions:
+		// chain + (self + descendant selves).
+		idxPositions := make([]uint64, 0, len(ancestorChain)+len(subtreeSelves))
+		idxPositions = append(idxPositions, ancestorChain...)
+		idxPositions = append(idxPositions, subtreeSelves...)
+
 		w.result.Idx = append(w.result.Idx, IdxEntry{
 			Path:      path,
 			Index:     i,
-			Positions: elemPositions,
+			Positions: idxPositions,
 		})
 
-		allPositions = append(allPositions, elemPositions...)
+		allSubtreeSelves = append(allSubtreeSelves, subtreeSelves...)
 	}
 
-	if len(allPositions) > 0 {
+	if len(allSubtreeSelves) > 0 {
+		// ExistsEntry covers the entire array under the shared chain.
+		existsPositions := make([]uint64, 0, len(ancestorChain)+len(allSubtreeSelves))
+		existsPositions = append(existsPositions, ancestorChain...)
+		existsPositions = append(existsPositions, allSubtreeSelves...)
 		w.result.Exists = append(w.result.Exists, ExistsEntry{
 			Path:      path,
-			Positions: allPositions,
+			Positions: existsPositions,
 		})
 	}
 
-	return allPositions, nil
+	return allSubtreeSelves, nil
 }
 
 // walkScalarArray processes a scalar array property (text[], int[], etc.).
 // Each element gets its own leaf position.
+//
+// ancestorChain is the chain visible to each scalar element. Value and Idx
+// entries carry the full elementPositions (chain + self); Anchor is exact
+// (self only); ExistsEntry collects the chain plus every element's self.
+//
+// The returned slice contains every element's self marker (no chain) for the
+// caller to splice into its own descendantSelves.
 func (w *walker) walkScalarArray(path string, dt schema.DataType,
-	val any, np *models.NestedProperty,
+	val any, np *models.NestedProperty, ancestorChain []uint64,
 ) ([]uint64, error) {
 	scalarDT := schema.ScalarFromArrayType(dt)
-	var allPositions []uint64
+	var allSelves []uint64
 
 	// appendElem records a single array element directly — elem is assignable
 	// to PositionedValue.Value (type any) without an intermediate []any copy.
@@ -304,7 +375,11 @@ func (w *walker) walkScalarArray(path string, dt schema.DataType,
 		if err != nil {
 			return fmt.Errorf("scalar array %s[%d]: %w", path, i, err)
 		}
-		positions := []uint64{pos}
+		// elementPositions = chain + self. Fresh allocation so each entry's
+		// Positions slice is independent of any shared backing array.
+		elementPositions := make([]uint64, 0, len(ancestorChain)+1)
+		elementPositions = append(elementPositions, ancestorChain...)
+		elementPositions = append(elementPositions, pos)
 		w.result.Values = append(w.result.Values, PositionedValue{
 			Path:         path,
 			PropName:     np.Name,
@@ -312,14 +387,18 @@ func (w *walker) walkScalarArray(path string, dt schema.DataType,
 			DataType:     scalarDT,
 			Tokenization: np.Tokenization,
 			TextAnalyzer: np.TextAnalyzer,
-			Positions:    positions,
+			Positions:    elementPositions,
 		})
 		w.result.Idx = append(w.result.Idx, IdxEntry{
 			Path:      path,
 			Index:     i,
-			Positions: positions,
+			Positions: elementPositions,
 		})
-		allPositions = append(allPositions, pos)
+		w.result.Anchors = append(w.result.Anchors, AnchorEntry{
+			Path:      path,
+			Positions: []uint64{pos},
+		})
+		allSelves = append(allSelves, pos)
 		return nil
 	}
 
@@ -378,16 +457,21 @@ func (w *walker) walkScalarArray(path string, dt schema.DataType,
 		return nil, fmt.Errorf("expected []any for %s, got %T", path, val)
 	}
 
-	if len(allPositions) == 0 {
+	if len(allSelves) == 0 {
 		return nil, nil
 	}
 
+	// ExistsEntry for the scalar-array path covers the chain plus every
+	// element's self marker — the union of all per-element positions.
+	existsPositions := make([]uint64, 0, len(ancestorChain)+len(allSelves))
+	existsPositions = append(existsPositions, ancestorChain...)
+	existsPositions = append(existsPositions, allSelves...)
 	w.result.Exists = append(w.result.Exists, ExistsEntry{
 		Path:      path,
-		Positions: allPositions,
+		Positions: existsPositions,
 	})
 
-	return allPositions, nil
+	return allSelves, nil
 }
 
 // joinPath concatenates prefix + separator + name without the

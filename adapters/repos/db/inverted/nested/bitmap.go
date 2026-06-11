@@ -131,6 +131,78 @@ func (o *BitmapOps) MaskRootLeaf(positions *sroar.Bitmap) (doc *sroar.Bitmap, re
 	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf), release
 }
 
+// LiftToAncestor projects child markers to their nearest ancestor markers in
+// parentAnchor by predecessor scan within the same (root_idx, docID) bucket.
+//
+// parentAnchor does not have to be the immediately enclosing collection — any
+// ancestor anchor works. With `_anchor(garages)`, child cars lift to their
+// owning garage. With `_anchor(countries)`, the same cars lift directly to
+// their owning country, skipping the intermediate garage level. The result is
+// equivalent to a chain of single-level lifts; the direct call is cheaper.
+//
+// children must contain positions that sit strictly below the target ancestor
+// scope — the intended use is exact child self markers such as
+// `m_pinned_match = value ∩ _idx ∩ _anchor(childPath)`.
+//
+// For each child position c:
+//   - compute key = c with leaf bits zeroed (same root_idx + docID)
+//   - look up the greatest parent marker p < c in the same key bucket
+//   - emit p into the result
+//
+// The greatest-p-below-c is the nearest enclosing ancestor under DFS leaf
+// assignment: a parent's self marker is allocated before every descendant in
+// the same `(root, doc)` bucket, so the most recently consumed parent for
+// that bucket is also numerically the greatest below the child. Multiple
+// children may lift to the same ancestor; the bitmap naturally deduplicates.
+//
+// Load-bearing assumptions (see assign.go):
+//   - the walker emits leaf_idx in strict DFS order via nextLeaf();
+//   - distinct top-level array elements get distinct root_idx values, so the
+//     (root_idx, docID) bucket key separates per-root subtrees.
+//
+// If either contract changes, multi-level lifts can silently return wrong
+// ancestors. Single-level lifts remain correct as long as parentAnchor is the
+// immediate parent.
+func (o *BitmapOps) LiftToAncestor(children, parentAnchor *sroar.Bitmap) (parent *sroar.Bitmap, release func()) {
+	if children == nil || parentAnchor == nil || children.IsEmpty() {
+		return sroar.NewBitmap(), func() {}
+	}
+	parentCardinality := parentAnchor.GetCardinality()
+	if parentCardinality == 0 {
+		return sroar.NewBitmap(), func() {}
+	}
+
+	parent, release = o.NewEmpty(min(children.LenInBytes(), parentAnchor.LenInBytes()))
+
+	// Raw positions are strictly positive (root_idx and leaf_idx are 1-based),
+	// so iterator.Next()==0 is an unambiguous end-of-stream sentinel here.
+	childItr := children.NewIterator()
+	parentItr := parentAnchor.NewIterator()
+
+	nextChild := childItr.Next()
+	nextParent := parentItr.Next()
+
+	// parentByBucket holds the owning parent marker for each (root_idx, docID)
+	// bucket. Because raw uint64 order is root, then leaf, then docID,
+	// different docs can interleave at the same leaf; a single scalar
+	// predecessor across all buckets is not enough.
+	parentByBucket := make(map[uint64]uint64, min(parentCardinality, 1024))
+
+	for nextChild != 0 {
+		for nextParent != 0 && nextParent < nextChild {
+			parentByBucket[nextParent&zeroLeafBits] = nextParent
+			nextParent = parentItr.Next()
+		}
+
+		if lifted, ok := parentByBucket[nextChild&zeroLeafBits]; ok {
+			parent.Set(lifted)
+		}
+		nextChild = childItr.Next()
+	}
+
+	return parent, release
+}
+
 // AndAll returns the intersection of all raw position bitmaps in a pool
 // buffer. Returns an empty (non-pooled) bitmap when raws is empty. The loop
 // exits early when the running intersection becomes empty — further ANDs
