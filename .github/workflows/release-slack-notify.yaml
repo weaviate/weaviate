@@ -18,9 +18,7 @@ jobs:
         env:
           REL_TAG: ${{ github.event.release.tag_name }}
           REL_URL: ${{ github.event.release.html_url }}
-          REL_BODY: ${{ github.event.release.body }}
-          # Optional: Slack member ID (e.g. U01ABC23DEF) so "cc:" actually pings.
-          # Set as a repo variable: Settings → Secrets and variables → Actions → Variables.
+          REL_BODY: ${{ github.event.release.body }}          
           CC_USER_ID: ${{ secrets.SLACK_CC_USER_ID }}
         run: |
           set -euo pipefail
