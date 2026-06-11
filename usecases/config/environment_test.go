@@ -502,6 +502,38 @@ func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 	})
 }
 
+func TestEnvironmentDebugEndpointsEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		envSet   bool
+		envValue string
+		initial  *configRuntime.DynamicValue[bool] // value from config file
+		expected bool
+	}{
+		{name: "env true overrides unset", envSet: true, envValue: "true", expected: true},
+		{name: "env false overrides unset", envSet: true, envValue: "false", expected: false},
+		{name: "env true overrides config file false", envSet: true, envValue: "true", initial: configRuntime.NewDynamicValue(false), expected: true},
+		{name: "env false overrides config file true", envSet: true, envValue: "false", initial: configRuntime.NewDynamicValue(true), expected: false},
+		{name: "env unset preserves config file true", envSet: false, initial: configRuntime.NewDynamicValue(true), expected: true},
+		{name: "env unset preserves config file false", envSet: false, initial: configRuntime.NewDynamicValue(false), expected: false},
+		{name: "env unset and no config file defaults to false", envSet: false, expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if tt.envSet {
+				t.Setenv("DEBUG_ENDPOINTS_ENABLED", tt.envValue)
+			}
+			conf := Config{}
+			conf.Profiling.DebugEndpointsEnabled = tt.initial
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.Profiling.DebugEndpointsEnabled)
+			require.Equal(t, tt.expected, conf.Profiling.DebugEndpointsEnabled.Get())
+		})
+	}
+}
+
 func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
 	factors := []struct {
 		name        string

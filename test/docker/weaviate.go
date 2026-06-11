@@ -88,6 +88,7 @@ func startWeaviate(ctx context.Context,
 		"DISABLE_TELEMETRY":                 "true",
 		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
 		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
+		"DEBUG_ENDPOINTS_ENABLED":           "true",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")

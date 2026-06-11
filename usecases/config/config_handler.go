@@ -430,6 +430,12 @@ type Profiling struct {
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
 	Port                 int  `json:"port" yaml:"port"`
+	// DebugEndpointsEnabled gates the debug HTTP listener (pprof, fgprof,
+	// /debug/*). The listener always binds: while this is false the port is
+	// open but every request returns 404, checked per-request so runtime
+	// flips need no restart. GO_PROFILING_DISABLE (Disabled) is a separate
+	// switch that stops the listener binding at all.
+	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debugEndpointsEnabled" yaml:"debugEndpointsEnabled"`
 }
 
 type DistributedTasksConfig struct {
