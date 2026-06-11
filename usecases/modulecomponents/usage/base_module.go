@@ -75,14 +75,19 @@ func (b *BaseModule) SetUsageService(usageService any) {
 		return
 	}
 
-	b.mu.Lock()
-	if b.usageService != nil {
-		// already set, the collector is running
-		b.mu.Unlock()
+	alreadySet := func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.usageService != nil {
+			// already set, the collector is running
+			return true
+		}
+		b.usageService = service
+		return false
+	}()
+	if alreadySet {
 		return
 	}
-	b.usageService = service
-	b.mu.Unlock()
 
 	service.SetJitterInterval(b.shardJitter)
 	// Start the collector only once the service it depends on is set.
