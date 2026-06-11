@@ -500,7 +500,7 @@ func hasPinGap(pins []pinSpec, valuePath string) bool {
 
 // perElementNotValue computes `NOT <pinned path>.x = value` directly at
 // the per-element scope when the pin chain has a gap. Wraps
-// perElementNotFromSubtractand with the value-keyed bucket as the
+// perElementNotFromSubtractands with the value-keyed bucket as the
 // subtractand: witnesses are the elements that don't match the given
 // value within the pinned subtree.
 //
@@ -509,7 +509,7 @@ func hasPinGap(pins []pinSpec, valuePath string) bool {
 // A country passes if it contains any car under garages[1] whose make is
 // not bmw, OR if it has no garages[1] slot at all.
 func perElementNotValue(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
-	return perElementNotFromSubtractand(idx, valuePath, pins, idx.values[valuePath][value])
+	return perElementNotFromSubtractands(idx, valuePath, pins, idx.values[valuePath][value])
 }
 
 // perElementNotExists is the IS NULL true analogue of perElementNotValue:
@@ -517,19 +517,21 @@ func perElementNotValue(idx *fastPathIndex, valuePath string, value any, pins []
 // leaf is absent. The subtractand is the _exists bucket of the value
 // path instead of a specific value bucket.
 func perElementNotExists(idx *fastPathIndex, valuePath string, pins []pinSpec) *fastPathResult {
-	return perElementNotFromSubtractand(idx, valuePath, pins, idx.exists[valuePath])
+	return perElementNotFromSubtractands(idx, valuePath, pins, idx.exists[valuePath])
 }
 
-// perElementNotFromSubtractand is the shared body of perElementNotValue
-// and perElementNotExists. The two callers differ only in which bitmap
-// they subtract from the pin-narrowed element universe.
+// perElementNotFromSubtractands is the shared body of perElementNotValue,
+// perElementNotExists, and leafPinnedContainsNone. Callers differ in how
+// many bitmaps they subtract from the pin-narrowed element universe:
+// single-value NOT passes one, IS NULL true passes one, ContainsNone
+// passes one per listed value.
 //
 // Bitmap algebra:
 //
-//	witnesses      := ⋂_i _idx[pins[i]] ∩ _anchor(ElementScope) ANDNOT subtractand
+//	witnesses      := ⋂_i _idx[pins[i]] ∩ _anchor(ElementScope) ANDNOT ⋃ subtractands
 //	                  // candidates inside the pinned subtree that the
-//	                  // caller wants to negate (don't match a value, or
-//	                  // lack the value-path leaf)
+//	                  // caller wants to negate (don't match any value,
+//	                  // or lack the value-path leaf)
 //	witnessesAtTS  := LiftToAncestor(witnesses, _anchor(TS))
 //	                  // TS-elements with at least one such candidate
 //	tsMissingPin   := _anchor(TS) ANDNOT _idx[outermost pin]
@@ -538,6 +540,9 @@ func perElementNotExists(idx *fastPathIndex, valuePath string, pins []pinSpec) *
 //	Rich           := (_exists(TS) ANDNOT _anchor(TS)) ∪ ExactSupport
 //	                  // satisfies trustworthy-scope invariant
 //	                  // Rich ∩ _anchor(TS) == ExactSupport
+//
+// The union of subtractands is computed implicitly via chained AndNot:
+// A − (B ∪ C) = (A − B) − C, so we never materialise the union.
 //
 // Algebraic shortcuts (vs. the textbook formula):
 //
@@ -555,19 +560,21 @@ func perElementNotExists(idx *fastPathIndex, valuePath string, pins []pinSpec) *
 //
 // Net: one LiftToAncestor and three clones, no per-element correlation
 // trade-off.
-func perElementNotFromSubtractand(idx *fastPathIndex, valuePath string, pins []pinSpec, subtractand *sroar.Bitmap) *fastPathResult {
+func perElementNotFromSubtractands(idx *fastPathIndex, valuePath string, pins []pinSpec, subtractands ...*sroar.Bitmap) *fastPathResult {
 	elementScope := parentPath(valuePath)
 	truthScope := parentPath(pins[0].path)
 	truthAnchor := idx.anchor[truthScope]
 
-	// witnesses = ⋂_i _idx[pins[i]] ∩ _anchor(ElementScope) ANDNOT subtractand
+	// witnesses = ⋂_i _idx[pins[i]] ∩ _anchor(ElementScope) ANDNOT ⋃ subtractands
 	witnesses := cloneOrEmpty(idx.idx[pins[0].path][pins[0].index])
 	for _, p := range pins[1:] {
 		witnesses.And(idx.idx[p.path][p.index])
 	}
 	witnesses.And(idx.anchor[elementScope])
-	if subtractand != nil {
-		witnesses.AndNot(subtractand)
+	for _, sub := range subtractands {
+		if sub != nil {
+			witnesses.AndNot(sub)
+		}
 	}
 
 	// witnessesAtTS = LiftToAncestor(witnesses, _anchor(TS))
@@ -729,6 +736,76 @@ func leafPinnedContainsAll(idx *fastPathIndex, valuePath string, pins []pinSpec,
 		a.And(idx.idx[pin.path][pin.index])
 	}
 	return pinnedFromValueSet(idx, a, valuePath, pins)
+}
+
+// leafContainsNone realizes `path ContainsNone [values]` as a direct
+// chained subtraction. Equivalent to negate(leafContainsAny(...)) but
+// computed in one accumulator pass without materialising the value
+// union.
+//
+// Algebra (using the identity A ANDNOT (B ∪ C) = (A ANDNOT B) ANDNOT C):
+//
+//	ExactSupport = _anchor(TS) ANDNOT ⋃_v _value(path, v)
+//	             = ((_anchor(TS) ANDNOT v_1) ANDNOT v_2) ... ANDNOT v_N
+//	Rich         = (_exists(TS) ANDNOT _anchor(TS)) ∪ ExactSupport
+//	             (satisfies Rich ∩ _anchor(TS) == ExactSupport)
+//
+// Semantics: a TS-element satisfies ContainsNone if it contains none of
+// the listed values. For scalar arrays (e.g. text[]) that means no
+// element in the array matches any listed value. CP=false (chain bits
+// above TS aren't authentic — same as any owner-level negation).
+//
+// Panics on an empty value list — ContainsNone over an empty set is
+// vacuously true and should be optimised away upstream.
+func leafContainsNone(idx *fastPathIndex, path string, values ...any) *fastPathResult {
+	if len(values) == 0 {
+		panic("leafContainsNone requires at least one value")
+	}
+	truthScope := parentPath(path)
+	truthAnchor := idx.anchor[truthScope]
+
+	// ExactSupport = _anchor(TS) ANDNOT each value bucket (in order).
+	es := cloneOrEmpty(truthAnchor)
+	for _, v := range values {
+		if bm := idx.values[path][v]; bm != nil {
+			es.AndNot(bm)
+		}
+	}
+
+	// Rich = (_exists(TS) ANDNOT _anchor(TS)) ∪ ExactSupport.
+	rich := cloneOrEmpty(idx.exists[truthScope]).AndNot(truthAnchor).Or(es)
+
+	return &fastPathResult{
+		TruthScope:               truthScope,
+		Rich:                     rich,
+		ExactSupport:             es,
+		CanProjectParentByAnchor: false,
+	}
+}
+
+// leafPinnedContainsNone realizes `<pinned path>.x ContainsNone [values]`
+// as owner-level negation of pinned ContainsAny: a TS-element passes
+// only if NO descendant under the pinned subtree matches any of the
+// listed values.
+//
+// Unlike leafPinnedNot / leafPinnedIsNullTrue, this helper does NOT
+// dispatch on hasPinGap. The operator name "Contains None" is a
+// universal claim about the entire array — every element must not
+// match — which is the owner-level reading. A per-element dispatch
+// would let a single non-matching element witness pass the predicate
+// even when other elements match, contradicting the "none" semantic.
+// The corresponding per-element-existential reading is available
+// explicitly via `ANY(... : NOT ...)` style queries.
+//
+// Panics on an empty pin list or empty value list.
+func leafPinnedContainsNone(idx *fastPathIndex, valuePath string, pins []pinSpec, values ...any) *fastPathResult {
+	if len(pins) == 0 {
+		panic("pinned ContainsNone needs at least one pin")
+	}
+	if len(values) == 0 {
+		panic("pinned ContainsNone requires at least one value")
+	}
+	return negate(idx, leafPinnedContainsAny(idx, valuePath, pins, values...))
 }
 
 // ---------------------------------------------------------------------------
@@ -2765,6 +2842,162 @@ func TestFastPathL2_Merge(t *testing.T) {
 			// has only red. No other doc has both colors anywhere.
 			wantDocs: []uint64{100},
 		},
+		// ---------------------------------------------------------------
+		// ContainsNone equivalence trios. Each trio runs the same query
+		// in three syntactic forms — every form produces identical
+		// wantDocs because ContainsNone is owner-level by design:
+		//   (a) leafContainsNone / leafPinnedContainsNone — direct
+		//       chained AndNot (pinned variant always owner-level,
+		//       regardless of pin layout).
+		//   (b) negate(leafContainsAny / leafPinnedContainsAny) —
+		//       universe-subtract of positive ContainsAny.
+		//   (c) negate(orLeaves(value-positive, value-positive)) — the
+		//       canonical NOT-of-explicit-OR form.
+		// Covers unpinned, fully-pinned single-pin, and intermediate-pin.
+		// All three forms agree everywhere because the operator's
+		// natural reading ("the array contains none of these values")
+		// is universal over the array — the pinned variant doesn't
+		// dispatch on hasPinGap. See
+		// TestFastPathL2_IntermediatePinContainsNoneAgreement for a
+		// discriminator fixture that confirms agreement on a mixed
+		// matching/non-matching pattern.
+
+		// --- Unpinned trio: cars.make ∉ {honda, ford} ------------------
+		// Form (c) for the unpinned trio is already covered by the
+		// existing "NOT (cars.make=honda OR cars.make=ford)" test
+		// further up — same wantDocs proves the equivalence.
+		{
+			name: "cars.make ContainsNone [honda, ford] [direct]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafContainsNone(idx, "countries.garages.cars.make", "honda", "ford")
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Per-car: a car whose make is not honda and not ford
+			// (cars without a make field also satisfy). Excludes docs
+			// where every car has make in {honda, ford}:
+			// - doc 300: cars[0]=ford, cars[1]=honda → FAIL.
+			// - doc 400: only car is ford → FAIL.
+			// - doc 700: only car is ford → FAIL.
+			wantDocs: []uint64{100, 200, 500, 600, 800, 810, 820, 830, 900},
+		},
+		{
+			name: "NOT (cars.make ContainsAny [honda, ford]) [via negate]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, leafContainsAny(idx, "countries.garages.cars.make", "honda", "ford"))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Same docs as the ContainsNone form — proves the direct
+			// helper matches universe-subtract of ContainsAny.
+			wantDocs: []uint64{100, 200, 500, 600, 800, 810, 820, 830, 900},
+		},
+
+		// --- Single-pin trio: cars[1].make ∉ {honda, ford} -------------
+		// Fully-pinned (no gap) — leafPinnedContainsNone routes through
+		// negate(ContainsAny). All three forms compute the owner-level
+		// result, which coincides with per-element because cars[1] is
+		// uniquely identified per garage.
+		{
+			name: "cars[1].make ContainsNone [honda, ford] [direct]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsNone(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages.cars", 1}},
+					"honda", "ford")
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// cars[1].make=honda fires for docs 100/200/300 + 820 c0.
+			// cars[1].make=ford fires for doc 500 g[0].
+			// Per-garage: garage passes if its cars[1] is neither honda
+			// nor ford (cars[1] missing or no make also counts).
+			// - doc 100/200/300: only garage's cars[1] is honda → FAIL.
+			// - doc 400: cars[1] missing → garage passes.
+			// - doc 500: g[0] ford fails, g[1] cars[1]=name=honda (no
+			//   make field) passes → doc passes.
+			// - doc 820: country 0 honda fails, country 1 mazda passes.
+			// - all other docs have a passing garage.
+			wantDocs: []uint64{400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		{
+			name: "NOT (cars[1].make ContainsAny [honda, ford]) [via negate]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, leafPinnedContainsAny(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages.cars", 1}},
+					"honda", "ford"))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			wantDocs: []uint64{400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		{
+			name: "NOT (cars[1].make=honda OR cars[1].make=ford) [via NOT-of-OR]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPinnedPositive(idx, "countries.garages.cars.make", "honda",
+						[]pinSpec{{"countries.garages.cars", 1}}),
+					leafPinnedPositive(idx, "countries.garages.cars.make", "ford",
+						[]pinSpec{{"countries.garages.cars", 1}})))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			wantDocs: []uint64{400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+
+		// --- Intermediate-pin trio: garages[1].cars.make ∉ {honda, ford}
+		// Has a pin gap (cars unpinned between TS=countries and
+		// ElementScope=cars). leafPinnedContainsNone uses the per-element
+		// formula via perElementNotFromSubtractands; the negate forms
+		// give owner-level. On these fixtures the three agree because
+		// no doc has g[1] containing both matching and non-matching cars.
+		{
+			name: "garages[1].cars.make ContainsNone [honda, ford] [direct, per-element]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsNone(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages", 1}},
+					"honda", "ford")
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// Docs without g[1] pass via tsMissingPin (100-400, 600,
+			// 810, 820, 830). Docs with g[1] cars whose makes are not
+			// in {honda, ford} pass via per-element witnesses: 500
+			// (bmw + name-only cars), 800/900 (no make under g[1]).
+			// Doc 700 fails: g[1].cars[0]=ford is the only car, no
+			// witness; pin present so no missing-pin contribution.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 800, 810, 820, 830, 900},
+		},
+		{
+			name: "NOT (garages[1].cars.make ContainsAny [honda, ford]) [via negate, owner-level]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, leafPinnedContainsAny(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages", 1}},
+					"honda", "ford"))
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			// ContainsAny.ES = {country 0 of doc 700} (only country
+			// with honda-or-ford under g[1]). negate at countries →
+			// every country except that one. Doc 700 fails.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 800, 810, 820, 830, 900},
+		},
+		{
+			name: "NOT (garages[1].cars.make=honda OR garages[1].cars.make=ford) [via NOT-of-OR, owner-level]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPinnedPositive(idx, "countries.garages.cars.make", "honda",
+						[]pinSpec{{"countries.garages", 1}}),
+					leafPinnedPositive(idx, "countries.garages.cars.make", "ford",
+						[]pinSpec{{"countries.garages", 1}})))
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 800, 810, 820, 830, 900},
+		},
 		// Sibling AND with mixed CP: A=radio at accessories (CP=true) AND
 		// B=NOT 205 at tires (CP=false). Both lifts land at LCA=cars: A
 		// via cheap anchor-intersect (CP=true), B via real LiftToAncestor
@@ -2789,6 +3022,95 @@ func TestFastPathL2_Merge(t *testing.T) {
 			// Intersection at cars-self: doc 100 cars[1]. doc 830 cars[0]
 			// has radio but no tires → no non-205 witness.
 			wantDocs: []uint64{100},
+		},
+	}
+
+	runFastPathCases(t, idx, cases)
+}
+
+// TestFastPathL2_IntermediatePinContainsNoneAgreement uses a fixture
+// pattern the shared L2 set doesn't contain — garages[1] holding both
+// a matching car (honda) and a non-matching car (toyota) — to confirm
+// that all three ContainsNone forms agree even on this discriminator:
+//
+//   - leafPinnedContainsNone (always owner-level, no hasPinGap dispatch).
+//   - negate(leafPinnedContainsAny).
+//   - negate(orLeaves(positive, positive)).
+//
+// All three exclude doc 1000 because garages[1] contains a honda car,
+// which is the natural reading of "ContainsNone [honda, ford]": the
+// array must contain *none* of those values, and one honda is enough
+// to fail the predicate.
+//
+// Historical note: an earlier version of leafPinnedContainsNone used
+// per-element semantics via hasPinGap dispatch (matching the
+// leafPinnedNot family), which produced wantDocs={1000} here — a
+// non-matching car (toyota) would witness the predicate even when
+// matching cars were present in the same garage. That contradicted
+// the operator's English meaning and was reverted in favour of
+// uniform owner-level semantics for ContainsNone.
+func TestFastPathL2_IntermediatePinContainsNoneAgreement(t *testing.T) {
+	prop := l2Schema()
+	idx := newFastPathIndex("countries")
+	// Discriminator doc: garages[1] contains a honda car AND a toyota
+	// car. honda matches the ContainsNone subtractand set; toyota does
+	// not. Per-element would let toyota witness the predicate; owner-
+	// level rejects the country because the garage contains a honda car.
+	// All three forms below use owner-level → all three reject.
+	idx.addDoc(t, prop, 1000, []any{
+		map[string]any{"garages": []any{
+			map[string]any{"cars": []any{}},
+			map[string]any{"cars": []any{
+				map[string]any{"make": "honda"},
+				map[string]any{"make": "toyota"},
+			}},
+		}},
+	})
+
+	cases := []fastPathTestCase{
+		// Direct helper. After the owner-level change this goes through
+		// negate(leafPinnedContainsAny) internally. honda is lifted to
+		// country 0 via the positive ContainsAny; negate excludes it,
+		// result empty.
+		{
+			name: "garages[1].cars.make ContainsNone [honda, ford] [direct, owner-level]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsNone(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages", 1}},
+					"honda", "ford")
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			wantDocs:       nil,
+		},
+		// Owner-level via explicit negate(ContainsAny).
+		{
+			name: "NOT (garages[1].cars.make ContainsAny [honda, ford]) [via negate]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, leafPinnedContainsAny(idx,
+					"countries.garages.cars.make",
+					[]pinSpec{{"countries.garages", 1}},
+					"honda", "ford"))
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			wantDocs:       nil,
+		},
+		// Owner-level via canonical NOT-of-OR. positive(honda) fires on
+		// country 0, OR includes it, negate excludes it, result empty.
+		{
+			name: "NOT (garages[1].cars.make=honda OR garages[1].cars.make=ford) [via NOT-of-OR]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPinnedPositive(idx, "countries.garages.cars.make", "honda",
+						[]pinSpec{{"countries.garages", 1}}),
+					leafPinnedPositive(idx, "countries.garages.cars.make", "ford",
+						[]pinSpec{{"countries.garages", 1}})))
+			},
+			wantTruthScope: "countries",
+			wantCanProject: false,
+			wantDocs:       nil,
 		},
 	}
 
