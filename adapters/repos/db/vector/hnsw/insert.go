@@ -97,6 +97,9 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 }
 
 func (h *hnsw) validatePQSegments(dims int) error {
+	// pqConfig is written under compressActionLock; read it under the same lock.
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
 	if h.pqConfig.Enabled && h.pqConfig.Segments != 0 && dims%h.pqConfig.Segments != 0 {
 		return fmt.Errorf("pq segments must be a divisor of the vector dimensions")
 	}
