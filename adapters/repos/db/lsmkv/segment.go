@@ -407,8 +407,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
 
-		_, err = seg.loadPropertyLengths()
-		if err != nil {
+		if err = seg.loadPropertyLengths(); err != nil {
 			return nil, fmt.Errorf("load property lengths: %w", err)
 		}
 
