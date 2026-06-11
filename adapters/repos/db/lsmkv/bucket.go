@@ -1155,9 +1155,9 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
+		var propLengths propLengthsView
 		if segmentStrategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -1180,7 +1180,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 					}
 				}
 				// put the property length in the value from the "external" property lengths
-				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths[docId])))
+				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths.get(docId))))
 
 			} else {
 				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
@@ -2045,9 +2045,9 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
+		var propLengths propLengthsView
 		if segmentStrategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -2057,7 +2057,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 		for j, v := range plist {
 			if segmentStrategy == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
-				propLen := propLengths[docId]
+				propLen := propLengths.get(docId)
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
 					return nil, err
 				}

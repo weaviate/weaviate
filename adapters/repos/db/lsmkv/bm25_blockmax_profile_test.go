@@ -66,6 +66,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -692,6 +693,66 @@ func BenchmarkBlockMaxWand(b *testing.B) {
 // the slowest set with their terms, doc-frequencies and per-query work. The
 // slowest queries are also emitted as a BMW_TERMS string for replay.
 //
+// TestBMWTombstoneStats prints, per disk segment, the tombstone cardinality vs
+// the segment's stored doc count, plus the bucket-wide union — i.e. how much
+// deleted-doc filtering a search on this bucket actually does. Gate with
+// BMW_TOMBSTONE_STATS=true.
+func TestBMWTombstoneStats(t *testing.T) {
+	if !envBool("BMW_TOMBSTONE_STATS") {
+		t.Skip("set BMW_TOMBSTONE_STATS=true (and BMW_SEGMENTS_DIR) to run")
+	}
+	dir := os.Getenv("BMW_SEGMENTS_DIR")
+	require.NotEmpty(t, dir, "BMW_SEGMENTS_DIR required")
+	bucket, cleanup := openBMWBucket(t, dir)
+	defer cleanup()
+
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+
+	union := sroar.NewBitmap()
+	var totalDocs uint64
+	t.Logf("%-55s %12s %12s %8s %14s %8s", "segment", "docs", "tombstones", "deleted%", "docID span", "density")
+	for _, seg := range view.Disk {
+		docs := uint64(0)
+		span := uint64(0)
+		if pl, err := seg.getPropertyLengths(); err == nil {
+			docs = uint64(len(pl))
+			if docs > 0 {
+				minID, maxID := uint64(math.MaxUint64), uint64(0)
+				for id := range pl {
+					if id < minID {
+						minID = id
+					}
+					if id > maxID {
+						maxID = id
+					}
+				}
+				span = maxID - minID + 1
+			}
+		}
+		totalDocs += docs
+		card := 0
+		if tombs, err := seg.ReadOnlyTombstones(); err == nil && tombs != nil && !tombs.IsEmpty() {
+			card = tombs.GetCardinality()
+			union.Or(tombs)
+		}
+		pct := 0.0
+		if docs > 0 {
+			pct = 100 * float64(card) / float64(docs)
+		}
+		density := 0.0
+		if span > 0 {
+			density = 100 * float64(docs) / float64(span)
+		}
+		t.Logf("%-55s %12d %12d %7.3f%% %14d %7.2f%%", filepath.Base(seg.getPath()), docs, card, pct, span, density)
+	}
+
+	avgPropLen, n := bucket.GetAveragePropertyLength()
+	uc := union.GetCardinality()
+	t.Logf("bucket: N=%d (prop-length docs=%d, avgPropLen=%.1f)", n, totalDocs, avgPropLen)
+	t.Logf("tombstone union: %d distinct docIDs = %.3f%% of N", uc, 100*float64(uc)/maxF(float64(n), 1))
+}
+
 // TestBMWTopTerms lists the BMW_TOP_TERMS most frequent sampled terms, plus a
 // ready-to-paste BMW_TERMS string — for building common-term stress queries.
 func TestBMWTopTerms(t *testing.T) {

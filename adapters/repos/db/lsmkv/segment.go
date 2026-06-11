@@ -89,6 +89,7 @@ type Segment interface {
 	getDocCount(key []byte) uint64
 	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
+	propLengthsView() (propLengthsView, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
 	newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
@@ -409,8 +410,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
 
-		_, err = seg.loadPropertyLengths()
-		if err != nil {
+		if err := seg.loadPropertyLengths(); err != nil {
 			return nil, fmt.Errorf("load property lengths: %w", err)
 		}
 

@@ -364,6 +364,13 @@ func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 	return s.segment.getPropertyLengths()
 }
 
+func (s *lazySegment) propLengthsView() (propLengthsView, error) {
+	if err := s.load(); err != nil {
+		return propLengthsView{}, fmt.Errorf("lazySegment::propLengthsView: %w", err)
+	}
+	return s.segment.propLengthsView()
+}
+
 func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	s.mustLoad()
 	return s.segment.newInvertedCursorReusable()
