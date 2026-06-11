@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -86,9 +87,11 @@ type Segment interface {
 	// map/bmw specific
 	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
+	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
+	propLengthsView() (propLengthsView, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
-	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+	newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
 	// replace specific
 	getCountNetAdditions() int
@@ -128,7 +131,7 @@ type segment struct {
 	invertedData   *segmentInvertedData
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
-	refCount         int
+	refCount         atomic.Int64
 
 	deleteMarkerSuffix string
 }
@@ -407,8 +410,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
 
-		_, err = seg.loadPropertyLengths()
-		if err != nil {
+		if err := seg.loadPropertyLengths(); err != nil {
 			return nil, fmt.Errorf("load property lengths: %w", err)
 		}
 
@@ -765,32 +767,21 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 	return observer
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
+// refCount is an atomic, so incRef/decRef/getRefs are individually thread-safe
+// and need no external lock. Acquiring a consistent view of refs across ALL
+// segments in a group is still serialized against compaction via the
+// SegmentGroup.maintenanceLock: incRef happens under its RLock, segment swaps
+// under its write lock, and segments awaiting drop only ever see refs decrease.
 func (s *segment) incRef() {
-	s.refCount++
+	s.refCount.Add(1)
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
 func (s *segment) decRef() {
-	if s.refCount <= 0 {
+	if s.refCount.Add(-1) < 0 {
 		panic("refCount already zero")
 	}
-	s.refCount--
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
 func (s *segment) getRefs() int {
-	return s.refCount
+	return int(s.refCount.Load())
 }

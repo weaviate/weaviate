@@ -133,6 +133,104 @@ func Decode(data []byte) (map[uint64]uint32, error) {
 	return m, nil
 }
 
+// DecodePairs deserializes gob-encoded map[uint64]uint32 bytes into two
+// parallel slices, pre-allocated at the exact entry count from the stream —
+// the map is never materialized. Entries are returned in stream order (gob
+// writes map iteration order, i.e. effectively random); callers sort.
+func DecodePairs(data []byte) ([]uint64, []uint32, error) {
+	ids, lens, err := decodePairsFast(data)
+	if err == nil {
+		return ids, lens, nil
+	}
+
+	// Fallback to stdlib gob for unexpected formats
+	dec := gob.NewDecoder(bytes.NewReader(data))
+	m := map[uint64]uint32{}
+	if gobErr := dec.Decode(&m); gobErr != nil {
+		return nil, nil, fmt.Errorf("gobenc: fast decode failed (%w), gob fallback also failed: %w", err, gobErr)
+	}
+	ids = make([]uint64, 0, len(m))
+	lens = make([]uint32, 0, len(m))
+	for k, v := range m {
+		ids = append(ids, k)
+		lens = append(lens, v)
+	}
+	return ids, lens, nil
+}
+
+func decodePairsFast(data []byte) ([]uint64, []uint32, error) {
+	preambleLen, typeID, err := parseGobMapPreamble(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pos := preambleLen
+
+	msgLen, n, err := readGobUint(data, pos)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read message length: %w", err)
+	}
+	pos += n
+
+	if msgLen > uint64(len(data)-pos) {
+		return nil, nil, fmt.Errorf("message length %d exceeds data (%d bytes remaining)", msgLen, len(data)-pos)
+	}
+	msgEnd := pos + int(msgLen)
+
+	prefixID, n, err := readGobInt(data, pos)
+	if err != nil || pos+n >= msgEnd {
+		return nil, nil, fmt.Errorf("data prefix truncated")
+	}
+	if prefixID != typeID {
+		return nil, nil, fmt.Errorf("data prefix mismatch")
+	}
+	pos += n
+	if data[pos] != 0x00 {
+		return nil, nil, fmt.Errorf("data prefix mismatch")
+	}
+	pos++
+
+	count, n, err := readGobUint(data, pos)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read map count: %w", err)
+	}
+	pos += n
+
+	// Each entry is at least 2 bytes (1 byte key + 1 byte value).
+	if count > uint64(msgEnd-pos)/2 {
+		return nil, nil, fmt.Errorf("count %d too large for remaining %d bytes", count, msgEnd-pos)
+	}
+
+	ids := make([]uint64, count)
+	lens := make([]uint32, count)
+
+	for i := range count {
+		key, n, err := readGobUint(data, pos)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read key %d: %w", i, err)
+		}
+		pos += n
+
+		val, n, err := readGobUint(data, pos)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read value %d: %w", i, err)
+		}
+		pos += n
+
+		if val > math.MaxUint32 {
+			return nil, nil, fmt.Errorf("value %d at index %d overflows uint32", val, i)
+		}
+		ids[i] = key
+		lens[i] = uint32(val)
+	}
+
+	if pos != msgEnd {
+		return nil, nil, fmt.Errorf("trailing bytes: decoded to offset %d, expected %d", pos, msgEnd)
+	}
+
+	return ids, lens, nil
+}
+
 func decodeFast(data []byte) (map[uint64]uint32, error) {
 	preambleLen, typeID, err := parseGobMapPreamble(data)
 	if err != nil {
