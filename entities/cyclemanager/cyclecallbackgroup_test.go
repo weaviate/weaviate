@@ -13,6 +13,8 @@ package cyclemanager
 
 import (
 	"context"
+	"fmt"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -201,6 +203,100 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		assert.Equal(t, 1, executedCounter3)
 		assert.Equal(t, 1, executedCounter4)
 		assert.GreaterOrEqual(t, d, 100*time.Millisecond)
+	})
+
+	t.Run("idle tick executes nothing", func(t *testing.T) {
+		executedCounter1 := 0
+		callback1 := func(shouldAbort ShouldAbortCallback) bool {
+			executedCounter1++
+			return true
+		}
+		executedCounter2 := 0
+		callback2 := func(shouldAbort ShouldAbortCallback) bool {
+			executedCounter2++
+			return true
+		}
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		callbacks.Register("c1", callback1, WithIntervals(NewFixedIntervals(time.Hour)))
+		callbacks.Register("c2", callback2, WithIntervals(NewFixedIntervals(time.Hour)))
+
+		// 1st tick: both callbacks due (registration allows immediate execution)
+		executed := callbacks.CycleCallback(shouldNotAbort)
+		assert.True(t, executed)
+		assert.Equal(t, 1, executedCounter1)
+		assert.Equal(t, 1, executedCounter2)
+
+		// 2nd tick: intervals not elapsed, nothing due
+		executed = callbacks.CycleCallback(shouldNotAbort)
+		assert.False(t, executed)
+		assert.Equal(t, 1, executedCounter1)
+		assert.Equal(t, 1, executedCounter2)
+	})
+
+	t.Run("workers capped at number of due callbacks", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			due      int
+			inactive int
+		}{
+			{name: "1 due of 3", due: 1, inactive: 2},
+			{name: "3 due of 4", due: 3, inactive: 1},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				baseline := runtime.NumGoroutine()
+
+				started := uint32(0)
+				chRelease := make(chan struct{})
+				blocking := func(shouldAbort ShouldAbortCallback) bool {
+					atomic.AddUint32(&started, 1)
+					<-chRelease
+					return true
+				}
+				inactive := func(shouldAbort ShouldAbortCallback) bool { return true }
+
+				callbacks := NewCallbackGroup("id", logger, 32)
+				for i := range tt.due {
+					callbacks.Register(fmt.Sprintf("due-%d", i), blocking)
+				}
+				for i := range tt.inactive {
+					callbacks.Register(fmt.Sprintf("inactive-%d", i), inactive, AsInactive())
+				}
+
+				chFinished := make(chan bool)
+				go func() {
+					chFinished <- callbacks.CycleCallback(shouldNotAbort)
+				}()
+
+				// all due callbacks block in parallel: the pool is capped at
+				// the due count, not routinesLimit=32
+				assert.Eventually(t, func() bool {
+					return atomic.LoadUint32(&started) == uint32(tt.due)
+				}, time.Second, 5*time.Millisecond)
+				assert.Less(t, runtime.NumGoroutine(), baseline+8)
+
+				close(chRelease)
+				assert.True(t, <-chFinished)
+			})
+		}
+	})
+
+	t.Run("idle tick prunes ids of unregistered callbacks", func(t *testing.T) {
+		callback := func(shouldAbort ShouldAbortCallback) bool { return true }
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		ctrl1 := callbacks.Register("c1", callback)
+		ctrl2 := callbacks.Register("c2", callback)
+
+		require.NoError(t, ctrl1.Unregister(context.Background()))
+		require.NoError(t, ctrl2.Unregister(context.Background()))
+
+		executed := callbacks.CycleCallback(shouldNotAbort)
+
+		assert.False(t, executed)
+		assert.Empty(t, callbacks.(*cycleCallbackGroup).callbackIds)
 	})
 
 	t.Run("run with intervals", func(T *testing.T) {
