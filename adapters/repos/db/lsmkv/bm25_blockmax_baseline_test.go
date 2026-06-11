@@ -624,6 +624,13 @@ func bmwBaseRunLean(ctx context.Context, b *Bucket, query []string, N, avgPropLe
 		return 0
 	}
 	defer release()
+	for _, seg := range diskTerms {
+		for _, t := range seg {
+			if t != nil {
+				t.SetIdf(t.Idf())
+			}
+		}
+	}
 	n := 0
 	for _, seg := range diskTerms {
 		if len(seg) == 0 {
