@@ -21,7 +21,7 @@ jobs:
           REL_BODY: ${{ github.event.release.body }}
           # Optional: Slack member ID (e.g. U01ABC23DEF) so "cc:" actually pings.
           # Set as a repo variable: Settings → Secrets and variables → Actions → Variables.
-          CC_USER_ID: ${{ vars.SLACK_CC_USER_ID }}
+          CC_USER_ID: ${{ secrets.SLACK_CC_USER_ID }}
         run: |
           set -euo pipefail
 
@@ -42,7 +42,8 @@ jobs:
             | sed -E 's/[[:space:]]+by[[:space:]]+@[A-Za-z0-9_-]+//g' \
             | perl -0777 -pe 's/^#{1,6}\h+.*\n\h*\*?none\*?\h*\n\n?//gmi' \
             | sed -E 's/^#{1,6}[[:space:]]+(.*[^[:space:]])[[:space:]]*$/*\1*/' \
-            | sed -E 's/\*\*([^*]+)\*\*/*\1*/g')"
+            | sed -E 's/\*\*([^*]+)\*\*/*\1*/g' \
+            | sed -E 's/^([[:space:]]*)\*[[:space:]]+/\1• /')"
 
           # Assemble the message entirely inside jq, which handles JSON escaping and
           # operates on Unicode code points — so the truncation below (to stay under
@@ -57,7 +58,7 @@ jobs:
               # All-whitespace body (spaces, tabs, newlines) counts as empty.
               (if ($changes | test("[^[:space:]]")) then $changes else "_(see release notes below)_" end) as $c
               | (if ($c | length) > 2500 then ($c[0:2500] + "…") else $c end) as $c
-              | "Weaviate Core *\($number)* release :tada:\n\nThis release contains:\n\n\($c)\n\nRelease notes: \($url)"
+              | ":tada:Weaviate Core `*\($number)*` release :tada:\n\nThis release contains:\n\n\($c)\n\nRelease notes: \($url)"
                 + (if ($cc | length) > 0 then "\n\ncc: <@\($cc)>" else "" end)
               | { blocks: [ { type: "section", text: { type: "mrkdwn", text: . } } ] }
             ' > payload.json
