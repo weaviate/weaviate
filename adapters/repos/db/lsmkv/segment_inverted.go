@@ -29,7 +29,19 @@ type segmentInvertedData struct {
 	tombstones       *sroar.Bitmap
 	tombstonesLoaded bool
 
-	propertyLengths       map[uint64]uint32
+	// Property lengths in one of two representations replacing the old
+	// ~33B/entry map (exactly one is non-nil once loaded, both nil when the
+	// segment has none): a dense array indexed by docID-propLengthsMin when the
+	// docID range is ≥1/3 occupied (4B×span ≤ 12B×count — smaller than pairs AND
+	// O(1) to read), or parallel pair arrays sorted by docID for sparser
+	// segments, read through propLengthsView's cursor (amortized O(1) on the
+	// ascending-docID access pattern of scoring and posting iteration; measured
+	// 3× slower than dense on dense-shaped data, hence the split). Full-map
+	// consumers (compaction) reconstruct a transient map via getPropertyLengths.
+	propLengthsDense      []uint32
+	propLengthsMin        uint64
+	propLengthIds         []uint64
+	propLengthLens        []uint32
 	propertyLengthsLoaded bool
 
 	avgPropertyLengthsAvg   float64
@@ -73,9 +85,9 @@ func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
 	return bitmap, nil
 }
 
-// loadPropertyLengthsStats loads only the avg/count header, leaving the
-// per-document map for on-demand loading. A NaN/Inf stored average can only be
-// recomputed from the full map, so that case falls back to a full load.
+// loadPropertyLengthsStats loads only the avg/count header, deferring the
+// per-document arrays to first use. A NaN/Inf stored average can only be
+// recomputed from the full data, so that case falls back to a full load.
 func (s *segment) loadPropertyLengthsStats() error {
 	s.invertedData.lockInvertedData.Lock()
 	defer s.invertedData.lockInvertedData.Unlock()
@@ -97,9 +109,8 @@ func (s *segment) loadPropertyLengthsStats() error {
 	propertyLengthsSize := binary.LittleEndian.Uint64(buffer[16:24])
 
 	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
-		// a NaN/Inf average can only be recomputed from the full map
-		_, err := s.loadPropertyLengthsLocked()
-		return err
+		// a NaN/Inf average can only be recomputed from the full data
+		return s.loadPropertyLengthsLocked()
 	}
 
 	s.invertedData.propertyLengthsStatsLoaded = true
@@ -109,26 +120,26 @@ func (s *segment) loadPropertyLengthsStats() error {
 	return nil
 }
 
-func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
+func (s *segment) loadPropertyLengths() error {
 	s.invertedData.lockInvertedData.Lock()
 	defer s.invertedData.lockInvertedData.Unlock()
 	return s.loadPropertyLengthsLocked()
 }
 
 // loadPropertyLengthsLocked requires the caller to hold lockInvertedData.
-func (s *segment) loadPropertyLengthsLocked() (map[uint64]uint32, error) {
+func (s *segment) loadPropertyLengthsLocked() error {
 	if s.strategy != segmentindex.StrategyInverted {
-		return nil, fmt.Errorf("property only supported for inverted strategy")
+		return fmt.Errorf("property only supported for inverted strategy")
 	}
 
 	if s.invertedData.propertyLengthsLoaded {
-		return s.invertedData.propertyLengths, nil
+		return nil
 	}
 
 	buffer := make([]byte, 8*3)
 
 	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.PropertyLengthsOffset, s.invertedHeader.PropertyLengthsOffset + 8*3}); err != nil {
-		return nil, fmt.Errorf("copy node: %w", err)
+		return fmt.Errorf("copy node: %w", err)
 	}
 
 	// don't re-write stats already set at open: readers access them unlocked
@@ -141,38 +152,116 @@ func (s *segment) loadPropertyLengthsLocked() (map[uint64]uint32, error) {
 
 	if propertyLengthsSize == 0 {
 		s.invertedData.propertyLengthsLoaded = true
-		return s.invertedData.propertyLengths, nil
+		return nil
 	}
 
 	propertyLengthsStart := s.invertedHeader.PropertyLengthsOffset + 16 + 8
 	propertyLengthsEnd := propertyLengthsStart + propertyLengthsSize
 
 	buffer = make([]byte, propertyLengthsSize)
-
 	if err := s.copyNode(buffer, nodeOffset{propertyLengthsStart, propertyLengthsEnd}); err != nil {
-		return nil, fmt.Errorf("copy node: %w", err)
+		return fmt.Errorf("copy node: %w", err)
 	}
-	propLengths, err := gobenc.Decode(buffer)
+	ids, lens, err := gobenc.DecodePairs(buffer)
 	if err != nil {
-		return s.invertedData.propertyLengths, fmt.Errorf("decode property lengths: %w", err)
+		return fmt.Errorf("decode property lengths: %w", err)
 	}
 
 	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
 		// recompute property lengths average
 		var totalLength uint64
-		for _, length := range propLengths {
+		for _, length := range lens {
 			totalLength += uint64(length)
 		}
-		if s.invertedData.avgPropertyLengthsCount > 0 && len(propLengths) > 0 {
-			s.invertedData.avgPropertyLengthsAvg = float64(totalLength) / float64(len(propLengths))
+		if s.invertedData.avgPropertyLengthsCount > 0 && len(lens) > 0 {
+			s.invertedData.avgPropertyLengthsAvg = float64(totalLength) / float64(len(lens))
 		} else {
 			s.invertedData.avgPropertyLengthsAvg = 0
 		}
 	}
 
 	s.invertedData.propertyLengthsLoaded = true
-	s.invertedData.propertyLengths = propLengths
-	return s.invertedData.propertyLengths, nil
+	if len(ids) == 0 {
+		return nil
+	}
+
+	minID, maxID := ids[0], ids[0]
+	for _, id := range ids[1:] {
+		if id < minID {
+			minID = id
+		}
+		if id > maxID {
+			maxID = id
+		}
+	}
+	span := maxID - minID + 1
+	if span/3 <= uint64(len(ids)) {
+		// dense enough (≥1/3 occupancy): the dense array is both smaller than the
+		// pairs (4B×span ≤ 12B×count) and O(1) to read. Fill needs no sort.
+		dense := make([]uint32, span)
+		for i, id := range ids {
+			dense[id-minID] = lens[i]
+		}
+		s.invertedData.propLengthsDense = dense
+		s.invertedData.propLengthsMin = minID
+		return nil
+	}
+
+	sortPropLenPairs(ids, lens)
+	s.invertedData.propLengthIds = ids
+	s.invertedData.propLengthLens = lens
+	return nil
+}
+
+// sortPropLenPairs sorts both arrays in tandem by docID using an LSD radix sort
+// over only the bytes the largest docID needs (~4 passes for realistic ID
+// ranges). Entries arrive in gob map-iteration order (random), so a comparison
+// sort would pay ~n log n interface-dispatched swaps — radix is linear and
+// allocation-bounded to one scratch copy of each array.
+func sortPropLenPairs(ids []uint64, lens []uint32) {
+	n := len(ids)
+	if n < 2 {
+		return
+	}
+	var maxID uint64
+	for _, id := range ids {
+		if id > maxID {
+			maxID = id
+		}
+	}
+
+	srcIds, srcLens := ids, lens
+	dstIds := make([]uint64, n)
+	dstLens := make([]uint32, n)
+
+	var counts [256]int
+	for shift := uint(0); maxID>>shift > 0; shift += 8 {
+		for i := range counts {
+			counts[i] = 0
+		}
+		for _, id := range srcIds {
+			counts[byte(id>>shift)]++
+		}
+		sum := 0
+		for i, c := range counts {
+			counts[i] = sum
+			sum += c
+		}
+		for i, id := range srcIds {
+			j := counts[byte(id>>shift)]
+			counts[byte(id>>shift)]++
+			dstIds[j] = id
+			dstLens[j] = srcLens[i]
+		}
+		srcIds, dstIds = dstIds, srcIds
+		srcLens, dstLens = dstLens, srcLens
+	}
+
+	// after an odd number of passes the sorted data sits in the scratch arrays
+	if &srcIds[0] != &ids[0] {
+		copy(ids, srcIds)
+		copy(lens, srcLens)
+	}
 }
 
 // ReadOnlyTombstones returns segment's tombstones
@@ -211,22 +300,238 @@ func (s *segment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
 	return s.invertedData.tombstones, nil
 }
 
+// getPropertyLengths reconstructs the full docID->propLength map. Per-query
+// lookups go through propLengthsView; the full map is for compaction-frequency
+// consumers only.
 func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
+	dense, minID, ids, lens, err := s.propLengthArrays()
+	if err != nil {
+		return nil, err
+	}
+	if dense != nil {
+		// stored lengths are always >= 1, so zero slots are exactly the absent
+		// docIDs and the reconstruction reproduces the stored key set
+		m := make(map[uint64]uint32)
+		for i, l := range dense {
+			if l != 0 {
+				m[minID+uint64(i)] = l
+			}
+		}
+		return m, nil
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	m := make(map[uint64]uint32, len(ids))
+	for i, id := range ids {
+		m[id] = lens[i]
+	}
+	return m, nil
+}
+
+// getPropertyLengthsPairs returns the property lengths as docID-sorted arrays
+// (no map): the loaded slices directly for pairs segments, or the dense array
+// walked into pairs (0 = absent skipped). Returned slices are read-only.
+func (s *segment) getPropertyLengthsPairs() ([]uint64, []uint32, error) {
+	dense, minID, ids, lens, err := s.propLengthArrays()
+	if err != nil {
+		return nil, nil, err
+	}
+	if dense != nil {
+		n := 0
+		for _, l := range dense {
+			if l != 0 {
+				n++
+			}
+		}
+		outIDs := make([]uint64, 0, n)
+		outLens := make([]uint32, 0, n)
+		for i, l := range dense {
+			if l != 0 {
+				outIDs = append(outIDs, minID+uint64(i))
+				outLens = append(outLens, l)
+			}
+		}
+		return outIDs, outLens, nil
+	}
+	return ids, lens, nil
+}
+
+// mergePropLenPairs merges two docID-sorted pair arrays into one, deduping
+// docIDs. On a tie the second array wins (c2 is the newer segment) — the
+// precedence the compactor's prior map overwrite relied on.
+func mergePropLenPairs(ids1 []uint64, lens1 []uint32, ids2 []uint64, lens2 []uint32) ([]uint64, []uint32) {
+	outIDs := make([]uint64, 0, len(ids1)+len(ids2))
+	outLens := make([]uint32, 0, len(ids1)+len(ids2))
+	i, j := 0, 0
+	for i < len(ids1) && j < len(ids2) {
+		switch {
+		case ids1[i] < ids2[j]:
+			outIDs = append(outIDs, ids1[i])
+			outLens = append(outLens, lens1[i])
+			i++
+		case ids1[i] > ids2[j]:
+			outIDs = append(outIDs, ids2[j])
+			outLens = append(outLens, lens2[j])
+			j++
+		default: // equal docID: second (newer) wins
+			outIDs = append(outIDs, ids2[j])
+			outLens = append(outLens, lens2[j])
+			i++
+			j++
+		}
+	}
+	for ; i < len(ids1); i++ {
+		outIDs = append(outIDs, ids1[i])
+		outLens = append(outLens, lens1[i])
+	}
+	for ; j < len(ids2); j++ {
+		outIDs = append(outIDs, ids2[j])
+		outLens = append(outLens, lens2[j])
+	}
+	return outIDs, outLens
+}
+
+// propLengthArrays ensures the per-document arrays are loaded and returns them.
+// The loaded check and the array read share one critical section: a concurrent
+// freePropertyLengths can flip loaded back to false and nil the arrays, so a
+// dropped lock between them could hand a live reader empty data. The returned
+// slices alias the cached arrays (immutable while referenced).
+func (s *segment) propLengthArrays() (dense []uint32, minID uint64, ids []uint64, lens []uint32, err error) {
 	if s.strategy != segmentindex.StrategyInverted {
-		return nil, fmt.Errorf("property length only supported for inverted strategy")
+		return nil, 0, nil, nil, fmt.Errorf("property length only supported for inverted strategy")
 	}
 
-	// the loaded check and the map read must share one critical section:
-	// freePropertyLengths can flip loaded back to false and nil the map, so a
-	// dropped lock between them would return a nil map to a live reader
 	s.invertedData.lockInvertedData.RLock()
 	if s.invertedData.propertyLengthsLoaded {
-		defer s.invertedData.lockInvertedData.RUnlock()
-		return s.invertedData.propertyLengths, nil
+		dense, minID = s.invertedData.propLengthsDense, s.invertedData.propLengthsMin
+		ids, lens = s.invertedData.propLengthIds, s.invertedData.propLengthLens
+		s.invertedData.lockInvertedData.RUnlock()
+		return dense, minID, ids, lens, nil
 	}
 	s.invertedData.lockInvertedData.RUnlock()
 
-	return s.loadPropertyLengths()
+	if err := s.loadPropertyLengths(); err != nil {
+		return nil, 0, nil, nil, err
+	}
+
+	s.invertedData.lockInvertedData.RLock()
+	defer s.invertedData.lockInvertedData.RUnlock()
+	return s.invertedData.propLengthsDense, s.invertedData.propLengthsMin,
+		s.invertedData.propLengthIds, s.invertedData.propLengthLens, nil
+}
+
+// propLengthsView is a no-IO per-docID lookup over a segment's property
+// lengths: a single indexed load for dense segments, a cursor over the sorted
+// pairs otherwise. A miss returns 0, matching the map semantics this replaced.
+// The cursor exploits ascending docID access (scoring and posting iteration
+// order): lookups gallop forward from the last hit, so monotone scans are
+// amortized O(1); a backward jump restarts the search from the front.
+type propLengthsView struct {
+	dense []uint32
+	min   uint64
+	ids   []uint64
+	lens  []uint32
+	cur   int
+}
+
+func (v *propLengthsView) get(docID uint64) uint32 {
+	if v.dense != nil {
+		if idx := docID - v.min; idx < uint64(len(v.dense)) {
+			return v.dense[idx]
+		}
+		return 0
+	}
+
+	ids := v.ids
+	n := len(ids)
+	c := v.cur
+
+	if c >= n || ids[c] > docID {
+		// went backward relative to the cursor (or cursor exhausted): restart
+		c = 0
+	}
+	// short linear probe from the cursor covers the small gaps of
+	// frequent-term scans
+	for k := 0; k < 4 && c < n; k++ {
+		if ids[c] >= docID {
+			if ids[c] == docID {
+				v.cur = c + 1
+				return v.lens[c]
+			}
+			v.cur = c
+			return 0
+		}
+		c++
+	}
+	if c >= n {
+		v.cur = n
+		return 0
+	}
+
+	lo := c - 1 // ids[lo] < docID by the loop above
+	hi := n - 1
+	if ids[hi] < docID {
+		v.cur = n
+		return 0
+	}
+	// invariant: ids[lo] < docID <= ids[hi].
+	// bounded gallop first: frequent-term scans advance by small-to-medium gaps
+	// where a couple of near-cursor probes settle the window (measured faster
+	// than going straight to interpolation there)
+	for step := 4; step <= 64; step *= 4 {
+		p := lo + step
+		if p >= hi {
+			break
+		}
+		if ids[p] < docID {
+			lo = p
+		} else {
+			hi = p
+			break
+		}
+	}
+	// interpolation for the rest: the pairs are a near-uniformly thinned docID
+	// sequence, so the predicted position lands within a few entries of the
+	// target no matter how large the jump — a pure gallop paid ~log(gap)
+	// cache-missing probes there (measured +30% on rare-term queries). The
+	// budget bounds adversarial distributions; binary search finishes the rest.
+	for budget := 0; budget < 8 && hi-lo > 1; budget++ {
+		span := ids[hi] - ids[lo]
+		p := lo + 1 + int(float64(docID-ids[lo])/float64(span)*float64(hi-lo-1))
+		if p <= lo {
+			p = lo + 1
+		} else if p >= hi {
+			p = hi - 1
+		}
+		if ids[p] < docID {
+			lo = p
+		} else {
+			hi = p
+		}
+	}
+	for hi-lo > 1 {
+		mid := int(uint(lo+hi) >> 1)
+		if ids[mid] < docID {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	if ids[hi] == docID {
+		v.cur = hi + 1
+		return v.lens[hi]
+	}
+	v.cur = hi
+	return 0
+}
+
+func (s *segment) propLengthsView() (propLengthsView, error) {
+	dense, minID, ids, lens, err := s.propLengthArrays()
+	if err != nil {
+		return propLengthsView{}, err
+	}
+	return propLengthsView{dense: dense, min: minID, ids: ids, lens: lens}, nil
 }
 
 func (s *segment) isPropertyLengthsLoaded() bool {
@@ -240,8 +545,9 @@ func (s *segment) isPropertyLengthsLoaded() bool {
 	return s.invertedData.propertyLengthsLoaded
 }
 
-// freePropertyLengths releases the cached per-document map; the avg/count stats
-// are deliberately kept, as callers still read them after the map is freed.
+// freePropertyLengths releases the cached per-document arrays so they reload on
+// next use; the avg/count stats are kept (callers read them unlocked) and the
+// stats-loaded flag stays set so a reload skips re-reading the header.
 func (s *segment) freePropertyLengths() {
 	if s.strategy != segmentindex.StrategyInverted {
 		return
@@ -250,7 +556,10 @@ func (s *segment) freePropertyLengths() {
 	s.invertedData.lockInvertedData.Lock()
 	defer s.invertedData.lockInvertedData.Unlock()
 
-	s.invertedData.propertyLengths = nil
+	s.invertedData.propLengthsDense = nil
+	s.invertedData.propLengthsMin = 0
+	s.invertedData.propLengthIds = nil
+	s.invertedData.propLengthLens = nil
 	s.invertedData.propertyLengthsLoaded = false
 }
 

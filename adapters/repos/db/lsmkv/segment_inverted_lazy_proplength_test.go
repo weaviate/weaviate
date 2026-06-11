@@ -80,10 +80,11 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 			require.Len(t, pl, size)
 			require.True(t, seg.isPropertyLengthsLoaded())
 
-			// freeing releases the map but keeps the stats
+			// freeing releases the per-document arrays but keeps the stats
 			seg.freePropertyLengths()
 			require.False(t, seg.isPropertyLengthsLoaded())
-			require.Nil(t, seg.getInvertedData().propertyLengths)
+			require.Nil(t, seg.getInvertedData().propLengthsDense)
+			require.Nil(t, seg.getInvertedData().propLengthIds)
 			avgAfter, countAfter := b.GetAveragePropertyLength()
 			require.Equal(t, avg, avgAfter)
 			require.Equal(t, count, countAfter)

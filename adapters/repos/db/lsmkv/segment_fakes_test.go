@@ -220,13 +220,11 @@ func (f *fakeSegment) getCollectionBytes(key []byte) ([][]byte, error) {
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	return &segmentInvertedData{
 		tombstones: sroar.NewBitmap(),
-		propertyLengths: map[uint64]uint32{
-			// NOTE: we are returning hardcoded fake data here which is good enough
-			// for the purpose of this test. This could be extended to return real
-			// data if necessary in the future.
-			0: 3,
-			1: 3,
-		},
+		// NOTE: we are returning hardcoded fake data here which is good enough
+		// for the purpose of this test. This could be extended to return real
+		// data if necessary in the future.
+		propLengthIds:           []uint64{0, 1},
+		propLengthLens:          []uint32{3, 3},
 		propertyLengthsLoaded:   true,
 		tombstonesLoaded:        true,
 		avgPropertyLengthsAvg:   3.0,
@@ -403,6 +401,10 @@ func (s *fakeSegment) getPropertyLengths() (map[uint64]uint32, error) {
 func (s *fakeSegment) isPropertyLengthsLoaded() bool { return false }
 
 func (s *fakeSegment) freePropertyLengths() {}
+
+func (s *fakeSegment) propLengthsView() (propLengthsView, error) {
+	panic("not implemented")
+}
 
 func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	panic("not implemented")

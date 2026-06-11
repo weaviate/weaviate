@@ -90,6 +90,7 @@ type Segment interface {
 	getPropertyLengths() (map[uint64]uint32, error)
 	isPropertyLengthsLoaded() bool
 	freePropertyLengths()
+	propLengthsView() (propLengthsView, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
 	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
@@ -416,7 +417,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("load property length stats: %w", err)
 			}
 		} else {
-			if _, err := seg.loadPropertyLengths(); err != nil {
+			if err := seg.loadPropertyLengths(); err != nil {
 				return nil, fmt.Errorf("load property lengths: %w", err)
 			}
 		}
