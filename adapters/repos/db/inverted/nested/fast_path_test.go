@@ -2503,6 +2503,97 @@ func TestFastPathL2_Merge(t *testing.T) {
 			// All other docs have at least one car without either.
 			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 810, 820, 900},
 		},
+		// ---------------------------------------------------------------
+		// De Morgan transformations of the three NOT(OR) tests above.
+		// These manually express the rewrite NOT(A OR B) → NOT(A) AND
+		// NOT(B). For same-scope clauses De Morgan is an equivalence and
+		// the result coincides with the NOT(OR) form. For cross-scope
+		// clauses (ancestor-child or siblings) the transformation diverges
+		// — each NOT keeps its natural TS, then the AND correlates
+		// per-element at the deeper scope. This:
+		//   - Includes docs where a non-warsaw garage contains a non-honda
+		//     car alongside a honda car (lost by the NOT(OR) form because
+		//     the garage gets flagged by the inner OR).
+		//   - Excludes docs whose relevant scopes are empty (e.g. no
+		//     accessories or no tires at all) since per-element AND
+		//     requires an actual witness, not vacuous truth.
+		// These tests pin the transformed semantics; they are not used by
+		// the implementation today but document the expected behaviour
+		// should a planner choose to apply the rewrite.
+
+		// Same-scope De Morgan: should match its NOT(OR) counterpart docs
+		// exactly. Acts as a sanity check that the transformation is a
+		// no-op for same-TS clauses.
+		{
+			name: "NOT(cars.make=honda) AND NOT(cars.make=ford) [De Morgan of NOT(honda OR ford)]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafNot(idx, "countries.garages.cars.make", "honda"),
+					leafNot(idx, "countries.garages.cars.make", "ford"))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Same wantDocs as NOT(honda OR ford) — De Morgan holds at
+			// same scope. Docs that fail: 300 (cars[0]=ford, cars[1]=
+			// honda → every car is honda or ford), 400 (only car is
+			// ford), 700 (only car is ford).
+			wantDocs: []uint64{100, 200, 500, 600, 800, 810, 820, 830, 900},
+		},
+		// Cross-scope De Morgan: ancestor-child relation (garages vs cars).
+		// Diverges from NOT(warsaw OR honda) which excludes 100/200/300/
+		// 810 because those garages contain a honda car. The transformed
+		// form keeps per-element NOT(honda) at cars, then ANDs with the
+		// per-element NOT(warsaw) at garages — every doc has at least one
+		// non-warsaw garage with a non-honda car (or a car without make),
+		// so all 12 docs pass.
+		{
+			name: "NOT(garages.city=warsaw) AND NOT(cars.make=honda) [De Morgan of NOT(warsaw OR honda)]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafNot(idx, "countries.garages.city", "warsaw"),
+					leafNot(idx, "countries.garages.cars.make", "honda"))
+			},
+			wantTruthScope: "countries.garages",
+			wantCanProject: false,
+			// Per-garage: garage is not warsaw AND contains at least one
+			// non-honda car descendant.
+			// - 100 g[0]: no city set, cars[0]=toyota → passes.
+			// - 200 g[0]: no city, cars[2]=name=ford (no make) → passes.
+			// - 300 g[0]: cars[0]=ford → passes.
+			// - 400-700: no warsaw, non-honda cars present → all pass.
+			// - 800 g[1]=krakow, cars have no make field → passes.
+			// - 810: no city, cars[1]=toyota → passes.
+			// - 820: no city, cars[0]=ford → passes.
+			// - 830: no city, cars[0] has no make → passes.
+			// - 900 g[1]=krakow, cars have no make → passes.
+			wantDocs: []uint64{100, 200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
+		},
+		// Sibling De Morgan: accessories vs tires under cars. Diverges
+		// from NOT(spoiler OR 205) which passes 10 docs (any car without
+		// spoiler-or-205 attributes satisfies it vacuously). The
+		// transformed form requires an actual non-spoiler accessory AND
+		// a non-205 tire under the same car — empty-scope docs (no
+		// accessories or no tires) fail.
+		{
+			name: "NOT(spoiler) AND NOT(205) [De Morgan of NOT(spoiler OR 205)]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafNot(idx, "countries.garages.cars.accessories.type", "spoiler"),
+					leafNot(idx, "countries.garages.cars.tires.width", 205))
+			},
+			wantTruthScope: "countries.garages.cars",
+			wantCanProject: false,
+			// Per-car: car has at least one non-spoiler accessory AND at
+			// least one non-205 tire.
+			// - doc 100 cars[1]: radio (non-spoiler) + 195 (non-205) ✓.
+			// - doc 200: cars[0] and cars[1] both spoiler+205; cars[2]
+			//   has no accessories/tires → no witnesses anywhere → FAIL.
+			// - doc 830 cars[0]: radio but no tires → no 205 witness → FAIL.
+			// - All other docs lack either accessories or tires entirely
+			//   → no per-element witness on at least one side.
+			wantDocs: []uint64{100},
+		},
+
 		// ContainsAny over a scalar field at TS=cars. Equivalent to
 		// orN of make=honda and make=ford with both at the same TS.
 		// Same-TS OR: pure union with no lifts, CP=true preserved.
