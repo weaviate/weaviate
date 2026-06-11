@@ -705,19 +705,19 @@ func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tena
 		}
 		pc.Filter = &filters.LocalFilter{Root: &clause}
 	case *pb.Boost_Condition_TimeDecay:
-		decay, err := extractTimeDecayFunction(c.TimeDecay, idx)
+		decay, err := p.extractTimeDecayFunction(c.TimeDecay, className, idx)
 		if err != nil {
 			return filters.BoostCondition{}, err
 		}
 		pc.Decay = decay
 	case *pb.Boost_Condition_NumericDecay:
-		decay, err := extractNumericDecayFunction(c.NumericDecay, idx)
+		decay, err := p.extractNumericDecayFunction(c.NumericDecay, className, idx)
 		if err != nil {
 			return filters.BoostCondition{}, err
 		}
 		pc.Decay = decay
 	case *pb.Boost_Condition_PropertyValue:
-		fv, err := extractPropertyValueFunction(c.PropertyValue, idx)
+		fv, err := p.extractPropertyValueFunction(c.PropertyValue, className, idx)
 		if err != nil {
 			return filters.BoostCondition{}, err
 		}
@@ -729,7 +729,7 @@ func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tena
 	return pc, nil
 }
 
-func extractPropertyValueFunction(fv *pb.Boost_PropertyValueFunction, condIdx int) (*filters.PropertyValue, error) {
+func (p *Parser) extractPropertyValueFunction(fv *pb.Boost_PropertyValueFunction, className string, condIdx int) (*filters.PropertyValue, error) {
 	if fv == nil {
 		return nil, nil
 	}
@@ -737,6 +737,15 @@ func extractPropertyValueFunction(fv *pb.Boost_PropertyValueFunction, condIdx in
 	prop := fv.GetProperty()
 	if prop == "" {
 		return nil, fmt.Errorf("boost condition[%d] property_value: property is required", condIdx)
+	}
+
+	dt, err := p.boostPropertyDataType(className, prop, "property_value", condIdx)
+	if err != nil {
+		return nil, err
+	}
+	if dt != schema.DataTypeInt && dt != schema.DataTypeNumber {
+		return nil, fmt.Errorf("boost condition[%d] property_value: property %q must be of type int or number, got %s",
+			condIdx, prop, dt)
 	}
 
 	modifier := filters.PropertyValueModifierNone
@@ -766,7 +775,21 @@ func extractDecayCurve(curve pb.Boost_DecayCurve) filters.DecayCurveType {
 	}
 }
 
-func extractTimeDecayFunction(d *pb.Boost_TimeDecayFunction, condIdx int) (*filters.Decay, error) {
+// boostPropertyDataType resolves the dataType of a property referenced by a
+// boost condition, erroring if the property does not exist on the class.
+func (p *Parser) boostPropertyDataType(className, propName, condName string, condIdx int) (schema.DataType, error) {
+	class, err := p.authorizedGetClass(className)
+	if err != nil {
+		return "", err
+	}
+	propDef, err := schema.GetPropertyByName(class, propName)
+	if err != nil {
+		return "", fmt.Errorf("boost condition[%d] %s: %w", condIdx, condName, err)
+	}
+	return schema.DataType(propDef.DataType[0]), nil
+}
+
+func (p *Parser) extractTimeDecayFunction(d *pb.Boost_TimeDecayFunction, className string, condIdx int) (*filters.Decay, error) {
 	if d == nil {
 		return nil, nil
 	}
@@ -774,6 +797,15 @@ func extractTimeDecayFunction(d *pb.Boost_TimeDecayFunction, condIdx int) (*filt
 	prop := d.GetProperty()
 	if prop == "" {
 		return nil, fmt.Errorf("boost condition[%d] time_decay: property is required", condIdx)
+	}
+
+	dt, err := p.boostPropertyDataType(className, prop, "time_decay", condIdx)
+	if err != nil {
+		return nil, err
+	}
+	if dt != schema.DataTypeDate {
+		return nil, fmt.Errorf("boost condition[%d] time_decay: property %q must be of type date, got %s",
+			condIdx, prop, dt)
 	}
 
 	decayValue := float32(0.5)
@@ -801,7 +833,7 @@ func extractTimeDecayFunction(d *pb.Boost_TimeDecayFunction, condIdx int) (*filt
 	}, nil
 }
 
-func extractNumericDecayFunction(d *pb.Boost_NumericDecayFunction, condIdx int) (*filters.Decay, error) {
+func (p *Parser) extractNumericDecayFunction(d *pb.Boost_NumericDecayFunction, className string, condIdx int) (*filters.Decay, error) {
 	if d == nil {
 		return nil, nil
 	}
@@ -809,6 +841,15 @@ func extractNumericDecayFunction(d *pb.Boost_NumericDecayFunction, condIdx int) 
 	prop := d.GetProperty()
 	if prop == "" {
 		return nil, fmt.Errorf("boost condition[%d] numeric_decay: property is required", condIdx)
+	}
+
+	dt, err := p.boostPropertyDataType(className, prop, "numeric_decay", condIdx)
+	if err != nil {
+		return nil, err
+	}
+	if dt != schema.DataTypeInt && dt != schema.DataTypeNumber {
+		return nil, fmt.Errorf("boost condition[%d] numeric_decay: property %q must be of type int or number, got %s",
+			condIdx, prop, dt)
 	}
 
 	if d.GetScale() <= 0 {
