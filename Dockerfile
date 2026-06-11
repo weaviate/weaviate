@@ -54,7 +54,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
-FROM alpine:3.22 AS weaviate
+FROM alpine:3.24 AS weaviate
 RUN apk upgrade --no-cache libcrypto3 libssl3 openssl musl musl-utils zlib && \
     apk add --no-cache bc ca-certificates openssl && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
