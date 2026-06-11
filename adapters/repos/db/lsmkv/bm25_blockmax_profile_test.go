@@ -397,6 +397,13 @@ func runQuery(ctx context.Context, s *bmwSetup, query []string) queryStats {
 		return st
 	}
 	defer release()
+	for _, seg := range diskTerms {
+		for _, t := range seg {
+			if t != nil {
+				t.SetIdf(t.Idf())
+			}
+		}
+	}
 
 	matched := false
 	for _, seg := range diskTerms {

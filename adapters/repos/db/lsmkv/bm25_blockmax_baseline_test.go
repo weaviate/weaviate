@@ -345,6 +345,13 @@ func bmwBaseRunQuery(ctx context.Context, b *Bucket, query []string, N, avgPropL
 		return nil
 	}
 	defer release()
+	for _, seg := range diskTerms {
+		for _, t := range seg {
+			if t != nil {
+				t.SetIdf(t.Idf())
+			}
+		}
+	}
 
 	best := map[uint64]float64{}
 	for _, seg := range diskTerms {
