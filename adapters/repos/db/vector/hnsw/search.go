@@ -128,6 +128,102 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
 }
 
+// SearchByMultiVectorWithCandidateBudget is a diagnostic-only method that allows
+// specifying a custom candidate budget for MUVERA searches. This is used to
+// measure how recall scales with candidate pool size.
+// candidateBudget specifies the total number of FDE candidates to retrieve
+// before late-interaction rescoring.
+func (h *hnsw) SearchByMultiVectorWithCandidateBudget(ctx context.Context, vectors [][]float32, k int, candidateBudget int, allowList helpers.AllowList) (ids []uint64, dists []float32, candidateCount int, err error) {
+	if !h.multivector.Load() {
+		return nil, nil, 0, errors.New("multivector search is not enabled")
+	}
+
+	if !h.muvera.Load() {
+		return nil, nil, 0, errors.New("SearchByMultiVectorWithCandidateBudget only works with MUVERA")
+	}
+
+	// Initialize MUVERA encoder if needed
+	if err := h.initMuveraEncoder(vectors); err != nil {
+		return nil, nil, 0, err
+	}
+
+	muveraQuery := h.muveraEncoder.EncodeQuery(vectors)
+	docIDs, _, err := h.SearchByVector(ctx, muveraQuery, candidateBudget, allowList)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	candidateSet := make(map[uint64]struct{})
+	for _, docID := range docIDs {
+		candidateSet[docID] = struct{}{}
+	}
+
+	ids, dists, err = h.computeLateInteraction(vectors, k, candidateSet)
+	return ids, dists, len(candidateSet), err
+}
+
+// GetMuveraCandidateSet is a diagnostic-only method that returns the raw candidate
+// set from MUVERA FDE search without late-interaction scoring.
+func (h *hnsw) GetMuveraCandidateSet(ctx context.Context, vectors [][]float32, candidateBudget int, allowList helpers.AllowList) (candidateDocIDs []uint64, err error) {
+	if !h.multivector.Load() {
+		return nil, errors.New("multivector search is not enabled")
+	}
+
+	if !h.muvera.Load() {
+		return nil, errors.New("GetMuveraCandidateSet only works with MUVERA")
+	}
+
+	// Initialize MUVERA encoder if needed
+	if err := h.initMuveraEncoder(vectors); err != nil {
+		return nil, err
+	}
+
+	muveraQuery := h.muveraEncoder.EncodeQuery(vectors)
+	docIDs, _, err := h.SearchByVector(ctx, muveraQuery, candidateBudget, allowList)
+	if err != nil {
+		return nil, err
+	}
+
+	return docIDs, nil
+}
+
+// GetMuveraCandidateSetWithStats is a diagnostic-only method that returns detailed
+// stats about the candidate search for auditing purposes.
+func (h *hnsw) GetMuveraCandidateSetWithStats(ctx context.Context, vectors [][]float32, candidateBudget int, allowList helpers.AllowList) (candidateDocIDs []uint64, rawReturnedCount int, uniqueCount int, efUsed int, err error) {
+	if !h.multivector.Load() {
+		return nil, 0, 0, 0, errors.New("multivector search is not enabled")
+	}
+
+	if !h.muvera.Load() {
+		return nil, 0, 0, 0, errors.New("GetMuveraCandidateSetWithStats only works with MUVERA")
+	}
+
+	// Initialize MUVERA encoder if needed
+	if err := h.initMuveraEncoder(vectors); err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	// Compute EF that will be used
+	efUsed = h.searchTimeEF(candidateBudget)
+
+	muveraQuery := h.muveraEncoder.EncodeQuery(vectors)
+	docIDs, _, err := h.SearchByVector(ctx, muveraQuery, candidateBudget, allowList)
+	if err != nil {
+		return nil, 0, 0, efUsed, err
+	}
+
+	rawReturnedCount = len(docIDs)
+
+	// Count unique doc IDs
+	uniqueSet := make(map[uint64]struct{}, len(docIDs))
+	for _, id := range docIDs {
+		uniqueSet[id] = struct{}{}
+	}
+	uniqueCount = len(uniqueSet)
+
+	return docIDs, rawReturnedCount, uniqueCount, efUsed, nil
+}
+
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
 // the search results contain all vector within the threshold specified by the
 // target distance.
