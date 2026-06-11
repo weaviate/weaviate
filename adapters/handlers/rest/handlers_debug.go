@@ -972,9 +972,8 @@ func setupDebugHandlers(appState *state.State) {
 		w.Write(jsonBytes)
 	}))
 
-	// This endpoint dumps all server configuration from environment.go
-	// e.g. curl -X GET localhost:6060/debug/config
-	// Note: Authentication and Authorization sections are skipped for security
+	// Dumps all server config. e.g. curl localhost:6060/debug/config
+	// Secrets are redacted by redactDebugConfigSecrets before returning.
 	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -996,8 +995,11 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
+		cleaned := cleanEmptyValues(configMap)
+		redactDebugConfigSecrets(cleaned)
+
 		// for human readability
-		jsonBytes, err = json.MarshalIndent(cleanEmptyValues(configMap), "", "  ")
+		jsonBytes, err = json.MarshalIndent(cleaned, "", "  ")
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on cleaned config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1229,6 +1231,47 @@ func cleanValue(v any) any {
 	default:
 		// For any other type, preserve the value
 		return v
+	}
+}
+
+// redactDebugConfigSecrets replaces each known secret value with "<redacted>",
+// leaving the field present so an operator can see it's configured without
+// exposing the value. Add the JSON path of any new secret field here.
+func redactDebugConfigSecrets(m map[string]any) {
+	redactPath(m, "<redacted>", "authentication", "APIKey", "allowed_keys")
+	redactPath(m, "<redacted>", "cluster", "auth", "basic", "password")
+	// The DSN's userinfo segment is the project key, so the whole string is a secret.
+	redactPath(m, "<redacted>", "sentry", "dsn")
+}
+
+// redactPath replaces the value at the given key path with placeholder; for a
+// slice, each element is replaced so the element count is preserved. Missing
+// keys are a no-op.
+func redactPath(m map[string]any, placeholder string, path ...string) {
+	if len(path) == 0 {
+		return
+	}
+	for i := 0; i < len(path)-1; i++ {
+		sub, ok := m[path[i]].(map[string]any)
+		if !ok {
+			return
+		}
+		m = sub
+	}
+	last := path[len(path)-1]
+	v, ok := m[last]
+	if !ok {
+		return
+	}
+	switch x := v.(type) {
+	case []any:
+		out := make([]any, len(x))
+		for i := range x {
+			out[i] = placeholder
+		}
+		m[last] = out
+	default:
+		m[last] = placeholder
 	}
 }
 
