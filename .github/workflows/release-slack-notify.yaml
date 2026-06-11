@@ -58,7 +58,7 @@ jobs:
               # All-whitespace body (spaces, tabs, newlines) counts as empty.
               (if ($changes | test("[^[:space:]]")) then $changes else "_(see release notes below)_" end) as $c
               | (if ($c | length) > 2500 then ($c[0:2500] + "…") else $c end) as $c
-              | ":tada:Weaviate Core `*\($number)*` release :tada:\n\nThis release contains:\n\n\($c)\n\nRelease notes: \($url)"
+              | ":tada: Weaviate Core `*\($number)*` release :tada:\n\nThis release contains:\n\n\($c)\n\nRelease notes: \($url)"
                 + (if ($cc | length) > 0 then "\n\ncc: <@\($cc)>" else "" end)
               | { blocks: [ { type: "section", text: { type: "mrkdwn", text: . } } ] }
             ' > payload.json
