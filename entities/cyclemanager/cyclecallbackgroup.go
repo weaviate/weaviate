@@ -169,6 +169,18 @@ func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCall
 }
 
 func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
+	// spawn no workers on idle ticks and no more workers than due callbacks
+	// on busy ones. Callbacks registered while a busy tick is running are
+	// still picked up by the dispatch loop below; on an idle tick they wait
+	// for the next one.
+	due := c.countDueCallbacks()
+	if due == 0 {
+		return false
+	}
+	if routinesLimit > due {
+		routinesLimit = due
+	}
+
 	anyExecuted := false
 	ch := make(chan uint32)
 	lock := new(sync.Mutex)
@@ -266,6 +278,38 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 
 	wg.Wait()
 	return anyExecuted
+}
+
+// countDueCallbacks prunes ids of deleted callbacks and counts callbacks that
+// are active and whose interval has elapsed. The count is only a sizing hint:
+// workers re-verify each callback under lock before executing it.
+func (c *cycleCallbackGroup) countDueCallbacks() int {
+	c.Lock()
+	defer c.Unlock()
+
+	due := 0
+	now := time.Now()
+	i := 0
+	for _, callbackId := range c.callbackIds {
+		meta, ok := c.callbacks[callbackId]
+		// callback deleted in the meantime, drop its id
+		if !ok {
+			continue
+		}
+		c.callbackIds[i] = callbackId
+		i++
+		// callback deactivated
+		if !meta.active {
+			continue
+		}
+		// not enough time passed since previous execution
+		if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
+			continue
+		}
+		due++
+	}
+	c.callbackIds = c.callbackIds[:i]
+	return due
 }
 
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
