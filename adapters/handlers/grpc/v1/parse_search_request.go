@@ -14,6 +14,7 @@ package v1
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
@@ -778,6 +779,9 @@ func extractDecayCurve(curve pb.Boost_DecayCurve) filters.DecayCurveType {
 // boostPropertyDataType resolves the dataType of a property referenced by a
 // boost condition, erroring if the property does not exist on the class.
 func (p *Parser) boostPropertyDataType(className, propName, condName string, condIdx int) (schema.DataType, error) {
+	if strings.Contains(propName, ".") {
+		return "", fmt.Errorf("boost condition[%d] %s: nested property %q is not supported", condIdx, condName, propName)
+	}
 	class, err := p.authorizedGetClass(className)
 	if err != nil {
 		return "", err
@@ -785,6 +789,9 @@ func (p *Parser) boostPropertyDataType(className, propName, condName string, con
 	propDef, err := schema.GetPropertyByName(class, propName)
 	if err != nil {
 		return "", fmt.Errorf("boost condition[%d] %s: %w", condIdx, condName, err)
+	}
+	if len(propDef.DataType) == 0 {
+		return "", fmt.Errorf("boost condition[%d] %s: property %q has no data type", condIdx, condName, propName)
 	}
 	return schema.DataType(propDef.DataType[0]), nil
 }

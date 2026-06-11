@@ -2840,14 +2840,17 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 		{"property_value on text errors", propertyValue("name"), true},
 		{"property_value on number array errors", propertyValue("floats"), true},
 		{"property_value on nonexistent property errors", propertyValue("doesNotExist"), true},
+		{"property_value on nested path errors", propertyValue("number.foo"), true},
 		{"time_decay on date is valid", timeDecay("date"), false},
 		{"time_decay on number errors", timeDecay("number"), true},
 		{"time_decay on text errors", timeDecay("name"), true},
 		{"time_decay on nonexistent property errors", timeDecay("doesNotExist"), true},
+		{"time_decay on nested path errors", timeDecay("date.foo"), true},
 		{"numeric_decay on number is valid", numericDecay("number"), false},
 		{"numeric_decay on int is valid", numericDecay("int"), false},
 		{"numeric_decay on date errors", numericDecay("date"), true},
 		{"numeric_decay on nonexistent property errors", numericDecay("doesNotExist"), true},
+		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
 	}
 
 	parser := NewParser(false, getClass, nil, false)
