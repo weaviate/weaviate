@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+s#!/usr/bin/env bash
 
 CONFIG=${1:-local-development}
 
@@ -22,6 +22,9 @@ export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
+export EXPERIMENTAL_HFRESH_ENABLED=true
+export DEBUG_ENDPOINTS_ENABLED=true
+
 # inject build info into binaries.
 GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)

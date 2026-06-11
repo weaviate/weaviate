@@ -1016,6 +1016,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	image := os.Getenv(envTestWeaviateImage)
 	networkName := settings["network"]
 	settings["DISABLE_TELEMETRY"] = "true"
+	settings["DEBUG_ENDPOINTS_ENABLED"] = "true"
 	if d.withWeaviateBasicAuth {
 		settings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
 		settings["CLUSTER_BASIC_AUTH_PASSWORD"] = d.withWeaviateBasicAuthPassword
