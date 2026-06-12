@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -22,6 +23,38 @@ import (
 )
 
 var ErrWrongDimensions = errors.New("vector dimensions do not match the index dimensions")
+
+// ErrInvalidVectorValue indicates a vector contains an out-of-spec component:
+// a non-finite value (NaN, +Inf, -Inf), or a component whose absolute value
+// exceeds the configured magnitude bound. Returned from index-level
+// validation when the per-index data-integrity check is enabled.
+var ErrInvalidVectorValue = errors.New("vector contains an invalid value")
+
+// ValidateVectorValues inspects every component of the vector. It rejects:
+//   - NaN
+//   - +Inf and -Inf
+//   - any component with absolute value greater than magnitudeBound, when
+//     magnitudeBound > 0 (a non-positive bound disables the magnitude check)
+//
+// The check is a single pass and branch-light. The caller is responsible for
+// gating it behind the appropriate per-index opt-in flag — this function only
+// implements the policy, it does not decide whether to apply it.
+func ValidateVectorValues(vector []float32, magnitudeBound float64) error {
+	for i, v := range vector {
+		f := float64(v)
+		if math.IsNaN(f) {
+			return fmt.Errorf("%w: NaN at index %d", ErrInvalidVectorValue, i)
+		}
+		if math.IsInf(f, 0) {
+			return fmt.Errorf("%w: Inf at index %d", ErrInvalidVectorValue, i)
+		}
+		if magnitudeBound > 0 && math.Abs(f) > magnitudeBound {
+			return fmt.Errorf("%w: |v[%d]|=%g exceeds magnitudeBound=%g",
+				ErrInvalidVectorValue, i, math.Abs(f), magnitudeBound)
+		}
+	}
+	return nil
+}
 
 type VectorIndex interface {
 	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error

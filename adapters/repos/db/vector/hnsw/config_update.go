@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"math"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -107,6 +108,8 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
 	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
+	h.dataIntegrityCheck.Store(parsed.DataIntegrityCheck)
+	h.magnitudeBound.Store(math.Float64bits(parsed.MagnitudeBound))
 
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()

@@ -108,3 +108,29 @@ func OptionalStringFromMap(in map[string]interface{}, name string,
 	setFn(asString)
 	return nil
 }
+
+func OptionalFloat64FromMap(in map[string]interface{}, name string,
+	setFn func(v float64),
+) error {
+	value, ok := in[name]
+	if !ok {
+		return nil
+	}
+
+	var asFloat float64
+	switch typed := value.(type) {
+	case json.Number:
+		f, err := typed.Float64()
+		if err != nil {
+			return errors.Wrapf(err, "json.Number to float64 for %q", name)
+		}
+		asFloat = f
+	case float64:
+		asFloat = typed
+	default:
+		return nil
+	}
+
+	setFn(asFloat)
+	return nil
+}

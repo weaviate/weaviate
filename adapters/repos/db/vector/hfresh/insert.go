@@ -14,10 +14,12 @@ package hfresh
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -257,6 +259,13 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 }
 
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
+	if h.dataIntegrityCheck.Load() {
+		bound := math.Float64frombits(h.magnitudeBound.Load())
+		if err := common.ValidateVectorValues(vector, bound); err != nil {
+			return err
+		}
+	}
+
 	dims := atomic.LoadUint32(&h.dims)
 	if dims == 0 {
 		return nil

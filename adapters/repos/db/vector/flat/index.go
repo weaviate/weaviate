@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,6 +64,10 @@ type flat struct {
 	compressionType CompressionType
 	quantizer       Quantizer
 	cache           *Cache
+
+	dataIntegrityCheck atomic.Bool
+	// magnitudeBound stores math.Float64bits(MagnitudeBound). 0 = disabled.
+	magnitudeBound atomic.Uint64
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -124,6 +129,9 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		index.cache = NewCache(index.getUint64QuantizedVector, index.getByteQuantizedVector, uc.VectorCacheMaxObjects,
 			cfg.Logger, cfg.AllocChecker, cacheType)
 	}
+
+	index.dataIntegrityCheck.Store(uc.DataIntegrityCheck)
+	index.magnitudeBound.Store(math.Float64bits(uc.MagnitudeBound))
 
 	return index, nil
 }
@@ -833,6 +841,13 @@ func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
 func (index *flat) ValidateBeforeInsert(vector []float32) error {
 	if len(vector) == 0 {
 		return errors.Errorf("cannot insert vector of dimension 0")
+	}
+
+	if index.dataIntegrityCheck.Load() {
+		bound := math.Float64frombits(index.magnitudeBound.Load())
+		if err := common.ValidateVectorValues(vector, bound); err != nil {
+			return err
+		}
 	}
 
 	dims := int(atomic.LoadInt32(&index.dims))
