@@ -199,6 +199,11 @@ type hnsw struct {
 	tombstoneMemCheckInterval time.Duration
 	tombstoneCleanupRunning   atomic.Bool
 
+	// cleanupCheckpointPath is the file path for persisting cleanup progress.
+	cleanupCheckpointPath string
+	// cleanupGenerationCounter is a monotonic counter for cleanup generation IDs.
+	cleanupGenerationCounter atomic.Uint64
+
 	visitedListPoolMaxSize int
 
 	asyncIndexingEnabled bool
@@ -396,6 +401,8 @@ func New(cfg Config, uc ent.UserConfig,
 		muveraEncoder:     muveraEncoder,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
+
+		cleanupCheckpointPath: cleanupCheckpointPath(cfg.RootPath, cfg.ID),
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
 		"shard":        cfg.ShardName,
