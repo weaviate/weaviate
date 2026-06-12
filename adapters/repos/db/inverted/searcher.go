@@ -933,12 +933,27 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 			"failed to extract length of prop, unsupported type '%T' for length of prop '%s'", propType, prop.Name)
 	}
 
+	hasFilterableIndex := HasFilterableIndexPropLength && HasAnyInvertedIndex(prop)
+	hasSearchableIndex := HasSearchableIndexPropLength && HasAnyInvertedIndex(prop)
+
+	// The property-length bucket is only created when length indexing is enabled
+	// globally AND the property itself has an inverted index (see
+	// Shard.createPropertyLengthIndex, gated by HasAnyInvertedIndex). When length
+	// indexing is off globally, readFromBucket already returns a dedicated error.
+	// The remaining gap — enabled globally but the property has no inverted index
+	// (e.g. indexFilterable=false) — would read a non-existent bucket, so return
+	// a clear error here, mirroring extractReferenceCount.
+	indexPropertyLength := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.IndexPropertyLength
+	if indexPropertyLength && !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              byteValue,
 		prop:               helpers.PropLength(prop.Name),
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndexPropLength, // TODO text_rbm_inverted_index & with settings
-		hasSearchableIndex: HasSearchableIndexPropLength, // TODO text_rbm_inverted_index & with settings
+		hasFilterableIndex: hasFilterableIndex, // TODO text_rbm_inverted_index & with settings
+		hasSearchableIndex: hasSearchableIndex, // TODO text_rbm_inverted_index & with settings
 		Class:              class,
 	}, nil
 }
@@ -960,12 +975,27 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 			"failed to extract null prop, unsupported type '%T' for null prop '%s'", propType, prop.Name)
 	}
 
+	hasFilterableIndex := HasFilterableIndexPropNull && HasAnyInvertedIndex(prop)
+	hasSearchableIndex := HasSearchableIndexPropNull && HasAnyInvertedIndex(prop)
+
+	// The property-null bucket is only created when null-state indexing is enabled
+	// globally AND the property itself has an inverted index (see
+	// Shard.createPropertyNullIndex, gated by HasAnyInvertedIndex). When null-state
+	// indexing is off globally, readFromBucket already returns a dedicated error.
+	// The remaining gap — enabled globally but the property has no inverted index
+	// (e.g. indexFilterable=false) — would read a non-existent bucket, so return a
+	// clear error here, mirroring extractReferenceCount.
+	indexNullState := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.IndexNullState
+	if indexNullState && !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              valResult,
 		prop:               helpers.PropNull(prop.Name),
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndexPropNull, // TODO text_rbm_inverted_index & with settings
-		hasSearchableIndex: HasSearchableIndexPropNull, // TODO text_rbm_inverted_index & with settings
+		hasFilterableIndex: hasFilterableIndex, // TODO text_rbm_inverted_index & with settings
+		hasSearchableIndex: hasSearchableIndex, // TODO text_rbm_inverted_index & with settings
 		Class:              class,
 	}, nil
 }
