@@ -26,10 +26,11 @@ func CompactionCycleIntervals() CycleIntervals {
 		compactionBase, compactionSteps)
 }
 
-// run cycle ticker with fixed minimal interval and let each shard
-// take care of its intervals
+// ticker backs off towards the max interval while cycles report no work
+// and resets to the min interval once work is done; each shard still
+// takes care of its own intervals underneath
 func CompactionCycleTicker() CycleTicker {
-	return NewFixedTicker(compactionMinInterval)
+	return newCycleTicker(CompactionCycleIntervals())
 }
 
 const (
@@ -45,10 +46,11 @@ func MemtableFlushCycleIntervals() CycleIntervals {
 		memtableFlushBase, memtableFlushSteps)
 }
 
-// run cycle ticker with fixed minimal interval and let each shard
-// take care of its intervals
+// ticker backs off towards the max interval while cycles report no work
+// and resets to the min interval once work is done; each shard still
+// takes care of its own intervals underneath
 func MemtableFlushCycleTicker() CycleTicker {
-	return NewFixedTicker(memtableFlushMinInterval)
+	return newCycleTicker(MemtableFlushCycleIntervals())
 }
 
 const (
@@ -64,10 +66,11 @@ func GeoCommitLoggerCycleIntervals() CycleIntervals {
 		geoCommitLoggerBase, geoCommitLoggerSteps)
 }
 
-// run cycle ticker with fixed minimal interval and let each shard
-// take care of its intervals
+// ticker backs off towards the max interval while cycles report no work
+// and resets to the min interval once work is done; each shard still
+// takes care of its own intervals underneath
 func GeoCommitLoggerCycleTicker() CycleTicker {
-	return NewFixedTicker(geoCommitLoggerMinInterval)
+	return newCycleTicker(GeoCommitLoggerCycleIntervals())
 }
 
 const (
@@ -83,8 +86,9 @@ func HnswCommitLoggerCycleIntervals() CycleIntervals {
 		hnswCommitLoggerBase, hnswCommitLoggerSteps)
 }
 
-// run cycle ticker with fixed minimal interval and let each shard
-// take care of its intervals
+// ticker backs off towards the max interval while cycles report no work
+// and resets to the min interval once work is done; each shard still
+// takes care of its own intervals underneath
 func HnswCommitLoggerCycleTicker() CycleTicker {
-	return NewFixedTicker(hnswCommitLoggerMinInterval)
+	return newCycleTicker(HnswCommitLoggerCycleIntervals())
 }
