@@ -437,6 +437,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to false (debug surface closed) only when nothing set it.
+	if v, ok := os.LookupEnv("DEBUG_ENDPOINTS_ENABLED"); ok {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.Profiling.DebugEndpointsEnabled == nil {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(false)
+	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -720,6 +727,10 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = parsed
 	} else {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
+	}
+
+	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
+		config.Backup.SkipAccessCheck = true
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -2225,5 +2236,9 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.DefaultPath == nil {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
+
+	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
+		c.Export.SkipAccessCheck = true
 	}
 }
