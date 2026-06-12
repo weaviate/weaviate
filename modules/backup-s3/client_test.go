@@ -208,8 +208,19 @@ func TestAllBackupsNoGoroutineLeakOnCancel(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		buf := make([]byte, 1<<20)
-		n := runtime.Stack(buf, true)
-		return !strings.Contains(string(buf[:n]), "minio-go")
+		return !strings.Contains(fullStackDump(), "minio-go")
 	}, 3*time.Second, 50*time.Millisecond, "minio ListObjects producer goroutine leaked")
+}
+
+// fullStackDump returns the full goroutine dump. runtime.Stack truncates
+// silently when the buffer is too small (n == len(buf)), so grow until it fits.
+func fullStackDump() string {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return string(buf[:n])
+		}
+		buf = make([]byte, 2*len(buf))
+	}
 }
