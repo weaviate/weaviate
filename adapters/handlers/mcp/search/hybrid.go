@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -64,6 +65,13 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 				Name:        prop,
 				IsPrimitive: true,
 			}
+		}
+	} else {
+		// Default to all non-ref, non-blob properties (mirrors gRPC). An empty
+		// selection makes the hybrid vector leg return objects without properties.
+		selectProps, err = s.allSelectProperties(args.CollectionName)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -141,6 +149,32 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	res = stripResultsOwnNamespace(principal, res)
 
 	return &QueryHybridResp{Results: res}, nil
+}
+
+// allSelectProperties returns all non-ref, non-blob properties of the class,
+// mirroring the gRPC default. Returns a nil selection if the class is not in
+// the schema, letting the traverser produce the "class not found" error.
+func (s *WeaviateSearcher) allSelectProperties(className string) (search.SelectProperties, error) {
+	class := s.schemaReader.ReadOnlyClass(className)
+	if class == nil {
+		return nil, nil
+	}
+
+	selectProps := make(search.SelectProperties, 0, len(class.Properties))
+	for _, prop := range class.Properties {
+		dt, err := schema.GetPropertyDataType(class, prop.Name)
+		if err != nil {
+			return nil, fmt.Errorf("get data type of property %q: %w", prop.Name, err)
+		}
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
+			continue
+		}
+		selectProps = append(selectProps, search.SelectProperty{
+			Name:        prop.Name,
+			IsPrimitive: true,
+		})
+	}
+	return selectProps, nil
 }
 
 func buildAdditionalProperties(metadata []string) additional.Properties {

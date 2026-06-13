@@ -39,6 +39,16 @@ func (s stubSchemaManager) ResolveAlias(alias string) string {
 	return s.aliases[alias]
 }
 
+// stubSchemaReader satisfies schemaReader with a fixed class set. The zero
+// value knows no classes, so the searcher falls back to a nil selection.
+type stubSchemaReader struct {
+	classes map[string]*models.Class
+}
+
+func (s stubSchemaReader) ReadOnlyClass(name string) *models.Class {
+	return s.classes[name]
+}
+
 // recordingTraverser captures the GetParams it last received so tests can
 // assert that the resolved class name flowed all the way through.
 type recordingTraverser struct {
@@ -61,6 +71,7 @@ func newSearcher(t *testing.T, principal *models.Principal, namespacesEnabled bo
 	return NewWeaviateSearcher(
 		authHandler,
 		trav,
+		stubSchemaReader{},
 		stubSchemaManager{aliases: aliases},
 		namespacesEnabled,
 		logger,
@@ -187,7 +198,7 @@ func newSearcherWithResults(t *testing.T, principal *models.Principal, results [
 	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateSearcher(authHandler, &stubTraverser{results: results},
-		stubSchemaManager{}, true, logger)
+		stubSchemaReader{}, stubSchemaManager{}, true, logger)
 }
 
 // TestHybrid_NestedRefClassStripped pins the NS strip on nested
@@ -272,6 +283,64 @@ func TestHybrid_NestedRefClassStripped(t *testing.T) {
 			assert.Equal(t, tc.want.deep, deepInner[0].(search.LocalRef).Class)
 		})
 	}
+}
+
+// TestHybrid_DefaultSelectProperties pins the default property selection: with
+// no return_properties, the handler resolves all non-ref, non-blob properties
+// (mirroring gRPC). An empty selection made the vector leg return bare IDs.
+func TestHybrid_DefaultSelectProperties(t *testing.T) {
+	class := &models.Class{
+		Class: "Things",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "image", DataType: []string{"blob"}},
+			{Name: "hasOwner", DataType: []string{"Owner"}},
+			{Name: "body", DataType: []string{"text"}},
+		},
+	}
+	reader := stubSchemaReader{classes: map[string]*models.Class{"Things": class}}
+
+	newSearcherWithSchema := func(t *testing.T) (*WeaviateSearcher, *recordingTraverser) {
+		t.Helper()
+		composer := func(token string, _ []string) (*models.Principal, error) { return &models.Principal{}, nil }
+		authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
+		trav := &recordingTraverser{}
+		logger, _ := test.NewNullLogger()
+		return NewWeaviateSearcher(authHandler, trav, reader,
+			stubSchemaManager{}, false, logger), trav
+	}
+
+	t.Run("no return_properties resolves all non-ref non-blob properties", func(t *testing.T) {
+		s, trav := newSearcherWithSchema(t)
+		_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+			CollectionName: "Things", Query: "x",
+		})
+		require.NoError(t, err)
+		require.Equal(t, search.SelectProperties{
+			{Name: "title", IsPrimitive: true},
+			{Name: "body", IsPrimitive: true},
+		}, trav.gotParams.Properties)
+	})
+
+	t.Run("explicit return_properties pass through unchanged", func(t *testing.T) {
+		s, trav := newSearcherWithSchema(t)
+		_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+			CollectionName: "Things", Query: "x", ReturnProperties: []string{"title"},
+		})
+		require.NoError(t, err)
+		require.Equal(t, search.SelectProperties{
+			{Name: "title", IsPrimitive: true},
+		}, trav.gotParams.Properties)
+	})
+
+	t.Run("unknown class falls back to nil selection", func(t *testing.T) {
+		s, trav := newSearcherWithSchema(t)
+		_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+			CollectionName: "Missing", Query: "x",
+		})
+		require.NoError(t, err)
+		require.Nil(t, trav.gotParams.Properties)
+	})
 }
 
 // Defensive canary: the JSON response a customer1 caller sees must not
