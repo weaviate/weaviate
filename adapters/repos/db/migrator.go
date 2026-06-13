@@ -244,6 +244,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 	idx.usageLimits = m.db.usageLimits
 	idx.db = m.db
+	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
@@ -323,6 +324,14 @@ func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
 		return fmt.Errorf("could not find collection %s", class)
 	}
 	return idx.dropShards([]string{shard})
+}
+
+func (m *Migrator) ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.ReconcileAsyncReplicationForShard(ctx, shard)
 }
 
 func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error {
