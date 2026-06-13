@@ -198,7 +198,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	// Set delegate and events
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-
+	joinAddresses := parseJoinAddresses(userConfig.Join)
 	// Log configuration details
 	logger.WithFields(logrus.Fields{
 		"action":          "memberlist_config",
@@ -210,6 +210,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		"config_type":     getConfigType(userConfig),
 		"tcp_timeout":     cfg.TCPTimeout,
 		"raft_multiplier": raftTimeoutsMultiplier,
+		"join_addresses":  joinAddresses,
 	}).Info("memberlist configuration")
 
 	// Create memberlist
@@ -225,27 +226,23 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		}).Errorf("memberlist not created: %v", err)
 		return nil, errors.Wrap(err, "create memberlist")
 	}
-	var joinAddr []string
-	if userConfig.Join != "" {
-		joinAddr = strings.Split(userConfig.Join, ",")
-	}
 
-	if len(joinAddr) > 0 {
-		joinHost := extractHost(joinAddr[0])
+	if len(joinAddresses) > 0 {
+		joinHost := extractHost(joinAddresses[0])
 		_, err := net.LookupIP(joinHost)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
-				"remote_hostname": joinAddr[0],
+				"remote_hostname": joinAddresses[0],
 			}).WithError(err).Warn(
 				"specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := state.list.Join(joinAddr)
+			_, err := state.list.Join(joinAddresses)
 			if err != nil {
 				logger.WithFields(logrus.Fields{
 					"action":          "memberlist_init",
-					"remote_hostname": joinAddr,
+					"remote_hostname": joinAddresses,
 				}).WithError(err).Error("memberlist join not successful")
 				return nil, errors.Wrap(err, "join cluster")
 			}
@@ -257,9 +254,9 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	// memberlist to purge all knowledge of it (and vice versa). Without periodic
 	// rejoin, such a node can never re-discover the cluster because memberlist only
 	// calls Join() once at startup.
-	if len(joinAddr) > 0 && userConfig.RaftBootstrapExpect > 1 {
+	if len(joinAddresses) > 0 && userConfig.RaftBootstrapExpect > 1 {
 		enterrors.GoWrapper(func() {
-			state.periodicRejoin(cfg.PushPullInterval, joinAddr, userConfig.RaftBootstrapExpect, logger)
+			state.periodicRejoin(cfg.PushPullInterval, joinAddresses, userConfig.RaftBootstrapExpect, logger)
 		}, logger)
 	}
 
@@ -597,6 +594,15 @@ func (s *State) periodicRejoin(pushPullInterval time.Duration, joinAddr []string
 			}).Debug("successfully rejoined cluster")
 		}
 	}
+}
+
+// parseJoinAddresses splits the Join config (comma-separated addresses) into a slice.
+// Empty string yields nil; no comma yields a single-element slice.
+func parseJoinAddresses(join string) []string {
+	if join == "" {
+		return nil
+	}
+	return strings.Split(join, ",")
 }
 
 // validateClusterConfig validates the cluster configuration
