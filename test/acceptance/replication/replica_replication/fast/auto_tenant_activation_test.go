@@ -12,43 +12,30 @@
 package replication
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+func (suite *ReplicationTestSuite) TestReplicationReplicateWithAutoTenantActivation() {
+	t := suite.T()
 
-	mainCtx := context.Background()
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
-		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "false").
-		Start(ctx)
-	require.NoError(t, err, "failed to start docker compose cluster: %+v", err)
-	if cancel != nil {
-		cancel()
-	}
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -64,19 +51,38 @@ func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 
 	// Load data
 	t.Log("Loading data...")
-	tenantNames := make([]string, 0, 100)
-	for i := 0; i < 100; i++ {
-		t.Logf("into tenant %d", i)
-		tenantName := fmt.Sprintf("tenant-%d", i)
+	numTenants := 100
+	objsPerTenant := 1000
+	tenantNamesCh := make(chan string, numTenants)
+	eg := enterrors.NewErrorGroupWrapper(logrus.New())
+	eg.SetLimit(runtime.GOMAXPROCS(0))
+	for i := 0; i < numTenants; i++ {
+		eg.Go(func() error {
+			t.Logf("into tenant %d", i)
+			tenantName := fmt.Sprintf("tenant-%d", i)
+			tenantNamesCh <- tenantName
+			objects := make([]*models.Object, objsPerTenant)
+			for j := 0; j < objsPerTenant; j++ {
+				objects[j] = (*models.Object)(articles.NewParagraph().
+					WithContents(fmt.Sprintf("paragraph#%d", j)).
+					WithTenant(tenantName).
+					Object())
+			}
+			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+				params := batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{Objects: objects})
+				_, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+				assert.NoError(ct, err, "failed to load data for tenant %s: %v", tenantName, err)
+			}, 30*time.Second, 5*time.Second, "failed to load data for tenant %s in time", tenantName)
+			return nil
+		})
+	}
+	err := eg.Wait()
+	close(tenantNamesCh)
+	require.NoError(t, err, "failed to load data: %v", err)
+
+	tenantNames := make([]string, 0, numTenants)
+	for tenantName := range tenantNamesCh {
 		tenantNames = append(tenantNames, tenantName)
-		batch := make([]*models.Object, 1000)
-		for j := 0; j < 1000; j++ {
-			batch[j] = (*models.Object)(articles.NewParagraph().
-				WithContents(fmt.Sprintf("paragraph#%d", j)).
-				WithTenant(tenantName).
-				Object())
-		}
-		helper.CreateObjectsBatch(t, batch)
 	}
 
 	// Get a random subset of tenants to replicate
@@ -107,7 +113,7 @@ func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 
 	// Deactivate all the tenants
 	t.Log("Deactivating all tenants")
-	tenants := make([]*models.Tenant, 0, 1000)
+	tenants := make([]*models.Tenant, 0, numTenants)
 	for _, tenantName := range tenantNames {
 		tenants = append(tenants, &models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusINACTIVE})
 	}
@@ -149,7 +155,7 @@ func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 
 	// Wait for all replication operations to complete
 	t.Log("Waiting for replication operations to complete")
-	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+	if !assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		completed := make(map[strfmt.UUID]bool, len(opIds))
 		for _, opId := range opIds {
 			res, err := helper.Client(t).Replication.ReplicationDetails(
@@ -174,7 +180,26 @@ func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 		}
 		t.Log("Replication operations completed:", howManyDone, "of", len(completed))
 		assert.True(ct, howManyDone == len(completed), "not all replication operations completed yet")
-	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
+	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time") {
+		// If we fail here, print out the state and errors of the incomplete operations for debugging
+		for _, opId := range opIds {
+			res, err := helper.Client(t).Replication.ReplicationDetails(
+				replication.NewReplicationDetailsParams().WithID(opId),
+				nil,
+			)
+			if err != nil {
+				t.Logf("failed to get replication operation %s: %v", opId, err)
+				continue
+			}
+			if res.Payload.Status.State != models.ReplicationReplicateDetailsReplicaStatusStateREADY {
+				t.Logf("Replication operation %s is not ready, current state: %s", opId, res.Payload.Status.State)
+				for _, err := range res.Payload.Status.Errors {
+					t.Logf("Error for operation %s: %s", opId, err.Message)
+				}
+			}
+		}
+		t.FailNow()
+	}
 }
 
 func random[T any](s []T, k int) []T {
