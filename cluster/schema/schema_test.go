@@ -18,11 +18,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -163,7 +167,7 @@ func Test_schemaShardMetrics(t *testing.T) {
 
 	// update tenant status
 	fsm := NewMockreplicationFSM(t)
-	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	fsm.On("HasActiveReplicationForShard", mock.Anything, mock.Anything).Return(false).Maybe()
 	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
 		Tenants:      []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
 		ClusterNodes: []string{"testNode"},
@@ -226,7 +230,7 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		}
 	}
 	fsm := NewMockreplicationFSM(t)
-	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	fsm.On("HasActiveReplicationForShard", mock.Anything, mock.Anything).Return(false).Maybe()
 
 	t.Run("FREEZING rejects HOT", func(t *testing.T) {
 		s := newSchema()
@@ -306,6 +310,262 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 			ClusterNodes: []string{nodeID},
 		}, fsm)
 		require.ErrorIs(t, err, ErrTenantTransitionalState)
+	})
+}
+
+// Test_UpdateTenants_MovementRejection verifies that tenant transitions which take the source
+// shard away (HOT→COLD shutdown, freeze, unfreeze) are rejected with a partial
+// ErrReplicaMovementInProgress while a movement is active, that transitions toward availability
+// are allowed, and that the decision is node-independent.
+func Test_UpdateTenants_MovementRejection(t *testing.T) {
+	const (
+		nodeID     = "testNode"
+		tenantName = "tenant1"
+		className  = "TestClass"
+	)
+	newClass := func() *models.Class {
+		return &models.Class{
+			Class:              className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		}
+	}
+	setup := func(t *testing.T, node, startStatus string) *schema {
+		t.Helper()
+		s := NewSchema(node, nil, prometheus.NewPedanticRegistry())
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{node},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: startStatus}},
+		}))
+		return s
+	}
+	movementFSM := func(t *testing.T, active bool) replicationFSM {
+		t.Helper()
+		fsm := NewMockreplicationFSM(t)
+		fsm.On("HasActiveReplicationForShard", mock.Anything, mock.Anything).Return(active).Maybe()
+		return fsm
+	}
+	update := func(s *schema, status string, fsm replicationFSM) error {
+		return s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: status}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+	}
+
+	t.Run("HOT→COLD blocked during movement", func(t *testing.T) {
+		s := setup(t, nodeID, "HOT")
+		err := update(s, "COLD", movementFSM(t, true))
+		require.ErrorIs(t, err, ErrReplicaMovementInProgress)
+		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")), "tenant must stay HOT")
+		require.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("COLD")))
+	})
+
+	t.Run("HOT→FROZEN (freeze) blocked during movement", func(t *testing.T) {
+		s := setup(t, nodeID, "HOT")
+		err := update(s, "FROZEN", movementFSM(t, true))
+		require.ErrorIs(t, err, ErrReplicaMovementInProgress)
+		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
+		require.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FREEZING")))
+	})
+
+	t.Run("FROZEN→HOT (unfreeze) blocked during movement", func(t *testing.T) {
+		s := setup(t, nodeID, "FROZEN")
+		err := update(s, "HOT", movementFSM(t, true))
+		require.ErrorIs(t, err, ErrReplicaMovementInProgress)
+		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
+	})
+
+	t.Run("COLD→HOT (toward available) allowed during movement", func(t *testing.T) {
+		s := setup(t, nodeID, "COLD")
+		err := update(s, "HOT", movementFSM(t, true))
+		require.NoError(t, err)
+		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
+	})
+
+	t.Run("HOT→COLD allowed when no movement", func(t *testing.T) {
+		s := setup(t, nodeID, "HOT")
+		err := update(s, "COLD", movementFSM(t, false))
+		require.NoError(t, err)
+		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("COLD")))
+	})
+
+	t.Run("partial: only the moving tenant is blocked, sibling still applies", func(t *testing.T) {
+		s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: "tenant1", Status: "HOT"}, {Name: "tenant2", Status: "HOT"}},
+		}))
+		// Active movement on tenant1 only.
+		fsm := NewMockreplicationFSM(t)
+		fsm.On("HasActiveReplicationForShard", className, "tenant1").Return(true)
+		fsm.On("HasActiveReplicationForShard", mock.Anything, mock.Anything).Return(false).Maybe()
+
+		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: "tenant1", Status: "COLD"}, {Name: "tenant2", Status: "COLD"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+		require.ErrorIs(t, err, ErrReplicaMovementInProgress)
+		// tenant1 blocked (stays HOT), tenant2 applied (COLD).
+		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")), "blocked tenant1 stays HOT")
+		require.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("COLD")), "tenant2 still transitions COLD")
+	})
+
+	t.Run("node-independent: COLD blocked on every node", func(t *testing.T) {
+		for _, node := range []string{"nodeA", "nodeB", "uninvolved"} {
+			s := setup(t, node, "HOT")
+			err := update(s, "COLD", movementFSM(t, true))
+			require.ErrorIs(t, err, ErrReplicaMovementInProgress, "must block on %s", node)
+		}
+	})
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// fixedParser returns a preset parsed class from ParseClassUpdate, standing in for the
+// production parser that sets concrete vector-config types (which a JSON round-trip would strip).
+type fixedParser struct{ updated *models.Class }
+
+func (p *fixedParser) ParseClass(*models.Class) error { return nil }
+
+func (p *fixedParser) ParseClassUpdate(_, _ *models.Class) (*models.Class, error) {
+	return p.updated, nil
+}
+
+// Test_UpdateClass_MovementRejection verifies that an UpdateClass which would rewrite on-disk
+// vector structure is forbidden while a movement is active on the collection, that safe
+// (query-time-only) changes are allowed, and that a rejected update leaves the schema untouched.
+func Test_UpdateClass_MovementRejection(t *testing.T) {
+	const className = "TestClass"
+	legacy := func(cfg any) *models.Class { return &models.Class{Class: className, VectorIndexConfig: cfg} }
+	named := func(vecs map[string]any) *models.Class {
+		vc := make(map[string]models.VectorConfig, len(vecs))
+		for n, c := range vecs {
+			vc[n] = models.VectorConfig{VectorIndexConfig: c}
+		}
+		return &models.Class{Class: className, VectorConfig: vc}
+	}
+	// run registers oldClass, then applies an UpdateClass whose parser yields newClass.
+	run := func(t *testing.T, oldClass, newClass *models.Class, movementActive bool) (*SchemaManager, error) {
+		t.Helper()
+		sm := NewSchemaManager("testNode", nil, &fixedParser{updated: newClass}, prometheus.NewPedanticRegistry(), logrus.New())
+		fsm := NewMockreplicationFSM(t)
+		fsm.On("HasActiveReplicationForCollection", mock.Anything).Return(movementActive).Maybe()
+		sm.SetReplicationFSM(fsm)
+		require.NoError(t, sm.schema.addClass(oldClass, &sharding.State{}, 0))
+		sub, err := json.Marshal(&api.UpdateClassRequest{Class: &models.Class{Class: className}})
+		require.NoError(t, err)
+		// schemaOnly=true exercises the guard + schema apply without needing a real DB.
+		return sm, sm.UpdateClass(&api.ApplyRequest{
+			Type: api.ApplyRequest_TYPE_UPDATE_CLASS, Class: className, Version: 1, SubCommand: sub,
+		}, "testNode", true, false)
+	}
+
+	t.Run("structural change forbidden during movement", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			old, new *models.Class
+		}{
+			{"compression enabled", legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}})},
+			{"compression disabled", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}), legacy(hnswent.UserConfig{})},
+			{"pq re-parametrized", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Segments: 8}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Segments: 16}})},
+			{"distance change", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "l2-squared"})},
+			{"index type change", legacy(hnswent.UserConfig{}), legacy(flatent.UserConfig{})},
+			{"named vector added", &models.Class{Class: className}, named(map[string]any{"v1": hnswent.UserConfig{}})},
+			{"named vector removed", named(map[string]any{"v1": hnswent.UserConfig{}}), &models.Class{Class: className}},
+			{"dynamic compression toggled", legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{}}), legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}})},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := run(t, tc.old, tc.new, true)
+				require.ErrorIs(t, err, ErrReplicaMovementInProgress)
+				require.ErrorIs(t, err, ErrBadRequest)
+			})
+		}
+	})
+
+	t.Run("safe change allowed during movement", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			old, new *models.Class
+		}{
+			{"ef change", legacy(hnswent.UserConfig{EF: 10}), legacy(hnswent.UserConfig{EF: 20})},
+			{"no vector change", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "cosine"})},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := run(t, tc.old, tc.new, true)
+				require.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("structural change allowed when no movement", func(t *testing.T) {
+		_, err := run(t, legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}), false)
+		require.NoError(t, err)
+	})
+
+	t.Run("rejected update does not mutate the schema", func(t *testing.T) {
+		sm, err := run(t, legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}), true)
+		require.ErrorIs(t, err, ErrReplicaMovementInProgress)
+		cls, _ := sm.schema.ReadOnlyClass(className)
+		require.NotNil(t, cls)
+		require.Equal(t, hnswent.UserConfig{}, cls.VectorIndexConfig, "config must stay uncompressed after a rejected update")
+	})
+}
+
+// Test_UpdateProperty_MovementRejection verifies that disabling a property index is forbidden
+// while a movement is active, that the migration-completion path bypasses the guard, and that
+// non-disabling updates are allowed.
+func Test_UpdateProperty_MovementRejection(t *testing.T) {
+	const className = "TestClass"
+	build := func(t *testing.T, movementActive bool) *SchemaManager {
+		t.Helper()
+		sm := NewSchemaManager("testNode", nil, &fixedParser{}, prometheus.NewPedanticRegistry(), logrus.New())
+		fsm := NewMockreplicationFSM(t)
+		fsm.On("HasActiveReplicationForCollection", mock.Anything).Return(movementActive).Maybe()
+		sm.SetReplicationFSM(fsm)
+		// property p starts with its filterable index enabled
+		cls := &models.Class{Class: className, Properties: []*models.Property{
+			{Name: "p", DataType: []string{"text"}, IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(false)},
+		}}
+		require.NoError(t, sm.schema.addClass(cls, &sharding.State{}, 0))
+		return sm
+	}
+	mkCmd := func(t *testing.T, disable, fromMigration bool) *api.ApplyRequest {
+		t.Helper()
+		filterable := boolPtr(true)
+		if disable {
+			filterable = boolPtr(false)
+		}
+		sub, err := json.Marshal(&api.UpdatePropertyRequest{
+			Property:              &models.Property{Name: "p", DataType: []string{"text"}, IndexFilterable: filterable, IndexSearchable: boolPtr(false)},
+			FromInFlightMigration: fromMigration,
+		})
+		require.NoError(t, err)
+		return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_UPDATE_PROPERTY, Class: className, Version: 1, SubCommand: sub}
+	}
+
+	t.Run("index disable forbidden during movement", func(t *testing.T) {
+		err := build(t, true).UpdateProperty(mkCmd(t, true, false), true, false)
+		require.ErrorIs(t, err, ErrReplicaMovementInProgress)
+		require.ErrorIs(t, err, ErrBadRequest)
+	})
+
+	t.Run("FromInFlightMigration bypasses the guard", func(t *testing.T) {
+		err := build(t, true).UpdateProperty(mkCmd(t, true, true), true, false)
+		require.NotErrorIs(t, err, ErrReplicaMovementInProgress)
+	})
+
+	t.Run("non-disabling update allowed during movement", func(t *testing.T) {
+		err := build(t, true).UpdateProperty(mkCmd(t, false, false), true, false)
+		require.NotErrorIs(t, err, ErrReplicaMovementInProgress)
+	})
+
+	t.Run("index disable allowed when no movement", func(t *testing.T) {
+		err := build(t, false).UpdateProperty(mkCmd(t, true, false), true, false)
+		require.NotErrorIs(t, err, ErrReplicaMovementInProgress)
 	})
 }
 

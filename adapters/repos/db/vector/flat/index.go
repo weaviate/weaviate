@@ -1269,3 +1269,8 @@ func (h *flat) Upgrade(callback func()) error {
 func (h *flat) Upgraded() bool {
 	return false
 }
+
+// flat never restructures on disk; the flat→HNSW transition is owned by dynamic.
+func (h *flat) UpgradeInProgress() bool {
+	return false
+}

@@ -1050,237 +1050,53 @@ func uuid4() strfmt.UUID {
 	return strfmt.UUID(id.String())
 }
 
-func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
-	type hasOngoingReplicationParams struct {
+func TestReplicationFSM_HasActiveReplication(t *testing.T) {
+	// Node-independence: the op registered below is node1->node2, yet the queries (which
+	// take no node argument) must report it active for its collection/shard on every node.
+	type shardCheck struct {
 		collection string
 		shard      string
-		replica    string
+		expected   bool
+	}
+	type collectionCheck struct {
+		collection string
 		expected   bool
 	}
 
+	activeShardChecks := []shardCheck{
+		{collection: "TestCollection", shard: "shard1", expected: true},
+		{collection: "non-existing-collection", shard: "shard1", expected: false},
+		{collection: "TestCollection", shard: "non-existing-shard", expected: false},
+	}
+	inactiveShardChecks := []shardCheck{
+		{collection: "TestCollection", shard: "shard1", expected: false},
+		{collection: "non-existing-collection", shard: "shard1", expected: false},
+		{collection: "TestCollection", shard: "non-existing-shard", expected: false},
+	}
+	activeCollectionChecks := []collectionCheck{
+		{collection: "TestCollection", expected: true},
+		{collection: "non-existing-collection", expected: false},
+	}
+	inactiveCollectionChecks := []collectionCheck{
+		{collection: "TestCollection", expected: false},
+		{collection: "non-existing-collection", expected: false},
+	}
+
 	tests := []struct {
-		name                        string
-		status                      api.ShardReplicationState
-		hasOngoingReplicationParams []hasOngoingReplicationParams
-		expectedError               error
+		name             string
+		status           api.ShardReplicationState
+		shardChecks      []shardCheck
+		collectionChecks []collectionCheck
 	}{
-		{
-			name:   "op is REGISTERED",
-			status: api.REGISTERED,
-			hasOngoingReplicationParams: []hasOngoingReplicationParams{
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   true,
-				},
-				{
-					collection: "non-existing-collection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "non-existing-shard",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "non-existing-replica",
-					expected:   false,
-				},
-			},
-			expectedError: nil,
-		},
-		{
-			name:   "op is HYDRATING",
-			status: api.HYDRATING,
-			hasOngoingReplicationParams: []hasOngoingReplicationParams{
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   true,
-				},
-				{
-					collection: "non-existing-collection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "non-existing-shard",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "non-existing-replica",
-					expected:   false,
-				},
-			},
-			expectedError: nil,
-		},
-		{
-			name:   "op is DEHYDRATING",
-			status: api.DEHYDRATING,
-			hasOngoingReplicationParams: []hasOngoingReplicationParams{
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   true,
-				},
-				{
-					collection: "non-existing-collection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "non-existing-shard",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "non-existing-replica",
-					expected:   false,
-				},
-			},
-			expectedError: nil,
-		},
-		{
-			name:   "op is FINALIZING",
-			status: api.FINALIZING,
-			hasOngoingReplicationParams: []hasOngoingReplicationParams{
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   true,
-				},
-				{
-					collection: "non-existing-collection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "non-existing-shard",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "non-existing-replica",
-					expected:   false,
-				},
-			},
-			expectedError: nil,
-		},
-		{
-			name:   "op is INTEGRATING",
-			status: api.INTEGRATING,
-			hasOngoingReplicationParams: []hasOngoingReplicationParams{
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   true,
-				},
-				{
-					collection: "non-existing-collection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "non-existing-shard",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "non-existing-replica",
-					expected:   false,
-				},
-			},
-			expectedError: nil,
-		},
-		{
-			name:   "op is CANCELLED",
-			status: api.CANCELLED,
-			hasOngoingReplicationParams: []hasOngoingReplicationParams{
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "non-existing-collection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "non-existing-shard",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "non-existing-replica",
-					expected:   false,
-				},
-			},
-			expectedError: nil,
-		},
-		{
-			name:   "op is READY",
-			status: api.READY,
-			hasOngoingReplicationParams: []hasOngoingReplicationParams{
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "non-existing-collection",
-					shard:      "shard1",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "non-existing-shard",
-					replica:    "node1",
-					expected:   false,
-				},
-				{
-					collection: "TestCollection",
-					shard:      "shard1",
-					replica:    "non-existing-replica",
-					expected:   false,
-				},
-			},
-			expectedError: nil,
-		},
+		// Non-terminal: active.
+		{name: "op is REGISTERED", status: api.REGISTERED, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is HYDRATING", status: api.HYDRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is FINALIZING", status: api.FINALIZING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is INTEGRATING", status: api.INTEGRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is DEHYDRATING", status: api.DEHYDRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		// Terminal and not marked for deletion: inactive.
+		{name: "op is READY", status: api.READY, shardChecks: inactiveShardChecks, collectionChecks: inactiveCollectionChecks},
+		{name: "op is CANCELLED", status: api.CANCELLED, shardChecks: inactiveShardChecks, collectionChecks: inactiveCollectionChecks},
 	}
 
 	for _, tt := range tests {
@@ -1324,9 +1140,14 @@ func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
 				State:   tt.status,
 			})
 
-			for _, param := range tt.hasOngoingReplicationParams {
-				actual := manager.GetReplicationFSM().HasOngoingReplication(param.collection, param.shard, param.replica)
-				assert.Equal(t, param.expected, actual)
+			fsm := manager.GetReplicationFSM()
+			for _, c := range tt.shardChecks {
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForShard(c.collection, c.shard),
+					"HasActiveReplicationForShard(%q, %q)", c.collection, c.shard)
+			}
+			for _, c := range tt.collectionChecks {
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForCollection(c.collection),
+					"HasActiveReplicationForCollection(%q)", c.collection)
 			}
 		})
 	}

@@ -224,6 +224,36 @@ func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, sha
 	return s.getOpsWithStatus(ops), true
 }
 
+// HasActiveReplicationForShard reports whether a non-terminal replication op exists for
+// collection/shard. The result is independent of which node hosts the source or target
+// replica — both share the collection/shard key — and reads only RAFT-replicated state, so
+// every node in the cluster returns the same answer.
+func (s *ShardReplicationFSM) HasActiveReplicationForShard(collection, shard string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollectionAndShard[collection][shard] {
+		if status, ok := s.statusById[op.ID]; ok && status.ShouldConsumeOps() {
+			return true
+		}
+	}
+	return false
+}
+
+// HasActiveReplicationForCollection is HasActiveReplicationForShard across every shard of the
+// collection, for gating class-wide schema mutations.
+func (s *ShardReplicationFSM) HasActiveReplicationForCollection(collection string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollection[collection] {
+		if status, ok := s.statusById[op.ID]; ok && status.ShouldConsumeOps() {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
 	opsWithStatus := make([]ShardReplicationOpAndStatus, 0, len(ops))
 	for _, op := range ops {
