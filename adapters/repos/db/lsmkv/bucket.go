@@ -1520,7 +1520,9 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 			return err
 		}
 	} else {
-		if _, err := b.active.flush(); err != nil {
+		// Pass the shutdown ctx so a cancelled drop can abort the final flush
+		// mid-write; WAL stays on disk and is replayed on next open.
+		if _, err := b.active.flush(ctx); err != nil {
 			b.flushLock.Unlock()
 			return err
 		}
@@ -1552,8 +1554,17 @@ func (b *Bucket) shouldReuseWAL() bool {
 	return uint64(b.active.commitlogSize()) <= uint64(b.minWalThreshold)
 }
 
+func (b *Bucket) clearFlushing() {
+	b.flushLock.Lock()
+	defer b.flushLock.Unlock()
+	b.flushing = nil
+}
+
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	flushCtx, cancel := ctxFromShouldAbort(shouldAbort, b.logger)
+	defer cancel()
+
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlogSize()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
@@ -1586,7 +1597,7 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	if shouldSwitch {
 		b.haltedFlushTimer.Reset()
 		cycleLength := b.active.ActiveDuration()
-		if err := b.FlushAndSwitch(); err != nil {
+		if err := b.FlushAndSwitch(flushCtx); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
 				WithField("path", b.GetDir()).
 				WithError(err).
@@ -1674,7 +1685,10 @@ func (b *Bucket) isReadOnly() bool {
 // FlushAndSwitch is typically called periodically and does not require manual
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
-func (b *Bucket) FlushAndSwitch() error {
+//
+// Cancelling ctx aborts the disk-write portion mid-stream; see Memtable.flush
+// for the WAL-preservation contract that keeps the data recoverable.
+func (b *Bucket) FlushAndSwitch(ctx context.Context) error {
 	before := time.Now()
 	var err error
 
@@ -1712,8 +1726,15 @@ func (b *Bucket) FlushAndSwitch() error {
 		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
 		b.flushing.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
-	segmentPath, err := b.flushing.flush()
+	segmentPath, err := b.flushing.flush(ctx)
 	if err != nil {
+		// Only an aborted (ctx-cancelled) flush drops b.flushing: the bucket is
+		// being torn down, so this avoids wedging Shutdown's wait-for-flushing
+		// loop and the data is recovered via WAL replay on reopen. A non-cancel
+		// flush error keeps b.flushing so the data stays readable.
+		if ctx.Err() != nil {
+			b.clearFlushing()
+		}
 		return fmt.Errorf("flush: %w", err)
 	}
 

@@ -122,7 +122,7 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 
 			for seg := 0; seg < 2; seg++ {
 				tc.seed(t, bucket, seg, 5000)
-				require.NoError(t, bucket.FlushAndSwitch())
+				require.NoError(t, bucket.FlushAndSwitch(ctx))
 			}
 			require.GreaterOrEqual(t, len(bucket.disk.segments), 2,
 				"need at least two segments on disk to exercise compactOnce")

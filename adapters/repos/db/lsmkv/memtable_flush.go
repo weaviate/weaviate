@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -49,7 +50,11 @@ func (m *Memtable) flushWAL() error {
 	return nil
 }
 
-func (m *Memtable) flush() (segmentPath string, rerr error) {
+// flush serialises the memtable to a .db segment. Cancelling ctx aborts
+// mid-write: the partial .db.tmp is removed by the deferred cleanup, the
+// commitlog stays on disk so the data is reconstructed by WAL replay on
+// the next bucket open.
+func (m *Memtable) flush(ctx context.Context) (segmentPath string, rerr error) {
 	start := time.Now()
 	m.metrics.incFlushingCount(m.strategy)
 	m.metrics.incFlushingInProgress(m.strategy)
@@ -117,32 +122,32 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 
 	switch m.strategy {
 	case StrategyReplace:
-		if keys, err = m.flushDataReplace(segmentFile); err != nil {
+		if keys, err = m.flushDataReplace(ctx, segmentFile); err != nil {
 			return "", err
 		}
 
 	case StrategySetCollection:
-		if keys, err = m.flushDataSet(segmentFile); err != nil {
+		if keys, err = m.flushDataSet(ctx, segmentFile); err != nil {
 			return "", err
 		}
 
 	case StrategyRoaringSet:
-		if keys, err = m.flushDataRoaringSet(segmentFile); err != nil {
+		if keys, err = m.flushDataRoaringSet(ctx, segmentFile); err != nil {
 			return "", err
 		}
 
 	case StrategyRoaringSetRange:
-		if keys, err = m.flushDataRoaringSetRange(segmentFile); err != nil {
+		if keys, err = m.flushDataRoaringSetRange(ctx, segmentFile); err != nil {
 			return "", err
 		}
 		skipIndices = true
 
 	case StrategyMapCollection:
-		if keys, err = m.flushDataMap(segmentFile); err != nil {
+		if keys, err = m.flushDataMap(ctx, segmentFile); err != nil {
 			return "", err
 		}
 	case StrategyInverted:
-		if keys, _, err = m.flushDataInverted(segmentFile, meteredF, bufw); err != nil {
+		if keys, _, err = m.flushDataInverted(ctx, segmentFile, meteredF, bufw); err != nil {
 			return "", err
 		}
 		skipIndices = true
@@ -192,7 +197,7 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	return segmentPath, m.commitlog.delete()
 }
 
-func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataReplace(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	flat := m.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
@@ -215,6 +220,11 @@ func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex
 
 	totalWritten := headerSize
 	for i, node := range flat {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("flush replace memtable: %w", err)
+			}
+		}
 		segNode := &segmentReplaceNode{
 			offset:              totalWritten,
 			tombstone:           node.tombstone,
@@ -236,12 +246,12 @@ func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex
 	return keys, nil
 }
 
-func (m *Memtable) flushDataSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataSet(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	flat := m.keyMulti.flattenInOrder()
-	return m.flushDataCollection(f, flat)
+	return m.flushDataCollection(ctx, f, flat)
 }
 
-func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataMap(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	m.RLock()
 	flat := m.keyMap.flattenInOrder()
 	m.RUnlock()
@@ -268,10 +278,10 @@ func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key
 		}
 
 	}
-	return m.flushDataCollection(f, asMulti)
+	return m.flushDataCollection(ctx, f, asMulti)
 }
 
-func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
+func (m *Memtable) flushDataCollection(ctx context.Context, f *segmentindex.SegmentFile,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
 	totalDataLength, keysToSkip, err := totalValueSizeCollection(flat, m.shouldSkipKeyFunc)
@@ -298,6 +308,11 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	for j, node := range flat {
 		if _, ok := keysToSkip[j]; ok {
 			continue
+		}
+		if j%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("flush collection memtable: %w", err)
+			}
 		}
 
 		ki, err := (&segmentCollectionNode{

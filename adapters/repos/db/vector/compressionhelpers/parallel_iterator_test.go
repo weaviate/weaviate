@@ -243,7 +243,7 @@ func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 		require.Nil(t, err)
 	}
 
-	require.Nil(t, bucket.FlushAndSwitch())
+	require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 
 	return bucket
 }

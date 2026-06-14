@@ -41,7 +41,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -85,7 +85,7 @@ func TestCreateBloomInit(t *testing.T) {
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	for _, ext := range []string{".secondary.0.bloom", ".bloom"} {
 		files, err := os.ReadDir(dirName)
@@ -135,7 +135,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -172,7 +172,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -209,7 +209,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -259,7 +259,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -297,7 +297,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
+	require.Nil(t, b.FlushMemtable(context.Background()))
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -419,7 +419,7 @@ func dontCreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("populate", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
 			WithSecondaryKey(0, []byte("bonjour"))))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(context.Background()))
 	})
 
 	t.Run("check files", func(t *testing.T) {
@@ -456,7 +456,7 @@ func dontRecreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
 			WithSecondaryKey(0, []byte("bonjour"))))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(context.Background()))
 	})
 
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
@@ -499,11 +499,11 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 	t.Run("populate, compact", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
 			WithSecondaryKey(0, []byte("bonjour"))))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(context.Background()))
 
 		require.NoError(t, b.Put([]byte("hello2"), []byte("world2"),
 			WithSecondaryKey(0, []byte("bonjour2"))))
-		require.NoError(t, b.FlushMemtable())
+		require.NoError(t, b.FlushMemtable(context.Background()))
 
 		compacted, err := b.disk.compactOnce(context.Background())
 		require.NoError(t, err)
@@ -617,7 +617,7 @@ func BenchmarkName(b *testing.B) {
 				require.Nil(b, bu.Put([]byte(fmt.Sprintf("hello-%v", i)), []byte(fmt.Sprintf("world-%v", i))))
 			}
 
-			require.Nil(b, bu.FlushMemtable())
+			require.Nil(b, bu.FlushMemtable(context.Background()))
 			bu.Shutdown(ctx)
 
 			files, err := os.ReadDir(dirName)

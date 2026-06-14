@@ -47,7 +47,7 @@ func TestInvertedNaNPropLength(t *testing.T) {
 		err := bucket.MapSet(key, pair)
 		require.Nil(t, err)
 	}
-	err := bucket.FlushAndSwitch()
+	err := bucket.FlushAndSwitch(context.Background())
 	require.Nil(t, err)
 	avg, sum := bucket.disk.GetAveragePropertyLength()
 	bavg, _ := bucket.GetAveragePropertyLength()
@@ -62,7 +62,7 @@ func TestInvertedNaNPropLength(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	err = bucket.FlushAndSwitch()
+	err = bucket.FlushAndSwitch(context.Background())
 	require.Nil(t, err)
 	avg, sum = bucket.disk.GetAveragePropertyLength()
 	bavg, _ = bucket.GetAveragePropertyLength()
@@ -76,7 +76,7 @@ func TestInvertedNaNPropLength(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	err = bucket.FlushAndSwitch()
+	err = bucket.FlushAndSwitch(context.Background())
 	require.Nil(t, err)
 	avg, sum = bucket.disk.GetAveragePropertyLength()
 	bavg, _ = bucket.GetAveragePropertyLength()
