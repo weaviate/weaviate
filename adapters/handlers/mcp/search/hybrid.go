@@ -69,10 +69,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	} else {
 		// Default to all non-ref, non-blob properties (mirrors gRPC). An empty
 		// selection makes the hybrid vector leg return objects without properties.
-		selectProps, err = s.allSelectProperties(args.CollectionName)
-		if err != nil {
-			return nil, err
-		}
+		selectProps = s.allSelectProperties(args.CollectionName)
 	}
 
 	// Build additional properties from return_metadata
@@ -154,19 +151,19 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 // allSelectProperties returns all non-ref, non-blob properties of the class,
 // mirroring the gRPC default. Returns a nil selection if the class is not in
 // the schema, letting the traverser produce the "class not found" error.
-func (s *WeaviateSearcher) allSelectProperties(className string) (search.SelectProperties, error) {
+func (s *WeaviateSearcher) allSelectProperties(className string) search.SelectProperties {
 	class := s.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return nil, nil
+		return nil
 	}
 
 	selectProps := make(search.SelectProperties, 0, len(class.Properties))
 	for _, prop := range class.Properties {
-		dt, err := schema.GetPropertyDataType(class, prop.Name)
-		if err != nil {
-			return nil, fmt.Errorf("get data type of property %q: %w", prop.Name, err)
-		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
+		// Classify from prop.DataType directly; GetPropertyDataType would
+		// re-scan the class per property (O(n^2)).
+		if schema.IsRefDataType(prop.DataType) ||
+			schema.IsBlobDataType(prop.DataType) ||
+			schema.IsBlobHashDataType(prop.DataType) {
 			continue
 		}
 		selectProps = append(selectProps, search.SelectProperty{
@@ -174,7 +171,7 @@ func (s *WeaviateSearcher) allSelectProperties(className string) (search.SelectP
 			IsPrimitive: true,
 		})
 	}
-	return selectProps, nil
+	return selectProps
 }
 
 func buildAdditionalProperties(metadata []string) additional.Properties {
