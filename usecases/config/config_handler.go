@@ -300,6 +300,11 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
+	// length map until first use and frees it after a compaction drops the
+	// segment, trading a one-time load on the first cold BM25 query for memory.
+	LazyPropertyLengthsEnabled *runtime.DynamicValue[bool] `json:"lazy_property_lengths_enabled" yaml:"lazy_property_lengths_enabled"`
+
 	// Export configures the data export feature and its storage destination.
 	Export Export `json:"export" yaml:"export"`
 

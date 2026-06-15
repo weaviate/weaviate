@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -154,9 +155,10 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction    bool
-	disableCompaction  bool
-	lazySegmentLoading bool
+	forceCompaction     bool
+	disableCompaction   bool
+	lazySegmentLoading  bool
+	lazyPropertyLengths *configRuntime.DynamicValue[bool]
 
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
@@ -324,6 +326,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
+			lazyPropertyLengths:          b.lazyPropertyLengths,
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
@@ -1095,6 +1098,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
+	skipPropertyLengths        bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -1108,6 +1112,14 @@ func MapListAcceptDuplicates() MapListOption {
 func MapListLegacySortingRequired() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.legacyRequireManualSorting = true
+	}
+}
+
+// MapListSkipPropertyLengths skips loading an inverted segment's per-document
+// property length map, for callers that read only keys (e.g. filter resolution).
+func MapListSkipPropertyLengths() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.skipPropertyLengths = true
 	}
 }
 
@@ -1156,7 +1168,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
 		propLengths := make(map[uint64]uint32)
-		if segmentStrategy == segmentindex.StrategyInverted {
+		if segmentStrategy == segmentindex.StrategyInverted && !c.skipPropertyLengths {
 			propLengths, err = segmentsDisk[i].getPropertyLengths()
 			if err != nil {
 				return nil, err
