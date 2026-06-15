@@ -701,12 +701,40 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Restore perf baseline
+        if: always()
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: perf-baseline.json
+          key: perf-baseline-${{ matrix.name }}-${{ github.sha }}
+          restore-keys: |
+            perf-baseline-${{ matrix.name }}-
       - name: Acceptance tests
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
           REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
+          ACCEPTANCE_METRICS: "true"
+          PERF_TITLE: "Acceptance performance metrics — ${{ matrix.name }}"
+          PERF_BASELINE: perf-baseline.json
         run: ./test/run.sh ${{ matrix.test }}
+      - name: Upload perf metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-metrics-${{ matrix.name }}
+          path: perf-metrics.json
+          if-no-files-found: ignore
+      # On main, promote this run's metrics to the baseline future PRs compare against.
+      - name: Promote perf baseline (main only)
+        if: always() && github.ref == 'refs/heads/main'
+        run: cp -f perf-metrics.json perf-baseline.json || true
+      - name: Save perf baseline (main only)
+        if: always() && github.ref == 'refs/heads/main' && hashFiles('perf-baseline.json') != ''
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: perf-baseline.json
+          key: perf-baseline-${{ matrix.name }}-${{ github.sha }}
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
@@ -768,15 +796,42 @@ jobs:
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
           fi
+      - name: Restore perf baseline
+        if: always()
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: perf-baseline.json
+          key: perf-baseline-${{ matrix.name }}-${{ github.sha }}
+          restore-keys: |
+            perf-baseline-${{ matrix.name }}-
       - name: Acceptance tests Large
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         env:
           REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
+          ACCEPTANCE_METRICS: "true"
+          PERF_TITLE: "Acceptance performance metrics — ${{ matrix.name }}"
+          PERF_BASELINE: perf-baseline.json
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+      - name: Upload perf metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-metrics-${{ matrix.name }}
+          path: perf-metrics.json
+          if-no-files-found: ignore
+      - name: Promote perf baseline (main only)
+        if: always() && github.ref == 'refs/heads/main'
+        run: cp -f perf-metrics.json perf-baseline.json || true
+      - name: Save perf baseline (main only)
+        if: always() && github.ref == 'refs/heads/main' && hashFiles('perf-baseline.json') != ''
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: perf-baseline.json
+          key: perf-baseline-${{ matrix.name }}-${{ github.sha }}
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
