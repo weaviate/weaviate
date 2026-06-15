@@ -447,8 +447,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			k1 = sg.bm25config.K1
 		}
 
-		// the cursors below load the inputs' maps; release any that only this
-		// compaction loaded, so an aborted compaction doesn't leave them pinned
+		// open the (possibly lazy-loaded) segments via the cursors before reading
+		// isPropertyLengthsLoaded: an unloaded lazySegment reports false, which
+		// would wrongly free an eagerly-loaded map on an aborted compaction.
+		// After this, the flag is false only for a map this compaction will load.
+		leftCursor := left.newInvertedCursorReusable()
+		rightCursor := right.newInvertedCursorReusable()
 		if !left.isPropertyLengthsLoaded() {
 			defer left.freePropertyLengths()
 		}
@@ -456,7 +460,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			defer right.freePropertyLengths()
 		}
 
-		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
+		c := newCompactorInverted(f, leftCursor, rightCursor,
 			level, secondaryIndices, cleanupTombstones,
 			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
 
