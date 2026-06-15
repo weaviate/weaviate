@@ -447,6 +447,16 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			k1 = sg.bm25config.K1
 		}
 
+		// the cursors below load the inputs' property length maps. Release any
+		// map that only this compaction caused to load, so an idle (or aborted)
+		// compaction does not leave it pinned in memory.
+		if !left.isPropertyLengthsLoaded() {
+			defer left.freePropertyLengths()
+		}
+		if !right.isPropertyLengthsLoaded() {
+			defer right.freePropertyLengths()
+		}
+
 		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
 			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
@@ -669,6 +679,8 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 
 	ec := errorcompounder.New()
 	for _, seg := range toDrop {
+		// refCount is 0 here, so no reader can still hold the property lengths map
+		seg.freePropertyLengths()
 		if err := seg.close(); err != nil {
 			ec.Add(fmt.Errorf("close segment: %w", err))
 			continue
