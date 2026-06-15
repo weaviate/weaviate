@@ -180,36 +180,34 @@ func (s *segment) loadPropertyLengthsLocked() error {
 		}
 	}
 
+	if len(ids) > 0 {
+		minID, maxID := ids[0], ids[0]
+		for _, id := range ids[1:] {
+			if id < minID {
+				minID = id
+			}
+			if id > maxID {
+				maxID = id
+			}
+		}
+		span := maxID - minID + 1
+		if span/3 <= uint64(len(ids)) {
+			// dense enough (≥1/3 occupancy): the dense array is both smaller than the
+			// pairs (4B×span ≤ 12B×count) and O(1) to read. Fill needs no sort.
+			dense := make([]uint32, span)
+			for i, id := range ids {
+				dense[id-minID] = lens[i]
+			}
+			s.invertedData.propLengthsDense = dense
+			s.invertedData.propLengthsMin = minID
+		} else {
+			sortPropLenPairs(ids, lens)
+			s.invertedData.propLengthIds = ids
+			s.invertedData.propLengthLens = lens
+		}
+	}
+
 	s.invertedData.propertyLengthsLoaded = true
-	if len(ids) == 0 {
-		return nil
-	}
-
-	minID, maxID := ids[0], ids[0]
-	for _, id := range ids[1:] {
-		if id < minID {
-			minID = id
-		}
-		if id > maxID {
-			maxID = id
-		}
-	}
-	span := maxID - minID + 1
-	if span/3 <= uint64(len(ids)) {
-		// dense enough (≥1/3 occupancy): the dense array is both smaller than the
-		// pairs (4B×span ≤ 12B×count) and O(1) to read. Fill needs no sort.
-		dense := make([]uint32, span)
-		for i, id := range ids {
-			dense[id-minID] = lens[i]
-		}
-		s.invertedData.propLengthsDense = dense
-		s.invertedData.propLengthsMin = minID
-		return nil
-	}
-
-	sortPropLenPairs(ids, lens)
-	s.invertedData.propLengthIds = ids
-	s.invertedData.propLengthLens = lens
 	return nil
 }
 

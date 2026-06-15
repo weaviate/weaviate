@@ -26,7 +26,7 @@ import (
 
 var blockMaxBufferSize = 4096
 
-func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
+func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsView) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
 	if s.readFromMemory {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
@@ -50,15 +50,9 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]*terms.BlockEntry, 1)
-		// single lookup through the segment view (lazily loaded; reset triggers
-		// the load via propLengthsView before this runs)
-		v := propLengthsView{
-			dense: s.invertedData.propLengthsDense,
-			min:   s.invertedData.propLengthsMin,
-			ids:   s.invertedData.propLengthIds,
-			lens:  s.invertedData.propLengthLens,
-		}
-		propLength := v.get(data.DocIds[0])
+		// reuse the snapshot reset already took under lock (propLengthsView), so
+		// this never reads the segment's arrays unlocked
+		propLength := plView.get(data.DocIds[0])
 		tf := data.Tfs[0]
 		entries[0] = &terms.BlockEntry{
 			Offset:              0,
@@ -349,7 +343,7 @@ func (s *SegmentBlockMax) reset() error {
 		return err
 	}
 
-	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node)
+	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node, &s.plView)
 	if err != nil {
 		return err
 	}
