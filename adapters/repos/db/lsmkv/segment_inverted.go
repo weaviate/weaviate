@@ -216,18 +216,17 @@ func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
 		return nil, fmt.Errorf("property length only supported for inverted strategy")
 	}
 
+	// the loaded check and the map read must share one critical section:
+	// freePropertyLengths can flip loaded back to false and nil the map, so a
+	// dropped lock between them would return a nil map to a live reader
 	s.invertedData.lockInvertedData.RLock()
-	loaded := s.invertedData.propertyLengthsLoaded
+	if s.invertedData.propertyLengthsLoaded {
+		defer s.invertedData.lockInvertedData.RUnlock()
+		return s.invertedData.propertyLengths, nil
+	}
 	s.invertedData.lockInvertedData.RUnlock()
 
-	if !loaded {
-		return s.loadPropertyLengths()
-	}
-
-	s.invertedData.lockInvertedData.RLock()
-	defer s.invertedData.lockInvertedData.RUnlock()
-
-	return s.invertedData.propertyLengths, nil
+	return s.loadPropertyLengths()
 }
 
 func (s *segment) isPropertyLengthsLoaded() bool {
