@@ -34,36 +34,34 @@ import (
 // ---------------------------------------------------------------------------
 //
 // andLeaves dispatches on the relationship between the two inputs'
-// TruthScopes (same TS, ancestor+child, siblings). The branch picked
+// Scopes (same Scope, ancestor+child, siblings). The branch picked
 // determines merge scope + lift strategy; result.CleanAbove is computed
-// uniformly inside andAtScope as the deepest of (merge scope, left.CS,
-// right.CS).
+// uniformly inside andAtScope as the deepest of (merge scope, left.CA,
+// right.CA).
 //
-// Notation: A = ancestor (shallower TS), C = child (deeper TS).
+// Notation: A = ancestor (shallower Scope), C = child (deeper Scope).
 //
-//   scope relation       branch condition                                          merge scope   action
-//   ──────────────────────────────────────────────────────────────────────────────────────────────────
-//   same TS              (always)                                                  left.TS       andAtScope
-//   ──────────────────────────────────────────────────────────────────────────────────────────────────
-//   ancestor + child     A.CleanBelow && (A.aboveScopeClean || A.Scope==propName)    C.Scope          andAtScope
-//   ancestor + child     depth(C.CS) ≤ depth(A.Scope) (branch 1 missed)               A.Scope          andAtScope (no lift)
-//   ancestor + child     C not clean at A.Scope                                       A.Scope          liftToScope(C, A.Scope) then andAtScope
-//   ──────────────────────────────────────────────────────────────────────────────────────────────────
-//   siblings (LCA above) (always)                                                  LCA           lift both to LCA, recurse same-TS
+//   scope relation       branch condition                                  merge scope   action
+//   ─────────────────────────────────────────────────────────────────────────────────────────────
+//   same Scope           (always)                                          left.Scope    andAtScope
+//   ─────────────────────────────────────────────────────────────────────────────────────────────
+//   ancestor + child     A.aboveScopeClean                                 C.Scope       andAtScope
+//   ancestor + child     depth(C.CleanAbove) ≤ depth(A.Scope) (branch 1 missed) A.Scope  andAtScope (no lift)
+//   ancestor + child     C not clean at A.Scope                            A.Scope       liftToScope(C, A.Scope) then andAtScope
+//   ─────────────────────────────────────────────────────────────────────────────────────────────
+//   siblings (LCA above) (always)                                          LCA           lift both to LCA, recurse same-Scope
 //
-// The first (broadcasting) branch needs TWO independent claims: //   - CleanBelow — A.Bitmap has authentic descendant bits down through
-//     C.Scope via the elementPositions encoding. Without this, the intersection
-//     at C.Scope would pick up bogus descendants of A's non-matching elements.
-//   - aboveScopeClean OR A.Scope==propName — A.Bitmap is authentic at every scope
-//     above A.Scope (aboveScopeClean), or there's no scope above A.Scope to be unclean
-//     about (A.Scope is the property root, e.g. L0-style schema).
-//
-// At L2 these two flags are practically correlated for positive operands
-// (aboveScopeClean=true, CleanBelow=true) and for negate (both false). At
-// L0 they diverge: a positive leaf has CleanBelow=true but
-// aboveScopeClean=false because there's no scope above propName — without the
-// explicit propName check the branch would miss the case and land at A.Scope
-// instead of C.Scope.
+// The broadcasting branch fires when ancestor.aboveScopeClean() is true.
+// By the CleanAbove convention, this is true iff ancestor was constructed
+// from the elementPositions encoding (positive leaves, OR-of-positives,
+// or broadcasting-derived compounds) — operands whose Bitmaps have BOTH
+// authentic chain bits above Scope AND authentic descendant bits below.
+// Positive leaves set CleanAbove="" (depth 0), so aboveScopeClean is
+// always true for them at any schema depth, including L0 where Scope is
+// the property root (depth 1). Compounds from same-Scope/siblings AND,
+// negate, etc. set CleanAbove=Scope, so aboveScopeClean returns false
+// and broadcasting is correctly skipped — without needing a separate
+// CleanBelow flag or property-root carve-out.
 //
 // The second ancestor+child branch uses depth(C.CS) ≤ depth(A.Scope),
 // NOT just C.aboveScopeClean. C may be clean somewhere above its own TS
@@ -253,60 +251,60 @@ func (i *fastPathIndex) addDoc(t *testing.T, prop *models.Property, docID uint64
 // Renamed from NestedResult to avoid a future collision when the runtime type
 // lands in the same package.
 //
-// The struct encodes three distinct claims about Bitmap: //
+// The struct encodes two claims about Bitmap:
 //
 //  1. Scope: the scope at which the predicate's natural witnesses live.
 //     Used for Witnesses computation, dispatch (commonScope), and as the
 //     scope `negate` inverts at.
 //
-//  2. CleanAbove: the SHALLOWEST scope at which Bitmap is still ghost-free
-//     ABOVE Scope. Equivalently, Bitmap is authentic at every scope from
-//     Scope up to and including CleanAbove. Above CleanAbove, Bitmap may
-//     carry owner-level chain bits that don't correspond to per-element
-//     witnesses. Convention: CleanAbove == propName means "clean all the way
-//     up to the property root" (the strongest single-leaf claim);
-//     CleanAbove == Scope means "no cleanness claim above Scope".
+//  2. CleanAbove: where Bitmap's authenticity stops. Two conventions:
 //
-//  3. CleanBelow: whether Bitmap's bits at scopes BELOW Scope are
-//     authentic descendants of real matching elements (as produced by the
-//     elementPositions = chain + selfMarker + descendantSelves encoding in
-//     assign.go). Positive leaves and AND/OR compositions of positives all
-//     have CleanBelow=true. `negate` does not — its Bitmap = _exists(Scope)
-//     AndNot Witnesses carries descendant markers of every Scope-element
-//     including non-matching ones.
+//     - CleanAbove == "" (the empty sentinel) means the operand is FULLY
+//       authentic — every bit traces to a real matching element's
+//       elementPositions encoding (chain + selfMarker + descendantSelves
+//       from assign.go), so chain bits above Scope are authentic ancestors
+//       AND descendant bits below Scope are authentic descendants. Positive
+//       leaves (leafPositive, leafIsNullFalse, leafContainsAny) earn this,
+//       as do OR-of-such-operands and the broadcasting-derived compounds
+//       that preserve the elementPositions structure within their subtree.
 //
-// The two claims (CleanAbove and CleanBelow) are independent. They look
-// correlated in mid-tree cases — `aboveScopeClean()` implies CleanBelow in
-// practice for L2-style queries — but they diverge at the property root: // a positive leaf with Scope=propName has CleanAbove=propName=Scope, so
-// `aboveScopeClean()` returns false even though descendants are authentic.
-// CleanBelow captures this directly so the dispatch can fire the
-// broadcasting branch at the root boundary.
+//     - CleanAbove == some specific path (typically Scope itself, or an
+//       ancestor.Scope for broadcasting-derived results) means Bitmap is
+//       authentic only at scopes from CleanAbove down to Scope. Above
+//       CleanAbove, owner-level chain bits may leak as ghosts. AND/OR
+//       compounds at the merge ceiling, negate, ContainsAll, ContainsNone,
+//       and pinned helpers all fall here.
 //
-// Downstream rule for lifting: //   - To project Bitmap to a target T at-or-below CleanAbove: anchor-intersect
+// The single field encodes what previously needed two: an
+// elementPositions-derived operand inherits authentic descendants for
+// free, and the empty-sentinel CleanAbove signals this. The dispatch's
+// `aboveScopeClean()` check (depth(CleanAbove) < depth(Scope)) is true iff
+// the operand was constructed in a way that produces authentic descendants
+// down through the merge child.Scope.
 //
-//	  (cheap, equivalent to a clean lift).
-//	- To project to T strictly above CleanAbove: must use LiftToAncestor
-//	  (rebuild from Witnesses).
+// Downstream rule for lifting:
+//   - Cheap anchor-intersect when target.depth >= CleanAbove.depth
+//     (target is at-or-below the operand's clean range).
+//   - Full LiftToAncestor when target.depth < CleanAbove.depth (target is
+//     above the clean range; rebuild from Witnesses).
 //
 // Downstream rule for ancestor+child AND dispatch: the broadcasting branch
-// (merge at child.Scope) fires when ancestor.CleanBelow is true AND
-// ancestor's Bitmap is clean at-or-above ancestor.Scope (either
-// aboveScopeClean, or ancestor.Scope is the property root and there's no
-// scope above to be unclean at).
+// (merge at child.Scope) fires when ancestor.aboveScopeClean() is true.
 type fastPathResult struct {
 	Scope      string
 	Bitmap     *sroar.Bitmap
 	Witnesses  *sroar.Bitmap
 	CleanAbove string
-	CleanBelow bool
 }
 
 // aboveScopeClean reports whether the result's Bitmap is authentic at one or
-// more scopes strictly above Scope. This is the "above-Scope" half of the
-// authenticity claim — separate from CleanBelow which covers below-Scope.
-// Returns false when Scope is the property root (no scope above), so
-// callers that want to allow the property-root case must combine this with
-// an explicit `Scope == idx.propName` check.
+// more scopes strictly above Scope. Equivalent (by the CleanAbove convention)
+// to "the operand was constructed in a way that gives it authentic
+// descendants below Scope" — positive leaves and broadcasting-derived
+// compounds both inherit the elementPositions encoding's coupled above-and-
+// below authenticity, and both have CleanAbove strictly shallower than Scope.
+// Compounds from same-Scope/siblings AND, negate, etc. have CleanAbove ==
+// Scope and return false.
 func (r *fastPathResult) aboveScopeClean() bool {
 	return pathDepth(r.CleanAbove) < pathDepth(r.Scope)
 }
@@ -331,18 +329,14 @@ func deepestPath(scopes ...string) string {
 // Leaf builders
 // ---------------------------------------------------------------------------
 
-// leafPositive realizes a positive value leaf `path = value`: //
+// leafPositive realizes a positive value leaf `path = value`:
 //
-//	Scope     = parent(path)
-//	Bitmap           = value(path, value)
-//	Witnesses   = Bitmap ∩ _anchor(Scope)
-//	CleanAbove     = propName (clean all the way up to the property root —
-//	                   every bit in Bitmap traces to an authentic matching
-//	                   element's elementPositions, including the full
-//	                   ancestorChain).
-//	CleanBelow = true (Bitmap at scopes below TS includes only
-//	                   descendantSelves of matching elements via the
-//	                   elementPositions encoding in assign.go).
+//	Scope      = parent(path)
+//	Bitmap     = value(path, value)
+//	Witnesses  = Bitmap ∩ _anchor(Scope)
+//	CleanAbove = "" (fully authentic — every bit traces to a real matching
+//	                 element's elementPositions encoding; see fastPathResult
+//	                 doc for the convention)
 func leafPositive(idx *fastPathIndex, path string, value any) *fastPathResult {
 	truthScope := parentPath(path)
 	rich := cloneOrEmpty(idx.values[path][value])
@@ -351,8 +345,7 @@ func leafPositive(idx *fastPathIndex, path string, value any) *fastPathResult {
 		Scope:      truthScope,
 		Bitmap:     rich,
 		Witnesses:  support,
-		CleanAbove: idx.propName,
-		CleanBelow: true,
+		CleanAbove: "",
 	}
 }
 
@@ -360,11 +353,10 @@ func leafPositive(idx *fastPathIndex, path string, value any) *fastPathResult {
 // Mirrors leafPositive but reads from _exists instead of a value-keyed bucket
 // so the leaf fires for every emission regardless of the recorded value.
 //
-//	Scope     = parent(path)
-//	Bitmap           = _exists(path)
-//	Witnesses   = Bitmap ∩ _anchor(Scope)
-//	CleanAbove     = propName
-//	CleanBelow = true (same authentic-descendant encoding as positive)
+//	Scope      = parent(path)
+//	Bitmap     = _exists(path)
+//	Witnesses  = Bitmap ∩ _anchor(Scope)
+//	CleanAbove = "" (same authentic-descendant encoding as positive)
 //
 // TODO aliszka:nested_filtering — for object / object-array paths
 // specifically, an alternative encoding would set Scope to the array's
@@ -420,8 +412,7 @@ func leafIsNullFalse(idx *fastPathIndex, path string) *fastPathResult {
 		Scope:      truthScope,
 		Bitmap:     rich,
 		Witnesses:  support,
-		CleanAbove: idx.propName,
-		CleanBelow: true,
+		CleanAbove: "",
 	}
 }
 
@@ -432,21 +423,17 @@ func leafIsNullFalse(idx *fastPathIndex, path string) *fastPathResult {
 // `universe \ pos.Witnesses` for both Witnesses (over _anchor) and
 // Bitmap (over _exists).
 //
-// Both authenticity claims collapse here: //   - CleanAbove = Scope: Bitmap = _exists(TS) AndNot ES carries chain
+// CleanAbove collapses to the negation's own Scope: Bitmap = _exists(Scope)
+// AndNot Witnesses carries chain bits from every doc with any Scope-element
+// (so above-Scope chain bits may be ghosts) AND carries descendant markers
+// of every Scope-element including matching ones (so below-Scope bits are
+// bogus for the negation predicate). Both halves are non-authentic, so the
+// non-"" CleanAbove correctly signals that the operand isn't broadcast-safe.
 //
-//	    bits from every doc with any TS-element, regardless of whether a
-//	    NON-matching witness exists, so scopes above TS carry owner-level
-//	    ghosts.
-//	  - CleanBelow = false: _exists(TS) also carries descendant markers
-//	    of every TS-element, including matching ones (which are NOT witnesses
-//	    for the negation). Below-TS bits aren't authentic for the negation
-//	    predicate.
-//
-//		Scope     = pos.Scope
-//		Witnesses   = _anchor(Scope) ANDNOT pos.Witnesses
-//		Bitmap           = _exists(Scope) ANDNOT pos.Witnesses
-//		CleanAbove     = Scope (no claim above)
-//		CleanBelow = false (no claim below)
+//	Scope      = pos.Scope
+//	Witnesses  = _anchor(Scope) ANDNOT pos.Witnesses
+//	Bitmap     = _exists(Scope) ANDNOT pos.Witnesses
+//	CleanAbove = Scope (no claim above; not "")
 func negate(idx *fastPathIndex, pos *fastPathResult) *fastPathResult {
 	truthAnchor := idx.anchor[pos.Scope]
 	return &fastPathResult{
@@ -454,7 +441,6 @@ func negate(idx *fastPathIndex, pos *fastPathResult) *fastPathResult {
 		Witnesses:  cloneOrEmpty(truthAnchor).AndNot(pos.Witnesses),
 		Bitmap:     cloneOrEmpty(idx.exists[pos.Scope]).AndNot(pos.Witnesses),
 		CleanAbove: pos.Scope,
-		CleanBelow: false,
 	}
 }
 
@@ -616,7 +602,6 @@ func pinnedFromValueSet(idx *fastPathIndex, a *sroar.Bitmap, valuePath string, p
 		Bitmap:     rich,
 		Witnesses:  exactSupport,
 		CleanAbove: truthScope,
-		CleanBelow: true,
 	}
 }
 
@@ -751,7 +736,6 @@ func perElementNotFromSubtractands(idx *fastPathIndex, valuePath string, pins []
 		Bitmap:     rich,
 		Witnesses:  es,
 		CleanAbove: truthScope,
-		CleanBelow: false, // negation shape — _exists carries descendants of all TS-elements
 	}
 }
 
@@ -790,8 +774,7 @@ func leafContainsAny(idx *fastPathIndex, path string, values ...any) *fastPathRe
 		Scope:      truthScope,
 		Bitmap:     rich,
 		Witnesses:  support,
-		CleanAbove: idx.propName,
-		CleanBelow: true, // union of value buckets — each bucket has authentic descendants
+		CleanAbove: "",
 	}
 }
 
@@ -835,7 +818,6 @@ func leafContainsAll(idx *fastPathIndex, path string, values ...any) *fastPathRe
 		Bitmap:     rich,
 		Witnesses:  support,
 		CleanAbove: truthScope,
-		CleanBelow: true, // intersection of authentic-descendant buckets stays authentic
 	}
 }
 
@@ -939,7 +921,6 @@ func leafContainsNone(idx *fastPathIndex, path string, values ...any) *fastPathR
 		Bitmap:     rich,
 		Witnesses:  es,
 		CleanAbove: truthScope,
-		CleanBelow: false, // negation shape — _exists carries descendants of all TS-elements
 	}
 }
 
@@ -1000,21 +981,16 @@ func andLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult 
 	common := commonScope(left.Scope, right.Scope)
 
 	// Siblings (LCA is above both) → lift both up, recurse as same-scope.
-	// CleanBelow is forced false on the lifted operands because a
-	// siblings AND result's Bitmap has bits only at LCA-self (each
-	// operand's bits live in its own non-overlapping subtree below LCA;
-	// the intersection at descendant scopes is empty). Subsequent merges
-	// that interpret CleanBelow=true as "broadcasts to every descendant
-	// subtree" would fail when reaching into a sibling subtree the
-	// inner AND never populated (e.g. a doors-leaf merging with a
-	// (spoiler AND tires) compound — the broadcasting branch would land
-	// the result at cars.doors but find no bits there).
+	// Cheap lift preserves each operand's CleanAbove (typically "" for
+	// positive leaves). The subsequent same-Scope AND sets ceiling=Scope,
+	// so the recursive result naturally has CleanAbove == Scope and
+	// aboveScopeClean() returns false — preventing the dispatch from
+	// later incorrectly broadcasting into a sibling subtree the inner
+	// AND never populated.
 	if common != left.Scope && common != right.Scope {
-		leftLifted := liftToScope(idx, left, common)
-		rightLifted := liftToScope(idx, right, common)
-		leftLifted.CleanBelow = false
-		rightLifted.CleanBelow = false
-		return andLeaves(idx, leftLifted, rightLifted)
+		return andLeaves(idx,
+			liftToScope(idx, left, common),
+			liftToScope(idx, right, common))
 	}
 
 	// One is ancestor of the other.
@@ -1025,22 +1001,19 @@ func andLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult 
 		ancestor, child = right, left
 	}
 
-	if ancestor.CleanBelow && (ancestor.aboveScopeClean() || ancestor.Scope == idx.propName) {
-		// A broadcasts authentic descendants down through child.TS, AND its
-		// Bitmap is clean at-or-above A.Scope (either there's a real cleanness
-		// ceiling above A.Scope, OR A.Scope is the property root and there's no
-		// scope above to be unclean at). Merge at child.TS. The structural
-		// cleanness CEILING for the AND is ancestor.TS (not the merge scope
-		// C.Scope): at scopes in [C.Scope, A.Scope] the chain bits in either operand
-		// are per-element selfMarkers and the intersection is genuine
-		// same-element correlation; strictly above A.Scope the chain bits are
-		// shared and the AND can produce owner-level ghosts.
+	if ancestor.aboveScopeClean() {
+		// A's authenticity range extends strictly above its own Scope,
+		// which (by the CleanAbove convention) means A was constructed
+		// with the elementPositions encoding — chain + selfMarker +
+		// descendantSelves. So A's Bitmap broadcasts authentic descendant
+		// bits down through child.Scope. Merge at child.Scope.
 		//
-		// The `|| ancestor.TS == propName` clause matters at the property
-		// root (L0-style schema): a positive leaf there has CS=TS=propName,
-		// so aboveScopeClean() is false even though CleanBelow=true.
-		// Without this clause the broadcasting branch would never fire at
-		// L0 even for trivially-authentic positive operands.
+		// The cleanness CEILING for the AND is ancestor.Scope (not the
+		// merge scope child.Scope): at scopes in [child.Scope, A.Scope]
+		// the chain bits in either operand are per-element selfMarkers
+		// and the intersection is genuine same-element correlation;
+		// strictly above A.Scope the chain bits are shared and the AND
+		// can produce owner-level ghosts.
 		return andAtScope(idx, child, ancestor, child.Scope, ancestor.Scope)
 	}
 	if pathDepth(child.CleanAbove) <= pathDepth(ancestor.Scope) {
@@ -1077,7 +1050,7 @@ func andLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult 
 // result.CleanAbove is the deepest of (ceiling, left.CleanAbove,
 // right.CleanAbove) — the AND can only be clean at scopes where the
 // structural ceiling AND both operands provide cleanness.
-// result.CleanBelow survives only when both operands broadcast down —
+
 // the intersection of two authentic-descendant bitmaps is authentic at
 // every scope below scope, but if either operand carries bogus
 // descendants the intersection may pick them up.
@@ -1089,7 +1062,6 @@ func andAtScope(idx *fastPathIndex, left, right *fastPathResult, scope, ceiling 
 		Bitmap:     rich,
 		Witnesses:  support,
 		CleanAbove: deepestPath(ceiling, left.CleanAbove, right.CleanAbove),
-		CleanBelow: left.CleanBelow && right.CleanBelow,
 	}
 }
 
@@ -1154,7 +1126,6 @@ func liftToScope(idx *fastPathIndex, leaf *fastPathResult, targetScope string) *
 		Bitmap:     rich,
 		Witnesses:  support,
 		CleanAbove: cleanScope,
-		CleanBelow: leaf.CleanBelow,
 	}
 }
 
@@ -1181,7 +1152,6 @@ func orLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult {
 		Bitmap:     l.Bitmap.Clone().Or(r.Bitmap),
 		Witnesses:  l.Witnesses.Clone().Or(r.Witnesses),
 		CleanAbove: deepestPath(l.CleanAbove, r.CleanAbove),
-		CleanBelow: l.CleanBelow && r.CleanBelow,
 	}
 }
 
@@ -1658,7 +1628,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 				return leafPositive(idx, "countries.garages.cars.year", 2020)
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			wantDocs:       []uint64{100, 200, 600, 810, 820},
 		},
 		{
@@ -1679,7 +1649,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 				return leafIsNullFalse(idx, "countries.garages.cars.year")
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			wantDocs:       []uint64{100, 200, 300, 400, 500, 600, 700, 810, 820},
 		},
 		{
@@ -1747,7 +1717,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 				return leafIsNullFalse(idx, "countries.garages.cars")
 			},
 			wantScope:      "countries.garages",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			wantDocs:       []uint64{100, 200, 300, 400, 500, 600, 700, 800, 810, 820, 830, 900},
 		},
 		{
@@ -1768,7 +1738,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 				return leafPositive(idx, "countries.garages.cars.colors", "red")
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			wantDocs:       []uint64{100, 200, 300},
 		},
 		{
@@ -1791,7 +1761,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 				return leafPositive(idx, "countries.garages.cars.accessories.type", "spoiler")
 			},
 			wantScope:      "countries.garages.cars.accessories",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// 830 PASSES via accessories[1] — verifies walker positions for
 			// non-first array elements at depth 4. 800 PASSES via spoiler
 			// accessories in both g[0].cars[0] and g[1].cars[0]; 900 PASSES
@@ -1820,7 +1790,7 @@ func TestFastPathL2_SingleLeaf(t *testing.T) {
 				return leafPositive(idx, "countries.garages.cars.year", 9999)
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			wantDocs:       nil,
 		},
 		// Multi-pin path — two pins (garages[1] + cars[2]). Verifies the
@@ -2025,7 +1995,7 @@ func TestFastPathL2_Merge(t *testing.T) {
 					leafPositive(idx, "countries.garages.cars.year", 2020))
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// 100: cars[0].year=2020. 200: cars[0].make=honda. 300: // cars[1].make=honda. 600 country 1: cars[1].year=2020.
 			// 810: cars[0] year=2020 (and make=honda). 820 country 0: // cars[1] year=2020 (and make=honda). 400/500/700/830 lack both.
 			wantDocs: []uint64{100, 200, 300, 600, 810, 820},
@@ -2244,13 +2214,13 @@ func TestFastPathL2_Merge(t *testing.T) {
 					leafPositive(idx, "countries.garages.cars.tires.width", 205))
 			},
 			wantScope: "countries.garages.cars",
-			// CleanAbove = propName. Both operands are positive leaves
+			// CleanAbove = "" (fully authentic — see fastPathResult doc)
 			// (CS=countries). Lifting from accessories/tires to LCA=cars is
 			// cheap (target=cars is at-or-below CS=countries), so Bitmap is
 			// reused unchanged and the cleanness claim above LCA is
 			// preserved through the lift. OR of two clean-at-countries
 			// operands stays clean at countries.
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// spoiler-accessory contributors: doc 100 cars[0], doc 200
 			// cars[0], doc 800 g[0] cars[0] + g[1] cars[0], doc 830 cars[0]
 			// (accessories[1]), doc 900 g[1] cars[0] — docs {100, 200, 800,
@@ -2284,12 +2254,12 @@ func TestFastPathL2_Merge(t *testing.T) {
 					leafPositive(idx, "countries.garages.cars.make", "ford"))
 			},
 			wantScope: "countries.garages",
-			// CleanAbove = propName. warsaw is already at LCA=garages, so
+			// CleanAbove = "" (fully authentic — see fastPathResult doc)
 			// its lift is the early-return no-op (Bitmap and CS untouched).
 			// ford takes the cheap lift to garages: target=garages is
 			// at-or-below CS=countries, Bitmap is reused and CS preserved.
 			// The OR ends up clean at countries.
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// warsaw garages: doc 800 g[0], doc 900 g[0] — docs {800, 900}.
 			// ford-cars (make=ford): doc 300, 400, 500 (g[0] cars[1]),
 			// 600 (country 0 g[0] cars[0]), 700 (g[1] cars[0]), 820
@@ -2657,7 +2627,7 @@ func TestFastPathL2_Merge(t *testing.T) {
 					leafPositive(idx, "countries.garages.cars.colors", "blue"))
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// make=honda: {100, 200, 300, 810, 820}.
 			// year=2018: {100, 500, 600, 820} (cars with year=2018).
 			// colors=blue: {100, 200} (cars with blue in their colors).
@@ -2681,11 +2651,11 @@ func TestFastPathL2_Merge(t *testing.T) {
 					leafPositive(idx, "countries.garages.cars.doors.count", 4))
 			},
 			wantScope: "countries.garages.cars",
-			// CleanAbove = propName. Three sibling positive leaves under
+			// CleanAbove = "" (fully authentic — see fastPathResult doc)
 			// cars; each lifts to LCA=cars via the cheap path (Bitmap and CS
 			// preserved). OR result keeps the chain-up cleanness all the
 			// way to the property root.
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// spoiler: {100, 200, 800, 830, 900}.
 			// 205-tires: {100, 200, 800, 900}.
 			// doors=4: {800, 900}.
@@ -2710,10 +2680,10 @@ func TestFastPathL2_Merge(t *testing.T) {
 					leafPositive(idx, "countries.garages.cars.tires.width", 205))
 			},
 			wantScope: "countries.garages",
-			// CleanAbove = propName. All three are positive leaves
+			// CleanAbove = "" (fully authentic — see fastPathResult doc)
 			// (CS=countries); each lift to LCA=garages is cheap and
 			// preserves the operand's CleanAbove.
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// warsaw garages: {800, 900}.
 			// make=honda: {100, 200, 300, 810, 820}.
 			// 205-tires: {100, 200, 800, 900}.
@@ -2932,7 +2902,7 @@ func TestFastPathL2_Merge(t *testing.T) {
 				return leafContainsAny(idx, "countries.garages.cars.make", "honda", "ford")
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// honda: {100, 200, 300, 810, 820}.
 			// ford: {300, 400, 500, 600, 700, 820}.
 			// Union: {100, 200, 300, 400, 500, 600, 700, 810, 820}.
@@ -2946,7 +2916,7 @@ func TestFastPathL2_Merge(t *testing.T) {
 				return leafContainsAny(idx, "countries.garages.cars.make", "bmw", "kia")
 			},
 			wantScope:      "countries.garages.cars",
-			wantCleanAbove: "countries",
+			wantCleanAbove: "",
 			// bmw: doc 500 g[1] cars[0], doc 600 country 1 g[0] cars[0].
 			// kia: doc 820 country 1 g[0] cars[0].
 			// Union: {500, 600, 820}.
@@ -3534,7 +3504,7 @@ func TestFastPathL2_CompoundANDLiftedAboveCleanScope(t *testing.T) {
 	// compound's CleanAbove=garages — exercising the lift-above-CS path.
 	garagesExist := leafIsNullFalse(idx, "countries.garages")
 	require.Equal(t, "countries", garagesExist.Scope)
-	require.Equal(t, "countries", garagesExist.CleanAbove)
+	require.Equal(t, "", garagesExist.CleanAbove)
 
 	r := andLeaves(idx, compound, garagesExist)
 

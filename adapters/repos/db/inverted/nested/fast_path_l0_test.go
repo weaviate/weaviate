@@ -199,7 +199,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPositive(idx, "cars.year", 2020)
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars", // propName — clean to property root
+			wantCleanAbove: "", // propName — clean to property root
 			// 100 cars[0]=2020 PASS. 200 cars[1]=2020 PASS. 810 cars[0,1]=
 			// 2020 PASS. Others: no car has year=2020 → FAIL.
 			wantDocs: []uint64{100, 200, 810},
@@ -246,7 +246,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.year", 2020))
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// doc 100: cars[0]=2020 OR cars[1]=honda → PASS.
 			// doc 200: cars[0,1] honda → PASS.
 			// doc 300: cars[1]=honda → PASS.
@@ -330,7 +330,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.tires.width", 205))
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// doc 100: 2020 OR 205 → PASS.
 			// doc 200: cars[1]=2020 OR cars[0,1]=205 → PASS.
 			// doc 810: cars[0,1]=2020 → PASS.
@@ -349,7 +349,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafContainsAny(idx, "cars.make", "honda", "ford")
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// doc 100 cars[1]=honda PASS. doc 200 cars[0,1]=honda PASS.
 			// doc 300 cars[0]=ford or cars[1]=honda PASS. doc 400 ford
 			// PASS. doc 810 honda PASS. doc 830/850 no make → FAIL.
@@ -391,7 +391,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafIsNullFalse(idx, "cars.year")
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// At least one car with year set:
 			// doc 100/200/300/400/810/850 each have ≥1 car with year → PASS.
 			// doc 830 only car has no year → FAIL.
@@ -428,7 +428,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.tires.width", 205))
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// doc 100 cars[0] both → PASS.
 			// doc 200 cars[0,1] both → PASS.
 			// doc 830 cars[0] spoiler → PASS.
@@ -593,7 +593,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// orN lifts all to LCA=cars (cheap, all CleanAbove=cars).
 			// OR at cars. Result.CleanAbove=cars, CleanBelow=true.
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// 100 has all three. 200 has all three. 300 cars[1]=honda
 			// → PASS. 400 (ford+2012) → FAIL. 810 honda+2020 → PASS.
 			// 830 no → FAIL. 850 cars[1]=205 → PASS.
@@ -628,7 +628,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPositive(idx, "cars.colors", "red")
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// doc 100 cars[1]=[blue,red] PASS. doc 200 cars[0]=[red] PASS.
 			// doc 300 cars[1]=[red] PASS. Others: no red → FAIL.
 			wantDocs: []uint64{100, 200, 300},
@@ -657,7 +657,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPositive(idx, "cars.accessories.type", "spoiler")
 			},
 			wantScope:      "cars.accessories",
-			wantCleanAbove: "cars", // propName — positive leaf
+			wantCleanAbove: "", // propName — positive leaf
 			// doc 100 cars[0].accessories[0]=spoiler PASS.
 			// doc 200 cars[0,1].accessories[0]=spoiler PASS.
 			// doc 830 cars[0].accessories[1]=spoiler PASS.
@@ -692,7 +692,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPositive(idx, "cars.year", 9999)
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			wantDocs:       nil,
 		},
 		// Same-Scope AND on a text[] field. Per-car: car's colors
@@ -899,7 +899,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.colors", "blue"))
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// honda: {100, 200, 300, 810}. year=2018: {100} (cars[1]).
 			// blue: {100, 200}. Union: {100, 200, 300, 810}.
 			wantDocs: []uint64{100, 200, 300, 810},
@@ -935,7 +935,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafContainsAny(idx, "cars.make", "bmw", "kia")
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			wantDocs:       nil,
 		},
 		// 3-leaf same-Scope siblings AND through a compound. Inner
@@ -995,7 +995,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.doors.count", 4))
 			},
 			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantCleanAbove: "",
 			// spoiler: {100, 200, 800, 830, 850}.
 			// 205: {100, 200, 800, 850}.
 			// doors=4: {800}.
