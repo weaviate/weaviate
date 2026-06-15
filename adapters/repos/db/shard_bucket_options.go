@@ -39,7 +39,6 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 			s.index.Config.MemtablesMaxActiveSeconds,
 		),
 		lsmkv.WithLazySegmentLoading(s.lazySegmentLoadingEnabled),
-		lsmkv.WithLazyPropertyLengths(s.index.Config.LazyPropertyLengthsEnabled),
 	}
 
 	switch strategy {
@@ -59,6 +58,10 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 				lsmkv.WithLegacyMapSorting(),
 			)
 		}
+	case lsmkv.StrategyInverted:
+		options = append(options,
+			lsmkv.WithLazyPropertyLengths(s.index.Config.LazyPropertyLengthsEnabled),
+		)
 	}
 
 	return append(options, customOptions...)
