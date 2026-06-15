@@ -599,29 +599,54 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 }
 
 func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	err := l.fixCorruptedCommitLogs()
-	if err != nil {
-		l.logger.WithError(err).
-			WithField("action", "hnsw_commit_log_fixing").
-			Error("hnsw commit log maintenance (fixing) failed")
-	}
+	executedCombine := false
+	executedCondense := false
 
-	executedCombine, err := l.combineLogs()
+	// one listing shared across phases, refreshed only after changes
+	fileNames, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
 	if err != nil {
 		l.logger.WithError(err).
-			WithField("action", "hnsw_commit_log_combining").
+			WithField("action", "hnsw_commit_log_maintenance").
 			WithField("file", l.rootPath).
 			WithField("id", l.id).
-			Error("hnsw commit log maintenance (combining) failed")
-	}
+			Error("hnsw commit log maintenance (listing) failed")
+	} else {
+		fileNames, err = l.fixCorruptedCommitLogs(fileNames)
+		if err != nil {
+			l.logger.WithError(err).
+				WithField("action", "hnsw_commit_log_fixing").
+				Error("hnsw commit log maintenance (fixing) failed")
+		}
 
-	executedCondense, err := l.condenseLogs()
-	if err != nil {
-		l.logger.WithError(err).
-			WithField("action", "hnsw_commit_log_condensing").
-			WithField("file", l.rootPath).
-			WithField("id", l.id).
-			Error("hnsw commit log maintenance (condensing) failed")
+		executedCombine, err = l.combineLogs(fileNames)
+		if err != nil {
+			l.logger.WithError(err).
+				WithField("action", "hnsw_commit_log_combining").
+				WithField("file", l.rootPath).
+				WithField("id", l.id).
+				Error("hnsw commit log maintenance (combining) failed")
+		}
+
+		if executedCombine {
+			fileNames, err = getCommitFileNames(l.rootPath, l.id, 0, l.fs)
+			if err != nil {
+				l.logger.WithError(err).
+					WithField("action", "hnsw_commit_log_maintenance").
+					WithField("file", l.rootPath).
+					WithField("id", l.id).
+					Error("hnsw commit log maintenance (listing) failed")
+				fileNames = nil
+			}
+		}
+
+		executedCondense, err = l.condenseLogs(fileNames)
+		if err != nil {
+			l.logger.WithError(err).
+				WithField("action", "hnsw_commit_log_condensing").
+				WithField("file", l.rootPath).
+				WithField("id", l.id).
+				Error("hnsw commit log maintenance (condensing) failed")
+		}
 	}
 
 	executedSnapshot, err := l.createSnapshot(shouldAbort)
@@ -698,12 +723,8 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	return true, nil
 }
 
-func (l *hnswCommitLogger) condenseLogs() (bool, error) {
-	files, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
-	if err != nil {
-		return false, err
-	}
-
+// condenseLogs expects a current listing of the commit log directory.
+func (l *hnswCommitLogger) condenseLogs(files []string) (bool, error) {
 	if len(files) <= 1 {
 		// if there are no files there is nothing to do
 		// if there is only a single file, it must still be in use, we can't do
@@ -749,13 +770,14 @@ func (l *hnswCommitLogger) condenseLogs() (bool, error) {
 	return false, nil
 }
 
-func (l *hnswCommitLogger) combineLogs() (bool, error) {
+// combineLogs expects a current listing of the commit log directory.
+func (l *hnswCommitLogger) combineLogs(fileNames []string) (bool, error) {
 	// maxSize is the desired final size, since we assume a lot of redundancy we
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
 	threshold := l.logCombiningThreshold()
-	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger, l.fs).Do(l.snapshotPartitions...)
+	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger, l.fs).Do(fileNames, l.snapshotPartitions...)
 }
 
 // TODO al:snapshot handle should abort
@@ -811,11 +833,7 @@ func (l *hnswCommitLogger) Flush() error {
 	return l.commitLogger.Flush()
 }
 
-func (l *hnswCommitLogger) fixCorruptedCommitLogs() error {
-	fileNames, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
-	if err != nil {
-		return err
-	}
-	_, err = NewCorruptedCommitLogFixer().Do(fileNames)
-	return err
+// fixCorruptedCommitLogs deletes corrupt files and returns the remaining listing.
+func (l *hnswCommitLogger) fixCorruptedCommitLogs(fileNames []string) ([]string, error) {
+	return NewCorruptedCommitLogFixer().Do(fileNames)
 }

@@ -43,18 +43,14 @@ func NewCommitLogCombiner(rootPath, id string, threshold int64,
 	}
 }
 
-func (c *CommitLogCombiner) Do(partitions ...string) (bool, error) {
+// Do expects a current listing of the commit log directory, ordered from old
+// to new.
+func (c *CommitLogCombiner) Do(fileNames []string, partitions ...string) (bool, error) {
 	// ensure partitions are sorted
 	sort.Strings(partitions)
 
 	executed := false
 	for {
-		// fileNames will already be in order
-		fileNames, err := getCommitFileNames(c.rootPath, c.id, 0, c.fs)
-		if err != nil {
-			return executed, errors.Wrap(err, "obtain files names")
-		}
-
 		anyOk := false
 		for _, partFileNames := range c.partitonFileNames(fileNames, partitions) {
 			ok, err := c.combineFirstMatch(partFileNames)
@@ -67,6 +63,13 @@ func (c *CommitLogCombiner) Do(partitions ...string) (bool, error) {
 			break
 		}
 		executed = true
+
+		// combining renamed files, refresh the listing for the next round
+		var err error
+		fileNames, err = getCommitFileNames(c.rootPath, c.id, 0, c.fs)
+		if err != nil {
+			return executed, errors.Wrap(err, "obtain files names")
+		}
 	}
 	return executed, nil
 }

@@ -56,7 +56,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 		})
 
 		t.Run("run combiner", func(t *testing.T) {
-			_, err := NewCommitLogCombiner(rootPath, id, threshold, logger, common.NewOSFS()).Do()
+			_, err := NewCommitLogCombiner(rootPath, id, threshold, logger, common.NewOSFS()).Do(listCommitFiles(t, rootPath, id, common.NewOSFS()))
 			require.Nil(t, err)
 		})
 
@@ -138,7 +138,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do()
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do(listCommitFiles(t, rootPath, id, common.NewOSFS()))
 				require.NoError(t, err)
 			})
 
@@ -163,7 +163,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1004", "1008")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do(listCommitFiles(t, rootPath, id, common.NewOSFS()), "1004", "1008")
 				require.NoError(t, err)
 			})
 
@@ -188,7 +188,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1003", "1006")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do(listCommitFiles(t, rootPath, id, common.NewOSFS()), "1003", "1006")
 				require.NoError(t, err)
 			})
 
@@ -214,7 +214,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1003")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do(listCommitFiles(t, rootPath, id, common.NewOSFS()), "1003")
 				require.NoError(t, err)
 			})
 
@@ -242,7 +242,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1005")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do(listCommitFiles(t, rootPath, id, common.NewOSFS()), "1005")
 				require.NoError(t, err)
 			})
 
@@ -268,7 +268,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1005")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do(listCommitFiles(t, rootPath, id, common.NewOSFS()), "1005")
 				require.NoError(t, err)
 			})
 
@@ -296,7 +296,8 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1001", "1002",
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do(
+					listCommitFiles(t, rootPath, id, common.NewOSFS()), "1001", "1002",
 					"1003", "1004", "1005", "1006", "1007", "1008", "1009", "1010")
 				require.NoError(t, err)
 			})
@@ -424,11 +425,11 @@ func TestCombinerCrashSafety(t *testing.T) {
 				cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 				require.NoError(t, err)
 				cl.fs = fs
-				_, err = cl.combineLogs()
+				_, err = cl.combineLogs(listCommitFiles(t, rootPath, id, cl.fs))
 				require.Error(t, err)
 
 				// combine again, should work file
-				_, err = cl.combineLogs()
+				_, err = cl.combineLogs(listCommitFiles(t, rootPath, id, cl.fs))
 				require.NoError(t, err)
 
 				verifyFiles(t, rootPath, id)
@@ -456,11 +457,11 @@ func TestCombinerCrashSafety(t *testing.T) {
 		cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 		require.NoError(t, err)
 		cl.fs = fs
-		_, err = cl.combineLogs()
+		_, err = cl.combineLogs(listCommitFiles(t, rootPath, id, cl.fs))
 		require.Error(t, err)
 
 		// combine again, should work
-		_, err = cl.combineLogs()
+		_, err = cl.combineLogs(listCommitFiles(t, rootPath, id, cl.fs))
 		require.NoError(t, err)
 
 		verifyFiles(t, rootPath, id)
@@ -486,14 +487,14 @@ func TestCombinerCrashSafety(t *testing.T) {
 		cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 		cl.fs = fs
 		require.NoError(t, err)
-		_, err = cl.combineLogs()
+		_, err = cl.combineLogs(listCommitFiles(t, rootPath, id, cl.fs))
 		require.Error(t, err)
 
-		err = cl.fixCorruptedCommitLogs()
+		_, err = cl.fixCorruptedCommitLogs(listCommitFiles(t, rootPath, id, cl.fs))
 		require.NoError(t, err)
 
 		// combine again, should work
-		_, err = cl.combineLogs()
+		_, err = cl.combineLogs(listCommitFiles(t, rootPath, id, cl.fs))
 		require.NoError(t, err)
 
 		// verify files, we would expect
@@ -521,10 +522,17 @@ func TestCombinerCrashSafety(t *testing.T) {
 		cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 		require.NoError(t, err)
 		cl.fs = fs
-		_, err = cl.combineLogs()
+		_, err = cl.combineLogs(listCommitFiles(t, rootPath, id, cl.fs))
 		require.NoError(t, err)
 		require.True(t, fsyncCalled, "fsync was not called")
 	})
+}
+
+func listCommitFiles(t *testing.T, rootPath, id string, fs common.FS) []string {
+	t.Helper()
+	fileNames, err := getCommitFileNames(rootPath, id, 0, fs)
+	require.NoError(t, err)
+	return fileNames
 }
 
 func getFileNames(t *testing.T, rootPath string) []string {
@@ -579,7 +587,7 @@ func TestCondensorCombiningCrashSafety(t *testing.T) {
 		fs.OnRemove = func(name string) error {
 			return errors.Errorf("fake temp error: cannot remove")
 		}
-		executed, err := NewCommitLogCombiner(rootPath, id, 1000, logger, fs).Do()
+		executed, err := NewCommitLogCombiner(rootPath, id, 1000, logger, fs).Do(listCommitFiles(t, rootPath, id, fs))
 		require.False(t, executed)
 		require.ErrorContains(t, err, "fake temp error: cannot remove")
 		fileNames = getFileNames(t, rootPath)
