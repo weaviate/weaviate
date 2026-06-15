@@ -215,3 +215,89 @@ func TestPropLengthsViewGet(t *testing.T) {
 		}
 	})
 }
+
+func TestMergePropLenPairs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ids1, ids2 []uint64
+		lens1      []uint32
+		lens2      []uint32
+		wantIDs    []uint64
+		wantLens   []uint32
+	}{
+		{"both_empty", nil, nil, nil, nil, nil, nil},
+		{
+			"left_empty",
+			nil,
+			[]uint64{2, 5},
+			nil,
+			[]uint32{20, 50},
+			[]uint64{2, 5},
+			[]uint32{20, 50},
+		},
+		{
+			"right_empty",
+			[]uint64{1, 3},
+			nil,
+			[]uint32{10, 30},
+			nil,
+			[]uint64{1, 3},
+			[]uint32{10, 30},
+		},
+		{
+			"disjoint_interleaved",
+			[]uint64{1, 4, 6},
+			[]uint64{2, 3, 7},
+			[]uint32{10, 40, 60},
+			[]uint32{20, 30, 70},
+			[]uint64{1, 2, 3, 4, 6, 7},
+			[]uint32{10, 20, 30, 40, 60, 70},
+		},
+		{
+			// duplicate docIDs: c2 (second/newer) wins, matching the compactor's
+			// prior maps.Copy(toWrite<-toClean) precedence
+			"duplicates_c2_wins",
+			[]uint64{1, 5, 9},
+			[]uint64{5, 9, 12},
+			[]uint32{10, 50, 90},
+			[]uint32{555, 999, 120},
+			[]uint64{1, 5, 9, 12},
+			[]uint32{10, 555, 999, 120},
+		},
+		{
+			"all_duplicates",
+			[]uint64{1, 2},
+			[]uint64{1, 2},
+			[]uint32{10, 20},
+			[]uint32{11, 22},
+			[]uint64{1, 2},
+			[]uint32{11, 22},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ids, lens := mergePropLenPairs(tc.ids1, tc.lens1, tc.ids2, tc.lens2)
+			assert.Equal(t, tc.wantIDs, nilIfEmpty(ids))
+			assert.Equal(t, tc.wantLens, nilIfEmptyU32(lens))
+			require.True(t, sort.SliceIsSorted(ids, func(i, j int) bool { return ids[i] < ids[j] }))
+		})
+	}
+}
+
+func nilIfEmpty(s []uint64) []uint64 {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
+}
+
+func nilIfEmptyU32(s []uint32) []uint32 {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
+}

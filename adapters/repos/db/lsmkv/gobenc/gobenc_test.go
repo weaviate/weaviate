@@ -16,6 +16,7 @@ import (
 	"encoding/gob"
 	"math"
 	"math/rand"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -707,4 +708,52 @@ func TestDecodePairsMatchesDecode(t *testing.T) {
 	ids, lens, err := DecodePairs(encoded)
 	require.NoError(t, err)
 	assert.Equal(t, viaMap, pairsToMap(t, ids, lens))
+}
+
+func TestEncodePairsMatchesEncode(t *testing.T) {
+	t.Parallel()
+
+	maps := []map[uint64]uint32{
+		{},
+		{1: 2},
+		{0: 0},
+		{1: 2, 3: 4, 5: 6},
+		{1<<32 - 1: 100, 1<<48 - 1: 200, 1<<56 - 1: 300},
+		{math.MaxUint64: math.MaxUint32},
+		makeMap(1000),
+	}
+	for _, m := range maps {
+		// build sorted pairs from the map (EncodePairs callers pass sorted arrays)
+		ids := make([]uint64, 0, len(m))
+		for k := range m {
+			ids = append(ids, k)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		lens := make([]uint32, len(ids))
+		for i, id := range ids {
+			lens[i] = m[id]
+		}
+
+		// EncodePairs output must decode to the same map as the input
+		encoded, err := EncodePairs(ids, lens)
+		require.NoError(t, err)
+		decoded, err := Decode(encoded)
+		require.NoError(t, err)
+		assert.Equal(t, m, decoded)
+
+		// and entry-for-entry identical to Encode of the same single-key maps:
+		// the byte stream differs only by entry order, so compare via decode of
+		// each, plus a same-order equality when the map has <=1 entry
+		if len(m) <= 1 {
+			viaMap, err := Encode(m)
+			require.NoError(t, err)
+			assert.Equal(t, viaMap, encoded)
+		}
+	}
+}
+
+func TestEncodePairsLengthMismatch(t *testing.T) {
+	t.Parallel()
+	_, err := EncodePairs([]uint64{1, 2}, []uint32{1})
+	require.Error(t, err)
 }

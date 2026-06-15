@@ -114,6 +114,38 @@ func Encode(m map[uint64]uint32) ([]byte, error) {
 	return buf, nil
 }
 
+// EncodePairs serializes parallel docID/length arrays into Encode's wire format
+// (a gob map[uint64]uint32) without materializing a map. The caller owns
+// uniqueness — a repeated key decodes to whichever value was written last.
+func EncodePairs(ids []uint64, lens []uint32) ([]byte, error) {
+	if len(ids) != len(lens) {
+		return nil, fmt.Errorf("gobenc: ids/lens length mismatch (%d vs %d)", len(ids), len(lens))
+	}
+
+	bodySize := len(dataPrefix) + gobUintSize(uint64(len(ids)))
+	for i, k := range ids {
+		bodySize += gobUintSize(k) + gobUintSize(uint64(lens[i]))
+	}
+
+	totalSize := len(gobMapPreamble) + gobUintSize(uint64(bodySize)) + bodySize
+	buf := make([]byte, 0, totalSize)
+
+	buf = append(buf, gobMapPreamble...)
+	buf = appendGobUint(buf, uint64(bodySize))
+	buf = append(buf, dataPrefix...)
+	buf = appendGobUint(buf, uint64(len(ids)))
+	for i, k := range ids {
+		buf = appendGobUint(buf, k)
+		buf = appendGobUint(buf, uint64(lens[i]))
+	}
+
+	if len(buf) != totalSize {
+		return nil, fmt.Errorf("gobenc: size bookkeeping bug: predicted %d bytes, wrote %d", totalSize, len(buf))
+	}
+
+	return buf, nil
+}
+
 // Decode deserializes gob-encoded bytes back into a map[uint64]uint32.
 // It first attempts a fast manual decode. If the preamble doesn't match
 // (e.g. data written by a different gob encoder configuration), it falls

@@ -76,7 +76,11 @@ func encodeBlockParam(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint
 	return packed
 }
 
-func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
+// createBlocks builds the block-max metadata and encoded block data for a
+// term's postings. Property lengths come from, in order: lookup (compaction
+// cursor, no map), a non-empty propLengths map, or the value bytes — backfilled
+// into propLengths for the flush path.
+func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLengthsView, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
 	tombstones, values := extractTombstones(nodes)
 	externalPropLengths := len(propLengths) != 0
 
@@ -101,9 +105,12 @@ func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, deltaEnc, tfEn
 			tf := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4])))
 			pl := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8])))
 			docId := binary.BigEndian.Uint64(values[j].Key)
-			if externalPropLengths {
+			switch {
+			case lookup != nil:
+				pl = float64(lookup.get(docId))
+			case externalPropLengths:
 				pl = float64(propLengths[docId])
-			} else {
+			default:
 				propLengths[docId] = uint32(pl)
 			}
 
@@ -176,21 +183,24 @@ func createAndEncodeSingleValue(mapPairs []MapPair, propLengths map[uint64]uint3
 	return buffer[:offset], tombstones
 }
 
-func createAndEncodeBlocksTest(nodes []MapPair, propLengths map[uint64]uint32, encodeSingleSeparate int, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
+func createAndEncodeBlocksTest(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLengthsView, encodeSingleSeparate int, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
 	if len(nodes) <= encodeSingleSeparate {
+		// single-value postings store tf inline and never consult propLengths
 		return createAndEncodeSingleValue(nodes, propLengths)
 	}
-	blockEntries, blockDatas, tombstones, _ := createBlocks(nodes, propLengths, deltaEnc, tfEnc, k1, b, avgPropLen)
+	blockEntries, blockDatas, tombstones, _ := createBlocks(nodes, propLengths, lookup, deltaEnc, tfEnc, k1, b, avgPropLen)
 	return encodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
 }
 
 func createAndEncodeBlocksWithLengths(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
 	propLengths := make(map[uint64]uint32)
-	return createAndEncodeBlocksTest(nodes, propLengths, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
+	return createAndEncodeBlocksTest(nodes, propLengths, nil, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
 }
 
-func createAndEncodeBlocks(nodes []MapPair, propLengths map[uint64]uint32, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
-	return createAndEncodeBlocksTest(nodes, propLengths, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
+// createAndEncodeBlocks is the compaction entry point: property lengths come
+// from the merged-segment cursor (lookup), not a map.
+func createAndEncodeBlocks(nodes []MapPair, lookup *propLengthsView, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
+	return createAndEncodeBlocksTest(nodes, nil, lookup, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
 }
 
 func decodeBlocks(data []byte) ([]*terms.BlockEntry, []*terms.BlockData, int) {
@@ -353,10 +363,13 @@ func convertFixedLengthFromMemory(data []byte, blockSize int) *terms.BlockDataDe
 
 // a single node of strategy "inverted"
 type segmentInvertedNode struct {
-	values      []MapPair
-	primaryKey  []byte
-	offset      int
-	propLengths map[uint64]uint32
+	values     []MapPair
+	primaryKey []byte
+	offset     int
+	// propLengths is the compaction-time cursor over the merged segments'
+	// property lengths; nil for the flush path (which carries lengths inline in
+	// the postings' value bytes).
+	propLengths *propLengthsView
 }
 
 var invPayloadLen = 16
