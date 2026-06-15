@@ -101,10 +101,9 @@ func WithLazySegmentLoading(lazyLoading bool) BucketOption {
 	}
 }
 
-// WithLazyPropertyLengths defers loading an inverted segment's per-document
-// property length map until first use (and frees it after the segment is
-// dropped). The value is read live at segment open, so it can be flipped via
-// runtime config without a restart.
+// WithLazyPropertyLengths defers loading an inverted segment's property length
+// map until first use. Read live at segment open, so runtime config can flip it
+// without a restart.
 func WithLazyPropertyLengths(lazy *configRuntime.DynamicValue[bool]) BucketOption {
 	return func(b *Bucket) error {
 		b.lazyPropertyLengths = lazy

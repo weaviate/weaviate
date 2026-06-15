@@ -75,7 +75,6 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 			require.Equal(t, !tt.lazy, seg.isPropertyLengthsLoaded(),
 				"lazy mode must not load the full map at open; eager must")
 
-			// on-demand load populates the full map
 			pl, err := seg.getPropertyLengths()
 			require.NoError(t, err)
 			require.Len(t, pl, size)
@@ -89,12 +88,11 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 			require.Equal(t, avg, avgAfter)
 			require.Equal(t, count, countAfter)
 
-			// the map reloads on demand after a free
+			// reloads on demand after a free
 			pl, err = seg.getPropertyLengths()
 			require.NoError(t, err)
 			require.Len(t, pl, size)
 
-			// data is still readable end-to-end
 			kvs, err := b.MapList(ctx, key)
 			require.NoError(t, err)
 			require.Len(t, kvs, size)

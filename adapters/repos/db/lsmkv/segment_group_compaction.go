@@ -447,9 +447,8 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			k1 = sg.bm25config.K1
 		}
 
-		// the cursors below load the inputs' property length maps. Release any
-		// map that only this compaction caused to load, so an idle (or aborted)
-		// compaction does not leave it pinned in memory.
+		// the cursors below load the inputs' maps; release any that only this
+		// compaction loaded, so an aborted compaction doesn't leave them pinned
 		if !left.isPropertyLengthsLoaded() {
 			defer left.freePropertyLengths()
 		}
