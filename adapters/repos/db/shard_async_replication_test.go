@@ -642,47 +642,42 @@ func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {
 	require.False(t, lazy.isLoaded(), "reconcile must not force-load an unloaded shard")
 }
 
-// TestDBReconcileAsyncReplicationAggregatesErrors verifies that
-// DB.ReconcileAsyncReplication walks every index, and that a reconcile failure
-// on one index (here: a misconfigured index with no scheduler) is aggregated
-// into the returned error without preventing the other index from reconciling.
-func TestDBReconcileAsyncReplicationAggregatesErrors(t *testing.T) {
+// TestDBReconcileAsyncReplicationWalksEveryIndex verifies that
+// DB.ReconcileAsyncReplication visits every index (not just the first) and
+// applies the per-shard decision to each one's loaded shards after a runtime
+// flip of the global ASYNC_REPLICATION_DISABLED flag.
+func TestDBReconcileAsyncReplicationWalksEveryIndex(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 
-	// Index-level flag shared by both indices; both load with it disabled.
 	disabled := configRuntime.NewDynamicValue(true)
 	globalConfig := &entreplication.GlobalConfig{AsyncReplicationDisabled: disabled}
 
-	// Healthy index: RF > 1 with a scheduler installed → reconcile succeeds.
-	healthySL, healthy := testShard(t, ctx, "ReconcileHealthy", func(i *Index) {
+	idxASL, idxA := testShard(t, ctx, "ReconcileWalkA", func(i *Index) {
 		i.Config.ReplicationFactor = 3
 		i.globalreplicationConfig = globalConfig
 		asyncSchedulerOption(t, ctx)(i)
 	})
-	// Broken index: RF > 1 but no scheduler → enableAsyncReplication errors.
-	_, broken := testShard(t, ctx, "ReconcileBroken", func(i *Index) {
+	idxBSL, idxB := testShard(t, ctx, "ReconcileWalkB", func(i *Index) {
 		i.Config.ReplicationFactor = 3
 		i.globalreplicationConfig = globalConfig
+		asyncSchedulerOption(t, ctx)(i)
 	})
 
 	db := &DB{
 		logger:  logger,
-		indices: map[string]*Index{healthy.ID(): healthy, broken.ID(): broken},
+		indices: map[string]*Index{idxA.ID(): idxA, idxB.ID(): idxB},
 	}
 
 	disabled.SetValue(false)
-	err := db.ReconcileAsyncReplication(ctx)
-	require.Error(t, err, "a per-index reconcile failure must surface as an error")
-	require.Contains(t, err.Error(), "1 of 2",
-		"the error must report how many indices failed")
+	require.NoError(t, db.ReconcileAsyncReplication(ctx))
 
-	// The broken index must not have blocked the healthy one.
-	healthyShard := concreteShard(t, healthySL)
-	healthyShard.asyncReplicationRWMux.RLock()
-	require.NotNil(t, healthyShard.hashtree,
-		"the healthy index must still be reconciled despite the other index failing")
-	healthyShard.asyncReplicationRWMux.RUnlock()
+	for _, sl := range []ShardLike{idxASL, idxBSL} {
+		s := concreteShard(t, sl)
+		s.asyncReplicationRWMux.RLock()
+		require.NotNil(t, s.hashtree, "every index must have its shards reconciled")
+		s.asyncReplicationRWMux.RUnlock()
+	}
 }
 
 // TestInitScanPopulatesHashtree validates that objects on disk when async

@@ -1351,6 +1351,10 @@ func (i *Index) asyncReplicationEnabled() bool {
 // asyncReplicationEnabledForShard is the per-shard async-replication gate.
 // Caller MUST hold replicationConfigLock.
 func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
+	if i.asyncReplicationScheduler == nil {
+		return false
+	}
+
 	if i.asyncReplicationGloballyDisabled() {
 		return false
 	}
