@@ -1000,10 +1000,21 @@ func andLeaves(idx *fastPathIndex, left, right *fastPathResult) *fastPathResult 
 	common := commonScope(left.Scope, right.Scope)
 
 	// Siblings (LCA is above both) → lift both up, recurse as same-scope.
+	// CleanBelow is forced false on the lifted operands because a
+	// siblings AND result's Bitmap has bits only at LCA-self (each
+	// operand's bits live in its own non-overlapping subtree below LCA;
+	// the intersection at descendant scopes is empty). Subsequent merges
+	// that interpret CleanBelow=true as "broadcasts to every descendant
+	// subtree" would fail when reaching into a sibling subtree the
+	// inner AND never populated (e.g. a doors-leaf merging with a
+	// (spoiler AND tires) compound — the broadcasting branch would land
+	// the result at cars.doors but find no bits there).
 	if common != left.Scope && common != right.Scope {
-		return andLeaves(idx,
-			liftToScope(idx, left, common),
-			liftToScope(idx, right, common))
+		leftLifted := liftToScope(idx, left, common)
+		rightLifted := liftToScope(idx, right, common)
+		leftLifted.CleanBelow = false
+		rightLifted.CleanBelow = false
+		return andLeaves(idx, leftLifted, rightLifted)
 	}
 
 	// One is ancestor of the other.

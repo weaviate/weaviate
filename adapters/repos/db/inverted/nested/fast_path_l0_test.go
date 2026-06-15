@@ -141,6 +141,20 @@ func l0Docs() map[uint64]any {
 			map[string]any{"year": 2019, "accessories": []any{map[string]any{"type": "spoiler"}}, "tires": []any{map[string]any{"width": 195}}},
 			map[string]any{"year": 2019, "accessories": []any{map[string]any{"type": "radio"}}, "tires": []any{map[string]any{"width": 205}}},
 		},
+		// 800: doors fixture mirroring the L2 doc 800 warsaw cars[0]
+		// shape (without the garages wrapper). cars[0] has spoiler,
+		// 205-tires, and doors=4 colocated in the same car. The
+		// unique witness for `(spoiler AND 205) AND doors=4` and the
+		// 3-leaf andN(spoiler, 205, doors=4). No year/make/colors —
+		// so it adds witness coverage to negation-style tests but
+		// doesn't contribute to year/make/colors positive leaves.
+		800: []any{
+			map[string]any{
+				"accessories": []any{map[string]any{"type": "spoiler"}},
+				"tires":       []any{map[string]any{"width": 205}},
+				"doors":       []any{map[string]any{"count": 4}},
+			},
+		},
 	}
 }
 
@@ -263,7 +277,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 810: every car year=2020 → no witness FAIL.
 			// doc 830 cars[0] no year → witness PASS.
 			// doc 850 cars[0,1]=2019 → witnesses PASS.
-			wantDocs: []uint64{100, 200, 300, 400, 830, 850},
+			wantDocs: []uint64{100, 200, 300, 400, 800, 830, 850},
 		},
 		// Ancestor+child AND at L0. Scope pairing: cars.year
 		// (Scope=cars = propName) AND cars.tires.width
@@ -322,7 +336,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 810: cars[0,1]=2020 → PASS.
 			// doc 850 cars[1]=205 → PASS via tires.
 			// Others: no → FAIL.
-			wantDocs: []uint64{100, 200, 810, 850},
+			wantDocs: []uint64{100, 200, 800, 810, 850},
 		},
 		// ContainsAny at L0. Positive composite — union of value
 		// buckets. Same shape as a single positive leaf but the value
@@ -365,7 +379,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 850 cars[0]=spoiler+195, cars[1]=radio+205 — split,
 			// no same-car witness → FAIL (the split discriminator).
 			// Others: no spoiler → FAIL.
-			wantDocs: []uint64{100, 200},
+			wantDocs: []uint64{100, 200, 800},
 		},
 		// IS NULL false on a scalar leaf (cars.year). Symmetric with
 		// the single-leaf positive case: TS=cars, CleanAbove=propName,
@@ -397,7 +411,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 300 cars[1]=honda (no year) → witness PASS.
 			// doc 830 cars[0] has only accessories, no year → witness PASS.
 			// Every other doc: every car has year set → no witness.
-			wantDocs: []uint64{200, 300, 830},
+			wantDocs: []uint64{200, 300, 800, 830},
 		},
 		// Sibling OR at L0 (under cars). Mirrors L2's
 		// `cars.accessories.type=spoiler OR cars.tires.width=205`.
@@ -421,7 +435,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 850 cars[0] spoiler OR cars[1] 205 → PASS (OR doesn't
 			// require same-car, unlike the AND counterpart above).
 			// Others: no spoiler, no 205 → FAIL.
-			wantDocs: []uint64{100, 200, 830, 850},
+			wantDocs: []uint64{100, 200, 800, 830, 850},
 		},
 		// Compound NOT (NOT-of-OR) at L0. Inner OR has Scope=cars,
 		// CleanAbove=cars, CleanBelow=true. negate of that produces
@@ -450,7 +464,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 810 all cars honda+2020 → NO witness FAIL.
 			// doc 830 cars[0] no make/year → witness PASS.
 			// doc 850 cars[0,1]=2019 (no make) → witnesses PASS.
-			wantDocs: []uint64{100, 200, 300, 400, 830, 850},
+			wantDocs: []uint64{100, 200, 300, 400, 800, 830, 850},
 		},
 		// De Morgan equivalent of NOT-of-OR: NOT(A) AND NOT(B).
 		// Two NOT operands at same Scope=cars, AND-ed. Same-Scope AND.
@@ -468,7 +482,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantCleanAbove: "cars",
 			// Must match NOT-of-OR above (per-element AND of negations
 			// at same Scope is the De Morgan dual).
-			wantDocs: []uint64{100, 200, 300, 400, 830, 850},
+			wantDocs: []uint64{100, 200, 300, 400, 800, 830, 850},
 		},
 		// ContainsNone direct. Per-car: car is a witness iff its make
 		// is NEITHER honda NOR ford (cars with no make field also
@@ -488,7 +502,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 810 cars[1]=toyota → witness PASS.
 			// doc 830 cars[0] no make → witness PASS.
 			// doc 850 cars[0,1] no make → witnesses PASS.
-			wantDocs: []uint64{100, 200, 810, 830, 850},
+			wantDocs: []uint64{100, 200, 800, 810, 830, 850},
 		},
 		// NOT(ContainsAny) equivalence: should produce identical docs
 		// to the direct ContainsNone above. Both routes negate the
@@ -502,7 +516,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantScope:      "cars",
 			wantCleanAbove: "cars",
 			// Must match `ContainsNone direct` above.
-			wantDocs: []uint64{100, 200, 810, 830, 850},
+			wantDocs: []uint64{100, 200, 800, 810, 830, 850},
 		},
 		// Compound NOT-of-AND. Inner same-element AND has ES = cars
 		// satisfying honda AND 2020 in the same car. negate excludes
@@ -522,7 +536,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 810: cars[0]=honda+2020 → in inner.ES; cars[1]=
 			// toyota+2020 → not honda → WITNESS → PASS.
 			// Every other doc also has at least one such car.
-			wantDocs: []uint64{100, 200, 300, 400, 810, 830, 850},
+			wantDocs: []uint64{100, 200, 300, 400, 800, 810, 830, 850},
 		},
 		// De Morgan dual of NOT-of-AND: NOT(A) OR NOT(B). Two NOT
 		// operands at same Scope, OR-ed. Per-car: NOT honda OR NOT
@@ -537,7 +551,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			},
 			wantScope:      "cars",
 			wantCleanAbove: "cars",
-			wantDocs:       []uint64{100, 200, 300, 400, 810, 830, 850},
+			wantDocs:       []uint64{100, 200, 300, 400, 800, 810, 830, 850},
 		},
 		// 3-leaf andN — same-element correlation across cars and
 		// cars.tires. honda + 2020 + tires.width=205. Doc 200 cars[1]
@@ -583,7 +597,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// 100 has all three. 200 has all three. 300 cars[1]=honda
 			// → PASS. 400 (ford+2012) → FAIL. 810 honda+2020 → PASS.
 			// 830 no → FAIL. 850 cars[1]=205 → PASS.
-			wantDocs: []uint64{100, 200, 300, 810, 850},
+			wantDocs: []uint64{100, 200, 300, 800, 810, 850},
 		},
 		// ContainsAll on a scalar array (cars.colors text[]). Per-car:
 		// the car's colors array must contain EVERY listed value (red
@@ -631,7 +645,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantCleanAbove: "cars",
 			// Every doc has at least one car lacking "red" — either
 			// has colors without red, or has no colors at all.
-			wantDocs: []uint64{100, 200, 300, 400, 810, 830, 850},
+			wantDocs: []uint64{100, 200, 300, 400, 800, 810, 830, 850},
 		},
 		// Single positive leaf on a deeper scope (cars.accessories.type).
 		// TS = parent(path) = cars.accessories (the accessories
@@ -649,7 +663,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 830 cars[0].accessories[1]=spoiler PASS.
 			// doc 850 cars[0].accessories[0]=spoiler PASS.
 			// Others: no accessories → FAIL.
-			wantDocs: []uint64{100, 200, 830, 850},
+			wantDocs: []uint64{100, 200, 800, 830, 850},
 		},
 		// NOT cars.accessories.type=spoiler. Per-accessory: accessory
 		// has type ≠ spoiler. Cars without ANY accessories produce
@@ -720,7 +734,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// 300/400/810: no accessories no 205 → FAIL.
 			// 830 cars[0]=radio,spoiler → has non-spoiler radio → PASS.
 			// 850 cars[1]=radio (non-spoiler) + cars[1]=205 → PASS.
-			wantDocs: []uint64{100, 200, 830, 850},
+			wantDocs: []uint64{100, 200, 800, 830, 850},
 		},
 		// Compound AND inside OR. Inner sibling AND (spoiler+205) at
 		// cars (CleanAbove=cars). OR with positive ford at cars.
@@ -738,7 +752,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantCleanAbove: "cars",
 			// Inner AND (same-car spoiler+205): {100, 200}.
 			// ford-cars: {300, 400}. Union: {100, 200, 300, 400}.
-			wantDocs: []uint64{100, 200, 300, 400},
+			wantDocs: []uint64{100, 200, 300, 400, 800},
 		},
 		// Same-Scope OR inside an AND. Per-car: car has (honda OR
 		// ford) make AND year=2018.
@@ -788,7 +802,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantCleanAbove: "cars",
 			// Must match ContainsNone [honda, ford] and NOT(honda)
 			// AND NOT(ford) below.
-			wantDocs: []uint64{100, 200, 810, 830, 850},
+			wantDocs: []uint64{100, 200, 800, 810, 830, 850},
 		},
 		// NOT of sibling OR. Per-car (after lift of inner OR to cars):
 		// car has NEITHER a spoiler accessory NOR a 205 tire.
@@ -822,7 +836,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			},
 			wantScope:      "cars",
 			wantCleanAbove: "cars",
-			wantDocs:       []uint64{100, 200, 810, 830, 850},
+			wantDocs:       []uint64{100, 200, 800, 810, 830, 850},
 		},
 		// De Morgan siblings: NOT(spoiler) AND NOT(205). Per-car at
 		// cars-scope (post-lift): car has at least one non-spoiler
@@ -923,6 +937,70 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantScope:      "cars",
 			wantCleanAbove: "cars",
 			wantDocs:       nil,
+		},
+		// 3-leaf same-Scope siblings AND through a compound. Inner
+		// sibling AND at cars (spoiler+205) collapses both leaves to
+		// LCA=cars; the accumulator has Scope=cars and CleanBelow=
+		// false (siblings-AND override in andLeaves — the result's
+		// Bitmap has bits only at cars-self, not at cars.accessories /
+		// cars.tires / cars.doors selfMarkers). The outer AND with
+		// doors=4 (Scope=cars.doors) therefore can't fire the
+		// broadcasting branch (ancestor.CleanBelow=false). It falls
+		// through to the ancestor+child branch that merges at the
+		// ancestor's Scope (= cars) without lift. Per-car: same car
+		// must have all three. Only doc 800 cars[0] has spoiler+205+
+		// doors=4.
+		{
+			name: "(cars.accessories.type=spoiler AND cars.tires.width=205) AND cars.doors.count=4 [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					andLeaves(idx,
+						leafPositive(idx, "cars.accessories.type", "spoiler"),
+						leafPositive(idx, "cars.tires.width", 205)),
+					leafPositive(idx, "cars.doors.count", 4))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			wantDocs:       []uint64{800},
+		},
+		// 3-leaf siblings andN under cars. Same semantic as the
+		// parenthesized AND above. andN sorts deepest-first; all three
+		// operands are at depth 2 (cars.accessories, cars.tires,
+		// cars.doors). Stable-sort keeps input order; first fold
+		// collapses spoiler+205 via lift-to-LCA=cars (siblings —
+		// CleanBelow forced false), second fold is ancestor+child
+		// (cars vs cars.doors) but with ancestor.CleanBelow=false so
+		// the broadcasting branch is skipped — lands at cars.
+		{
+			name: "andN(spoiler, tires.width=205, doors.count=4) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andN(idx,
+					leafPositive(idx, "cars.accessories.type", "spoiler"),
+					leafPositive(idx, "cars.tires.width", 205),
+					leafPositive(idx, "cars.doors.count", 4))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			wantDocs:       []uint64{800},
+		},
+		// 3-leaf siblings orN under cars. Per-car: car has spoiler OR
+		// 205 OR doors=4 (anywhere). Union of the three positive ESs
+		// at cars-scope (after cheap lifts that preserve CleanAbove).
+		{
+			name: "orN(spoiler, tires.width=205, doors.count=4) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orN(idx,
+					leafPositive(idx, "cars.accessories.type", "spoiler"),
+					leafPositive(idx, "cars.tires.width", 205),
+					leafPositive(idx, "cars.doors.count", 4))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// spoiler: {100, 200, 800, 830, 850}.
+			// 205: {100, 200, 800, 850}.
+			// doors=4: {800}.
+			// Union: {100, 200, 800, 830, 850}.
+			wantDocs: []uint64{100, 200, 800, 830, 850},
 		},
 	}
 
