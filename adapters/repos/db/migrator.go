@@ -220,15 +220,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				}
 				return m.db.config.HNSWWaitForCachePrefill
 			}(),
-			HNSWFlatSearchConcurrency: m.db.config.HNSWFlatSearchConcurrency,
-			HNSWAcornFilterRatio:      m.db.config.HNSWAcornFilterRatio,
-			VisitedListPoolMaxSize:    m.db.config.VisitedListPoolMaxSize,
-			QuerySlowLogEnabled:       m.db.config.QuerySlowLogEnabled,
-			QuerySlowLogThreshold:     m.db.config.QuerySlowLogThreshold,
-			InvertedSorterDisabled:    m.db.config.InvertedSorterDisabled,
-			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:             m.db.config.HFreshEnabled,
-			AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
+			HNSWFlatSearchConcurrency:  m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:       m.db.config.HNSWAcornFilterRatio,
+			VisitedListPoolMaxSize:     m.db.config.VisitedListPoolMaxSize,
+			QuerySlowLogEnabled:        m.db.config.QuerySlowLogEnabled,
+			QuerySlowLogThreshold:      m.db.config.QuerySlowLogThreshold,
+			InvertedSorterDisabled:     m.db.config.InvertedSorterDisabled,
+			LazyPropertyLengthsEnabled: m.db.config.LazyPropertyLengthsEnabled,
+			MaintenanceModeEnabled:     m.db.config.MaintenanceModeEnabled,
+			HFreshEnabled:              m.db.config.HFreshEnabled,
+			AutoTenantActivation:       schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set

@@ -20,10 +20,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // TestInvertedLazyPropertyLengths covers the stats-at-open / load-on-demand /
-// free-keeps-stats lifecycle and that the env var toggles eager vs lazy.
+// free-keeps-stats lifecycle and that the flag toggles eager vs lazy.
 func TestInvertedLazyPropertyLengths(t *testing.T) {
 	ctx := context.Background()
 	const size = 200
@@ -37,16 +38,12 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 		{name: "lazy", lazy: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.lazy {
-				t.Setenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS", "true")
-			} else {
-				t.Setenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS", "false")
-			}
+			lazy := configRuntime.NewDynamicValue(tt.lazy)
 
 			dirName := t.TempDir()
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyInverted), WithForceCompaction(true))
+				WithStrategy(StrategyInverted), WithForceCompaction(true), WithLazyPropertyLengths(lazy))
 			require.Nil(t, err)
 			b.SetMemtableThreshold(1e9)
 
@@ -60,7 +57,7 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 			require.Nil(t, b.Shutdown(ctx))
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyInverted))
+				WithStrategy(StrategyInverted), WithLazyPropertyLengths(lazy))
 			require.Nil(t, err)
 			b.SetMemtableThreshold(1e9)
 			defer b.Shutdown(ctx)
@@ -112,12 +109,10 @@ func TestInvertedCompactionFreesLazyPropertyLengths(t *testing.T) {
 	const perSegment = 100
 	key := []byte("my-key")
 
-	t.Setenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS", "true")
-
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyInverted))
+		WithStrategy(StrategyInverted), WithLazyPropertyLengths(configRuntime.NewDynamicValue(true)))
 	require.Nil(t, err)
 	b.SetMemtableThreshold(1e9)
 	defer b.Shutdown(ctx)

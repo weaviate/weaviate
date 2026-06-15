@@ -539,6 +539,7 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
 			writeMetadata:                sg.writeMetadata,
 			deleteMarkerCounter:          sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:          sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("initialize new segment: %w", err)

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -154,9 +155,10 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction    bool
-	disableCompaction  bool
-	lazySegmentLoading bool
+	forceCompaction     bool
+	disableCompaction   bool
+	lazySegmentLoading  bool
+	lazyPropertyLengths *configRuntime.DynamicValue[bool]
 
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
@@ -324,6 +326,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
+			lazyPropertyLengths:          b.lazyPropertyLengths,
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,

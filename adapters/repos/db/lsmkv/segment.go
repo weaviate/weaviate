@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -176,6 +177,7 @@ type segmentConfig struct {
 	precomputedCountNetAdditions *int
 	writeMetadata                bool
 	deleteMarkerCounter          int64
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -409,7 +411,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
 
-		if lazyPropertyLengthsEnabled() {
+		if cfg.lazyPropertyLengths.Get() {
 			if err := seg.loadPropertyLengthsStats(); err != nil {
 				return nil, fmt.Errorf("load property length stats: %w", err)
 			}

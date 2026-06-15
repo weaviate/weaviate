@@ -15,20 +15,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 	"sync"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 )
-
-// lazyPropertyLengthsEnabled defers loading a segment's per-document property
-// length map until first use, instead of loading it eagerly at open.
-func lazyPropertyLengthsEnabled() bool {
-	return entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS"))
-}
 
 type segmentInvertedData struct {
 	// lock to read tombstones and property lengths
