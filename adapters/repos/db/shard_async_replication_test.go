@@ -572,10 +572,10 @@ func setShardReplicas(t *testing.T, idx *Index, nodes ...string) {
 }
 
 // TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard pins the cycle's
-// in-flight short-circuit: while any non-terminal replication op exists for
-// the shard, the cycle must return without invoking the replicator so the CCL
-// stays the exclusive catch-up channel. A nil FSM reader is treated as "no
-// in-flight ops" — the fall-through path for tests that don't plumb one.
+// in-flight short-circuit: while a non-terminal op targets the local node for
+// this shard, the cycle must return without invoking the replicator so the
+// CCL stays the exclusive catch-up channel. A nil FSM reader is treated as
+// "no in-flight ops" — the fall-through path for tests that don't plumb one.
 func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 	ctx := context.Background()
 	const class = "HashbeatInflightCheck"
@@ -583,6 +583,7 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 	sh, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
 	shardName := sh.Name()
 	setShardReplicas(t, idx, "node1", "node2")
+	localNode := idx.db.localNodeName
 
 	// Swap in a fresh FSM reader so we control the predicate this cycle reads.
 	fsmMock := replicationTypes.NewMockReplicationFSMReader(t)
@@ -600,7 +601,7 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 		// Cycle must consult the FSM, see the in-flight op, and return without
 		// calling the replicator (asserted implicitly via NewMockReplicationFSMReader's
 		// Cleanup: any unexpected call would fail the mock).
-		call := fsmMock.EXPECT().HasOngoingReplication(class, shardName).Return(true).Once()
+		call := fsmMock.EXPECT().HasOngoingTargetReplication(class, shardName, localNode).Return(true).Once()
 		defer call.Unset()
 		propagated, err := concrete.runHashbeatCycle(ctx, cfg)
 		require.NoError(t, err)

@@ -1370,10 +1370,12 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		return len(s.targetNodeOverrides)
 	}()
 
-	// Skip the cycle while any non-terminal replication op exists for this
-	// shard: the CCL is the exclusive catch-up channel for that op. If we run async repl
-	// during this, there are windows where a un-caught-up target would push a write
-	// back to the source erroneously.
+	// Skip the cycle while a non-terminal op targets THIS node for this shard:
+	// CCL replay is the exclusive catch-up channel for that op, and an
+	// un-caught-up target running hashbeat would push its stale state back to
+	// the source. (Source-side hashbeat during the same op is left enabled —
+	// LWW makes any source→target push idempotent with the concurrent CCL
+	// replay.)
 	if s.index.replicationFSMReader != nil &&
 		s.index.replicationFSMReader.HasOngoingTargetReplication(s.class.Class, s.name, s.index.db.localNodeName) {
 		return false, nil

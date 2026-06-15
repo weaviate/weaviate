@@ -1344,13 +1344,6 @@ func (i *Index) getShardForRead(
 	return shard, release, nil
 }
 
-func (i *Index) AsyncReplicationEnabled() bool {
-	i.replicationConfigLock.RLock()
-	defer i.replicationConfigLock.RUnlock()
-
-	return i.asyncReplicationEnabled()
-}
-
 func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 }
@@ -1422,6 +1415,12 @@ func (i *Index) IsAsyncReplicationEnabledOrIrrelevant() bool {
 }
 
 func (i *Index) anyShardMidMovement() (bool, error) {
+	// Nil reader: treat as "no in-flight ops". Mirrors the runHashbeatCycle
+	// guard so tests without an FSM wired (and any future Index-construction
+	// path that doesn't call SetReplicationFSMReader) don't nil-panic.
+	if i.replicationFSMReader == nil {
+		return false, nil
+	}
 	var midMovement bool
 	className := i.Config.ClassName.String()
 	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
