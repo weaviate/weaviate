@@ -1388,8 +1388,8 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
-	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
-		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
+	// enable it for testing purposes
+	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(true)
 
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
