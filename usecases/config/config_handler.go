@@ -403,6 +403,10 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateReplicationFactorBounds(); err != nil {
+		return configErr(err)
+	}
+
 	if err := c.validateRestrictions(); err != nil {
 		return configErr(err)
 	}
@@ -467,6 +471,28 @@ func dynamicString(v *runtime.DynamicValue[string]) string {
 // DynamicValue or a negative value means "unset / unlimited".
 func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
 	return dv != nil && dv.Get() >= 0
+}
+
+// validateReplicationFactorBounds rejects configurations where the floor
+// exceeds the ceiling, which would make every class creation unsatisfiable.
+// A MaximumFactor <= 0 means "no cap" by convention (see GlobalConfig), so
+// the comparison is skipped in that case. MinimumFactor < 1 is also rejected
+// since a factor of zero is meaningless and the in-code default is 1.
+func (c *Config) validateReplicationFactorBounds() error {
+	if c.Replication.MinimumFactor < 1 {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR must be >= 1; got %d",
+			c.Replication.MinimumFactor,
+		)
+	}
+	if c.Replication.MaximumFactor > 0 &&
+		c.Replication.MinimumFactor > c.Replication.MaximumFactor {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR (%d) cannot exceed REPLICATION_MAXIMUM_FACTOR (%d)",
+			c.Replication.MinimumFactor, c.Replication.MaximumFactor,
+		)
+	}
+	return nil
 }
 
 // Mirrors entities/vectorindex/config.go; duplicated as plain strings to
@@ -793,6 +819,12 @@ type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
+
+	// SkipAccessCheck disables the write+delete probe the backup client runs on
+	// initialize, deferring write/permission errors to backup time. Use it for
+	// least-privilege credentials that can write but lack DeleteObject.
+	// Env: BACKUP_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
@@ -826,6 +858,12 @@ type Profiling struct {
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
 	Port                 int  `json:"port" yaml:"port"`
+	// DebugEndpointsEnabled gates the debug HTTP listener (pprof, fgprof,
+	// /debug/*). The listener always binds: while this is false the port is
+	// open but every request returns 404, checked per-request so runtime
+	// flips need no restart. GO_PROFILING_DISABLE (Disabled) is a separate
+	// switch that stops the listener binding at all.
+	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debugEndpointsEnabled" yaml:"debugEndpointsEnabled"`
 }
 
 type DistributedTasksConfig struct {
@@ -986,6 +1024,12 @@ type Export struct {
 	// so this value is used directly.
 	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
 	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+
+	// SkipAccessCheck disables the write+delete probe the export client runs on
+	// initialize, deferring write/permission errors to export time. Use it for
+	// least-privilege credentials that can write but lack DeleteObject.
+	// Env: EXPORT_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
 // Namespaces configures cluster-level namespace support.
