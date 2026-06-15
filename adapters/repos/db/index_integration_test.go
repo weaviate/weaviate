@@ -144,6 +144,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
@@ -379,6 +380,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
@@ -486,6 +488,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	router := routerTypes.NewMockRouter(t)
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
@@ -576,6 +579,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
@@ -651,6 +655,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
 		}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	router := routerTypes.NewMockRouter(t)
 	schemaGetter := &fakeSchemaGetter{
 		shardState: shardState,
