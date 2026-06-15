@@ -135,17 +135,10 @@ func newTestIndexForSnapshot(t *testing.T, className string) *Index {
 	}
 }
 
-// TestIsAsyncReplicationEnabledOrIrrelevant covers the export gate:
-// exportable when RF ≤ 1 AND no shard has a non-terminal replication op
-// (irrelevant), or RF > 1 and async replication is not globally disabled.
-//
-// The non-terminal-op cases pin a real bug class: at RF = 1 with a replica
-// movement in flight, BelongsToNodes transiently contains both source and
-// target. Returning true here would let the export selector route the
-// snapshot to either replica via least-loaded scheduling, capturing whatever
-// state happened to land on the picked node (with ASYNC_REPLICATION_DISABLED
-// the per-shard hashbeat gate is off too, so there is nothing to repair
-// divergence).
+// TestIsAsyncReplicationEnabledOrIrrelevant covers the export gate. The
+// non-terminal-op cases pin a bug class: at RF=1 with a replica movement in
+// flight, BelongsToNodes transiently contains source and target, and the
+// export selector would otherwise route to either via least-loaded scheduling.
 func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 	disabled := func(v bool) *replication.GlobalConfig {
 		return &replication.GlobalConfig{
@@ -153,10 +146,6 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 		}
 	}
 
-	// shardingState builds a sharding.State whose Physical map keys are the
-	// supplied shard names. BelongsToNodes content is irrelevant to the new
-	// gate (the FSM is the source of truth for "is a movement in flight"),
-	// but we set a stub node so the structure is realistic.
 	shardingState := func(shardNames []string) *sharding.State {
 		st := &sharding.State{Physical: map[string]sharding.Physical{}}
 		for _, name := range shardNames {
@@ -174,19 +163,13 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 		name              string
 		replicationFactor int64
 		globalConfig      *replication.GlobalConfig
-		// shards is the set of physical shard names returned by the schema
-		// reader. shardsWithOps is the subset for which the FSM reports a
-		// non-terminal op. Both unused when replicationFactor > 1 (the gate
-		// short-circuits before consulting either).
-		shards        []string
-		shardsWithOps map[string]bool
-		// readErr, if non-nil, makes the schemaReader fail. Mutually
-		// exclusive with shards/shardsWithOps.
-		readErr error
-		want    bool
+		shards            []string
+		shardsWithOps     map[string]bool
+		readErr           error
+		want              bool
 	}{
 		{
-			name:              "RF=1, shards present, FSM reports no ops, globally disabled: exportable (irrelevant)",
+			name:              "RF=1, shards present, no in-flight ops, globally disabled: exportable",
 			replicationFactor: 1,
 			globalConfig:      disabled(true),
 			shards:            []string{"s1", "s2"},
@@ -194,14 +177,14 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 			want:              true,
 		},
 		{
-			name:              "RF=0, no shards: exportable (irrelevant)",
+			name:              "RF=0, no shards: exportable",
 			replicationFactor: 0,
 			globalConfig:      nil,
 			shards:            nil,
 			want:              true,
 		},
 		{
-			name:              "RF=1, single shard with non-terminal op, globally disabled: NOT exportable (bug repro)",
+			name:              "RF=1, shard with in-flight op, globally disabled: not exportable",
 			replicationFactor: 1,
 			globalConfig:      disabled(true),
 			shards:            []string{"s1"},
@@ -209,7 +192,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 			want:              false,
 		},
 		{
-			name:              "RF=1, single shard with non-terminal op, NOT globally disabled: NOT exportable (no convergence guarantee)",
+			name:              "RF=1, shard with in-flight op, not globally disabled: not exportable",
 			replicationFactor: 1,
 			globalConfig:      disabled(false),
 			shards:            []string{"s1"},
@@ -217,26 +200,26 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 			want:              false,
 		},
 		{
-			name:              "RF=1, schema read fails: NOT exportable (conservative)",
+			name:              "RF=1, schema read fails: not exportable",
 			replicationFactor: 1,
 			globalConfig:      nil,
 			readErr:           errors.New("schema unavailable"),
 			want:              false,
 		},
 		{
-			name:              "RF>1 globally disabled: not exportable (unchanged)",
+			name:              "RF>1 globally disabled: not exportable",
 			replicationFactor: 3,
 			globalConfig:      disabled(true),
 			want:              false,
 		},
 		{
-			name:              "RF>1 not globally disabled: exportable (unchanged)",
+			name:              "RF>1 not globally disabled: exportable",
 			replicationFactor: 3,
 			globalConfig:      disabled(false),
 			want:              true,
 		},
 		{
-			name:              "RF>1 nil global config: enabled by default, exportable (unchanged)",
+			name:              "RF>1 nil global config: exportable",
 			replicationFactor: 3,
 			globalConfig:      nil,
 			want:              true,
@@ -253,10 +236,8 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 				globalreplicationConfig: tt.globalConfig,
 				logger:                  logrus.New(),
 			}
-			// Only wire schema/FSM readers when the gate will reach for them
-			// (RF ≤ 1 path). For RF > 1 we deliberately leave them nil so a
-			// regression that newly consults either for RF > 1 surfaces as a
-			// nil-pointer panic in test rather than silently passing.
+			// Leave readers nil at RF>1 so a regression that newly consults
+			// them surfaces as a nil-pointer panic rather than silently passing.
 			if tt.replicationFactor <= 1 {
 				sr := schemaUC.NewMockSchemaReader(t)
 				call := sr.EXPECT().Read(className, true, mock.Anything)
@@ -270,10 +251,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 				idx.schemaReader = sr
 
 				fsm := replicationTypes.NewMockReplicationFSMReader(t)
-				// Set up a permissive expectation: the gate may call
-				// HasOngoingReplication 0..N times (short-circuits on
-				// the first true). Maybe() keeps the test honest without
-				// forcing a specific iteration count.
+				// Maybe(): the gate short-circuits, so call count is non-deterministic.
 				fsm.EXPECT().
 					HasOngoingReplication(className, mock.Anything).
 					RunAndReturn(func(_, shard string) bool {
@@ -306,9 +284,6 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 		assert.False(t, db.IsAsyncReplicationEnabled(context.Background(), className))
 	})
 
-	// newIndexAtRF1 wires the schema/FSM mocks the new RF≤1 gate consults.
-	// shardsWithOps drives the FSM mock: shards in the map (with value true)
-	// report a non-terminal replication op.
 	newIndexAtRF1 := func(t *testing.T, shardsWithOps map[string]bool) *Index {
 		shardNames := []string{"s1"}
 		if len(shardsWithOps) > 0 {

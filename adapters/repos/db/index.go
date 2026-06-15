@@ -901,16 +901,13 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
 }
 
-// applyAsyncReplicationToLoadedShardsLocked (re-)applies the enable/disable
-// decision to every loaded shard. The decision is per-shard, so an
-// over-replicated shard keeps async on even at ReplicationFactor 1 (after a
+// applyAsyncReplicationToLoadedShardsLocked (re-)applies the per-shard
+// enable/disable decision to every loaded shard. The decision is per-shard, so
+// an over-replicated shard at ReplicationFactor 1 keeps async on (e.g. mid
 // scale-out, or while the factor is lowered before the extra replicas drain).
-// enable/disableAsyncReplication are idempotent, so this is safe to call again.
 //
-// The caller MUST hold i.replicationConfigLock for writing; holding it across
-// the apply is deadlock-free (enable/disableAsyncReplication never reacquire it).
-// enableAsyncReplication does synchronous hashtree disk I/O, so hashbeat cycles
-// (which read the lock via AsyncReplicationEnabledForShard) stall until it ends.
+// Caller MUST hold i.replicationConfigLock for writing. enableAsyncReplication
+// does synchronous hashtree disk I/O, so hashbeat cycles stall until this ends.
 func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
 	cfg := i.Config.AsyncReplicationConfig
 
@@ -940,16 +937,10 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 }
 
 // reconcileAsyncReplication re-applies the enable/disable decision to this
-// index's loaded shards. It reacts to a runtime change of the global
-// AsyncReplicationDisabled flag, which would otherwise leave shards loaded
-// while disabled permanently unregistered.
-//
-// It does NOT short-circuit on ReplicationFactor <= 1: an over-replicated shard
-// still needs async replication. The per-shard decision is made in
-// applyAsyncReplicationToLoadedShardsLocked.
+// index's loaded shards after a runtime change of the global
+// AsyncReplicationDisabled flag. Must not short-circuit on
+// ReplicationFactor <= 1 — over-replicated shards still need async.
 func (i *Index) reconcileAsyncReplication(ctx context.Context) error {
-	// Exclusive lock (matching updateReplicationConfig) so the apply can't
-	// interleave with a concurrent reconcile or be observed half-applied.
 	i.replicationConfigLock.Lock()
 	defer i.replicationConfigLock.Unlock()
 
@@ -1364,12 +1355,8 @@ func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 }
 
-// asyncReplicationEnabledForShard is the per-shard async-replication gate. The
-// over-replication clause keeps async running between a scale-out completing and
-// an operator (optionally) raising the configured factor.
-//
-// Caller MUST hold replicationConfigLock; this does not lock internally (cf. the
-// exported AsyncReplicationEnabledForShard).
+// asyncReplicationEnabledForShard is the per-shard async-replication gate.
+// Caller MUST hold replicationConfigLock.
 func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
 	if i.asyncReplicationGloballyDisabled() {
 		return false
@@ -1389,13 +1376,10 @@ func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
 		return false
 	}
 
-	// Over-replication is a state where we are mid-scale-out and an operator hasn't bumped
-	// Config.ReplicationFactor at the index level yet
+	// Over-replication at RF=1: mid scale-out, or RF lowered before extras drained.
 	return len(replicas) > 1
 }
 
-// AsyncReplicationEnabledForShard is the lock-taking wrapper around
-// asyncReplicationEnabledForShard for callers that do not hold replicationConfigLock.
 func (i *Index) AsyncReplicationEnabledForShard(shardName string) bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
@@ -1411,17 +1395,12 @@ func (i *Index) SetReplicationFSMReader(r replicationTypes.ReplicationFSMReader)
 // replication is irrelevant (RF ≤ 1 and no shard has a non-terminal movement
 // op) or enabled (RF > 1 and not globally disabled).
 //
-// The non-terminal-op clause covers the replica-movement window: while a copy
-// is in flight, BelongsToNodes transiently contains source and target, and the
-// export selector would otherwise route the snapshot to either replica via
-// least-loaded scheduling.
-//
-// It remains config-level for per-shard readiness — per-shard readiness
-// inspection is unstable for multi-tenant classes (tenant shards constantly
-// transition) and would reject create-then-export during warm-up. The FSM/
-// sharding-state check, in contrast, reads RAFT-replicated state that only
-// flips on FSM apply, so it is safe to consult here. Reconciliation keeps the
-// per-shard view honest by applying the config to loaded shards.
+// The non-terminal-op clause covers the replica-movement window: BelongsToNodes
+// transiently holds source and target, so the export selector could otherwise
+// route the snapshot to either replica via least-loaded scheduling. Per-shard
+// readiness inspection isn't viable here (multi-tenant shards constantly
+// transition and would reject create-then-export during warm-up); the FSM read
+// is safe because it reads RAFT-replicated state that only flips on FSM apply.
 func (i *Index) IsAsyncReplicationEnabledOrIrrelevant() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
@@ -1430,9 +1409,7 @@ func (i *Index) IsAsyncReplicationEnabledOrIrrelevant() bool {
 		return i.asyncReplicationEnabled()
 	}
 
-	// RF ≤ 1: safe to export only if no shard is mid-movement. A schema-read
-	// failure is treated as unsafe — silently downgrading to "exportable"
-	// would defeat the purpose of the gate.
+	// Conservative on read failure: silently allowing export defeats the gate.
 	midMovement, err := i.anyShardMidMovement()
 	if err != nil {
 		i.logger.
@@ -1452,6 +1429,8 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
 		for shardName := range state.Physical {
+			// Short-circuit on first match: map iteration is randomized, so
+			// without this we'd non-deterministically miss other in-flight shards.
 			if i.replicationFSMReader.HasOngoingReplication(className, shardName) {
 				midMovement = true
 				return nil
@@ -1531,13 +1510,9 @@ func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName str
 }
 
 // ReconcileAsyncReplicationForShard re-applies the per-shard async-replication
-// decision after a replica was added to or removed from the shard. Called on
-// every hosting node when the sharding state changes; idempotent under RAFT
-// re-apply.
-//
-// No-op when the shard is not loaded locally (a node not hosting it, or a COLD
-// tenant): it must not be force-loaded just to toggle async — the init gate
-// re-derives the decision when it is next loaded.
+// decision after a replica was added or removed. No-op when the shard is not
+// loaded locally — it must not be force-loaded just to toggle async; the init
+// gate re-derives on next load.
 func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName string) error {
 	shard := i.shards.Loaded(shardName)
 	if shard == nil {
@@ -1549,8 +1524,6 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
-	// Held across the apply so a concurrent updateReplicationConfig can't
-	// interleave; deadlock-free (see RevertAsyncReplicationOnShard).
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
