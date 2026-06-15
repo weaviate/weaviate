@@ -1098,6 +1098,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
+	skipPropertyLengths        bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -1111,6 +1112,14 @@ func MapListAcceptDuplicates() MapListOption {
 func MapListLegacySortingRequired() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.legacyRequireManualSorting = true
+	}
+}
+
+// MapListSkipPropertyLengths skips loading an inverted segment's per-document
+// property length map, for callers that read only keys (e.g. filter resolution).
+func MapListSkipPropertyLengths() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.skipPropertyLengths = true
 	}
 }
 
@@ -1159,7 +1168,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
 		propLengths := make(map[uint64]uint32)
-		if segmentStrategy == segmentindex.StrategyInverted {
+		if segmentStrategy == segmentindex.StrategyInverted && !c.skipPropertyLengths {
 			propLengths, err = segmentsDisk[i].getPropertyLengths()
 			if err != nil {
 				return nil, err

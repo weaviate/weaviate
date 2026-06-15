@@ -224,9 +224,9 @@ func TestInvertedLazyPropertyLengthsStatsNoRace(t *testing.T) {
 	require.NoError(t, loadErr)
 }
 
-// TestInvertedLazyPropertyLengthsBlockMaxQuery asserts the query itself drives
-// the on-demand load in lazy mode (isPropertyLengthsLoaded flips false->true)
-// and returns the same per-doc frequencies and property lengths as eager mode.
+// TestInvertedLazyPropertyLengthsBlockMaxQuery runs a BM25 query in lazy mode
+// and asserts it drives the on-demand load and returns the same results as eager.
+// Distinct per-doc lengths mean a nil map would surface as PropLength==0.
 func TestInvertedLazyPropertyLengthsBlockMaxQuery(t *testing.T) {
 	ctx := context.Background()
 	const size = 200
@@ -312,4 +312,64 @@ func TestInvertedLazyPropertyLengthsBlockMaxQuery(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInvertedLazyPropertyLengthsFilterPathDoesNotLoad asserts key-only reads
+// (map cursors, MapListSkipPropertyLengths) leave the property-length map
+// unloaded, while a plain MapList loads it.
+func TestInvertedLazyPropertyLengthsFilterPathDoesNotLoad(t *testing.T) {
+	ctx := context.Background()
+	const size = 200
+	key := []byte("my-key")
+
+	dirName := t.TempDir()
+	lazy := configRuntime.NewDynamicValue(true)
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyInverted), WithLazyPropertyLengths(lazy))
+	require.Nil(t, err)
+	b.SetMemtableThreshold(1e9)
+	for i := 0; i < size; i++ {
+		require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1+i%5), false)))
+	}
+	require.Nil(t, b.FlushAndSwitch())
+
+	// reopen so the segment is loaded from disk via newSegment (stats-only)
+	require.Nil(t, b.Shutdown(ctx))
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyInverted), WithLazyPropertyLengths(lazy))
+	require.Nil(t, err)
+	b.SetMemtableThreshold(1e9)
+	defer b.Shutdown(ctx)
+
+	require.GreaterOrEqual(t, len(b.disk.segments), 1)
+	seg := b.disk.segments[0]
+	require.False(t, seg.isPropertyLengthsLoaded())
+
+	// greaterThan/lessThan/like filters go through a map cursor
+	cur, err := b.MapCursor()
+	require.NoError(t, err)
+	rows := 0
+	for k, _ := cur.First(ctx); k != nil; k, _ = cur.Next(ctx) {
+		rows++
+	}
+	cur.Close()
+	require.Equal(t, 1, rows, "single term expected")
+	require.False(t, seg.isPropertyLengthsLoaded(),
+		"a map cursor must not load the per-doc property length map")
+
+	// equal/notEqual filters go through MapList with the skip option
+	kvs, err := b.MapList(ctx, key, MapListSkipPropertyLengths())
+	require.NoError(t, err)
+	require.Len(t, kvs, size)
+	require.False(t, seg.isPropertyLengthsLoaded(),
+		"MapListSkipPropertyLengths must not load the per-doc property length map")
+
+	// BM25 and reindexing use a plain MapList
+	kvs, err = b.MapList(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, kvs, size)
+	require.True(t, seg.isPropertyLengthsLoaded(),
+		"a plain MapList must drive the on-demand load")
 }
