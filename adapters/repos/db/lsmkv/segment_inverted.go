@@ -34,6 +34,9 @@ type segmentInvertedData struct {
 
 	avgPropertyLengthsAvg   float64
 	avgPropertyLengthsCount uint64
+	// avg/count are read unlocked by combinePropertyLengths; this flag stops the
+	// on-demand load from re-writing (racing) them after open.
+	propertyLengthsStatsLoaded bool
 }
 
 func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
@@ -94,10 +97,12 @@ func (s *segment) loadPropertyLengthsStats() error {
 	propertyLengthsSize := binary.LittleEndian.Uint64(buffer[16:24])
 
 	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
+		// a NaN/Inf average can only be recomputed from the full map
 		_, err := s.loadPropertyLengthsLocked()
 		return err
 	}
 
+	s.invertedData.propertyLengthsStatsLoaded = true
 	if propertyLengthsSize == 0 {
 		s.invertedData.propertyLengthsLoaded = true
 	}
@@ -126,8 +131,12 @@ func (s *segment) loadPropertyLengthsLocked() (map[uint64]uint32, error) {
 		return nil, fmt.Errorf("copy node: %w", err)
 	}
 
-	s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(buffer))
-	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(buffer[8:16])
+	// don't re-write stats already set at open: readers access them unlocked
+	if !s.invertedData.propertyLengthsStatsLoaded {
+		s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(buffer))
+		s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(buffer[8:16])
+		s.invertedData.propertyLengthsStatsLoaded = true
+	}
 	propertyLengthsSize := binary.LittleEndian.Uint64(buffer[16:24])
 
 	if propertyLengthsSize == 0 {

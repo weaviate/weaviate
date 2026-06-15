@@ -16,10 +16,12 @@ package lsmkv
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -153,4 +155,71 @@ func TestInvertedCompactionFreesLazyPropertyLengths(t *testing.T) {
 		"a map loaded before the compaction must not be freed")
 	require.False(t, segFreed.isPropertyLengthsLoaded(),
 		"a map loaded only for the compaction must be freed afterwards")
+}
+
+// TestInvertedLazyPropertyLengthsStatsNoRace exercises the unlocked stat read
+// (as done by combinePropertyLengths) concurrently with the on-demand full
+// load. The full load must not re-write avg/count, or -race flags it.
+func TestInvertedLazyPropertyLengthsStatsNoRace(t *testing.T) {
+	ctx := context.Background()
+	const size = 200
+	key := []byte("my-key")
+	lazy := configRuntime.NewDynamicValue(true)
+
+	dirName := t.TempDir()
+	mk := func() *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyInverted), WithLazyPropertyLengths(lazy))
+		require.Nil(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	b := mk()
+	for i := 0; i < size; i++ {
+		require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)))
+	}
+	require.Nil(t, b.FlushAndSwitch())
+	require.Nil(t, b.Shutdown(ctx))
+
+	b = mk()
+	defer b.Shutdown(ctx)
+
+	require.GreaterOrEqual(t, len(b.disk.segments), 1)
+	seg := b.disk.segments[0]
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = seg.getInvertedData().avgPropertyLengthsAvg
+				_ = seg.getInvertedData().avgPropertyLengthsCount
+			}
+		}
+	}, nullLogger())
+
+	var loadErr error
+	wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		defer close(stop)
+		for i := 0; i < 300; i++ {
+			seg.freePropertyLengths()
+			if _, err := seg.getPropertyLengths(); err != nil {
+				loadErr = err
+				return
+			}
+		}
+	}, nullLogger())
+
+	wg.Wait()
+	require.NoError(t, loadErr)
 }
