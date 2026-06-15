@@ -1169,7 +1169,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 		var propLengths propLengthsView
 		if segmentStrategy == segmentindex.StrategyInverted && !c.skipPropertyLengths {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
