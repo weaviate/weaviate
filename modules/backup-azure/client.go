@@ -245,6 +245,10 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, 
 		return errors.Wrap(err, "failed to resolve container in Azure backup module")
 	}
 
+	if a.config.SkipAccessCheck {
+		return nil
+	}
+
 	if err := a.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check Azure backup module")
 	}
