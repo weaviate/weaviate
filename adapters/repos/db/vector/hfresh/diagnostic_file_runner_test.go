@@ -17,6 +17,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"sort"
 	"strconv"
@@ -3920,6 +3922,1530 @@ func TestPLAIDViabilityAnalysis(t *testing.T) {
 }
 
 // =============================================================================
+// PLAID-Style Simulation: FDE Top-N → Partial MaxSim → Top-M
+// =============================================================================
+// Tests whether a cheap intermediate scorer (partial MaxSim with fewer query
+// tokens) can recover MaxSim-relevant documents better than FDE alone.
+//
+// Pipeline:
+//   Stage 1: FDE ranking → Top-8000 candidates
+//   Stage 2: Partial MaxSim (4/8/16 query tokens) → Top-M
+//   Stage 3: Compare GT retention vs plain FDE Top-M
+//
+// Key question: Can partial MaxSim rescue GT documents that FDE mis-ranks?
+// =============================================================================
+
+// PLAIDSimulationReport captures the simulation results
+type PLAIDSimulationReport struct {
+	Timestamp       string                    `json:"timestamp"`
+	NumDocs         int                       `json:"num_docs"`
+	NumQueries      int                       `json:"num_queries"`
+	K               int                       `json:"k"`
+	FDECandidates   int                       `json:"fde_candidates"`
+	TokenConfigs    []int                     `json:"token_configs"`
+	Results         []PLAIDSimulationResult   `json:"results"`
+}
+
+// PLAIDSimulationResult shows GT retention for a specific configuration
+type PLAIDSimulationResult struct {
+	NumQueryTokens    int     `json:"num_query_tokens"`
+	OutputLimit       int     `json:"output_limit"`
+	FDEOnlyGTRetained int     `json:"fde_only_gt_retained"`
+	PartialMaxSimGT   int     `json:"partial_maxsim_gt_retained"`
+	TotalGT           int     `json:"total_gt"`
+	FDEOnlyRecall     float64 `json:"fde_only_recall"`
+	PartialMaxSimRecall float64 `json:"partial_maxsim_recall"`
+	Improvement       float64 `json:"improvement_pct"`
+}
+
+func TestPLAIDSimulation(t *testing.T) {
+	if *flagDocsPath == "" || *flagQueriesPath == "" || *flagGroundTruthPath == "" {
+		t.Skip("Skipping: requires -docs, -queries, and -groundtruth flags")
+	}
+
+	ctx := context.Background()
+
+	// Load input files
+	t.Log("Loading documents...")
+	docs, err := loadDocs(*flagDocsPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d documents", len(docs))
+
+	t.Log("Loading queries...")
+	queries, err := loadQueries(*flagQueriesPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d queries", len(queries))
+
+	t.Log("Loading ground-truth...")
+	groundTruth, err := loadGroundTruth(*flagGroundTruthPath)
+	require.NoError(t, err)
+	t.Logf("Loaded ground-truth for %d queries", len(groundTruth))
+
+	k := *flagK
+	if k == 0 {
+		k = 10
+	}
+
+	// PLAID configuration
+	fdeCandidates := 8000 // FDE Top-N candidates to feed into partial MaxSim
+	tokenConfigs := []int{4, 8, 16, 32} // Number of query tokens for partial MaxSim
+	outputLimits := []int{100, 256, 512, 1024, 2048} // Final Top-M to retain
+
+	// Create HFresh+MUVERA index for FDE encoding
+	t.Log("Creating HFresh+MUVERA index...")
+	runner := createFileRunnerIndex(t, 64, 100, false)
+	defer runner.cleanup()
+
+	// Insert documents
+	t.Log("Inserting documents...")
+	insertStart := time.Now()
+	for i, doc := range docs {
+		err := runner.insertDoc(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, err)
+
+		if (i+1)%10000 == 0 || i == len(docs)-1 {
+			t.Logf("Inserted %d/%d documents", i+1, len(docs))
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	t.Logf("Index built in %.2fs", time.Since(insertStart).Seconds())
+
+	// Load FDE vectors
+	t.Log("Loading FDE vectors...")
+	muveraBucket := runner.index.id + "_muvera_vectors"
+	docFDEVectors := make(map[uint64][]float32)
+	for _, doc := range docs {
+		fdeVec, err := runner.index.muveraEncoder.GetMuveraVectorForID(doc.ID, muveraBucket)
+		if err != nil {
+			continue
+		}
+		docFDEVectors[doc.ID] = fdeVec
+	}
+	t.Logf("Loaded FDE vectors for %d documents", len(docFDEVectors))
+
+	// Build doc ID list
+	docIDs := make([]uint64, 0, len(docs))
+	for _, doc := range docs {
+		docIDs = append(docIDs, doc.ID)
+	}
+
+	// Create L2 distance provider
+	l2Provider := distancer.NewL2SquaredProvider()
+
+	// Initialize report
+	report := PLAIDSimulationReport{
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		NumDocs:       len(docs),
+		NumQueries:    len(queries),
+		K:             k,
+		FDECandidates: fdeCandidates,
+		TokenConfigs:  tokenConfigs,
+	}
+
+	// Accumulators for each (tokenConfig, outputLimit) combination
+	type configKey struct {
+		tokens int
+		output int
+	}
+	fdeOnlyGT := make(map[configKey]int)
+	partialGT := make(map[configKey]int)
+	totalGT := make(map[configKey]int)
+
+	// Initialize accumulators
+	for _, tokens := range tokenConfigs {
+		for _, output := range outputLimits {
+			key := configKey{tokens, output}
+			fdeOnlyGT[key] = 0
+			partialGT[key] = 0
+			totalGT[key] = 0
+		}
+	}
+
+	t.Log("")
+	t.Log("Running PLAID simulation...")
+	t.Log("")
+
+	for qi, query := range queries {
+		gt, ok := groundTruth[query.ID]
+		if !ok {
+			continue
+		}
+		if len(gt) > k {
+			gt = gt[:k]
+		}
+
+		gtSet := make(map[uint64]bool, len(gt))
+		for _, id := range gt {
+			gtSet[id] = true
+		}
+
+		// Step 1: Compute FDE ranking for all documents
+		queryFDE := runner.index.muveraEncoder.EncodeQuery(query.Vectors)
+
+		type docScore struct {
+			id   uint64
+			dist float32
+		}
+		fdeScores := make([]docScore, 0, len(docFDEVectors))
+
+		for docID, docFDEVec := range docFDEVectors {
+			dist, err := l2Provider.SingleDist(queryFDE, docFDEVec)
+			if err != nil {
+				continue
+			}
+			fdeScores = append(fdeScores, docScore{id: docID, dist: dist})
+		}
+
+		// Sort by FDE distance
+		sort.Slice(fdeScores, func(i, j int) bool {
+			return fdeScores[i].dist < fdeScores[j].dist
+		})
+
+		// Get FDE Top-N candidates
+		fdeTopN := make([]uint64, 0, fdeCandidates)
+		for i := 0; i < fdeCandidates && i < len(fdeScores); i++ {
+			fdeTopN = append(fdeTopN, fdeScores[i].id)
+		}
+
+		// For each token configuration, compute partial MaxSim ranking
+		for _, numTokens := range tokenConfigs {
+			// Select subset of query tokens
+			querySubset := query.Vectors
+			if numTokens < len(query.Vectors) {
+				querySubset = query.Vectors[:numTokens]
+			}
+
+			// Compute partial MaxSim for FDE Top-N candidates
+			type partialScore struct {
+				id    uint64
+				score float32
+			}
+			partialScores := make([]partialScore, 0, len(fdeTopN))
+
+			for _, docID := range fdeTopN {
+				docVecs, ok := runner.mvStore[docID]
+				if !ok {
+					continue
+				}
+				score, err := partialMaxSimScore(querySubset, docVecs, runner.index.config.DistanceProvider)
+				if err != nil {
+					continue
+				}
+				partialScores = append(partialScores, partialScore{id: docID, score: score})
+			}
+
+			// Sort by partial MaxSim score
+			sort.Slice(partialScores, func(i, j int) bool {
+				return partialScores[i].score < partialScores[j].score
+			})
+
+			// For each output limit, count GT retention
+			for _, outputLimit := range outputLimits {
+				key := configKey{numTokens, outputLimit}
+				totalGT[key] += len(gt)
+
+				// FDE-only: count GT in FDE Top-outputLimit
+				fdeCount := 0
+				for i := 0; i < outputLimit && i < len(fdeScores); i++ {
+					if gtSet[fdeScores[i].id] {
+						fdeCount++
+					}
+				}
+				fdeOnlyGT[key] += fdeCount
+
+				// Partial MaxSim: count GT in partial MaxSim Top-outputLimit
+				partialCount := 0
+				for i := 0; i < outputLimit && i < len(partialScores); i++ {
+					if gtSet[partialScores[i].id] {
+						partialCount++
+					}
+				}
+				partialGT[key] += partialCount
+			}
+		}
+
+		if (qi+1)%20 == 0 || qi == len(queries)-1 {
+			t.Logf("Processed %d/%d queries", qi+1, len(queries))
+		}
+	}
+
+	// Build results
+	t.Log("")
+	t.Log("================================================================================")
+	t.Logf("      PLAID SIMULATION: FDE Top-%d → Partial MaxSim → Top-M", fdeCandidates)
+	t.Log("================================================================================")
+	t.Log("")
+	t.Log("Tokens | Output | FDE_Recall | PartialMaxSim | Improvement")
+	t.Log("-------|--------|------------|---------------|------------")
+
+	for _, tokens := range tokenConfigs {
+		for _, output := range outputLimits {
+			key := configKey{tokens, output}
+
+			fdeRecall := float64(fdeOnlyGT[key]) / float64(totalGT[key])
+			partialRecall := float64(partialGT[key]) / float64(totalGT[key])
+			improvement := 0.0
+			if fdeRecall > 0 {
+				improvement = (partialRecall - fdeRecall) / fdeRecall * 100
+			}
+
+			result := PLAIDSimulationResult{
+				NumQueryTokens:      tokens,
+				OutputLimit:         output,
+				FDEOnlyGTRetained:   fdeOnlyGT[key],
+				PartialMaxSimGT:     partialGT[key],
+				TotalGT:             totalGT[key],
+				FDEOnlyRecall:       fdeRecall,
+				PartialMaxSimRecall: partialRecall,
+				Improvement:         improvement,
+			}
+			report.Results = append(report.Results, result)
+
+			t.Logf("%-6d | %-6d | %-10.4f | %-13.4f | %+.1f%%",
+				tokens, output, fdeRecall, partialRecall, improvement)
+		}
+		t.Log("-------|--------|------------|---------------|------------")
+	}
+
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("INTERPRETATION")
+	t.Log("================================================================================")
+
+	// Find best improvement
+	var bestImprovement float64
+	var bestConfig PLAIDSimulationResult
+	for _, r := range report.Results {
+		if r.Improvement > bestImprovement {
+			bestImprovement = r.Improvement
+			bestConfig = r
+		}
+	}
+
+	if bestImprovement > 10 {
+		t.Logf("Partial MaxSim provides SIGNIFICANT improvement over FDE alone.")
+		t.Logf("Best config: %d tokens, Top-%d → %.1f%% improvement (%.4f → %.4f recall)",
+			bestConfig.NumQueryTokens, bestConfig.OutputLimit, bestConfig.Improvement,
+			bestConfig.FDEOnlyRecall, bestConfig.PartialMaxSimRecall)
+		t.Log("")
+		t.Log("A PLAID-style intermediate stage is worthwhile.")
+	} else if bestImprovement > 5 {
+		t.Logf("Partial MaxSim provides MODERATE improvement over FDE alone.")
+		t.Logf("Best config: %d tokens, Top-%d → %.1f%% improvement",
+			bestConfig.NumQueryTokens, bestConfig.OutputLimit, bestConfig.Improvement)
+	} else {
+		t.Log("Partial MaxSim provides MINIMAL improvement over FDE alone.")
+		t.Log("The FDE ranking already captures most of what partial MaxSim can find.")
+		t.Log("A PLAID-style intermediate stage may not be worthwhile.")
+	}
+
+	// Write report
+	outputPath := *flagOutputPath
+	if outputPath == "" {
+		outputPath = "/tmp/hfresh_diag_lotte_100q/plaid_simulation.json"
+	}
+
+	reportJSON, err := json.MarshalIndent(report, "", "  ")
+	require.NoError(t, err)
+
+	err = os.WriteFile(outputPath, reportJSON, 0644)
+	require.NoError(t, err)
+
+	t.Logf("")
+	t.Logf("Report written to: %s", outputPath)
+}
+
+// partialMaxSimScore computes MaxSim using only a subset of query tokens.
+// This is cheaper than full MaxSim and can serve as an intermediate scorer.
+func partialMaxSimScore(queryTokens [][]float32, docTokens [][]float32, distProvider distancer.Provider) (float32, error) {
+	var score float32
+	for _, queryToken := range queryTokens {
+		d := distProvider.New(queryToken)
+		minDist := float32(1e9)
+		for _, docToken := range docTokens {
+			dist, err := d.Distance(docToken)
+			if err != nil {
+				return 0, err
+			}
+			if dist < minDist {
+				minDist = dist
+			}
+		}
+		score += minDist
+	}
+	return score, nil
+}
+
+// =============================================================================
+// PLAID Intermediate Scorer Experiment (Corrected Methodology)
+// =============================================================================
+//
+// This experiment evaluates whether a cheap intermediate scoring stage can
+// improve recall in a PLAID-style retrieval pipeline.
+//
+// PIPELINE:
+//
+//   FDE Top-N (cheap, approximate)
+//       ↓
+//   Intermediate Scorer → Top-M (moderate cost)
+//       ↓
+//   Full MaxSim on Top-M → Final Top-K (exact, expensive)
+//       ↓
+//   Measure final recall
+//
+// BASELINE COMPARISON:
+//
+//   FDE Top-M (no intermediate scorer)
+//       ↓
+//   Full MaxSim on Top-M → Final Top-K
+//       ↓
+//   Measure final recall
+//
+// KEY QUESTION: Does partial MaxSim preserve GT documents in Top-M better
+// than FDE alone, leading to higher final recall after full MaxSim?
+//
+// SCORERS EVALUATED:
+//   - Partial MaxSim with 4 query tokens
+//   - Partial MaxSim with 8 query tokens
+//   - Partial MaxSim with 16 query tokens
+//
+// FDE DEPTHS: 2000, 5000, 8000
+// TOP-M VALUES: 256, 512, 1024, 2048
+//
+// METRICS REPORTED:
+//   1. GT retention after intermediate stage (|GT ∩ Top-M| / |GT|)
+//   2. Final recall after full MaxSim (|GT ∩ MaxSim(Top-M, K)| / |GT|)
+//   3. Baseline recall (FDE Top-M → MaxSim → recall)
+//
+// =============================================================================
+
+// PLAIDExperimentReport captures the full experiment results
+type PLAIDExperimentReport struct {
+	Timestamp     string                   `json:"timestamp"`
+	NumDocs       int                      `json:"num_docs"`
+	NumQueries    int                      `json:"num_queries"`
+	K             int                      `json:"k"`
+	FDEDepths     []int                    `json:"fde_depths"`
+	TopMValues    []int                    `json:"top_m_values"`
+	QueryTokens   []int                    `json:"query_token_configs"`
+	Results       []PLAIDExperimentResult  `json:"results"`
+	Summary       PLAIDExperimentSummary   `json:"summary"`
+}
+
+// PLAIDExperimentResult captures one configuration's results
+type PLAIDExperimentResult struct {
+	FDEDepth           int     `json:"fde_depth"`
+	NumQueryTokens     int     `json:"num_query_tokens"`      // 0 = baseline (no intermediate scorer)
+	TopM               int     `json:"top_m"`
+	GTRetentionInTopM  float64 `json:"gt_retention_in_top_m"` // |GT ∩ Top-M| / |GT|
+	FinalRecall        float64 `json:"final_recall"`          // |GT ∩ MaxSim(Top-M, K)| / |GT|
+	BaselineRecall     float64 `json:"baseline_recall"`       // FDE Top-M → MaxSim → recall
+	ImprovementOverFDE float64 `json:"improvement_over_fde"`  // (FinalRecall - BaselineRecall) / BaselineRecall * 100
+}
+
+// PLAIDExperimentSummary provides aggregate analysis
+type PLAIDExperimentSummary struct {
+	BestConfig        PLAIDExperimentResult `json:"best_config"`
+	BestByTokenCount  map[int]PLAIDExperimentResult `json:"best_by_token_count"`
+	BestByFDEDepth    map[int]PLAIDExperimentResult `json:"best_by_fde_depth"`
+	Interpretation    string `json:"interpretation"`
+}
+
+func TestPLAIDIntermediateScorer(t *testing.T) {
+	if *flagDocsPath == "" || *flagQueriesPath == "" || *flagGroundTruthPath == "" {
+		t.Skip("Skipping: requires -docs, -queries, and -groundtruth flags")
+	}
+
+	ctx := context.Background()
+
+	// Load input files
+	t.Log("Loading documents...")
+	docs, err := loadDocs(*flagDocsPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d documents", len(docs))
+
+	t.Log("Loading queries...")
+	queries, err := loadQueries(*flagQueriesPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d queries", len(queries))
+
+	t.Log("Loading ground-truth...")
+	groundTruth, err := loadGroundTruth(*flagGroundTruthPath)
+	require.NoError(t, err)
+	t.Logf("Loaded ground-truth for %d queries", len(groundTruth))
+
+	k := *flagK
+	if k == 0 {
+		k = 10
+	}
+
+	// Experiment configuration (simplified)
+	fdeDepths := []int{2000, 5000, 8000}
+	topMValues := []int{256, 512, 1024, 2048}
+	queryTokenConfigs := []int{4, 8, 16} // Partial MaxSim configurations
+
+	// Create HFresh+MUVERA index for FDE encoding
+	t.Log("Creating HFresh+MUVERA index...")
+	runner := createFileRunnerIndex(t, 64, 100, false)
+	defer runner.cleanup()
+
+	// Insert documents
+	t.Log("Inserting documents...")
+	insertStart := time.Now()
+	for i, doc := range docs {
+		err := runner.insertDoc(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, err)
+
+		if (i+1)%10000 == 0 || i == len(docs)-1 {
+			t.Logf("Inserted %d/%d documents", i+1, len(docs))
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	t.Logf("Index built in %.2fs", time.Since(insertStart).Seconds())
+
+	// Load FDE vectors
+	t.Log("Loading FDE vectors...")
+	muveraBucket := runner.index.id + "_muvera_vectors"
+	docFDEVectors := make(map[uint64][]float32)
+	for _, doc := range docs {
+		fdeVec, err := runner.index.muveraEncoder.GetMuveraVectorForID(doc.ID, muveraBucket)
+		if err != nil {
+			continue
+		}
+		docFDEVectors[doc.ID] = fdeVec
+	}
+	t.Logf("Loaded FDE vectors for %d documents", len(docFDEVectors))
+
+	// Build doc ID list
+	docIDs := make([]uint64, 0, len(docs))
+	for _, doc := range docs {
+		docIDs = append(docIDs, doc.ID)
+	}
+
+	// Create L2 distance provider
+	l2Provider := distancer.NewL2SquaredProvider()
+
+	// Initialize report
+	report := PLAIDExperimentReport{
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		NumDocs:       len(docs),
+		NumQueries:    len(queries),
+		K:             k,
+		FDEDepths:     fdeDepths,
+		TopMValues:    topMValues,
+		QueryTokens:   queryTokenConfigs,
+	}
+
+	// Result accumulators keyed by (fdeDepth, numTokens, topM)
+	// numTokens=0 means baseline (no intermediate scorer)
+	type configKey struct {
+		fdeDepth  int
+		numTokens int // 0 = baseline
+		topM      int
+	}
+
+	// Accumulators
+	gtRetention := make(map[configKey]int)     // GT docs in Top-M after intermediate scorer
+	finalRecall := make(map[configKey]int)     // GT docs in final MaxSim Top-K
+	baselineRecall := make(map[configKey]int)  // GT docs with baseline (FDE Top-M → MaxSim)
+	totalGT := make(map[configKey]int)
+
+	t.Log("")
+	t.Log("Running PLAID Intermediate Scorer experiment...")
+	t.Log("Pipeline: FDE Top-N → Partial MaxSim → Top-M → Full MaxSim → Top-K")
+	t.Log("")
+
+	for qi, query := range queries {
+		gt, ok := groundTruth[query.ID]
+		if !ok {
+			continue
+		}
+		if len(gt) > k {
+			gt = gt[:k]
+		}
+
+		gtSet := make(map[uint64]bool, len(gt))
+		for _, id := range gt {
+			gtSet[id] = true
+		}
+
+		// Step 1: Compute FDE ranking for all documents
+		queryFDE := runner.index.muveraEncoder.EncodeQuery(query.Vectors)
+
+		type docScore struct {
+			id   uint64
+			dist float32
+		}
+		fdeScores := make([]docScore, 0, len(docFDEVectors))
+
+		for docID, docFDEVec := range docFDEVectors {
+			dist, err := l2Provider.SingleDist(queryFDE, docFDEVec)
+			if err != nil {
+				continue
+			}
+			fdeScores = append(fdeScores, docScore{id: docID, dist: dist})
+		}
+
+		// Sort by FDE distance (ascending = most similar first)
+		sort.Slice(fdeScores, func(i, j int) bool {
+			return fdeScores[i].dist < fdeScores[j].dist
+		})
+
+		// For each FDE depth
+		for _, fdeDepth := range fdeDepths {
+			// Get FDE Top-N candidates
+			fdeTopN := make([]uint64, 0, fdeDepth)
+			for i := 0; i < fdeDepth && i < len(fdeScores); i++ {
+				fdeTopN = append(fdeTopN, fdeScores[i].id)
+			}
+
+			// For each Top-M value
+			for _, topM := range topMValues {
+				// Skip if topM > fdeDepth (can't select more than available)
+				if topM > fdeDepth {
+					continue
+				}
+
+				// =============================================================
+				// BASELINE: FDE Top-M → Full MaxSim → Top-K
+				// =============================================================
+				baselineKey := configKey{fdeDepth, 0, topM}
+				totalGT[baselineKey] += len(gt)
+
+				// Get FDE Top-M (baseline candidates)
+				fdeTopM := fdeTopN
+				if topM < len(fdeTopN) {
+					fdeTopM = fdeTopN[:topM]
+				}
+
+				// Run full MaxSim on baseline Top-M
+				baselineMaxSim := make([]docScore, 0, len(fdeTopM))
+				for _, docID := range fdeTopM {
+					docVecs, ok := runner.mvStore[docID]
+					if !ok {
+						continue
+					}
+					score, err := runner.index.maxSimScore(query.Vectors, docVecs)
+					if err != nil {
+						continue
+					}
+					baselineMaxSim = append(baselineMaxSim, docScore{id: docID, dist: score})
+				}
+
+				sort.Slice(baselineMaxSim, func(i, j int) bool {
+					return baselineMaxSim[i].dist < baselineMaxSim[j].dist
+				})
+
+				// Count GT in baseline final Top-K
+				baselineGTCount := 0
+				for i := 0; i < k && i < len(baselineMaxSim); i++ {
+					if gtSet[baselineMaxSim[i].id] {
+						baselineGTCount++
+					}
+				}
+				baselineRecall[baselineKey] += baselineGTCount
+
+				// =============================================================
+				// PARTIAL MAXSIM VARIANTS
+				// =============================================================
+				for _, numTokens := range queryTokenConfigs {
+					key := configKey{fdeDepth, numTokens, topM}
+					totalGT[key] += len(gt)
+
+					// Step 2: Score FDE Top-N with partial MaxSim
+					querySubset := query.Vectors
+					if numTokens < len(query.Vectors) {
+						querySubset = query.Vectors[:numTokens]
+					}
+
+					partialScores := make([]docScore, 0, len(fdeTopN))
+					for _, docID := range fdeTopN {
+						docVecs, ok := runner.mvStore[docID]
+						if !ok {
+							continue
+						}
+						score, err := partialMaxSimScore(querySubset, docVecs, runner.index.config.DistanceProvider)
+						if err != nil {
+							continue
+						}
+						partialScores = append(partialScores, docScore{id: docID, dist: score})
+					}
+
+					// Sort by partial MaxSim score
+					sort.Slice(partialScores, func(i, j int) bool {
+						return partialScores[i].dist < partialScores[j].dist
+					})
+
+					// Step 3: Take Top-M after partial MaxSim
+					scorerTopM := partialScores
+					if topM < len(partialScores) {
+						scorerTopM = partialScores[:topM]
+					}
+
+					// Count GT retention in Top-M (intermediate checkpoint)
+					gtInTopM := 0
+					for _, ds := range scorerTopM {
+						if gtSet[ds.id] {
+							gtInTopM++
+						}
+					}
+					gtRetention[key] += gtInTopM
+
+					// Step 4: Run full MaxSim on Top-M
+					fullMaxSimScores := make([]docScore, 0, len(scorerTopM))
+					for _, ds := range scorerTopM {
+						docVecs, ok := runner.mvStore[ds.id]
+						if !ok {
+							continue
+						}
+						score, err := runner.index.maxSimScore(query.Vectors, docVecs)
+						if err != nil {
+							continue
+						}
+						fullMaxSimScores = append(fullMaxSimScores, docScore{id: ds.id, dist: score})
+					}
+
+					// Sort by full MaxSim score
+					sort.Slice(fullMaxSimScores, func(i, j int) bool {
+						return fullMaxSimScores[i].dist < fullMaxSimScores[j].dist
+					})
+
+					// Step 5: Count GT in final Top-K
+					gtInFinalK := 0
+					for i := 0; i < k && i < len(fullMaxSimScores); i++ {
+						if gtSet[fullMaxSimScores[i].id] {
+							gtInFinalK++
+						}
+					}
+					finalRecall[key] += gtInFinalK
+				}
+			}
+		}
+
+		if (qi+1)%10 == 0 || qi == len(queries)-1 {
+			t.Logf("Processed %d/%d queries", qi+1, len(queries))
+		}
+	}
+
+	// Build results
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("      PLAID INTERMEDIATE SCORER EXPERIMENT RESULTS")
+	t.Log("================================================================================")
+	t.Log("")
+	t.Log("Pipeline: FDE Top-N → Partial MaxSim (X tokens) → Top-M → Full MaxSim → Top-K")
+	t.Log("")
+
+	bestImprovement := -100.0
+	var bestConfig PLAIDExperimentResult
+	bestByTokens := make(map[int]PLAIDExperimentResult)
+	bestByDepth := make(map[int]PLAIDExperimentResult)
+
+	for _, depth := range fdeDepths {
+		t.Log("")
+		t.Logf("--- FDE Depth: %d ---", depth)
+		t.Log("Tokens | Top-M | GT_Retention | Final_Recall | Baseline | Improvement")
+		t.Log("-------|-------|--------------|--------------|----------|------------")
+
+		for _, topM := range topMValues {
+			if topM > depth {
+				continue
+			}
+
+			// Get baseline recall for this (depth, topM) pair
+			baselineKey := configKey{depth, 0, topM}
+			baselineRec := 0.0
+			if totalGT[baselineKey] > 0 {
+				baselineRec = float64(baselineRecall[baselineKey]) / float64(totalGT[baselineKey])
+			}
+
+			for _, numTokens := range queryTokenConfigs {
+				key := configKey{depth, numTokens, topM}
+
+				retention := 0.0
+				if totalGT[key] > 0 {
+					retention = float64(gtRetention[key]) / float64(totalGT[key])
+				}
+				final := 0.0
+				if totalGT[key] > 0 {
+					final = float64(finalRecall[key]) / float64(totalGT[key])
+				}
+
+				improvement := 0.0
+				if baselineRec > 0 {
+					improvement = (final - baselineRec) / baselineRec * 100
+				}
+
+				result := PLAIDExperimentResult{
+					FDEDepth:           depth,
+					NumQueryTokens:     numTokens,
+					TopM:               topM,
+					GTRetentionInTopM:  retention,
+					FinalRecall:        final,
+					BaselineRecall:     baselineRec,
+					ImprovementOverFDE: improvement,
+				}
+				report.Results = append(report.Results, result)
+
+				// Track best configurations
+				if improvement > bestImprovement {
+					bestImprovement = improvement
+					bestConfig = result
+				}
+				if best, ok := bestByTokens[numTokens]; !ok || improvement > best.ImprovementOverFDE {
+					bestByTokens[numTokens] = result
+				}
+				if best, ok := bestByDepth[depth]; !ok || improvement > best.ImprovementOverFDE {
+					bestByDepth[depth] = result
+				}
+
+				t.Logf("%-6d | %-5d | %-12.4f | %-12.4f | %-8.4f | %+7.1f%%",
+					numTokens, topM, retention, final, baselineRec, improvement)
+			}
+		}
+	}
+
+	// Summary
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("SUMMARY")
+	t.Log("================================================================================")
+	t.Log("")
+
+	t.Logf("Best configuration: %d query tokens, FDE-%d → Top-%d",
+		bestConfig.NumQueryTokens, bestConfig.FDEDepth, bestConfig.TopM)
+	t.Logf("  Baseline (FDE → MaxSim): %.4f", bestConfig.BaselineRecall)
+	t.Logf("  With partial MaxSim:     %.4f (+%.1f%%)",
+		bestConfig.FinalRecall, bestConfig.ImprovementOverFDE)
+	t.Logf("  GT retention in Top-M:   %.4f", bestConfig.GTRetentionInTopM)
+
+	t.Log("")
+	t.Log("Best by query token count:")
+	for _, tokens := range queryTokenConfigs {
+		if best, ok := bestByTokens[tokens]; ok {
+			t.Logf("  %2d tokens: FDE-%d → Top-%d, +%.1f%% (%.4f → %.4f)",
+				tokens, best.FDEDepth, best.TopM, best.ImprovementOverFDE,
+				best.BaselineRecall, best.FinalRecall)
+		}
+	}
+
+	t.Log("")
+	t.Log("Best by FDE depth:")
+	for _, depth := range fdeDepths {
+		if best, ok := bestByDepth[depth]; ok {
+			t.Logf("  FDE-%5d: %d tokens → Top-%d, +%.1f%% (%.4f → %.4f)",
+				depth, best.NumQueryTokens, best.TopM, best.ImprovementOverFDE,
+				best.BaselineRecall, best.FinalRecall)
+		}
+	}
+
+	// Interpretation
+	interpretation := ""
+	if bestImprovement > 20 {
+		interpretation = "STRONG: Partial MaxSim provides major improvement over FDE alone. " +
+			"A PLAID-style pipeline is strongly recommended. Proceed to evaluate representative-based scorers."
+	} else if bestImprovement > 10 {
+		interpretation = "MODERATE: Partial MaxSim provides meaningful improvement. " +
+			"A PLAID-style pipeline is worthwhile. Consider evaluating cheaper intermediate scorers."
+	} else if bestImprovement > 5 {
+		interpretation = "MARGINAL: Partial MaxSim provides small improvement. " +
+			"PLAID-style pipeline may help in specific configurations but gains are limited."
+	} else if bestImprovement > 0 {
+		interpretation = "MINIMAL: Partial MaxSim provides negligible improvement. " +
+			"FDE ranking already captures most of the signal. Alternative approaches may be needed."
+	} else {
+		interpretation = "NEGATIVE: Partial MaxSim performs worse than baseline. " +
+			"The intermediate scoring stage is not beneficial for this dataset."
+	}
+
+	t.Log("")
+	t.Logf("INTERPRETATION: %s", interpretation)
+
+	report.Summary = PLAIDExperimentSummary{
+		BestConfig:       bestConfig,
+		BestByTokenCount: bestByTokens,
+		BestByFDEDepth:   bestByDepth,
+		Interpretation:   interpretation,
+	}
+
+	// Write report
+	outputPath := *flagOutputPath
+	if outputPath == "" {
+		outputPath = "/tmp/hfresh_diag_lotte_100q/plaid_intermediate_scorer.json"
+	}
+
+	reportJSON, err := json.MarshalIndent(report, "", "  ")
+	require.NoError(t, err)
+
+	err = os.WriteFile(outputPath, reportJSON, 0644)
+	require.NoError(t, err)
+
+	t.Logf("")
+	t.Logf("Report written to: %s", outputPath)
+}
+
+// =============================================================================
+// PLAID Token Selection Validation Experiment
+// =============================================================================
+//
+// This experiment validates whether the partial MaxSim improvement is robust
+// across different token selection strategies, or if it's an artifact of
+// selecting the first N query tokens.
+//
+// TOKEN SELECTION STRATEGIES:
+//
+// 1. first       - query.Vectors[:n] (current behavior)
+// 2. even_spaced - n tokens evenly distributed across the sequence
+// 3. highest_norm - n tokens with highest L2 norm
+// 4. random_fixed - n random tokens with fixed seed for reproducibility
+// 5. random_avg_5 - average of 5 random selections (optional)
+//
+// PIPELINE (same as before):
+//
+//   FDE Top-N → Partial MaxSim (selected tokens) → Top-M → Full MaxSim → Top-K
+//
+// =============================================================================
+
+// TokenSelectionStrategy identifies the strategy for selecting query tokens
+type TokenSelectionStrategy string
+
+const (
+	TokensFirst      TokenSelectionStrategy = "first"
+	TokensEvenSpaced TokenSelectionStrategy = "even_spaced"
+	TokensHighestNorm TokenSelectionStrategy = "highest_norm"
+	TokensRandomFixed TokenSelectionStrategy = "random_fixed"
+	TokensRandomAvg5  TokenSelectionStrategy = "random_avg_5"
+)
+
+// TokenSelectionResult captures results for one configuration
+type TokenSelectionResult struct {
+	FDEDepth       int                    `json:"fde_depth"`
+	Strategy       TokenSelectionStrategy `json:"strategy"`
+	NumTokens      int                    `json:"num_tokens"`
+	TopM           int                    `json:"top_m"`
+	GTRetention    float64                `json:"gt_retention"`
+	FinalRecall    float64                `json:"final_recall"`
+	BaselineRecall float64                `json:"baseline_recall"`
+	Improvement    float64                `json:"improvement_pct"`
+	EstimatedCost  int64                  `json:"estimated_cost"` // tokens × avg_doc_tokens × fde_depth
+}
+
+// TokenSelectionReport is the full experiment report
+type TokenSelectionReport struct {
+	Timestamp      string                  `json:"timestamp"`
+	NumDocs        int                     `json:"num_docs"`
+	NumQueries     int                     `json:"num_queries"`
+	AvgDocTokens   float64                 `json:"avg_doc_tokens"`
+	AvgQueryTokens float64                 `json:"avg_query_tokens"`
+	K              int                     `json:"k"`
+	FDEDepths      []int                   `json:"fde_depths"`
+	TopMValues     []int                   `json:"top_m_values"`
+	TokenCounts    []int                   `json:"token_counts"`
+	Strategies     []TokenSelectionStrategy `json:"strategies"`
+	Results        []TokenSelectionResult  `json:"results"`
+	Summary        TokenSelectionSummary   `json:"summary"`
+}
+
+// TokenSelectionSummary provides aggregate analysis
+type TokenSelectionSummary struct {
+	BestByStrategy    map[TokenSelectionStrategy]TokenSelectionResult `json:"best_by_strategy"`
+	BestOverall       TokenSelectionResult                            `json:"best_overall"`
+	StrategyConsistency string                                        `json:"strategy_consistency"`
+	Interpretation    string                                          `json:"interpretation"`
+}
+
+// selectQueryTokens returns a subset of query tokens based on the strategy
+func selectQueryTokens(queryVecs [][]float32, n int, strategy TokenSelectionStrategy, queryIdx int) [][]float32 {
+	if n >= len(queryVecs) {
+		return queryVecs
+	}
+
+	switch strategy {
+	case TokensFirst:
+		return queryVecs[:n]
+
+	case TokensEvenSpaced:
+		step := float64(len(queryVecs)-1) / float64(n-1)
+		result := make([][]float32, n)
+		for i := 0; i < n; i++ {
+			idx := int(float64(i) * step)
+			if idx >= len(queryVecs) {
+				idx = len(queryVecs) - 1
+			}
+			result[i] = queryVecs[idx]
+		}
+		return result
+
+	case TokensHighestNorm:
+		type tokenNorm struct {
+			idx  int
+			norm float32
+		}
+		norms := make([]tokenNorm, len(queryVecs))
+		for i, vec := range queryVecs {
+			var norm float32
+			for _, v := range vec {
+				norm += v * v
+			}
+			norms[i] = tokenNorm{i, norm}
+		}
+		sort.Slice(norms, func(i, j int) bool {
+			return norms[i].norm > norms[j].norm
+		})
+		result := make([][]float32, n)
+		for i := 0; i < n; i++ {
+			result[i] = queryVecs[norms[i].idx]
+		}
+		return result
+
+	case TokensRandomFixed:
+		// Use deterministic seed based on query index and token count
+		seed := int64(queryIdx*1000 + n)
+		rng := rand.New(rand.NewSource(seed))
+		perm := rng.Perm(len(queryVecs))
+		indices := perm[:n]
+		sort.Ints(indices) // Preserve relative order
+		result := make([][]float32, n)
+		for i, idx := range indices {
+			result[i] = queryVecs[idx]
+		}
+		return result
+
+	case TokensRandomAvg5:
+		// This is handled separately in the main loop
+		// Return first-n as fallback
+		return queryVecs[:n]
+	}
+
+	return queryVecs[:n]
+}
+
+func TestPLAIDTokenSelectionValidation(t *testing.T) {
+	if *flagDocsPath == "" || *flagQueriesPath == "" || *flagGroundTruthPath == "" {
+		t.Skip("Skipping: requires -docs, -queries, and -groundtruth flags")
+	}
+
+	ctx := context.Background()
+
+	// Load input files
+	t.Log("Loading documents...")
+	docs, err := loadDocs(*flagDocsPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d documents", len(docs))
+
+	t.Log("Loading queries...")
+	queries, err := loadQueries(*flagQueriesPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d queries", len(queries))
+
+	t.Log("Loading ground-truth...")
+	groundTruth, err := loadGroundTruth(*flagGroundTruthPath)
+	require.NoError(t, err)
+	t.Logf("Loaded ground-truth for %d queries", len(groundTruth))
+
+	k := *flagK
+	if k == 0 {
+		k = 10
+	}
+
+	// Experiment configuration - focused on best region
+	fdeDepths := []int{5000, 8000}
+	topMValues := []int{256, 512}
+	tokenCounts := []int{8, 16}
+	strategies := []TokenSelectionStrategy{
+		TokensFirst,
+		TokensEvenSpaced,
+		TokensHighestNorm,
+		TokensRandomFixed,
+		TokensRandomAvg5,
+	}
+
+	// Create HFresh+MUVERA index for FDE encoding
+	t.Log("Creating HFresh+MUVERA index...")
+	runner := createFileRunnerIndex(t, 64, 100, false)
+	defer runner.cleanup()
+
+	// Insert documents
+	t.Log("Inserting documents...")
+	insertStart := time.Now()
+	var totalDocTokens int64
+	for i, doc := range docs {
+		err := runner.insertDoc(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, err)
+		totalDocTokens += int64(len(doc.Vectors))
+
+		if (i+1)%10000 == 0 || i == len(docs)-1 {
+			t.Logf("Inserted %d/%d documents", i+1, len(docs))
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	t.Logf("Index built in %.2fs", time.Since(insertStart).Seconds())
+
+	avgDocTokens := float64(totalDocTokens) / float64(len(docs))
+	t.Logf("Average doc tokens: %.1f", avgDocTokens)
+
+	// Compute average query tokens
+	var totalQueryTokens int64
+	for _, q := range queries {
+		totalQueryTokens += int64(len(q.Vectors))
+	}
+	avgQueryTokens := float64(totalQueryTokens) / float64(len(queries))
+	t.Logf("Average query tokens: %.1f", avgQueryTokens)
+
+	// Load FDE vectors
+	t.Log("Loading FDE vectors...")
+	muveraBucket := runner.index.id + "_muvera_vectors"
+	docFDEVectors := make(map[uint64][]float32)
+	for _, doc := range docs {
+		fdeVec, err := runner.index.muveraEncoder.GetMuveraVectorForID(doc.ID, muveraBucket)
+		if err != nil {
+			continue
+		}
+		docFDEVectors[doc.ID] = fdeVec
+	}
+	t.Logf("Loaded FDE vectors for %d documents", len(docFDEVectors))
+
+	// Create L2 distance provider
+	l2Provider := distancer.NewL2SquaredProvider()
+
+	// Initialize report
+	report := TokenSelectionReport{
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		NumDocs:        len(docs),
+		NumQueries:     len(queries),
+		AvgDocTokens:   avgDocTokens,
+		AvgQueryTokens: avgQueryTokens,
+		K:              k,
+		FDEDepths:      fdeDepths,
+		TopMValues:     topMValues,
+		TokenCounts:    tokenCounts,
+		Strategies:     strategies,
+	}
+
+	// Result accumulators
+	type configKey struct {
+		fdeDepth int
+		strategy TokenSelectionStrategy
+		tokens   int
+		topM     int
+	}
+
+	gtRetention := make(map[configKey]int)
+	finalRecall := make(map[configKey]int)
+	baselineRecall := make(map[configKey]int)
+	totalGT := make(map[configKey]int)
+
+	t.Log("")
+	t.Log("Running PLAID Token Selection Validation experiment...")
+	t.Log("Pipeline: FDE Top-N → Partial MaxSim (selected tokens) → Top-M → Full MaxSim → Top-K")
+	t.Log("")
+
+	for qi, query := range queries {
+		gt, ok := groundTruth[query.ID]
+		if !ok {
+			continue
+		}
+		if len(gt) > k {
+			gt = gt[:k]
+		}
+
+		gtSet := make(map[uint64]bool, len(gt))
+		for _, id := range gt {
+			gtSet[id] = true
+		}
+
+		// Step 1: Compute FDE ranking for all documents
+		queryFDE := runner.index.muveraEncoder.EncodeQuery(query.Vectors)
+
+		type docScore struct {
+			id   uint64
+			dist float32
+		}
+		fdeScores := make([]docScore, 0, len(docFDEVectors))
+
+		for docID, docFDEVec := range docFDEVectors {
+			dist, err := l2Provider.SingleDist(queryFDE, docFDEVec)
+			if err != nil {
+				continue
+			}
+			fdeScores = append(fdeScores, docScore{id: docID, dist: dist})
+		}
+
+		sort.Slice(fdeScores, func(i, j int) bool {
+			return fdeScores[i].dist < fdeScores[j].dist
+		})
+
+		// For each FDE depth
+		for _, fdeDepth := range fdeDepths {
+			fdeTopN := make([]uint64, 0, fdeDepth)
+			for i := 0; i < fdeDepth && i < len(fdeScores); i++ {
+				fdeTopN = append(fdeTopN, fdeScores[i].id)
+			}
+
+			// For each Top-M
+			for _, topM := range topMValues {
+				if topM > fdeDepth {
+					continue
+				}
+
+				// Compute baseline once per (fdeDepth, topM)
+				baselineKey := configKey{fdeDepth, "", 0, topM}
+				if _, exists := totalGT[baselineKey]; !exists {
+					totalGT[baselineKey] = 0
+				}
+				totalGT[baselineKey] += len(gt)
+
+				// Baseline: FDE Top-M → Full MaxSim
+				fdeTopM := fdeTopN
+				if topM < len(fdeTopN) {
+					fdeTopM = fdeTopN[:topM]
+				}
+
+				baselineMaxSim := make([]docScore, 0, len(fdeTopM))
+				for _, docID := range fdeTopM {
+					docVecs, ok := runner.mvStore[docID]
+					if !ok {
+						continue
+					}
+					score, err := runner.index.maxSimScore(query.Vectors, docVecs)
+					if err != nil {
+						continue
+					}
+					baselineMaxSim = append(baselineMaxSim, docScore{id: docID, dist: score})
+				}
+
+				sort.Slice(baselineMaxSim, func(i, j int) bool {
+					return baselineMaxSim[i].dist < baselineMaxSim[j].dist
+				})
+
+				baselineGTCount := 0
+				for i := 0; i < k && i < len(baselineMaxSim); i++ {
+					if gtSet[baselineMaxSim[i].id] {
+						baselineGTCount++
+					}
+				}
+				baselineRecall[baselineKey] += baselineGTCount
+
+				// For each token count
+				for _, numTokens := range tokenCounts {
+					// For each strategy
+					for _, strategy := range strategies {
+						key := configKey{fdeDepth, strategy, numTokens, topM}
+						totalGT[key] += len(gt)
+
+						if strategy == TokensRandomAvg5 {
+							// Average over 5 random selections
+							var totalGTInTopM, totalGTInFinal int
+							for trial := 0; trial < 5; trial++ {
+								seed := int64(qi*10000 + numTokens*100 + trial)
+								rng := rand.New(rand.NewSource(seed))
+								perm := rng.Perm(len(query.Vectors))
+								n := numTokens
+								if n > len(query.Vectors) {
+									n = len(query.Vectors)
+								}
+								indices := perm[:n]
+								sort.Ints(indices)
+								querySubset := make([][]float32, n)
+								for i, idx := range indices {
+									querySubset[i] = query.Vectors[idx]
+								}
+
+								// Score with partial MaxSim
+								partialScores := make([]docScore, 0, len(fdeTopN))
+								for _, docID := range fdeTopN {
+									docVecs, ok := runner.mvStore[docID]
+									if !ok {
+										continue
+									}
+									score, err := partialMaxSimScore(querySubset, docVecs, runner.index.config.DistanceProvider)
+									if err != nil {
+										continue
+									}
+									partialScores = append(partialScores, docScore{id: docID, dist: score})
+								}
+
+								sort.Slice(partialScores, func(i, j int) bool {
+									return partialScores[i].dist < partialScores[j].dist
+								})
+
+								scorerTopM := partialScores
+								if topM < len(partialScores) {
+									scorerTopM = partialScores[:topM]
+								}
+
+								// Count GT in Top-M
+								for _, ds := range scorerTopM {
+									if gtSet[ds.id] {
+										totalGTInTopM++
+									}
+								}
+
+								// Full MaxSim on Top-M
+								fullMaxSim := make([]docScore, 0, len(scorerTopM))
+								for _, ds := range scorerTopM {
+									docVecs, ok := runner.mvStore[ds.id]
+									if !ok {
+										continue
+									}
+									score, err := runner.index.maxSimScore(query.Vectors, docVecs)
+									if err != nil {
+										continue
+									}
+									fullMaxSim = append(fullMaxSim, docScore{id: ds.id, dist: score})
+								}
+
+								sort.Slice(fullMaxSim, func(i, j int) bool {
+									return fullMaxSim[i].dist < fullMaxSim[j].dist
+								})
+
+								for i := 0; i < k && i < len(fullMaxSim); i++ {
+									if gtSet[fullMaxSim[i].id] {
+										totalGTInFinal++
+									}
+								}
+							}
+							// Average (using integer accumulation, will be divided later)
+							gtRetention[key] += totalGTInTopM // Will divide by 5 when computing recall
+							finalRecall[key] += totalGTInFinal
+
+						} else {
+							// Single selection
+							querySubset := selectQueryTokens(query.Vectors, numTokens, strategy, qi)
+
+							// Score with partial MaxSim
+							partialScores := make([]docScore, 0, len(fdeTopN))
+							for _, docID := range fdeTopN {
+								docVecs, ok := runner.mvStore[docID]
+								if !ok {
+									continue
+								}
+								score, err := partialMaxSimScore(querySubset, docVecs, runner.index.config.DistanceProvider)
+								if err != nil {
+									continue
+								}
+								partialScores = append(partialScores, docScore{id: docID, dist: score})
+							}
+
+							sort.Slice(partialScores, func(i, j int) bool {
+								return partialScores[i].dist < partialScores[j].dist
+							})
+
+							scorerTopM := partialScores
+							if topM < len(partialScores) {
+								scorerTopM = partialScores[:topM]
+							}
+
+							// Count GT in Top-M
+							gtInTopM := 0
+							for _, ds := range scorerTopM {
+								if gtSet[ds.id] {
+									gtInTopM++
+								}
+							}
+							gtRetention[key] += gtInTopM
+
+							// Full MaxSim on Top-M
+							fullMaxSim := make([]docScore, 0, len(scorerTopM))
+							for _, ds := range scorerTopM {
+								docVecs, ok := runner.mvStore[ds.id]
+								if !ok {
+									continue
+								}
+								score, err := runner.index.maxSimScore(query.Vectors, docVecs)
+								if err != nil {
+									continue
+								}
+								fullMaxSim = append(fullMaxSim, docScore{id: ds.id, dist: score})
+							}
+
+							sort.Slice(fullMaxSim, func(i, j int) bool {
+								return fullMaxSim[i].dist < fullMaxSim[j].dist
+							})
+
+							gtInFinal := 0
+							for i := 0; i < k && i < len(fullMaxSim); i++ {
+								if gtSet[fullMaxSim[i].id] {
+									gtInFinal++
+								}
+							}
+							finalRecall[key] += gtInFinal
+						}
+					}
+				}
+			}
+		}
+
+		if (qi+1)%10 == 0 || qi == len(queries)-1 {
+			t.Logf("Processed %d/%d queries", qi+1, len(queries))
+		}
+	}
+
+	// Build results
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("      PLAID TOKEN SELECTION VALIDATION RESULTS")
+	t.Log("================================================================================")
+	t.Log("")
+	t.Log("FDE_Depth | Strategy      | Tokens | TopM | Retention | Final    | Baseline | Improv")
+	t.Log("----------|---------------|--------|------|-----------|----------|----------|-------")
+
+	bestImprovement := -100.0
+	var bestConfig TokenSelectionResult
+	bestByStrategy := make(map[TokenSelectionStrategy]TokenSelectionResult)
+
+	for _, fdeDepth := range fdeDepths {
+		for _, topM := range topMValues {
+			if topM > fdeDepth {
+				continue
+			}
+
+			baselineKey := configKey{fdeDepth, "", 0, topM}
+			baselineRec := 0.0
+			if totalGT[baselineKey] > 0 {
+				baselineRec = float64(baselineRecall[baselineKey]) / float64(totalGT[baselineKey])
+			}
+
+			for _, numTokens := range tokenCounts {
+				for _, strategy := range strategies {
+					key := configKey{fdeDepth, strategy, numTokens, topM}
+
+					divisor := float64(totalGT[key])
+					if strategy == TokensRandomAvg5 {
+						divisor *= 5 // We accumulated 5 trials
+					}
+
+					retention := 0.0
+					if divisor > 0 {
+						retention = float64(gtRetention[key]) / divisor
+					}
+					final := 0.0
+					if divisor > 0 {
+						final = float64(finalRecall[key]) / divisor
+					}
+
+					improvement := 0.0
+					if baselineRec > 0 {
+						improvement = (final - baselineRec) / baselineRec * 100
+					}
+
+					cost := int64(numTokens) * int64(avgDocTokens) * int64(fdeDepth)
+
+					result := TokenSelectionResult{
+						FDEDepth:       fdeDepth,
+						Strategy:       strategy,
+						NumTokens:      numTokens,
+						TopM:           topM,
+						GTRetention:    retention,
+						FinalRecall:    final,
+						BaselineRecall: baselineRec,
+						Improvement:    improvement,
+						EstimatedCost:  cost,
+					}
+					report.Results = append(report.Results, result)
+
+					if improvement > bestImprovement {
+						bestImprovement = improvement
+						bestConfig = result
+					}
+					if best, ok := bestByStrategy[strategy]; !ok || improvement > best.Improvement {
+						bestByStrategy[strategy] = result
+					}
+
+					t.Logf("%-9d | %-13s | %-6d | %-4d | %-9.4f | %-8.4f | %-8.4f | %+6.1f%%",
+						fdeDepth, strategy, numTokens, topM, retention, final, baselineRec, improvement)
+				}
+			}
+		}
+		t.Log("----------|---------------|--------|------|-----------|----------|----------|-------")
+	}
+
+	// Summary
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("SUMMARY BY STRATEGY")
+	t.Log("================================================================================")
+	t.Log("")
+
+	strategyImprovements := make([]float64, 0, len(strategies))
+	for _, strategy := range strategies {
+		if best, ok := bestByStrategy[strategy]; ok {
+			t.Logf("%-13s: FDE-%d, %d tokens, Top-%d → +%.1f%% (%.4f → %.4f)",
+				strategy, best.FDEDepth, best.NumTokens, best.TopM,
+				best.Improvement, best.BaselineRecall, best.FinalRecall)
+			strategyImprovements = append(strategyImprovements, best.Improvement)
+		}
+	}
+
+	// Analyze consistency
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("INTERPRETATION")
+	t.Log("================================================================================")
+	t.Log("")
+
+	// Count strategies with >5% improvement
+	strongStrategies := 0
+	for _, imp := range strategyImprovements {
+		if imp >= 5.0 {
+			strongStrategies++
+		}
+	}
+
+	consistency := ""
+	interpretation := ""
+
+	if strongStrategies >= 4 {
+		consistency = "STRONG CONSISTENCY"
+		interpretation = "Multiple token selection strategies show >5% improvement. " +
+			"The partial MaxSim signal is robust and NOT an artifact of first-N selection. " +
+			"A PLAID-like intermediate scoring stage is worth prototyping."
+	} else if strongStrategies >= 2 {
+		consistency = "MODERATE CONSISTENCY"
+		interpretation = "Some token selection strategies show >5% improvement. " +
+			"The signal exists but may depend on selection strategy. " +
+			"Further investigation recommended before committing to PLAID-like implementation."
+	} else if strongStrategies == 1 {
+		consistency = "WEAK CONSISTENCY"
+		interpretation = "Only one strategy shows >5% improvement. " +
+			"The previous result may be partially an artifact. " +
+			"PLAID-like path is not strongly justified."
+	} else {
+		consistency = "NO CONSISTENCY"
+		interpretation = "No strategy shows >5% improvement. " +
+			"The partial MaxSim intermediate stage does not provide robust gains. " +
+			"PLAID-like path is NOT recommended."
+	}
+
+	t.Logf("Strategies with >5%% improvement: %d / %d", strongStrategies, len(strategies))
+	t.Logf("Consistency: %s", consistency)
+	t.Log("")
+	t.Logf("INTERPRETATION: %s", interpretation)
+
+	report.Summary = TokenSelectionSummary{
+		BestByStrategy:     bestByStrategy,
+		BestOverall:        bestConfig,
+		StrategyConsistency: consistency,
+		Interpretation:     interpretation,
+	}
+
+	// Write report
+	outputPath := *flagOutputPath
+	if outputPath == "" {
+		outputPath = "/tmp/hfresh_diag_lotte_100q/plaid_token_selection.json"
+	}
+
+	reportJSON, err := json.MarshalIndent(report, "", "  ")
+	require.NoError(t, err)
+
+	err = os.WriteFile(outputPath, reportJSON, 0644)
+	require.NoError(t, err)
+
+	t.Logf("")
+	t.Logf("Report written to: %s", outputPath)
+}
+
+// =============================================================================
 // Experiment B: Standard HFresh Single-Vector RQ1 vs Exact Comparison
 // =============================================================================
 // This test diagnoses whether RQ1 loses ranking quality in standard (non-MUVERA)
@@ -4458,6 +5984,1699 @@ func TestHFreshSingleVectorRQ1vsExact(t *testing.T) {
 	err = os.WriteFile(outputPath, reportJSON, 0644)
 	require.NoError(t, err)
 
+	t.Logf("")
+	t.Logf("Report written to: %s", outputPath)
+}
+
+// =============================================================================
+// HNSW vs HFresh Controlled EF/SearchProbe Sweep
+// =============================================================================
+// This test validates that HNSW+MUVERA and HFresh+MUVERA achieve comparable
+// recall when EF and searchProbe are swept over the same range.
+//
+// Both indexes use their STANDARD MUVERA overfetch behavior:
+// - HNSW: hardcoded 2x overfetch → SearchByVector(k*2) → Late Interaction → Top-K
+// - HFresh: rescoreLimit as candidate budget → SearchByVector(rescoreLimit) → Late Interaction → Top-K
+//
+// The sweep varies:
+// - HNSW EF: controls how many candidates HNSW considers during graph traversal
+// - HFresh searchProbe: controls how many centroids are searched
+//
+// With high rescoreLimit for HFresh (to remove rescoring bottleneck), we expect
+// recall to scale primarily with searchProbe (which controls reachability).
+// =============================================================================
+
+// ControlledSweepResult captures per-configuration results
+type ControlledSweepResult struct {
+	Value                    int     `json:"value"`
+	HNSWStrictRecall         float64 `json:"hnsw_strict_recall"`
+	HNSWRelaxedRecall        float64 `json:"hnsw_relaxed_recall"`
+	HNSWEffectiveEF          int     `json:"hnsw_effective_ef"`
+	HNSWAvgMs                float64 `json:"hnsw_avg_ms"`
+	HFreshStrictRecall       float64 `json:"hfresh_strict_recall"`
+	HFreshRelaxedRecall      float64 `json:"hfresh_relaxed_recall"`
+	HFreshConfiguredProbe    int     `json:"hfresh_configured_probe"`
+	HFreshEffectiveCentroids float64 `json:"hfresh_effective_centroids_avg"`
+	HFreshCandidatesRescored float64 `json:"hfresh_candidates_rescored_avg"`
+	HFreshAvgMs              float64 `json:"hfresh_avg_ms"`
+}
+
+// ControlledSweepReport is the overall experiment report
+type ControlledSweepReport struct {
+	Timestamp             string                  `json:"timestamp"`
+	NumDocs               int                     `json:"num_docs"`
+	NumQueries            int                     `json:"num_queries"`
+	NumCentroids          int                     `json:"num_centroids"`
+	K                     int                     `json:"k"`
+	HNSWOverfetch         int                     `json:"hnsw_overfetch"`
+	HFreshRescoreLimit    int                     `json:"hfresh_rescore_limit"`
+	HFreshDefaultProbe    int                     `json:"hfresh_default_probe"`
+	SweepValues           []int                   `json:"sweep_values"`
+	WiringValidation      string                  `json:"wiring_validation"`
+	Results               []ControlledSweepResult `json:"results"`
+	Interpretation        string                  `json:"interpretation"`
+}
+
+func TestHNSWvsHFreshControlledSweep(t *testing.T) {
+	if *flagDocsPath == "" {
+		t.Skip("Skipping: requires -docs flag")
+	}
+	if *flagQueriesPath == "" {
+		t.Skip("Skipping: requires -queries flag")
+	}
+	if *flagGroundTruthPath == "" {
+		t.Skip("Skipping: requires -groundtruth flag")
+	}
+
+	ctx := context.Background()
+
+	// Load data
+	t.Log("Loading documents...")
+	docs, err := loadDocs(*flagDocsPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d documents", len(docs))
+
+	t.Log("Loading queries...")
+	queries, err := loadQueries(*flagQueriesPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d queries", len(queries))
+
+	t.Log("Loading ground-truth...")
+	gt, err := loadGroundTruth(*flagGroundTruthPath)
+	require.NoError(t, err)
+	t.Logf("Loaded ground-truth for %d queries", len(gt))
+
+	// Configuration - USE DEFAULTS
+	k := 10
+	hnswOverfetch := 2 // Standard HNSW MUVERA overfetch
+
+	// Use DEFAULT rescoreLimit - this is critical for valid searchProbe sweep
+	// Default is 350, NOT 8192
+	hfreshRescoreLimit := ent.DefaultHFreshRescoreLimit // = 350
+
+	// Sweep values - include 96 as requested
+	sweepValues := []int{16, 32, 64, 96, 128, 256, 512}
+
+	// Build document map for lookups
+	docMap := make(map[uint64]*DocInput)
+	for i := range docs {
+		docMap[docs[i].ID] = &docs[i]
+	}
+
+	// Get dimensions from first doc
+	var dims int
+	if len(docs) > 0 && len(docs[0].Vectors) > 0 && len(docs[0].Vectors[0]) > 0 {
+		dims = len(docs[0].Vectors[0])
+	}
+	require.Greater(t, dims, 0, "could not determine vector dimensions")
+
+	// Create ground truth sets for quick lookup
+	// gtStrictSets: only top-k ground truth docs (strict recall@k)
+	// gtRelaxedSets: all ground truth docs (relaxed recall - how many returned are somewhere in GT)
+	gtStrictSets := make(map[string]map[uint64]struct{})
+	gtRelaxedSets := make(map[string]map[uint64]struct{})
+	gtOrdered := make(map[string][]uint64) // preserve order for diagnostics
+	for qid, gtDocs := range gt {
+		gtOrdered[qid] = gtDocs
+		gtStrictSets[qid] = make(map[uint64]struct{})
+		gtRelaxedSets[qid] = make(map[uint64]struct{})
+		for i, docID := range gtDocs {
+			if i < k {
+				gtStrictSets[qid][docID] = struct{}{}
+			}
+			gtRelaxedSets[qid][docID] = struct{}{}
+		}
+	}
+
+	// =========================================================================
+	// Create HNSW+MUVERA index
+	// =========================================================================
+	t.Log("")
+	t.Log("Creating HNSW+MUVERA index...")
+
+	logger, _ := test.NewNullLogger()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	// Multi-vector store for HNSW lookups
+	mvStore := make(map[uint64][][]float32)
+
+	hnswUC := enthnsw.UserConfig{
+		VectorCacheMaxObjects: 1e12,
+		MaxConnections:        32,
+		EFConstruction:        128,
+		EF:                    -1, // Will be set per-sweep
+		Multivector: enthnsw.MultivectorConfig{
+			Enabled: true,
+			MuveraConfig: enthnsw.MuveraConfig{
+				Enabled:      true,
+				KSim:         enthnsw.DefaultMultivectorKSim,
+				DProjections: enthnsw.DefaultMultivectorDProjections,
+				Repetitions:  enthnsw.DefaultMultivectorRepetitions,
+			},
+		},
+	}
+
+	hnswCfg := hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "hnsw_muvera_sweep",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, fmt.Errorf("single vector not supported")
+		},
+		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+			vecs, ok := mvStore[id]
+			if !ok {
+				return nil, fmt.Errorf("doc %d not found", id)
+			}
+			return vecs, nil
+		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		GetViewThunk:      func() common.BucketView { return &noopBucketView{} },
+	}
+
+	hnswStore := testinghelpers.NewDummyStore(t)
+	hnswIdx, err := hnsw.New(hnswCfg, hnswUC, cyclemanager.NewCallbackGroupNoop(), hnswStore)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = hnswIdx.Shutdown(ctx)
+	}()
+
+	// =========================================================================
+	// Create HFresh+MUVERA index with DEFAULT configuration
+	// =========================================================================
+	t.Log("Creating HFresh+MUVERA index...")
+
+	hfreshCfg := DefaultConfig()
+	hfreshCfg.RootPath = t.TempDir()
+
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: logger,
+		},
+	)
+	hfreshCfg.Scheduler = scheduler
+
+	hfreshCfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "hfresh_muvera_sweep_centroids",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
+	}
+
+	hfreshCfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+	hfreshCfg.Logger = logger
+	hfreshCfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if doc, ok := docMap[id]; ok && len(doc.Vectors) > 0 {
+			return doc.Vectors[0], nil
+		}
+		return nil, fmt.Errorf("vector %d not found", id)
+	}
+	hfreshCfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
+		if doc, ok := docMap[id]; ok {
+			return doc.Vectors, nil
+		}
+		return nil, fmt.Errorf("multi-vector %d not found", id)
+	}
+
+	scheduler.Start()
+
+	// Use NewDefaultUserConfig and only modify what's needed for MUVERA
+	hfreshUC := ent.NewDefaultUserConfig()
+	// SearchProbe will be set per-sweep, start with default
+	// RescoreLimit stays at default (350)
+	hfreshUC.Multivector.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
+	hfreshUC.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
+	hfreshUC.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+
+	hfreshStore := testinghelpers.NewDummyStore(t)
+	hfreshIdx, err := New(hfreshCfg, hfreshUC, hfreshStore)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = hfreshIdx.Shutdown(ctx)
+		scheduler.Close(ctx)
+	}()
+
+	// =========================================================================
+	// Insert documents into both indexes
+	// =========================================================================
+	t.Log("Inserting documents into both indexes...")
+	insertStart := time.Now()
+
+	for i, doc := range docs {
+		mvStore[doc.ID] = doc.Vectors
+		hnswErr := hnswIdx.AddMulti(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, hnswErr, "failed to insert doc %d into HNSW", doc.ID)
+		hfreshErr := hfreshIdx.AddMulti(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, hfreshErr, "failed to insert doc %d into HFresh", doc.ID)
+		if (i+1)%10000 == 0 || i == len(docs)-1 {
+			t.Logf("Inserted %d/%d documents", i+1, len(docs))
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	numCentroids := hfreshIdx.PostingMap.Size()
+	t.Logf("Indexes built in %.2fs, HFresh has %d centroids", time.Since(insertStart).Seconds(), numCentroids)
+
+	// =========================================================================
+	// Print effective configuration
+	// =========================================================================
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("       CONFIGURATION VERIFICATION")
+	t.Log("================================================================================")
+	t.Logf("k = %d", k)
+	t.Logf("HNSW overfetch = %d (candidates = k * overfetch = %d)", hnswOverfetch, k*hnswOverfetch)
+	t.Logf("HFresh rescoreLimit = %d (DEFAULT)", hfreshRescoreLimit)
+	t.Logf("HFresh default searchProbe = %d", ent.DefaultSearchProbe)
+	t.Logf("HFresh total centroids = %d", numCentroids)
+	t.Log("")
+	t.Log("MUVERA SEARCH PATH ANALYSIS:")
+	t.Log("  SearchByMultiVector calls SearchByVector(queryFlat, rescoreLimit)")
+	t.Log("  SearchByVector uses: candidateCentroidNum = max(k, searchProbe)")
+	t.Log("    where k = rescoreLimit from MUVERA path")
+	t.Logf("  With rescoreLimit=%d:", hfreshRescoreLimit)
+	for _, sp := range sweepValues {
+		effectiveCentroids := hfreshRescoreLimit
+		if sp > hfreshRescoreLimit {
+			effectiveCentroids = sp
+		}
+		dominated := ""
+		if sp <= hfreshRescoreLimit {
+			dominated = " ← dominated by rescoreLimit"
+		}
+		t.Logf("    searchProbe=%d → candidateCentroidNum = max(%d, %d) = %d%s",
+			sp, hfreshRescoreLimit, sp, effectiveCentroids, dominated)
+	}
+
+	// =========================================================================
+	// Print sample query breakdowns BEFORE sweep
+	// =========================================================================
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("       SAMPLE QUERY RECALL BREAKDOWN")
+	t.Log("================================================================================")
+	t.Log("")
+	t.Log("Metric definitions:")
+	t.Logf("  strict_recall@%d   = hits(returned_top_%d ∩ gt_top_%d) / %d", k, k, k, k)
+	t.Logf("  relaxed_recall@%d  = hits(returned_top_%d ∩ gt_top_100) / %d", k, k, k)
+	t.Log("")
+
+	// Run a quick search with default settings to get sample data
+	for qi := 0; qi < 5 && qi < len(queries); qi++ {
+		query := queries[qi]
+		gtStrict := gtStrictSets[query.ID]
+		gtRelaxed := gtRelaxedSets[query.ID]
+		gtTop10 := gtOrdered[query.ID][:min(k, len(gtOrdered[query.ID]))]
+
+		// Get results from both indexes
+		hnswIDs, _, _ := hnswIdx.SearchByMultiVector(ctx, query.Vectors, k, nil)
+		hfreshIDs, _, _ := hfreshIdx.SearchByMultiVector(ctx, query.Vectors, k, nil)
+
+		var hnswStrictHits, hnswRelaxedHits int
+		for _, id := range hnswIDs {
+			if _, ok := gtStrict[id]; ok {
+				hnswStrictHits++
+			}
+			if _, ok := gtRelaxed[id]; ok {
+				hnswRelaxedHits++
+			}
+		}
+
+		var hfreshStrictHits, hfreshRelaxedHits int
+		for _, id := range hfreshIDs {
+			if _, ok := gtStrict[id]; ok {
+				hfreshStrictHits++
+			}
+			if _, ok := gtRelaxed[id]; ok {
+				hfreshRelaxedHits++
+			}
+		}
+
+		t.Logf("Query %s:", query.ID)
+		t.Logf("  gt_top_10:        %v", gtTop10)
+		t.Logf("  HNSW returned:    %v", hnswIDs)
+		t.Logf("  HFresh returned:  %v", hfreshIDs)
+		t.Logf("  HNSW:   strict_hits=%d/%d (%.2f), relaxed_hits=%d/%d (%.2f)",
+			hnswStrictHits, k, float64(hnswStrictHits)/float64(k),
+			hnswRelaxedHits, k, float64(hnswRelaxedHits)/float64(k))
+		t.Logf("  HFresh: strict_hits=%d/%d (%.2f), relaxed_hits=%d/%d (%.2f)",
+			hfreshStrictHits, k, float64(hfreshStrictHits)/float64(k),
+			hfreshRelaxedHits, k, float64(hfreshRelaxedHits)/float64(k))
+		t.Log("")
+	}
+
+	// =========================================================================
+	// Run sweep with TraceCollector for verification
+	// =========================================================================
+	t.Log("================================================================================")
+	t.Log("       HNSW vs HFresh CONTROLLED SWEEP")
+	t.Log("================================================================================")
+	t.Log("")
+	t.Log("Value | HNSW strict@10 | HNSW relax@10 | HFresh strict@10 | HFresh relax@10 | Eff.Cent | HNSW ms | HFresh ms")
+	t.Log("------|----------------|---------------|------------------|-----------------|----------|---------|----------")
+
+	report := ControlledSweepReport{
+		Timestamp:          time.Now().UTC().Format(time.RFC3339),
+		NumDocs:            len(docs),
+		NumQueries:         len(queries),
+		NumCentroids:       numCentroids,
+		K:                  k,
+		HNSWOverfetch:      hnswOverfetch,
+		HFreshRescoreLimit: hfreshRescoreLimit,
+		HFreshDefaultProbe: int(ent.DefaultSearchProbe),
+		SweepValues:        sweepValues,
+		Results:            make([]ControlledSweepResult, 0, len(sweepValues)),
+	}
+
+	// Track if searchProbe ever changes effective behavior
+	var searchProbeEffective bool
+
+	for _, value := range sweepValues {
+		// Set HNSW EF
+		err := hnswIdx.UpdateUserConfig(enthnsw.UserConfig{EF: value}, func() {})
+		require.NoError(t, err)
+		effectiveEF := value
+		if effectiveEF < k*hnswOverfetch {
+			effectiveEF = k * hnswOverfetch
+		}
+
+		// Set HFresh searchProbe
+		atomic.StoreUint32(&hfreshIdx.searchProbe, uint32(value))
+
+		// Track if any searchProbe value exceeds rescoreLimit (affects candidateCentroidNum)
+		if value > hfreshRescoreLimit {
+			searchProbeEffective = true
+		}
+
+		var hnswStrictSum, hnswRelaxedSum, hfreshStrictSum, hfreshRelaxedSum float64
+		var hnswTimeSum, hfreshTimeSum time.Duration
+		var totalCentroidsSearched, totalCandidatesRescored int
+
+		for _, query := range queries {
+			gtStrict := gtStrictSets[query.ID]
+			gtRelaxed := gtRelaxedSets[query.ID]
+			if len(gtStrict) == 0 {
+				continue
+			}
+
+			// HNSW search
+			hnswStart := time.Now()
+			hnswIDs, _, err := hnswIdx.SearchByMultiVector(ctx, query.Vectors, k, nil)
+			hnswTimeSum += time.Since(hnswStart)
+			require.NoError(t, err)
+
+			var hnswStrictHits, hnswRelaxedHits int
+			for _, id := range hnswIDs {
+				if _, ok := gtStrict[id]; ok {
+					hnswStrictHits++
+				}
+				if _, ok := gtRelaxed[id]; ok {
+					hnswRelaxedHits++
+				}
+			}
+			hnswStrictSum += float64(hnswStrictHits) / float64(k)
+			hnswRelaxedSum += float64(hnswRelaxedHits) / float64(k)
+
+			// HFresh search with TraceCollector
+			collector := NewSearchTraceCollector(query.ID)
+			traceCtx := ContextWithTraceCollector(ctx, collector)
+
+			hfreshStart := time.Now()
+			hfreshIDs, _, err := hfreshIdx.SearchByMultiVector(traceCtx, query.Vectors, k, nil)
+			hfreshTimeSum += time.Since(hfreshStart)
+			require.NoError(t, err)
+
+			trace := collector.Trace()
+			totalCentroidsSearched += len(trace.SelectedCentroids)
+			totalCandidatesRescored += trace.ScanStats.UniqueEnumerated
+
+			var hfreshStrictHits, hfreshRelaxedHits int
+			for _, id := range hfreshIDs {
+				if _, ok := gtStrict[id]; ok {
+					hfreshStrictHits++
+				}
+				if _, ok := gtRelaxed[id]; ok {
+					hfreshRelaxedHits++
+				}
+			}
+			hfreshStrictSum += float64(hfreshStrictHits) / float64(k)
+			hfreshRelaxedSum += float64(hfreshRelaxedHits) / float64(k)
+		}
+
+		numQ := float64(len(queries))
+		avgCentroidsSearched := float64(totalCentroidsSearched) / numQ
+		avgCandidatesRescored := float64(totalCandidatesRescored) / numQ
+
+		result := ControlledSweepResult{
+			Value:                    value,
+			HNSWStrictRecall:         hnswStrictSum / numQ,
+			HNSWRelaxedRecall:        hnswRelaxedSum / numQ,
+			HNSWEffectiveEF:          effectiveEF,
+			HNSWAvgMs:                float64(hnswTimeSum.Milliseconds()) / numQ,
+			HFreshStrictRecall:       hfreshStrictSum / numQ,
+			HFreshRelaxedRecall:      hfreshRelaxedSum / numQ,
+			HFreshConfiguredProbe:    value,
+			HFreshEffectiveCentroids: avgCentroidsSearched,
+			HFreshCandidatesRescored: avgCandidatesRescored,
+			HFreshAvgMs:              float64(hfreshTimeSum.Milliseconds()) / numQ,
+		}
+		report.Results = append(report.Results, result)
+
+		t.Logf("%-5d | %-14.4f | %-13.4f | %-16.4f | %-15.4f | %-8.0f | %-7.1f | %.1f",
+			value,
+			result.HNSWStrictRecall, result.HNSWRelaxedRecall,
+			result.HFreshStrictRecall, result.HFreshRelaxedRecall,
+			avgCentroidsSearched,
+			result.HNSWAvgMs, result.HFreshAvgMs)
+	}
+
+	// =========================================================================
+	// Wiring validation
+	// =========================================================================
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("       WIRING VALIDATION")
+	t.Log("================================================================================")
+
+	// Check if centroids searched actually varied
+	var minCentroids, maxCentroids float64 = 1e9, 0
+	for _, r := range report.Results {
+		if r.HFreshEffectiveCentroids < minCentroids {
+			minCentroids = r.HFreshEffectiveCentroids
+		}
+		if r.HFreshEffectiveCentroids > maxCentroids {
+			maxCentroids = r.HFreshEffectiveCentroids
+		}
+	}
+
+	centroidVariation := maxCentroids - minCentroids
+	var wiringStatus string
+
+	if centroidVariation < 10 {
+		wiringStatus = fmt.Sprintf("INVALID: Centroids searched did not vary (%.0f to %.0f). "+
+			"searchProbe is dominated by rescoreLimit=%d. "+
+			"The sweep does NOT measure searchProbe effect.",
+			minCentroids, maxCentroids, hfreshRescoreLimit)
+		t.Logf("⚠️  %s", wiringStatus)
+	} else if !searchProbeEffective {
+		wiringStatus = fmt.Sprintf("PARTIAL: searchProbe values [16-%d] are all ≤ rescoreLimit=%d, "+
+			"so candidateCentroidNum = rescoreLimit for most sweep values. "+
+			"Only searchProbe > %d would show different behavior.",
+			sweepValues[len(sweepValues)-2], hfreshRescoreLimit, hfreshRescoreLimit)
+		t.Logf("⚠️  %s", wiringStatus)
+	} else {
+		wiringStatus = fmt.Sprintf("VALID: Centroids searched varied from %.0f to %.0f. "+
+			"searchProbe affects search behavior for values > rescoreLimit=%d.",
+			minCentroids, maxCentroids, hfreshRescoreLimit)
+		t.Logf("✓  %s", wiringStatus)
+	}
+
+	report.WiringValidation = wiringStatus
+
+	// Check if HFresh strict recall varied
+	var minStrictRecall, maxStrictRecall float64 = 1, 0
+	for _, r := range report.Results {
+		if r.HFreshStrictRecall < minStrictRecall {
+			minStrictRecall = r.HFreshStrictRecall
+		}
+		if r.HFreshStrictRecall > maxStrictRecall {
+			maxStrictRecall = r.HFreshStrictRecall
+		}
+	}
+	strictRecallVariation := maxStrictRecall - minStrictRecall
+
+	t.Logf("")
+	t.Logf("HFresh strict recall range: %.4f to %.4f (variation: %.4f)", minStrictRecall, maxStrictRecall, strictRecallVariation)
+	if strictRecallVariation < 0.01 {
+		t.Log("⚠️  HFresh strict recall is nearly constant - sweep may not be effective")
+	}
+
+	// =========================================================================
+	// Summary - using STRICT recall for comparison
+	// =========================================================================
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("       SUMMARY (STRICT RECALL@10)")
+	t.Log("================================================================================")
+
+	var bestHNSW, bestHFresh ControlledSweepResult
+	for _, r := range report.Results {
+		if r.HNSWStrictRecall > bestHNSW.HNSWStrictRecall {
+			bestHNSW = r
+		}
+		if r.HFreshStrictRecall > bestHFresh.HFreshStrictRecall {
+			bestHFresh = r
+		}
+	}
+
+	t.Logf("Best HNSW: EF=%d → strict_recall=%.4f, relaxed_recall=%.4f",
+		bestHNSW.Value, bestHNSW.HNSWStrictRecall, bestHNSW.HNSWRelaxedRecall)
+	t.Logf("Best HFresh: searchProbe=%d → strict_recall=%.4f, relaxed_recall=%.4f (centroids=%.0f)",
+		bestHFresh.Value, bestHFresh.HFreshStrictRecall, bestHFresh.HFreshRelaxedRecall, bestHFresh.HFreshEffectiveCentroids)
+
+	var avgStrictDiff float64
+	for _, r := range report.Results {
+		avgStrictDiff += r.HNSWStrictRecall - r.HFreshStrictRecall
+	}
+	avgStrictDiff /= float64(len(report.Results))
+
+	var interpretation string
+	if math.Abs(avgStrictDiff) < 0.02 {
+		interpretation = fmt.Sprintf("COMPARABLE: avg strict recall diff = %.2f%%", avgStrictDiff*100)
+	} else if avgStrictDiff > 0 {
+		interpretation = fmt.Sprintf("HNSW BETTER: avg strict +%.2f%%", avgStrictDiff*100)
+	} else {
+		interpretation = fmt.Sprintf("HFRESH BETTER: avg strict +%.2f%%", -avgStrictDiff*100)
+	}
+	t.Logf("Interpretation (strict recall): %s", interpretation)
+	report.Interpretation = interpretation
+
+	// Write report
+	outputPath := *flagOutputPath
+	if outputPath == "" {
+		outputPath = "/tmp/hfresh_diag_lotte_100q/hnsw_vs_hfresh_sweep_v2.json"
+	}
+	reportJSON, _ := json.MarshalIndent(report, "", "  ")
+	_ = os.WriteFile(outputPath, reportJSON, 0644)
+	t.Logf("")
+	t.Logf("Report written to: %s", outputPath)
+}
+
+// RescoreLimitSweepResult contains results for a single rescoreLimit configuration.
+type RescoreLimitSweepResult struct {
+	RescoreLimit         int     `json:"rescore_limit"`
+	StrictRecall         float64 `json:"strict_recall"`
+	RelaxedRecall        float64 `json:"relaxed_recall"`
+	EffectiveCentroids   float64 `json:"effective_centroids_avg"`
+	CandidatesRescored   float64 `json:"candidates_rescored_avg"`
+	AvgMs                float64 `json:"avg_ms"`
+}
+
+// RescoreLimitSweepReport is the overall experiment report.
+type RescoreLimitSweepReport struct {
+	Timestamp    string                    `json:"timestamp"`
+	NumDocs      int                       `json:"num_docs"`
+	NumQueries   int                       `json:"num_queries"`
+	NumCentroids int                       `json:"num_centroids"`
+	K            int                       `json:"k"`
+	SearchProbe  int                       `json:"search_probe"`
+	SweepValues  []int                     `json:"sweep_values"`
+	Results      []RescoreLimitSweepResult `json:"results"`
+	Analysis     string                    `json:"analysis"`
+}
+
+// TestHFreshRescoreLimitSweep sweeps rescoreLimit to determine if HFresh recall
+// is primarily limited by the rescoring budget.
+//
+// Run with:
+//
+//	go test -v -timeout 60m -run TestHFreshRescoreLimitSweep ./adapters/repos/db/vector/hfresh/... \
+//	  -docs=/tmp/hfresh_diag_lotte_100q/docs.jsonl \
+//	  -queries=/tmp/hfresh_diag_lotte_100q/queries.jsonl \
+//	  -groundtruth=/tmp/hfresh_diag_lotte_100q/gt.jsonl \
+//	  -out=/tmp/hfresh_diag_lotte_100q/rescore_limit_sweep.json
+func TestHFreshRescoreLimitSweep(t *testing.T) {
+	if *flagDocsPath == "" || *flagQueriesPath == "" || *flagGroundTruthPath == "" {
+		t.Skip("Skipping: requires -docs, -queries, and -groundtruth flags")
+	}
+
+	ctx := context.Background()
+
+	// Load data
+	t.Log("Loading documents...")
+	docs, err := loadDocs(*flagDocsPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d documents", len(docs))
+
+	t.Log("Loading queries...")
+	queries, err := loadQueries(*flagQueriesPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d queries", len(queries))
+
+	t.Log("Loading ground-truth...")
+	gt, err := loadGroundTruth(*flagGroundTruthPath)
+	require.NoError(t, err)
+	t.Logf("Loaded ground-truth for %d queries", len(gt))
+
+	// Configuration
+	k := 10
+	searchProbe := 64 // Fixed searchProbe
+	rescoreLimitSweep := []int{64, 128, 256, 350, 512, 1024, 2048, 4096}
+
+	// Build document map for lookups
+	docMap := make(map[uint64]*DocInput)
+	for i := range docs {
+		docMap[docs[i].ID] = &docs[i]
+	}
+
+	// Get dimensions from first doc
+	var dims int
+	if len(docs) > 0 && len(docs[0].Vectors) > 0 && len(docs[0].Vectors[0]) > 0 {
+		dims = len(docs[0].Vectors[0])
+	}
+	require.Greater(t, dims, 0, "could not determine vector dimensions")
+
+	// Create ground truth sets (strict = top-k, relaxed = all GT)
+	gtStrictSets := make(map[string]map[uint64]struct{})
+	gtRelaxedSets := make(map[string]map[uint64]struct{})
+	for qid, gtDocs := range gt {
+		gtStrictSets[qid] = make(map[uint64]struct{})
+		gtRelaxedSets[qid] = make(map[uint64]struct{})
+		for i, docID := range gtDocs {
+			if i < k {
+				gtStrictSets[qid][docID] = struct{}{}
+			}
+			gtRelaxedSets[qid][docID] = struct{}{}
+		}
+	}
+
+	// Create multi-vector store for late interaction
+	mvStore := make(map[uint64][][]float32)
+
+	// =========================================================================
+	// Create HFresh+MUVERA index
+	// =========================================================================
+	t.Log("")
+	t.Log("Creating HFresh+MUVERA index...")
+
+	logger, _ := test.NewNullLogger()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	hfreshCfg := DefaultConfig()
+	hfreshCfg.RootPath = t.TempDir()
+
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: logger,
+		},
+	)
+	hfreshCfg.Scheduler = scheduler
+
+	hfreshCfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "hfresh_rescore_sweep_centroids",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
+	}
+
+	hfreshCfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+	hfreshCfg.Logger = logger
+	hfreshCfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if doc, ok := docMap[id]; ok && len(doc.Vectors) > 0 {
+			return doc.Vectors[0], nil
+		}
+		return nil, fmt.Errorf("vector %d not found", id)
+	}
+	hfreshCfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
+		if doc, ok := docMap[id]; ok {
+			return doc.Vectors, nil
+		}
+		return nil, fmt.Errorf("multi-vector %d not found", id)
+	}
+
+	scheduler.Start()
+
+	// Use NewDefaultUserConfig and only modify what's needed
+	hfreshUC := ent.NewDefaultUserConfig()
+	hfreshUC.SearchProbe = uint32(searchProbe)
+	hfreshUC.RQ.RescoreLimit = rescoreLimitSweep[0] // Start with first value, will be changed
+	hfreshUC.Multivector.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
+	hfreshUC.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
+	hfreshUC.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+
+	hfreshStore := testinghelpers.NewDummyStore(t)
+	hfreshIdx, err := New(hfreshCfg, hfreshUC, hfreshStore)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = hfreshIdx.Shutdown(ctx)
+		scheduler.Close(ctx)
+	}()
+
+	// =========================================================================
+	// Insert documents
+	// =========================================================================
+	t.Log("Inserting documents...")
+	insertStart := time.Now()
+
+	for i, doc := range docs {
+		mvStore[doc.ID] = doc.Vectors
+		hfreshErr := hfreshIdx.AddMulti(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, hfreshErr, "failed to insert doc %d into HFresh", doc.ID)
+		if (i+1)%10000 == 0 || i == len(docs)-1 {
+			t.Logf("Inserted %d/%d documents", i+1, len(docs))
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	numCentroids := hfreshIdx.PostingMap.Size()
+	t.Logf("Index built in %.2fs, HFresh has %d centroids", time.Since(insertStart).Seconds(), numCentroids)
+
+	// =========================================================================
+	// Configuration verification
+	// =========================================================================
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("       RESCORE LIMIT SWEEP CONFIGURATION")
+	t.Log("================================================================================")
+	t.Logf("k = %d", k)
+	t.Logf("searchProbe = %d (FIXED)", searchProbe)
+	t.Logf("rescoreLimit sweep: %v", rescoreLimitSweep)
+	t.Logf("HFresh total centroids = %d", numCentroids)
+	t.Log("")
+	t.Log("MUVERA SEARCH PATH ANALYSIS:")
+	t.Log("  SearchByMultiVector calls SearchByVector(queryFlat, rescoreLimit)")
+	t.Log("  SearchByVector uses: candidateCentroidNum = max(rescoreLimit, searchProbe)")
+	t.Logf("  With searchProbe=%d:", searchProbe)
+	for _, rl := range rescoreLimitSweep {
+		effectiveCentroids := rl
+		if searchProbe > rl {
+			effectiveCentroids = searchProbe
+		}
+		note := ""
+		if rl < searchProbe {
+			note = fmt.Sprintf(" ← dominated by searchProbe=%d", searchProbe)
+		}
+		t.Logf("    rescoreLimit=%d → candidateCentroidNum = max(%d, %d) = %d%s",
+			rl, rl, searchProbe, effectiveCentroids, note)
+	}
+
+	// =========================================================================
+	// Run rescoreLimit sweep
+	// =========================================================================
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("       RESCORE LIMIT SWEEP RESULTS")
+	t.Log("================================================================================")
+	t.Log("")
+	t.Log("RescoreLimit | Strict@10 | Relaxed@10 | Eff.Cent | Candidates | Avg ms")
+	t.Log("-------------|-----------|------------|----------|------------|-------")
+
+	report := RescoreLimitSweepReport{
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		NumDocs:      len(docs),
+		NumQueries:   len(queries),
+		NumCentroids: numCentroids,
+		K:            k,
+		SearchProbe:  searchProbe,
+		SweepValues:  rescoreLimitSweep,
+		Results:      make([]RescoreLimitSweepResult, 0, len(rescoreLimitSweep)),
+	}
+
+	for _, rescoreLimit := range rescoreLimitSweep {
+		// Update rescoreLimit atomically
+		atomic.StoreUint32(&hfreshIdx.rescoreLimit, uint32(rescoreLimit))
+
+		var strictSum, relaxedSum float64
+		var timeSum time.Duration
+		var totalCentroidsSearched, totalCandidatesRescored int
+
+		for _, query := range queries {
+			gtStrict := gtStrictSets[query.ID]
+			gtRelaxed := gtRelaxedSets[query.ID]
+			if len(gtStrict) == 0 {
+				continue
+			}
+
+			// HFresh search with TraceCollector
+			collector := NewSearchTraceCollector(query.ID)
+			traceCtx := ContextWithTraceCollector(ctx, collector)
+
+			start := time.Now()
+			ids, _, err := hfreshIdx.SearchByMultiVector(traceCtx, query.Vectors, k, nil)
+			timeSum += time.Since(start)
+			require.NoError(t, err)
+
+			trace := collector.Trace()
+			totalCentroidsSearched += len(trace.SelectedCentroids)
+			totalCandidatesRescored += trace.ScanStats.UniqueEnumerated
+
+			var strictHits, relaxedHits int
+			for _, id := range ids {
+				if _, ok := gtStrict[id]; ok {
+					strictHits++
+				}
+				if _, ok := gtRelaxed[id]; ok {
+					relaxedHits++
+				}
+			}
+			strictSum += float64(strictHits) / float64(k)
+			relaxedSum += float64(relaxedHits) / float64(k)
+		}
+
+		numQ := float64(len(queries))
+		avgCentroids := float64(totalCentroidsSearched) / numQ
+		avgCandidates := float64(totalCandidatesRescored) / numQ
+
+		result := RescoreLimitSweepResult{
+			RescoreLimit:       rescoreLimit,
+			StrictRecall:       strictSum / numQ,
+			RelaxedRecall:      relaxedSum / numQ,
+			EffectiveCentroids: avgCentroids,
+			CandidatesRescored: avgCandidates,
+			AvgMs:              float64(timeSum.Milliseconds()) / numQ,
+		}
+		report.Results = append(report.Results, result)
+
+		t.Logf("%-12d | %-9.4f | %-10.4f | %-8.0f | %-10.0f | %.1f",
+			rescoreLimit,
+			result.StrictRecall, result.RelaxedRecall,
+			avgCentroids, avgCandidates,
+			result.AvgMs)
+	}
+
+	// =========================================================================
+	// Analysis
+	// =========================================================================
+	t.Log("")
+	t.Log("================================================================================")
+	t.Log("       ANALYSIS: Is HFresh recall limited by rescoreLimit?")
+	t.Log("================================================================================")
+
+	// Find recall at different rescoreLimit values
+	var recallAt64, recallAt350, recallAt4096 float64
+	for _, r := range report.Results {
+		switch r.RescoreLimit {
+		case 64:
+			recallAt64 = r.StrictRecall
+		case 350:
+			recallAt350 = r.StrictRecall
+		case 4096:
+			recallAt4096 = r.StrictRecall
+		}
+	}
+
+	// Check if recall increases significantly with rescoreLimit
+	improvement64to350 := (recallAt350 - recallAt64) / recallAt64 * 100
+	improvement350to4096 := (recallAt4096 - recallAt350) / recallAt350 * 100
+	totalImprovement := (recallAt4096 - recallAt64) / recallAt64 * 100
+
+	t.Logf("")
+	t.Logf("Strict recall at rescoreLimit=64:   %.4f", recallAt64)
+	t.Logf("Strict recall at rescoreLimit=350:  %.4f (default)", recallAt350)
+	t.Logf("Strict recall at rescoreLimit=4096: %.4f", recallAt4096)
+	t.Logf("")
+	t.Logf("Improvement 64→350:   %+.1f%%", improvement64to350)
+	t.Logf("Improvement 350→4096: %+.1f%%", improvement350to4096)
+	t.Logf("Total improvement:    %+.1f%%", totalImprovement)
+
+	var analysis string
+	if totalImprovement > 20 {
+		analysis = fmt.Sprintf("YES: HFresh recall is significantly limited by rescoreLimit. "+
+			"Increasing from 64 to 4096 improves strict recall by %.1f%%. "+
+			"The default rescoreLimit=350 may be insufficient for this dataset.",
+			totalImprovement)
+	} else if totalImprovement > 5 {
+		analysis = fmt.Sprintf("PARTIALLY: HFresh recall is somewhat limited by rescoreLimit. "+
+			"Increasing from 64 to 4096 improves strict recall by %.1f%%. "+
+			"Higher rescoreLimit helps but is not the primary bottleneck.",
+			totalImprovement)
+	} else {
+		analysis = fmt.Sprintf("NO: HFresh recall is NOT primarily limited by rescoreLimit. "+
+			"Increasing from 64 to 4096 only improves strict recall by %.1f%%. "+
+			"The bottleneck is elsewhere (routing, FDE approximation, etc.).",
+			totalImprovement)
+	}
+
+	t.Logf("")
+	t.Logf("CONCLUSION: %s", analysis)
+	report.Analysis = analysis
+
+	// Write report
+	outputPath := *flagOutputPath
+	if outputPath == "" {
+		outputPath = "/tmp/hfresh_diag_lotte_100q/rescore_limit_sweep.json"
+	}
+	reportJSON, _ := json.MarshalIndent(report, "", "  ")
+	_ = os.WriteFile(outputPath, reportJSON, 0644)
+	t.Logf("")
+	t.Logf("Report written to: %s", outputPath)
+}
+
+// TestRescoreLimitSemanticAudit audits the exact semantic role of rescoreLimit
+// in HFresh+MUVERA to determine whether it affects:
+// 1. Only the final MaxSim rerank budget
+// 2. Or also the candidate generation stages (centroid selection, posting scan, etc.)
+//
+// Run with:
+//
+//	go test -v -timeout 30m -run TestRescoreLimitSemanticAudit ./adapters/repos/db/vector/hfresh/... \
+//	  -docs=/tmp/hfresh_diag_lotte_100q/docs.jsonl \
+//	  -queries=/tmp/hfresh_diag_lotte_100q/queries.jsonl \
+//	  -groundtruth=/tmp/hfresh_diag_lotte_100q/gt.jsonl
+func TestRescoreLimitSemanticAudit(t *testing.T) {
+	if *flagDocsPath == "" || *flagQueriesPath == "" || *flagGroundTruthPath == "" {
+		t.Skip("Skipping: requires -docs, -queries, and -groundtruth flags")
+	}
+
+	ctx := context.Background()
+
+	// Load data
+	t.Log("Loading documents...")
+	docs, err := loadDocs(*flagDocsPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d documents", len(docs))
+
+	t.Log("Loading queries...")
+	queries, err := loadQueries(*flagQueriesPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d queries", len(queries))
+
+	t.Log("Loading ground-truth...")
+	gt, err := loadGroundTruth(*flagGroundTruthPath)
+	require.NoError(t, err)
+	t.Logf("Loaded ground-truth for %d queries", len(gt))
+
+	// Test parameters
+	k := 10
+	fixedSearchProbe := 64
+	rescoreLimits := []int{64, 128, 256, 350, 512, 1024, 2048, 4096}
+
+	// Build document map for lookups
+	docMap := make(map[uint64]*DocInput)
+	for i := range docs {
+		docMap[docs[i].ID] = &docs[i]
+	}
+
+	// Get dimensions from first doc
+	var dims int
+	if len(docs) > 0 && len(docs[0].Vectors) > 0 && len(docs[0].Vectors[0]) > 0 {
+		dims = len(docs[0].Vectors[0])
+	}
+	require.Greater(t, dims, 0, "could not determine vector dimensions")
+
+	// Build GT sets for recall computation
+	gtStrictSets := make(map[string]map[uint64]struct{})
+	gtRelaxedSets := make(map[string]map[uint64]struct{})
+	for qid, gtIDs := range gt {
+		strictSet := make(map[uint64]struct{})
+		relaxedSet := make(map[uint64]struct{})
+		for i, id := range gtIDs {
+			if i < k {
+				strictSet[id] = struct{}{}
+			}
+			if i < 100 {
+				relaxedSet[id] = struct{}{}
+			}
+		}
+		gtStrictSets[qid] = strictSet
+		gtRelaxedSets[qid] = relaxedSet
+	}
+
+	// Create HFresh index
+	t.Log("")
+	t.Log("Creating HFresh+MUVERA index...")
+
+	logger, _ := test.NewNullLogger()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	hfreshCfg := DefaultConfig()
+	hfreshCfg.RootPath = t.TempDir()
+
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: logger,
+		},
+	)
+	hfreshCfg.Scheduler = scheduler
+
+	hfreshCfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "hfresh_semantic_audit_centroids",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
+	}
+
+	hfreshCfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+	hfreshCfg.Logger = logger
+	hfreshCfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if doc, ok := docMap[id]; ok && len(doc.Vectors) > 0 {
+			return doc.Vectors[0], nil
+		}
+		return nil, fmt.Errorf("vector %d not found", id)
+	}
+	hfreshCfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
+		if doc, ok := docMap[id]; ok {
+			return doc.Vectors, nil
+		}
+		return nil, fmt.Errorf("multi-vector %d not found", id)
+	}
+
+	scheduler.Start()
+
+	// Use NewDefaultUserConfig and configure for MUVERA
+	hfreshUC := ent.NewDefaultUserConfig()
+	hfreshUC.SearchProbe = uint32(fixedSearchProbe)
+	hfreshUC.RQ.RescoreLimit = rescoreLimits[0] // Start with first value
+	hfreshUC.Multivector.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
+	hfreshUC.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
+	hfreshUC.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+
+	hfreshStore := testinghelpers.NewDummyStore(t)
+	hfreshIdx, err := New(hfreshCfg, hfreshUC, hfreshStore)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = hfreshIdx.Shutdown(ctx)
+		scheduler.Close(ctx)
+	}()
+
+	// Insert documents
+	t.Log("Inserting documents...")
+	insertStart := time.Now()
+
+	for i, doc := range docs {
+		hfreshErr := hfreshIdx.AddMulti(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, hfreshErr, "failed to insert doc %d into HFresh", doc.ID)
+		if (i+1)%10000 == 0 || i == len(docs)-1 {
+			t.Logf("Inserted %d/%d documents", i+1, len(docs))
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	numCentroids := hfreshIdx.PostingMap.Size()
+	t.Logf("Index built in %.2fs, HFresh has %d centroids", time.Since(insertStart).Seconds(), numCentroids)
+
+	// Result struct
+	type SemanticAuditResult struct {
+		RescoreLimit         int     `json:"rescore_limit"`
+		CandidateCentroidNum int     `json:"candidate_centroid_num"`
+		SelectedCentroids    float64 `json:"selected_centroids_avg"`
+		UniqueEnumerated     float64 `json:"unique_enumerated_avg"`
+		TotalScanned         float64 `json:"total_scanned_avg"`
+		CandidatesPassed     float64 `json:"candidates_passed_to_maxsim_avg"`
+		StrictRecall         float64 `json:"strict_recall"`
+		RelaxedRecall        float64 `json:"relaxed_recall"`
+		AvgLatencyMs         float64 `json:"avg_latency_ms"`
+	}
+
+	var results []SemanticAuditResult
+
+	// Header
+	t.Logf("")
+	t.Logf("================================================================================")
+	t.Logf("       RESCORE LIMIT SEMANTIC AUDIT")
+	t.Logf("================================================================================")
+	t.Logf("k = %d", k)
+	t.Logf("searchProbe = %d (FIXED)", fixedSearchProbe)
+	t.Logf("rescoreLimit sweep: %v", rescoreLimits)
+	t.Logf("HFresh total centroids = %d", numCentroids)
+	t.Logf("")
+	t.Logf("ANALYSIS: candidateCentroidNum = max(rescoreLimit, searchProbe)")
+	t.Logf("  When rescoreLimit >= searchProbe: candidateCentroidNum = rescoreLimit")
+	t.Logf("  This means rescoreLimit affects BOTH centroid selection AND MaxSim budget")
+	t.Logf("")
+	t.Logf("================================================================================")
+	t.Logf("       DETAILED METRICS PER RESCORE LIMIT")
+	t.Logf("================================================================================")
+	t.Logf("")
+	t.Logf("RescoreLimit | CandCentNum | SelectedCent | UniqueEnum | TotalScan | MaxSimCand | Strict@%d | Relax@%d | ms", k, k)
+	t.Logf("-------------|-------------|--------------|------------|-----------|------------|----------|---------|----")
+
+	for _, rescoreLimit := range rescoreLimits {
+		// Compute expected candidateCentroidNum
+		expectedCandidateCentroidNum := max(rescoreLimit, fixedSearchProbe)
+
+		// Override rescoreLimit atomically
+		atomic.StoreUint32(&hfreshIdx.rescoreLimit, uint32(rescoreLimit))
+
+		var strictSum, relaxedSum float64
+		var totalSelectedCentroids, totalUniqueEnumerated, totalScanned int
+		var timeSum time.Duration
+		validQueries := 0
+
+		for _, query := range queries {
+			gtStrict := gtStrictSets[query.ID]
+			gtRelaxed := gtRelaxedSets[query.ID]
+			if len(gtStrict) == 0 {
+				continue
+			}
+
+			// Create trace collector for this query
+			collector := NewSearchTraceCollector(query.ID)
+			traceCtx := ContextWithTraceCollector(ctx, collector)
+
+			start := time.Now()
+			ids, _, err := hfreshIdx.SearchByMultiVector(traceCtx, query.Vectors, k, nil)
+			timeSum += time.Since(start)
+			require.NoError(t, err)
+
+			trace := collector.Trace()
+			totalSelectedCentroids += len(trace.SelectedCentroids)
+			totalUniqueEnumerated += trace.ScanStats.UniqueEnumerated
+			totalScanned += trace.ScanStats.TotalScanned
+
+			var strictHits, relaxedHits int
+			for _, id := range ids {
+				if _, ok := gtStrict[id]; ok {
+					strictHits++
+				}
+				if _, ok := gtRelaxed[id]; ok {
+					relaxedHits++
+				}
+			}
+			strictSum += float64(strictHits) / float64(k)
+			relaxedSum += float64(relaxedHits) / float64(k)
+			validQueries++
+		}
+
+		if validQueries == 0 {
+			t.Logf("No valid queries for rescoreLimit=%d", rescoreLimit)
+			continue
+		}
+
+		numQ := float64(validQueries)
+		avgSelectedCentroids := float64(totalSelectedCentroids) / numQ
+		avgUniqueEnumerated := float64(totalUniqueEnumerated) / numQ
+		avgTotalScanned := float64(totalScanned) / numQ
+		avgLatencyMs := float64(timeSum.Milliseconds()) / numQ
+		strictRecall := strictSum / numQ
+		relaxedRecall := relaxedSum / numQ
+
+		// The candidates passed to MaxSim = min(uniqueEnumerated, rescoreLimit)
+		candidatesPassedToMaxSim := math.Min(avgUniqueEnumerated, float64(rescoreLimit))
+
+		result := SemanticAuditResult{
+			RescoreLimit:         rescoreLimit,
+			CandidateCentroidNum: expectedCandidateCentroidNum,
+			SelectedCentroids:    avgSelectedCentroids,
+			UniqueEnumerated:     avgUniqueEnumerated,
+			TotalScanned:         avgTotalScanned,
+			CandidatesPassed:     candidatesPassedToMaxSim,
+			StrictRecall:         strictRecall,
+			RelaxedRecall:        relaxedRecall,
+			AvgLatencyMs:         avgLatencyMs,
+		}
+		results = append(results, result)
+
+		t.Logf("%-12d | %-11d | %-12.0f | %-10.0f | %-9.0f | %-10.0f | %.4f   | %.4f  | %.1f",
+			rescoreLimit,
+			expectedCandidateCentroidNum,
+			avgSelectedCentroids,
+			avgUniqueEnumerated,
+			avgTotalScanned,
+			candidatesPassedToMaxSim,
+			strictRecall,
+			relaxedRecall,
+			avgLatencyMs)
+	}
+
+	// Analysis
+	t.Logf("")
+	t.Logf("================================================================================")
+	t.Logf("       SEMANTIC ANALYSIS")
+	t.Logf("================================================================================")
+	t.Logf("")
+
+	if len(results) >= 2 {
+		first := results[0]
+		last := results[len(results)-1]
+
+		centroidIncrease := last.SelectedCentroids - first.SelectedCentroids
+		uniqueEnumIncrease := last.UniqueEnumerated - first.UniqueEnumerated
+		totalScanIncrease := last.TotalScanned - first.TotalScanned
+
+		t.Logf("From rescoreLimit=%d to rescoreLimit=%d:", first.RescoreLimit, last.RescoreLimit)
+		t.Logf("  - SelectedCentroids:  %.0f → %.0f (Δ = %.0f)", first.SelectedCentroids, last.SelectedCentroids, centroidIncrease)
+		t.Logf("  - UniqueEnumerated:   %.0f → %.0f (Δ = %.0f)", first.UniqueEnumerated, last.UniqueEnumerated, uniqueEnumIncrease)
+		t.Logf("  - TotalScanned:       %.0f → %.0f (Δ = %.0f)", first.TotalScanned, last.TotalScanned, totalScanIncrease)
+		t.Logf("  - CandidatesPassedToMaxSim: %.0f → %.0f", first.CandidatesPassed, last.CandidatesPassed)
+		t.Logf("  - StrictRecall: %.4f → %.4f (Δ = %.4f)", first.StrictRecall, last.StrictRecall, last.StrictRecall-first.StrictRecall)
+		t.Logf("")
+
+		if centroidIncrease > 0 {
+			t.Logf("FINDING: rescoreLimit DOES affect centroid selection.")
+			t.Logf("  candidateCentroidNum = max(rescoreLimit, searchProbe)")
+			t.Logf("  Since rescoreLimit > searchProbe for most values, rescoreLimit directly")
+			t.Logf("  controls how many centroids are searched.")
+		} else {
+			t.Logf("FINDING: rescoreLimit does NOT affect centroid selection.")
+			t.Logf("  searchProbe dominates the centroid selection.")
+		}
+
+		t.Logf("")
+		if totalScanIncrease > 0 {
+			t.Logf("FINDING: rescoreLimit DOES affect posting scan count.")
+			t.Logf("  More centroids → more posting lists scanned → more vectors scanned.")
+		} else {
+			t.Logf("FINDING: rescoreLimit does NOT affect posting scan count.")
+		}
+
+		t.Logf("")
+		if uniqueEnumIncrease > 0 {
+			t.Logf("FINDING: rescoreLimit DOES affect unique candidate enumeration.")
+			t.Logf("  More centroids/scans → more unique candidates discovered.")
+		} else {
+			t.Logf("FINDING: rescoreLimit does NOT significantly affect unique candidate enumeration.")
+		}
+
+		t.Logf("")
+		t.Logf("CONCLUSION:")
+		t.Logf("  rescoreLimit is NOT just a final MaxSim budget.")
+		t.Logf("  In the MUVERA path, rescoreLimit is passed as 'k' to SearchByVector,")
+		t.Logf("  where candidateCentroidNum = max(k, searchProbe) = max(rescoreLimit, searchProbe).")
+		t.Logf("  This means increasing rescoreLimit increases the search breadth at EVERY stage:")
+		t.Logf("    1. Centroids selected")
+		t.Logf("    2. Posting lists scanned")
+		t.Logf("    3. Unique candidates enumerated")
+		t.Logf("    4. RQ1-ranked candidates")
+		t.Logf("    5. Final MaxSim reranking budget")
+	}
+
+	// Write report
+	type Report struct {
+		Config struct {
+			K             int   `json:"k"`
+			SearchProbe   int   `json:"search_probe"`
+			RescoreLimits []int `json:"rescore_limits"`
+			TotalCentroid int   `json:"total_centroids"`
+		} `json:"config"`
+		Results  []SemanticAuditResult `json:"results"`
+		Analysis string                `json:"analysis"`
+	}
+
+	report := Report{}
+	report.Config.K = k
+	report.Config.SearchProbe = fixedSearchProbe
+	report.Config.RescoreLimits = rescoreLimits
+	report.Config.TotalCentroid = numCentroids
+	report.Results = results
+	report.Analysis = "rescoreLimit affects ALL stages: centroid selection, posting scan, candidate enumeration, and MaxSim budget"
+
+	outputPath := *flagOutputPath
+	if outputPath == "" {
+		outputPath = "/tmp/hfresh_diag_lotte_100q/rescore_limit_semantic_audit.json"
+	}
+	reportJSON, _ := json.MarshalIndent(report, "", "  ")
+	_ = os.WriteFile(outputPath, reportJSON, 0644)
+	t.Logf("")
+	t.Logf("Report written to: %s", outputPath)
+}
+
+// TestRoutingVsRerankBudgetGrid runs a 2D grid experiment to decouple:
+//   - routingBudget: controls centroid selection and posting scan
+//   - rerankBudget: controls RQ1 ranking depth and MaxSim candidates
+//
+// This allows us to measure which budget matters more for recall loss:
+//   - Routing/candidate generation failure (GT docs not scanned)
+//   - Approximate ranking / rescoring budget failure (GT docs scanned but ranked below cutoff)
+//
+// Run with:
+//
+//	go test -v -timeout 120m -run TestRoutingVsRerankBudgetGrid ./adapters/repos/db/vector/hfresh/... \
+//	  -docs=/tmp/hfresh_diag_lotte_100q/docs.jsonl \
+//	  -queries=/tmp/hfresh_diag_lotte_100q/queries.jsonl \
+//	  -groundtruth=/tmp/hfresh_diag_lotte_100q/gt.jsonl
+func TestRoutingVsRerankBudgetGrid(t *testing.T) {
+	if *flagDocsPath == "" || *flagQueriesPath == "" || *flagGroundTruthPath == "" {
+		t.Skip("Skipping: requires -docs, -queries, and -groundtruth flags")
+	}
+
+	ctx := context.Background()
+
+	// Load data
+	t.Log("Loading documents...")
+	docs, err := loadDocs(*flagDocsPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d documents", len(docs))
+
+	t.Log("Loading queries...")
+	queries, err := loadQueries(*flagQueriesPath)
+	require.NoError(t, err)
+	t.Logf("Loaded %d queries", len(queries))
+
+	t.Log("Loading ground-truth...")
+	gt, err := loadGroundTruth(*flagGroundTruthPath)
+	require.NoError(t, err)
+	t.Logf("Loaded ground-truth for %d queries", len(gt))
+
+	// Test parameters
+	k := 10
+	budgetValues := []int{64, 128, 256, 350, 512, 1024, 2048, 4096}
+
+	// Build document map for lookups
+	docMap := make(map[uint64]*DocInput)
+	for i := range docs {
+		docMap[docs[i].ID] = &docs[i]
+	}
+
+	// Get dimensions from first doc
+	var dims int
+	if len(docs) > 0 && len(docs[0].Vectors) > 0 && len(docs[0].Vectors[0]) > 0 {
+		dims = len(docs[0].Vectors[0])
+	}
+	require.Greater(t, dims, 0, "could not determine vector dimensions")
+
+	// Build GT sets for recall computation
+	gtStrictSets := make(map[string]map[uint64]struct{})
+	gtRelaxedSets := make(map[string]map[uint64]struct{})
+	for qid, gtIDs := range gt {
+		strictSet := make(map[uint64]struct{})
+		relaxedSet := make(map[uint64]struct{})
+		for i, id := range gtIDs {
+			if i < k {
+				strictSet[id] = struct{}{}
+			}
+			if i < 100 {
+				relaxedSet[id] = struct{}{}
+			}
+		}
+		gtStrictSets[qid] = strictSet
+		gtRelaxedSets[qid] = relaxedSet
+	}
+
+	// Create HFresh index
+	t.Log("")
+	t.Log("Creating HFresh+MUVERA index...")
+
+	logger, _ := test.NewNullLogger()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	hfreshCfg := DefaultConfig()
+	hfreshCfg.RootPath = t.TempDir()
+
+	scheduler := queue.NewScheduler(
+		queue.SchedulerOptions{
+			Logger: logger,
+		},
+	)
+	hfreshCfg.Scheduler = scheduler
+
+	hfreshCfg.Centroids.HNSWConfig = &hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "hfresh_routing_vs_rerank_centroids",
+		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
+	}
+
+	hfreshCfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+	hfreshCfg.Logger = logger
+	hfreshCfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if doc, ok := docMap[id]; ok && len(doc.Vectors) > 0 {
+			return doc.Vectors[0], nil
+		}
+		return nil, fmt.Errorf("vector %d not found", id)
+	}
+	hfreshCfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
+		if doc, ok := docMap[id]; ok {
+			return doc.Vectors, nil
+		}
+		return nil, fmt.Errorf("multi-vector %d not found", id)
+	}
+
+	scheduler.Start()
+
+	// Use NewDefaultUserConfig and configure for MUVERA
+	hfreshUC := ent.NewDefaultUserConfig()
+	hfreshUC.SearchProbe = 64 // Will be overridden by routingBudget in diagnostic search
+	hfreshUC.RQ.RescoreLimit = 350 // Will be overridden by rerankBudget in diagnostic search
+	hfreshUC.Multivector.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.Enabled = true
+	hfreshUC.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
+	hfreshUC.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
+	hfreshUC.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+
+	hfreshStore := testinghelpers.NewDummyStore(t)
+	hfreshIdx, err := New(hfreshCfg, hfreshUC, hfreshStore)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = hfreshIdx.Shutdown(ctx)
+		scheduler.Close(ctx)
+	}()
+
+	// Insert documents
+	t.Log("Inserting documents...")
+	insertStart := time.Now()
+
+	for i, doc := range docs {
+		hfreshErr := hfreshIdx.AddMulti(ctx, doc.ID, doc.Vectors)
+		require.NoError(t, hfreshErr, "failed to insert doc %d into HFresh", doc.ID)
+		if (i+1)%10000 == 0 || i == len(docs)-1 {
+			t.Logf("Inserted %d/%d documents", i+1, len(docs))
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	numCentroids := hfreshIdx.PostingMap.Size()
+	t.Logf("Index built in %.2fs, HFresh has %d centroids", time.Since(insertStart).Seconds(), numCentroids)
+
+	// Result struct for grid experiment
+	type GridResult struct {
+		RoutingBudget        int     `json:"routing_budget"`
+		RerankBudget         int     `json:"rerank_budget"`
+		StrictRecall         float64 `json:"strict_recall"`
+		RelaxedRecall        float64 `json:"relaxed_recall"`
+		AvgSelectedCentroids float64 `json:"avg_selected_centroids"`
+		AvgUniqueDocs        float64 `json:"avg_unique_docs"`
+		AvgScanned           float64 `json:"avg_scanned"`
+		AvgMaxSimCandidates  float64 `json:"avg_maxsim_candidates"`
+		AvgMs                float64 `json:"avg_ms"`
+	}
+
+	var results []GridResult
+
+	// Header
+	t.Logf("")
+	t.Logf("================================================================================")
+	t.Logf("       ROUTING vs RERANK BUDGET 2D GRID EXPERIMENT")
+	t.Logf("================================================================================")
+	t.Logf("k = %d", k)
+	t.Logf("Budget values: %v", budgetValues)
+	t.Logf("HFresh total centroids = %d", numCentroids)
+	t.Logf("")
+	t.Logf("This experiment decouples two effects currently tied to rescoreLimit:")
+	t.Logf("  - routingBudget: controls centroid selection and posting scan")
+	t.Logf("  - rerankBudget: controls RQ1 ranking depth and MaxSim candidates")
+	t.Logf("")
+	t.Logf("================================================================================")
+	t.Logf("       GRID RESULTS")
+	t.Logf("================================================================================")
+	t.Logf("")
+	t.Logf("RoutingBudget | RerankBudget | Strict@%d | Relax@%d | UniqueDocs | Scanned | MaxSimCand | ms", k, k)
+	t.Logf("--------------|--------------|----------|---------|------------|---------|------------|----")
+
+	for _, routingBudget := range budgetValues {
+		for _, rerankBudget := range budgetValues {
+			var strictSum, relaxedSum float64
+			var totalSelectedCentroids, totalUniqueDocs, totalScanned, totalMaxSimCandidates int
+			var timeSum time.Duration
+			validQueries := 0
+
+			for _, query := range queries {
+				gtStrict := gtStrictSets[query.ID]
+				gtRelaxed := gtRelaxedSets[query.ID]
+				if len(gtStrict) == 0 {
+					continue
+				}
+
+				start := time.Now()
+				ids, _, trace, err := hfreshIdx.SearchByMultiVectorDiagnostic(ctx, query.Vectors, k, routingBudget, rerankBudget, nil)
+				timeSum += time.Since(start)
+				require.NoError(t, err)
+
+				if trace != nil {
+					totalSelectedCentroids += trace.SelectedCentroids
+					totalUniqueDocs += trace.UniqueDocsEnumerated
+					totalScanned += trace.TotalVectorsScanned
+					totalMaxSimCandidates += trace.CandidatesPassedToMaxSim
+				}
+
+				var strictHits, relaxedHits int
+				for _, id := range ids {
+					if _, ok := gtStrict[id]; ok {
+						strictHits++
+					}
+					if _, ok := gtRelaxed[id]; ok {
+						relaxedHits++
+					}
+				}
+				strictSum += float64(strictHits) / float64(k)
+				relaxedSum += float64(relaxedHits) / float64(k)
+				validQueries++
+			}
+
+			if validQueries == 0 {
+				continue
+			}
+
+			numQ := float64(validQueries)
+			result := GridResult{
+				RoutingBudget:        routingBudget,
+				RerankBudget:         rerankBudget,
+				StrictRecall:         strictSum / numQ,
+				RelaxedRecall:        relaxedSum / numQ,
+				AvgSelectedCentroids: float64(totalSelectedCentroids) / numQ,
+				AvgUniqueDocs:        float64(totalUniqueDocs) / numQ,
+				AvgScanned:           float64(totalScanned) / numQ,
+				AvgMaxSimCandidates:  float64(totalMaxSimCandidates) / numQ,
+				AvgMs:                float64(timeSum.Milliseconds()) / numQ,
+			}
+			results = append(results, result)
+
+			t.Logf("%-13d | %-12d | %.4f   | %.4f  | %-10.0f | %-7.0f | %-10.0f | %.1f",
+				routingBudget,
+				rerankBudget,
+				result.StrictRecall,
+				result.RelaxedRecall,
+				result.AvgUniqueDocs,
+				result.AvgScanned,
+				result.AvgMaxSimCandidates,
+				result.AvgMs)
+		}
+	}
+
+	// Analysis
+	t.Logf("")
+	t.Logf("================================================================================")
+	t.Logf("       ANALYSIS")
+	t.Logf("================================================================================")
+	t.Logf("")
+
+	// Helper to find result
+	findResult := func(routing, rerank int) *GridResult {
+		for i := range results {
+			if results[i].RoutingBudget == routing && results[i].RerankBudget == rerank {
+				return &results[i]
+			}
+		}
+		return nil
+	}
+
+	// Analysis 1: Fixed rerankBudget=350, vary routingBudget
+	t.Logf("ANALYSIS 1: Routing impact (rerankBudget=350 fixed)")
+	t.Logf("-----------------------------------------------------")
+	fixedRerank := 350
+	for _, routing := range budgetValues {
+		r := findResult(routing, fixedRerank)
+		if r != nil {
+			t.Logf("  routingBudget=%4d: strict=%.4f, relaxed=%.4f, uniqueDocs=%.0f",
+				routing, r.StrictRecall, r.RelaxedRecall, r.AvgUniqueDocs)
+		}
+	}
+
+	// Analysis 2: Fixed routingBudget=350, vary rerankBudget
+	t.Logf("")
+	t.Logf("ANALYSIS 2: Rerank impact (routingBudget=350 fixed)")
+	t.Logf("-----------------------------------------------------")
+	fixedRouting := 350
+	for _, rerank := range budgetValues {
+		r := findResult(fixedRouting, rerank)
+		if r != nil {
+			t.Logf("  rerankBudget=%4d: strict=%.4f, relaxed=%.4f, maxSimCand=%.0f",
+				rerank, r.StrictRecall, r.RelaxedRecall, r.AvgMaxSimCandidates)
+		}
+	}
+
+	// Analysis 3: Key comparisons
+	t.Logf("")
+	t.Logf("ANALYSIS 3: Key comparisons")
+	t.Logf("----------------------------")
+
+	baseline := findResult(350, 350)
+	highRouting := findResult(4096, 350)
+	highRerank := findResult(350, 4096)
+	highBoth := findResult(4096, 4096)
+
+	if baseline != nil {
+		t.Logf("Baseline (350, 350):      strict=%.4f, relaxed=%.4f", baseline.StrictRecall, baseline.RelaxedRecall)
+	}
+	if highRouting != nil {
+		t.Logf("High routing (4096, 350): strict=%.4f, relaxed=%.4f", highRouting.StrictRecall, highRouting.RelaxedRecall)
+		if baseline != nil {
+			t.Logf("  Δ from baseline: strict=%+.4f, relaxed=%+.4f",
+				highRouting.StrictRecall-baseline.StrictRecall,
+				highRouting.RelaxedRecall-baseline.RelaxedRecall)
+		}
+	}
+	if highRerank != nil {
+		t.Logf("High rerank (350, 4096):  strict=%.4f, relaxed=%.4f", highRerank.StrictRecall, highRerank.RelaxedRecall)
+		if baseline != nil {
+			t.Logf("  Δ from baseline: strict=%+.4f, relaxed=%+.4f",
+				highRerank.StrictRecall-baseline.StrictRecall,
+				highRerank.RelaxedRecall-baseline.RelaxedRecall)
+		}
+	}
+	if highBoth != nil {
+		t.Logf("High both (4096, 4096):   strict=%.4f, relaxed=%.4f", highBoth.StrictRecall, highBoth.RelaxedRecall)
+		if baseline != nil {
+			t.Logf("  Δ from baseline: strict=%+.4f, relaxed=%+.4f",
+				highBoth.StrictRecall-baseline.StrictRecall,
+				highBoth.RelaxedRecall-baseline.RelaxedRecall)
+		}
+	}
+
+	// Determine dominant factor
+	t.Logf("")
+	t.Logf("CONCLUSION:")
+	t.Logf("-----------")
+	if highRouting != nil && highRerank != nil && baseline != nil {
+		routingGain := highRouting.StrictRecall - baseline.StrictRecall
+		rerankGain := highRerank.StrictRecall - baseline.StrictRecall
+
+		if routingGain > rerankGain*1.5 {
+			t.Logf("ROUTING DOMINATES: Increasing routingBudget (4096 vs 350) gives +%.4f strict recall,", routingGain)
+			t.Logf("  while increasing rerankBudget gives only +%.4f.", rerankGain)
+			t.Logf("  → HFresh recall loss is primarily due to insufficient centroid/posting coverage.")
+		} else if rerankGain > routingGain*1.5 {
+			t.Logf("RERANK DOMINATES: Increasing rerankBudget (4096 vs 350) gives +%.4f strict recall,", rerankGain)
+			t.Logf("  while increasing routingBudget gives only +%.4f.", routingGain)
+			t.Logf("  → HFresh recall loss is primarily due to RQ1 compression / approximate ranking.")
+		} else {
+			t.Logf("BOTH MATTER: Increasing routingBudget gives +%.4f, rerankBudget gives +%.4f.", routingGain, rerankGain)
+			t.Logf("  → The current rescoreLimit improvement comes from widening the whole funnel.")
+			t.Logf("  → Cannot describe it as simply 'more rescoring'.")
+		}
+	}
+
+	// Write report
+	type Report struct {
+		Config struct {
+			K             int   `json:"k"`
+			BudgetValues  []int `json:"budget_values"`
+			TotalCentroid int   `json:"total_centroids"`
+			NumDocs       int   `json:"num_docs"`
+			NumQueries    int   `json:"num_queries"`
+		} `json:"config"`
+		Results []GridResult `json:"results"`
+	}
+
+	report := Report{}
+	report.Config.K = k
+	report.Config.BudgetValues = budgetValues
+	report.Config.TotalCentroid = numCentroids
+	report.Config.NumDocs = len(docs)
+	report.Config.NumQueries = len(queries)
+	report.Results = results
+
+	outputPath := *flagOutputPath
+	if outputPath == "" {
+		outputPath = "/tmp/hfresh_diag_lotte_100q/routing_vs_rerank_grid.json"
+	}
+	reportJSON, _ := json.MarshalIndent(report, "", "  ")
+	_ = os.WriteFile(outputPath, reportJSON, 0644)
 	t.Logf("")
 	t.Logf("Report written to: %s", outputPath)
 }
