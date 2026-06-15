@@ -485,6 +485,25 @@ func NewRestrictionCompressionTypeListValidator() func([]string) error {
 	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
 }
 
+// NewDefaultVectorIndexValidator returns the per-value validator attached to
+// DefaultVectorIndexType. Empty means "unset", which the defaults path falls
+// back from. The "none" sentinel is reserved for indexes dropped via
+// DeleteClassVectorIndex and must never appear as a class-creation default —
+// both env-time and runtime-override paths share this rule.
+func NewDefaultVectorIndexValidator() func(string) error {
+	return func(val string) error {
+		v := strings.ToLower(strings.TrimSpace(val))
+		if v == "" {
+			return nil
+		}
+		if !slices.Contains(validRestrictionVectorIndexTypes, v) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v",
+				val, validRestrictionVectorIndexTypes)
+		}
+		return nil
+	}
+}
+
 // ValidateRestrictionsRuntime is the cross-field layer of validation
 // (per-value runs at SetValue time). On failure it logs and clears both
 // allow-lists — reverting to the prior value would need a snapshot
