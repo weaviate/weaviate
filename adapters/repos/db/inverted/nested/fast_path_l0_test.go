@@ -606,6 +606,324 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// Others: no car has both red and blue → FAIL.
 			wantDocs: []uint64{100},
 		},
+		// Single positive leaf on a text[] (cars.colors=red). Per-car:
+		// car's colors array contains "red".
+		{
+			name: "cars.colors=red [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPositive(idx, "cars.colors", "red")
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// doc 100 cars[1]=[blue,red] PASS. doc 200 cars[0]=[red] PASS.
+			// doc 300 cars[1]=[red] PASS. Others: no red → FAIL.
+			wantDocs: []uint64{100, 200, 300},
+		},
+		// NOT cars.colors=red. Per-car: car has no "red" in colors
+		// (cars without any colors set count as witnesses — they're
+		// in anchor[cars] but not in the value bucket).
+		{
+			name: "NOT cars.colors=red [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafNot(idx, "cars.colors", "red")
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Every doc has at least one car lacking "red" — either
+			// has colors without red, or has no colors at all.
+			wantDocs: []uint64{100, 200, 300, 400, 810, 830, 850},
+		},
+		// Single positive leaf on a deeper scope (cars.accessories.type).
+		// TS = parent(path) = cars.accessories (the accessories
+		// element scope). ES bits live at accessories selfMarkers
+		// whose type=spoiler. Doc passes if some accessory satisfies.
+		{
+			name: "cars.accessories.type=spoiler [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPositive(idx, "cars.accessories.type", "spoiler")
+			},
+			wantScope:      "cars.accessories",
+			wantCleanAbove: "cars", // propName — positive leaf
+			// doc 100 cars[0].accessories[0]=spoiler PASS.
+			// doc 200 cars[0,1].accessories[0]=spoiler PASS.
+			// doc 830 cars[0].accessories[1]=spoiler PASS.
+			// doc 850 cars[0].accessories[0]=spoiler PASS.
+			// Others: no accessories → FAIL.
+			wantDocs: []uint64{100, 200, 830, 850},
+		},
+		// NOT cars.accessories.type=spoiler. Per-accessory: accessory
+		// has type ≠ spoiler. Cars without ANY accessories produce
+		// no per-element witness (empty scope contributes nothing).
+		{
+			name: "NOT cars.accessories.type=spoiler [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafNot(idx, "cars.accessories.type", "spoiler")
+			},
+			wantScope:      "cars.accessories",
+			wantCleanAbove: "cars.accessories", // negate rule
+			// doc 100 cars[1].accessories[0]=radio → witness PASS.
+			// doc 200: cars[0,1] only have spoiler accessories,
+			// cars[2] no accessories → no per-element witness → FAIL.
+			// doc 830 cars[0].accessories[0]=radio → witness PASS.
+			// doc 850 cars[1].accessories[0]=radio → witness PASS.
+			// 300/400/810: no accessories at all → FAIL.
+			wantDocs: []uint64{100, 830, 850},
+		},
+		// Empty-result edge case. cars.year=9999 — value not present
+		// in any fixture. Exercises the no-match path through every
+		// helper invariant.
+		{
+			name: "cars.year=9999 (empty result) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPositive(idx, "cars.year", 9999)
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			wantDocs:       nil,
+		},
+		// Same-Scope AND on a text[] field. Per-car: car's colors
+		// array contains BOTH blue and red. Logically equivalent to
+		// ContainsAll [blue, red] but routed through general AND.
+		{
+			name: "cars.colors=blue AND cars.colors=red [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPositive(idx, "cars.colors", "blue"),
+					leafPositive(idx, "cars.colors", "red"))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Same wantDocs as ContainsAll [red, blue] — De Morgan-
+			// adjacent equivalence (intersection of value buckets ==
+			// per-car ContainsAll).
+			wantDocs: []uint64{100},
+		},
+		// Mixed NOT operand in OR. NOT spoiler at cars.accessories
+		// (CleanBelow=false) OR'd with positive 205 at cars.tires
+		// (CleanBelow=true). orLeaves lifts both to LCA=cars; NOT
+		// spoiler full-lifts (CleanAbove was cars.accessories, above
+		// target=cars), 205 cheap-lifts. OR result has CleanBelow=
+		// false (mixed).
+		{
+			name: "NOT cars.accessories.type=spoiler OR cars.tires.width=205 [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					leafNot(idx, "cars.accessories.type", "spoiler"),
+					leafPositive(idx, "cars.tires.width", 205))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Per-car at cars-scope (post-lift): car has at least one
+			// non-spoiler accessory OR has 205 tires.
+			// 100 cars[1]=radio+195 (non-spoiler) + cars[0]=205 → PASS.
+			// 200 cars[0,1]=spoiler+205 → 205 → PASS.
+			// 300/400/810: no accessories no 205 → FAIL.
+			// 830 cars[0]=radio,spoiler → has non-spoiler radio → PASS.
+			// 850 cars[1]=radio (non-spoiler) + cars[1]=205 → PASS.
+			wantDocs: []uint64{100, 200, 830, 850},
+		},
+		// Compound AND inside OR. Inner sibling AND (spoiler+205) at
+		// cars (CleanAbove=cars). OR with positive ford at cars.
+		// Same-Scope OR.
+		{
+			name: "(cars.accessories.type=spoiler AND cars.tires.width=205) OR cars.make=ford [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orLeaves(idx,
+					andLeaves(idx,
+						leafPositive(idx, "cars.accessories.type", "spoiler"),
+						leafPositive(idx, "cars.tires.width", 205)),
+					leafPositive(idx, "cars.make", "ford"))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Inner AND (same-car spoiler+205): {100, 200}.
+			// ford-cars: {300, 400}. Union: {100, 200, 300, 400}.
+			wantDocs: []uint64{100, 200, 300, 400},
+		},
+		// Same-Scope OR inside an AND. Per-car: car has (honda OR
+		// ford) make AND year=2018.
+		{
+			name: "(cars.make=honda OR cars.make=ford) AND cars.year=2018 [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					orLeaves(idx,
+						leafPositive(idx, "cars.make", "honda"),
+						leafPositive(idx, "cars.make", "ford")),
+					leafPositive(idx, "cars.year", 2018))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// doc 100 cars[1]=honda+2018 → SAME-CAR PASS.
+			// All other docs lack a single car with both predicates.
+			wantDocs: []uint64{100},
+		},
+		// NOT of compound sibling AND. Per-car: car is NOT in inner
+		// ES (= NOT (spoiler AND 205 same-car)) = NOT spoiler at this
+		// car OR NOT 205 at this car. Cars not in inner ES are
+		// witnesses.
+		{
+			name: "NOT (cars.accessories.type=spoiler AND cars.tires.width=205) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, andLeaves(idx,
+					leafPositive(idx, "cars.accessories.type", "spoiler"),
+					leafPositive(idx, "cars.tires.width", 205)))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Every doc has at least one car not in (spoiler AND 205
+			// same-car). E.g. doc 100 cars[1]=radio+195 → not in.
+			wantDocs: []uint64{100, 200, 300, 400, 810, 830, 850},
+		},
+		// NOT of same-Scope OR. Should give identical docs to the
+		// existing `ContainsNone direct` and the De Morgan AND-of-NOTs
+		// — three routes to the same per-car predicate.
+		{
+			name: "NOT (cars.make=honda OR cars.make=ford) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPositive(idx, "cars.make", "honda"),
+					leafPositive(idx, "cars.make", "ford")))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Must match ContainsNone [honda, ford] and NOT(honda)
+			// AND NOT(ford) below.
+			wantDocs: []uint64{100, 200, 810, 830, 850},
+		},
+		// NOT of sibling OR. Per-car (after lift of inner OR to cars):
+		// car has NEITHER a spoiler accessory NOR a 205 tire.
+		{
+			name: "NOT (cars.accessories.type=spoiler OR cars.tires.width=205) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return negate(idx, orLeaves(idx,
+					leafPositive(idx, "cars.accessories.type", "spoiler"),
+					leafPositive(idx, "cars.tires.width", 205)))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// 100 cars[1]=radio+195 → no spoiler+no 205 in cars[1].
+			// Also cars[2] no accessories no tires → witness. PASS.
+			// 200 cars[2]=name=ford (no accessories, no tires) → witness.
+			// PASS.
+			// 300/400/810: no spoiler no 205 anywhere → witnesses PASS.
+			// 830 cars[0]=spoiler → no witness FAIL.
+			// 850 cars[0]=spoiler, cars[1]=205 → no witness → FAIL.
+			wantDocs: []uint64{100, 200, 300, 400, 810},
+		},
+		// De Morgan same-Scope: NOT(honda) AND NOT(ford). Per-car:
+		// car has make ∉ {honda, ford} (or no make). Should match
+		// `NOT (honda OR ford)` above.
+		{
+			name: "NOT(cars.make=honda) AND NOT(cars.make=ford) [L0, De Morgan]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafNot(idx, "cars.make", "honda"),
+					leafNot(idx, "cars.make", "ford"))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			wantDocs:       []uint64{100, 200, 810, 830, 850},
+		},
+		// De Morgan siblings: NOT(spoiler) AND NOT(205). Per-car at
+		// cars-scope (post-lift): car has at least one non-spoiler
+		// accessory AND at least one non-205 tire. Strictly stronger
+		// than `NOT (spoiler AND 205)` — requires per-side witness.
+		{
+			name: "NOT(cars.accessories.type=spoiler) AND NOT(cars.tires.width=205) [L0, De Morgan siblings]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafNot(idx, "cars.accessories.type", "spoiler"),
+					leafNot(idx, "cars.tires.width", 205))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Only doc 100 cars[1]=radio+195 has BOTH a non-spoiler
+			// accessory AND a non-205 tire in the same car.
+			// doc 200 cars[0,1] only have spoiler+205; cars[2] has
+			// neither → empty per-element witnesses → FAIL.
+			// doc 830 cars[0]=radio,spoiler → non-spoiler witness, but
+			// no tires at all → FAIL.
+			// doc 850 cars[0]=spoiler+195 (no non-spoiler), cars[1]=
+			// radio+205 (no non-205) → no single car has both → FAIL.
+			// 300/400/810: no accessories, no tires → FAIL.
+			wantDocs: []uint64{100},
+		},
+		// 4-leaf andN — spoiler + 205 + honda + 2020 same-car. The
+		// 3-leaf andN above (without spoiler/205) only passed via
+		// doc 200 cars[1]; the 4-leaf with the extra constraints
+		// still passes via the same car (200 cars[1] has spoiler+
+		// 205+honda+2020 colocated).
+		{
+			name: "andN(spoiler, tires.width=205, make=honda, year=2020) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andN(idx,
+					leafPositive(idx, "cars.accessories.type", "spoiler"),
+					leafPositive(idx, "cars.tires.width", 205),
+					leafPositive(idx, "cars.make", "honda"),
+					leafPositive(idx, "cars.year", 2020))
+			},
+			// Sort: spoiler+205 at depth 2 first (siblings under
+			// cars), then honda+year at depth 1. First fold collapses
+			// the siblings via lift-to-LCA=cars, so the accumulator
+			// lands at cars-Scope and subsequent folds stay there
+			// (no deeper child to broadcast into). Unlike the 3-leaf
+			// andN above where the deepest operand is the only one at
+			// its depth (so broadcasting preserves cars.tires), the
+			// siblings collapse this dispatch back to cars.
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			wantDocs:       []uint64{200},
+		},
+		// 3-leaf same-Scope orN over honda + 2018 + blue. All three
+		// at TS=cars. Result is union of positive-leaf ESs.
+		{
+			name: "orN(cars.make=honda, cars.year=2018, cars.colors=blue) [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return orN(idx,
+					leafPositive(idx, "cars.make", "honda"),
+					leafPositive(idx, "cars.year", 2018),
+					leafPositive(idx, "cars.colors", "blue"))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// honda: {100, 200, 300, 810}. year=2018: {100} (cars[1]).
+			// blue: {100, 200}. Union: {100, 200, 300, 810}.
+			wantDocs: []uint64{100, 200, 300, 810},
+		},
+		// Mixed positive+NOT siblings AND. radio at cars.accessories
+		// (positive, CleanBelow=true) AND NOT 205 at cars.tires
+		// (NOT, CleanBelow=false). Lift both to LCA=cars. Same-Scope
+		// AND at cars with CleanBelow=true && false = false.
+		{
+			name: "cars.accessories.type=radio AND NOT cars.tires.width=205 [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return andLeaves(idx,
+					leafPositive(idx, "cars.accessories.type", "radio"),
+					leafNot(idx, "cars.tires.width", 205))
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			// Per-car: car has radio accessory AND has non-205 tire.
+			// doc 100 cars[1]=radio+195 → PASS.
+			// doc 200 cars[0,1] only spoiler → no radio → FAIL.
+			// doc 830 cars[0]=radio,spoiler but no tires → FAIL.
+			// doc 850 cars[0]=spoiler (no radio), cars[1]=radio+205
+			// (radio but only 205) → no single car with both → FAIL.
+			// 300/400/810: no accessories no tires → FAIL.
+			wantDocs: []uint64{100},
+		},
+		// ContainsAny on a value set that has no hits in any fixture.
+		// Verifies the empty-result path through ContainsAny's union
+		// of (potentially-nil) value buckets.
+		{
+			name: "cars.make ContainsAny [bmw, kia] [L0]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafContainsAny(idx, "cars.make", "bmw", "kia")
+			},
+			wantScope:      "cars",
+			wantCleanAbove: "cars",
+			wantDocs:       nil,
+		},
 	}
 
 	runFastPathCases(t, idx, cases)
