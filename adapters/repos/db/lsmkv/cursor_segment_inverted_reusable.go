@@ -25,6 +25,8 @@ type segmentCursorInvertedReusable struct {
 }
 
 func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
+	// this cursor never reads the property length map; loading it would only
+	// defeat lazy property-length loading
 	return &segmentCursorInvertedReusable{
 		segment: s,
 	}

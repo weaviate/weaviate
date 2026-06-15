@@ -400,6 +400,8 @@ func (s *segment) propLengthArrays() (dense []uint32, minID uint64, ids []uint64
 		return nil, 0, nil, nil, fmt.Errorf("property length only supported for inverted strategy")
 	}
 
+	// check the flag and read the map under one RLock: a freePropertyLengths
+	// between the two would hand a live reader a nil map
 	s.invertedData.lockInvertedData.RLock()
 	if s.invertedData.propertyLengthsLoaded {
 		dense, minID = s.invertedData.propLengthsDense, s.invertedData.propLengthsMin
