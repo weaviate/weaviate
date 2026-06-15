@@ -9,13 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Command perf-report queries the acceptance-test Prometheus, snapshots the key
-// performance metrics, compares them against a baseline (typically captured on
-// main), and renders a Markdown dashboard for the GitHub Actions run summary.
-//
-// It is intentionally tolerant: a missing metric (no traffic of that kind in the
-// suite) renders as "n/a" rather than failing, and a missing/empty baseline
-// degrades to a current-only report with no delta column.
+// Command perf-report snapshots key performance metrics from the acceptance-test
+// Prometheus, compares them to a baseline, and renders a Markdown dashboard for
+// the GitHub Actions run summary. Missing metrics render as "n/a"; a missing
+// baseline degrades to a current-only report.
 package main
 
 import (
@@ -33,45 +30,36 @@ import (
 	"time"
 )
 
-// metricSpec is a single headline number to extract from Prometheus.
-//
-// PromQL queries the raw cumulative histogram buckets/counters (no rate): every
-// Weaviate container is fresh for the test, so the cumulative value at job end
-// is the statistic "over the whole run". histogram_quantile over sum-by-le of
-// the buckets yields the quantile across every node/package at once.
+// metricSpec is one headline number. Queries use raw cumulative buckets/counters
+// (no rate): each Weaviate is fresh, so the value at job end covers the whole run.
 type metricSpec struct {
-	Key           string // stable identifier, also the JSON key
-	Title         string // human label in the report
-	Group         string // section heading
-	Unit          string // ms, req, obj, …
+	Key           string
+	Title         string
+	Group         string
+	Unit          string
 	PromQL        string
 	LowerIsBetter bool
-	Chart         bool // include a baseline-vs-current Mermaid bar chart
+	Chart         bool // baseline-vs-current Mermaid bar chart
 }
 
 var specs = []metricSpec{
-	// --- Query latency (histogram, ms) ---
 	{"query_p50", "Query latency p50", "Query latency", "ms", `histogram_quantile(0.50, sum by (le) (queries_durations_ms_bucket))`, true, false},
 	{"query_p95", "Query latency p95", "Query latency", "ms", `histogram_quantile(0.95, sum by (le) (queries_durations_ms_bucket))`, true, true},
 	{"query_p99", "Query latency p99", "Query latency", "ms", `histogram_quantile(0.99, sum by (le) (queries_durations_ms_bucket))`, true, false},
 	{"query_avg", "Query latency avg", "Query latency", "ms", `sum(queries_durations_ms_sum) / sum(queries_durations_ms_count)`, true, false},
 
-	// --- Batch / import latency (histogram, ms) ---
 	{"batch_p95", "Batch op p95", "Import / batch", "ms", `histogram_quantile(0.95, sum by (le) (batch_durations_ms_bucket))`, true, true},
 	{"batch_avg", "Batch op avg", "Import / batch", "ms", `sum(batch_durations_ms_sum) / sum(batch_durations_ms_count)`, true, false},
 	{"batch_objects", "Batch objects processed", "Import / batch", "obj", `sum(batch_objects_processed_total)`, false, false},
 
-	// --- API latency (histograms are in seconds → ×1000 for ms) ---
+	// seconds → ×1000 for ms
 	{"http_p95", "HTTP request p95", "API latency", "ms", `1000 * histogram_quantile(0.95, sum by (le) (http_request_duration_seconds_bucket))`, true, true},
 	{"grpc_p95", "gRPC request p95", "API latency", "ms", `1000 * histogram_quantile(0.95, sum by (le) (grpc_server_request_duration_seconds_bucket))`, true, false},
 
-	// --- Volume (context, not pass/fail) ---
 	{"total_queries", "Total queries", "Volume", "req", `sum(queries_durations_ms_count)`, false, false},
 	{"total_http", "Total HTTP requests", "Volume", "req", `sum(http_request_duration_seconds_count)`, false, false},
 }
 
-// perPackageQuery extracts query p95 broken down by the test_pkg label so
-// per-area regressions stay legible even when the aggregate is noisy.
 const perPackageQuery = `histogram_quantile(0.95, sum by (le, test_pkg) (queries_durations_ms_bucket))`
 
 type metricValue struct {
@@ -137,10 +125,6 @@ func main() {
 	fmt.Print(renderMarkdown(title, regressPct, cur, base, perPkg))
 }
 
-// ---------------------------------------------------------------------------
-// Prometheus client
-// ---------------------------------------------------------------------------
-
 type promClient struct {
 	base string
 	http *http.Client
@@ -157,7 +141,7 @@ type promResponse struct {
 
 type promSample struct {
 	Metric map[string]string `json:"metric"`
-	Value  [2]interface{}    `json:"value"`
+	Value  [2]any            `json:"value"`
 }
 
 func (c *promClient) rawQuery(q string) (*promResponse, error) {
@@ -193,7 +177,7 @@ func (c *promClient) queryScalar(q string) (float64, bool, error) {
 	}
 	switch pr.Data.ResultType {
 	case "scalar":
-		var raw [2]interface{}
+		var raw [2]any
 		if err := json.Unmarshal(pr.Data.Result, &raw); err != nil {
 			return 0, false, err
 		}
@@ -205,14 +189,14 @@ func (c *promClient) queryScalar(q string) (float64, bool, error) {
 			return 0, false, err
 		}
 		var sum float64
-		var any bool
+		var found bool
 		for _, s := range samples {
 			if f, ok := parseSampleValue(s.Value[1]); ok {
 				sum += f
-				any = true
+				found = true
 			}
 		}
-		return sum, any, nil
+		return sum, found, nil
 	default:
 		return 0, false, nil
 	}
@@ -245,7 +229,7 @@ func (c *promClient) queryByLabel(q, label string) (map[string]float64, error) {
 }
 
 // parseSampleValue parses a Prometheus sample value ("1.23"), rejecting NaN/Inf.
-func parseSampleValue(v interface{}) (float64, bool) {
+func parseSampleValue(v any) (float64, bool) {
 	s, ok := v.(string)
 	if !ok {
 		return 0, false
@@ -256,10 +240,6 @@ func parseSampleValue(v interface{}) (float64, bool) {
 	}
 	return f, true
 }
-
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
 
 func renderMarkdown(title string, regressPct float64, cur report, base *report, perPkg map[string]float64) string {
 	var b strings.Builder
@@ -403,10 +383,6 @@ func fmtNum(f float64) string {
 	return strconv.FormatFloat(f, 'f', 2, 64)
 }
 
-// ---------------------------------------------------------------------------
-// IO helpers
-// ---------------------------------------------------------------------------
-
 func readBaseline(path string) (*report, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -425,7 +401,7 @@ func readBaseline(path string) (*report, error) {
 	return &r, nil
 }
 
-func writeJSON(path string, v interface{}) error {
+func writeJSON(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err

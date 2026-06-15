@@ -172,14 +172,14 @@ function main() {
 
   echo "INFO: In directory $PWD"
 
-  # Acceptance performance metrics (opt-in via ACCEPTANCE_METRICS=true). Start a
-  # job-level Prometheus that discovers every ephemeral Weaviate the test harness
-  # publishes into METRICS_SD_DIR, and on exit render the dashboard into the run
-  # summary and tear Prometheus down. No-op unless ACCEPTANCE_METRICS=true.
+  # Opt-in (ACCEPTANCE_METRICS=true): start a job-level Prometheus and, on exit,
+  # render the dashboard into the run summary and tear it down.
   if [ "${ACCEPTANCE_METRICS:-}" = "true" ]; then
     export METRICS_SD_DIR="${METRICS_SD_DIR:-$(mktemp -d)}"
     export PERF_METRICS_OUT="${PERF_METRICS_OUT:-$PWD/perf-metrics.json}"
     export PROM_URL="${PROM_URL:-http://localhost:9090}"
+    export GIT_SHA="${GIT_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+    export GIT_BRANCH="${GIT_BRANCH:-${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}}"
     ./test/prometheus/start.sh || echo "WARN: could not start Prometheus; continuing without metrics"
     # shellcheck disable=SC2064
     trap "./ci/generate_perf_report.sh || true; ./test/prometheus/stop.sh || true" EXIT

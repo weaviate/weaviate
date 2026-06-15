@@ -1,9 +1,5 @@
-# Prometheus config template for acceptance-test performance metrics.
-#
-# Rendered by test/prometheus/start.sh, which substitutes the env vars below.
-# A single host-networked Prometheus discovers every ephemeral Weaviate the test
-# harness publishes into ${METRICS_SD_DIR} (one file_sd JSON file per node) and
-# scrapes its mapped host metrics port for the lifetime of the test.
+# Rendered by test/prometheus/start.sh. Discovers every ephemeral Weaviate the
+# harness publishes into ${METRICS_SD_DIR} via file_sd.
 global:
   scrape_interval: 2s
   scrape_timeout: 2s

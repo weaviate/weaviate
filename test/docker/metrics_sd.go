@@ -22,44 +22,41 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 )
 
-// Prometheus metrics wiring for acceptance tests.
-//
-// Each acceptance package spins up its own ephemeral compose with a Weaviate
-// whose metrics port (2112) is published to a random host port. To let a single
-// long-lived, job-level Prometheus scrape every one of these short-lived
-// targets, the harness writes a Prometheus file_sd entry per Weaviate container
-// into METRICS_SD_DIR when it starts, and removes it when the container is
-// terminated. Prometheus (run with --net=host) watches that directory and
-// scrapes 127.0.0.1:<mappedPort> for the lifetime of the test.
-//
-// All of this is a no-op unless ACCEPTANCE_METRICS=true and METRICS_SD_DIR is
-// set, so local/dev runs and existing behavior are completely unchanged.
+// Prometheus file_sd wiring for acceptance tests: each Weaviate registers its
+// host-mapped metrics port so the job-level Prometheus can scrape it, and
+// deregisters on termination. No-op unless ACCEPTANCE_METRICS=true and
+// METRICS_SD_DIR is set.
 
 const metricsPort = "2112"
 
-// metricsEnabled reports whether the acceptance metrics pipeline is active.
-// Both the feature gate and a target directory must be present.
 func metricsEnabled() bool {
 	return os.Getenv("ACCEPTANCE_METRICS") == "true" && metricsSDDir() != ""
 }
 
 func metricsSDDir() string { return os.Getenv("METRICS_SD_DIR") }
 
-// fileSDEntry is one element of a Prometheus file_sd_config JSON file.
+// metricsTargetHost reaches the container's host-published port. host-gateway is
+// reliable where 127.0.0.1 isn't (published-port DNAT skips loopback when the
+// userland proxy is off). Overridable via METRICS_TARGET_HOST.
+func metricsTargetHost() string {
+	if h := os.Getenv("METRICS_TARGET_HOST"); h != "" {
+		return h
+	}
+	return "host.docker.internal"
+}
+
 type fileSDEntry struct {
 	Targets []string          `json:"targets"`
 	Labels  map[string]string `json:"labels"`
 }
 
-// metricsTargetFile returns the unique file_sd path for a Weaviate container.
-// The network octet makes it unique across concurrently-running composes (whose
-// container names, e.g. weaviate-0, otherwise collide).
+// metricsTargetFile keys the file_sd path by netOctet so concurrent composes
+// (whose container names, e.g. weaviate-0, collide) don't clobber each other.
 func metricsTargetFile(netOctet int, containerName string) string {
 	return filepath.Join(metricsSDDir(), fmt.Sprintf("weaviate-%d-%s.json", netOctet, containerName))
 }
 
-// testPkgLabel derives a stable label identifying the acceptance package under
-// test from the working directory (each test binary runs in its package dir).
+// testPkgLabel labels the target by acceptance package (its working directory).
 func testPkgLabel() string {
 	wd, err := os.Getwd()
 	if err != nil || wd == "" {
@@ -68,10 +65,8 @@ func testPkgLabel() string {
 	return filepath.Base(wd)
 }
 
-// registerMetricsTarget writes (or overwrites) the file_sd entry for a started
-// Weaviate container, resolving its host-mapped metrics port. Safe to call on
-// every (re)start; a no-op when metrics are disabled. Errors are returned to the
-// caller but should be treated as non-fatal for the test itself.
+// registerMetricsTarget writes the file_sd entry for a started Weaviate. Safe to
+// call on every (re)start; non-fatal for the test on error.
 func registerMetricsTarget(ctx context.Context, container testcontainers.Container, netOctet int, containerName string) error {
 	if !metricsEnabled() {
 		return nil
@@ -81,7 +76,7 @@ func registerMetricsTarget(ctx context.Context, container testcontainers.Contain
 		return fmt.Errorf("metrics target %s: map port %s: %w", containerName, metricsPort, err)
 	}
 	entry := []fileSDEntry{{
-		Targets: []string{fmt.Sprintf("127.0.0.1:%s", mapped.Port())},
+		Targets: []string{fmt.Sprintf("%s:%s", metricsTargetHost(), mapped.Port())},
 		Labels: map[string]string{
 			"test_pkg": testPkgLabel(),
 			"node":     containerName,
@@ -91,9 +86,8 @@ func registerMetricsTarget(ctx context.Context, container testcontainers.Contain
 	if err != nil {
 		return fmt.Errorf("metrics target %s: marshal: %w", containerName, err)
 	}
+	// Write+rename so Prometheus never reads a half-written file.
 	path := metricsTargetFile(netOctet, containerName)
-	// Write atomically: Prometheus watches the directory, so a partially written
-	// file could be picked up mid-write. Write to a temp file then rename.
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("metrics target %s: write: %w", containerName, err)
@@ -104,8 +98,6 @@ func registerMetricsTarget(ctx context.Context, container testcontainers.Contain
 	return nil
 }
 
-// deregisterMetricsTarget removes the file_sd entry for a terminated Weaviate
-// container; a no-op when metrics are disabled or the file is already gone.
 func deregisterMetricsTarget(netOctet int, containerName string) {
 	if !metricsEnabled() {
 		return

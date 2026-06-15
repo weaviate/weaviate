@@ -21,12 +21,18 @@ PROM_URL="${PROM_URL:-http://localhost:9090}"
 PERF_METRICS_OUT="${PERF_METRICS_OUT:-perf-metrics.json}"
 PERF_TITLE="${PERF_TITLE:-Acceptance performance metrics}"
 
+# Log target health so a zero-data report is debuggable from the build log.
+if command -v curl >/dev/null 2>&1; then
+  echo "Prometheus targets health:"
+  curl -fsS "$PROM_URL/api/v1/targets" 2>/dev/null \
+    | grep -o '"health":"[a-z]*"' | sort | uniq -c || echo "  (could not query targets)"
+fi
+
 args=(-prom "$PROM_URL" -out "$PERF_METRICS_OUT" -title "$PERF_TITLE")
 if [ -n "${PERF_BASELINE:-}" ] && [ -s "${PERF_BASELINE}" ]; then
   args+=(-baseline "$PERF_BASELINE")
 fi
 
-# Render to a temp file so a partial run never half-writes the summary.
 report="$(mktemp)"
 if ! go run "$repo_root/test/perf-report" "${args[@]}" > "$report" 2>/tmp/perf-report.err; then
   echo "perf-report failed (non-fatal):"

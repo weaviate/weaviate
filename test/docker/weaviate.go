@@ -100,10 +100,9 @@ func startWeaviate(ctx context.Context,
 	if len(defaultVectorizerModule) > 0 {
 		env["DEFAULT_VECTORIZER_MODULE"] = defaultVectorizerModule
 	}
-	// When acceptance metrics are enabled, turn on Weaviate's Prometheus endpoint
-	// so the job-level Prometheus can scrape it. PROMETHEUS_MONITORING_GROUP keeps
-	// label cardinality bounded across the many classes/shards the suite creates.
-	// Set before extraEnvSettings so an explicit per-test override still wins.
+	// Enable the metrics endpoint for the job-level Prometheus. GROUP bounds label
+	// cardinality across the suite's many classes/shards. Set before
+	// extraEnvSettings so a per-test override still wins.
 	if metricsEnabled() {
 		env["PROMETHEUS_MONITORING_ENABLED"] = "true"
 		env["PROMETHEUS_MONITORING_PORT"] = metricsPort
@@ -120,8 +119,7 @@ func startWeaviate(ctx context.Context,
 		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
 	}
 
-	// Expose the Prometheus metrics port so the host-networked job-level
-	// Prometheus can scrape this node via its mapped host port.
+	// Expose the metrics port so the job-level Prometheus can scrape this node.
 	metricsNatPort := nat.Port(metricsPort + "/tcp")
 	if metricsEnabled() {
 		exposedPorts = append(exposedPorts, string(metricsNatPort))
@@ -183,9 +181,7 @@ func startWeaviate(ctx context.Context,
 								return fmt.Errorf("startWeaviate(%s): PostStart wait failed: %w", containerName, err)
 							}
 						}
-						// (Re)register this node's metrics endpoint for Prometheus
-						// file_sd. Runs on every start, so a restart that remaps the
-						// host port keeps the target current. Non-fatal for the test.
+						// Re-register on every start so a remapped host port stays current.
 						if err := registerMetricsTarget(ctx, container, netOctet, containerName); err != nil {
 							fmt.Printf("startWeaviate(%s): register metrics target: %v\n", containerName, err)
 						}
