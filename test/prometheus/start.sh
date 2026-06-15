@@ -33,18 +33,18 @@ envsubst '${METRICS_SD_DIR} ${GIT_SHA} ${GIT_BRANCH}' \
 
 docker rm -f "$PROM_CONTAINER" >/dev/null 2>&1 || true
 
-# --add-host lets the file_sd host.docker.internal targets reach the host-published
-# ports; -p exposes Prometheus to perf-report on the host; the SD dir is mounted at
-# the same path the config globs.
+# Host networking so Prometheus shares the harness's network namespace and can
+# reach the testcontainers-published metrics ports at the same host:port the
+# harness registers. The SD dir is mounted at the same path the config globs.
 docker run -d --name "$PROM_CONTAINER" \
-  --add-host=host.docker.internal:host-gateway \
-  -p "${PROM_PORT}:9090" \
+  --network host \
   -v "$cfg:/etc/prometheus/prometheus.yml:ro" \
   -v "$METRICS_SD_DIR:$METRICS_SD_DIR:ro" \
   "$PROM_IMAGE" \
   --config.file=/etc/prometheus/prometheus.yml \
   --storage.tsdb.path=/prometheus \
   --storage.tsdb.retention.time=2h \
+  --web.listen-address="0.0.0.0:${PROM_PORT}" \
   --web.enable-admin-api >/dev/null
 
 echo "Started Prometheus '$PROM_CONTAINER' on :${PROM_PORT} (sd=$METRICS_SD_DIR)"

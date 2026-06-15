@@ -35,14 +35,19 @@ func metricsEnabled() bool {
 
 func metricsSDDir() string { return os.Getenv("METRICS_SD_DIR") }
 
-// metricsTargetHost reaches the container's host-published port. host-gateway is
-// reliable where 127.0.0.1 isn't (published-port DNAT skips loopback when the
-// userland proxy is off). Overridable via METRICS_TARGET_HOST.
-func metricsTargetHost() string {
+// metricsTargetHost is the host a host-networked Prometheus uses to reach the
+// container's published metrics port. Default is testcontainers' own host (what
+// the harness itself uses to reach Weaviate), which Prometheus shares via host
+// networking. Overridable via METRICS_TARGET_HOST.
+func metricsTargetHost(ctx context.Context, container testcontainers.Container) string {
 	if h := os.Getenv("METRICS_TARGET_HOST"); h != "" {
 		return h
 	}
-	return "host.docker.internal"
+	host, err := container.Host(ctx)
+	if err != nil || host == "" {
+		return "127.0.0.1"
+	}
+	return host
 }
 
 type fileSDEntry struct {
@@ -76,7 +81,7 @@ func registerMetricsTarget(ctx context.Context, container testcontainers.Contain
 		return fmt.Errorf("metrics target %s: map port %s: %w", containerName, metricsPort, err)
 	}
 	entry := []fileSDEntry{{
-		Targets: []string{fmt.Sprintf("%s:%s", metricsTargetHost(), mapped.Port())},
+		Targets: []string{fmt.Sprintf("%s:%s", metricsTargetHost(ctx, container), mapped.Port())},
 		Labels: map[string]string{
 			"test_pkg": testPkgLabel(),
 			"node":     containerName,
@@ -94,6 +99,13 @@ func registerMetricsTarget(ctx context.Context, container testcontainers.Contain
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("metrics target %s: rename: %w", containerName, err)
+	}
+	// Persistent breadcrumb (target files are removed on teardown; this isn't),
+	// so CI can confirm registration happened even though stdout is suppressed.
+	if f, err := os.OpenFile(filepath.Join(metricsSDDir(), "registrations.log"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		fmt.Fprintf(f, "%s\t%s\n", containerName, entry[0].Targets[0])
+		_ = f.Close()
 	}
 	return nil
 }

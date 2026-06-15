@@ -21,12 +21,23 @@ PROM_URL="${PROM_URL:-http://localhost:9090}"
 PERF_METRICS_OUT="${PERF_METRICS_OUT:-perf-metrics.json}"
 PERF_TITLE="${PERF_TITLE:-Acceptance performance metrics}"
 
-# Log target health so a zero-data report is debuggable from the build log.
-if command -v curl >/dev/null 2>&1; then
-  echo "Prometheus targets health:"
-  curl -fsS "$PROM_URL/api/v1/targets" 2>/dev/null \
-    | grep -o '"health":"[a-z]*"' | sort | uniq -c || echo "  (could not query targets)"
-fi
+# Diagnostics: the report runs after all test containers are torn down, so live
+# targets are gone — but the `up` series persists in TSDB. Its history tells us
+# whether targets were ever registered (H1) vs registered-but-unreachable (H2).
+echo "=== perf diag: prometheus container ==="
+docker ps -a --filter "name=weaviate-acceptance-prometheus" --format '{{.Names}} {{.Status}}' 2>&1 || true
+echo "=== perf diag: prometheus logs (tail) ==="
+docker logs weaviate-acceptance-prometheus 2>&1 | tail -30 || true
+echo "=== perf diag: SD dir contents ==="
+ls -la "${METRICS_SD_DIR:-/nonexistent}" 2>&1 || true
+echo "=== perf diag: registrations.log (harness wrote a target here when it registered) ==="
+cat "${METRICS_SD_DIR:-/nonexistent}/registrations.log" 2>&1 | tail -20 || echo "(none — harness never registered a target)"
+echo "=== perf diag: up series history (empty => targets never registered; max=0 => unreachable; max=1 => scraped) ==="
+curl -fsS "$PROM_URL/api/v1/query?query=max_over_time(up%5B6h%5D)" 2>&1 || echo "(curl failed — prometheus unreachable)"
+echo
+echo "=== perf diag: any weaviate samples ever scraped ==="
+curl -fsS "$PROM_URL/api/v1/query?query=count_over_time(scrape_samples_scraped%5B6h%5D)" 2>&1 || echo "(curl failed)"
+echo
 
 args=(-prom "$PROM_URL" -out "$PERF_METRICS_OUT" -title "$PERF_TITLE")
 if [ -n "${PERF_BASELINE:-}" ] && [ -s "${PERF_BASELINE}" ]; then
