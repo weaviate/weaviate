@@ -54,4 +54,26 @@ func TestCorruptCommitLogFixer_Do(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, []string{f}, files)
 	})
+
+	t.Run("keeps surviving files when a delete fails", func(t *testing.T) {
+		tmp := t.TempDir()
+		// commit5.log + commit5.log.condensed make the .condensed file corrupt,
+		// so the fixer will try to delete it. Making it a non-empty directory
+		// makes os.Remove fail, exercising the error path.
+		twin := filepath.Join(tmp, "commit5.log")
+		corrupt := filepath.Join(tmp, "commit5.log.condensed")
+		tail := filepath.Join(tmp, "commit6.log")
+		require.Nil(t, os.WriteFile(twin, []byte("twin"), 0o644))
+		require.Nil(t, os.MkdirAll(corrupt, 0o755))
+		require.Nil(t, os.WriteFile(filepath.Join(corrupt, "blocker"), []byte("x"), 0o644))
+		require.Nil(t, os.WriteFile(tail, []byte("tail"), 0o644))
+
+		fixer := NewCorruptedCommitLogFixer()
+		files, err := fixer.Do([]string{twin, corrupt, tail})
+		// the failed delete is reported...
+		require.Error(t, err)
+		// ...but the corrupt file is still excluded and the valid tail file
+		// after it survives instead of being truncated away
+		require.Equal(t, []string{twin, tail}, files)
+	})
 }

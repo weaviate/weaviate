@@ -13,9 +13,11 @@ package hnsw
 
 import (
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 // CorruptCommitLogFixer helps identify potentially corrupt commit logs and
@@ -36,42 +38,32 @@ func NewCorruptedCommitLogFixer() *CorruptCommitLogFixer {
 // original file. We thus assume the file must be corrupted, and delete it, so
 // that the original will be used instead.
 func (fixer *CorruptCommitLogFixer) Do(fileNames []string) ([]string, error) {
-	out := make([]string, len(fileNames))
+	out := make([]string, 0, len(fileNames))
 
-	i := 0
+	// keep processing remaining files even if a delete fails, so the returned
+	// list always reflects every surviving (non-corrupt) file rather than
+	// being truncated at the first error
+	ec := errorcompounder.New()
 	for _, fileName := range fileNames {
 		if !strings.HasSuffix(fileName, ".condensed") {
 			// has no suffix, so it can never be considered corrupt
-			out[i] = fileName
-			i++
+			out = append(out, fileName)
 			continue
 		}
 
 		// this file has a suffix, check if one without the suffix exists as well
-		if !fixer.listContains(fileNames, strings.TrimSuffix(fileName, ".condensed")) {
+		if !slices.Contains(fileNames, strings.TrimSuffix(fileName, ".condensed")) {
 			// does not seem corrupt, proceed
-			out[i] = fileName
-			i++
+			out = append(out, fileName)
 			continue
 		}
 
-		// we have found a corrupt file, delete it and do not append it to the list
+		// we have found a corrupt file, delete it and do not append it to the
+		// list. The index must not read it even if the delete fails.
 		if err := os.Remove(fileName); err != nil {
-			return out[:i], errors.Wrapf(err, "delete corrupt commit log file %q", fileName)
+			ec.Add(errors.Wrapf(err, "delete corrupt commit log file %q", fileName))
 		}
 	}
 
-	return out[:i], nil
-}
-
-func (fixer *CorruptCommitLogFixer) listContains(haystack []string,
-	needle string,
-) bool {
-	for _, hay := range haystack {
-		if hay == needle {
-			return true
-		}
-	}
-
-	return false
+	return out, ec.ToError()
 }
