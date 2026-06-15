@@ -91,6 +91,19 @@ func (s *Store) Bucket(name string) *Bucket {
 	return s.bucketsByName[name]
 }
 
+// BucketNames returns the names of all buckets currently registered in the
+// store, in no particular order.
+func (s *Store) BucketNames() []string {
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
+	names := make([]string, 0, len(s.bucketsByName))
+	for name := range s.bucketsByName {
+		names = append(names, name)
+	}
+	return names
+}
+
 func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()

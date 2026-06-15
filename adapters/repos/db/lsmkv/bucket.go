@@ -2475,3 +2475,29 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
 }
+
+func (b *Bucket) GetKeysCount() (uint32, error) {
+	segmentsBloom, err := b.disk.GetBloomFilter()
+	if err != nil {
+		return 0, err
+	}
+	if segmentsBloom == nil {
+		return 0, nil
+	}
+	// iterate all keys in memtable. b.flushing is a nil interface at rest, so a
+	// single-value type assertion would panic — use the comma-ok form.
+	for _, mem := range []memtable{b.active, b.flushing} {
+		m, ok := mem.(*Memtable)
+		if !ok || m == nil {
+			continue
+		}
+		keys, err := m.GetBloomFilter()
+		if err != nil {
+			return 0, err
+		}
+		// Best-effort: the memtable filter is sized independently of the disk
+		// segments, so Merge is a no-op on geometry mismatch.
+		_ = segmentsBloom.Merge(keys)
+	}
+	return segmentsBloom.ApproximatedSize(), nil
+}

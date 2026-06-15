@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/pkg/errors"
@@ -741,4 +742,29 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 
 	result := m.roaringSetRange
 	return result
+}
+
+func (m *Memtable) GetBloomFilter() (*bloom.BloomFilter, error) {
+	filter := bloom.NewWithEstimates(uint(m.size), 0.01)
+	m.RLock()
+	defer m.RUnlock()
+	if m.key != nil {
+		for _, node := range m.key.flattenInOrder() {
+			filter.Add(node.key)
+		}
+		return filter, nil
+	}
+	if m.keyMulti != nil {
+		for _, node := range m.keyMulti.flattenInOrder() {
+			filter.Add(node.key)
+		}
+		return filter, nil
+	}
+	if m.keyMap != nil {
+		for _, node := range m.keyMap.flattenInOrder() {
+			filter.Add(node.key)
+		}
+		return filter, nil
+	}
+	return nil, fmt.Errorf("no bloom filter available")
 }

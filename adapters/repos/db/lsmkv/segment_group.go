@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -1054,4 +1055,43 @@ func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
 	}
 	sum := sg.averagePropSum.Load()
 	return float64(sum) / float64(count), count
+}
+
+func (sg *SegmentGroup) GetBloomFilter() (*bloom.BloomFilter, error) {
+	if !sg.useBloomFilter {
+		return nil, fmt.Errorf("bloom filter not enabled")
+	}
+
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	// No flushed disk segments yet (data still in the memtable) — nothing the
+	// bloom filters can estimate.
+	if len(segments) == 0 {
+		return nil, nil
+	}
+
+	first, ok := segments[0].(*segment)
+	if !ok {
+		return nil, fmt.Errorf("unexpected segment type")
+	}
+	if first.bloomFilter == nil {
+		return nil, fmt.Errorf("bloom filter not found in segment")
+	}
+
+	// Merge requires identical geometry (m, k); per-segment filters are sized
+	// to each segment's key count, so this fails on a bucket whose segments
+	// differ in size and has not been compacted into one.
+	bloomFilter := first.bloomFilter.Copy()
+	for _, seg := range segments[1:] {
+		s, ok := seg.(*segment)
+		if !ok || s.bloomFilter == nil {
+			continue
+		}
+		if err := bloomFilter.Merge(s.bloomFilter); err != nil {
+			return nil, err
+		}
+	}
+
+	return bloomFilter, nil
 }
