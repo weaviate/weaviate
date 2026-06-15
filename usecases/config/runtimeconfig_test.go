@@ -706,6 +706,10 @@ func TestUpdateRuntimeConfig_DefaultVectorIndex(t *testing.T) {
 		{"invalid value rejected", "invalid", initial, `invalid DEFAULT_VECTOR_INDEX "invalid"`},
 		{"none sentinel rejected", "none", initial, `invalid DEFAULT_VECTOR_INDEX "none"`},
 		{"noop sentinel rejected", "noop", initial, `invalid DEFAULT_VECTOR_INDEX "noop"`},
+		// Strict validator: runtime YAML must already be lowercase + trimmed.
+		// SetValue stores verbatim and downstream parsers compare case-
+		// sensitively, so mixed case is rejected rather than silently stored.
+		{"uppercase HNSW rejected", "HNSW", initial, `invalid DEFAULT_VECTOR_INDEX "HNSW"`},
 	}
 
 	for _, tt := range tests {

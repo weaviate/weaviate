@@ -490,13 +490,18 @@ func NewRestrictionCompressionTypeListValidator() func([]string) error {
 // back from. The "none" sentinel is reserved for indexes dropped via
 // DeleteClassVectorIndex and must never appear as a class-creation default —
 // both env-time and runtime-override paths share this rule.
+//
+// The check is strict (exact match, no lowercase/trim) because
+// DynamicValue.SetValue stores the value verbatim and downstream parsers
+// (e.g. usecases/schema/parser.parseGivenVectorIndexConfig) compare
+// case-sensitively. Callers that need to accept mixed-case input — like the
+// env path — normalize before calling SetValue.
 func NewDefaultVectorIndexValidator() func(string) error {
 	return func(val string) error {
-		v := strings.ToLower(strings.TrimSpace(val))
-		if v == "" {
+		if val == "" {
 			return nil
 		}
-		if !slices.Contains(validRestrictionVectorIndexTypes, v) {
+		if !slices.Contains(validRestrictionVectorIndexTypes, val) {
 			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v",
 				val, validRestrictionVectorIndexTypes)
 		}
