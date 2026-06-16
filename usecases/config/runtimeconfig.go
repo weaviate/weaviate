@@ -49,6 +49,7 @@ type WeaviateRuntimeConfig struct {
 	UsagePolicyVersion                *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 	UsageVerifyPermissions            *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 	OperationalMode                   *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
+	DebugEndpointsEnabled             *runtime.DynamicValue[bool]          `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
 	DefaultQuantization               *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 	DefaultShardingCount              *runtime.DynamicValue[int]           `yaml:"default_sharding_count" json:"default_sharding_count"`
 
