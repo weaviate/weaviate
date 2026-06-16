@@ -900,6 +900,78 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			"fast-path: Toyota docs with at least one Toyota car whose "+
 				"colors don't intersect the listed values")
 	})
+
+	t.Run("not_of_pinned_correlated_and", func(t *testing.T) {
+		// Python: test_not_of_pinned_correlated_and_at_root_cars.
+		// NOT (cars[0].make=Toyota AND cars[0].year=2020). The inner AND
+		// is pinned correlated at cars[0]; negate over docUniverse gives
+		// "doc does NOT have cars[0]=Toyota+2020".
+		//
+		// L0 Scope is pathRoot (parent of the root cars[] array), so
+		// `negate` here is docUniverse AndNot Witnesses — owner-level
+		// (per-doc), not per-element.
+		//
+		// Per-doc trace:
+		//   100 cars[0]=Toyota+Camry+2020 (pinned_satisfies_and):
+		//     inner AND fires → Witness → NOT match.
+		//   200 cars[0]=Toyota+Camry+2019 (pinned_only_make): year≠2020
+		//     → no Witness → match.
+		//   300 cars[0]=Honda+Civic+2018 (pinned_neither): no Witness → match.
+		//   400 cars[0]=Toyota+Camry+2020 (pinned_satisfies_with_distractor
+		//     via cars[1]={year:2018}): inner AND fires → NOT match.
+		//   500 cars[0]={year:2017} (pinned_only_year-ish, no make):
+		//     no Witness → match.
+		//   600 empty cars (empty_cars): no cars-self bit, no Witness.
+		//     STRUCTURAL OVER-INCLUSION — docUniverse-self survives → match.
+		//   700-1200, 1300, 1500, 1800-2100: cars[0] doesn't fire make=Toyota
+		//     AND year=2020 same-slot → match.
+		//   1300 cars[0]=Honda+2018, cars[1]=Toyota+Camry+2020
+		//     (match_at_wrong_index): pinned at slot 0, Toyota+2020 lives at
+		//     slot 1 → no Witness at slot 0 → match. Agrees with Python.
+		//   1400 cars[0]=Honda+Civic+2020 (pinned_only_year): year fires, make
+		//     not → no Witness → match.
+		//   1600 cars[0]=Toyota+Camry+2020 (another pinned_satisfies_and):
+		//     Witness → NOT match.
+		//   1700 cars[0]={year:2020} (year fires, no make): no Witness → match.
+		//
+		// TWO divergences from Python:
+		//   1) pinned_satisfies_with_distractor (1600): fast-path correctly
+		//      EXCLUDES because the pinned slot satisfies the inner AND.
+		//      Python's TODO acknowledges the production impl ignores the pin
+		//      and flips this in — fast-path already implements the intended
+		//      post-fix semantic. IMPROVEMENT.
+		//   2) empty_cars (600): fast-path INCLUDES because docUniverse-self
+		//      bit survives AndNot (no Witness from empty cars[]). Python
+		//      excludes by design (vacuous-drop). STRUCTURAL OVER-INCLUSION —
+		//      same root cause as pinned_is_null empty_cars sub-divergence.
+		//
+		// TODO aliszka:nested_filtering — reconsider sub-divergence (2)
+		// before release. To align with Python's vacuous-drop rule, NOT-of-
+		// pinned-correlated-AND would need an `AndNot ¬exists[cars]` step.
+		// Sub-divergence (1) should be kept — matches intended Python semantic.
+		r := negate(idx, andLeaves(idx,
+			leafPinnedPositive(idx, "cars.make", "Toyota",
+				[]pinSpec{{"cars", 0}}),
+			leafPinnedPositive(idx, "cars.year", 2020,
+				[]pinSpec{{"cars", 0}})))
+
+		assert.ElementsMatch(t,
+			[]uint64{200, 300, 500, 600, 700, 800, 900, 1000, 1100, 1200,
+				1300, 1400, 1500, 1700, 1800, 1900, 2000, 2100},
+			idx.docIDs(r),
+			"fast-path: docs whose cars[0] does NOT satisfy Toyota+2020 "+
+				"same-slot; excludes 100/400/1600 (cars[0] satisfies the "+
+				"inner AND); includes 600 (empty cars — STRUCTURAL "+
+				"OVER-INCLUSION vs Python's vacuous-drop)")
+	})
+
+	// or_of_mixed_correlated_ands NOT PORTED. The Python scenario combines
+	// a flat doc-level property (`category` text scalar at root) with a
+	// nested same-element AND inside cars[]. The L0/L2 fixture schemas
+	// don't carry a flat property; porting would need a schema extension.
+	// Listed in the file-level header alongside the other unsupported
+	// scenarios. Skipped — re-port once a flat property exists in the
+	// harness.
 }
 
 // TestFastPathL2_PythonPort runs the L2 (countries[].garages[].cars[]) ports as subtests
@@ -1275,4 +1347,84 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"fast-path: Toyota docs with at least one Toyota car whose "+
 				"colors don't intersect the listed values")
 	})
+
+	t.Run("not_of_pinned_correlated_and", func(t *testing.T) {
+		// Python: test_not_of_pinned_correlated_and_under_countries_array.
+		// NOT (countries.garages.cars[0].make=Toyota AND
+		//      countries.garages.cars[0].year=2020).
+		//
+		// L2 Scope is countries.garages (parent of the pinned cars array),
+		// so `negate` is anchor(countries.garages) AndNot Witnesses — per-
+		// element existential at the garages level: a doc matches when ∃
+		// garage whose cars[0] does NOT fully satisfy the inner AND. Multi-
+		// country docs lift through countries because any surviving garage-
+		// self is enough.
+		//
+		// Per-doc trace at garage granularity:
+		//   100 single garage cars[0]=Toyota+Camry+2020 (all_garages_satisfy):
+		//     garage-self in Witnesses → no surviving → NOT match.
+		//   200 single garage cars[0]=Toyota+Camry+2019: year fires, make
+		//     not at slot 0 → no Witness → garage-self survives → match.
+		//   300 Amsterdam cars[0]=Toyota+2019, Rotterdam cars[0]=Honda+2020:
+		//     neither garage's cars[0] satisfies the inner AND → both
+		//     garage-selves survive → match.
+		//   400 Amsterdam cars[0]=Toyota+Camry+2020 (Witness), Rotterdam
+		//     cars[0]=Kia+Sportage+2018 (no Witness): one_garage_violates —
+		//     Rotterdam's garage-self survives AndNot → match. PER-ELEMENT
+		//     SEMANTICS at garages. Agrees with Python.
+		//   500 single garage cars[0]=Toyota+Camry+2020 (cars[1] year-only):
+		//     pinned_satisfies_with_distractor at slot 0 → Witness →
+		//     NOT match. IMPROVEMENT vs Python (TODO would flip after fix).
+		//   600 single garage cars[0]={year:2017}: no Witness → match.
+		//   700 single garage with empty cars[]: garage-self exists but no
+		//     cars-self/Witness. STRUCTURAL OVER-INCLUSION → match.
+		//   800/900 etc cars[0]=Toyota with no year: no Witness → match.
+		//   1000-1200 cars[0]=Honda/Ford → no Witness → match.
+		//   1300-2000 (colors/tires) cars[0]=Toyota no year → no Witness → match.
+		//   2200 cars[0]=Honda+Civic+2018, cars[1]=Toyota+Camry+2020
+		//     (match_at_wrong_index): no Witness at slot 0 → match.
+		//   2300 single Honda+Civic+2020 (year only): no Witness → match.
+		//   2400 single Honda+Civic+2019: no Witness → match.
+		//   2500 single garage cars[0]=Toyota+Camry+2020, cars[1]=Honda+
+		//     Civic+2019 (pinned_satisfies_with_distractor): Witness at
+		//     slot 0 → NOT match. IMPROVEMENT vs Python TODO.
+		//   2600 single car {year:2020} no make: no Witness → match.
+		//   2700-2900 Toyota+tires no year: no Witness → match.
+		//   3000 Honda+Civic+colors no year: no Witness → match.
+		//
+		// Same two divergences from Python as the L0 port:
+		//   1) pinned_satisfies_with_distractor (500, 2500): IMPROVEMENT —
+		//      fast-path correctly excludes (Python's TODO acknowledges
+		//      production impl leaks; fast-path implements the intended
+		//      post-fix semantic).
+		//   2) empty_cars (700): STRUCTURAL OVER-INCLUSION — fast-path
+		//      includes because garage-self bit survives even with empty
+		//      cars[]. Python excludes by design.
+		//
+		// TODO aliszka:nested_filtering — see L0 sibling for the planned
+		// `AndNot ¬exists[cars]` fix. The per-element behaviour at L2 is
+		// already correct (doc 400 matches because Rotterdam violates).
+		r := negate(idx, andLeaves(idx,
+			leafPinnedPositive(idx, "countries.garages.cars.make", "Toyota",
+				[]pinSpec{{"countries.garages.cars", 0}}),
+			leafPinnedPositive(idx, "countries.garages.cars.year", 2020,
+				[]pinSpec{{"countries.garages.cars", 0}})))
+
+		assert.ElementsMatch(t,
+			[]uint64{200, 300, 400, 600, 700, 800, 900,
+				1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700,
+				1800, 1900, 2000, 2200, 2300, 2400, 2600,
+				2700, 2800, 2900, 3000}, idx.docIDs(r),
+			"fast-path: docs with ∃ garage whose cars[0] does NOT satisfy "+
+				"Toyota+2020 same-slot; excludes 100/500/2500 (all garages "+
+				"in those docs have cars[0]=Toyota+2020); includes 700 "+
+				"(empty cars — STRUCTURAL OVER-INCLUSION vs Python's "+
+				"vacuous-drop) and 400 (per-element at garages — Rotterdam "+
+				"violates so doc matches)")
+	})
+
+	// or_of_mixed_correlated_ands NOT PORTED. Same reason as the L0 sibling:
+	// the Python scenario relies on a flat doc-level property (`category`)
+	// which the L2 schema doesn't carry. Listed in the file-level header
+	// alongside the other unsupported scenarios.
 }
