@@ -223,3 +223,58 @@ func TestSegmentPropertyLengthsZeroLengthForcesPairs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got, "the 0-length key must survive reconstruction")
 }
+
+// TestInvertedCompactionPropertyLengths drives a real two-segment compaction and
+// verifies the merged segment's property lengths are correct end to end — the
+// array-merge serialization path (no map reconstruction) round-trips every
+// docID, and a docID present in both segments resolves to the newer segment's
+// value (c2 wins), matching the compactor's documented precedence.
+func TestInvertedCompactionPropertyLengths(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyInverted))
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9) // never auto-flush mid-segment
+
+	// segment 1 (older, c1): docs 1,2,5 under term "alpha"
+	for docID, pl := range map[uint64]float32{1: 10, 2: 20, 5: 50} {
+		require.NoError(t, bucket.MapSet([]byte("alpha"), NewMapPairFromDocIdAndTf(docID, 1, pl, false)))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// segment 2 (newer, c2): docs 3,7 under "beta" plus docID 5 again with a
+	// different length — the duplicate the merge must resolve in c2's favor
+	for docID, pl := range map[uint64]float32{3: 30, 5: 999, 7: 70} {
+		require.NoError(t, bucket.MapSet([]byte("beta"), NewMapPairFromDocIdAndTf(docID, 1, pl, false)))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// compact until no longer eligible
+	for {
+		compacted, err := bucket.disk.compactOnce(ctx)
+		require.NoError(t, err)
+		if !compacted {
+			break
+		}
+	}
+
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	require.Len(t, view.Disk, 1, "expected a single segment after compaction")
+	seg := view.Disk[0]
+
+	want := map[uint64]uint32{1: 10, 2: 20, 3: 30, 5: 999, 7: 70}
+
+	got, err := seg.getPropertyLengths()
+	require.NoError(t, err)
+	assert.Equal(t, want, got, "merged property lengths (duplicate docID 5 = newer segment's 999)")
+
+	plView, err := seg.propLengthsView()
+	require.NoError(t, err)
+	for id, l := range want {
+		require.Equal(t, l, plView.get(id), "view docID %d", id)
+	}
+}
