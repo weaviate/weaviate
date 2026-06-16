@@ -353,6 +353,10 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	}
 	defer release()
 
+	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard))
+	}
+
 	var result []replica.RepairResponse
 
 	for i, u := range updates {
