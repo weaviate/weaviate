@@ -35,8 +35,6 @@ type traverser interface {
 	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) ([]any, error)
 }
 
-// schemaReader reads class definitions. Callers authorize data access first,
-// which is enough to read the property list (mirrors the gRPC class getter).
 type schemaReader interface {
 	ReadOnlyClass(name string) *models.Class
 }

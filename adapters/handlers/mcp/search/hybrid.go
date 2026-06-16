@@ -159,8 +159,6 @@ func (s *WeaviateSearcher) allSelectProperties(className string) search.SelectPr
 
 	selectProps := make(search.SelectProperties, 0, len(class.Properties))
 	for _, prop := range class.Properties {
-		// Classify from prop.DataType directly; GetPropertyDataType would
-		// re-scan the class per property (O(n^2)).
 		if schema.IsRefDataType(prop.DataType) ||
 			schema.IsBlobDataType(prop.DataType) ||
 			schema.IsBlobHashDataType(prop.DataType) {

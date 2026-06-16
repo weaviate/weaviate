@@ -39,8 +39,6 @@ func (s stubSchemaManager) ResolveAlias(alias string) string {
 	return s.aliases[alias]
 }
 
-// stubSchemaReader satisfies schemaReader with a fixed class set. The zero
-// value knows no classes, so the searcher falls back to a nil selection.
 type stubSchemaReader struct {
 	classes map[string]*models.Class
 }
