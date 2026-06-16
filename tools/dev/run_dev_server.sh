@@ -21,6 +21,8 @@ export TRACK_VECTOR_DIMENSIONS=true
 export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
+export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
+export EXPERIMENTAL_HFRESH_ENABLED=true
 export DEBUG_ENDPOINTS_ENABLED=true
 
 # inject build info into binaries.
