@@ -570,12 +570,13 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
 		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
 		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
-		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
-		if !slices.Contains(validTypes, defaultVectorIndexType) {
-			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
-		}
 	}
-	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+	defaultVectorIndexWithValidation, err := configRuntime.NewDynamicValueWithValidation(
+		defaultVectorIndexType, NewDefaultVectorIndexValidator())
+	if err != nil {
+		return err
+	}
+	config.DefaultVectorIndexType = defaultVectorIndexWithValidation
 
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
