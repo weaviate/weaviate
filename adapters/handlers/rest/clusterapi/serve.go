@@ -37,10 +37,9 @@ const (
 
 // Server represents the cluster API server
 type Server struct {
-	server            *http.Server
-	appState          *state.State
-	replicatedIndices *replicatedIndices
-	grpc              *grpc.Server
+	server   *http.Server
+	appState *state.State
+	grpc     *grpc.Server
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -60,7 +59,6 @@ func NewServer(appState *state.State) *Server {
 		appState.DB,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
 		appState.Logger,
 		appState.ClusterService.Ready)
 
@@ -131,9 +129,8 @@ func NewServer(appState *state.State) *Server {
 			Handler:   handler,
 			Protocols: &protocols,
 		},
-		appState:          appState,
-		replicatedIndices: replicatedIndices,
-		grpc:              grpcServer,
+		appState: appState,
+		grpc:     grpcServer,
 	}
 }
 
@@ -149,19 +146,6 @@ func (s *Server) Close(ctx context.Context) error {
 	s.appState.Logger.WithField("action", "cluster_api_shutdown").
 		Info("server is shutting down")
 
-	// Close the replicatedIndices first to drain the queue and wait for workers
-	// This ensures all pending replication requests are processed before stopping the server
-	if s.replicatedIndices != nil {
-		s.appState.Logger.WithField("action", "cluster_api_shutdown").
-			Info("shutting down replicated indices")
-		if err := s.replicatedIndices.Close(ctx); err != nil {
-			s.appState.Logger.WithField("action", "cluster_api_shutdown").
-				WithError(err).
-				Warn("error shutting down replicated indices")
-		}
-	}
-
-	// Now shutdown the servers after the replicated indices have been closed
 	eg := enterrors.NewErrorGroupWrapper(s.appState.Logger)
 	eg.Go(func() error {
 		if err := s.server.Shutdown(ctx); err != nil {
