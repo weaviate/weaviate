@@ -40,16 +40,26 @@ import (
 // The indices will in turn create shards, which will either read an
 // existing db file from disk, or create a new one if none exists
 func (db *DB) init(ctx context.Context) error {
-	if err := os.MkdirAll(db.config.RootPath, 0o777); err != nil {
-		return fmt.Errorf("create root path directory at %s: %w", db.config.RootPath, err)
-	}
+	// A read-only follower opens an immutable copy: the root path already exists
+	// and the v1.22 file-structure migration must already have run on the writer.
+	// Skip the directory creation and assert the migration is done rather than
+	// performing it (a data-moving migration is forbidden on a read-only mount).
+	if db.config.ReadOnly {
+		if err := db.assertFileStructureMigrated(); err != nil {
+			return err
+		}
+	} else {
+		if err := os.MkdirAll(db.config.RootPath, 0o777); err != nil {
+			return fmt.Errorf("create root path directory at %s: %w", db.config.RootPath, err)
+		}
 
-	// As of v1.22, db files are stored in a hierarchical structure
-	// rather than a flat one. If weaviate is started with files
-	// that are still in the flat structure, we will migrate them
-	// over.
-	if err := db.migrateFileStructureIfNecessary(); err != nil {
-		return err
+		// As of v1.22, db files are stored in a hierarchical structure
+		// rather than a flat one. If weaviate is started with files
+		// that are still in the flat structure, we will migrate them
+		// over.
+		if err := db.migrateFileStructureIfNecessary(); err != nil {
+			return err
+		}
 	}
 
 	if db.AsyncIndexingEnabled {
@@ -207,6 +217,7 @@ func (db *DB) init(ctx context.Context) error {
 				HFreshEnabled:             db.config.HFreshEnabled,
 				AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
 				DisableDimensionMetrics:   db.config.DisableDimensionMetrics,
+				ReadOnly:                  db.config.ReadOnly,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -331,6 +342,23 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 
 func (db *DB) LocalTenantActivity(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
 	return db.metricsObserver.Usage(filter)
+}
+
+// assertFileStructureMigrated verifies, without writing, that the v1.22
+// flat→hierarchical file-structure migration already ran on the writer. A
+// read-only follower can neither move data nor write the marker, so an absent
+// marker is a fatal misconfiguration (the snapshot came from a pre-v1.22 writer).
+func (db *DB) assertFileStructureMigrated() error {
+	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
+	exists, err := diskio.FileExists(fsMigrationPath)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("read-only follower: v1.22 file-structure migration marker %q is absent; "+
+			"the snapshot must come from a writer that has migrated to the hierarchical layout", fsMigrationPath)
+	}
+	return nil
 }
 
 func (db *DB) migrateFileStructureIfNecessary() error {

@@ -264,7 +264,12 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
+			readOnlyWhitelist := config.ReadOnlyWhitelist
+			if state.ServerConfig.Config.Raft.ReadOnlyFollower {
+				// a follower is on a read-only mount and must not attempt backup writes
+				readOnlyWhitelist = config.ReadOnlyFollowerWhitelist
+			}
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, readOnlyWhitelist) {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}

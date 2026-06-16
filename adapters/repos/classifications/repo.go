@@ -29,15 +29,31 @@ import (
 var classificationsBucket = []byte("classifications")
 
 type Repo struct {
-	logger  logrus.FieldLogger
-	baseDir string
-	db      *bolt.DB
+	logger   logrus.FieldLogger
+	baseDir  string
+	db       *bolt.DB
+	readOnly bool
 }
 
 func NewRepo(baseDir string, logger logrus.FieldLogger) (*Repo, error) {
 	r := &Repo{
 		baseDir: baseDir,
 		logger:  logger,
+	}
+
+	err := r.init()
+	return r, err
+}
+
+// NewRepoReadOnly opens the classifications store for a read-only follower: the
+// bolt file is opened read-only and the classifications bucket is never created.
+// A follower runs no classifications; reads tolerate a missing bucket (Get
+// returns nil) and writes are rejected by the read-only bolt and the API layer.
+func NewRepoReadOnly(baseDir string, logger logrus.FieldLogger) (*Repo, error) {
+	r := &Repo{
+		baseDir:  baseDir,
+		logger:   logger,
+		readOnly: true,
 	}
 
 	err := r.init()
@@ -53,6 +69,16 @@ func (r *Repo) keyFromID(id strfmt.UUID) []byte {
 }
 
 func (r *Repo) init() error {
+	if r.readOnly {
+		// Read-only follower: open read-only and never create the bucket.
+		boltdb, err := bolt.Open(r.DBPath(), 0o600, &bolt.Options{ReadOnly: true})
+		if err != nil {
+			return errors.Wrapf(err, "open bolt read-only at %s", r.DBPath())
+		}
+		r.db = boltdb
+		return nil
+	}
+
 	if err := os.MkdirAll(r.baseDir, 0o777); err != nil {
 		return errors.Wrapf(err, "create root path directory at %s", r.baseDir)
 	}
@@ -94,6 +120,11 @@ func (r *Repo) Get(ctx context.Context, id strfmt.UUID) (*models.Classification,
 	var classificationJSON []byte
 	r.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(classificationsBucket)
+		if b == nil {
+			// No bucket (e.g. a read-only follower that skips bucket creation):
+			// treat as not found rather than dereferencing a nil bucket.
+			return nil
+		}
 		classificationJSON = b.Get(r.keyFromID(id))
 		return nil
 	})

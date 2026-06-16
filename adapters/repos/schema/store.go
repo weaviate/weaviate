@@ -157,6 +157,21 @@ func (r *store) Open() (err error) {
 	return err
 }
 
+// OpenReadOnly opens the legacy schema store read-only for a read-only follower.
+// The store is deprecated (schema is persisted via RAFT) and is never read on a
+// follower — its only consumer, LoadLegacySchema, runs from the leader watcher,
+// which a follower does not start. The reference must stay valid, so the bolt
+// file is opened read-only without creating buckets, migrating, or any write.
+func (r *store) OpenReadOnly() error {
+	p := path.Join(r.homeDir, "schema.db")
+	boltDB, err := bolt.Open(p, 0o600, &bolt.Options{ReadOnly: true, Timeout: BoltDBTimeout})
+	if err != nil {
+		return fmt.Errorf("open schema store read-only %q: %w", p, err)
+	}
+	r.db = boltDB
+	return nil
+}
+
 // Close the underlying DB
 func (r *store) Close() {
 	r.db.Close()

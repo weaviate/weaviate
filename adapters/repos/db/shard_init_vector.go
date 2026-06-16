@@ -39,6 +39,45 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// makeVectorCommitLoggerThunk builds the MakeCommitLoggerThunk for an HNSW (or
+// HNSW-backed) vector index at the given rootPath/id. On a read-only follower it
+// returns a NoopCommitLogger: the real commit logger creates the commitlog
+// directory and opens the active log file for append (both writes), which a
+// read-only mount forbids. With the noop logger the index still rebuilds its
+// full in-memory state by replaying the on-disk commit logs through the
+// read-only FS (see hnsw.Config.ReadOnly).
+func (s *Shard) makeVectorCommitLoggerThunk(rootPath, vecIdxID string) func() (hnsw.CommitLogger, error) {
+	if s.readOnly {
+		return hnsw.MakeNoopCommitLogger
+	}
+	return func() (hnsw.CommitLogger, error) {
+		return hnsw.NewCommitLogger(rootPath, vecIdxID,
+			s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+			hnsw.WithAllocChecker(s.index.allocChecker),
+			hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
+			// consistent with previous logic where the individual limit is 1/5 of the combined limit
+			hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
+			hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
+			hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
+			hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
+			hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
+		)
+	}
+}
+
+// startVectorCycles starts the index-level vector maintenance cycles (commit-log
+// combining, tombstone cleanup). A read-only follower runs neither — both write
+// — so it is a no-op there.
+func (s *Shard) startVectorCycles(withTombstoneCleanup bool) {
+	if s.readOnly {
+		return
+	}
+	s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+	if withTombstoneCleanup {
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+	}
+}
+
 func (s *Shard) initShardVectors(ctx context.Context) error {
 	if s.index.vectorIndexUserConfig != nil {
 		if err := s.initLegacyVector(ctx, s.lazySegmentLoadingEnabled); err != nil {
@@ -93,9 +132,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		if hnswUserConfig.Skip {
 			vectorIndex = noop.NewIndex()
 		} else {
-			// starts vector cycles if vector is configured
-			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
-			s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+			// starts vector cycles if vector is configured (no-op on a follower)
+			s.startVectorCycles(true)
 
 			// a shard can actually have multiple vector indexes:
 			// - the main index, which is used for all normal object vectors
@@ -118,28 +156,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
 				DistanceProvider:                  distProv,
-				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-					return hnsw.NewCommitLogger(s.path(), vecIdxID,
-						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-						hnsw.WithAllocChecker(s.index.allocChecker),
-						hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
-						// consistent with previous logic where the individual limit is 1/5 of the combined limit
-						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
-						hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
-						hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
-						hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
-						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
-					)
-				},
-				AllocChecker:           s.index.allocChecker,
-				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
-				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
-				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
-				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
-				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
-				MakeBucketOptions:      makeBucketOptions,
-				AsyncIndexingEnabled:   s.index.AsyncIndexingEnabled,
+				MakeCommitLoggerThunk:             s.makeVectorCommitLoggerThunk(s.path(), vecIdxID),
+				AllocChecker:                      s.index.allocChecker,
+				WaitForCachePrefill:               s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:             s.index.Config.HNSWFlatSearchConcurrency,
+				AcornFilterRatio:                  s.index.Config.HNSWAcornFilterRatio,
+				VisitedListPoolMaxSize:            s.index.Config.VisitedListPoolMaxSize,
+				DisableSnapshots:                  s.index.Config.HNSWDisableSnapshots,
+				SnapshotOnStartup:                 s.index.Config.HNSWSnapshotOnStartup,
+				MakeBucketOptions:                 makeBucketOptions,
+				AsyncIndexingEnabled:              s.index.AsyncIndexingEnabled,
+				ReadOnly:                          s.readOnly,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -152,7 +179,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
-		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.startVectorCycles(false)
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
@@ -180,8 +207,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("dynamic vector index: config is not dynamic.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
-		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
-		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+		if s.readOnly {
+			// The dynamic index requires async indexing (Config.Validate) and
+			// writes its current-type marker to a shared bolt store on open —
+			// neither is compatible with a read-only follower yet. Fail loud
+			// rather than attempt a write on a read-only mount.
+			return nil, errors.Errorf("read-only follower does not support the dynamic vector index "+
+				"(shard %q, target vector %q)", s.ID(), targetVector)
+		}
+		s.startVectorCycles(true)
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
@@ -207,26 +241,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
 			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
-			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-				return hnsw.NewCommitLogger(s.path(), vecIdxID,
-					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-					hnsw.WithAllocChecker(s.index.allocChecker),
-					hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
-					// consistent with previous logic where the individual limit is 1/5 of the combined limit
-					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
-					hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
-					hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
-					hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
-					hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
-				)
-			},
-			TombstoneCallbacks:    s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:              sharedDB,
-			HNSWDisableSnapshots:  s.index.Config.HNSWDisableSnapshots,
-			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
-			AllocChecker:          s.index.allocChecker,
-			MakeBucketOptions:     makeBucketOptions,
-			AsyncIndexingEnabled:  s.index.AsyncIndexingEnabled,
+			MakeCommitLoggerThunk:        s.makeVectorCommitLoggerThunk(s.path(), vecIdxID),
+			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:                     sharedDB,
+			HNSWDisableSnapshots:         s.index.Config.HNSWDisableSnapshots,
+			HNSWSnapshotOnStartup:        s.index.Config.HNSWSnapshotOnStartup,
+			AllocChecker:                 s.index.allocChecker,
+			MakeBucketOptions:            makeBucketOptions,
+			AsyncIndexingEnabled:         s.index.AsyncIndexingEnabled,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
@@ -241,9 +263,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("hfresh vector index: config is not hfresh.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
+		if s.readOnly {
+			// hfresh is experimental and its read-only open path has not been
+			// audited for write-on-open; fail loud rather than risk a write.
+			return nil, errors.Errorf("read-only follower does not support the hfresh vector index "+
+				"(shard %q, target vector %q)", s.ID(), targetVector)
+		}
 
-		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
-		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+		s.startVectorCycles(true)
 
 		hfreshConfigID := s.vectorIndexID(targetVector)
 		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
@@ -334,11 +361,16 @@ func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) er
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
-	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_target_vectors",
-			"shard_id": s.ID(),
-		}).Errorf("failed to migrate vectors compressed folder: %v", err)
+	// The compressed-vectors migrator renames the compressed folder and writes a
+	// per-shard "migration.nvqi.performed.flag"; a read-only follower asserts the
+	// migration already ran on the writer and never performs it.
+	if !s.readOnly {
+		if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
+			s.index.logger.WithFields(logrus.Fields{
+				"action":   "init_target_vectors",
+				"shard_id": s.ID(),
+			}).Errorf("failed to migrate vectors compressed folder: %v", err)
+		}
 	}
 
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))

@@ -247,6 +247,15 @@ type Bucket struct {
 	// sequentialAccess hints the kernel (via fadvise) that segment files will
 	// be read sequentially. Set via WithSequentialAccess for snapshot buckets.
 	sequentialAccess bool
+
+	// readOnly marks a bucket opened from a read-only-follower copy. Unlike
+	// immutable (which only rejects write API calls), readOnly also makes the
+	// open path itself write-free: the directory is not created, an active WAL
+	// is replayed into an in-memory memtable (never reopened for append, never
+	// flushed, never deleted), and missing segment sidecars (bloom/cna/metadata)
+	// are computed in memory but never persisted. Set via WithReadOnly, which
+	// also implies immutable and disableCompaction.
+	readOnly bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -325,8 +334,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		metrics.ObserveBucketInitDurationByStrategy(strategy, time.Since(beforeAll))
 	}(b.strategy)
 
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
+	// A read-only follower opens an existing directory from an immutable copy;
+	// never create it (the mount forbids writes).
+	if !b.readOnly {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
 	}
 
 	files, _, err := diskio.GetFileWithSizes(dir)
@@ -355,6 +368,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
 			sequentialAccess:             b.sequentialAccess,
+			readOnly:                     b.readOnly,
 			shouldSkipKey:                b.shouldSkipKey,
 		}, compactionCallbacks, b, files)
 	if err != nil {

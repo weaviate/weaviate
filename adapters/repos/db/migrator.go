@@ -229,6 +229,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
 			HFreshEnabled:             m.db.config.HFreshEnabled,
 			AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
+			ReadOnly:                  m.db.config.ReadOnly,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -1226,8 +1227,14 @@ func (m *Migrator) logMissingFilterableShard(shard ShardLike) *logrus.Entry {
 // will be used when needed.
 func (m *Migrator) AdjustFilterablePropSettings(ctx context.Context) error {
 	f2sm := newFilterableToSearchableMigrator(m)
-	if err := f2sm.migrate(ctx); err != nil {
-		return err
+	// A read-only follower must not run the v1.19 filter2search migration: it
+	// writes a state file and a skip flag. It asserts the writer already settled
+	// filterable indexes. The in-memory fallback switch still runs so range/
+	// filter queries route to the searchable buckets correctly.
+	if !m.db.config.ReadOnly {
+		if err := f2sm.migrate(ctx); err != nil {
+			return err
+		}
 	}
 	return f2sm.switchShardsToFallbackMode(ctx)
 }

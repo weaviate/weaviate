@@ -60,6 +60,22 @@ type Store struct {
 
 	closeLock sync.RWMutex
 	closed    bool
+
+	// readOnly marks a store opened from a read-only-follower copy. When set,
+	// the store directory is not created (it exists in the copy and the mount is
+	// read-only). Per-bucket read-only behaviour is set separately via the
+	// WithReadOnly bucket option.
+	readOnly bool
+}
+
+// StoreOption configures a Store at construction.
+type StoreOption func(*Store)
+
+// WithStoreReadOnly opens the store for a read-only follower: the store
+// directory is never created (skip MkdirAll). Buckets must additionally be
+// opened with WithReadOnly.
+func WithStoreReadOnly() StoreOption {
+	return func(s *Store) { s.readOnly = true }
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -68,6 +84,7 @@ type Store struct {
 func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadLimiter *loadlimiter.LoadLimiter,
 	shardCompactionCallbacks, shardCompactionAuxCallbacks,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+	opts ...StoreOption,
 ) (*Store, error) {
 	s := &Store{
 		dir:           dir,
@@ -78,6 +95,9 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadL
 		logger:        logger,
 		metrics:       metrics,
 		loadLimiter:   loadLimiter,
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
@@ -120,6 +140,11 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 }
 
 func (s *Store) init() error {
+	// A read-only follower opens an existing store directory from an immutable
+	// copy; never create it.
+	if s.readOnly {
+		return nil
+	}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}

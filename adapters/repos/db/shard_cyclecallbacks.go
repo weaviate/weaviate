@@ -36,6 +36,37 @@ type shardCycleCallbacks struct {
 }
 
 func (s *Shard) initCycleCallbacks() {
+	// A read-only follower runs no maintenance cycles (compaction, memtable
+	// flush, HNSW commit-log combining, tombstone cleanup) — every one of them
+	// writes to the on-disk copy. Wire all groups and ctrls to noop so that any
+	// compaction/flush callback a bucket or vector index registers is inert and
+	// nothing is registered into the (also-unstarted) index-level cycles. This
+	// is the single switch that neutralizes the whole cycle hierarchy for a
+	// follower, independent of the per-bucket/per-index guards.
+	if s.readOnly {
+		noopGroup := func() cyclemanager.CycleCallbackGroup {
+			return cyclemanager.NewCallbackGroupNoop()
+		}
+		s.cycleCallbacks = &shardCycleCallbacks{
+			compactionCallbacks:        noopGroup(),
+			compactionCallbacksCtrl:    cyclemanager.NewCallbackCtrlNoop(),
+			compactionAuxCallbacks:     noopGroup(),
+			compactionAuxCallbacksCtrl: cyclemanager.NewCallbackCtrlNoop(),
+
+			flushCallbacks:     noopGroup(),
+			flushCallbacksCtrl: cyclemanager.NewCallbackCtrlNoop(),
+
+			vectorCommitLoggerCallbacks:     noopGroup(),
+			vectorTombstoneCleanupCallbacks: noopGroup(),
+			vectorCombinedCallbacksCtrl:     cyclemanager.NewCallbackCtrlNoop(),
+
+			geoPropsCommitLoggerCallbacks:     noopGroup(),
+			geoPropsTombstoneCleanupCallbacks: noopGroup(),
+			geoPropsCombinedCallbacksCtrl:     cyclemanager.NewCallbackCtrlNoop(),
+		}
+		return
+	}
+
 	id := func(elems ...string) string {
 		elems = append([]string{"shard", s.index.ID(), s.name}, elems...)
 		return strings.Join(elems, "/")

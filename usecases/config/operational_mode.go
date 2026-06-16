@@ -39,6 +39,16 @@ var ReadOnlyWhitelist = map[string]struct{}{
 	"mcp":     {},
 }
 
+// ReadOnlyFollowerWhitelist is the whitelist for a read-only follower. Unlike
+// the general ReadOnly mode (which a writer can enable temporarily and still
+// take backups), a follower runs on a read-only mount and must never attempt a
+// backup write, so "backups" is dropped. GraphQL (read queries via POST) and MCP
+// remain allowed.
+var ReadOnlyFollowerWhitelist = map[string]struct{}{
+	"graphql": {},
+	"mcp":     {},
+}
+
 // A slice of endpoints to whitelist when determining if an operation is allowed in WriteOnly mode
 var WriteOnlyWhitelist = map[string]struct{}{
 	"backups":     {},

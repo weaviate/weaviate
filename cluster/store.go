@@ -141,6 +141,11 @@ type Config struct {
 	// MetadataOnlyVoters configures the voters to store metadata exclusively, without storing any other data
 	MetadataOnlyVoters bool
 
+	// ReadOnlyFollower boots this node as a read-only follower: Open does not
+	// call raft.NewRaft, it hydrates the schema FSM from the copied raft dir
+	// (read-only stores), loads shards read-only, and serves only reads.
+	ReadOnlyFollower bool
+
 	// DB is the interface to the weaviate database. It is necessary so that schema changes are reflected to the DB
 	DB schema.Indexer
 	// Parser parses class field after deserialization
@@ -219,7 +224,10 @@ type Store struct {
 	applyTimeout time.Duration
 
 	// raft snapshot store
-	snapshotStore *raft.FileSnapshotStore
+	// snapshotStore is raft's FileSnapshotStore in normal mode, or a
+	// readOnlySnapshotStore for a read-only follower (which cannot construct a
+	// FileSnapshotStore because its constructor write-tests the dir).
+	snapshotStore raft.SnapshotStore
 
 	// raft log store
 	logStore *raftbolt.BoltStore
@@ -445,6 +453,17 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
 
+	// A read-only follower never becomes a RAFT node: a participating node
+	// provably writes (currentTerm/votedFor/log are safety invariants).
+	// Instead it reconstructs the schema FSM from the copied snapshot + log and
+	// materializes read-only shards, then serves reads. See hydrateReadOnly.
+	if st.cfg.ReadOnlyFollower {
+		if err := st.hydrateReadOnly(ctx); err != nil {
+			return fmt.Errorf("hydrate read-only follower: %w", err)
+		}
+		return nil
+	}
+
 	st.log.WithFields(logrus.Fields{
 		"name":                 st.cfg.NodeID,
 		"metadata_only_voters": st.cfg.MetadataOnlyVoters,
@@ -485,6 +504,10 @@ func (st *Store) Open(ctx context.Context) (err error) {
 }
 
 func (st *Store) init() error {
+	if st.cfg.ReadOnlyFollower {
+		return st.initReadOnly()
+	}
+
 	var err error
 	if err := os.MkdirAll(st.cfg.WorkDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", st.cfg.WorkDir, err)
@@ -606,17 +629,21 @@ func (st *Store) Close(ctx context.Context) error {
 		st.log.WithError(err).Error("shutdown node from cluster")
 	}
 
-	// close transport to stop accepting new connections
-	// this prevents "transport shutdown" errors during raft shutdown
-	st.log.Info("closing raft transport ...")
-	if err := st.raftTransport.Close(); err != nil {
-		st.log.WithError(err).Warn("failed to close raft transport")
-	}
+	// A read-only follower has no RAFT node and no transport (initReadOnly skips
+	// both), so there is nothing to close here — only the log store and DB below.
+	if !st.cfg.ReadOnlyFollower {
+		// close transport to stop accepting new connections
+		// this prevents "transport shutdown" errors during raft shutdown
+		st.log.Info("closing raft transport ...")
+		if err := st.raftTransport.Close(); err != nil {
+			st.log.WithError(err).Warn("failed to close raft transport")
+		}
 
-	// shutdown raft after transport is closed to ensure clean termination
-	st.log.Info("shutting down raft ...")
-	if err := st.raft.Shutdown().Error(); err != nil {
-		st.log.WithError(err).Warn("raft shutdown failed")
+		// shutdown raft after transport is closed to ensure clean termination
+		st.log.Info("shutting down raft ...")
+		if err := st.raft.Shutdown().Error(); err != nil {
+			st.log.WithError(err).Warn("raft shutdown failed")
+		}
 	}
 
 	st.open.Store(false)
@@ -638,6 +665,13 @@ func (st *Store) Close(ctx context.Context) error {
 func (st *Store) SetDB(db schema.Indexer) { st.schemaManager.SetIndexer(db) }
 
 func (st *Store) Ready() bool {
+	// A read-only follower never has a leader (it is not a RAFT member), so it
+	// is ready as soon as it is open and its DB has been hydrated. Requiring a
+	// leader here would keep it permanently not-ready and starve it of read
+	// traffic.
+	if st.cfg.ReadOnlyFollower {
+		return st.open.Load() && st.dbLoaded.Load()
+	}
 	return st.open.Load() && st.dbLoaded.Load() && st.Leader() != ""
 }
 
@@ -919,7 +953,7 @@ type Response struct {
 
 var _ raft.FSM = &Store{}
 
-func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
+func lastSnapshotIndex(snapshotStore raft.SnapshotStore) uint64 {
 	if snapshotStore == nil {
 		return 0
 	}

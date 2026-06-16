@@ -92,7 +92,13 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
-	if s.index.AsyncReplicationEnabled() {
+	// A read-only follower never participates in async replication: the enabled
+	// branch loads/initializes the hashtree (Remove + Fsync on disk) and the
+	// disabled branch deletes any persisted .ht. Both write, so skip the whole
+	// block — a follower has no hashtree and replicates nothing.
+	if s.readOnly {
+		// no-op
+	} else if s.index.AsyncReplicationEnabled() {
 		config := s.index.AsyncReplicationConfig()
 
 		// Compute the effective config (needed for hashtreeHeight) before taking
@@ -159,10 +165,15 @@ func (s *Shard) initLSMStore() error {
 		}
 	}
 
+	var storeOpts []lsmkv.StoreOption
+	if s.readOnly {
+		storeOpts = append(storeOpts, lsmkv.WithStoreReadOnly())
+	}
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics, s.index.bucketLoadLimiter,
 		s.cycleCallbacks.compactionCallbacks,
 		s.cycleCallbacks.compactionAuxCallbacks,
-		s.cycleCallbacks.flushCallbacks)
+		s.cycleCallbacks.flushCallbacks,
+		storeOpts...)
 	if err != nil {
 		return fmt.Errorf("init lsmkv store at %s: %w", s.pathLSM(), err)
 	}
@@ -199,7 +210,12 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 
 func (s *Shard) initProplenTracker() error {
 	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
+	newTracker := inverted.NewJsonShardMetaData
+	if s.readOnly {
+		// Read-only follower: load proplengths into memory, never flush back.
+		newTracker = inverted.NewJsonShardMetaDataReadOnly
+	}
+	tracker, err := newTracker(plPath, s.index.logger)
 	if err != nil {
 		return fmt.Errorf("init prop length tracker: %w", err)
 	}
@@ -209,7 +225,16 @@ func (s *Shard) initProplenTracker() error {
 }
 
 func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
-	counter, err := indexcounter.New(s.path())
+	// A read-only follower opens the index counter and version file without
+	// creating or writing them; it never assigns docIDs or stamps versions.
+	newCounter := indexcounter.New
+	newVersioner := newShardVersioner
+	if s.readOnly {
+		newCounter = indexcounter.NewReadOnly
+		newVersioner = newShardVersionerReadOnly
+	}
+
+	counter, err := newCounter(s.path())
 	if err != nil {
 		return fmt.Errorf("init index counter: %w", err)
 	}
@@ -219,7 +244,7 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")
-	versioner, err := newShardVersioner(versionPath, dataPresent)
+	versioner, err := newVersioner(versionPath, dataPresent)
 	if err != nil {
 		return fmt.Errorf("init shard versioner: %w", err)
 	}

@@ -475,6 +475,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		restReplicationClient,
 		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
 	)
+	readOnlyFollower := appState.ServerConfig.Config.Raft.ReadOnlyFollower
+	if readOnlyFollower {
+		// A read-only follower rejects all writes at the API boundary. Force
+		// READ_ONLY operational mode so the HTTP/gRPC write-blocking middleware
+		// engages regardless of the configured OPERATIONAL_MODE.
+		if err := appState.ServerConfig.Config.OperationalMode.SetValue(config.READ_ONLY); err != nil {
+			appState.Logger.WithField("action", "startup").
+				Errorf("failed to force READ_ONLY operational mode for read-only follower: %v", err)
+		}
+	}
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -559,10 +569,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
-		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
-		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
+		// A read-only follower must not run async indexing: it would construct
+		// the index.db checkpoint store and start workers that write to the
+		// read-only copy. Force it off regardless of the configured value.
+		AsyncIndexingEnabled:    appState.ServerConfig.Config.AsyncIndexingEnabled && !readOnlyFollower,
+		HFreshEnabled:           appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:         appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics: appState.ServerConfig.Config.DisableDimensionMetrics,
+		// ReadOnly puts the storage layer into read-only-follower mode (see
+		// db.Config.ReadOnly): shards open without writing to the copy.
+		ReadOnly: readOnlyFollower,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -601,14 +617,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	if err = schemaRepo.Open(); err != nil {
+	schemaRepoOpen := schemaRepo.Open
+	if readOnlyFollower {
+		// The legacy schema store and classifications store both write on a
+		// normal open (bucket creation / migration); a follower opens them
+		// read-only so the read-only mount is never touched.
+		schemaRepoOpen = schemaRepo.OpenReadOnly
+	}
+	if err = schemaRepoOpen(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("could not initialize schema repo")
 		os.Exit(1)
 	}
 
-	localClassifierRepo, err := classifications.NewRepo(
+	newClassifierRepo := classifications.NewRepo
+	if readOnlyFollower {
+		newClassifierRepo = classifications.NewRepoReadOnly
+	}
+	localClassifierRepo, err := newClassifierRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -672,6 +699,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		TrailingLogs:                appState.ServerConfig.Config.Raft.TrailingLogs,
 		ConsistencyWaitTimeout:      appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 		MetadataOnlyVoters:          appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		ReadOnlyFollower:            appState.ServerConfig.Config.Raft.ReadOnlyFollower,
 		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                          nil,
@@ -746,9 +774,17 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
 
+	// A read-only follower has no leader to forward schema/object reads to, so
+	// the default LeaderOnly strategy would time out every read. Default it to
+	// LocalOnly so reads are served from the local in-memory schema and the
+	// local read-only shards.
+	collectionRetrievalStrategyDefault := string(configRuntime.LeaderOnly)
+	if readOnlyFollower {
+		collectionRetrievalStrategyDefault = string(configRuntime.LocalOnly)
+	}
 	collectionRetrievalStrategyConfigFlag := configRuntime.NewFeatureFlag(
 		configRuntime.CollectionRetrievalStrategyLDKey,
-		string(configRuntime.LeaderOnly),
+		collectionRetrievalStrategyDefault,
 		appState.LDIntegration,
 		configRuntime.CollectionRetrievalStrategyEnvVariable,
 		appState.Logger,
@@ -2351,7 +2387,15 @@ func postInitModules(appState *state.State) {
 }
 
 func initModules(ctx context.Context, appState *state.State) error {
-	storageProvider, err := modulestorage.NewRepo(
+	newModuleRepo := modulestorage.NewRepo
+	if appState.ServerConfig.Config.Raft.ReadOnlyFollower {
+		// Read-only follower: open modules.db read-only (its unconditional RW
+		// open would otherwise crash on the read-only mount) and serve module
+		// state — e.g. contextionary extensions that affect vectorization — from
+		// the copy.
+		newModuleRepo = modulestorage.NewRepoReadOnly
+	}
+	storageProvider, err := newModuleRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		return errors.Wrap(err, "init storage provider")

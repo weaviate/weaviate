@@ -106,6 +106,12 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 		}
 	}
 
+	if s.readOnly {
+		// count-net-additions computed in memory only; never persisted on a
+		// read-only follower.
+		return nil
+	}
+
 	if err := s.storeCountNetOnDisk(); err != nil {
 		return fmt.Errorf("store count net additions on disk: %w", err)
 	}

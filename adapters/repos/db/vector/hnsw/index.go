@@ -328,6 +328,17 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
+
+	// A read-only follower must not create a snapshot on startup (that writes a
+	// new snapshot dir); it always loads the existing one read-only. The
+	// read-only FS (set below) neutralizes the residual MkdirAll/temp-file
+	// cleanup in the commit-file discovery path.
+	fs := common.NewOSFS()
+	if cfg.ReadOnly {
+		cfg.SnapshotOnStartup = false
+		fs = common.NewReadOnlyFS(fs)
+	}
+
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 
@@ -395,7 +406,7 @@ func New(cfg Config, uc ent.UserConfig,
 		docIDVectors:      make(map[uint64][]uint64),
 		muveraEncoder:     muveraEncoder,
 		makeBucketOptions: cfg.MakeBucketOptions,
-		fs:                common.NewOSFS(),
+		fs:                fs,
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
 		"shard":        cfg.ShardName,
