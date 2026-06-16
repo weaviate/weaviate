@@ -195,29 +195,23 @@ func TestFastPathL0_Merge(t *testing.T) {
 	cases := []fastPathTestCase{
 		// Single-leaf positive at the property root. Mirrors the L2
 		// `cars.year=2020` single-leaf case — same construction, just
-		// with TS at depth 1 (= propName) instead of depth 3. The
-		// CleanAbove walk in the harness must stop before going above
-		// propName ("" is never read), which was the boundary case that
-		// originally motivated the CleanAbove migration: under the old
-		// CP=true bool the assertion did `idx.anchor[parentPath(TS)]`
-		// unconditionally and tripped on parentPath("cars")="".
+		// with Scope at depth 1 (= propName) instead of depth 3. The
+		// harness's clean-range walk stops at pathRoot, never reading
+		// anchor above propName.
 		{
 			name: "cars.year=2020 [L0, single leaf]",
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPositive(idx, "cars.year", 2020)
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot, // propName — clean to property root
+			wantScope:   "cars",
+			wantCeiling: pathRoot, // propName — clean to property root
 			// 100 cars[0]=2020 PASS. 200 cars[1]=2020 PASS. 810 cars[0,1]=
 			// 2020 PASS. Others: no car has year=2020 → FAIL.
 			wantDocs: []uint64{100, 200, 810},
 		},
-		// Same-TS AND at L0. TS=cars (the property root). Same-element
-		// correlation must come from chain-bit intersection at car-self,
-		// just like at L2. The merge helpers (andLeaves, andAtScope,
-		// same-TS dispatch) are scope-agnostic — they should produce the
-		// same docID set whether the truth scope is "countries.garages.
-		// cars" or just "cars".
+		// Same-Scope AND at L0. Scope=cars (the property root). Same-
+		// element correlation comes from chain-bit intersection at
+		// car-self, regardless of the surrounding schema depth.
 		{
 			name: "cars.make=honda AND cars.year=2020 [L0, same-element]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -226,11 +220,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.year", 2020))
 			},
 			wantScope: "cars",
-			// Same-Scope AND: structural ceiling = Scope, so CleanAbove
-			// = Scope. No claim above cars (which at L0 is the property
-			// root, so "above cars" is just the doc level — non-trivial
-			// only because the harness mustn't try to read anchor[""]).
-			wantCleanAbove: "cars",
+			// Same-Scope AND: structural ceiling = Scope, so Ceiling=cars.
+			// No clean claim above the merge scope.
+			wantCeiling: "cars",
 			// doc 100: cars[0]=toyota+2020, cars[1]=honda+2018 — split,
 			// no same-car witness → FAIL.
 			// doc 200 cars[1]=honda+2020 → same-car PASS.
@@ -238,14 +230,12 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// Others: no same-car honda+2020 → FAIL.
 			wantDocs: []uint64{200, 810},
 		},
-		// Same-TS OR. Mirrors L2 `cars.make=honda OR cars.year=2020`.
-		// Both positive leaves at TS=cars with CleanAbove=propName.
-		// OR preserves the higher CleanAbove through the no-op lift
-		// (TS already at LCA), so result CleanAbove = propName = cars.
-		// Owner-level semantic: doc satisfies the OR iff some car
-		// matches honda OR some car matches 2020 (possibly different
-		// cars). Discriminator doc 1200 PASSES here precisely because
-		// the OR doesn't require same-car correlation.
+		// Same-Scope OR. Both positive leaves at Scope=cars with
+		// Ceiling=pathRoot. No-op lift at the LCA preserves the
+		// Ceilings, so result Ceiling = deepestPath(pathRoot, pathRoot)
+		// = pathRoot. Owner-level semantic: doc satisfies the OR iff
+		// some car matches honda OR some car matches 2020 (possibly
+		// different cars — no same-car correlation).
 		{
 			name: "cars.make=honda OR cars.year=2020 [L0, same-Scope union]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -253,8 +243,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.make", "honda"),
 					leafPositive(idx, "cars.year", 2020))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// doc 100: cars[0]=2020 OR cars[1]=honda → PASS.
 			// doc 200: cars[0,1] honda → PASS.
 			// doc 300: cars[1]=honda → PASS.
@@ -263,19 +253,19 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// doc 830/850: no honda no 2020 → FAIL.
 			wantDocs: []uint64{100, 200, 300, 810},
 		},
-		// Single-leaf NOT at L0. negate(leafPositive) collapses CleanAbove
-		// to TS — Rich = _exists(TS) AndNot ES carries chain bits from
+		// Single-leaf NOT at L0. negate(leafPositive) collapses Ceiling
+		// to Scope — Raw = _exists(Scope) AndNot Witnesses carries chain bits from
 		// every doc that has any car, regardless of whether a NON-matching
-		// witness exists. The boundary case at L0 is that TS=propName, so
-		// no "above CS" assertion is even attempted in the harness loop.
+		// witness exists. The boundary case at L0 is that Scope=propName, so
+		// no "above Ceiling" assertion is even attempted in the harness loop.
 		// Predicate: "doc has at least one car where year != 2020".
 		{
 			name: "NOT cars.year=2020 [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafNot(idx, "cars.year", 2020)
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars", // negate rule: CleanAbove collapses to Scope
+			wantScope:   "cars",
+			wantCeiling: "cars", // negate rule: Ceiling collapses to Scope
 			// Per-car: car is witness iff year != 2020 (cars without
 			// year set also count — they aren't in the value bucket).
 			// doc 100 cars[1,2]: year=2018/2017 → witnesses PASS.
@@ -290,18 +280,15 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// Ancestor+child AND at L0. Scope pairing: cars.year
 		// (Scope=cars = propName) AND cars.tires.width
 		// (Scope=cars.tires, one below). The broadcasting branch in
-		// andLeaves fires here under the property-root carve-out:
-		// even though ancestor.CleanAbove == ancestor.Scope ==
-		// propName (so aboveScopeClean() returns false), the dispatch
-		// guard's `|| ancestor.Scope == idx.propName` clause lets the
-		// branch fire because there's no scope above propName to be
-		// unclean at. Combined with ancestor.CleanBelow=true
-		// (positive leaf has authentic descendants via the
-		// elementPositions encoding), the broadcasting argument
-		// holds: ancestor.Bitmap at C.Scope is a real descendant of
-		// matching cars, intersecting with child.Bitmap at C.Scope
-		// gives same-car correlation. Merge at C.Scope=cars.tires,
-		// ceiling=A.Scope=cars. Mirrors the L2 ancestor+child
+		// andLeaves fires because the ancestor (positive leaf) has
+		// Ceiling=pathRoot (depth 0), strictly shallower than its own
+		// Scope=cars (depth 1) — so ancestor.ceilingAboveScope() is true.
+		// Positive leaves earn this by construction: the elementPositions
+		// encoding gives them authentic descendants below Scope, so the
+		// ancestor's Raw at child.Scope is a real per-element descendant
+		// of matching cars. Intersecting with child.Raw at child.Scope
+		// gives same-car correlation. Merge at child.Scope=cars.tires,
+		// ceiling=ancestor.Scope=cars. Mirrors the L2 ancestor+child
 		// behavior — same depth-preservation, just one tree level
 		// shallower.
 		{
@@ -311,8 +298,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.year", 2020),
 					leafPositive(idx, "cars.tires.width", 205))
 			},
-			wantScope:      "cars.tires",
-			wantCleanAbove: "cars",
+			wantScope:   "cars.tires",
+			wantCeiling: "cars",
 			// Per-car same-car: year=2020 AND tires.width=205 colocated.
 			// doc 100 cars[0]=2020+205 → SAME-CAR PASS.
 			// doc 200 cars[1]=2020+205 → SAME-CAR PASS.
@@ -324,12 +311,13 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// Ancestor+child OR. Mirrors L2's `garages.city=warsaw OR
 		// cars.make=ford` shape, just one tree level shallower.
 		// commonScope=cars (the ancestor's Scope). orLeaves lifts the
-		// deeper operand (tires.width) up to cars via cheap-lift —
-		// target=cars is at-or-below tires.CleanAbove=cars (=propName),
-		// so Bitmap is reused unchanged and CleanAbove is preserved.
-		// The shallower operand (year) is already at LCA=cars, no-op
-		// lift. OR result has CleanAbove=cars, CleanBelow=true (both
-		// operands' CleanBelow=true).
+		// deeper operand (tires.width, Ceiling=pathRoot) up to cars via
+		// cheap-lift — depth(tires.Ceiling=pathRoot)=0 ≤ depth(cars)=1,
+		// so Raw is reused unchanged and the operand's Ceiling=pathRoot
+		// is preserved. The shallower operand (year) is already at
+		// LCA=cars, no-op lift, Ceiling=pathRoot preserved. OR result
+		// Ceiling = deepestPath(pathRoot, pathRoot) = pathRoot — both
+		// operands are fully clean, the union stays fully clean.
 		{
 			name: "cars.year=2020 OR cars.tires.width=205 [L0, ancestor+child OR]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -337,8 +325,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.year", 2020),
 					leafPositive(idx, "cars.tires.width", 205))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// doc 100: 2020 OR 205 → PASS.
 			// doc 200: cars[1]=2020 OR cars[0,1]=205 → PASS.
 			// doc 810: cars[0,1]=2020 → PASS.
@@ -349,15 +337,16 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// ContainsAny at L0. Positive composite — union of value
 		// buckets. Same shape as a single positive leaf but the value
 		// set has multiple elements. Result Scope=cars (parent of the
-		// value path), CleanAbove=propName=cars, CleanBelow=true (union
-		// of authentic-descendant buckets is authentic).
+		// value path), Ceiling=pathRoot (union of fully-authentic
+		// per-value buckets is itself fully authentic — every bit still
+		// traces to a real matching element's elementPositions encoding).
 		{
 			name: "cars.make ContainsAny [honda, ford] [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafContainsAny(idx, "cars.make", "honda", "ford")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// doc 100 cars[1]=honda PASS. doc 200 cars[0,1]=honda PASS.
 			// doc 300 cars[0]=ford or cars[1]=honda PASS. doc 400 ford
 			// PASS. doc 810 honda PASS. doc 830/850 no make → FAIL.
@@ -368,8 +357,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// shape. Both operands are siblings under cars (different
 		// nested arrays inside cars). orLeaves… err, andLeaves picks
 		// the siblings branch: lift both to LCA=cars (cheap, both
-		// have CleanAbove=propName=cars), then recurse as same-Scope
-		// AND. Same-Scope AND produces CleanAbove=Scope=cars (ceiling
+		// have Ceiling=propName=cars), then recurse as same-Scope
+		// AND. Same-Scope AND produces Ceiling=Scope=cars (ceiling
 		// rule).
 		{
 			name: "cars.accessories.type=spoiler AND cars.tires.width=205 [L0, siblings]",
@@ -378,8 +367,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.accessories.type", "spoiler"),
 					leafPositive(idx, "cars.tires.width", 205))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Per-car: same car has spoiler accessory AND tires.width=205.
 			// doc 100 cars[0] spoiler+205 → PASS.
 			// doc 200 cars[0,1] both spoiler+205 → PASS.
@@ -390,16 +379,16 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantDocs: []uint64{100, 200, 800},
 		},
 		// IS NULL false on a scalar leaf (cars.year). Symmetric with
-		// the single-leaf positive case: TS=cars, CleanAbove=propName,
-		// CleanBelow=true. The leaf fires for every car with a year
-		// value set, regardless of the value.
+		// the single-leaf positive case: Scope=cars, Ceiling=pathRoot.
+		// The leaf fires for every car with a year value set, regardless
+		// of the value.
 		{
 			name: "cars.year IS NULL false [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafIsNullFalse(idx, "cars.year")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// At least one car with year set:
 			// doc 100/200/300/400/810/850 each have ≥1 car with year → PASS.
 			// doc 830 only car has no year → FAIL.
@@ -413,8 +402,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafIsNullTrue(idx, "cars.year")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars", // negate collapses CleanAbove to Scope
+			wantScope:   "cars",
+			wantCeiling: "cars", // negate collapses Ceiling to Scope
 			// doc 200 cars[2]=name=ford (no year) → witness PASS.
 			// doc 300 cars[1]=honda (no year) → witness PASS.
 			// doc 830 cars[0] has only accessories, no year → witness PASS.
@@ -424,10 +413,11 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// Sibling OR at L0 (under cars). Mirrors L2's
 		// `cars.accessories.type=spoiler OR cars.tires.width=205`.
 		// Both operands siblings under cars (different nested arrays).
-		// orLeaves lifts both to LCA=cars via cheap-lift (CleanAbove=
-		// propName=cars, target=cars, equal-depth path) which
-		// preserves CleanAbove. Result.CleanAbove=cars, CleanBelow=
-		// true && true.
+		// orLeaves lifts both to LCA=cars via cheap-lift (each operand's
+		// Ceiling=pathRoot has depth 0 ≤ depth(cars)=1, so Raw is
+		// reused and Ceiling preserved). Result.Ceiling = deepestPath
+		// (pathRoot, pathRoot) = pathRoot — both operands fully clean,
+		// union stays fully clean.
 		{
 			name: "cars.accessories.type=spoiler OR cars.tires.width=205 [L0, siblings OR]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -435,8 +425,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.accessories.type", "spoiler"),
 					leafPositive(idx, "cars.tires.width", 205))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// doc 100 cars[0] both → PASS.
 			// doc 200 cars[0,1] both → PASS.
 			// doc 830 cars[0] spoiler → PASS.
@@ -445,11 +435,13 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// Others: no spoiler, no 205 → FAIL.
 			wantDocs: []uint64{100, 200, 800, 830, 850},
 		},
-		// Compound NOT (NOT-of-OR) at L0. Inner OR has Scope=cars,
-		// CleanAbove=cars, CleanBelow=true. negate of that produces
-		// Scope=cars, CleanAbove=cars, CleanBelow=false. Per-car: a
-		// car is a witness for the negation iff it is NOT in the OR's
-		// positive ES — i.e. not honda AND year≠2020 (or year missing).
+		// Compound NOT (NOT-of-OR) at L0. Inner same-Scope OR over two
+		// positive leaves keeps Ceiling at the shallower of the two
+		// operands' Ceilings (pathRoot in both cases) → inner.Ceiling=
+		// pathRoot. negate then collapses Ceiling to the inner's Scope
+		// (cars), producing Scope=cars, Ceiling=cars. Per-car: a car is a
+		// witness for the negation iff it is NOT in the OR's positive
+		// Witnesses — i.e. not honda AND year≠2020 (or year missing).
 		{
 			name: "NOT (cars.make=honda OR cars.year=2020) [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -457,9 +449,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.make", "honda"),
 					leafPositive(idx, "cars.year", 2020)))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
-			// Per-car: car is witness iff NOT in OR ES = make ≠ honda
+			wantScope:   "cars",
+			wantCeiling: "cars",
+			// Per-car: car is witness iff NOT in OR Witnesses = make ≠ honda
 			// AND year ≠ 2020.
 			// doc 100 cars[0]=toyota+2020 → 2020 in OR → no. cars[1]=
 			// honda+2018 → honda in OR → no. cars[2]=year=2017+name=honda
@@ -486,8 +478,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafNot(idx, "cars.make", "honda"),
 					leafNot(idx, "cars.year", 2020))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Must match NOT-of-OR above (per-element AND of negations
 			// at same Scope is the De Morgan dual).
 			wantDocs: []uint64{100, 200, 300, 400, 800, 830, 850},
@@ -501,8 +493,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafContainsNone(idx, "cars.make", "honda", "ford")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars", // negation shape — no claim above Scope
+			wantScope:   "cars",
+			wantCeiling: "cars", // negation shape — no claim above Scope
 			// doc 100 cars[0]=toyota → witness PASS.
 			// doc 200 cars[2]=name=ford (no make field) → witness PASS.
 			// doc 300 cars[0]=ford, cars[1]=honda → no witness FAIL.
@@ -514,19 +506,19 @@ func TestFastPathL0_Merge(t *testing.T) {
 		},
 		// NOT(ContainsAny) equivalence: should produce identical docs
 		// to the direct ContainsNone above. Both routes negate the
-		// same positive ES (cars with make ∈ {honda, ford}) at the
+		// same positive Witnesses (cars with make ∈ {honda, ford}) at the
 		// same Scope.
 		{
 			name: "NOT (cars.make ContainsAny [honda, ford]) [L0, via negate]",
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return negate(idx, leafContainsAny(idx, "cars.make", "honda", "ford"))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Must match `ContainsNone direct` above.
 			wantDocs: []uint64{100, 200, 800, 810, 830, 850},
 		},
-		// Compound NOT-of-AND. Inner same-element AND has ES = cars
+		// Compound NOT-of-AND. Inner same-element AND has Witnesses = cars
 		// satisfying honda AND 2020 in the same car. negate excludes
 		// those, leaves every other car as a witness.
 		{
@@ -536,12 +528,12 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.make", "honda"),
 					leafPositive(idx, "cars.year", 2020)))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Per-car: car is witness iff NOT (honda AND 2020 same-
 			// element) = NOT honda OR NOT 2020. Only docs where every
 			// car satisfies honda AND 2020 in the same element FAIL.
-			// doc 810: cars[0]=honda+2020 → in inner.ES; cars[1]=
+			// doc 810: cars[0]=honda+2020 → in inner.Witnesses; cars[1]=
 			// toyota+2020 → not honda → WITNESS → PASS.
 			// Every other doc also has at least one such car.
 			wantDocs: []uint64{100, 200, 300, 400, 800, 810, 830, 850},
@@ -557,9 +549,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafNot(idx, "cars.make", "honda"),
 					leafNot(idx, "cars.year", 2020))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
-			wantDocs:       []uint64{100, 200, 300, 400, 800, 810, 830, 850},
+			wantScope:   "cars",
+			wantCeiling: "cars",
+			wantDocs:    []uint64{100, 200, 300, 400, 800, 810, 830, 850},
 		},
 		// 3-leaf andN — same-element correlation across cars and
 		// cars.tires. honda + 2020 + tires.width=205. Doc 200 cars[1]
@@ -574,14 +566,15 @@ func TestFastPathL0_Merge(t *testing.T) {
 			},
 			// andN sorts deepest-first: tires (cars.tires) precedes
 			// honda and year (cars). First merge (tires AND honda)
-			// fires the broadcasting branch (honda is positive, so
-			// CleanBelow=true; and honda.Scope=cars=propName triggers
-			// the property-root carve-out). Result lands at C.Scope=
-			// cars.tires with ceiling=cars. Then merge with year:
-			// year is also ancestor at cars, broadcasting again,
-			// lands at cars.tires.
-			wantScope:      "cars.tires",
-			wantCleanAbove: "cars",
+			// fires the broadcasting branch: honda is a positive leaf
+			// with Ceiling=pathRoot (depth 0) strictly shallower than
+			// its Scope=cars (depth 1), so honda.ceilingAboveScope() is
+			// true. Result lands at child.Scope=cars.tires with
+			// ceiling=ancestor.Scope=cars. Then merge with year: year
+			// is also ancestor (positive leaf, ceilingAboveScope), so
+			// broadcasting fires again. Final result stays at cars.tires.
+			wantScope:   "cars.tires",
+			wantCeiling: "cars",
 			// doc 200 cars[1]=honda+2020+205 same-car → PASS.
 			// doc 100 cars[0]=toyota+2020+205 (no honda).
 			// doc 810 honda+2020 but no tires. doc 850 has 205 but not
@@ -598,10 +591,11 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.year", 2020),
 					leafPositive(idx, "cars.tires.width", 205))
 			},
-			// orN lifts all to LCA=cars (cheap, all CleanAbove=cars).
-			// OR at cars. Result.CleanAbove=cars, CleanBelow=true.
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			// orN lifts all to LCA=cars (cheap, all Ceiling=pathRoot
+			// already at or above cars). OR at cars. Result.Ceiling=
+			// pathRoot — union of fully-clean operands stays fully clean.
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// 100 has all three. 200 has all three. 300 cars[1]=honda
 			// → PASS. 400 (ford+2012) → FAIL. 810 honda+2020 → PASS.
 			// 830 no → FAIL. 850 cars[1]=205 → PASS.
@@ -620,8 +614,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafContainsAll(idx, "cars.colors", "red", "blue")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars", // same-Scope intersection rule
+			wantScope:   "cars",
+			wantCeiling: "cars", // same-Scope intersection rule
 			// doc 100 cars[1].colors=[blue, red] → same-array witness PASS.
 			// doc 200 cars[0]=[red], cars[1]=[blue] → split, FAIL —
 			// the split discriminator.
@@ -635,8 +629,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPositive(idx, "cars.colors", "red")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// doc 100 cars[1]=[blue,red] PASS. doc 200 cars[0]=[red] PASS.
 			// doc 300 cars[1]=[red] PASS. Others: no red → FAIL.
 			wantDocs: []uint64{100, 200, 300},
@@ -649,23 +643,23 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafNot(idx, "cars.colors", "red")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Every doc has at least one car lacking "red" — either
 			// has colors without red, or has no colors at all.
 			wantDocs: []uint64{100, 200, 300, 400, 800, 810, 830, 850},
 		},
 		// Single positive leaf on a deeper scope (cars.accessories.type).
-		// TS = parent(path) = cars.accessories (the accessories
-		// element scope). ES bits live at accessories selfMarkers
+		// Scope = parent(path) = cars.accessories (the accessories
+		// element scope). Witnesses bits live at accessories selfMarkers
 		// whose type=spoiler. Doc passes if some accessory satisfies.
 		{
 			name: "cars.accessories.type=spoiler [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPositive(idx, "cars.accessories.type", "spoiler")
 			},
-			wantScope:      "cars.accessories",
-			wantCleanAbove: pathRoot, // propName — positive leaf
+			wantScope:   "cars.accessories",
+			wantCeiling: pathRoot, // propName — positive leaf
 			// doc 100 cars[0].accessories[0]=spoiler PASS.
 			// doc 200 cars[0,1].accessories[0]=spoiler PASS.
 			// doc 830 cars[0].accessories[1]=spoiler PASS.
@@ -681,8 +675,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafNot(idx, "cars.accessories.type", "spoiler")
 			},
-			wantScope:      "cars.accessories",
-			wantCleanAbove: "cars.accessories", // negate rule
+			wantScope:   "cars.accessories",
+			wantCeiling: "cars.accessories", // negate rule
 			// doc 100 cars[1].accessories[0]=radio → witness PASS.
 			// doc 200: cars[0,1] only have spoiler accessories,
 			// cars[2] no accessories → no per-element witness → FAIL.
@@ -699,9 +693,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPositive(idx, "cars.year", 9999)
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
-			wantDocs:       nil,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
+			wantDocs:    nil,
 		},
 		// Same-Scope AND on a text[] field. Per-car: car's colors
 		// array contains BOTH blue and red. Logically equivalent to
@@ -713,19 +707,21 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.colors", "blue"),
 					leafPositive(idx, "cars.colors", "red"))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Same wantDocs as ContainsAll [red, blue] — De Morgan-
 			// adjacent equivalence (intersection of value buckets ==
 			// per-car ContainsAll).
 			wantDocs: []uint64{100},
 		},
 		// Mixed NOT operand in OR. NOT spoiler at cars.accessories
-		// (CleanBelow=false) OR'd with positive 205 at cars.tires
-		// (CleanBelow=true). orLeaves lifts both to LCA=cars; NOT
-		// spoiler full-lifts (CleanAbove was cars.accessories, above
-		// target=cars), 205 cheap-lifts. OR result has CleanBelow=
-		// false (mixed).
+		// (Ceiling=cars.accessories — negate collapses Ceiling to Scope)
+		// OR'd with positive 205 at cars.tires (Ceiling=pathRoot).
+		// orLeaves lifts both to LCA=cars. NOT spoiler needs a real lift
+		// (depth(its Ceiling=cars.accessories)=2 > depth(cars)=1), so
+		// its post-lift Ceiling resets to cars; 205 cheap-lifts and
+		// keeps Ceiling=pathRoot. Result.Ceiling = deepestPath(cars,
+		// pathRoot) = cars — the negate side caps the cleanness at LCA.
 		{
 			name: "NOT cars.accessories.type=spoiler OR cars.tires.width=205 [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -733,8 +729,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafNot(idx, "cars.accessories.type", "spoiler"),
 					leafPositive(idx, "cars.tires.width", 205))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Per-car at cars-scope (post-lift): car has at least one
 			// non-spoiler accessory OR has 205 tires.
 			// 100 cars[1]=radio+195 (non-spoiler) + cars[0]=205 → PASS.
@@ -745,7 +741,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantDocs: []uint64{100, 200, 800, 830, 850},
 		},
 		// Compound AND inside OR. Inner sibling AND (spoiler+205) at
-		// cars (CleanAbove=cars). OR with positive ford at cars.
+		// cars (Ceiling=cars). OR with positive ford at cars.
 		// Same-Scope OR.
 		{
 			name: "(cars.accessories.type=spoiler AND cars.tires.width=205) OR cars.make=ford [L0]",
@@ -756,8 +752,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 						leafPositive(idx, "cars.tires.width", 205)),
 					leafPositive(idx, "cars.make", "ford"))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Inner AND (same-car spoiler+205): {100, 200}.
 			// ford-cars: {300, 400}. Union: {100, 200, 300, 400}.
 			wantDocs: []uint64{100, 200, 300, 400, 800},
@@ -773,15 +769,15 @@ func TestFastPathL0_Merge(t *testing.T) {
 						leafPositive(idx, "cars.make", "ford")),
 					leafPositive(idx, "cars.year", 2018))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// doc 100 cars[1]=honda+2018 → SAME-CAR PASS.
 			// All other docs lack a single car with both predicates.
 			wantDocs: []uint64{100},
 		},
 		// NOT of compound sibling AND. Per-car: car is NOT in inner
-		// ES (= NOT (spoiler AND 205 same-car)) = NOT spoiler at this
-		// car OR NOT 205 at this car. Cars not in inner ES are
+		// Witnesses (= NOT (spoiler AND 205 same-car)) = NOT spoiler at this
+		// car OR NOT 205 at this car. Cars not in inner Witnesses are
 		// witnesses.
 		{
 			name: "NOT (cars.accessories.type=spoiler AND cars.tires.width=205) [L0]",
@@ -790,8 +786,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.accessories.type", "spoiler"),
 					leafPositive(idx, "cars.tires.width", 205)))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Every doc has at least one car not in (spoiler AND 205
 			// same-car). E.g. doc 100 cars[1]=radio+195 → not in.
 			wantDocs: []uint64{100, 200, 300, 400, 810, 830, 850},
@@ -806,8 +802,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.make", "honda"),
 					leafPositive(idx, "cars.make", "ford")))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Must match ContainsNone [honda, ford] and NOT(honda)
 			// AND NOT(ford) below.
 			wantDocs: []uint64{100, 200, 800, 810, 830, 850},
@@ -821,8 +817,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.accessories.type", "spoiler"),
 					leafPositive(idx, "cars.tires.width", 205)))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// 100 cars[1]=radio+195 → no spoiler+no 205 in cars[1].
 			// Also cars[2] no accessories no tires → witness. PASS.
 			// 200 cars[2]=name=ford (no accessories, no tires) → witness.
@@ -842,9 +838,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafNot(idx, "cars.make", "honda"),
 					leafNot(idx, "cars.make", "ford"))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
-			wantDocs:       []uint64{100, 200, 800, 810, 830, 850},
+			wantScope:   "cars",
+			wantCeiling: "cars",
+			wantDocs:    []uint64{100, 200, 800, 810, 830, 850},
 		},
 		// De Morgan siblings: NOT(spoiler) AND NOT(205). Per-car at
 		// cars-scope (post-lift): car has at least one non-spoiler
@@ -857,8 +853,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafNot(idx, "cars.accessories.type", "spoiler"),
 					leafNot(idx, "cars.tires.width", 205))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Only doc 100 cars[1]=radio+195 has BOTH a non-spoiler
 			// accessory AND a non-205 tire in the same car.
 			// doc 200 cars[0,1] only have spoiler+205; cars[2] has
@@ -892,12 +888,12 @@ func TestFastPathL0_Merge(t *testing.T) {
 			// andN above where the deepest operand is the only one at
 			// its depth (so broadcasting preserves cars.tires), the
 			// siblings collapse this dispatch back to cars.
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
-			wantDocs:       []uint64{200},
+			wantScope:   "cars",
+			wantCeiling: "cars",
+			wantDocs:    []uint64{200},
 		},
 		// 3-leaf same-Scope orN over honda + 2018 + blue. All three
-		// at TS=cars. Result is union of positive-leaf ESs.
+		// at Scope=cars. Result is union of positive-leaf ESs.
 		{
 			name: "orN(cars.make=honda, cars.year=2018, cars.colors=blue) [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -906,16 +902,18 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.year", 2018),
 					leafPositive(idx, "cars.colors", "blue"))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// honda: {100, 200, 300, 810}. year=2018: {100} (cars[1]).
 			// blue: {100, 200}. Union: {100, 200, 300, 810}.
 			wantDocs: []uint64{100, 200, 300, 810},
 		},
 		// Mixed positive+NOT siblings AND. radio at cars.accessories
-		// (positive, CleanBelow=true) AND NOT 205 at cars.tires
-		// (NOT, CleanBelow=false). Lift both to LCA=cars. Same-Scope
-		// AND at cars with CleanBelow=true && false = false.
+		// (positive, Ceiling=pathRoot) AND NOT 205 at cars.tires (NOT,
+		// Ceiling=cars.tires). Lift both to LCA=cars. radio cheap-lifts
+		// and keeps Ceiling=pathRoot; the NOT real-lifts (its Ceiling
+		// was deeper than LCA) and resets to Ceiling=cars. Same-Scope
+		// AND with ceiling=cars → result.Ceiling=cars.
 		{
 			name: "cars.accessories.type=radio AND NOT cars.tires.width=205 [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -923,8 +921,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.accessories.type", "radio"),
 					leafNot(idx, "cars.tires.width", 205))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
+			wantScope:   "cars",
+			wantCeiling: "cars",
 			// Per-car: car has radio accessory AND has non-205 tire.
 			// doc 100 cars[1]=radio+195 → PASS.
 			// doc 200 cars[0,1] only spoiler → no radio → FAIL.
@@ -942,22 +940,23 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafContainsAny(idx, "cars.make", "bmw", "kia")
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
-			wantDocs:       nil,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
+			wantDocs:    nil,
 		},
 		// 3-leaf same-Scope siblings AND through a compound. Inner
 		// sibling AND at cars (spoiler+205) collapses both leaves to
-		// LCA=cars; the accumulator has Scope=cars and CleanBelow=
-		// false (siblings-AND override in andLeaves — the result's
-		// Bitmap has bits only at cars-self, not at cars.accessories /
+		// LCA=cars; the inner result has Scope=cars and Ceiling=cars
+		// (same-Scope AND collapses Ceiling to the merge scope — the
+		// Raw has bits only at cars-self, not at cars.accessories /
 		// cars.tires / cars.doors selfMarkers). The outer AND with
 		// doors=4 (Scope=cars.doors) therefore can't fire the
-		// broadcasting branch (ancestor.CleanBelow=false). It falls
-		// through to the ancestor+child branch that merges at the
-		// ancestor's Scope (= cars) without lift. Per-car: same car
-		// must have all three. Only doc 800 cars[0] has spoiler+205+
-		// doors=4.
+		// broadcasting branch: ancestor.Ceiling=cars equals
+		// ancestor.Scope=cars, so ceilingAboveScope() is false. It falls
+		// through to the cheap-merge branch (child.Ceiling=pathRoot is
+		// shallower than A.Scope=cars) that merges at the ancestor's
+		// Scope (= cars) without lift. Per-car: same car must have all
+		// three. Only doc 800 cars[0] has spoiler+205+doors=4.
 		{
 			name: "(cars.accessories.type=spoiler AND cars.tires.width=205) AND cars.doors.count=4 [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -967,18 +966,20 @@ func TestFastPathL0_Merge(t *testing.T) {
 						leafPositive(idx, "cars.tires.width", 205)),
 					leafPositive(idx, "cars.doors.count", 4))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
-			wantDocs:       []uint64{800},
+			wantScope:   "cars",
+			wantCeiling: "cars",
+			wantDocs:    []uint64{800},
 		},
 		// 3-leaf siblings andN under cars. Same semantic as the
 		// parenthesized AND above. andN sorts deepest-first; all three
 		// operands are at depth 2 (cars.accessories, cars.tires,
 		// cars.doors). Stable-sort keeps input order; first fold
-		// collapses spoiler+205 via lift-to-LCA=cars (siblings —
-		// CleanBelow forced false), second fold is ancestor+child
-		// (cars vs cars.doors) but with ancestor.CleanBelow=false so
-		// the broadcasting branch is skipped — lands at cars.
+		// collapses spoiler+205 via lift-to-LCA=cars (siblings — the
+		// resulting same-Scope AND sets Ceiling=cars). Second fold is
+		// ancestor+child (cars vs cars.doors) but with ancestor.Ceiling
+		// =cars equal to ancestor.Scope=cars (ceilingAboveScope=false),
+		// the broadcasting branch is skipped — falls through to the
+		// cheap-merge branch and lands at cars.
 		{
 			name: "andN(spoiler, tires.width=205, doors.count=4) [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -987,13 +988,13 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.tires.width", 205),
 					leafPositive(idx, "cars.doors.count", 4))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: "cars",
-			wantDocs:       []uint64{800},
+			wantScope:   "cars",
+			wantCeiling: "cars",
+			wantDocs:    []uint64{800},
 		},
 		// 3-leaf siblings orN under cars. Per-car: car has spoiler OR
 		// 205 OR doors=4 (anywhere). Union of the three positive ESs
-		// at cars-scope (after cheap lifts that preserve CleanAbove).
+		// at cars-scope (after cheap lifts that preserve Ceiling).
 		{
 			name: "orN(spoiler, tires.width=205, doors.count=4) [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -1002,8 +1003,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.tires.width", 205),
 					leafPositive(idx, "cars.doors.count", 4))
 			},
-			wantScope:      "cars",
-			wantCleanAbove: pathRoot,
+			wantScope:   "cars",
+			wantCeiling: pathRoot,
 			// spoiler: {100, 200, 800, 830, 850}.
 			// 205: {100, 200, 800, 850}.
 			// doors=4: {800}.
@@ -1011,7 +1012,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantDocs: []uint64{100, 200, 800, 830, 850},
 		},
 		// Pinned-root positive at L0 — outermost (only) pin sits at the
-		// property root array. truthScope resolves to pathRoot via
+		// property root array. scope resolves to pathRoot via
 		// parentPath("cars") = pathRoot; pinnedFromValueSet's MaskRootLeaf
 		// branch projects matching cars[1] selfMarkers directly to
 		// docIDs (= Encode(0, 0, docID) under the position layout).
@@ -1021,8 +1022,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedPositive(idx, "cars.year", 2020,
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 200 cars[1]=2020+honda → PASS.
 			// doc 810 cars[1]=2020+toyota → PASS.
 			// doc 100 cars[1]=2018 → FAIL. doc 300 cars[1] no year → FAIL.
@@ -1035,23 +1036,23 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedPositive(idx, "cars.year", 2020,
 					[]pinSpec{{"cars", 0}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 100 cars[0]=2020 → PASS. doc 810 cars[0]=2020 → PASS.
 			// Others: not 2020 at slot 0 or no cars[0].
 			wantDocs: []uint64{100, 810},
 		},
 		// Pinned-root IS NULL false — leafPinnedIsNullFalse routes through
 		// pinnedFromValueSet just like the positive case, reading exists
-		// instead of a value bucket. Scope=pathRoot, CleanAbove=pathRoot.
+		// instead of a value bucket. Scope=pathRoot, Ceiling=pathRoot.
 		{
 			name: "cars[1].year IS NULL false [L0, pinned root]",
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafPinnedIsNullFalse(idx, "cars.year",
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 100 cars[1] has year → PASS.
 			// doc 200 cars[1] has year → PASS.
 			// doc 810 cars[1] has year → PASS.
@@ -1069,8 +1070,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedIsNullTrue(idx, "cars.year",
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// All docs not in cars[1].year IS NULL false's witnesses:
 			// {300, 400, 700, 800, 830} — cars[1] either lacks year or
 			// doesn't exist (doc 700 has empty cars). Missing-pin slot
@@ -1086,8 +1087,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedNot(idx, "cars.year", 2020,
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// Anchor[pathRoot] AndNot pos.Witnesses. pos.Witnesses =
 			// {200, 810}. Universe = all ingested docs = {100, 200, 300,
 			// 400, 700, 800, 810, 830, 850}. Difference = {100, 300, 400,
@@ -1104,9 +1105,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafIsNullFalse(idx, "cars")
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
-			wantDocs:       []uint64{100, 200, 300, 400, 800, 810, 830, 850},
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
+			wantDocs:    []uint64{100, 200, 300, 400, 800, 810, 830, 850},
 		},
 		// Property-root IS NULL true — negate. Only doc 700 has an empty
 		// cars array (no nested data), so it's the sole witness.
@@ -1115,16 +1116,16 @@ func TestFastPathL0_Merge(t *testing.T) {
 			build: func(idx *fastPathIndex) *fastPathResult {
 				return leafIsNullTrue(idx, "cars")
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
-			wantDocs:       []uint64{700},
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
+			wantDocs:    []uint64{700},
 		},
 		// OR across pathRoot and propName-Scope. Left has Scope=pathRoot
 		// (IS NULL true on cars — empty here), right has Scope=cars
 		// (positive leaf). commonScope(pathRoot, "cars") = pathRoot, so
 		// the right operand is lifted via liftToScope's pathRoot branch
 		// (MaskRootLeaf on its Witnesses). Result Scope=pathRoot,
-		// CleanAbove preserved at pathRoot via the cheap-lift convention.
+		// Ceiling preserved at pathRoot via the cheap-lift convention.
 		{
 			name: "cars IS NULL true OR cars.make=honda [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -1133,22 +1134,22 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPositive(idx, "cars.make", "honda"))
 			},
 			wantScope: pathRoot,
-			// Left operand had CleanAbove=pathRoot (negate at pathRoot),
-			// right had CleanAbove=pathRoot (positive). Lift preserves
-			// right's CleanAbove. deepestPath(pathRoot, pathRoot) = pathRoot.
-			wantCleanAbove: pathRoot,
+			// Left operand had Ceiling=pathRoot (negate at pathRoot),
+			// right had Ceiling=pathRoot (positive). Lift preserves
+			// right's Ceiling. deepestPath(pathRoot, pathRoot) = pathRoot.
+			wantCeiling: pathRoot,
 			// IS NULL true = {700}. cars.make=honda witnesses = {100, 200, 300, 810}.
 			// Union = {100, 200, 300, 700, 810}.
 			wantDocs: []uint64{100, 200, 300, 700, 810},
 		},
 		// AND across pathRoot (ancestor) and propName-Scope (descendant).
-		// ancestor=NOT cars[1].year=2020 (Scope=pathRoot, CleanAbove=pathRoot).
-		// ancestor.aboveScopeClean is false (depths equal), so the
+		// ancestor=NOT cars[1].year=2020 (Scope=pathRoot, Ceiling=pathRoot).
+		// ancestor.ceilingAboveScope is false (depths equal), so the
 		// broadcasting branch doesn't fire. Falls through to the second
-		// ancestor+child branch: depth(C.CleanAbove=pathRoot)=0 <= depth
+		// ancestor+child branch: depth(C.Ceiling=pathRoot)=0 <= depth
 		// (A.Scope=pathRoot)=0 → direct merge at A.Scope=pathRoot, no lift.
 		// liftToScope sends the child (cars.make=honda) through the
-		// pathRoot branch to add doc-level bits to its Bitmap, then the
+		// pathRoot branch to add doc-level bits to its Raw, then the
 		// AND intersection at pathRoot gives the doc-level conjunction.
 		{
 			name: "NOT cars[1].year=2020 AND cars.make=honda [L0]",
@@ -1158,8 +1159,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 						[]pinSpec{{"cars", 1}}),
 					leafPositive(idx, "cars.make", "honda"))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// NOT cars[1].year=2020 witnesses = {100, 300, 400, 800, 830, 850}.
 			// cars.make=honda witnesses = {100, 200, 300, 810}.
 			// Intersection = {100, 300}.
@@ -1178,8 +1179,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPinnedPositive(idx, "cars.year", 2020,
 						[]pinSpec{{"cars", 1}}))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// cars[0]=2020: {100, 810}. cars[1]=2020: {200, 810}.
 			// Intersection: {810}.
 			wantDocs: []uint64{810},
@@ -1202,8 +1203,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPinnedPositive(idx, "cars.make", "honda",
 						[]pinSpec{{"cars", 1}}))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// NOT cars[0].year=2020 witnesses = docUniverse AndNot
 			// {100, 810} = {200, 300, 400, 800, 830, 850}.
 			// cars[1].make=honda witnesses = {100, 200, 300}.
@@ -1229,8 +1230,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 						leafPositive(idx, "cars.make", "honda"),
 						leafPositive(idx, "cars.year", 2020)))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// Left (NOT cars[1].year=2020): {100, 300, 400, 700, 800, 830, 850}.
 			// Right (same-car honda + 2020): doc 200 cars[1] honda+2020,
 			// doc 810 cars[0] honda+2020 → {200, 810}. Lifted to pathRoot
@@ -1242,14 +1243,14 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// Pinned-root NOT (ancestor at pathRoot) AND-ed with a same-Scope
 		// compound child at cars. The child is itself a same-Scope AND
 		// (cars.colors=red AND cars.colors=blue) with Scope=cars and
-		// CleanAbove=cars — its Witnesses are per-car (cars where the
-		// colors array contains BOTH values). andLeaves picks the
-		// `ancestor.Scope == pathRoot` carve-out: lift the child to
+		// Ceiling=cars — its Witnesses are per-car (cars where the
+		// colors array contains BOTH values). andLeaves takes the
+		// `ancestor.Scope == pathRoot` branch: lift the child to
 		// pathRoot via liftToScope's pathRoot branch (which adds
 		// authentic doc-level bits via MaskRootLeaf of child.Witnesses),
 		// then intersect at pathRoot. Differs from earlier "leaf child"
 		// tests by exercising the lift of a COMPOUND, which is what
-		// originally surfaced the CleanAbove bug in liftToScope.
+		// originally surfaced the Ceiling bug in liftToScope.
 		{
 			name: "NOT cars[1].year=2020 AND (cars.colors=red AND cars.colors=blue) [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -1260,8 +1261,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 						leafPositive(idx, "cars.colors", "red"),
 						leafPositive(idx, "cars.colors", "blue")))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// Inner per-car AND of red+blue same-array witnesses: only
 			// doc 100 cars[1].colors=[blue,red] qualifies → inner = {100}.
 			// NOT cars[1].year=2020 witnesses = {100, 300, 400, 800, 830, 850}.
@@ -1275,7 +1276,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// test above (Witnesses={200,300}, Scope=pathRoot). Outer negate
 		// inverts at pathRoot: docUniverse AndNot inner.Witnesses. Tests
 		// that `negate` composes correctly when pos.Scope=pathRoot — i.e.
-		// truthAnchor=docUniverse is used uniformly via anchorAt.
+		// scopeAnchor=docUniverse is used uniformly via anchorAt.
 		{
 			name: "NOT (NOT cars[0].year=2020 AND cars[1].make=honda) [L0]",
 			build: func(idx *fastPathIndex) *fastPathResult {
@@ -1285,8 +1286,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPinnedPositive(idx, "cars.make", "honda",
 						[]pinSpec{{"cars", 1}})))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// Inner AND witnesses = {200, 300}. Outer negate =
 			// docUniverse AndNot {200, 300} = {100, 400, 700, 800, 810, 830, 850}.
 			// Per-doc check:
@@ -1312,9 +1313,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPinnedPositive(idx, "cars.year", 2020,
 						[]pinSpec{{"cars", 1}}))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
-			wantDocs:       []uint64{100, 200, 810},
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
+			wantDocs:    []uint64{100, 200, 810},
 		},
 		// Pinned-root ContainsAny — value union ∩ pin intersection through
 		// pinnedFromValueSet's MaskRootLeaf branch. Verifies the same
@@ -1325,8 +1326,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedContainsAny(idx, "cars.make",
 					[]pinSpec{{"cars", 1}}, "honda", "toyota")
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// cars[1].make: doc 100=honda, 200=honda, 300=honda, 810=toyota.
 			wantDocs: []uint64{100, 200, 300, 810},
 		},
@@ -1341,13 +1342,31 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedContainsAll(idx, "cars.colors",
 					[]pinSpec{{"cars", 1}}, "red", "blue")
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 100 cars[1].colors=[blue,red] → has both → PASS.
 			// doc 200 cars[1].colors=[blue] only → FAIL.
 			// doc 300 cars[1].colors=[red] only → FAIL.
 			// Others: no cars[1] or cars[1] has no colors → FAIL.
 			wantDocs: []uint64{100},
+		},
+		// Pinned-root ContainsAll on a scalar field — degenerate but
+		// must not crash or produce false positives. A single make slot
+		// can only hold one value, so values[honda] ∩ values[ford]
+		// (the chain bits at cars-self) is ∅ for every car: a car
+		// either has make=honda or make=ford, never both. The pinned-
+		// root ContainsAll path produces an empty Raw and Witnesses.
+		// Verifies pinnedFromValueSet's pathRoot branch tolerates an
+		// already-empty `a` from intersection-of-disjoint-buckets.
+		{
+			name: "cars[1].make ContainsAll [honda, ford] [L0, degenerate scalar]",
+			build: func(idx *fastPathIndex) *fastPathResult {
+				return leafPinnedContainsAll(idx, "cars.make",
+					[]pinSpec{{"cars", 1}}, "honda", "ford")
+			},
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
+			wantDocs:    nil,
 		},
 		// Pinned-root ContainsNone direct. Owner-level negation of
 		// pinned ContainsAny — doc passes iff cars[1].make ∉ {honda, ford},
@@ -1360,8 +1379,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedContainsNone(idx, "cars.make",
 					[]pinSpec{{"cars", 1}}, "honda", "ford")
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// pinned ContainsAny [honda, ford] witnesses (docs with
 			// cars[1].make ∈ {honda, ford}):
 			//   doc 100/200/300 cars[1]=honda → in.
@@ -1380,9 +1399,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return negate(idx, leafPinnedContainsAny(idx, "cars.make",
 					[]pinSpec{{"cars", 1}}, "honda", "ford"))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
-			wantDocs:       []uint64{400, 700, 800, 810, 830, 850},
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
+			wantDocs:    []uint64{400, 700, 800, 810, 830, 850},
 		},
 		// Equivalence #3: NOT (pinned positive OR pinned positive).
 		// Different construction path — two pinned-positive operands at
@@ -1400,16 +1419,16 @@ func TestFastPathL0_Merge(t *testing.T) {
 					leafPinnedPositive(idx, "cars.make", "ford",
 						[]pinSpec{{"cars", 1}})))
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
-			wantDocs:       []uint64{400, 700, 800, 810, 830, 850},
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
+			wantDocs:    []uint64{400, 700, 800, 810, 830, 850},
 		},
 		// Intermediate-pin positive at the property root — root pin with
 		// gap to a value path one level below the pinned element scope
 		// (cars.tires.width). leafPinnedPositive routes through
 		// pinnedFromValueSet's MaskRootLeaf branch, which already handles
 		// the gap correctly because the doc-level lift is via MaskRootLeaf
-		// regardless of how many levels lie between truthScope=pathRoot
+		// regardless of how many levels lie between scope=pathRoot
 		// and the value path. Per-element semantic: doc passes iff some
 		// tire under cars[1] has width=205.
 		{
@@ -1418,8 +1437,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedPositive(idx, "cars.tires.width", 205,
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 100 cars[1].tires=[195] → no 205 → FAIL.
 			// doc 200 cars[1].tires=[205] → PASS.
 			// doc 300 cars[1] no tires → FAIL.
@@ -1440,8 +1459,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedIsNullFalse(idx, "cars.tires.width",
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// All width values in the L0 fixtures are integers, so any
 			// tire entry has width set. wantDocs reduces to "docs with at
 			// least one tire under cars[1]":
@@ -1468,8 +1487,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedPositive(idx, "cars.tires.width", 205,
 					[]pinSpec{{"cars", 1}, {"cars.tires", 0}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 200 cars[1].tires[0]=205 → PASS.
 			// doc 850 cars[1].tires[0]=205 → PASS.
 			// doc 100 cars[1].tires[0]=195 → FAIL.
@@ -1488,8 +1507,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedPositive(idx, "cars.accessories.type", "spoiler",
 					[]pinSpec{{"cars", 0}, {"cars.accessories", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// Only doc 830 has cars[0].accessories[1] (=spoiler). All
 			// other docs lack the accessories[1] slot — their
 			// values[spoiler] emissions sit at accessories[0] which the
@@ -1500,7 +1519,7 @@ func TestFastPathL0_Merge(t *testing.T) {
 		// cars (= propName) with a gap to the value path at cars.tires.
 		// hasPinGap returns true (len(pins)=1 != levelsBetween=2), so
 		// leafPinnedNot routes through perElementNotFromSubtractands with
-		// truthScope=pathRoot. Per-element semantic: doc passes iff some
+		// scope=pathRoot. Per-element semantic: doc passes iff some
 		// cars[1].tires has width != 205, OR cars[1] doesn't exist.
 		{
 			name: "NOT cars[1].tires.width=205 [L0, intermediate-pin NOT at root]",
@@ -1508,8 +1527,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedNot(idx, "cars.tires.width", 205,
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 100 cars[1].tires=[195] → 195≠205 → per-elem witness PASS.
 			// doc 200 cars[1].tires=[205] only → no witness; cars[1] exists → FAIL.
 			// doc 300 cars[1] no tires → no per-elem witness; cars[1] exists → FAIL.
@@ -1522,8 +1541,9 @@ func TestFastPathL0_Merge(t *testing.T) {
 			wantDocs: []uint64{100, 400, 700, 800, 830},
 		},
 		// Intermediate-pin IS NULL true at the property root — same route
-		// as the NOT case above, just with the exists bitmap as subtractand
-		// instead of a specific value bucket. Per-element semantic: doc
+		// as the NOT case above, just with the _exists bitmap as
+		// subtractand instead of a specific value bucket. Per-element
+		// semantic: doc
 		// passes iff some cars[1].tires lacks width, OR cars[1] doesn't
 		// exist.
 		{
@@ -1532,8 +1552,8 @@ func TestFastPathL0_Merge(t *testing.T) {
 				return leafPinnedIsNullTrue(idx, "cars.tires.width",
 					[]pinSpec{{"cars", 1}})
 			},
-			wantScope:      pathRoot,
-			wantCleanAbove: pathRoot,
+			wantScope:   pathRoot,
+			wantCeiling: pathRoot,
 			// doc 100 cars[1].tires=[195] (has width) → no per-elem witness;
 			//   cars[1] exists → FAIL.
 			// doc 200 cars[1].tires=[205] → same → FAIL.
