@@ -427,7 +427,7 @@ func (m *commitMerger) result() *NodeCommits {
 		}
 	}
 
-	// Tombstone operations (no-op if both add and remove)
+	// Safe to collapse: RemoveTombstone is terminal (emitted only with DeleteNode; docIDs immutable), so both-set never describes a live node.
 	if m.addTombstone && !m.removeTombstone {
 		commits = append(commits, &AddTombstoneCommit{ID: m.nodeID})
 	}
