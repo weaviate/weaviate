@@ -1,4 +1,4 @@
-s#!/usr/bin/env bash
+#!/usr/bin/env bash
 
 CONFIG=${1:-local-development}
 
