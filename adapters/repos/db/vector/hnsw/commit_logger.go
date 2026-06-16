@@ -514,21 +514,39 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 		return false, nil
 	}
 
+	oldFile := l.currentFile
+	oldWriter := l.currentWriter
 	oldFileName := l.currentFileName
 
-	// Flush and close current file
-	if err := l.currentWriter.Flush(); err != nil {
+	// Flush and fsync the current file so its bytes are durable before we stop
+	// appending to it. The old file is deliberately NOT closed yet: every step
+	// below can fail (ENOSPC/EIO), and l.currentFile must never be left pointing
+	// at a dead fd. While the old file stays open and assigned, a failure here
+	// just aborts the rotation and writes continue against it.
+	if err := oldWriter.Flush(); err != nil {
 		return true, errors.Wrap(err, "flush commit log")
 	}
-	if err := l.currentFile.Sync(); err != nil {
+	if err := oldFile.Sync(); err != nil {
 		return true, errors.Wrap(err, "sync commit log")
 	}
-	if err := l.currentFile.Close(); err != nil {
-		return true, errors.Wrap(err, "close commit log")
+
+	// Open the new file BEFORE closing the old one. If this fails, the old file
+	// is still open and l.currentFile/currentWriter are unchanged, so the next
+	// AddNode keeps writing to a healthy fd instead of a closed one; the rotation
+	// is simply retried on the next maintenance cycle.
+	fileName := fmt.Sprintf("%d", time.Now().Unix())
+	filePath := commitLogFileName(l.rootPath, l.id, fileName)
+	fd, err := l.fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return true, errors.Wrap(err, "create commit log file")
 	}
 
-	// Create new file with timestamp name
-	fileName := fmt.Sprintf("%d", time.Now().Unix())
+	// New file is open: redirect all writes to it before touching the old fd, so
+	// there is no window in which l.currentFile is closed.
+	l.currentFile = fd
+	l.currentFileName = filePath
+	l.currentWriter = bufio.NewWriterSize(fd, 32*1024)
+	l.walWriter = compact.NewWALWriter(l.currentWriter)
 
 	if force {
 		l.logger.WithField("action", "commit_log_file_switched").
@@ -546,16 +564,16 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 			Info("commit log size crossed threshold, switching to new file")
 	}
 
-	filePath := commitLogFileName(l.rootPath, l.id, fileName)
-	fd, err := l.fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-	if err != nil {
-		return true, errors.Wrap(err, "create commit log file")
+	// The rotation has committed; the old file's bytes are already flushed and
+	// synced. Closing it is cleanup — a failure here risks at most a leaked fd,
+	// not lost writes (those land on the new file now), so it must not fail the
+	// rotation or a backup that depends on it.
+	if err := oldFile.Close(); err != nil {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			Warnf("failed to close rotated-out commit log file: %v", err)
 	}
-
-	l.currentFile = fd
-	l.currentFileName = filePath
-	l.currentWriter = bufio.NewWriterSize(fd, 32*1024)
-	l.walWriter = compact.NewWALWriter(l.currentWriter)
 
 	return true, nil
 }
