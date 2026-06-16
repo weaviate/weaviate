@@ -25,6 +25,7 @@ type WeaviateSearcher struct {
 	auth.Auth
 
 	traverser         traverser
+	schemaReader      schemaReader
 	schemaManager     namespacing.SchemaManager
 	namespacesEnabled bool
 	logger            logrus.FieldLogger
@@ -34,9 +35,14 @@ type traverser interface {
 	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) ([]any, error)
 }
 
-func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, schemaManager namespacing.SchemaManager, namespacesEnabled bool, logger logrus.FieldLogger) *WeaviateSearcher {
+type schemaReader interface {
+	ReadOnlyClass(name string) *models.Class
+}
+
+func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, schemaReader schemaReader, schemaManager namespacing.SchemaManager, namespacesEnabled bool, logger logrus.FieldLogger) *WeaviateSearcher {
 	return &WeaviateSearcher{
 		traverser:         traverser,
+		schemaReader:      schemaReader,
 		schemaManager:     schemaManager,
 		namespacesEnabled: namespacesEnabled,
 		Auth:              *auth,
