@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -58,8 +59,8 @@ func TestLocalIndexNotReady(t *testing.T) {
 
 	t.Run("non-StatusNotReady error", func(t *testing.T) {
 		resp := replica.SimpleResponse{
-			Errors: []replica.Error{
-				{Code: replica.StatusConflict, Msg: "conflict"},
+			Errors: []replicaerrors.Error{
+				{Code: replicaerrors.StatusConflict, Msg: "conflict"},
 			},
 		}
 		assert.False(t, shared.LocalIndexNotReady(resp))
@@ -67,8 +68,8 @@ func TestLocalIndexNotReady(t *testing.T) {
 
 	t.Run("StatusNotReady returns true", func(t *testing.T) {
 		resp := replica.SimpleResponse{
-			Errors: []replica.Error{
-				{Code: replica.StatusNotReady, Msg: "index loading"},
+			Errors: []replicaerrors.Error{
+				{Code: replicaerrors.StatusNotReady, Msg: "index loading"},
 			},
 		}
 		assert.True(t, shared.LocalIndexNotReady(resp))

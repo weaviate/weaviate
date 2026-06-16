@@ -53,6 +53,13 @@ type BM25Searcher struct {
 	logger           logrus.FieldLogger
 	shardVersion     uint16
 	stopwordProvider *stopwords.Provider
+	// tokResolver, when non-nil, overrides prop.Tokenization on query
+	// input analysis. Used by the per-shard tokenization overlay to
+	// keep query tokenization aligned with the bucket content during
+	// the FINALIZING window of a change-tokenization migration. Nil =
+	// use prop.Tokenization directly (tests and callers with no
+	// in-flight migration).
+	tokResolver TokenizationResolver
 }
 
 type propLengthRetriever interface {
@@ -83,6 +90,22 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		shardVersion:     shardVersion,
 		stopwordProvider: stopwordProvider,
 	}
+}
+
+// WithTokenizationResolver attaches a [TokenizationResolver] used by query
+// input analysis to consult a per-shard tokenization overlay before
+// falling back to the schema-stored `prop.Tokenization`. Returns the
+// receiver for fluent chaining at construction sites.
+//
+// Production callers wire `Shard.TokenizationFor` here so a
+// change-tokenization migration's FINALIZING-window overlay routes
+// query input to the post-swap tokenization. See [TokenizationResolver]
+// for the misalignment this closes.
+//
+// Pass nil (the default) to use the schema-stored value directly.
+func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Searcher {
+	b.tokResolver = r
+	return b
 }
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
@@ -156,11 +179,18 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// This avoids eagerly tokenizing the query for all possible tokenizations
 	// when only a subset is actually used by the searched properties.
 	type propInfo struct {
-		name      string
-		prop      *models.Property
-		tokKey    string
-		propMean  float64
-		meanValid bool
+		name string
+		prop *models.Property
+		// effectiveTokenization is the active query-time tokenization for
+		// this property — either the schema-stored `prop.Tokenization`
+		// or the value returned by the per-shard tokenization overlay
+		// (see [TokenizationResolver]). Computed once at prop discovery
+		// and used everywhere downstream to avoid recomputing the same
+		// value across the BM25 pipeline.
+		effectiveTokenization string
+		tokKey                string
+		propMean              float64
+		meanValid             bool
 	}
 
 	props := make([]propInfo, 0, len(params.Properties))
@@ -169,13 +199,14 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
-		propBoost := 1
+		propBoost := float32(1)
 		if strings.Contains(propertyWithBoost, "^") {
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
-			propBoost, _ = strconv.Atoi(boostStr)
+			boost, _ := strconv.ParseFloat(boostStr, 32)
+			propBoost = float32(boost)
 		}
-		propertyBoosts[property] = float32(propBoost)
+		propertyBoosts[property] = propBoost
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
@@ -198,28 +229,37 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			tokKey := prop.Tokenization
+			// effectiveTok consults the per-shard tokenization overlay
+			// (set during the FINALIZING window of a change-tokenization
+			// migration) before falling back to the schema-stored value.
+			// The rest of the BM25 pipeline for this property uses
+			// effectiveTok everywhere `prop.Tokenization` would have been
+			// read, so query input gets tokenized against the value that
+			// matches the bucket content on this shard.
+			effectiveTok := ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
+			tokKey := effectiveTok
 			hasCustomStopwords := prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != ""
 			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
 				if len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 || hasCustomStopwords {
 					// Per-property key — will be computed after tokenization
-					tokKey = asciiTokenizationKey(prop.Tokenization) + ":" + property
+					tokKey = asciiTokenizationKey(effectiveTok) + ":" + property
 				} else {
-					tokKey = asciiTokenizationKey(prop.Tokenization)
-					needsASCIIFold[prop.Tokenization] = struct{}{}
+					tokKey = asciiTokenizationKey(effectiveTok)
+					needsASCIIFold[effectiveTok] = struct{}{}
 				}
 			} else if hasCustomStopwords {
 				// Per-property key for custom stopword preset
-				tokKey = prop.Tokenization + ":" + property
+				tokKey = effectiveTok + ":" + property
 			}
-			neededTokenizations[prop.Tokenization] = struct{}{}
+			neededTokenizations[effectiveTok] = struct{}{}
 
 			props = append(props, propInfo{
-				name:      property,
-				prop:      prop,
-				tokKey:    tokKey,
-				propMean:  float64(propMean),
-				meanValid: !math.IsNaN(float64(propMean)),
+				name:                  property,
+				prop:                  prop,
+				effectiveTokenization: effectiveTok,
+				tokKey:                tokKey,
+				propMean:              float64(propMean),
+				meanValid:             !math.IsNaN(float64(propMean)),
 			})
 		default:
 			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
@@ -271,7 +311,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		hasCustomStopwords := pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.StopwordPreset != ""
 		if hasCustomASCIIFoldIgnore || hasCustomStopwords {
 			var sw tokenizer.StopwordDetector
-			if pi.prop.Tokenization == models.PropertyTokenizationWord {
+			if pi.effectiveTokenization == models.PropertyTokenizationWord {
 				d, err := b.stopwordProvider.Get(pi.prop)
 				if err != nil {
 					return false, 0, nil, nil, nil, nil, 0, err
@@ -279,7 +319,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 				sw = d
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
-			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)
+			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.effectiveTokenization, class.Class, prepared, sw)
 			queryTermsByTokenization[tokKey] = propTerms
 			duplicateBoostsByTokenization[tokKey] = propBoosts
 			propNamesByTokenization[tokKey] = make([]string, 0)
@@ -287,7 +327,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		if _, exists := propNamesByTokenization[tokKey]; !exists {
 			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
-				pi.prop.Tokenization, pi.prop.Name)
+				pi.effectiveTokenization, pi.prop.Name)
 		}
 		propNamesByTokenization[tokKey] = append(propNamesByTokenization[tokKey], pi.name)
 	}

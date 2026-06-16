@@ -19,23 +19,26 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReplicationService_PutObject_FullMethodName            = "/clusterapi.ReplicationService/PutObject"
-	ReplicationService_PutObjects_FullMethodName           = "/clusterapi.ReplicationService/PutObjects"
-	ReplicationService_MergeObject_FullMethodName          = "/clusterapi.ReplicationService/MergeObject"
-	ReplicationService_DeleteObject_FullMethodName         = "/clusterapi.ReplicationService/DeleteObject"
-	ReplicationService_DeleteObjects_FullMethodName        = "/clusterapi.ReplicationService/DeleteObjects"
-	ReplicationService_AddReferences_FullMethodName        = "/clusterapi.ReplicationService/AddReferences"
-	ReplicationService_Commit_FullMethodName               = "/clusterapi.ReplicationService/Commit"
-	ReplicationService_Abort_FullMethodName                = "/clusterapi.ReplicationService/Abort"
-	ReplicationService_FetchObject_FullMethodName          = "/clusterapi.ReplicationService/FetchObject"
-	ReplicationService_FetchObjects_FullMethodName         = "/clusterapi.ReplicationService/FetchObjects"
-	ReplicationService_DigestObjects_FullMethodName        = "/clusterapi.ReplicationService/DigestObjects"
-	ReplicationService_DigestObjectsInRange_FullMethodName = "/clusterapi.ReplicationService/DigestObjectsInRange"
-	ReplicationService_CompareDigests_FullMethodName       = "/clusterapi.ReplicationService/CompareDigests"
-	ReplicationService_OverwriteObjects_FullMethodName     = "/clusterapi.ReplicationService/OverwriteObjects"
-	ReplicationService_FindUUIDs_FullMethodName            = "/clusterapi.ReplicationService/FindUUIDs"
-	ReplicationService_HashTreeLevel_FullMethodName        = "/clusterapi.ReplicationService/HashTreeLevel"
-	ReplicationService_CountObjects_FullMethodName         = "/clusterapi.ReplicationService/CountObjects"
+	ReplicationService_PutObject_FullMethodName                = "/clusterapi.ReplicationService/PutObject"
+	ReplicationService_PutObjects_FullMethodName               = "/clusterapi.ReplicationService/PutObjects"
+	ReplicationService_MergeObject_FullMethodName              = "/clusterapi.ReplicationService/MergeObject"
+	ReplicationService_DeleteObject_FullMethodName             = "/clusterapi.ReplicationService/DeleteObject"
+	ReplicationService_DeleteObjects_FullMethodName            = "/clusterapi.ReplicationService/DeleteObjects"
+	ReplicationService_AddReferences_FullMethodName            = "/clusterapi.ReplicationService/AddReferences"
+	ReplicationService_Commit_FullMethodName                   = "/clusterapi.ReplicationService/Commit"
+	ReplicationService_Abort_FullMethodName                    = "/clusterapi.ReplicationService/Abort"
+	ReplicationService_FetchObject_FullMethodName              = "/clusterapi.ReplicationService/FetchObject"
+	ReplicationService_FetchObjects_FullMethodName             = "/clusterapi.ReplicationService/FetchObjects"
+	ReplicationService_DigestObjects_FullMethodName            = "/clusterapi.ReplicationService/DigestObjects"
+	ReplicationService_DigestObjectsInRange_FullMethodName     = "/clusterapi.ReplicationService/DigestObjectsInRange"
+	ReplicationService_CompareDigests_FullMethodName           = "/clusterapi.ReplicationService/CompareDigests"
+	ReplicationService_OverwriteObjects_FullMethodName         = "/clusterapi.ReplicationService/OverwriteObjects"
+	ReplicationService_FindUUIDs_FullMethodName                = "/clusterapi.ReplicationService/FindUUIDs"
+	ReplicationService_HashTreeLevel_FullMethodName            = "/clusterapi.ReplicationService/HashTreeLevel"
+	ReplicationService_CountObjects_FullMethodName             = "/clusterapi.ReplicationService/CountObjects"
+	ReplicationService_CreateAsyncCheckpoint_FullMethodName    = "/clusterapi.ReplicationService/CreateAsyncCheckpoint"
+	ReplicationService_DeleteAsyncCheckpoint_FullMethodName    = "/clusterapi.ReplicationService/DeleteAsyncCheckpoint"
+	ReplicationService_GetAsyncCheckpointStatus_FullMethodName = "/clusterapi.ReplicationService/GetAsyncCheckpointStatus"
 )
 
 // ReplicationServiceClient is the client API for ReplicationService service.
@@ -64,6 +67,10 @@ type ReplicationServiceClient interface {
 	FindUUIDs(ctx context.Context, in *FindUUIDsRequest, opts ...grpc.CallOption) (*FindUUIDsResponse, error)
 	HashTreeLevel(ctx context.Context, in *HashTreeLevelRequest, opts ...grpc.CallOption) (*HashTreeLevelResponse, error)
 	CountObjects(ctx context.Context, in *CountObjectsRequest, opts ...grpc.CallOption) (*CountObjectsResponse, error)
+	// Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
+	CreateAsyncCheckpoint(ctx context.Context, in *CreateAsyncCheckpointRequest, opts ...grpc.CallOption) (*CreateAsyncCheckpointResponse, error)
+	DeleteAsyncCheckpoint(ctx context.Context, in *DeleteAsyncCheckpointRequest, opts ...grpc.CallOption) (*DeleteAsyncCheckpointResponse, error)
+	GetAsyncCheckpointStatus(ctx context.Context, in *GetAsyncCheckpointStatusRequest, opts ...grpc.CallOption) (*GetAsyncCheckpointStatusResponse, error)
 }
 
 type replicationServiceClient struct {
@@ -244,6 +251,36 @@ func (c *replicationServiceClient) CountObjects(ctx context.Context, in *CountOb
 	return out, nil
 }
 
+func (c *replicationServiceClient) CreateAsyncCheckpoint(ctx context.Context, in *CreateAsyncCheckpointRequest, opts ...grpc.CallOption) (*CreateAsyncCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateAsyncCheckpointResponse)
+	err := c.cc.Invoke(ctx, ReplicationService_CreateAsyncCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *replicationServiceClient) DeleteAsyncCheckpoint(ctx context.Context, in *DeleteAsyncCheckpointRequest, opts ...grpc.CallOption) (*DeleteAsyncCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteAsyncCheckpointResponse)
+	err := c.cc.Invoke(ctx, ReplicationService_DeleteAsyncCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *replicationServiceClient) GetAsyncCheckpointStatus(ctx context.Context, in *GetAsyncCheckpointStatusRequest, opts ...grpc.CallOption) (*GetAsyncCheckpointStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAsyncCheckpointStatusResponse)
+	err := c.cc.Invoke(ctx, ReplicationService_GetAsyncCheckpointStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReplicationServiceServer is the server API for ReplicationService service.
 // All implementations should embed UnimplementedReplicationServiceServer
 // for forward compatibility.
@@ -270,6 +307,10 @@ type ReplicationServiceServer interface {
 	FindUUIDs(context.Context, *FindUUIDsRequest) (*FindUUIDsResponse, error)
 	HashTreeLevel(context.Context, *HashTreeLevelRequest) (*HashTreeLevelResponse, error)
 	CountObjects(context.Context, *CountObjectsRequest) (*CountObjectsResponse, error)
+	// Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
+	CreateAsyncCheckpoint(context.Context, *CreateAsyncCheckpointRequest) (*CreateAsyncCheckpointResponse, error)
+	DeleteAsyncCheckpoint(context.Context, *DeleteAsyncCheckpointRequest) (*DeleteAsyncCheckpointResponse, error)
+	GetAsyncCheckpointStatus(context.Context, *GetAsyncCheckpointStatusRequest) (*GetAsyncCheckpointStatusResponse, error)
 }
 
 // UnimplementedReplicationServiceServer should be embedded to have
@@ -329,6 +370,15 @@ func (UnimplementedReplicationServiceServer) HashTreeLevel(context.Context, *Has
 }
 func (UnimplementedReplicationServiceServer) CountObjects(context.Context, *CountObjectsRequest) (*CountObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CountObjects not implemented")
+}
+func (UnimplementedReplicationServiceServer) CreateAsyncCheckpoint(context.Context, *CreateAsyncCheckpointRequest) (*CreateAsyncCheckpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateAsyncCheckpoint not implemented")
+}
+func (UnimplementedReplicationServiceServer) DeleteAsyncCheckpoint(context.Context, *DeleteAsyncCheckpointRequest) (*DeleteAsyncCheckpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteAsyncCheckpoint not implemented")
+}
+func (UnimplementedReplicationServiceServer) GetAsyncCheckpointStatus(context.Context, *GetAsyncCheckpointStatusRequest) (*GetAsyncCheckpointStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAsyncCheckpointStatus not implemented")
 }
 func (UnimplementedReplicationServiceServer) testEmbeddedByValue() {}
 
@@ -656,6 +706,60 @@ func _ReplicationService_CountObjects_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReplicationService_CreateAsyncCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateAsyncCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReplicationServiceServer).CreateAsyncCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReplicationService_CreateAsyncCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReplicationServiceServer).CreateAsyncCheckpoint(ctx, req.(*CreateAsyncCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReplicationService_DeleteAsyncCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAsyncCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReplicationServiceServer).DeleteAsyncCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReplicationService_DeleteAsyncCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReplicationServiceServer).DeleteAsyncCheckpoint(ctx, req.(*DeleteAsyncCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReplicationService_GetAsyncCheckpointStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAsyncCheckpointStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReplicationServiceServer).GetAsyncCheckpointStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReplicationService_GetAsyncCheckpointStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReplicationServiceServer).GetAsyncCheckpointStatus(ctx, req.(*GetAsyncCheckpointStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ReplicationService_ServiceDesc is the grpc.ServiceDesc for ReplicationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -730,6 +834,18 @@ var ReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CountObjects",
 			Handler:    _ReplicationService_CountObjects_Handler,
+		},
+		{
+			MethodName: "CreateAsyncCheckpoint",
+			Handler:    _ReplicationService_CreateAsyncCheckpoint_Handler,
+		},
+		{
+			MethodName: "DeleteAsyncCheckpoint",
+			Handler:    _ReplicationService_DeleteAsyncCheckpoint_Handler,
+		},
+		{
+			MethodName: "GetAsyncCheckpointStatus",
+			Handler:    _ReplicationService_GetAsyncCheckpointStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

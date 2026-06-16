@@ -40,14 +40,17 @@ const (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 var (
-	indexMetadataBucketPrefix  = []byte{sharedBucketVersionV1, 0}
-	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
-	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
+	indexMetadataBucketPrefix = []byte{sharedBucketVersionV1, 0}
+	versionMapBucketPrefix    = []byte{sharedBucketVersionV1, 1}
+	// postingMapBucketPrefixV1 is migrated to postingMapBucketPrefixV2 by migratePostingMapV1ToV2.
+	postingMapBucketPrefixV1   = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
+	reassignBucketKey          = []byte{sharedBucketVersionV1, 4, 0}
+	// postingMapBucketPrefixV2 stores posting IDs without vector version bytes.
+	postingMapBucketPrefixV2 = []byte{sharedBucketVersionV1, 5}
+	// postingSizesBucketPrefix was added with postingMapBucketPrefixV2.
+	postingSizesBucketPrefix = []byte{sharedBucketVersionV1, 6}
 )
-
-// reassignBucketKey is used to track vectors that need to be reassigned to new postings.
-var reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
@@ -148,7 +151,13 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 
+	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
+		return err
+	}
 	if err := h.PostingMap.Restore(h.ctx); err != nil {
+		return err
+	}
+	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
 
@@ -221,7 +230,7 @@ func (h *HFresh) restoreMetrics() error {
 	h.metrics.SetPendingReassignTasks(reassignCount)
 	h.metrics.SetPendingAnalyzeTasks(analyzeCount)
 
-	postingsCount := h.PostingMap.Size()
+	postingsCount := int(h.PostingSizes.Count())
 	h.Centroids.counter.Store(int32(postingsCount))
 	h.metrics.SetPostings(postingsCount)
 

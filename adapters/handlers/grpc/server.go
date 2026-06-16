@@ -33,6 +33,7 @@ import (
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -53,7 +54,7 @@ import (
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
 // clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
-func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -101,7 +102,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	if clientTracker != nil {
 		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
 		// so no need for a separate makeClientIdentifierInterceptor.
-		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker))
+		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker, integrationTracker))
 	} else {
 		interceptors = append(interceptors, makeClientIdentifierInterceptor())
 	}
@@ -184,7 +185,30 @@ func translateTypedError(err error) error {
 	if le, ok := usagelimits.AsLimitExceeded(err); ok {
 		return limitExceededToGrpcError(le)
 	}
+	if v, ok := restrictions.AsViolation(err); ok {
+		return restrictionViolationToGrpcError(v)
+	}
 	return nil
+}
+
+// restrictionViolationToGrpcError maps a ViolationError to
+// FailedPrecondition + ErrorInfo metadata mirroring the REST 422 body.
+func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
+	st := status.New(codes.FailedPrecondition, v.Error())
+	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: restrictions.ErrorCode,
+		Domain: "weaviate.restrictions",
+		Metadata: map[string]string{
+			"restriction": string(v.Restriction),
+			"value":       v.Value,
+			"allowed":     strings.Join(v.Allowed, ","),
+			"message":     v.RenderedMessage,
+		},
+	})
+	if derr != nil {
+		return st.Err()
+	}
+	return withDetails.Err()
 }
 
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {

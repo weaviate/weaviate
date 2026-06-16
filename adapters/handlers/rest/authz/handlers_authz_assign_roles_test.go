@@ -99,6 +99,71 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 	assert.NotNil(t, parsed)
 }
 
+// TestAssignEmptyRoleSkipsPlaceholderPolicy: empty roles surface from GetRoles
+// as a single InternalPlaceHolder policy; the assign guard must skip it or no
+// caller below root can assign an empty role.
+func TestAssignEmptyRoleSkipsPlaceholderPolicy(t *testing.T) {
+	emptyRolePolicies := map[string][]authorization.Policy{
+		"emptyRole": {{Resource: conv.InternalPlaceHolder}},
+	}
+
+	t.Run("assign to user", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		controller := NewMockControllerAndGetUsers(t)
+		logger, _ := test.NewNullLogger()
+
+		userType := models.UserTypeInputDb
+		principal := &models.Principal{Username: "user1"}
+		params := authz.AssignRoleToUserParams{
+			ID:          "user1",
+			HTTPRequest: req,
+			Body:        authz.AssignRoleToUserBody{Roles: []string{"emptyRole"}, UserType: userType},
+		}
+
+		authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
+		controller.On("GetRoles", params.Body.Roles[0]).Return(emptyRolePolicies, nil)
+		controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, authentication.AuthType(params.Body.UserType)), params.Body.Roles).Return(nil)
+		// AuthorizeSilent intentionally unmocked: the guard must skip the placeholder.
+
+		h := &authZHandlers{
+			authorizer:     authorizer,
+			controller:     controller,
+			apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
+			logger:         logger,
+		}
+		res := h.assignRoleToUser(params, principal)
+		_, ok := res.(*authz.AssignRoleToUserOK)
+		assert.True(t, ok, "expected OK, got %T", res)
+	})
+
+	t.Run("assign to group", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		controller := NewMockControllerAndGetUsers(t)
+		logger, _ := test.NewNullLogger()
+
+		principal := &models.Principal{Username: "root-user"}
+		params := authz.AssignRoleToGroupParams{
+			ID:          "group1",
+			HTTPRequest: req,
+			Body:        authz.AssignRoleToGroupBody{Roles: []string{"emptyRole"}, GroupType: models.GroupTypeOidc},
+		}
+
+		authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(authentication.AuthType(params.Body.GroupType), params.ID)[0]).Return(nil)
+		controller.On("GetRoles", params.Body.Roles[0]).Return(emptyRolePolicies, nil)
+		controller.On("AddRolesForUser", conv.PrefixGroupName(params.ID), params.Body.Roles).Return(nil)
+
+		h := &authZHandlers{
+			authorizer: authorizer,
+			controller: controller,
+			logger:     logger,
+			rbacconfig: rbacconf.Config{RootUsers: []string{"root-user"}},
+		}
+		res := h.assignRoleToGroup(params, principal)
+		_, ok := res.(*authz.AssignRoleToGroupOK)
+		assert.True(t, ok, "expected OK, got %T", res)
+	})
+}
+
 func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 	type testCase struct {
 		name          string
@@ -517,7 +582,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
+				controller.On("GetUsers", "testUser").Return(map[string]apikey.UserView{"testUser": {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, authentication.AuthType(tt.params.Body.UserType)), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
@@ -601,7 +666,7 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
 			controller.On("GetRoles", tt.role).Return(map[string][]authorization.Policy{tt.role: {}}, nil)
 			isStatic := slices.Contains(tt.staticAPIKeyUsers, tt.userID)
 			if !isStatic {
-				controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+				controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 			}
 			if !tt.wantForbidden {
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthTypeDb), params.Body.Roles).Return(nil)
@@ -683,7 +748,7 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
 			if !tt.wantForbidden {
 				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(userID)[0]).Return(nil)
 				controller.On("GetRoles", tt.role).Return(map[string][]authorization.Policy{tt.role: {}}, nil)
-				controller.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {}}, nil)
+				controller.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(userID, authentication.AuthTypeDb), params.Body.Roles).Return(nil)
 			}
 
@@ -851,7 +916,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 					authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
 					controller.On("GetRoles", "customRole").Return(map[string][]authorization.Policy{"customRole": {}}, nil)
 					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
-						controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+						controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 					}
 					controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), []string{"customRole"}).Return(nil)
 				}
@@ -878,7 +943,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 					authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
 					controller.On("GetRoles", "customRole").Return(map[string][]authorization.Policy{"customRole": {}}, nil)
 					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
-						controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+						controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 					}
 					controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), "customRole").Return(nil)
 				}
@@ -983,6 +1048,73 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 			if tt.expectedError != "" {
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
 			}
+		})
+	}
+}
+
+// TestAssignRoleToUser_Namespaces — namespaced short → 403-at-authz on
+// the qualified resource (no AssignAndRevokeUsers grant); global op
+// qualified → 200.
+func TestAssignRoleToUser_Namespaces(t *testing.T) {
+	userType := models.UserTypeInputDb
+	roles := []string{"testRole"}
+
+	tests := []struct {
+		name             string
+		userID           string
+		principalNS      string
+		isGlobalOperator bool
+		authzKey         string
+		wantStatus       any
+	}{
+		{
+			name:        "namespaced caller short name no grant returns 403",
+			userID:      "bob",
+			principalNS: "customer1",
+			authzKey:    "customer1:bob",
+			wantStatus:  &authz.AssignRoleToUserForbidden{},
+		},
+		{
+			name:             "global operator qualified passthrough succeeds",
+			userID:           "customer1:bob",
+			isGlobalOperator: true,
+			authzKey:         "customer1:bob",
+			wantStatus:       &authz.AssignRoleToUserOK{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{
+				Namespace:        tt.principalNS,
+				IsGlobalOperator: tt.isGlobalOperator,
+			}
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			switch tt.wantStatus.(type) {
+			case *authz.AssignRoleToUserForbidden:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(fmt.Errorf("not allowed"))
+			case *authz.AssignRoleToUserOK:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(nil)
+				controller.On("GetRoles", roles[0]).Return(map[string][]authorization.Policy{roles[0]: {}}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.authzKey, authentication.AuthType(userType)), roles).Return(nil)
+			}
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				logger:            logger,
+				namespacesEnabled: true,
+			}
+			res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+				ID:          tt.userID,
+				HTTPRequest: req,
+				Body:        authz.AssignRoleToUserBody{Roles: roles, UserType: userType},
+			}, principal)
+			assert.IsType(t, tt.wantStatus, res)
 		})
 	}
 }

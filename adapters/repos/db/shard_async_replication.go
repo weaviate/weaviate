@@ -40,6 +40,7 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -557,6 +558,41 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	return nil
 }
 
+// removePersistedHashtree deletes any persisted hashtree (.ht) files for the
+// shard without deserialising them. Called at shard init when async
+// replication is disabled: the shard will serve writes while async is off,
+// so a leftover .ht from a previous async-enabled shutdown goes stale on the
+// first write — a later runtime enable would otherwise load it as the
+// "cached" hashtree and miss the divergence. Missing directory is success.
+// See disableAsyncReplication for the symmetric rationale.
+func (s *Shard) removePersistedHashtree() error {
+	dir := s.pathHashTree()
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	removedAny := false
+	for _, dirEntry := range dirEntries {
+		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
+			continue
+		}
+		filename := filepath.Join(dir, dirEntry.Name())
+		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		removedAny = true
+	}
+	if removedAny {
+		if err := diskio.Fsync(dir); err != nil {
+			return fmt.Errorf("fsync hashtree directory %q: %w", dir, err)
+		}
+	}
+	return nil
+}
+
 // tryLoadHashtreeFromDisk scans the shard's hashtree directory for a persisted
 // hashtree file, loads the most-recent one, and removes it from disk (along
 // with any older duplicates). Returns nil without error when no file is found
@@ -829,6 +865,7 @@ func (s *Shard) mayStopAsyncReplication() {
 
 	s.hashtree = nil
 	s.hashtreeFullyInitialized = false
+	s.clearAsyncCheckpointLocked()
 
 	s.asyncReplicationRWMux.Unlock()
 
@@ -930,70 +967,51 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 }
 
 // disableAsyncReplication cancels the per-shard async-replication context,
-// nils the hashtree, deregisters the shard from the scheduler, and persists
-// the hashtree to disk if it was fully initialised.
+// nils the hashtree, and deregisters the shard from the scheduler.
 //
-// Unlike mayStopAsyncReplication, this function does NOT call asyncRepWg.Wait().
-// Callers that need a strict happens-before guarantee against in-flight cycle
-// completion should use mayStopAsyncReplication instead, or call Deregister
-// followed by asyncRepWg.Wait() explicitly.
+// It deliberately does NOT persist the hashtree. This is the runtime path
+// (kill-switch / rebuild / target-node-override): the shard stays live and
+// keeps serving writes, so any snapshot would go stale on the next write and
+// the next enableAsyncReplication would load it as the "cached" hashtree and
+// miss the disabled-window divergence — re-enable must always rebuild from a
+// full scan. mayStopAsyncReplication (shutdown/drop/backup) is the only
+// safe producer of a .ht because the shard serves no further writes.
+//
+// Unlike mayStopAsyncReplication, this function does NOT call
+// asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
+// Wait) when a happens-before with in-flight cycles is required.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
-	var afterRelease func()
-	var needDeregister bool
-
-	err := func() error {
+	stopped := func() bool {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
-
 		if s.hashtree == nil {
-			return nil // already stopped, idempotent
+			return false // already stopped, idempotent
 		}
-
 		s.asyncReplicationCancelFunc()
-
-		// Capture before clearing so afterRelease can persist the hashtree
-		// outside the write lock (same pattern as mayStopAsyncReplication).
-		var capturedHT hashtree.AggregatedHashTree
-		if s.hashtreeFullyInitialized {
-			capturedHT = s.hashtree
-		}
-
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
-
-		needDeregister = true
-
-		if capturedHT != nil {
-			afterRelease = func() {
-				s.dumpHashTreeWithTimeout(capturedHT)
-			}
-		}
-
-		return nil
+		s.clearAsyncCheckpointLocked()
+		return true
 	}()
-	if err != nil {
-		return err
+	if !stopped {
+		return nil
 	}
-	if needDeregister {
-		// Remove from the scheduler. The context has already been cancelled so
-		// any in-flight cycle will exit promptly; we do not wait for it here.
-		// Deregister may return context.Canceled if the scheduler is shutting
-		// down concurrently; that is safe to ignore because the rebuild path
-		// does not require a strict happens-before with the scheduler's shutdown.
-		if s.index.asyncReplicationScheduler != nil {
-			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
-				s.index.logger.WithField("action", "async_replication").Error(err)
-			}
+
+	// Remove from the scheduler. The context has already been cancelled so any
+	// in-flight cycle will exit promptly; we do not wait for it here.
+	// Deregister may return context.Canceled if the scheduler is shutting down
+	// concurrently; that is safe to ignore because the rebuild path does not
+	// require a strict happens-before with the scheduler's shutdown.
+	if s.index.asyncReplicationScheduler != nil {
+		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
-		// Clear stats outside asyncReplicationRWMux to avoid nesting
-		// asyncReplicationStatsMux inside a write lock.
-		s.asyncReplicationStatsMux.Lock()
-		s.asyncReplicationStatsByTargetNode = nil
-		s.asyncReplicationStatsMux.Unlock()
 	}
-	if afterRelease != nil {
-		afterRelease()
-	}
+	// Clear stats outside asyncReplicationRWMux to avoid nesting
+	// asyncReplicationStatsMux inside a write lock.
+	s.asyncReplicationStatsMux.Lock()
+	s.asyncReplicationStatsByTargetNode = nil
+	s.asyncReplicationStatsMux.Unlock()
 	return nil
 }
 
@@ -1021,9 +1039,13 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 		s.targetNodeOverrides = append(s.targetNodeOverrides, targetNodeOverride)
 	}()
-	// we call update async replication config here to ensure that async replication starts
-	// if it's not already running
-	return s.enableAsyncReplication(ctx, s.index.AsyncReplicationConfig())
+	// Ensure async replication is started. Hold replicationConfigLock across the
+	// apply so a concurrent updateReplicationConfig can't interleave (see
+	// RevertAsyncReplicationOnShard); read the config field directly, as the
+	// AsyncReplicationConfig() getter would reacquire the lock.
+	s.index.replicationConfigLock.RLock()
+	defer s.index.replicationConfigLock.RUnlock()
+	return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
@@ -1061,23 +1083,13 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		// Snapshot enabled + config atomically under a single replicationConfigLock
-		// RLock to close the TOCTOU window: a concurrent updateReplicationConfig
-		// (WLock) could disable async replication between the AsyncReplicationEnabled
-		// check and the AsyncReplicationConfig read, causing us to re-enable a shard
-		// that should be off. asyncReplicationEnabled and Config are lock-free reads;
-		// we release before calling enable/disable, which need asyncReplicationRWMux.
-		//
-		// Known limitation: a TOCTOU window remains between the RUnlock and the
-		// enable/disable call — a concurrent updateReplicationConfig could flip the
-		// state in that gap. The inconsistency is transient; the next
-		// updateReplicationConfig call will correct it.
+		// Restore the shard to the index's configured async-replication state,
+		// holding replicationConfigLock across the apply so a concurrent
+		// updateReplicationConfig can't interleave (see RevertAsyncReplicationOnShard).
 		s.index.replicationConfigLock.RLock()
-		enabled := s.index.asyncReplicationEnabled()
-		cfg := s.index.Config.AsyncReplicationConfig
-		s.index.replicationConfigLock.RUnlock()
-		if enabled {
-			return s.enableAsyncReplication(ctx, cfg)
+		defer s.index.replicationConfigLock.RUnlock()
+		if s.index.asyncReplicationEnabled() {
+			return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 		}
 		return s.disableAsyncReplication(ctx)
 	}
@@ -1091,15 +1103,12 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		defer s.asyncReplicationRWMux.Unlock()
 		s.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
-	// Same atomic snapshot as removeTargetNodeOverride: hold replicationConfigLock
-	// RLock across both reads to prevent updateReplicationConfig from toggling the
-	// state between the enabled check and the config read.
+	// Restore the shard to the index's configured async-replication state; see
+	// removeTargetNodeOverride for the locking rationale.
 	s.index.replicationConfigLock.RLock()
-	enabled := s.index.asyncReplicationEnabled()
-	cfg := s.index.Config.AsyncReplicationConfig
-	s.index.replicationConfigLock.RUnlock()
-	if enabled {
-		return s.enableAsyncReplication(ctx, cfg)
+	defer s.index.replicationConfigLock.RUnlock()
+	if s.index.asyncReplicationEnabled() {
+		return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 	}
 	return s.disableAsyncReplication(ctx)
 }
@@ -1253,11 +1262,95 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	return digests[:n], nil
 }
 
+var (
+	errAsyncReplicationNotActive = replica.ErrAsyncReplicationNotActive
+	errAsyncCheckpointStale      = replica.ErrAsyncCheckpointStale
+)
+
+func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
+		s.metrics.IncAsyncCheckpointCreateFailureCount()
+		return errAsyncReplicationNotActive
+	}
+
+	if s.asyncCheckpointHashtree != nil && !createdAt.After(s.asyncCheckpointCreatedAt) {
+		s.metrics.IncAsyncCheckpointCreateFailureCount()
+		return errAsyncCheckpointStale
+	}
+
+	// Lifetime measured from local activation, never initiator createdAt, to avoid skew.
+	wasActive := s.asyncCheckpointHashtree != nil
+	if wasActive {
+		s.metrics.ObserveAsyncCheckpointLifetime(time.Since(s.asyncCheckpointActivatedAt))
+	}
+
+	s.asyncCheckpointHashtree = s.hashtree.Clone()
+	s.asyncCheckpointCutoff = cutoffMs
+	s.asyncCheckpointCreatedAt = createdAt
+	s.asyncCheckpointActivatedAt = time.Now()
+
+	s.metrics.IncAsyncCheckpointCreateCount()
+	if !wasActive {
+		s.metrics.IncAsyncCheckpointActive()
+	}
+	return nil
+}
+
+// DeleteAsyncCheckpoint is idempotent. Counted under async_checkpoint_delete_total only
+// when an active checkpoint was actually cleared (implicit clears via stop/disable go
+// through clearAsyncCheckpointLocked).
+func (s *Shard) DeleteAsyncCheckpoint(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	if s.asyncCheckpointHashtree == nil {
+		return nil
+	}
+	s.metrics.IncAsyncCheckpointDeleteCount()
+	s.clearAsyncCheckpointLocked()
+	return nil
+}
+
+// clearAsyncCheckpointLocked requires asyncReplicationRWMux held for writing.
+// Shared by DeleteAsyncCheckpoint and the stop/disable cleanup paths.
+func (s *Shard) clearAsyncCheckpointLocked() {
+	if s.asyncCheckpointHashtree != nil {
+		s.metrics.ObserveAsyncCheckpointLifetime(time.Since(s.asyncCheckpointActivatedAt))
+		s.metrics.DecAsyncCheckpointActive()
+	}
+	s.asyncCheckpointHashtree = nil
+	s.asyncCheckpointCutoff = 0
+	s.asyncCheckpointCreatedAt = time.Time{}
+	s.asyncCheckpointActivatedAt = time.Time{}
+}
+
+// AsyncCheckpointRoot does not consult ctx: folding cancellation into ok=false would
+// let callers misread a cancelled context as an inactive checkpoint.
+func (s *Shard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	if s.asyncCheckpointHashtree == nil {
+		return hashtree.Digest{}, 0, time.Time{}, false
+	}
+	return s.asyncCheckpointHashtree.Root(), s.asyncCheckpointCutoff, s.asyncCheckpointCreatedAt, true
+}
+
 // runHashbeatCycle runs one full hashbeat cycle and is called by a scheduler
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).
 // Returns (propagated, err):
-//   - (false, replica.ErrNoDiffFound) – no diff; use long interval
+//   - (false, replicaerrors.ErrNoDiffFound) – no diff; use long interval
 //   - (false, ctx.Err())              – context cancelled
 //   - (false, <other error>)          – failure; scheduler applies backoff
 //   - (propagated, nil)               – success
@@ -1314,7 +1407,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		if s.asyncReplicationStatsByTargetNode == nil {
 			s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
 		}
-		if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
+		if (err == nil || errors.Is(err, replicaerrors.ErrNoDiffFound)) && stats != nil {
 			for _, stat := range stats {
 				if stat != nil {
 					s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
@@ -1341,7 +1434,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			return false, ctx.Err()
 		}
 
-		if errors.Is(err, replica.ErrNoDiffFound) {
+		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 				s.asyncRepLastLog.Store(time.Now().Unix())
 				s.index.logger.
@@ -1351,7 +1444,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 					WithField("hosts", s.getLastComparedHosts()).
 					Debug("hashbeat iteration successfully completed: no differences were found")
 			}
-			return false, replica.ErrNoDiffFound
+			return false, replicaerrors.ErrNoDiffFound
 		}
 
 		if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
@@ -1443,7 +1536,7 @@ func (s *Shard) hashBeat(
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
 
-		if err != nil && !errors.Is(err, replica.ErrNoDiffFound) {
+		if err != nil && !errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			s.metrics.IncAsyncReplicationIterationFailureCount()
 			return
 		}
@@ -1452,6 +1545,8 @@ func (s *Shard) hashBeat(
 	}()
 
 	var ht hashtree.AggregatedHashTree
+	var cpht hashtree.AggregatedHashTree
+	var activeCutoff int64
 	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
@@ -1461,17 +1556,33 @@ func (s *Shard) hashBeat(
 		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
 	ht = s.hashtree
+	cpht = s.asyncCheckpointHashtree
+	if cpht != nil {
+		activeCutoff = s.asyncCheckpointCutoff
+	}
 	// create a snapshot of targetNodeOverrides to use throughout hashbeat
 	if s.targetNodeOverrides != nil {
 		targetNodeOverridesSnapshot = slices.Clone(s.targetNodeOverrides)
 	}
 	s.asyncReplicationRWMux.RUnlock()
 
+	// Prefer the bounded checkpoint tree when active; fall through to the
+	// unbounded tree below if the checkpoint reports no diffs, otherwise
+	// post-cutoff propagation stalls.
+	activeHT := ht
+	if cpht != nil {
+		activeHT = cpht
+	}
+
 	hashtreeDiffStart := time.Now()
 
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, activeHT, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
+	if cpht != nil && errors.Is(err, replicaerrors.ErrNoDiffFound) {
+		activeCutoff = 0
+		shardDiffReader, err = s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
+	}
 	if err != nil {
-		if errors.Is(err, replica.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
+		if errors.Is(err, replicaerrors.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
 			stats := make([]*hashBeatHostStats, 0, len(targetNodeOverridesSnapshot))
 			for _, o := range targetNodeOverridesSnapshot {
 				stats = append(stats, &hashBeatHostStats{
@@ -1481,7 +1592,7 @@ func (s *Shard) hashBeat(
 			}
 			return stats, err
 		}
-		if errors.Is(err, replica.ErrNoDiffFound) {
+		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			return []*hashBeatHostStats{{
 				hashtreeDiffStartTime: hashtreeDiffStart,
 				hashtreeDiffTook:      time.Since(hashtreeDiffStart),
@@ -1525,6 +1636,7 @@ func (s *Shard) hashBeat(
 			finalLeaf,
 			config.propagationLimit-len(localObjectsToPropagate),
 			targetNodeOverridesSnapshot,
+			activeCutoff,
 		)
 		if err != nil {
 			if objectDigestsDiffCtx.Err() != nil {
@@ -1678,6 +1790,7 @@ type objectToPropagate struct {
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
+	asyncCheckpointCutoff int64,
 ) (localObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
 	objectsToPropagate = make([]objectToPropagate, 0, min(limit, config.diffBatchSize))
 
@@ -1695,6 +1808,11 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	// Computed once so every batch uses the same cut-off; a per-batch recompute
 	// would let objects near the boundary flip eligibility mid-scan.
 	maxUpdateTime := s.getHashBeatMaxUpdateTime(config, targetNodeName, targetNodeOverrides)
+
+	// Checkpoint-driven cycles cap propagation at the cutoff; fallback (cutoff == 0) is a no-op.
+	if asyncCheckpointCutoff > 0 && asyncCheckpointCutoff < maxUpdateTime {
+		maxUpdateTime = asyncCheckpointCutoff
+	}
 
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))

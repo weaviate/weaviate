@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -111,6 +112,7 @@ type ShardLike interface {
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error)
+	AnalyzeObjectForMigrationWithOverlay(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
@@ -184,6 +186,28 @@ type ShardLike interface {
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
+	// ActivateChangeLog registers a change-capture log under opID and returns
+	// it for in-process callers.
+	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
+	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
+	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
+	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
+	// seals the log and returns the final LSN. Tailers drain to finalLSN
+	// and EOF.
+	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
+	// StopChangeCapture unregisters and deactivates the log without sealing.
+	StopChangeCapture(ctx context.Context, opID string) error
+	// GetChangeLog returns the active log for opID, or (nil, false) if none.
+	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
+
+	// CreateAsyncCheckpoint takes createdAt from the initiator as the
+	// strict-greater-than tie-breaker; older/equal proposals are rejected.
+	CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error
+	DeleteAsyncCheckpoint(ctx context.Context) error
+	// AsyncCheckpointRoot: ok=false strictly means inactive and never
+	// reflects ctx cancellation, so callers must check ctx.Err() separately.
+	AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool)
+
 	Metrics() *Metrics
 
 	// A thread-safe counter that goes up any time there is activity on this
@@ -246,6 +270,22 @@ type Shard struct {
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
+
+	// Lock order, outermost → innermost:
+	//   Index.backupLock.RLock(shard) > asyncReplicationRWMux > docIdLock[poolId].
+	changeLogs atomic.Pointer[changelog.Set]
+	// changeLogsActivateMu serializes ActivateChangeLog so concurrent
+	// activates can't sweep each other's freshly-opened .log file.
+	changeLogsActivateMu sync.Mutex
+	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
+	// frozen clone of s.hashtree taken at create time. All in-memory only
+	// (not persisted, not replicated via RAFT); a restart drops it and the
+	// operator must re-create. activatedAt is local-clock so the lifetime
+	// histogram doesn't depend on cross-node clock skew.
+	asyncCheckpointHashtree    hashtree.AggregatedHashTree
+	asyncCheckpointCutoff      int64
+	asyncCheckpointCreatedAt   time.Time
+	asyncCheckpointActivatedAt time.Time
 
 	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
 	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
@@ -327,6 +367,85 @@ type Shard struct {
 	// being enabled, only searchable bucket exists
 	fallbackToSearchable bool
 
+	// rangeableLocalReadyMu guards rangeableLocalReady. Holds the per-prop
+	// "is this shard's rangeable bucket fully populated and safe to
+	// query?" answer that gates whether the query path can route range
+	// queries to the local rangeable bucket.
+	//
+	// True means the local rangeable bucket has all the data for this
+	// property — either the property was created with
+	// IndexRangeFilters=true (no migration ever ran) or an
+	// enable-rangeable / repair-rangeable migration completed locally
+	// (markTidied fired in [runtimeSwap]).
+	//
+	// False means the rangeable bucket is mid-migration on THIS replica:
+	// a PreReindexHook created an empty main bucket but the per-shard
+	// runtimeSwap that prepends ingest+reindex segments into it hasn't
+	// run yet on this node. During this window the cluster-wide schema
+	// flag may already be true (the first replica to swap fires
+	// strategy.OnMigrationComplete which RAFTs the flip cluster-wide),
+	// so the inverted query path would otherwise route range queries to
+	// the empty bucket and return partial / zero counts. The
+	// IsRangeableLocallyReady callback wired into the Searcher
+	// overrides hasRangeableIndex=false for this prop on this shard,
+	// forcing a fallback to the filterable bucket walk until our local
+	// swap catches up.
+	//
+	// Read on every range-filter query plan, so kept under a fast
+	// RWMutex rather than a sync.Map. Default value (missing key)
+	// returns true via IsRangeableLocallyReady — at shard init we
+	// pessimistically set false for any in-flight migration tracker
+	// found on disk, and the post-tidy hook flips it back to true.
+	rangeableLocalReadyMu sync.RWMutex
+	rangeableLocalReady   map[string]bool
+
+	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
+	// "what tokenization should query input use on this shard?" override
+	// that closes the FINALIZING-window misalignment of a
+	// change-tokenization migration.
+	//
+	// Mechanism: a change-tokenization (or change-tokenization-filterable)
+	// migration's per-shard runtimeSwap flips the canonical bucket pointer
+	// to NEW-tokenization data BEFORE the cluster-wide schema flip in
+	// OnTaskCompleted.flipSemanticMigrationSchema commits via RAFT. During
+	// that seconds-long window on each replica:
+	//   - Bucket content on this shard: NEW tokenization (post-swap)
+	//   - Live schema as seen by the analyzer: OLD tokenization (pre-flip)
+	// Query input gets tokenized against OLD; lookup hits NEW bucket;
+	// counts don't match. The empirical signature is a per-replica count
+	// flap (e.g. `7→4→1→7→3→2`) on a steady probe across the window.
+	//
+	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
+	// OnTaskCompleted):
+	//   1. SET: per prop, atomic with each bucket-pointer flip (onPropSwapped
+	//      hook), so the overlay≠bucket window is one in-memory map write.
+	//      See maybeWirePerPropOverlaySet for why setting it once up front
+	//      was a correctness bug.
+	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
+	//      this shard fails before flipping its bucket pointer (e.g.
+	//      ctx.Canceled during graceful shutdown), the post-loop branch
+	//      clears the overlay. Without this, an all-failed swap path
+	//      would leave overlay=NEW against unchanged OLD buckets —
+	//      permanent misalignment because the FAILED transition skips
+	//      the cluster-wide schema flip and the explicit clear hook
+	//      never runs.
+	//   3. CLEAR (success path): once flipSemanticMigrationSchema
+	//      commits the cluster-wide schema flip, OnTaskCompleted clears
+	//      the overlay per-shard so the steady-state map is empty.
+	//   4. CLEAR (self-clear backstop): TokenizationFor below clears
+	//      the entry on the next read where the live schema has caught
+	//      up to the overlay value — defensive against any callback-
+	//      ordering edge case.
+	//
+	// Read on every query that touches the affected property, so kept
+	// under a fast RWMutex rather than a sync.Map (consistent with
+	// rangeableLocalReady above). Per-shard, in-memory only — the
+	// cluster-wide schema flip is the authoritative cross-replica
+	// signal; this overlay just bridges the local seconds-long gap
+	// between bucket-swap-here and schema-flip-observed-here.
+	tokenizationOverlayMu sync.RWMutex
+	tokenizationOverlay   map[string]string
+
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
@@ -348,9 +467,15 @@ type Shard struct {
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
 
-	reindexer                             ShardReindexerV3
-	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
-	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
+	reindexer ShardReindexerV3
+
+	// Copy-on-write callback slices stored in atomic.Value for lock-free reads
+	// on the hot write path. Registration (rare) copies the slice behind
+	// propertyValueIndexCallbacksMu; iteration (every object write) loads the
+	// current snapshot without locking.
+	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
+	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
+	propertyValueIndexCallbacksMu         sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -541,6 +666,187 @@ func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
 }
 
+// IsRangeableLocallyReady reports whether this shard's local rangeable
+// bucket for the given property is fully populated and safe to query.
+// See [rangeableLocalReady] for the full rationale.
+//
+// Returns true when:
+//   - The per-shard map has an explicit `true` entry. Set by
+//     [setRangeableLocallyReady] after a local
+//     enable-rangeable / repair-rangeable migration's swap completes
+//     (markTidied + OnMigrationComplete), OR
+//   - There is no explicit entry in the map AND the rangeable bucket
+//     for this prop exists in the LSM store. This covers native
+//     rangeable props (created with IndexRangeFilters=true, bucket
+//     populated on initial import) and props whose migrations
+//     completed before this shard restarted (the per-shard map is
+//     in-memory only and starts empty).
+//
+// Returns false when:
+//   - The per-shard map has an explicit `false` entry (set by the
+//     migration's PreReindexHook), OR
+//   - There is no explicit entry AND the rangeable bucket does not
+//     exist in the LSM store yet. This catches the narrow window where
+//     another replica's runtimeSwap has already flipped the
+//     cluster-wide schema flag to `IndexRangeFilters=true` but THIS
+//     replica's PreReindexHook hasn't fired yet — without this
+//     bucket-existence default-false, the inverted query path would
+//     try to look up a bucket that isn't there and return
+//     "bucket for prop %s not found - is it indexed?" to the LB.
+func (s *Shard) IsRangeableLocallyReady(propName string) bool {
+	s.rangeableLocalReadyMu.RLock()
+	if s.rangeableLocalReady != nil {
+		if ready, set := s.rangeableLocalReady[propName]; set {
+			s.rangeableLocalReadyMu.RUnlock()
+			return ready
+		}
+	}
+	s.rangeableLocalReadyMu.RUnlock()
+
+	// Default: ready iff the rangeable bucket physically exists in the
+	// store. Cheap (a map lookup under bucketAccessLock.RLock in
+	// lsmkv.Store.Bucket). We avoid materializing the explicit entry
+	// here on purpose — the migration hooks own the lifecycle of the
+	// map, and adding a "shadow" entry from a query goroutine would
+	// race the hook's clear-then-set sequence.
+	return s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)) != nil
+}
+
+// setRangeableLocallyReady is invoked by the rangeable migration's
+// lifecycle hooks. It is intentionally NOT exported beyond the package
+// because outside callers should observe the state via
+// [IsRangeableLocallyReady] only; mutating it from outside the
+// migration code paths would corrupt the per-replica routing invariant.
+func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
+	s.rangeableLocalReadyMu.Lock()
+	defer s.rangeableLocalReadyMu.Unlock()
+	if s.rangeableLocalReady == nil {
+		s.rangeableLocalReady = map[string]bool{}
+	}
+	s.rangeableLocalReady[propName] = ready
+}
+
+// SetTokenizationOverlay records that propName's query-time tokenization on
+// this shard should be `target` instead of the schema-stored value until
+// the live schema catches up. Set by the change-tokenization migration's
+// reindex hook (reindex_provider.OnGroupCompleted) just BEFORE the
+// per-task RunSwapOnShard loop kicks off — setting pre-swap means the
+// brief window between bucket-pointer flip and overlay visibility is
+// bounded by the in-memory swap latency (microseconds), not by the
+// cluster-wide cutover spread. The same caller clears the overlay if
+// every per-task swap failed (defensive: no bucket flipped → overlay
+// must not stay set against unchanged buckets). On success, the overlay
+// is cleared explicitly by OnTaskCompleted after the cluster-wide
+// schema flip commits, with [TokenizationFor]'s self-clear-on-catchup
+// branch as a backstop. See the [tokenizationOverlay] field godoc for
+// the full rationale and lifecycle.
+//
+// Empty target is a no-op — used by the migration cleanup path to avoid
+// having every caller guard the call.
+func (s *Shard) SetTokenizationOverlay(propName, target string) {
+	if propName == "" || target == "" {
+		return
+	}
+	s.tokenizationOverlayMu.Lock()
+	defer s.tokenizationOverlayMu.Unlock()
+	if s.tokenizationOverlay == nil {
+		s.tokenizationOverlay = map[string]string{}
+	}
+	s.tokenizationOverlay[propName] = target
+}
+
+// ClearTokenizationOverlay removes any tokenization-overlay entry for
+// propName. Idempotent — called by the schema-update callback when the
+// live schema's tokenization for propName matches the overlay's target,
+// indicating OnTaskCompleted's flipSemanticMigrationSchema has applied
+// on this node and the overlay is no longer needed.
+func (s *Shard) ClearTokenizationOverlay(propName string) {
+	if propName == "" {
+		return
+	}
+	s.tokenizationOverlayMu.Lock()
+	defer s.tokenizationOverlayMu.Unlock()
+	if s.tokenizationOverlay == nil {
+		return
+	}
+	delete(s.tokenizationOverlay, propName)
+}
+
+// TokenizationFor returns the active query-time tokenization for propName
+// on this shard. Consults the overlay first; if the overlay's value
+// matches the live schema's `liveTokenization` the overlay is self-
+// cleared (defensive against schema-update-callback ordering) and the
+// live value is returned. Otherwise the overlay value is returned if
+// present, else liveTokenization.
+//
+// liveTokenization is the value the caller would have used in the
+// absence of any overlay — typically `prop.Tokenization`. Passing the
+// live value as a parameter (rather than re-reading the schema here)
+// keeps this helper cheap and avoids a schema-manager dependency in the
+// query hot path.
+func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
+	if propName == "" {
+		return liveTokenization
+	}
+	s.tokenizationOverlayMu.RLock()
+	if s.tokenizationOverlay == nil {
+		s.tokenizationOverlayMu.RUnlock()
+		return liveTokenization
+	}
+	overlay, ok := s.tokenizationOverlay[propName]
+	s.tokenizationOverlayMu.RUnlock()
+	if !ok {
+		return liveTokenization
+	}
+	if overlay == liveTokenization {
+		// Live schema has caught up. Self-clear so future calls take the
+		// fast path — write under the write lock so concurrent self-
+		// clears don't race the migration's explicit clear.
+		s.tokenizationOverlayMu.Lock()
+		if s.tokenizationOverlay != nil {
+			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
+				delete(s.tokenizationOverlay, propName)
+			}
+		}
+		s.tokenizationOverlayMu.Unlock()
+		return liveTokenization
+	}
+	return overlay
+}
+
+// SnapshotTokenizationOverlay returns a fixed-allocation map of
+// {propName → target} entries for the supplied propNames, restricted
+// to entries that currently exist in the overlay. Used by query setup
+// paths that need to populate inverted.PropertyOverlay values for the
+// analyzer's WithSchemaOverlay mechanism (see
+// adapters/repos/db/inverted/analyzer.go).
+//
+// Avoids cloning the entire underlying overlay map on every query —
+// only the requested props are snapshotted, and an empty result
+// returns nil so the analyzer can take its fast path.
+//
+// The returned map is owned by the caller.
+func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]string {
+	if len(propNames) == 0 {
+		return nil
+	}
+	s.tokenizationOverlayMu.RLock()
+	defer s.tokenizationOverlayMu.RUnlock()
+	if len(s.tokenizationOverlay) == 0 {
+		return nil
+	}
+	var out map[string]string
+	for _, name := range propNames {
+		if v, ok := s.tokenizationOverlay[name]; ok {
+			if out == nil {
+				out = make(map[string]string, len(propNames))
+			}
+			out[name] = v
+		}
+	}
+	return out
+}
+
 func (s *Shard) tenant() string {
 	// TODO provide better impl
 	if s.index.partitioningEnabled {
@@ -577,10 +883,48 @@ func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
 }
 
-func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
-	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex, callback)
+func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
+	disabled := &atomic.Bool{}
+	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
+		if disabled.Load() {
+			return nil
+		}
+		return callback(shard, docID, property)
+	}
+
+	s.propertyValueIndexCallbacksMu.Lock()
+	var current []onAddToPropertyValueIndex
+	if v := s.callbacksAddToPropertyValueIndex.Load(); v != nil {
+		current = v.([]onAddToPropertyValueIndex)
+	}
+	updated := make([]onAddToPropertyValueIndex, len(current)+1)
+	copy(updated, current)
+	updated[len(current)] = wrapped
+	s.callbacksAddToPropertyValueIndex.Store(updated)
+	s.propertyValueIndexCallbacksMu.Unlock()
+
+	return func() { disabled.Store(true) }
 }
 
-func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
-	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
+func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
+	disabled := &atomic.Bool{}
+	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
+		if disabled.Load() {
+			return nil
+		}
+		return callback(shard, docID, property)
+	}
+
+	s.propertyValueIndexCallbacksMu.Lock()
+	var current []onDeleteFromPropertyValueIndex
+	if v := s.callbacksRemoveFromPropertyValueIndex.Load(); v != nil {
+		current = v.([]onDeleteFromPropertyValueIndex)
+	}
+	updated := make([]onDeleteFromPropertyValueIndex, len(current)+1)
+	copy(updated, current)
+	updated[len(current)] = wrapped
+	s.callbacksRemoveFromPropertyValueIndex.Store(updated)
+	s.propertyValueIndexCallbacksMu.Unlock()
+
+	return func() { disabled.Store(true) }
 }

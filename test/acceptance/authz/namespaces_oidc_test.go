@@ -72,11 +72,11 @@ func TestNamespacesOIDC(t *testing.T) {
 	helper.CreateNamespace(t, "customer1", adminKey)
 	defer helper.DeleteNamespace(t, "customer1", adminKey)
 
-	t.Run("classification: namespaced token gets prefixed username", func(t *testing.T) {
+	t.Run("classification: namespaced token gets stripped username", func(t *testing.T) {
 		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-namespaced-customer1")
 		info := helper.GetInfoForOwnUser(t, token)
 		require.NotNil(t, info.Username)
-		assert.Equal(t, "customer1:oidc-namespaced-customer1", *info.Username)
+		assert.Equal(t, "oidc-namespaced-customer1", *info.Username)
 	})
 
 	t.Run("classification: global-principal token gets bare username", func(t *testing.T) {
@@ -220,14 +220,16 @@ func TestNamespacesOIDC(t *testing.T) {
 		customer1OIDCToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, sharedSubject)
 
 		// Both auth paths produce the same principal username — the OIDC
-		// namespace prefix matches what the user-creation API stores.
+		// namespace prefix matches what the user-creation API stores. The
+		// own-info response strips the caller's own namespace, so both
+		// paths surface the short subject back.
 		dbInfo := helper.GetInfoForOwnUser(t, customer1Key)
 		require.NotNil(t, dbInfo.Username)
-		assert.Equal(t, customer1ID, *dbInfo.Username)
+		assert.Equal(t, sharedSubject, *dbInfo.Username)
 
 		oidcInfo := helper.GetInfoForOwnUser(t, customer1OIDCToken)
 		require.NotNil(t, oidcInfo.Username)
-		assert.Equal(t, customer1ID, *oidcInfo.Username)
+		assert.Equal(t, sharedSubject, *oidcInfo.Username)
 
 		// customer1's user creates a collection via the DB API key —
 		// matcher-specialized to customer1:Books. Title is defined
@@ -245,10 +247,11 @@ func TestNamespacesOIDC(t *testing.T) {
 		assert.Equal(t, "customer1:Books", stored.Class)
 
 		// customer1's user via OIDC reads the same class: requests "Books",
-		// resolver prefixes to customer1:Books. Confirms OIDC and DB paths
-		// share the matcher specialization.
+		// resolver prefixes to customer1:Books, response stripping returns
+		// the short name. Confirms OIDC and DB paths share the matcher
+		// specialization and the response-stripping path.
 		viaOIDC := helper.GetClassAuth(t, "Books", customer1OIDCToken)
-		assert.Equal(t, "customer1:Books", viaOIDC.Class)
+		assert.Equal(t, "Books", viaOIDC.Class)
 
 		// Narrowed admin → DENIED on namespace management (cluster-only).
 		_, err = helper.Client(t).Namespaces.DeleteNamespace(
@@ -320,7 +323,6 @@ func TestNamespacesOIDC(t *testing.T) {
 	t.Run("narrowed admin via OIDC group binding", func(t *testing.T) {
 		const groupName = "AllUsers"
 		const bobSubject = "oidc-customer1-group-member"
-		const bobUsername = "customer1:" + bobSubject
 
 		helper.AssignRoleToGroup(t, adminKey, authorization.Admin, groupName)
 		defer helper.RevokeRoleFromGroup(t, adminKey, authorization.Admin, groupName)
@@ -329,7 +331,7 @@ func TestNamespacesOIDC(t *testing.T) {
 
 		info := helper.GetInfoForOwnUser(t, token)
 		require.NotNil(t, info.Username)
-		assert.Equal(t, bobUsername, *info.Username)
+		assert.Equal(t, bobSubject, *info.Username)
 		assert.Contains(t, info.Groups, groupName, "OIDC token must carry the group claim")
 
 		// Bob has no direct admin assignment. If group binding works,

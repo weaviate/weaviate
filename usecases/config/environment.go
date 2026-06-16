@@ -50,9 +50,9 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+	DefaultReindexConcurrency                    = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
-	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
@@ -437,6 +437,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to false (debug surface closed) only when nothing set it.
+	if v, ok := os.LookupEnv("DEBUG_ENDPOINTS_ENABLED"); ok {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.Profiling.DebugEndpointsEnabled == nil {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(false)
+	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -562,13 +569,15 @@ func FromEnv(config *Config) error {
 
 	defaultQuantization := ""
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
-		defaultQuantization = strings.ToLower(v)
+		// Trim/lowercase for symmetry with ALLOWED_COMPRESSION_TYPES.
+		defaultQuantization = strings.ToLower(strings.TrimSpace(v))
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
 	defaultVectorIndexType := ""
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
-		defaultVectorIndexType = strings.ToLower(v)
+		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
+		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
 		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
 		if !slices.Contains(validTypes, defaultVectorIndexType) {
 			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
@@ -646,43 +655,6 @@ func FromEnv(config *Config) error {
 		func(val float64) { config.ReindexerGoroutinesFactor = val },
 		DefaultReindexerGoroutinesFactor)
 
-	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
-		config.ReindexMapToBlockmaxAtStartup = true
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.SwapBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.UnswapBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_RELOAD_SHARDS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.ReloadShards = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.Rollback = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_CONDITIONAL_START", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.ConditionalStart = true
-		}
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
-			DefaultMapToBlockmaxProcessingDurationSeconds)
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
-			DefaultMapToBlockmaxPauseDurationSeconds)
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
-			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
-
-		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
-		if err != nil {
-			return err
-		}
-		config.ReindexMapToBlockmaxConfig.Selected = cptSelected
-	}
-
 	if err := config.parseMemtableConfig(); err != nil {
 		return err
 	}
@@ -747,6 +719,10 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
 	}
 
+	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
+		config.Backup.SkipAccessCheck = true
+	}
+
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -779,6 +755,19 @@ func FromEnv(config *Config) error {
 		config.QueryHybridMaximumResults = int64(asInt)
 	} else {
 		config.QueryHybridMaximumResults = DefaultQueryHybridMaximumResults
+	}
+
+	if v := os.Getenv("QUERY_BOOST_DEFAULT_DEPTH"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_BOOST_DEFAULT_DEPTH as int: %w", err)
+		}
+		if asInt <= 0 {
+			return fmt.Errorf("QUERY_BOOST_DEFAULT_DEPTH must be a positive integer, got %d", asInt)
+		}
+		config.QueryBoostDefaultDepth = asInt
+	} else {
+		config.QueryBoostDefaultDepth = DefaultQueryBoostDepth
 	}
 
 	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
@@ -1250,6 +1239,33 @@ func FromEnv(config *Config) error {
 		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
 	}, DefaultUsageLimitsErrorMessage)
 
+	// Allow-list env vars. Empty = no restriction. Cross-field validation
+	// runs in validateRestrictions; per-entry runs at SetValue time so
+	// runtime YAML pushes of unknown entries are rejected before they hit
+	// the schema layer. DynamicValues are initialized even when unset so
+	// the runtime-overrides merger has a non-nil pointer to mutate.
+	var allowVector []string
+	if v := os.Getenv("ALLOWED_VECTOR_INDEX_TYPES"); v != "" {
+		allowVector = strings.Split(v, ",")
+	}
+	allowVectorDV, err := configRuntime.NewDynamicValueWithValidation(allowVector, NewRestrictionVectorIndexTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_VECTOR_INDEX_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedVectorIndexTypes = allowVectorDV
+	var allowCompression []string
+	if v := os.Getenv("ALLOWED_COMPRESSION_TYPES"); v != "" {
+		allowCompression = strings.Split(v, ",")
+	}
+	allowCompressionDV, err := configRuntime.NewDynamicValueWithValidation(allowCompression, NewRestrictionCompressionTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_COMPRESSION_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedCompressionTypes = allowCompressionDV
+	parseString("RESTRICTIONS_ERROR_MESSAGE", func(val string) {
+		config.Restrictions.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultRestrictionsErrorMessage)
+
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
@@ -1304,26 +1320,23 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
-		config.DistributedTasks.Enabled = entcfg.Enabled(v)
+	if err = parser.ParseDynamicIntWithValidation(
+		"REINDEX_CONCURRENCY", DefaultReindexConcurrency,
+		func(val int) error {
+			if val < 1 {
+				return fmt.Errorf("must be >= 1")
+			}
+			return nil
+		},
+		func(val *configRuntime.DynamicValue[int]) { config.DistributedTasks.ReindexConcurrency = val },
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
-		duration, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT as time.Duration: %w", err)
-		}
-		if duration < 0 {
-			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT must be a positive duration")
-		}
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(duration)
-	} else {
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
-	}
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
@@ -1775,6 +1788,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 const (
 	DefaultQueryMaximumResults       = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
+	DefaultQueryBoostDepth           = 100
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
@@ -1800,19 +1814,20 @@ const (
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
-	DefaultAsyncReplicationSchedulerWorkers    = 10
+	DefaultAsyncReplicationSchedulerWorkers    = 3
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
 	// scaleDownCh) are all sized relative to this value; exceeding it requires
 	// a code change, so we enforce it at config parse time rather than silently
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
-	DefaultAsyncReplicationHashtreeInitConcurrency = 100
+	DefaultAsyncReplicationHashtreeInitConcurrency = 10
 	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
 	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
 	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
 	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
@@ -2211,5 +2226,9 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.DefaultPath == nil {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
+
+	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
+		c.Export.SkipAccessCheck = true
 	}
 }

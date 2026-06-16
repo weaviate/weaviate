@@ -36,7 +36,7 @@ const (
 
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
-	extraEnvSettings map[string]string, networkName string,
+	extraEnvSettings map[string]string, networkName string, netOctet int,
 	weaviateImage, hostname string,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
@@ -89,6 +89,7 @@ func startWeaviate(ctx context.Context,
 		"DISABLE_TELEMETRY":                 "true",
 		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
 		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
+		"DEBUG_ENDPOINTS_ENABLED":           "true",
 	}
 	// Forward replication gRPC flag from host env if set (for CI matrix testing)
 	if v := os.Getenv("REPLICATION_GRPC_ENABLED"); v != "" {
@@ -172,7 +173,7 @@ func startWeaviate(ctx context.Context,
 			},
 		},
 	}
-	if ip := StaticIPForHostname(containerName); ip != "" && networkName != "" {
+	if ip := staticIPForHostname(netOctet, containerName); ip != "" && networkName != "" {
 		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
 			s := settings[networkName]
 			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{

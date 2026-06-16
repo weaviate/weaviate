@@ -20,8 +20,12 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewCreateNamespaceParams creates a new CreateNamespaceParams object
@@ -41,6 +45,10 @@ type CreateNamespaceParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*Optional body. When omitted, `home_node` is picked automatically.
+	  In: body
+	*/
+	Body *models.NamespaceCreateRequest
 	/*The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.
 	  Required: true
 	  In: path
@@ -56,6 +64,28 @@ func (o *CreateNamespaceParams) BindRequest(r *http.Request, route *middleware.M
 	var res []error
 
 	o.HTTPRequest = r
+
+	if runtime.HasBody(r) {
+		defer r.Body.Close()
+		var body models.NamespaceCreateRequest
+		if err := route.Consumer.Consume(r.Body, &body); err != nil {
+			res = append(res, errors.NewParseError("body", "body", "", err))
+		} else {
+			// validate body object
+			if err := body.Validate(route.Formats); err != nil {
+				res = append(res, err)
+			}
+
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
+			if len(res) == 0 {
+				o.Body = &body
+			}
+		}
+	}
 
 	rNamespaceID, rhkNamespaceID, _ := route.Params.GetOK("namespace_id")
 	if err := o.bindNamespaceID(rNamespaceID, rhkNamespaceID, route.Formats); err != nil {

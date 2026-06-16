@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -193,6 +194,15 @@ func (s *Server) Close() {
 func toRPCError(err error) error {
 	if err == nil {
 		return nil
+	}
+
+	// Permanent FSM rejections from the distributed-task Manager must
+	// preserve their sentinel identity across the wire so a follower's
+	// classifier can errors.Is them. The helper sets
+	// codes.FailedPrecondition + the on-wire marker prefix that
+	// distributedtask.RehydratePermanentRejection knows how to parse.
+	if perm := distributedtask.ToRPCError(err); perm != nil {
+		return perm
 	}
 
 	var ec codes.Code

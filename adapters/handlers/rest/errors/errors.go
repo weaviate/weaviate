@@ -15,10 +15,28 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func ErrPayloadFromSingleErr(err error) *models.ErrorResponse {
+// ErrPayloadFromSingleErr builds a single-message ErrorResponse with the
+// principal's own namespace prefix stripped from err. Pass nil for global
+// callers to leave the message unchanged. A nil err is tolerated and yields
+// fmt's standard "<nil>" rendering rather than panicking, since this helper
+// sits on dozens of REST error paths and a missed err-guard upstream should
+// not crash the handler.
+func ErrPayloadFromSingleErr(principal *models.Principal, err error) *models.ErrorResponse {
 	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
-		Message: fmt.Sprintf("%s", err),
+		Message: namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)),
 	}}}
+}
+
+// restrictionViolationFromErr wraps a non-restriction error into the
+// same RestrictionViolationResponse shape so handlers can return both
+// 422 cases through the same swagger-generated payload type.
+func ErrRestrictionViolation(principal *models.Principal, err error) *models.RestrictionViolationResponse {
+	return &models.RestrictionViolationResponse{
+		Error: []*models.RestrictionViolationResponseErrorItems0{{
+			Message: namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)),
+		}},
+	}
 }

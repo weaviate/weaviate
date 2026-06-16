@@ -42,12 +42,12 @@ type nodesHandlers struct {
 func (n *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
 	output, err := verbosity.ParseOutput(params.Output)
 	if err != nil {
-		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, "", "", output)
 	if err != nil {
-		return n.handleGetNodesError(err)
+		return n.handleGetNodesError(principal, err)
 	}
 
 	status := &models.NodesStatusResponse{
@@ -61,7 +61,7 @@ func (n *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, principal *models.Principal) middleware.Responder {
 	output, err := verbosity.ParseOutput(params.Output)
 	if err != nil {
-		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	shardName := ""
@@ -71,12 +71,12 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 
 	className, _, err := namespacing.Resolve(principal, n.schemaManager, n.namespacesEnabled, params.ClassName)
 	if err != nil {
-		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, className, shardName, output)
 	if err != nil {
-		return n.handleGetNodesError(err)
+		return n.handleGetNodesError(principal, err)
 	}
 
 	status := &models.NodesStatusResponse{
@@ -90,7 +90,7 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 func (n *nodesHandlers) getNodesStatistics(params cluster.ClusterGetStatisticsParams, principal *models.Principal) middleware.Responder {
 	nodeStatistics, err := n.manager.GetNodeStatistics(params.HTTPRequest.Context(), principal)
 	if err != nil {
-		return n.handleGetNodesError(err)
+		return n.handleGetNodesError(principal, err)
 	}
 
 	synchronized := map[string]struct{}{}
@@ -113,22 +113,22 @@ func (n *nodesHandlers) getNodesStatistics(params cluster.ClusterGetStatisticsPa
 	return cluster.NewClusterGetStatisticsOK().WithPayload(statistics)
 }
 
-func (n *nodesHandlers) handleGetNodesError(err error) middleware.Responder {
+func (n *nodesHandlers) handleGetNodesError(principal *models.Principal, err error) middleware.Responder {
 	n.metricRequestsTotal.logError("", err)
 	if errors.As(err, &enterrors.ErrNotFound{}) {
 		return nodes.NewNodesGetClassNotFound().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 	if errors.As(err, &autherrs.Forbidden{}) {
 		return nodes.NewNodesGetClassForbidden().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 	if errors.As(err, &enterrors.ErrUnprocessable{}) {
 		return nodes.NewNodesGetClassUnprocessableEntity().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 	return nodes.NewNodesGetClassInternalServerError().
-		WithPayload(errPayloadFromSingleErr(err))
+		WithPayload(errPayloadFromSingleErr(principal, err))
 }
 
 func setupNodesHandlers(api *operations.WeaviateAPI,

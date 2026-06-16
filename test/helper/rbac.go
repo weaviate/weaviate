@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -133,16 +134,23 @@ func CreateUser(t *testing.T, userId, key string) string {
 
 func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
 	t.Helper()
-	resp, err := Client(t).Users.CreateUser(
-		users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Namespace: namespace}),
-		CreateAuth(adminKey),
-	)
-	AssertRequestOk(t, resp, err, nil)
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.NotNil(t, resp.Payload)
-	require.NotNil(t, resp.Payload.Apikey)
-	return *resp.Payload.Apikey
+	// Retry until the follower has applied the namespace; the local fast-path
+	// Exists() check 422s before any RAFT command is sent, so this is safe.
+	var apikey string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
+			CreateAuth(adminKey),
+		)
+		if !assert.NoError(c, err) {
+			return
+		}
+		if !assert.NotNil(c, resp.Payload.Apikey) {
+			return
+		}
+		apikey = *resp.Payload.Apikey
+	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
+	return apikey
 }
 
 func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
@@ -232,6 +240,42 @@ func CreateRoleAndAssign(t *testing.T, adminKey, userName, roleName string, perm
 		RevokeRoleFromUser(t, adminKey, roleName, userName)
 		DeleteRole(t, adminKey, roleName)
 	})
+}
+
+// WaitForOwnRole waits for the role binding to be visible both on the
+// leader (GetOwnInfo, Raft-routed) and on the local follower (self
+// GetUserInfo, runs Authorize locally). The follower probe pins the
+// RAFT-apply lag that would otherwise 403 the next authz-checked
+// request. It needs read_users so it only runs for built-in
+// admin/viewer; custom roles get only the leader-side guarantee.
+func WaitForOwnRole(t *testing.T, apikey, roleName string) {
+	t.Helper()
+	var selfID string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(apikey))
+		if !assert.NoError(c, err) {
+			return
+		}
+		for _, role := range resp.Payload.Roles {
+			if role != nil && role.Name != nil && *role.Name == roleName {
+				if resp.Payload.Username != nil {
+					selfID = *resp.Payload.Username
+				}
+				return
+			}
+		}
+		assert.Fail(c, "role not yet leader-visible", "role %q not in own-info roles", roleName)
+	}, 10*time.Second, 50*time.Millisecond, "role %q binding did not become leader-visible via GetOwnInfo", roleName)
+
+	if roleName != authorization.Admin && roleName != authorization.Viewer {
+		return
+	}
+	require.NotEmpty(t, selfID, "GetOwnInfo returned an empty username; cannot run local-Enforce probe")
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Users.GetUserInfo(
+			users.NewGetUserInfoParams().WithUserID(selfID), CreateAuth(apikey))
+		assert.NoError(c, err, "self GetUserInfo still 403s — role %q not yet locally applied", roleName)
+	}, 10*time.Second, 50*time.Millisecond, "role %q grouping not visible to local Authorize for caller %q", roleName, selfID)
 }
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {

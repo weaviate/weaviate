@@ -194,6 +194,66 @@ func (_c *MockReplicaCopier_CopyReplicaFiles_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// FinalizeChangeLog provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
+func (_m *MockReplicaCopier) FinalizeChangeLog(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) (uint64, error) {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FinalizeChangeLog")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (uint64, error)); ok {
+		return rf(ctx, srcNodeId, indexName, shardName, opID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) uint64); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
+		r1 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicaCopier_FinalizeChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FinalizeChangeLog'
+type MockReplicaCopier_FinalizeChangeLog_Call struct {
+	*mock.Call
+}
+
+// FinalizeChangeLog is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - indexName string
+//   - shardName string
+//   - opID string
+func (_e *MockReplicaCopier_Expecter) FinalizeChangeLog(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}) *MockReplicaCopier_FinalizeChangeLog_Call {
+	return &MockReplicaCopier_FinalizeChangeLog_Call{Call: _e.mock.On("FinalizeChangeLog", ctx, srcNodeId, indexName, shardName, opID)}
+}
+
+func (_c *MockReplicaCopier_FinalizeChangeLog_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string)) *MockReplicaCopier_FinalizeChangeLog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_FinalizeChangeLog_Call) Return(_a0 uint64, _a1 error) *MockReplicaCopier_FinalizeChangeLog_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicaCopier_FinalizeChangeLog_Call) RunAndReturn(run func(context.Context, string, string, string, string) (uint64, error)) *MockReplicaCopier_FinalizeChangeLog_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // InitAsyncReplicationLocally provides a mock function with given fields: ctx, collectionName, shardName
 func (_m *MockReplicaCopier) InitAsyncReplicationLocally(ctx context.Context, collectionName string, shardName string) error {
 	ret := _m.Called(ctx, collectionName, shardName)
@@ -381,6 +441,228 @@ func (_c *MockReplicaCopier_RevertAsyncReplicationLocally_Call) Return(_a0 error
 }
 
 func (_c *MockReplicaCopier_RevertAsyncReplicationLocally_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_RevertAsyncReplicationLocally_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SnapshotChangeLogLSN provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
+func (_m *MockReplicaCopier) SnapshotChangeLogLSN(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) (uint64, error) {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SnapshotChangeLogLSN")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (uint64, error)); ok {
+		return rf(ctx, srcNodeId, indexName, shardName, opID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) uint64); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
+		r1 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicaCopier_SnapshotChangeLogLSN_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SnapshotChangeLogLSN'
+type MockReplicaCopier_SnapshotChangeLogLSN_Call struct {
+	*mock.Call
+}
+
+// SnapshotChangeLogLSN is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - indexName string
+//   - shardName string
+//   - opID string
+func (_e *MockReplicaCopier_Expecter) SnapshotChangeLogLSN(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	return &MockReplicaCopier_SnapshotChangeLogLSN_Call{Call: _e.mock.On("SnapshotChangeLogLSN", ctx, srcNodeId, indexName, shardName, opID)}
+}
+
+func (_c *MockReplicaCopier_SnapshotChangeLogLSN_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string)) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_SnapshotChangeLogLSN_Call) Return(_a0 uint64, _a1 error) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicaCopier_SnapshotChangeLogLSN_Call) RunAndReturn(run func(context.Context, string, string, string, string) (uint64, error)) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartChangeCapture provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID, schemaVersion
+func (_m *MockReplicaCopier) StartChangeCapture(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, schemaVersion uint64) error {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID, schemaVersion)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartChangeCapture")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, uint64) error); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID, schemaVersion)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_StartChangeCapture_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartChangeCapture'
+type MockReplicaCopier_StartChangeCapture_Call struct {
+	*mock.Call
+}
+
+// StartChangeCapture is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - indexName string
+//   - shardName string
+//   - opID string
+//   - schemaVersion uint64
+func (_e *MockReplicaCopier_Expecter) StartChangeCapture(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}, schemaVersion interface{}) *MockReplicaCopier_StartChangeCapture_Call {
+	return &MockReplicaCopier_StartChangeCapture_Call{Call: _e.mock.On("StartChangeCapture", ctx, srcNodeId, indexName, shardName, opID, schemaVersion)}
+}
+
+func (_c *MockReplicaCopier_StartChangeCapture_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, schemaVersion uint64)) *MockReplicaCopier_StartChangeCapture_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_StartChangeCapture_Call) Return(_a0 error) *MockReplicaCopier_StartChangeCapture_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_StartChangeCapture_Call) RunAndReturn(run func(context.Context, string, string, string, string, uint64) error) *MockReplicaCopier_StartChangeCapture_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StopChangeCapture provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
+func (_m *MockReplicaCopier) StopChangeCapture(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) error {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopChangeCapture")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_StopChangeCapture_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopChangeCapture'
+type MockReplicaCopier_StopChangeCapture_Call struct {
+	*mock.Call
+}
+
+// StopChangeCapture is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - indexName string
+//   - shardName string
+//   - opID string
+func (_e *MockReplicaCopier_Expecter) StopChangeCapture(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}) *MockReplicaCopier_StopChangeCapture_Call {
+	return &MockReplicaCopier_StopChangeCapture_Call{Call: _e.mock.On("StopChangeCapture", ctx, srcNodeId, indexName, shardName, opID)}
+}
+
+func (_c *MockReplicaCopier_StopChangeCapture_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string)) *MockReplicaCopier_StopChangeCapture_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_StopChangeCapture_Call) Return(_a0 error) *MockReplicaCopier_StopChangeCapture_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_StopChangeCapture_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *MockReplicaCopier_StopChangeCapture_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TailAndApply provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID, untilLSN
+func (_m *MockReplicaCopier) TailAndApply(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, untilLSN uint64) (uint64, error) {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TailAndApply")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, uint64) (uint64, error)); ok {
+		return rf(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, uint64) uint64); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, uint64) error); ok {
+		r1 = rf(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicaCopier_TailAndApply_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TailAndApply'
+type MockReplicaCopier_TailAndApply_Call struct {
+	*mock.Call
+}
+
+// TailAndApply is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - indexName string
+//   - shardName string
+//   - opID string
+//   - untilLSN uint64
+func (_e *MockReplicaCopier_Expecter) TailAndApply(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}, untilLSN interface{}) *MockReplicaCopier_TailAndApply_Call {
+	return &MockReplicaCopier_TailAndApply_Call{Call: _e.mock.On("TailAndApply", ctx, srcNodeId, indexName, shardName, opID, untilLSN)}
+}
+
+func (_c *MockReplicaCopier_TailAndApply_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, untilLSN uint64)) *MockReplicaCopier_TailAndApply_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_TailAndApply_Call) Return(lastAppliedLSN uint64, err error) *MockReplicaCopier_TailAndApply_Call {
+	_c.Call.Return(lastAppliedLSN, err)
+	return _c
+}
+
+func (_c *MockReplicaCopier_TailAndApply_Call) RunAndReturn(run func(context.Context, string, string, string, string, uint64) (uint64, error)) *MockReplicaCopier_TailAndApply_Call {
 	_c.Call.Return(run)
 	return _c
 }

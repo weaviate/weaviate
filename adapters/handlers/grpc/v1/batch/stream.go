@@ -99,7 +99,7 @@ func NewStreamHandler(
 		stoppingPerStream:      &sync.Map{},
 		// set a batch-unique live heap checker with a lower threshold to catch OOMs earlier than the global one
 		// this ensures that vectors can be stored in-memory before being processed downstream
-		allocChecker:      memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
+		allocChecker:      memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.9),
 		schemaManager:     schemaManager,
 		namespacesEnabled: namespacesEnabled,
 	}
@@ -121,13 +121,14 @@ func NewStreamHandler(
 //  6. Teardown the stream (delete reporting queue, etc)
 //
 // The receiver and sender loops communicate through channels to handle errors and stream closure gracefully.
-func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
+func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr error) {
 	streamCtx := stream.Context()
 	// Authenticate at the highest level
 	principal, err := h.authenticator.PrincipalFromContext(streamCtx)
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 
 	// If the server is shutting down, we reject new streams
 	// This prevents new streams from being added to the system while we are shutting down

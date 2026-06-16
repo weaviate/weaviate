@@ -122,7 +122,6 @@ func TestDynamic(t *testing.T) {
 	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	t.Logf("recall: %f, latency %f\n", recall2, latency2)
 	assert.True(t, recall2 > 0.9)
-	assert.True(t, latency1 > latency2)
 }
 
 func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {

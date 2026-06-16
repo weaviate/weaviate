@@ -226,6 +226,60 @@ func TestAdd(t *testing.T) {
 	})
 }
 
+func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	vectors := createTestVectors(4, 16)
+	postingID, posting := createPostingWithVectors(t, &tf, vectors[:15], 100)
+	tf.Index.distancer = NewDistancer(tf.Index.quantizer, tf.Index.config.DistanceProvider)
+
+	uncompressed := make([]float32, 4)
+	for _, vec := range vectors[:15] {
+		for i := range vec {
+			uncompressed[i] += vec[i]
+		}
+	}
+	for i := range uncompressed {
+		uncompressed[i] /= float32(len(vectors[:15]))
+	}
+
+	compressed := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(uncompressed))
+	err := tf.Index.Centroids.Insert(postingID, &Centroid{
+		Uncompressed: uncompressed,
+		Compressed:   compressed,
+		Deleted:      false,
+	})
+	require.NoError(t, err)
+
+	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
+	require.NoError(t, err)
+
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
+	require.NoError(t, err)
+
+	originalMax := tf.Index.maxPostingSize
+	tf.Index.maxPostingSize = 3
+	defer func() { tf.Index.maxPostingSize = originalMax }()
+
+	vectorID := uint64(10_000)
+	version := VectorVersion(1)
+	err = tf.Index.VersionMap.store.Set(t.Context(), vectorID, version)
+	require.NoError(t, err)
+
+	vector := NewVector(vectorID, version, tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(vectors[15])))
+	ok, err := tf.Index.append(t.Context(), vector, postingID, false)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.False(t, tf.Index.Centroids.Exists(postingID))
+	require.Equal(t, int64(0), tf.Index.taskQueue.splitQueue.Size())
+
+	size, err := tf.Index.PostingSizes.Get(t.Context(), postingID)
+	require.NoError(t, err)
+	require.Equal(t, uint32(0), size)
+}
+
 func TestAddBatch(t *testing.T) {
 	t.Run("add batch of vectors", func(t *testing.T) {
 		tf := createHFreshIndex(t)

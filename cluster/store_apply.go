@@ -348,6 +348,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.namespaceManager.Add(&cmd)
 		}
+	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Update(&cmd)
+		}
 	case api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:
 		f = func() {
 			ret.Error = st.namespaceManager.ChangeState(&cmd)
@@ -372,6 +376,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.NodeReachedState(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:
 		f = func() {
@@ -449,6 +457,18 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS:
 		f = func() {
 			ret.Error = st.distributedTasksManager.UpdateUnitProgress(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFinalized(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordPreparationCompleteAck(&cmd)
 		}
 
 	default:

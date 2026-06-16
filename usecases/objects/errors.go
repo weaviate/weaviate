@@ -21,6 +21,7 @@ const (
 	StatusBadRequest          = 400
 	StatusNotFound            = 404
 	StatusUnprocessableEntity = 422
+	StatusGone                = 410
 	StatusInternalServerError = 500
 )
 
@@ -54,6 +55,10 @@ func (e *Error) BadRequest() bool {
 
 func (e *Error) UnprocessableEntity() bool {
 	return e.Code == StatusUnprocessableEntity
+}
+
+func (e *Error) Gone() bool {
+	return e.Code == StatusGone
 }
 
 // ErrInvalidUserInput indicates a client-side error

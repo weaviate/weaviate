@@ -27,6 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 )
 
@@ -79,15 +80,17 @@ type google struct {
 	apiKey        string
 	googleApiKey  *apikey.GoogleApiKey
 	useGoogleAuth bool
+	rpm           int
 	httpClient    *http.Client
 	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
 	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *google {
+func New(apiKey string, useGoogleAuth bool, rpm int, timeout time.Duration, logger logrus.FieldLogger) *google {
 	return &google{
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
+		rpm:           rpm,
 		googleApiKey:  apikey.NewGoogleApiKey(),
 		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
 		urlBuilderFn:  buildURL,
@@ -128,9 +131,9 @@ func (v *google) GetVectorizerRateLimit(ctx context.Context, config moduletools.
 			return
 		}
 
-		limits.LimitRequests = 30000
+		limits.LimitRequests = v.rpm
 		limits.LimitTokens = 1000000
-		limits.RemainingRequests = 30000
+		limits.RemainingRequests = v.rpm
 		limits.RemainingTokens = 1000000
 		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
 		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)

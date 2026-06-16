@@ -374,6 +374,25 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 			wantNS:     "[Domain: roles, Role: admin]",
 			wantGlobal: "[Domain: roles, Role: admin]",
 		},
+		{
+			domain: "Tenants",
+			perm: &models.Permission{Tenants: &models.PermissionTenants{
+				Collection: strPtr("customer1:Movies"),
+				Tenant:     strPtr("t1"),
+			}},
+			wantNS:     "[Domain: tenants, Collection: Movies, Tenant: t1]",
+			wantGlobal: "[Domain: tenants, Collection: customer1:Movies, Tenant: t1]",
+		},
+		{
+			// Collection nil while Tenant is set must not panic: the
+			// block dereferenced *Collection while guarding only Tenant.
+			domain: "Tenants_nil_collection",
+			perm: &models.Permission{Tenants: &models.PermissionTenants{
+				Tenant: strPtr("t1"),
+			}},
+			wantNS:     "[Domain: tenants, Tenant: t1]",
+			wantGlobal: "[Domain: tenants, Tenant: t1]",
+		},
 	}
 
 	for _, r := range rows {

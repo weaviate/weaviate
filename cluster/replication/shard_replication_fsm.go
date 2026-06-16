@@ -298,7 +298,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasRead(collection string, shar
 	return readReplicas
 }
 
-func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) []string {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
@@ -306,26 +306,14 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, sha
 	// If not we can return early as all replicas can be used for writes
 	byCollection, ok := s.opsByCollectionAndShard[collection]
 	if !ok {
-		return shardReplicasLocation, []string{}
+		return shardReplicasLocation
 	}
-	ops, ok := byCollection[shard]
-	if !ok {
-		return shardReplicasLocation, []string{}
+	if _, ok := byCollection[shard]; !ok {
+		return shardReplicasLocation
 	}
 
 	_, writeReplicas := s.readWriteReplicas(collection, shard, shardReplicasLocation)
-
-	additionalWriteReplicas := []string{}
-	for _, op := range ops {
-		opState, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		if opState.GetCurrentState() == api.FINALIZING {
-			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
-		}
-	}
-	return writeReplicas, additionalWriteReplicas
+	return writeReplicas
 }
 
 func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardReplicasLocation []string) ([]string, []string) {
@@ -369,6 +357,10 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	case api.DEHYDRATING:
 		readOk = true
 		writeOk = true
+	case api.INTEGRATING:
+		// Target is a counted r/w replica while the CCL is still draining.
+		readOk = true
+		writeOk = true
 	default:
 	}
 	return readOk, writeOk
@@ -400,4 +392,22 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 		}
 	}
 	return readOk, writeOk
+}
+
+// AllPeersAtLeast reports whether every peer has PerNodeState[peer] >= target.
+// Missing peers count as not satisfied.
+func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	st, ok := s.statusById[opID]
+	if !ok {
+		return false
+	}
+	floor := api.StateRank(target)
+	for _, st := range st.PerNodeState {
+		if api.StateRank(st) < floor {
+			return false
+		}
+	}
+	return true
 }

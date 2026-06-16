@@ -73,12 +73,11 @@ func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, mcpUR
 }
 
 func TestMCPServerAuthZ(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	compose, down := composeUpWithMCP(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil, true)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
@@ -132,12 +131,11 @@ func TestMCPServerAuthZ(t *testing.T) {
 // but only collection-scoped data permissions cannot access collections they
 // are not authorized for via MCP tools (search, upsert, get-config).
 func TestMCPServerCollectionLevelAuthZ(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	compose, down := composeUpWithMCP(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil, true)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
@@ -312,17 +310,13 @@ func TestMCPServerCollectionLevelAuthZ(t *testing.T) {
 // are enforced independently: a read-only user cannot upsert, and a write-only
 // user cannot search or list collections.
 func TestMCPPermissionSeparation(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	readUser := "read-user"
 	readKey := "read-key"
 	writeUser := "write-user"
 	writeKey := "write-key"
 
-	compose, down := composeUpWithMCP(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{readUser: readKey, writeUser: writeKey},
-		nil, true)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
@@ -451,5 +445,91 @@ func TestMCPPermissionSeparation(t *testing.T) {
 		require.Len(t, resp.Results, 1)
 		require.Empty(t, resp.Results[0].Error)
 		require.NotEmpty(t, resp.Results[0].ID)
+	})
+}
+
+// TestMCPTenantsListAuthZ pins down that weaviate-tenants-list only requires
+// read_mcp + read_tenants — not read_data. A pre-fix CollectionsData
+// pre-check would have denied the read_tenants-only role.
+func TestMCPTenantsListAuthZ(t *testing.T) {
+	adminKey := "admin-key"
+	tenantReadUser := "tenant-read-user"
+	tenantReadKey := "tenant-read-key"
+	mcpOnlyUser := "mcp-only-user"
+	mcpOnlyKey := "mcp-only-key"
+
+	compose, down := composeUpShared(t)
+	defer down()
+
+	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
+	adminAuth := helper.CreateAuth(adminKey)
+
+	className := "MTTenantsListAuthZ"
+	allTenants := "*"
+	helper.DeleteClassWithAuthz(t, className, adminAuth)
+	helper.CreateClassAuth(t, &models.Class{
+		Class:              className,
+		Properties:         []*models.Property{{Name: "content", DataType: schema.DataTypeText.PropString()}},
+		Vectorizer:         "none",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}, adminKey)
+	defer helper.DeleteClassWithAuthz(t, className, adminAuth)
+
+	helper.CreateTenantsAuth(t, className, []*models.Tenant{
+		{Name: "t1", ActivityStatus: models.TenantActivityStatusHOT},
+		{Name: "t2", ActivityStatus: models.TenantActivityStatusHOT},
+	}, adminKey)
+
+	// read_mcp + read_tenants on the class, no read_data
+	tenantReadRole := "mcp-tenant-read-role"
+	helper.DeleteRole(t, adminKey, tenantReadRole)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &tenantReadRole,
+		Permissions: []*models.Permission{
+			{Action: &authorization.ReadMcp},
+			{
+				Action:  &authorization.ReadTenants,
+				Tenants: &models.PermissionTenants{Collection: &className, Tenant: &allTenants},
+			},
+		},
+	})
+	defer helper.DeleteRole(t, adminKey, tenantReadRole)
+	helper.AssignRoleToUser(t, adminKey, tenantReadRole, tenantReadUser)
+	defer helper.RevokeRoleFromUser(t, adminKey, tenantReadRole, tenantReadUser)
+
+	// read_mcp only — no read_tenants
+	mcpOnlyRole := "mcp-only-role"
+	helper.DeleteRole(t, adminKey, mcpOnlyRole)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &mcpOnlyRole,
+		Permissions: []*models.Permission{
+			{Action: &authorization.ReadMcp},
+		},
+	})
+	defer helper.DeleteRole(t, adminKey, mcpOnlyRole)
+	helper.AssignRoleToUser(t, adminKey, mcpOnlyRole, mcpOnlyUser)
+	defer helper.RevokeRoleFromUser(t, adminKey, mcpOnlyRole, mcpOnlyUser)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	t.Run("read_mcp + read_tenants (no read_data) lists tenants", func(t *testing.T) {
+		var resp read.GetTenantsResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-tenants-list", tenantReadKey,
+			read.GetTenantsArgs{CollectionName: className}, &resp)
+		require.NoError(t, err)
+		names := make([]string, 0, len(resp.Tenants))
+		for _, tn := range resp.Tenants {
+			names = append(names, tn.Name)
+		}
+		require.ElementsMatch(t, []string{"t1", "t2"}, names)
+	})
+
+	t.Run("read_mcp without read_tenants returns no tenants", func(t *testing.T) {
+		var resp read.GetTenantsResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-tenants-list", mcpOnlyKey,
+			read.GetTenantsArgs{CollectionName: className}, &resp)
+		require.NoError(t, err)
+		require.Empty(t, resp.Tenants)
 	})
 }

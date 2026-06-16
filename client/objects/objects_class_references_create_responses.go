@@ -64,6 +64,12 @@ func (o *ObjectsClassReferencesCreateReader) ReadResponse(response runtime.Clien
 			return nil, err
 		}
 		return nil, result
+	case 410:
+		result := NewObjectsClassReferencesCreateGone()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewObjectsClassReferencesCreateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -381,6 +387,74 @@ func (o *ObjectsClassReferencesCreateNotFound) String() string {
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsClassReferencesCreateGone creates a ObjectsClassReferencesCreateGone with default headers values
+func NewObjectsClassReferencesCreateGone() *ObjectsClassReferencesCreateGone {
+	return &ObjectsClassReferencesCreateGone{}
+}
+
+/*
+ObjectsClassReferencesCreateGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ObjectsClassReferencesCreateGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects class references create gone response has a 2xx status code
+func (o *ObjectsClassReferencesCreateGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references create gone response has a 3xx status code
+func (o *ObjectsClassReferencesCreateGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references create gone response has a 4xx status code
+func (o *ObjectsClassReferencesCreateGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references create gone response has a 5xx status code
+func (o *ObjectsClassReferencesCreateGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references create gone response a status code equal to that given
+func (o *ObjectsClassReferencesCreateGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the objects class references create gone response
+func (o *ObjectsClassReferencesCreateGone) Code() int {
+	return 410
+}
+
+func (o *ObjectsClassReferencesCreateGone) Error() string {
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsClassReferencesCreateGone) String() string {
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsClassReferencesCreateGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassReferencesCreateGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

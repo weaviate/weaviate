@@ -152,7 +152,22 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	response := cmd.QueryGetUsersResponse{Users: users}
+	// Rebuild *apikey.User for the wire to keep the response shape stable;
+	// these pointers are local and never shared.
+	wireUsers := make(map[string]*apikey.User, len(users))
+	for id, v := range users {
+		wireUsers[id] = &apikey.User{
+			Id:                 v.Id,
+			Active:             v.Active,
+			InternalIdentifier: v.InternalIdentifier,
+			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
+			CreatedAt:          v.CreatedAt,
+			LastUsedAt:         v.LastUsedAt,
+			ImportedWithKey:    v.ImportedWithKey,
+			Namespace:          v.Namespace,
+		}
+	}
+	response := cmd.QueryGetUsersResponse{Users: wireUsers}
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)

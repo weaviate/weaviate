@@ -15,7 +15,8 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -63,15 +64,15 @@ func GetHNSWSnapshotDirName(targetVector string) string {
 // don't explicitly exist in the user schema, but are required for proper
 // indexing, such as the count of arrays.
 func MetaCountProp(propName string) string {
-	return fmt.Sprintf("%s__meta_count", propName)
+	return propName + schema.InternalMetaCountSuffix
 }
 
 func PropLength(propName string) string {
-	return propName + filters.InternalPropertyLength
+	return propName + schema.InternalPropertyLengthSuffix
 }
 
 func PropNull(propName string) string {
-	return propName + filters.InternalNullIndex
+	return propName + schema.InternalNullStateSuffix
 }
 
 // BucketFromPropNameLSM creates string used as the bucket name
@@ -93,7 +94,7 @@ func BucketFromPropNameMetaCountLSM(propName string) string {
 }
 
 func TempBucketFromBucketName(bucketName string) string {
-	return bucketName + "_temp"
+	return bucketName + schema.InternalTempSuffix
 }
 
 func BucketNestedFromPropNameLSM(propName string) string {
@@ -105,11 +106,78 @@ func BucketNestedMetaFromPropNameLSM(propName string) string {
 }
 
 func BucketSearchableFromPropNameLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + "_searchable")
+	return BucketFromPropNameLSM(propName + schema.InternalSearchableSuffix)
 }
 
 func BucketRangeableFromPropNameLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + "_rangeable")
+	return BucketFromPropNameLSM(propName + schema.InternalRangeableSuffix)
+}
+
+// propertyBucketGenSuffix returns the suffix appended to a property bucket
+// name to disambiguate generations created by semantic runtime-reindex
+// migrations. Generation 0 (the default for never-migrated properties)
+// returns "" so the bucket name matches the legacy unsuffixed form —
+// existing clusters on disk continue to find their buckets without a
+// rename. Generations >= 1 return "__gen<N>".
+//
+// The double-underscore is chosen to be unambiguous: property names are
+// user-supplied identifiers that, in practice, do not end in "__gen<digits>".
+// Even if one did, the suffix would never collide because the resolver
+// only appends a non-empty suffix when the schema-tracked
+// BucketGeneration is non-zero.
+func propertyBucketGenSuffix(gen int64) string {
+	if gen <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("__gen%d", gen)
+}
+
+// BucketFromPropNameLSMAtGen is the generation-aware variant of
+// [BucketFromPropNameLSM]. For gen=0 it returns the legacy unsuffixed
+// bucket name (no behavior change for properties that have never been
+// semantically reindexed). For gen>=1 the returned name includes a
+// "__gen<N>" suffix so old and new generations can coexist on disk during
+// a migration: the reindex builds the next-generation bucket alongside
+// the active one, and the cluster-wide cutover is the RAFT commit that
+// bumps the property's BucketGeneration field.
+func BucketFromPropNameLSMAtGen(propName string, gen int64) string {
+	return BucketFromPropNameLSM(propName) + propertyBucketGenSuffix(gen)
+}
+
+// BucketSearchableFromPropNameLSMAtGen is the generation-aware variant of
+// [BucketSearchableFromPropNameLSM]. See [BucketFromPropNameLSMAtGen] for
+// the cutover semantics.
+func BucketSearchableFromPropNameLSMAtGen(propName string, gen int64) string {
+	return BucketSearchableFromPropNameLSM(propName) + propertyBucketGenSuffix(gen)
+}
+
+// BucketRangeableFromPropNameLSMAtGen is the generation-aware variant of
+// [BucketRangeableFromPropNameLSM]. See [BucketFromPropNameLSMAtGen] for
+// the cutover semantics.
+func BucketRangeableFromPropNameLSMAtGen(propName string, gen int64) string {
+	return BucketRangeableFromPropNameLSM(propName) + propertyBucketGenSuffix(gen)
+}
+
+// BucketFromPropertyLSM returns the filterable bucket name for a property
+// at its currently-active generation, as recorded in the schema. Equivalent
+// to [BucketFromPropNameLSMAtGen] with the property's BucketGeneration.
+// Prefer this form at sites that already hold a *models.Property — the
+// schema is the single source of truth for which generation is active,
+// so passing the resolved name into a downstream API risks staleness.
+func BucketFromPropertyLSM(prop *models.Property) string {
+	return BucketFromPropNameLSMAtGen(prop.Name, prop.BucketGeneration)
+}
+
+// BucketSearchableFromPropertyLSM returns the searchable bucket name for
+// a property at its currently-active generation. See [BucketFromPropertyLSM].
+func BucketSearchableFromPropertyLSM(prop *models.Property) string {
+	return BucketSearchableFromPropNameLSMAtGen(prop.Name, prop.BucketGeneration)
+}
+
+// BucketRangeableFromPropertyLSM returns the rangeable bucket name for
+// a property at its currently-active generation. See [BucketFromPropertyLSM].
+func BucketRangeableFromPropertyLSM(prop *models.Property) string {
+	return BucketRangeableFromPropNameLSMAtGen(prop.Name, prop.BucketGeneration)
 }
 
 // CompressionRatioFromConfig calculates the compression ratio from vector index config

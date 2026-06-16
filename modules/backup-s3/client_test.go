@@ -12,12 +12,37 @@
 package modstgs3
 
 import (
+	"context"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInitialize_SkipAccessCheck(t *testing.T) {
+	// Validation runs before the SkipAccessCheck short-circuit: a valid bucket
+	// skips the probe, an empty one still errors.
+	tests := []struct {
+		name    string
+		bucket  string
+		wantErr string
+	}{
+		{name: "valid bucket skips probe", bucket: "my-bucket"},
+		{name: "empty bucket still validates", bucket: "", wantErr: "bucket must not be empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &s3Client{config: &clientConfig{Bucket: tt.bucket, SkipAccessCheck: true}}
+			err := c.Initialize(context.Background(), "backup-1", "", "")
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
+}
 
 // setEnvVars sets environment variables and returns a cleanup function
 // that restores the original values.

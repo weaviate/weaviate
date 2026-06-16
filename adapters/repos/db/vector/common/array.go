@@ -13,6 +13,7 @@ package common
 
 import (
 	"fmt"
+	"iter"
 	"math/bits"
 	"sync"
 	"sync/atomic"
@@ -240,4 +241,37 @@ func (p *GroupedPagedArray[T]) EnsurePageFor(id uint64) ([]T, int) {
 	grp.pages[subID].Store(&pg)
 
 	return pg, int(id & p.pageMask)
+}
+
+// IterAllocated returns an iterator over elements in allocated pages.
+// It does not allocate missing groups or pages.
+//
+// Lock-free for page discovery: performs atomic loads while walking the
+// two-level page table. Caller is responsible for reading each returned
+// element safely.
+func (p *GroupedPagedArray[T]) IterAllocated() iter.Seq2[uint64, *T] {
+	return func(yield func(uint64, *T) bool) {
+		for groupID := range p.groups {
+			grp := p.groups[groupID].Load()
+			if grp == nil {
+				continue
+			}
+
+			for subID := range grp.pages {
+				pagePtr := grp.pages[subID].Load()
+				if pagePtr == nil {
+					continue
+				}
+
+				page := *pagePtr
+				pageID := (uint64(groupID) << pagesPerGroupBits) | uint64(subID)
+				baseID := pageID << p.pageBits
+				for slot := range page {
+					if !yield(baseID+uint64(slot), &page[slot]) {
+						return
+					}
+				}
+			}
+		}
+	}
 }

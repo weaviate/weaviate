@@ -82,11 +82,12 @@ var reservedNames = map[string]struct{}{
 	"public":   {},
 }
 
-// Exister exposes namespace presence and lifecycle state. Exists matches
-// any state; IsActive excludes the deleting state.
+// Exister exposes read-only access to namespace state. Exists matches any
+// state; IsActive excludes the deleting state.
 type Exister interface {
 	Exists(name string) bool
 	IsActive(name string) bool
+	GetNamespace(name string) (cmd.Namespace, bool)
 }
 
 // Controller owns the namespace control-plane state.
@@ -111,12 +112,17 @@ func NewController(logger logrus.FieldLogger) *Controller {
 }
 
 // Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State is ignored. Returns [ErrBadRequest] for invalid names,
+// input's State is ignored. HomeNodes must contain exactly one non-empty
+// entry — downstream placement and counters rely on that invariant.
+// Returns [ErrBadRequest] for invalid names or HomeNodes,
 // [ErrAlreadyExists] when the name maps to an active namespace, and
 // [ErrNamespaceDeleting] when the name is currently being torn down.
 func (c *Controller) Create(ns cmd.Namespace) error {
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
+		return fmt.Errorf("%w: home_nodes must contain exactly 1 non-empty entry", ErrBadRequest)
 	}
 
 	c.mu.Lock()
@@ -131,6 +137,30 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 
 	ns.State = cmd.NamespaceStateActive
 	c.namespaces[ns.Name] = &ns
+	return nil
+}
+
+// Update overwrites the stored HomeNodes for an existing namespace.
+// HomeNodes must contain exactly one non-empty entry; Name and State are
+// immutable here. Returns [ErrBadRequest] for an invalid HomeNodes,
+// [ErrNotFound] when the namespace does not exist, and
+// [ErrNamespaceDeleting] when the namespace is being torn down.
+func (c *Controller) Update(ns cmd.Namespace) error {
+	if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
+		return fmt.Errorf("%w: home_nodes must contain exactly 1 non-empty entry", ErrBadRequest)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	existing, ok := c.namespaces[ns.Name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrNotFound, ns.Name)
+	}
+	if existing.State == cmd.NamespaceStateDeleting {
+		return fmt.Errorf("%w: %q", ErrNamespaceDeleting, ns.Name)
+	}
+	existing.HomeNodes = ns.HomeNodes
 	return nil
 }
 
@@ -230,6 +260,18 @@ func (c *Controller) Exists(name string) bool {
 	return ok
 }
 
+// GetNamespace returns a snapshot copy of the namespace by name. ok is
+// false when the namespace does not exist.
+func (c *Controller) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	got, ok := c.namespaces[name]
+	if !ok {
+		return cmd.Namespace{}, false
+	}
+	return *got, true
+}
+
 // IsActive reports whether the named namespace exists and is in the
 // [cmd.NamespaceStateActive] state.
 func (c *Controller) IsActive(name string) bool {
@@ -270,6 +312,8 @@ func (c *Controller) Snapshot() ([]byte, error) {
 // are tolerated. Entries with empty State are normalized to
 // [cmd.NamespaceStateActive]; entries with an unknown State return an
 // error so a future binary's snapshot is not silently mis-classified.
+// Entries missing the single HomeNodes entry are also rejected — there is
+// no migration path from a pre-HomeNodes snapshot.
 func (c *Controller) Restore(snapshot []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -285,6 +329,11 @@ func (c *Controller) Restore(snapshot []byte) error {
 		return err
 	}
 	for name, ns := range restored {
+		if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
+			return fmt.Errorf("namespace %q in snapshot is missing home_node; "+
+				"namespaces require a single home_node and have no migration path "+
+				"from pre-home_node snapshots", name)
+		}
 		if ns.State == "" {
 			ns.State = cmd.NamespaceStateActive
 			continue

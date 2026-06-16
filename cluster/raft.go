@@ -13,10 +13,12 @@ package cluster
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -31,6 +33,14 @@ type Raft struct {
 	store        *Store
 	cl           client
 	log          *logrus.Logger
+
+	// homeNodeIterator persists across AddNamespace calls so home-node
+	// selection rotates through the cluster. Built lazily and rebuilt
+	// whenever the candidate set changes (node join/leave) so newly added
+	// nodes become eligible and removed ones drop out.
+	homeNodeIteratorMu sync.Mutex
+	homeNodeIterator   *cluster.NodeIterator
+	homeNodeCandidates []string
 }
 
 // client to communicate with remote services
@@ -59,6 +69,40 @@ func (s *Raft) Close(ctx context.Context) (err error) {
 	return s.store.Close(ctx)
 }
 
+// SetDistributedTaskSchedulerNotifier installs the wake-up notifier on
+// the underlying distributed task FSM Manager. Called once at startup
+// from MakeAppState, after both Raft and the Scheduler exist. See
+// [distributedtask.SchedulerNotifier] for the contract.
+func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	s.store.SetDistributedTaskSchedulerNotifier(notifier)
+}
+
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the underlying distributed task FSM
+// Manager. Called once at startup from MakeAppState, after the
+// providers are registered. See [distributedtask.ConflictDetector] for
+// the FSM-determinism contract.
+func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	s.store.SetDistributedTaskConflictDetectors(detectors)
+}
+
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// schema-mutation detectors consulted from the schema FSM's
+// UpdateProperty apply path. Called once at startup from MakeAppState,
+// after the providers are registered. See
+// [distributedtask.SchemaMutationDetector] for the contract and
+// motivating failure mode.
+func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
+}
+
+// RegisterDistributedTaskCollectionExtractor opts a task namespace into
+// the DELETE_CLASS cascade. See [distributedtask.CollectionExtractor]
+// and weaviate/0-weaviate-issues#231.
+func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
+	s.store.RegisterDistributedTaskCollectionExtractor(namespace, extractor)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
@@ -75,12 +119,20 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
 }
 
+func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
+	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target), nil
+}
+
 func (s *Raft) NodeSelector() cluster.NodeSelector {
 	return s.nodeSelector
 }
 
 func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
 	return s.store.replicationManager.GetReplicationFSM()
+}
+
+func (s *Raft) SetInflightDrainer(fn func(ctx context.Context, class, shard string) error) {
+	s.store.replicationManager.SetInflightDrainer(fn)
 }
 
 func (s *Raft) IsLeader() bool {

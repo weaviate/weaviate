@@ -68,12 +68,9 @@ func GetPropertyDataType(class *models.Class, propertyName string) (*DataType, e
 		if len(dataType) == 0 {
 			return nil, fmt.Errorf("invalid-dataType")
 		}
-		// Get the first letter to see if it is a capital
-		firstLetter := string(dataType[0])
-		if strings.ToUpper(firstLetter) == firstLetter {
+		if IsRefDataType([]string{dataType}) {
 			returnDataType = DataTypeCRef
 		} else {
-			// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
 			valueDataType, err := GetValueDataTypeFromString(dataType)
 			if err != nil {
 				return nil, err
@@ -111,12 +108,9 @@ func GetNestedPropertyDataType[P PropertyInterface](p P, propertyName string) (*
 		if len(dataType) == 0 {
 			return nil, fmt.Errorf("invalid-dataType")
 		}
-		// Get the first letter to see if it is a capital
-		firstLetter := string(dataType[0])
-		if strings.ToUpper(firstLetter) == firstLetter {
+		if IsRefDataType([]string{dataType}) {
 			returnDataType = DataTypeCRef
 		} else {
-			// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
 			valueDataType, err := GetValueDataTypeFromString(dataType)
 			if err != nil {
 				return nil, err
@@ -169,8 +163,21 @@ func IsValidValueDataType(dt string) bool {
 	return false
 }
 
+// IsRefDataType reports whether dt is a cross-reference DataType. Expects
+// stored DataType — qualified "<namespace>:Class" or bare "Class".
+// User-supplied DataType must go through FindPropertyDataTypeWithRefsAndAuth.
 func IsRefDataType(dt []string) bool {
-	firstLetter := string(dt[0][0])
+	if len(dt) == 0 || len(dt[0]) == 0 {
+		return false
+	}
+	name := dt[0]
+	if _, cls, ok := strings.Cut(name, NamespaceSeparator); ok {
+		if cls == "" {
+			return false
+		}
+		name = cls
+	}
+	firstLetter := string(name[0])
 	return strings.ToUpper(firstLetter) == firstLetter
 }
 

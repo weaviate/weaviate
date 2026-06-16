@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var IndicesPayloads = indicesPayloads{}
@@ -138,19 +139,46 @@ func (e errorListPayload) CheckContentTypeHeader(r *http.Response) (string, bool
 	return ct, ct == e.MIME()
 }
 
+// usageLimitMarker tags an object row as a *LimitExceededError.
+const usageLimitMarker = "USAGE_LIMIT_EXCEEDED"
+
+// errorListRow is the object form of a per-row error, used only for
+// *LimitExceededError.
+type errorListRow struct {
+	Message   string `json:"message"`
+	ErrorCode string `json:"errorCode,omitempty"`
+	Limit     string `json:"limit,omitempty"`
+	Value     int64  `json:"value,omitempty"`
+}
+
+// Marshal emits a JSON string per plain error and an errorListRow per
+// *LimitExceededError so the receiver can read Limit/Value back. A
+// pre-existing node panics on an object row (its Unmarshal asserts
+// string), so a forwarded batch hitting MAXIMUM_ALLOWED_OBJECTS_COUNT
+// mid-upgrade will trip an older peer.
 func (e errorListPayload) Marshal(in []error) ([]byte, error) {
 	converted := make([]interface{}, len(in))
 	for i, err := range in {
 		if err == nil {
 			continue
 		}
-
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			converted[i] = errorListRow{
+				Message:   le.Error(),
+				ErrorCode: usagelimits.ErrorCode,
+				Limit:     string(le.Limit),
+				Value:     le.Value,
+			}
+			continue
+		}
 		converted[i] = err.Error()
 	}
 
 	return json.Marshal(converted)
 }
 
+// Unmarshal reads both row shapes — string and object — and tolerates
+// payloads that mix them.
 func (e errorListPayload) Unmarshal(in []byte) []error {
 	var msgs []interface{}
 	json.Unmarshal(in, &msgs)
@@ -161,11 +189,35 @@ func (e errorListPayload) Unmarshal(in []byte) []error {
 		if msg == nil {
 			continue
 		}
-
-		converted[i] = errors.New(msg.(string))
+		switch v := msg.(type) {
+		case string:
+			converted[i] = errors.New(v)
+		case map[string]interface{}:
+			converted[i] = rowToError(v)
+		default:
+			// Unknown row shape — don't panic on a future format.
+			converted[i] = errors.New(fmt.Sprintf("%v", v))
+		}
 	}
 
 	return converted
+}
+
+// rowToError turns an object row back into an error: a USAGE_LIMIT_EXCEEDED
+// row becomes a *LimitExceededError, anything else a plain error.
+func rowToError(v map[string]interface{}) error {
+	msg, _ := v["message"].(string)
+	if code, _ := v["errorCode"].(string); code == usageLimitMarker {
+		limit, _ := v["limit"].(string)
+		// JSON numbers decode to float64 in an untyped map.
+		value, _ := v["value"].(float64)
+		return &usagelimits.LimitExceededError{
+			Limit:           usagelimits.LimitName(limit),
+			Value:           int64(value),
+			RenderedMessage: msg,
+		}
+	}
+	return errors.New(msg)
 }
 
 // marshallStorObj converts a *storobj.Object to a byte slice suitable for network transmission

@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
+	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 )
 
 // Request types
@@ -23,7 +24,7 @@ type QueryHybridArgs struct {
 	Query            string         `json:"query" jsonschema:"required" jsonschema_description:"The plain-text query to search the collection on"`
 	CollectionName   string         `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to search from"`
 	TenantName       string         `json:"tenant_name,omitempty" jsonschema_description:"Name of the tenant to search within"`
-	Alpha            *float64       `json:"alpha,omitempty" jsonschema_description:"Semantic weight (0.0 = pure keyword, 1.0 = pure vector). Default is 0.5 if not specified"`
+	Alpha            *float64       `json:"alpha,omitempty" jsonschema_description:"Semantic weight (0.0 = pure keyword, 1.0 = pure vector). Default is 0.75 if not specified"`
 	Limit            *int           `json:"limit,omitempty" jsonschema_description:"Maximum number of results to return"`
 	TargetVectors    []string       `json:"target_vectors,omitempty" jsonschema_description:"Target vectors to use in vector search"`
 	TargetProperties []string       `json:"target_properties,omitempty" jsonschema_description:"Properties to perform BM25 keyword search on. If not specified, searches all text properties"`
@@ -40,7 +41,7 @@ type QueryHybridResp struct {
 
 // Tool registration
 
-func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig) []server.ServerTool {
+func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig, m *mcpmetrics.MCPMetrics) []server.ServerTool {
 	toolName := "weaviate-query-hybrid"
 	tool := mcp.NewTool(
 		toolName,
@@ -53,6 +54,6 @@ func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig) [
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
 	return []server.ServerTool{
-		{Tool: tool, Handler: mcp.NewStructuredToolHandler(searcher.Hybrid)},
+		{Tool: tool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, toolName, searcher.Hybrid))},
 	}
 }

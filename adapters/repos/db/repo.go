@@ -112,6 +112,26 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
+	// reindexAuditMu guards the audit deps installed by
+	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
+	// installed by [DB.SetShardReindexActivityLookup] so they are
+	// safely visible from any post-restore goroutine.
+	//
+	// reindexAuditDeferredRequests counts the number of times
+	// [DB.AuditOrphanReindexTrackersIfReady] was called BEFORE deps
+	// were installed (typically from the per-class-dir restore hook
+	// firing during RAFT replay while the SetReindexAuditDeps
+	// goroutine is still waiting on metaStoreReady). On the first
+	// SetReindexAuditDeps call, if the counter is non-zero, the
+	// install path runs a single replay sweep so the deferred
+	// per-class audits are not silently lost. Closes B2.
+	reindexAuditMu                     sync.RWMutex
+	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
+	reindexAuditLogger                 logrus.FieldLogger
+	reindexAuditDeferredRequests       int
+	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
+	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
 
@@ -229,6 +249,9 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 			}
 		}
 	}
+
+	// resume any .deleteme cleanup that didn't finish before the last shutdown
+	scanAndAsyncDeletePending(config.RootPath, logger)
 
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
@@ -388,6 +411,23 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	}, utils.NewBackoff())
 
 	return index
+}
+
+// WaitForLocalInflightWrites blocks until this node's in-flight coordinated
+// writes to the given shard have drained, or ctx is done.
+func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard string) error {
+	var index *Index
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		index = db.indices[indexID(schema.ClassName(class))]
+		if index == nil || index.replicator == nil {
+			return
+		}
+		index.dropIndex.RLock()
+	}()
+	defer index.dropIndex.RUnlock()
+	return index.replicator.WaitForDrain(ctx, shard)
 }
 
 // GetLocalShardNames returns the names of all shards local to this node for

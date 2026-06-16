@@ -187,18 +187,33 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, g.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
-		return g.getObject(ctx, bucket, key)
+		data, err := g.getObject(ctx, bucket, key)
+		if err != nil {
+			if errors.Is(err, storage.ErrObjectNotExist) {
+				return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", key))
+			}
+			return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", key))
+		}
+
+		return data, nil
 	})
 }
 
-func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
+func (g *gcsClient) resolveBucketName(bucketOverride string) (string, error) {
 	b := g.config.Bucket
-
 	if bucketOverride != "" {
 		b = bucketOverride
 	}
 	if b == "" {
-		return nil, fmt.Errorf("bucket must not be empty")
+		return "", fmt.Errorf("bucket must not be empty")
+	}
+	return b, nil
+}
+
+func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
+	b, err := g.resolveBucketName(bucketOverride)
+	if err != nil {
+		return nil, err
 	}
 	bucket := g.client.Bucket(b)
 
@@ -274,6 +289,14 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 }
 
 func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+	if _, err := g.resolveBucketName(overrideBucket); err != nil {
+		return err
+	}
+
+	if g.config.SkipAccessCheck {
+		return nil
+	}
+
 	// Each call gets a unique access-check file so concurrent Initialize calls
 	// from different nodes (or the same node) never interfere with each other.
 	seq := g.counter.Add(1)

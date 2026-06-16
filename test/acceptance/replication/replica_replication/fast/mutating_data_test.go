@@ -72,7 +72,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 			replication.NewListReplicationParams().WithCollection(&cls.Class),
 			nil,
 		)
-		require.Nil(ct, err, "failed to list replication operations for class %s", cls.Class)
+		require.NoError(ct, err, "failed to list replication operations for class %s", cls.Class)
 		assert.Empty(ct, res.Payload, "there are still replication operations for class %s", cls.Class)
 	}, 30*time.Second, 5*time.Second, "replication operations for class %s did not finish in time", cls.Class)
 
@@ -94,7 +94,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		nodes.NewNodesGetClassParams().WithClassName(cls.Class),
 		nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get nodes for class: %+v", err)
 	nodeNames := make([]string, 0, len(ns.Payload.Nodes))
 	for _, node := range ns.Payload.Nodes {
 		nodeNames = append(nodeNames, node.Name)
@@ -104,7 +104,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		replication.NewGetCollectionShardingStateParams().WithCollection(&cls.Class),
 		nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get collection sharding state: %+v", err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -135,7 +135,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		}),
 		nil,
 	)
-	require.Nil(t, err, "failed to start replication for tenant %s from node %s to node %s", tenantName, sourceNode, targetNode)
+	require.NoError(t, err, "failed to start replication for tenant %s from node %s to node %s", tenantName, sourceNode, targetNode)
 	opId := *res.Payload.ID
 
 	cancel() // stop mutating to allow the verification to proceed
@@ -146,7 +146,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 			replication.NewReplicationDetailsParams().WithID(opId),
 			nil,
 		)
-		require.Nil(t, err, "failed to get replication operation %s", opId)
+		require.NoError(t, err, "failed to get replication operation %s", opId)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
 
@@ -155,7 +155,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		nodes.NewNodesGetClassParams().WithClassName(cls.Class).WithOutput(&verbose),
 		nil,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to get nodes for class: %+v", err)
 
 	nodeToAddress := map[string]string{}
 	for idx, node := range ns.Payload.Nodes {
@@ -168,9 +168,9 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		res, err := nodeClient.Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
 			Query: fmt.Sprintf(`{ Aggregate { %s(tenant: "%s") { meta { count } } } }`, cls.Class, tenantName),
 		}), nil)
-		require.Nil(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
+		require.NoError(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
 		val, err := res.Payload.Data["Aggregate"].(map[string]any)["Paragraph"].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
-		require.Nil(t, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
+		require.NoError(t, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
 		objectCountByReplica[node] = val
 	}
 

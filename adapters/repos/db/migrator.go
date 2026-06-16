@@ -202,7 +202,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
 			SkipWriteClassNameOnDisk:            m.db.config.LSMSkipWriteClassNameEnabled,
 			ReplicationFactor:                   class.ReplicationConfig.Factor,
-			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 			AsyncReplicationConfig:              asyncConfig,
 			AsyncReplicationScheduler:           m.db.asyncReplicationScheduler,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
@@ -239,9 +238,34 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	idx.usageLimits = m.db.usageLimits
+	idx.db = m.db
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
+
+	// NewIndex loaded shards reading the live AsyncReplicationDisabled flag, but
+	// the index was not yet in db.indices, so a concurrent runtime flag toggle's
+	// reconcile hook could have skipped it. Re-reconcile now that it is visible
+	// so its shards match the current flag. Non-fatal: a hiccup here must not
+	// fail class creation — the next toggle/schema update will correct it.
+	//
+	// Take dropIndex.RLock only after publishing the index, keeping the
+	// indexLock -> dropIndex order used everywhere else (acquiring dropIndex
+	// first would invert it against DeleteIndex). classLocks already serialises
+	// a same-class DeleteIndex, so the index cannot be dropped before this runs.
+	func() {
+		idx.dropIndex.RLock()
+		defer idx.dropIndex.RUnlock()
+		idx.closeLock.RLock()
+		defer idx.closeLock.RUnlock()
+		if idx.closed {
+			return
+		}
+		if err := idx.reconcileAsyncReplication(ctx); err != nil {
+			m.logger.WithField("action", "add_class").WithField("class", class.Class).
+				Errorf("reconcile async replication for new index: %v", err)
+		}
+	}()
 
 	m.logger.WithFields(logrus.Fields{
 		"action":                  "lazy_shard_auto_detection",

@@ -178,7 +178,6 @@ func (db *DB) init(ctx context.Context) error {
 				LSMEnableSegmentsChecksumValidation: db.config.LSMEnableSegmentsChecksumValidation,
 				SkipWriteClassNameOnDisk:            db.config.LSMSkipWriteClassNameEnabled,
 				ReplicationFactor:                   class.ReplicationConfig.Factor,
-				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				AsyncReplicationConfig:              asyncConfig,
 				AsyncReplicationScheduler:           db.asyncReplicationScheduler,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
@@ -215,6 +214,7 @@ func (db *DB) init(ctx context.Context) error {
 			}
 
 			idx.usageLimits = db.usageLimits
+			idx.db = db
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()

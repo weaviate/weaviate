@@ -170,26 +170,3 @@ func (p WriteRoutingPlan) Shards() []string {
 func (p WriteRoutingPlan) Replicas() []Replica {
 	return p.ReplicaSet.Replicas
 }
-
-// AdditionalHostNames returns the hostnames of the additional write Replicas,
-// which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalHostNames() []string {
-	return p.ReplicaSet.AdditionalHostAddresses()
-}
-
-// AdditionalHostAddresses returns the host addresses of the additional write
-// Replicas, which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalHostAddresses() []string {
-	return p.ReplicaSet.AdditionalHostAddresses()
-}
-
-// AdditionalShards returns the shard names associated with the additional write Replicas
-// in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalShards() []string {
-	return p.ReplicaSet.AdditionalShards()
-}
-
-// AdditionalReplicas returns a list of additional replicas
-func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
-	return p.ReplicaSet.AdditionalReplicas
-}

@@ -49,7 +49,7 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 	t.Run("start replication operations", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
 		nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class).WithOutput(&verbose), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get nodes for class: %+v", err)
 		require.Len(t, nodes.Payload.Nodes, 3)
 		for i, src := range nodes.Payload.Nodes {
 			for j, tgt := range nodes.Payload.Nodes {
@@ -67,7 +67,7 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 					}),
 					nil,
 				)
-				require.Nil(t, err, "failed to start replication from %s to %s", src.Name, tgt.Name)
+				require.NoError(t, err, "failed to start replication from %s to %s", src.Name, tgt.Name)
 			}
 		}
 	})
@@ -77,7 +77,7 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 			replication.NewListReplicationParams(),
 			nil,
 		)
-		require.Nil(t, err, "failed to list replication details")
+		require.NoError(t, err, "failed to list replication details")
 		require.Len(t, resp.Payload, howManyNodes, "there should be %d replication operations started", howManyNodes)
 	})
 
@@ -89,7 +89,7 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 			}),
 			nil,
 		)
-		require.Nil(t, err, "failed to force delete all replication operations")
+		require.NoError(t, err, "failed to force delete all replication operations")
 		// calling forceDelete with dryRun=true should return the UUIDs of the operations that would be deleted
 		require.Len(t, resp.Payload.Deleted, howManyNodes, "there should be %d replication operations to be deleted", howManyNodes)
 		require.Equal(t, resp.Payload.DryRun, true, "dry run should be false, we are not in dry run mode")
@@ -100,7 +100,7 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 			replication.NewForceDeleteReplicationsParams(),
 			nil,
 		)
-		require.Nil(t, err, "failed to force delete all replication operations")
+		require.NoError(t, err, "failed to force delete all replication operations")
 		// calling forceDelete with dryRun=false cannot return the UUIDs of the operations that were deleted so we expect an empty slice
 		require.Len(t, resp.Payload.Deleted, 0, "there should be %d replication operations deleted", 0)
 		require.Equal(t, resp.Payload.DryRun, false, "dry run should be false, we are not in dry run mode")
@@ -111,7 +111,7 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 			replication.NewListReplicationParams(),
 			nil,
 		)
-		require.Nil(t, err, "failed to list replication details")
+		require.NoError(t, err, "failed to list replication details")
 		require.Len(t, resp.Payload, 0, "there should be no replication operations left after force delete")
 	})
 
@@ -121,7 +121,7 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 			nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class).WithOutput(&verbose),
 			nil,
 		)
-		require.Nil(t, err, "failed to get nodes for class %s", paragraphClass.Class)
+		require.NoError(t, err, "failed to get nodes for class %s", paragraphClass.Class)
 		require.Len(t, resp.Payload.Nodes, howManyNodes, "there should be %d nodes for class %s", howManyNodes, paragraphClass.Class)
 
 		for _, node := range resp.Payload.Nodes {

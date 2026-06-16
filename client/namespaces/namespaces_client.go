@@ -49,6 +49,8 @@ type ClientService interface {
 
 	ListNamespaces(params *ListNamespacesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListNamespacesOK, error)
 
+	UpdateNamespace(params *UpdateNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*UpdateNamespaceOK, error)
+
 	SetTransport(transport runtime.ClientTransport)
 }
 
@@ -213,6 +215,47 @@ func (a *Client) ListNamespaces(params *ListNamespacesParams, authInfo runtime.C
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for listNamespaces: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+UpdateNamespace updates a namespace
+
+Update a namespace's `home_node`. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.
+*/
+func (a *Client) UpdateNamespace(params *UpdateNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*UpdateNamespaceOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewUpdateNamespaceParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "updateNamespace",
+		Method:             "PUT",
+		PathPattern:        "/namespaces/{namespace_id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &UpdateNamespaceReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*UpdateNamespaceOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for updateNamespace: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

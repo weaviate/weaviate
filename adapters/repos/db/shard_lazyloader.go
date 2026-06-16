@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"sync"
 	"time"
 
@@ -32,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -166,6 +166,14 @@ func (l *LazyLoadShard) Name() string {
 func (l *LazyLoadShard) Store() *lsmkv.Store {
 	l.mustLoad()
 	return l.shard.Store()
+}
+
+// Unwrap loads the shard if necessary and returns the underlying concrete *Shard.
+func (l *LazyLoadShard) Unwrap(ctx context.Context) (*Shard, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard, nil
 }
 
 func (l *LazyLoadShard) NotifyReady() {
@@ -350,6 +358,41 @@ func (l *LazyLoadShard) getAsyncReplicationStats(ctx context.Context) []*models.
 	return l.shard.getAsyncReplicationStats(ctx)
 }
 
+func (l *LazyLoadShard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ActivateChangeLog(ctx, opID)
+}
+
+func (l *LazyLoadShard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
+	if err := l.Load(ctx); err != nil {
+		return 0, err
+	}
+	return l.shard.SnapshotChangeLogLSN(ctx, opID)
+}
+
+func (l *LazyLoadShard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
+	if err := l.Load(ctx); err != nil {
+		return 0, err
+	}
+	return l.shard.FinalizeChangeLog(ctx, opID)
+}
+
+func (l *LazyLoadShard) StopChangeCapture(ctx context.Context, opID string) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.StopChangeCapture(ctx, opID)
+}
+
+func (l *LazyLoadShard) GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool) {
+	if err := l.Load(ctx); err != nil {
+		return nil, false
+	}
+	return l.shard.GetChangeLog(ctx, opID)
+}
+
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if err := l.Load(ctx); err != nil {
 		return []error{err}
@@ -427,10 +470,17 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 			}
 		}
 
-		// remove shard dir
+		// rename sync (must complete even if ctx is expired); RemoveAll async.
+		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
+		// blocking RemoveAll the loaded path was changed to avoid.
 		if !keepFiles {
-			if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
-				return fmt.Errorf("delete shard dir: %w", err)
+			path := shardPath(idx.path(), shardName)
+			deleted, err := renameForAsyncDelete(path, idx.logger)
+			if err != nil {
+				return fmt.Errorf("rename shard for async delete: %w", err)
+			}
+			if deleted != "" {
+				spawnAsyncDelete(deleted, idx.logger)
 			}
 		}
 
@@ -570,6 +620,13 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
+func (l *LazyLoadShard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
+	overlay map[string]inverted.PropertyOverlay,
+) ([]inverted.Property, []inverted.NilProperty, error) {
+	l.mustLoad()
+	return l.shard.AnalyzeObjectForMigrationWithOverlay(object, overlay)
+}
+
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
 	l.mutex.Lock()
 	if l.loaded {
@@ -692,6 +749,35 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 		return []hashtree.Digest{}, nil
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
+}
+
+// CreateAsyncCheckpoint maps unloaded to ErrAsyncReplicationNotActive so transports
+// return REST 412 / gRPC FailedPrecondition (matching the loaded path).
+func (l *LazyLoadShard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
+	if !l.isLoaded() {
+		return errAsyncReplicationNotActive
+	}
+	return l.shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
+}
+
+func (l *LazyLoadShard) DeleteAsyncCheckpoint(ctx context.Context) error {
+	if !l.isLoaded() {
+		return nil
+	}
+	return l.shard.DeleteAsyncCheckpoint(ctx)
+}
+
+func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
+	if !l.isLoaded() {
+		return hashtree.Digest{}, 0, time.Time{}, false
+	}
+	return l.shard.AsyncCheckpointRoot(ctx)
+}
+
+// IsAsyncCheckpointHostable lets Index.GetAsyncCheckpointShardStatus
+// distinguish unloaded shards from "loaded but inactive".
+func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
+	return l.isLoaded()
 }
 
 func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {

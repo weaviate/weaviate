@@ -126,7 +126,12 @@ type Client struct {
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
 func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, logger *logrus.Logger) *Client {
-	return &Client{addrResolver: r, rpcMessageMaxSize: rpcMessageMaxSize, sentryEnabled: sentryEnabled, logger: logger}
+	return &Client{
+		addrResolver:      r,
+		rpcMessageMaxSize: rpcMessageMaxSize,
+		sentryEnabled:     sentryEnabled,
+		logger:            logger,
+	}
 }
 
 // Join will contact the node at leaderRaftAddr and try to join this node to the cluster leaded by leaderRaftAddress using req
@@ -222,7 +227,6 @@ func (cl *Client) Close() {
 	if cl.leaderRpcConn == nil {
 		return
 	}
-
 	if err := cl.leaderRpcConn.Close(); err != nil {
 		cl.logger.WithFields(
 			logrus.Fields{

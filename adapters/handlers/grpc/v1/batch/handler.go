@@ -50,12 +50,13 @@ func NewHandler(authorizer authorization.Authorizer, batchManager *objects.Batch
 	}
 }
 
-func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (reply *pb.BatchObjectsReply, retErr error) {
 	before := time.Now()
 	principal, err := h.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 	ctx = classcache.ContextWithClassCache(ctx)
 
@@ -65,42 +66,46 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	// - to pass down the stack to reuse, index by classname so it can be found easily
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
-	classGetter := func(classname, shard string) (*models.Class, error) {
-		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
+	classGetter := func(classname, shard string) (string, *models.Class, error) {
+		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		classname = resolved
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
 		classTenantName := classname + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]
 		if ok {
-			return class, nil
+			return resolved, class, nil
 		}
 
 		// batch is upsert
 		if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
+			return "", nil, err
 		}
 
 		if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
+			return "", nil, err
 		}
 
 		// we don't leak any info that someone who inserts data does not have anyway
 		vClass, err := h.schemaManager.GetCachedClassNoAuth(ctx, classname)
 		if err != nil {
-			return nil, err
+			return "", nil, err
+		}
+		// Without this guard the nil class falls into auto-schema and silently re-creates the deleted target.
+		if qualifiedAlias != "" && vClass[classname].Class == nil {
+			return "", nil, fmt.Errorf("alias %q points to collection %q which does not exist", qualifiedAlias, classname)
 		}
 		knownClasses[classname] = vClass[classname]
 		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
-		return vClass[classname].Class, nil
+		return resolved, vClass[classname].Class, nil
 	}
-	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter)
+	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.namespacesEnabled)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {
-		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
+		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: namespacing.StripErrorMessage(principal, err.Error())})
 	}
 
 	// If every object failed to parse, return early with the errors
@@ -121,7 +126,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	for i, obj := range response {
 		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: namespacing.StripErrorMessage(principal, obj.Err.Error())})
 		}
 	}
 
@@ -132,12 +137,13 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	return result, nil
 }
 
-func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
+func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (reply *pb.BatchReferencesReply, retErr error) {
 	before := time.Now()
 	principal, err := h.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 	replProps := extractReplicationProperties(req.ConsistencyLevel)
 
@@ -149,7 +155,7 @@ func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 	var refErrors []*pb.BatchReferencesReply_BatchError
 	for i, ref := range response {
 		if ref.Err != nil {
-			refErrors = append(refErrors, &pb.BatchReferencesReply_BatchError{Index: int32(i), Error: ref.Err.Error()})
+			refErrors = append(refErrors, &pb.BatchReferencesReply_BatchError{Index: int32(i), Error: namespacing.StripErrorMessage(principal, ref.Err.Error())})
 		}
 	}
 

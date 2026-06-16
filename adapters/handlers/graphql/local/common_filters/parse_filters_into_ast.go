@@ -34,8 +34,9 @@ func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.Loc
 		}
 
 		// GraphQL is disabled on namespace-enabled clusters, so the
-		// namespacesEnabled flag is hard-wired to false here.
-		return filterext.Parse(filter, rootClass, false)
+		// namespacesEnabled flag is hard-wired to false here and the
+		// principal isn't consulted by Parse for path qualification.
+		return filterext.Parse(filter, rootClass, false, nil)
 	}
 }
 

@@ -32,7 +32,7 @@ func CallToolOnce[I any, O any](ctx context.Context, t *testing.T, tool string, 
 		}))
 	}
 
-	client, err := client.NewStreamableHttpClient("http://localhost:8082/v1/mcp", opts...)
+	client, err := client.NewStreamableHttpClient(GetWeaviateURL()+"/v1/mcp", opts...)
 	if err != nil {
 		return err
 	}
