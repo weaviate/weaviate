@@ -26,10 +26,12 @@ func CompactionCycleIntervals() CycleIntervals {
 		compactionBase, compactionSteps)
 }
 
-// ticker backs off towards the max interval while cycles report no work
-// and resets to the min interval once work is done; each shard still
-// takes care of its own intervals underneath
-func CompactionCycleTicker() CycleTicker {
+// backoff true backs off towards the max interval while cycles report no work and
+// resets to min once work is done; false pins the fixed min interval.
+func CompactionCycleTicker(backoff bool) CycleTicker {
+	if !backoff {
+		return NewFixedTicker(compactionMinInterval)
+	}
 	return newCycleTicker(CompactionCycleIntervals())
 }
 
@@ -46,10 +48,12 @@ func MemtableFlushCycleIntervals() CycleIntervals {
 		memtableFlushBase, memtableFlushSteps)
 }
 
-// ticker backs off towards the max interval while cycles report no work
-// and resets to the min interval once work is done; each shard still
-// takes care of its own intervals underneath
-func MemtableFlushCycleTicker() CycleTicker {
+// backoff true backs off towards the max interval while cycles report no work and
+// resets to min once work is done; false pins the fixed min interval.
+func MemtableFlushCycleTicker(backoff bool) CycleTicker {
+	if !backoff {
+		return NewFixedTicker(memtableFlushMinInterval)
+	}
 	return newCycleTicker(MemtableFlushCycleIntervals())
 }
 
@@ -66,10 +70,12 @@ func GeoCommitLoggerCycleIntervals() CycleIntervals {
 		geoCommitLoggerBase, geoCommitLoggerSteps)
 }
 
-// ticker backs off towards the max interval while cycles report no work
-// and resets to the min interval once work is done; each shard still
-// takes care of its own intervals underneath
-func GeoCommitLoggerCycleTicker() CycleTicker {
+// backoff true backs off towards the max interval while cycles report no work and
+// resets to min once work is done; false pins the fixed min interval.
+func GeoCommitLoggerCycleTicker(backoff bool) CycleTicker {
+	if !backoff {
+		return NewFixedTicker(geoCommitLoggerMinInterval)
+	}
 	return newCycleTicker(GeoCommitLoggerCycleIntervals())
 }
 
@@ -86,9 +92,11 @@ func HnswCommitLoggerCycleIntervals() CycleIntervals {
 		hnswCommitLoggerBase, hnswCommitLoggerSteps)
 }
 
-// ticker backs off towards the max interval while cycles report no work
-// and resets to the min interval once work is done; each shard still
-// takes care of its own intervals underneath
-func HnswCommitLoggerCycleTicker() CycleTicker {
+// backoff true backs off towards the max interval while cycles report no work and
+// resets to min once work is done; false pins the fixed min interval.
+func HnswCommitLoggerCycleTicker(backoff bool) CycleTicker {
+	if !backoff {
+		return NewFixedTicker(hnswCommitLoggerMinInterval)
+	}
 	return newCycleTicker(HnswCommitLoggerCycleIntervals())
 }

@@ -32,22 +32,22 @@ func Test_CycleTickersBackOffWhenIdle(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:      "compaction",
-			newTicker: CompactionCycleTicker,
+			newTicker: func() CycleTicker { return CompactionCycleTicker(true) },
 			intervals: CompactionCycleIntervals,
 		},
 		{
 			name:      "memtable flush",
-			newTicker: MemtableFlushCycleTicker,
+			newTicker: func() CycleTicker { return MemtableFlushCycleTicker(true) },
 			intervals: MemtableFlushCycleIntervals,
 		},
 		{
 			name:      "geo commit logger",
-			newTicker: GeoCommitLoggerCycleTicker,
+			newTicker: func() CycleTicker { return GeoCommitLoggerCycleTicker(true) },
 			intervals: GeoCommitLoggerCycleIntervals,
 		},
 		{
 			name:      "hnsw commit logger",
-			newTicker: HnswCommitLoggerCycleTicker,
+			newTicker: func() CycleTicker { return HnswCommitLoggerCycleTicker(true) },
 			intervals: HnswCommitLoggerCycleIntervals,
 		},
 	}
@@ -110,7 +110,7 @@ func Test_CycleManagerBacksOffWhenIdle(t *testing.T) {
 			return busy
 		}
 
-		cm := NewManager("test", MemtableFlushCycleTicker(), cycleCallback, logger)
+		cm := NewManager("test", MemtableFlushCycleTicker(true), cycleCallback, logger)
 		cm.Start()
 
 		// idle: 100ms . 258ms .. 574ms .... 1.206s ........ 2.471s

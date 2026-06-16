@@ -44,6 +44,11 @@ type indexCycleCallbacks struct {
 func (index *Index) initCycleCallbacks() {
 	routinesN := concurrency.TimesGOMAXPROCS(index.Config.CycleManagerRoutinesFactor)
 
+	// Single-tenant collections let the shared ticker back off when idle, keeping
+	// many quiet collections cheap. Multi-tenant pins the min interval and relies on
+	// per-shard backoff; a shared backoff could stall a newly-active tenant by up to max.
+	backoff := !index.partitioningEnabled
+
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
 	switch cfg := index.GetVectorIndexConfig("").(type) {
 	case hnsw.UserConfig:
@@ -69,7 +74,7 @@ func (index *Index) initCycleCallbacks() {
 		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction"), index.logger, routinesN)
 		compactionCycle = cyclemanager.NewManager(
 			cm("compaction"),
-			cyclemanager.CompactionCycleTicker(),
+			cyclemanager.CompactionCycleTicker(backoff),
 			compactionCallbacks.CycleCallback, index.logger)
 		compactionAuxCycle = cyclemanager.NewManagerNoop()
 	} else {
@@ -77,19 +82,19 @@ func (index *Index) initCycleCallbacks() {
 		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction-non-objects"), index.logger, routinesNDiv2)
 		compactionCycle = cyclemanager.NewManager(
 			cm("compaction-non-objects"),
-			cyclemanager.CompactionCycleTicker(),
+			cyclemanager.CompactionCycleTicker(backoff),
 			compactionCallbacks.CycleCallback, index.logger)
 		compactionAuxCallbacks = cyclemanager.NewCallbackGroup(id("compaction-objects"), index.logger, routinesNDiv2)
 		compactionAuxCycle = cyclemanager.NewManager(
 			cm("compaction-objects"),
-			cyclemanager.CompactionCycleTicker(),
+			cyclemanager.CompactionCycleTicker(backoff),
 			compactionAuxCallbacks.CycleCallback, index.logger)
 	}
 
 	flushCallbacks := cyclemanager.NewCallbackGroup(id("flush"), index.logger, routinesN)
 	flushCycle := cyclemanager.NewManager(
 		cm("flush"),
-		cyclemanager.MemtableFlushCycleTicker(),
+		cyclemanager.MemtableFlushCycleTicker(backoff),
 		flushCallbacks.CycleCallback, index.logger)
 
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("vector", "commit_logger"), index.logger, routinesN)
@@ -111,7 +116,7 @@ func (index *Index) initCycleCallbacks() {
 	// introduced to address https://github.com/weaviate/weaviate/issues/2783
 	vectorCommitLoggerCycle := cyclemanager.NewManager(
 		cm("vector", "commit_logger"),
-		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.HnswCommitLoggerCycleTicker(backoff),
 		vectorCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("vector", "tombstone_cleanup"), index.logger, routinesN)
@@ -123,7 +128,7 @@ func (index *Index) initCycleCallbacks() {
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "commit_logger"), index.logger, routinesN)
 	geoPropsCommitLoggerCycle := cyclemanager.NewManager(
 		cm("geo_props", "commit_logger"),
-		cyclemanager.GeoCommitLoggerCycleTicker(),
+		cyclemanager.GeoCommitLoggerCycleTicker(backoff),
 		geoPropsCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "tombstone_cleanup"), index.logger, routinesN)
