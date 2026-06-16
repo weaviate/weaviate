@@ -74,69 +74,50 @@ func NewNWayMerger(iterators []IteratorLike, logger logrus.FieldLogger) (*NWayMe
 	}
 
 	// Merge global commits from all iterators
-	merger.mergedGlobals = merger.mergeGlobalCommits()
+	globals, err := merger.mergeGlobalCommits()
+	if err != nil {
+		return nil, err
+	}
+	merger.mergedGlobals = globals
 
 	return merger, nil
 }
 
-// mergeGlobalCommits merges global commits from all iterators.
-// Takes the most recent commit of each type, processing from lowest to highest precedence.
-func (m *NWayMerger) mergeGlobalCommits() []Commit {
+// mergeGlobalCommits merges global commits from all iterators, keeping the most
+// recent value of each type. Iterators are processed oldest-first, so the last
+// assignment wins (highest precedence).
+//
+// Inputs are always sorted/snapshot files, which never carry a ResetIndexCommit:
+// Reset is applied and consumed when raw files are materialized into the sorted
+// format (convertFileToSorted -> InMemoryReader.Do). An unexpected Reset here
+// signals a malformed input, so the merge aborts with an error rather than
+// producing a snapshot that silently ignored the reset.
+func (m *NWayMerger) mergeGlobalCommits() ([]Commit, error) {
 	var lastPQ *AddPQCommit
 	var lastSQ *AddSQCommit
 	var lastRQ *AddRQCommit
 	var lastBRQ *AddBRQCommit
 	var lastMuvera *AddMuveraCommit
 	var lastEntryPoint *SetEntryPointMaxLevelCommit
-	lastResetIndexID := -1 // Track which iterator had the last reset
 
-	// Process iterators from lowest precedence (oldest) to highest (newest)
+	// Process iterators from lowest precedence (oldest) to highest (newest).
 	for _, it := range m.iterators {
-		globalCommits := it.GlobalCommits()
-
-		for _, c := range globalCommits {
+		for _, c := range it.GlobalCommits() {
 			switch ct := c.(type) {
-			case *ResetIndexCommit:
-				// Reset clears everything before it
-				lastResetIndexID = it.ID()
-				// Clear all previous global state
-				lastPQ = nil
-				lastSQ = nil
-				lastRQ = nil
-				lastBRQ = nil
-				lastMuvera = nil
-				lastEntryPoint = nil
-
 			case *AddPQCommit:
-				// Only keep if after last reset (or no reset)
-				if lastResetIndexID < it.ID() {
-					lastPQ = ct
-				}
-
+				lastPQ = ct
 			case *AddSQCommit:
-				if lastResetIndexID < it.ID() {
-					lastSQ = ct
-				}
-
+				lastSQ = ct
 			case *AddRQCommit:
-				if lastResetIndexID < it.ID() {
-					lastRQ = ct
-				}
-
+				lastRQ = ct
 			case *AddBRQCommit:
-				if lastResetIndexID < it.ID() {
-					lastBRQ = ct
-				}
-
+				lastBRQ = ct
 			case *AddMuveraCommit:
-				if lastResetIndexID < it.ID() {
-					lastMuvera = ct
-				}
-
+				lastMuvera = ct
 			case *SetEntryPointMaxLevelCommit:
-				if lastResetIndexID < it.ID() {
-					lastEntryPoint = ct
-				}
+				lastEntryPoint = ct
+			case *ResetIndexCommit:
+				return nil, errors.Errorf("ResetIndexCommit in merge input from iterator %d: sorted/snapshot files must not contain a reset", it.ID())
 			}
 		}
 	}
@@ -168,7 +149,7 @@ func (m *NWayMerger) mergeGlobalCommits() []Commit {
 		result = append(result, lastEntryPoint)
 	}
 
-	return result
+	return result, nil
 }
 
 // GlobalCommits returns the merged global commits.
