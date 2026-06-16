@@ -57,7 +57,8 @@ const (
 	TempDirectory     = ".backup.tmp"
 )
 
-var _NUMCPU = runtime.NumCPU()
+// GOMAXPROCS honors the cgroup CPU limit; NumCPU would oversize pools in containers.
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type objectStore struct {
 	backend modulecapabilities.BackupBackend
