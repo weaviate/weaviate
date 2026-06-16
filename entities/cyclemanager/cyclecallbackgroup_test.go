@@ -275,7 +275,9 @@ func TestCycleCallback_Parallel(t *testing.T) {
 				assert.Eventually(t, func() bool {
 					return atomic.LoadUint32(&started) == uint32(tt.due)
 				}, time.Second, 5*time.Millisecond)
-				assert.Less(t, runtime.NumGoroutine(), baseline+8)
+				// real count is due+1 (<=4); the regression spawns
+				// routinesLimit+1=33. 12 clears the ceiling with noise margin.
+				assert.Less(t, runtime.NumGoroutine(), baseline+12)
 
 				close(chRelease)
 				assert.True(t, <-chFinished)

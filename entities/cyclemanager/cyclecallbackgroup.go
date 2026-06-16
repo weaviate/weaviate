@@ -169,10 +169,10 @@ func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCall
 }
 
 func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
-	// spawn no workers on idle ticks and no more workers than due callbacks
-	// on busy ones. Callbacks registered while a busy tick is running are
-	// still picked up by the dispatch loop below; on an idle tick they wait
-	// for the next one.
+	// spawn no workers on idle ticks and no more than due callbacks on busy
+	// ones. Callbacks registered or becoming due after this count wait for the
+	// next tick; holding spare workers to catch them would bring back the churn
+	// this avoids.
 	due := c.countDueCallbacks()
 	if due == 0 {
 		return false
