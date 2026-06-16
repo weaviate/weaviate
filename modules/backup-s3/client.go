@@ -248,18 +248,29 @@ func (s *s3Client) AllBackups(ctx context.Context,
 
 	// Construct the exact backup_config.json key for each backup ID prefix.
 	var keys []string
+	var listErr error
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			listErr = err
+			break
 		}
 		if info.Err != nil {
-			return nil, fmt.Errorf("list objects: %w", info.Err)
+			listErr = fmt.Errorf("list objects: %w", info.Err)
+			break
 		}
 		// Non-recursive listing returns common prefixes (directories) as keys ending with "/".
 		// For each backup ID directory, the config file is at <prefix>backup_config.json.
 		if len(info.Key) > 0 && info.Key[len(info.Key)-1] == '/' {
 			keys = append(keys, info.Key+ubak.GlobalBackupFile)
 		}
+	}
+	if listErr != nil {
+		// Drain the channel as required by the ListObjects godoc ("caller
+		// must drain the channel entirely"); otherwise minio's producer
+		// goroutine blocks forever on an unguarded error-send.
+		for range objectsInfo {
+		}
+		return nil, listErr
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
