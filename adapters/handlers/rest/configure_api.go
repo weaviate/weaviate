@@ -558,6 +558,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
+		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
@@ -2584,6 +2585,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount

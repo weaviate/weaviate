@@ -588,12 +588,13 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
 		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
 		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
-		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
-		if !slices.Contains(validTypes, defaultVectorIndexType) {
-			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
-		}
 	}
-	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+	defaultVectorIndexWithValidation, err := configRuntime.NewDynamicValueWithValidation(
+		defaultVectorIndexType, NewDefaultVectorIndexValidator())
+	if err != nil {
+		return err
+	}
+	config.DefaultVectorIndexType = defaultVectorIndexWithValidation
 
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
@@ -1391,6 +1392,9 @@ func FromEnv(config *Config) error {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
+
+	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
 
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
