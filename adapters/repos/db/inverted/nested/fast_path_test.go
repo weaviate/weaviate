@@ -1462,6 +1462,7 @@ func l2Schema() *models.Property {
 				objArr("cars",
 					in("year"),
 					tx("make"),
+					tx("model"),
 					tx("name"),
 					txArr("colors"),
 					objArr("accessories", tx("type")),

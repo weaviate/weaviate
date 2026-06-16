@@ -56,6 +56,7 @@ func l0Schema() *models.Property {
 		NestedProperties: []*models.NestedProperty{
 			in("year"),
 			tx("make"),
+			tx("model"),
 			tx("name"),
 			txArr("colors"),
 			objArr("accessories", tx("type")),
