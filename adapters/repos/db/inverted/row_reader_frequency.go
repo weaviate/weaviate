@@ -246,14 +246,16 @@ func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPai
 		return v, err
 	}
 
+	// filtering reads only keys, so skip loading the per-doc property length map
 	if rr.shardVersion < 2 {
 		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates(),
-			lsmkv.MapListLegacySortingRequired())
+			lsmkv.MapListLegacySortingRequired(), lsmkv.MapListSkipPropertyLengths())
 		if err != nil {
 			return v, err
 		}
 	} else {
-		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates())
+		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates(),
+			lsmkv.MapListSkipPropertyLengths())
 		if err != nil {
 			return v, err
 		}

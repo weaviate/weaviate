@@ -1726,6 +1726,8 @@ func TestEnvironmentDefaultVectorIndex(t *testing.T) {
 		{"uppercase FLAT", "FLAT", "flat", ""},
 		{"mixed case Hnsw", "Hnsw", "hnsw", ""},
 		{"invalid value", "invalid", "", `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+		{"none sentinel rejected", "none", "", `invalid DEFAULT_VECTOR_INDEX "none"`},
+		{"noop sentinel rejected", "noop", "", `invalid DEFAULT_VECTOR_INDEX "noop"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
