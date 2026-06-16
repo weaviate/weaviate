@@ -169,16 +169,10 @@ func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCall
 }
 
 func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
-	// spawn no workers on idle ticks and no more than due callbacks on busy
-	// ones. Callbacks registered or becoming due after this count wait for the
-	// next tick; holding spare workers to catch them would bring back the churn
-	// this avoids.
-	due := c.countDueCallbacks()
-	if due == 0 {
+	// spawn no workers when nothing is due; callbacks becoming due right after
+	// this check are picked up on the next tick.
+	if c.countDueCallbacks() == 0 {
 		return false
-	}
-	if routinesLimit > due {
-		routinesLimit = due
 	}
 
 	anyExecuted := false
@@ -281,8 +275,8 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 }
 
 // countDueCallbacks prunes ids of deleted callbacks and counts callbacks that
-// are active and whose interval has elapsed. The count is only a sizing hint:
-// workers re-verify each callback under lock before executing it.
+// are active and whose interval has elapsed, so an idle tick can skip spawning
+// workers entirely. Workers re-verify each callback under lock before executing.
 func (c *cycleCallbackGroup) countDueCallbacks() int {
 	c.Lock()
 	defer c.Unlock()

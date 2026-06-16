@@ -13,8 +13,6 @@ package cyclemanager
 
 import (
 	"context"
-	"fmt"
-	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,57 +230,6 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		assert.False(t, executed)
 		assert.Equal(t, 1, executedCounter1)
 		assert.Equal(t, 1, executedCounter2)
-	})
-
-	t.Run("workers capped at number of due callbacks", func(t *testing.T) {
-		tests := []struct {
-			name     string
-			due      int
-			inactive int
-		}{
-			{name: "1 due of 3", due: 1, inactive: 2},
-			{name: "3 due of 4", due: 3, inactive: 1},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				baseline := runtime.NumGoroutine()
-
-				started := uint32(0)
-				chRelease := make(chan struct{})
-				blocking := func(shouldAbort ShouldAbortCallback) bool {
-					atomic.AddUint32(&started, 1)
-					<-chRelease
-					return true
-				}
-				inactive := func(shouldAbort ShouldAbortCallback) bool { return true }
-
-				callbacks := NewCallbackGroup("id", logger, 32)
-				for i := range tt.due {
-					callbacks.Register(fmt.Sprintf("due-%d", i), blocking)
-				}
-				for i := range tt.inactive {
-					callbacks.Register(fmt.Sprintf("inactive-%d", i), inactive, AsInactive())
-				}
-
-				chFinished := make(chan bool)
-				go func() {
-					chFinished <- callbacks.CycleCallback(shouldNotAbort)
-				}()
-
-				// all due callbacks block in parallel: the pool is capped at
-				// the due count, not routinesLimit=32
-				assert.Eventually(t, func() bool {
-					return atomic.LoadUint32(&started) == uint32(tt.due)
-				}, time.Second, 5*time.Millisecond)
-				// real count is due+1 (<=4); the regression spawns
-				// routinesLimit+1=33. 12 clears the ceiling with noise margin.
-				assert.Less(t, runtime.NumGoroutine(), baseline+12)
-
-				close(chRelease)
-				assert.True(t, <-chFinished)
-			})
-		}
 	})
 
 	t.Run("idle tick prunes ids of unregistered callbacks", func(t *testing.T) {
