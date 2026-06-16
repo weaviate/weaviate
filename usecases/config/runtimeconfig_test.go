@@ -669,6 +669,76 @@ func TestExportDefaultPathRuntimeOverride(t *testing.T) {
 	}
 }
 
+// TestUpdateRuntimeConfig_DefaultVectorIndex mirrors
+// TestEnvironmentDefaultVectorIndex but exercises the runtime YAML override
+// path. The validator attached at construction time must apply the same
+// allow-list at SetValue time — accepted values replace the prior one,
+// rejected values (including the "none" sentinel reserved for dropped
+// indexes) leave it in place. UpdateRuntimeConfig logs SetValue errors
+// rather than surfacing them, so the only observable signal is the
+// post-update Get() value.
+func TestUpdateRuntimeConfig_DefaultVectorIndex(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	const initial = "hnsw"
+	tests := []struct {
+		name        string
+		value       string // YAML scalar; "" means the field is omitted entirely
+		expected    string // Get() after UpdateRuntimeConfig
+		expectedErr string // substring of the direct SetValue error; "" means no error expected
+	}{
+		{"not set keeps initial", "", initial, ""},
+		{"hnsw", "hnsw", "hnsw", ""},
+		{"flat", "flat", "flat", ""},
+		{"dynamic", "dynamic", "dynamic", ""},
+		{"hfresh", "hfresh", "hfresh", ""},
+		{"invalid value rejected", "invalid", initial, `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+		{"none sentinel rejected", "none", initial, `invalid DEFAULT_VECTOR_INDEX "none"`},
+		{"noop sentinel rejected", "noop", initial, `invalid DEFAULT_VECTOR_INDEX "noop"`},
+		// Strict validator: runtime YAML must already be lowercase + trimmed.
+		// SetValue stores verbatim and downstream parsers compare case-
+		// sensitively, so mixed case is rejected rather than silently stored.
+		{"uppercase HNSW rejected", "HNSW", initial, `invalid DEFAULT_VECTOR_INDEX "HNSW"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Mirror FromEnv: validator attached at construction time so
+			// runtime YAML overrides go through the same gate as env vars.
+			defaultVectorIndexWithValidation, err := runtime.NewDynamicValueWithValidation(
+				initial, NewDefaultVectorIndexValidator())
+			require.NoError(t, err)
+
+			// Direct SetValue: explicit assertion on the validator error
+			// (UpdateRuntimeConfig swallows SetValue errors into a log line,
+			// so a direct call is the only way to observe the error itself).
+			if tt.value != "" {
+				err := defaultVectorIndexWithValidation.SetValue(tt.value)
+				if tt.expectedErr != "" {
+					require.Error(t, err, "validator must reject %q", tt.value)
+					assert.Contains(t, err.Error(), tt.expectedErr)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+
+			source := &WeaviateRuntimeConfig{
+				DefaultVectorIndexType: defaultVectorIndexWithValidation,
+			}
+			yaml := ""
+			if tt.value != "" {
+				yaml = "default_vector_index: " + tt.value
+			}
+			parsed, err := ParseRuntimeConfig([]byte(yaml))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+
+			assert.Equal(t, tt.expected, source.DefaultVectorIndexType.Get())
+		})
+	}
+}
+
 // helpers
 // assertConfigKey asserts if the `yaml` key is standard `lower_snake_case` (e.g: not `UPPER_CASE`)
 func assertConfigKey(t *testing.T, key string) {

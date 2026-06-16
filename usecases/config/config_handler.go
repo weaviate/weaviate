@@ -300,6 +300,11 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
+	// length map until first use and frees it after a compaction drops the
+	// segment, trading a one-time load on the first cold BM25 query for memory.
+	LazyPropertyLengthsEnabled *runtime.DynamicValue[bool] `json:"lazy_property_lengths_enabled" yaml:"lazy_property_lengths_enabled"`
+
 	// Export configures the data export feature and its storage destination.
 	Export Export `json:"export" yaml:"export"`
 
@@ -538,6 +543,30 @@ func NewRestrictionVectorIndexTypeListValidator() func([]string) error {
 
 func NewRestrictionCompressionTypeListValidator() func([]string) error {
 	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+}
+
+// NewDefaultVectorIndexValidator returns the per-value validator attached to
+// DefaultVectorIndexType. Empty means "unset", which the defaults path falls
+// back from. The "none" sentinel is reserved for indexes dropped via
+// DeleteClassVectorIndex and must never appear as a class-creation default —
+// both env-time and runtime-override paths share this rule.
+//
+// The check is strict (exact match, no lowercase/trim) because
+// DynamicValue.SetValue stores the value verbatim and downstream parsers
+// (e.g. usecases/schema/parser.parseGivenVectorIndexConfig) compare
+// case-sensitively. Callers that need to accept mixed-case input — like the
+// env path — normalize before calling SetValue.
+func NewDefaultVectorIndexValidator() func(string) error {
+	return func(val string) error {
+		if val == "" {
+			return nil
+		}
+		if !slices.Contains(validRestrictionVectorIndexTypes, val) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v",
+				val, validRestrictionVectorIndexTypes)
+		}
+		return nil
+	}
 }
 
 // ValidateRestrictionsRuntime is the cross-field layer of validation
