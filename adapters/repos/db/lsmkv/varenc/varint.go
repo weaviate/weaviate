@@ -21,11 +21,15 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 		return // Error handling: insufficient input or output space
 	}
 
+	n := len(deltas)
+	if n == 0 {
+		return
+	}
+
 	// Read the first delta using BigEndian to handle byte order explicitly
 	deltas[0] = binary.BigEndian.Uint64(packed[0:8])
 
-	n := len(deltas)
-	if n <= 1 {
+	if n == 1 {
 		return
 	}
 
@@ -42,23 +46,26 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 	bits := packed[8:]
 	bitsLen := len(bits)
 
-	// High-aligned bit reservoir:
-	//   - `buf` holds the next bits to extract in its MSB; the very next bit
-	//     to read is at position 63.
-	//   - `bitsAvail` counts valid bits, which occupy positions 63..64-bitsAvail.
-	//   - Extract: value = buf >> (64 - bnu); buf <<= bnu; bitsAvail -= bnu.
-	//   - Refill: buf |= newBits << (64 - bitsAvail - chunkBits).
-	//
-	// The 6-bit header was consumed via `packed[8]>>2`; the low 2 bits of
-	// bits[0] are the start of the first delta and seed the reservoir.
-	buf := uint64(bits[0]&0x3) << 62
-	bitsAvail := 2
-	bytePos := 1
-
 	if bnu <= 32 {
+		// High-aligned bit reservoir:
+		//   - `buf` holds the next bits to extract in its MSB; the very next bit
+		//     to read is at position 63.
+		//   - `bitsAvail` counts valid bits, which occupy positions 63..64-bitsAvail.
+		//   - Extract: value = buf >> (64 - bnu); buf <<= bnu; bitsAvail -= bnu.
+		//   - Refill: buf |= newBits << (64 - bitsAvail - chunkBits).
+		//
+		// The 6-bit header was consumed via `packed[8]>>2`; the low 2 bits of
+		// bits[0] are the start of the first delta and seed the reservoir.
+		buf := uint64(bits[0]&0x3) << 62
+		bitsAvail := 2
+		bytePos := 1
+
 		// Refill 32 bits per chunk. We refill only when bitsAvail < bnu, so
 		// bitsAvail is at most 31 when we refill (bnu <= 32), keeping
 		// bitsAvail+32 <= 63 — safe to store in the reservoir.
+		//
+		// The delta and non-delta loops are split deliberately to keep the
+		// deltaDiff branch out of the per-value hot loop; do not merge them.
 		if deltaDiff {
 			prev := deltas[0]
 			i := 1
@@ -76,7 +83,7 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 				bitsAvail -= int(bnu)
 				deltas[i] = prev
 			}
-			decodeTailDelta(deltas, bits, bytePos, bitsLen, buf, bitsAvail, bnu, i, n, &prev)
+			decodeTailDelta(deltas, bits, bytePos, bitsLen, buf, bitsAvail, bnu, i, n, prev)
 		} else {
 			i := 1
 			for ; i < n; i++ {
@@ -97,8 +104,7 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 		return
 	}
 
-	// bnu > 32: per-iteration uint64 load. The reservoir state above is unused
-	// here; we recompute from bitPos.
+	// bnu > 32: per-iteration uint64 load, tracking the absolute bit position.
 	//
 	// Fast path: read 8 bytes at a time and extract bitsNeeded bits with a
 	// single shift+mask. Safe only when bnu <= 57 (so that bitOffset+bnu <= 64
@@ -106,6 +112,10 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 	bitPos := uint(6)
 	fastEnd := 1
 	if bnu <= 57 && bitsLen >= 8 {
+		// fastEnd is the first index whose 8-byte read might run past the end.
+		// That read needs bytePos+8 <= bitsLen, i.e. bitPos <= 8*bitsLen-57
+		// (= 8*(bitsLen-8)+7). bitPos starts at 6 and grows by bnu per value, so
+		// the safe delta-bit budget past the header is room = 8*bitsLen-63 (-57-6).
 		room := 8*bitsLen - 63
 		fastEnd = 2 + room/bitsNeeded
 		if fastEnd > n {
@@ -186,8 +196,8 @@ func decodeTail(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, 
 }
 
 // decodeTailDelta is the delta variant of decodeTail.
-func decodeTailDelta(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, bitsAvail int, bnu uint, i, n int, prev *uint64) {
-	p := *prev
+func decodeTailDelta(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, bitsAvail int, bnu uint, i, n int, prev uint64) {
+	p := prev
 	for ; i < n; i++ {
 		for bitsAvail < int(bnu) {
 			if bytePos >= bitsLen {
