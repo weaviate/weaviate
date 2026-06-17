@@ -30,6 +30,14 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		"class": req.Class,
 	}).Debug("server.execute")
 
+	// Serialize AddTenants per class so the pre-commit cap check can't race the
+	// apply that increments the count (Execute blocks until apply). Skipped when
+	// the cap is unlimited — nothing to make race-free.
+	if req.Type == api.ApplyRequest_TYPE_ADD_TENANT && st.schemaManager.TenantLimitEnforced() {
+		st.tenantAddLocks.Lock(req.Class)
+		defer st.tenantAddLocks.Unlock(req.Class)
+	}
+
 	// Parse the underlying command before pre execute filtering to avoid queryinf the schema is the underlying command
 	// is invalid
 	cmdBytes, err := proto.Marshal(req)
