@@ -1482,6 +1482,97 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"load-bearing cases — a flatten-tokens implementation "+
 				"would wrongly exclude them")
 	})
+
+	t.Run("contains_any_two_multi_token", func(t *testing.T) {
+		// Filter cars.tags ContainsAny ["family hybrid", "luxury car"].
+		// Both list values multi-token — exercises the OR-fold over
+		// consecutive multi-token Mᵢ. Doc 8000 is load-bearing: it has
+		// "family" and "luxury" individually but neither full pair, and
+		// a flatten-tokens implementation (token-level OR instead of
+		// per-value AND then OR) would wrongly include it.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 7700: tags=["family hybrid"] — first full pair → match.
+		local.addDoc(t, prop, 7700, []any{
+			map[string]any{"tags": []any{"family hybrid"}},
+		})
+		// 7800: tags=["luxury car"] — second full pair → match.
+		local.addDoc(t, prop, 7800, []any{
+			map[string]any{"tags": []any{"luxury car"}},
+		})
+		// 7900: tags=["family hybrid car"] — both pairs in one tag →
+		// match (first satisfies; second satisfies via lenient).
+		local.addDoc(t, prop, 7900, []any{
+			map[string]any{"tags": []any{"family hybrid car"}},
+		})
+		// 8000: tags=["family", "luxury"] — individual tokens from each
+		// pair but NO full pair → NO match. Load-bearing.
+		local.addDoc(t, prop, 8000, []any{
+			map[string]any{"tags": []any{"family", "luxury"}},
+		})
+		// 8100: tags=["family"] — only one token → no match.
+		local.addDoc(t, prop, 8100, []any{
+			map[string]any{"tags": []any{"family"}},
+		})
+		// 8200: tags=["sedan"] — no relevant tokens → no match.
+		local.addDoc(t, prop, 8200, []any{
+			map[string]any{"tags": []any{"sedan"}},
+		})
+
+		r := leafContainsAny(local, "cars.tags", "family hybrid", "luxury car")
+
+		assert.ElementsMatch(t, []uint64{7700, 7800, 7900}, local.docIDs(r),
+			"docs where (family AND hybrid) OR (luxury AND car) is fully "+
+				"present match; 8000 (individual tokens, no full pair) is "+
+				"the load-bearing case — a flatten-tokens implementation "+
+				"would wrongly include it")
+	})
+
+	t.Run("contains_all_two_multi_token", func(t *testing.T) {
+		// Filter cars.tags ContainsAll ["family hybrid", "luxury car"].
+		// Both list values multi-token — exercises the AND-fold over
+		// consecutive multi-token Mᵢ. Doc 8700 confirms lenient parent-
+		// Scope AND: all four tokens spread across four tag entries of
+		// the same car still match because every M_i survives via the
+		// shared cars-self chain bit.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 8300: tags=["family hybrid", "luxury car"] — each pair in its
+		// own tag entry → match.
+		local.addDoc(t, prop, 8300, []any{
+			map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+		})
+		// 8400: tags=["family hybrid car luxury"] — all four tokens in
+		// one tag entry → match.
+		local.addDoc(t, prop, 8400, []any{
+			map[string]any{"tags": []any{"family hybrid car luxury"}},
+		})
+		// 8500: tags=["family hybrid"] — only first pair → no match.
+		local.addDoc(t, prop, 8500, []any{
+			map[string]any{"tags": []any{"family hybrid"}},
+		})
+		// 8600: tags=["luxury car"] — only second pair → no match.
+		local.addDoc(t, prop, 8600, []any{
+			map[string]any{"tags": []any{"luxury car"}},
+		})
+		// 8700: tags=["family", "hybrid", "luxury", "car"] — all four
+		// tokens, each in its own tag entry. Lenient parent-Scope AND
+		// preserves the cars-self bit across each Mᵢ → match.
+		local.addDoc(t, prop, 8700, []any{
+			map[string]any{"tags": []any{"family", "hybrid", "luxury", "car"}},
+		})
+		// 8800: tags=["sedan"] — no relevant tokens → no match.
+		local.addDoc(t, prop, 8800, []any{
+			map[string]any{"tags": []any{"sedan"}},
+		})
+
+		r := leafContainsAll(local, "cars.tags", "family hybrid", "luxury car")
+
+		assert.ElementsMatch(t, []uint64{8300, 8400, 8700}, local.docIDs(r),
+			"docs where (family AND hybrid) AND (luxury AND car) is fully "+
+				"present match; 8700 (each token in its own tag entry) "+
+				"matches under lenient parent-Scope AND")
+	})
 }
 
 // TestFastPathL2_PythonPort runs the L2 (countries[].garages[].cars[]) ports as subtests
@@ -2366,6 +2457,141 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"load-bearing cases — a flatten-tokens implementation "+
 				"would wrongly exclude them")
 	})
+
+	t.Run("contains_any_two_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars.tags ContainsAny ["family
+		// hybrid", "luxury car"]. Same shape as the L0 sibling; doc
+		// 10000 is load-bearing for the OR-of-multi-token-Mᵢ path.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 9700: tags=["family hybrid"] → match.
+		local.addDoc(t, prop, 9700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid"}},
+				}},
+			}},
+		})
+		// 9800: tags=["luxury car"] → match.
+		local.addDoc(t, prop, 9800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"luxury car"}},
+				}},
+			}},
+		})
+		// 9900: tags=["family hybrid car"] → match.
+		local.addDoc(t, prop, 9900, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 10000: tags=["family", "luxury"] — individual tokens, no full
+		// pair → NO match. Load-bearing.
+		local.addDoc(t, prop, 10000, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family", "luxury"}},
+				}},
+			}},
+		})
+		// 10100: tags=["family"] → no match.
+		local.addDoc(t, prop, 10100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family"}},
+				}},
+			}},
+		})
+		// 10200: tags=["sedan"] → no match.
+		local.addDoc(t, prop, 10200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+				}},
+			}},
+		})
+
+		r := leafContainsAny(local, "countries.garages.cars.tags",
+			"family hybrid", "luxury car")
+
+		assert.ElementsMatch(t,
+			[]uint64{9700, 9800, 9900}, local.docIDs(r),
+			"docs where (family AND hybrid) OR (luxury AND car) is fully "+
+				"present match; 10000 (individual tokens, no full pair) "+
+				"is the load-bearing case — a flatten-tokens "+
+				"implementation would wrongly include it")
+	})
+
+	t.Run("contains_all_two_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars.tags ContainsAll ["family
+		// hybrid", "luxury car"]. Same shape as L0; doc 10700 confirms
+		// lenient parent-Scope AND of two multi-token Mᵢ across four
+		// separate tag entries of the same car.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 10300: tags=["family hybrid", "luxury car"] → match.
+		local.addDoc(t, prop, 10300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+				}},
+			}},
+		})
+		// 10400: tags=["family hybrid car luxury"] — all in one tag →
+		// match.
+		local.addDoc(t, prop, 10400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car luxury"}},
+				}},
+			}},
+		})
+		// 10500: tags=["family hybrid"] — only first pair → no match.
+		local.addDoc(t, prop, 10500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid"}},
+				}},
+			}},
+		})
+		// 10600: tags=["luxury car"] — only second pair → no match.
+		local.addDoc(t, prop, 10600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"luxury car"}},
+				}},
+			}},
+		})
+		// 10700: tags=["family", "hybrid", "luxury", "car"] — each
+		// token in its own tag entry. Lenient parent-Scope AND → match.
+		local.addDoc(t, prop, 10700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family", "hybrid", "luxury", "car"}},
+				}},
+			}},
+		})
+		// 10800: tags=["sedan"] → no match.
+		local.addDoc(t, prop, 10800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+				}},
+			}},
+		})
+
+		r := leafContainsAll(local, "countries.garages.cars.tags",
+			"family hybrid", "luxury car")
+
+		assert.ElementsMatch(t,
+			[]uint64{10300, 10400, 10700}, local.docIDs(r),
+			"docs where (family AND hybrid) AND (luxury AND car) is "+
+				"fully present match; 10700 (each token in its own tag "+
+				"entry) matches under lenient parent-Scope AND")
+	})
 }
 
 // TestFastPathL2Object_PythonPort runs the L2_object (country.garages[].
@@ -3000,5 +3226,115 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				"car) is fully present; 19100 and 19400 are the "+
 				"load-bearing cases — a flatten-tokens implementation "+
 				"would wrongly exclude them")
+	})
+
+	t.Run("contains_any_two_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars.tags ContainsAny ["family
+		// hybrid", "luxury car"]. Same shape as L0/L2; doc 20000 is
+		// load-bearing for the OR-of-multi-token-Mᵢ path.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 19700: tags=["family hybrid"] → match.
+		local.addDoc(t, prop, 19700, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid"}},
+			}},
+		}})
+		// 19800: tags=["luxury car"] → match.
+		local.addDoc(t, prop, 19800, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"luxury car"}},
+			}},
+		}})
+		// 19900: tags=["family hybrid car"] → match.
+		local.addDoc(t, prop, 19900, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 20000: tags=["family", "luxury"] — individual tokens, no full
+		// pair → NO match. Load-bearing.
+		local.addDoc(t, prop, 20000, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family", "luxury"}},
+			}},
+		}})
+		// 20100: tags=["family"] → no match.
+		local.addDoc(t, prop, 20100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family"}},
+			}},
+		}})
+		// 20200: tags=["sedan"] → no match.
+		local.addDoc(t, prop, 20200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+			}},
+		}})
+
+		r := leafContainsAny(local, "country.garages.cars.tags",
+			"family hybrid", "luxury car")
+
+		assert.ElementsMatch(t,
+			[]uint64{19700, 19800, 19900}, local.docIDs(r),
+			"docs where (family AND hybrid) OR (luxury AND car) is fully "+
+				"present match; 20000 (individual tokens, no full pair) "+
+				"is the load-bearing case — a flatten-tokens "+
+				"implementation would wrongly include it")
+	})
+
+	t.Run("contains_all_two_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars.tags ContainsAll ["family
+		// hybrid", "luxury car"]. Same shape as L0/L2; doc 20700
+		// confirms lenient parent-Scope AND of two multi-token Mᵢ
+		// across four separate tag entries of the same car.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 20300: tags=["family hybrid", "luxury car"] → match.
+		local.addDoc(t, prop, 20300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+			}},
+		}})
+		// 20400: tags=["family hybrid car luxury"] → match.
+		local.addDoc(t, prop, 20400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car luxury"}},
+			}},
+		}})
+		// 20500: tags=["family hybrid"] — only first pair → no match.
+		local.addDoc(t, prop, 20500, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid"}},
+			}},
+		}})
+		// 20600: tags=["luxury car"] — only second pair → no match.
+		local.addDoc(t, prop, 20600, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"luxury car"}},
+			}},
+		}})
+		// 20700: tags=["family", "hybrid", "luxury", "car"] — each
+		// token in its own tag entry. Lenient parent-Scope AND → match.
+		local.addDoc(t, prop, 20700, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family", "hybrid", "luxury", "car"}},
+			}},
+		}})
+		// 20800: tags=["sedan"] → no match.
+		local.addDoc(t, prop, 20800, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+			}},
+		}})
+
+		r := leafContainsAll(local, "country.garages.cars.tags",
+			"family hybrid", "luxury car")
+
+		assert.ElementsMatch(t,
+			[]uint64{20300, 20400, 20700}, local.docIDs(r),
+			"docs where (family AND hybrid) AND (luxury AND car) is "+
+				"fully present match; 20700 (each token in its own tag "+
+				"entry) matches under lenient parent-Scope AND")
 	})
 }
