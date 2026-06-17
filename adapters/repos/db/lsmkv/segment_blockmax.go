@@ -383,6 +383,13 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.blockDataSize = int(s.docCount)
 		s.freqDecoded = true
 		s.decoded = true
+		// The full-decode path below sets the block-max impact and id; this
+		// early-return branch must set them too. Leaving currentBlockImpact at 0
+		// understates the WAND upper bound and makes BlockMax-WAND prune away
+		// documents that match this term — which for a single-document term is
+		// exactly the rare, high-idf term whose matches matter most.
+		s.currentBlockImpact = s.computeCurrentBlockImpact()
+		s.currentBlockMaxId = s.blockEntries[s.blockEntryIdx].MaxId
 		s.Metrics.BlockCountDecodedDocIds++
 		s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
 		return nil
