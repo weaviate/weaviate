@@ -240,31 +240,95 @@ func (c *Compactor) resolveOverlaps(state *DirectoryState) error {
 // SafeFileWriter would otherwise leak a tmp file we can't cleanly orphan
 // from inside this function).
 func (c *Compactor) convertToSorted(state *DirectoryState, shouldAbort func() bool) error {
-	// Convert raw files (except live file)
+	// A ResetIndex wipes all prior state, but each file is converted in
+	// isolation, so without discarding older files the reset's effect stays
+	// confined to its own file and older files resurrect pre-reset data on load.
+	var resetBoundaryTS int64
+	foundReset := false
+
+	noteReset := func(f FileInfo, hasReset bool) {
+		if hasReset && f.StartTS > resetBoundaryTS {
+			resetBoundaryTS = f.StartTS
+			foundReset = true
+		}
+	}
+
 	for _, f := range state.RawFiles {
 		if isAborted(shouldAbort) {
 			return ErrCompactionAborted
 		}
-		if err := c.convertFileToSorted(f); err != nil {
+		hasReset, err := c.convertFileToSorted(f)
+		if err != nil {
 			return errors.Wrapf(err, "convert raw file %s", f.Path)
 		}
+		noteReset(f, hasReset)
 	}
 
-	// Convert condensed files
 	for _, f := range state.CondensedFiles {
 		if isAborted(shouldAbort) {
 			return ErrCompactionAborted
 		}
-		if err := c.convertFileToSorted(f); err != nil {
+		hasReset, err := c.convertFileToSorted(f)
+		if err != nil {
 			return errors.Wrapf(err, "convert condensed file %s", f.Path)
+		}
+		noteReset(f, hasReset)
+	}
+
+	if foundReset {
+		if err := c.discardFilesBeforeReset(resetBoundaryTS); err != nil {
+			return errors.Wrap(err, "discard files before reset")
 		}
 	}
 
 	return nil
 }
 
-// convertFileToSorted converts a single file (raw or condensed) to sorted format.
-func (c *Compactor) convertFileToSorted(f FileInfo) error {
+// discardFilesBeforeReset removes every commit-log file strictly older than
+// boundaryTS (the StartTS of the file carrying the ResetIndex). That file's own
+// output shares boundaryTS and is preserved; the live file is never removed.
+func (c *Compactor) discardFilesBeforeReset(boundaryTS int64) error {
+	discovery := NewFileDiscoveryWithFS(c.config.Dir, c.fs)
+	state, err := discovery.Scan()
+	if err != nil {
+		return errors.Wrap(err, "scan before discarding pre-reset files")
+	}
+
+	toRemove := make([]FileInfo, 0)
+	collect := func(files []FileInfo) {
+		for _, f := range files {
+			if f.StartTS < boundaryTS {
+				toRemove = append(toRemove, f)
+			}
+		}
+	}
+	collect(state.SortedFiles)
+	collect(state.RawFiles)
+	collect(state.CondensedFiles)
+	if state.Snapshot != nil && state.Snapshot.StartTS < boundaryTS {
+		toRemove = append(toRemove, *state.Snapshot)
+	}
+
+	for _, f := range toRemove {
+		if state.LiveFile != nil && f.Path == state.LiveFile.Path {
+			continue
+		}
+		if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
+			return errors.Wrapf(err, "remove pre-reset file %s", f.Path)
+		}
+		c.logger.WithFields(logrus.Fields{
+			"action":      "hnsw_compactor_reset_discard",
+			"file":        filepath.Base(f.Path),
+			"boundary_ts": boundaryTS,
+		}).Info("discarded commit log file obsoleted by index reset")
+	}
+
+	return nil
+}
+
+// convertFileToSorted converts a single file to sorted format, returning
+// whether it contained a ResetIndex commit.
+func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 	c.logger.WithFields(logrus.Fields{
 		"action": "hnsw_compactor_convert",
 		"file":   filepath.Base(f.Path),
@@ -274,7 +338,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	// Open source file
 	srcFile, err := c.fs.Open(f.Path)
 	if err != nil {
-		return errors.Wrapf(err, "open source file")
+		return false, errors.Wrapf(err, "open source file")
 	}
 	defer srcFile.Close()
 
@@ -283,7 +347,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	inMemReader := NewInMemoryReader(walReader, c.logger)
 	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
 	if err != nil {
-		return errors.Wrap(err, "read file into memory")
+		return false, errors.Wrap(err, "read file into memory")
 	}
 
 	// Build output filename
@@ -293,22 +357,22 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	// Write using SortedWriter via SafeFileWriter
 	sfw, err := NewSafeFileWriterWithFS(outPath, c.config.BufferSize, c.fs)
 	if err != nil {
-		return errors.Wrap(err, "create safe file writer")
+		return false, errors.Wrap(err, "create safe file writer")
 	}
 	defer sfw.Abort() // cleanup on error
 
 	sortedWriter := NewSortedWriter(sfw.Writer(), c.logger)
 	if err := sortedWriter.WriteAll(result); err != nil {
-		return errors.Wrap(err, "write sorted file")
+		return false, errors.Wrap(err, "write sorted file")
 	}
 
 	if err := sfw.Commit(); err != nil {
-		return errors.Wrap(err, "commit sorted file")
+		return false, errors.Wrap(err, "commit sorted file")
 	}
 
 	// Delete original file after successful conversion
 	if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
-		return errors.Wrap(err, "remove original file")
+		return false, errors.Wrap(err, "remove original file")
 	}
 
 	c.logger.WithFields(logrus.Fields{
@@ -317,7 +381,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 		"output":   outFilename,
 	}).Debug("converted file to sorted format")
 
-	return nil
+	return inMemReader.HasReset(), nil
 }
 
 // decideAction determines what compaction action to take based on current state.
