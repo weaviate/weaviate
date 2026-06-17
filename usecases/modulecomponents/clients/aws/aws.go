@@ -32,6 +32,7 @@ import (
 type bedrockEmbeddingsRequest struct {
 	InputText       *string                         `json:"inputText,omitempty"`
 	InputImage      *string                         `json:"inputImage,omitempty"`
+	Dimensions      *int64                          `json:"dimensions,omitempty"`
 	EmbeddingConfig *bedrockEmbeddingsRequestConfig `json:"embeddingConfig,omitempty"`
 }
 
@@ -352,15 +353,22 @@ func (c *Client) invokeCohereModel(ctx context.Context,
 }
 
 func (c *Client) createAmazonTitanBody(text, image string, settings Settings) bedrockEmbeddingsRequest {
-	var embeddingConfig *bedrockEmbeddingsRequestConfig
+	req := bedrockEmbeddingsRequest{
+		InputText:  c.ptrString(text),
+		InputImage: c.ptrString(image),
+	}
 	if settings.Dimensions != nil {
-		embeddingConfig = &bedrockEmbeddingsRequestConfig{OutputEmbeddingLength: settings.Dimensions}
+		// The two Titan embedding families expose the output size through different fields:
+		// Titan Multimodal Embeddings G1 (amazon.titan-embed-image-v1) uses the nested
+		// embeddingConfig.outputEmbeddingLength, while Titan Text Embeddings V2
+		// (amazon.titan-embed-text-v2) expects a top-level dimensions field.
+		if strings.Contains(settings.Model, "titan-embed-image") {
+			req.EmbeddingConfig = &bedrockEmbeddingsRequestConfig{OutputEmbeddingLength: settings.Dimensions}
+		} else {
+			req.Dimensions = settings.Dimensions
+		}
 	}
-	return bedrockEmbeddingsRequest{
-		InputText:       c.ptrString(text),
-		InputImage:      c.ptrString(image),
-		EmbeddingConfig: embeddingConfig,
-	}
+	return req
 }
 
 func (c *Client) createAmazonNovaBody(text, image string, settings Settings) bedrockAmazonNovaEmbeddingsRequest {

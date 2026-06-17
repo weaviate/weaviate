@@ -59,6 +59,53 @@ func TestCreateRequestBody(t *testing.T) {
 	assert.Equal(t, "search_query", req.InputType)
 }
 
+func TestCreateAmazonTitanBody(t *testing.T) {
+	c := New("123", "", "", 1*time.Second, nullLogger())
+	dims := int64(512)
+
+	tests := []struct {
+		name              string
+		model             string
+		dimensions        *int64
+		wantDimensions    *int64
+		wantEmbeddingConf *int64
+	}{
+		{
+			name:           "titan text v2 with dimensions uses top-level field",
+			model:          "amazon.titan-embed-text-v2:0",
+			dimensions:     &dims,
+			wantDimensions: &dims,
+		},
+		{
+			name:              "titan multimodal with dimensions uses embeddingConfig",
+			model:             "amazon.titan-embed-image-v1",
+			dimensions:        &dims,
+			wantEmbeddingConf: &dims,
+		},
+		{
+			name:       "titan text v1 without dimensions sets neither",
+			model:      "amazon.titan-embed-text-v1",
+			dimensions: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := c.createAmazonTitanBody("Hello, world!", "", Settings{
+				Model:      tt.model,
+				Dimensions: tt.dimensions,
+			})
+			assert.Equal(t, tt.wantDimensions, req.Dimensions)
+			if tt.wantEmbeddingConf == nil {
+				assert.Nil(t, req.EmbeddingConfig)
+			} else {
+				require.NotNil(t, req.EmbeddingConfig)
+				assert.Equal(t, tt.wantEmbeddingConf, req.EmbeddingConfig.OutputEmbeddingLength)
+			}
+		})
+	}
+}
+
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
