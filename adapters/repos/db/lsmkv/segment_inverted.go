@@ -29,16 +29,16 @@ type segmentInvertedData struct {
 	tombstones       *sroar.Bitmap
 	tombstonesLoaded bool
 
-	// Property lengths replace the old ~33B/entry map with one of two
-	// representations (exactly one non-nil once loaded, both nil when the segment
-	// has none): a dense array indexed by docID-propLengthsMin when the docID
-	// range is ≥1/3 occupied (4B×span ≤ 12B×count — smaller AND O(1) to read),
-	// else docID-sorted parallel arrays read via propLengthsView. Full-map
-	// consumers (compaction) reconstruct a transient map via getPropertyLengths.
+	// Per-document property lengths in one of two representations (exactly one
+	// non-nil once loaded, both nil when the segment has none): a dense array
+	// indexed by docID-propLengthsDenseMin when the docID range is ≥1/3 occupied
+	// (4B×span ≤ 12B×count — smaller AND O(1) to read), else docID-sorted parallel
+	// arrays read via propLengthsView. Full-map consumers (compaction) reconstruct
+	// a transient map via getPropertyLengths.
 	propLengthsDense      []uint32
-	propLengthsMin        uint64
-	propLengthIds         []uint64
-	propLengthLens        []uint32
+	propLengthsDenseMin   uint64
+	propLengthsPairIds    []uint64
+	propLengthsPairLens   []uint32
 	propertyLengthsLoaded bool
 
 	avgPropertyLengthsAvg   float64
@@ -133,8 +133,8 @@ func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uin
 	}
 
 	if s.invertedData.propertyLengthsLoaded {
-		return s.invertedData.propLengthsDense, s.invertedData.propLengthsMin,
-			s.invertedData.propLengthIds, s.invertedData.propLengthLens, nil
+		return s.invertedData.propLengthsDense, s.invertedData.propLengthsDenseMin,
+			s.invertedData.propLengthsPairIds, s.invertedData.propLengthsPairLens, nil
 	}
 
 	buffer := make([]byte, 8*3)
@@ -206,17 +206,17 @@ func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uin
 				dense[id-minID] = lens[i]
 			}
 			s.invertedData.propLengthsDense = dense
-			s.invertedData.propLengthsMin = minID
+			s.invertedData.propLengthsDenseMin = minID
 		} else {
 			sortPropLenPairs(ids, lens)
-			s.invertedData.propLengthIds = ids
-			s.invertedData.propLengthLens = lens
+			s.invertedData.propLengthsPairIds = ids
+			s.invertedData.propLengthsPairLens = lens
 		}
 	}
 
 	s.invertedData.propertyLengthsLoaded = true
-	return s.invertedData.propLengthsDense, s.invertedData.propLengthsMin,
-		s.invertedData.propLengthIds, s.invertedData.propLengthLens, nil
+	return s.invertedData.propLengthsDense, s.invertedData.propLengthsDenseMin,
+		s.invertedData.propLengthsPairIds, s.invertedData.propLengthsPairLens, nil
 }
 
 // sortPropLenPairs sorts both arrays in tandem by docID using an LSD radix sort
@@ -381,8 +381,8 @@ func (s *segment) propLengthArrays() (dense []uint32, minID uint64, ids []uint64
 
 	s.invertedData.lockInvertedData.RLock()
 	if s.invertedData.propertyLengthsLoaded {
-		dense, minID = s.invertedData.propLengthsDense, s.invertedData.propLengthsMin
-		ids, lens = s.invertedData.propLengthIds, s.invertedData.propLengthLens
+		dense, minID = s.invertedData.propLengthsDense, s.invertedData.propLengthsDenseMin
+		ids, lens = s.invertedData.propLengthsPairIds, s.invertedData.propLengthsPairLens
 		s.invertedData.lockInvertedData.RUnlock()
 		return dense, minID, ids, lens, nil
 	}
@@ -529,9 +529,9 @@ func (s *segment) freePropertyLengths() {
 	defer s.invertedData.lockInvertedData.Unlock()
 
 	s.invertedData.propLengthsDense = nil
-	s.invertedData.propLengthsMin = 0
-	s.invertedData.propLengthIds = nil
-	s.invertedData.propLengthLens = nil
+	s.invertedData.propLengthsDenseMin = 0
+	s.invertedData.propLengthsPairIds = nil
+	s.invertedData.propLengthsPairLens = nil
 	s.invertedData.propertyLengthsLoaded = false
 }
 

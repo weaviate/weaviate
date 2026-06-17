@@ -224,8 +224,8 @@ func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 		// NOTE: we are returning hardcoded fake data here which is good enough
 		// for the purpose of this test. This could be extended to return real
 		// data if necessary in the future.
-		propLengthIds:           []uint64{0, 1},
-		propLengthLens:          []uint32{3, 3},
+		propLengthsPairIds:      []uint64{0, 1},
+		propLengthsPairLens:     []uint32{3, 3},
 		propertyLengthsLoaded:   true,
 		tombstonesLoaded:        true,
 		avgPropertyLengthsAvg:   3.0,
