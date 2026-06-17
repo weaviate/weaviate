@@ -35,13 +35,31 @@ import (
 
 func l0Schema() *models.Property {
 	tx := func(name string) *models.NestedProperty {
-		return &models.NestedProperty{Name: name, DataType: []string{string(schema.DataTypeText)}}
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeText)},
+			Tokenization: models.PropertyTokenizationField,
+		}
 	}
 	in := func(name string) *models.NestedProperty {
 		return &models.NestedProperty{Name: name, DataType: []string{string(schema.DataTypeInt)}}
 	}
 	txArr := func(name string) *models.NestedProperty {
-		return &models.NestedProperty{Name: name, DataType: []string{string(schema.DataTypeTextArray)}}
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeTextArray)},
+			Tokenization: models.PropertyTokenizationField,
+		}
+	}
+	txWord := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeText)},
+			Tokenization: models.PropertyTokenizationWord,
+		}
+	}
+	txArrWord := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeTextArray)},
+			Tokenization: models.PropertyTokenizationWord,
+		}
 	}
 	objArr := func(name string, nested ...*models.NestedProperty) *models.NestedProperty {
 		return &models.NestedProperty{
@@ -59,6 +77,8 @@ func l0Schema() *models.Property {
 			tx("model"),
 			tx("name"),
 			txArr("colors"),
+			txWord("description"),
+			txArrWord("tags"),
 			objArr("accessories", tx("type")),
 			objArr("tires", in("width")),
 			objArr("doors", in("count")),

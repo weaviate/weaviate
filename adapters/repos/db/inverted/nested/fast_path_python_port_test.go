@@ -41,15 +41,30 @@ import (
 //     → reuses the existing L2 schema (l2Schema)
 //
 // Coverage scope. Of the 79 Python tests, 36 directly port to the existing
-// L0+L2 helpers, 3 partially port (the all_datatypes subset our fixtures
-// already cover), and 22 don't port without harness extensions:
+// L0+L2 helpers (Groups A+B+C), and an additional 4 multi-token tests port
+// once the harness applies tokenizer.Tokenize between AssignPositions and
+// the value-bucket emit (Group D — multi_token_equal +
+// contains_any_multi_token, both L0 and L2 variants). 3 scenarios partially
+// port (the all_datatypes subset our fixtures already cover).
 //
-//   - Tokenization (multi_token_equal, contains_any_multi_token,
-//     like_word_tokenized): AssignPositions emits a single PositionedValue
-//     per scalar field with the raw value. Tokenization is the analyzer's
-//     job, done by the production write path. The harness's addDoc stores
-//     idx.values[path][rawValue] without splitting. Porting these needs
-//     either a tokenizer step in addDoc or pre-tokenized fixtures.
+// Group D wantDocs follow the harness's lenient same-element rule for
+// tokenized text[]: tokens may come from DIFFERENT tag entries of the
+// same parent element. Concretely a doc with tags=["family sedan",
+// "hybrid model"] matches `tags ContainsAny ["family hybrid"]` because
+// the cars-self chain bit is in both token buckets. This mirrors the
+// flat-index behaviour (a flat tokenized text[] inverted index has no
+// per-array-entry identity at all, so same-doc co-occurrence is the
+// only available semantic). It diverges from the Python wire-test
+// assertions for `contains_any_multi_token`, which expect a strict
+// same-tag-entry rule unique to the nested index — that strict mode
+// was prototyped in this file's earlier revisions but not adopted, on
+// the grounds that nested-default-strict would silently change the
+// semantic of flat→nested migrations.
+//
+// The rest don't port without further harness extensions:
+//
+//   - LIKE pattern matching (like_word_tokenized): no pattern-vs-bucket
+//     lookup in the harness.
 //
 //   - Range operators (<, >, <=, >=, comparison_operators): no leaf builder
 //     for ranges yet.
@@ -58,8 +73,8 @@ import (
 //     dedicated leaf builder for the per-element-existential reading.
 //
 //   - Flat doc-level property combined with nested (flat_and_nested_in_and,
-//     flat_or_nested): the L0/L2 schemas have no flat property; would need
-//     a schema extension.
+//     flat_or_nested, or_of_mixed_correlated_ands): the L0/L2 schemas have
+//     no flat property; would need a schema extension.
 //
 //   - Wire-protocol error (invalid_filter_returns_server_error): not a
 //     filter-result test.
@@ -621,8 +636,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 
 		rFalse := leafIsNullFalse(idx, "cars.make")
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 700, 800, 900, 1000, 1100, 1200,
-				1300, 1400, 1500, 1600, 1800, 1900, 2000, 2100},
+			[]uint64{
+				100, 200, 300, 400, 700, 800, 900, 1000, 1100, 1200,
+				1300, 1400, 1500, 1600, 1800, 1900, 2000, 2100,
+			},
 			idx.docIDs(rFalse),
 			"IS NULL false: docs with ∃ car having make")
 	})
@@ -634,8 +651,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			[]pinSpec{{"cars", 0}})
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 400, 700, 800, 900, 1200,
-				1600, 1800, 1900, 2000}, idx.docIDs(r),
+			[]uint64{
+				100, 200, 400, 700, 800, 900, 1200,
+				1600, 1800, 1900, 2000,
+			}, idx.docIDs(r),
 			"docs where cars[0].make=Toyota match; cars[0]≠Toyota miss")
 	})
 
@@ -671,8 +690,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			[]pinSpec{{"cars", 1}})
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 300, 400, 500, 600, 700, 800, 1000,
-				1400, 1500, 1700, 1800, 2000, 2100}, idx.docIDs(r),
+			[]uint64{
+				100, 300, 400, 500, 600, 700, 800, 1000,
+				1400, 1500, 1700, 1800, 2000, 2100,
+			}, idx.docIDs(r),
 			"fast-path: cars[1] missing or no-make → match; "+
 				"includes empty_cars (600), which Python excludes")
 	})
@@ -708,8 +729,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		r := leafContainsNone(idx, "cars.colors", "red", "blue")
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 500, 1000, 1100, 1200,
-				1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000},
+			[]uint64{
+				100, 200, 300, 400, 500, 1000, 1100, 1200,
+				1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000,
+			},
 			idx.docIDs(r),
 			"fast-path: docs with at least one car whose colors don't "+
 				"intersect the listed values match (including no-colors-"+
@@ -753,8 +776,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				[]pinSpec{{"cars", 0}}))
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 400, 700, 800, 900, 1200,
-				1400, 1600, 1700, 1800, 1900, 2000}, idx.docIDs(r),
+			[]uint64{
+				100, 200, 400, 700, 800, 900, 1200,
+				1400, 1600, 1700, 1800, 1900, 2000,
+			}, idx.docIDs(r),
 			"docs whose cars[0] satisfies make=Toyota OR year=2020")
 	})
 
@@ -793,8 +818,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			leafPositive(idx, "cars.year", 2020)))
 
 		assert.ElementsMatch(t,
-			[]uint64{200, 300, 400, 500, 700, 800, 900, 1000, 1100, 1200,
-				1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100},
+			[]uint64{
+				200, 300, 400, 500, 700, 800, 900, 1000, 1100, 1200,
+				1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100,
+			},
 			idx.docIDs(r),
 			"docs with ∃ car not satisfying Toyota+2020 same-car match; "+
 				"empty (600) and all-satisfying (100) do not")
@@ -836,8 +863,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		r := leafIsNullTrue(idx, "cars.tires")
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 500, 700, 800, 900, 1000, 1100,
-				1200, 1300, 1400, 1500, 1600, 1700, 1900, 2100},
+			[]uint64{
+				100, 200, 300, 400, 500, 700, 800, 900, 1000, 1100,
+				1200, 1300, 1400, 1500, 1600, 1700, 1900, 2100,
+			},
 			idx.docIDs(r),
 			"docs with ∃ car missing tires match (everything except docs "+
 				"600 empty, 1800 all-have-tires, 2000 all-have-tires)")
@@ -956,8 +985,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				[]pinSpec{{"cars", 0}})))
 
 		assert.ElementsMatch(t,
-			[]uint64{200, 300, 500, 600, 700, 800, 900, 1000, 1100, 1200,
-				1300, 1400, 1500, 1700, 1800, 1900, 2000, 2100},
+			[]uint64{
+				200, 300, 500, 600, 700, 800, 900, 1000, 1100, 1200,
+				1300, 1400, 1500, 1700, 1800, 1900, 2000, 2100,
+			},
 			idx.docIDs(r),
 			"fast-path: docs whose cars[0] does NOT satisfy Toyota+2020 "+
 				"same-slot; excludes 100/400/1600 (cars[0] satisfies the "+
@@ -972,6 +1003,239 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 	// Listed in the file-level header alongside the other unsupported
 	// scenarios. Skipped — re-port once a flat property exists in the
 	// harness.
+
+	// Group D — tokenization-aware scenarios. Each subtest builds its own
+	// minimal fixture so the multi-token Equal / ContainsAny discriminators
+	// don't pollute the shared `is_null_on_leaf` / `arr_n_pin` / etc.
+	// wantDocs of the earlier groups. The harness applies
+	// tokenizer.Tokenize between AssignPositions and the value-bucket
+	// emit (mirroring the production analyzer); on the query side
+	// leafPositive tokenizes the query value and fans multi-token values
+	// out through andN of per-token raw leaves at the same path. Single-
+	// token query values fall through to the original single-bucket path
+	// unchanged.
+
+	t.Run("multi_token_equal", func(t *testing.T) {
+		// Python: test_multi_token_equal_at_root_cars.
+		// Filter cars.description = "Camry Hybrid" against a word-tokenized
+		// text field. After tokenization the query value becomes
+		// ["camry", "hybrid"]; both tokens must live at the same cars
+		// element. Fast-path expresses this as andN of per-token raw
+		// leafPositive calls, which the public leafPositive wraps
+		// internally — so the test calls it the natural way.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// doc 3100 both_tokens_one_car: description="Camry Hybrid".
+		local.addDoc(t, prop, 3100, []any{
+			map[string]any{"description": "Camry Hybrid"},
+		})
+		// doc 3200 single_token_one_car: description="Camry" only.
+		local.addDoc(t, prop, 3200, []any{
+			map[string]any{"description": "Camry"},
+		})
+		// doc 3300 tokens_split_across_cars: cars[0]=Camry, cars[1]=Hybrid.
+		local.addDoc(t, prop, 3300, []any{
+			map[string]any{"description": "Camry"},
+			map[string]any{"description": "Hybrid"},
+		})
+		// doc 3400 unrelated: description="Civic LX" — neither token.
+		local.addDoc(t, prop, 3400, []any{
+			map[string]any{"description": "Civic LX"},
+		})
+
+		r := leafPositive(local, "cars.description", "Camry Hybrid")
+
+		assert.ElementsMatch(t, []uint64{3100}, local.docIDs(r),
+			"only doc 3100 has one car owning both tokens; doc 3300 split "+
+				"across two cars must NOT match (same-element on tokens)")
+	})
+
+	t.Run("contains_any_multi_token", func(t *testing.T) {
+		// Python: test_contains_any_multi_token_at_root_cars.
+		// Filter cars.tags ContainsAny ["family hybrid"] against a
+		// word-tokenized text[] field. The single query list element
+		// tokenizes to ["family", "hybrid"]; with one list value the
+		// outer OR is a no-op so the result is just the per-value
+		// match bitmap M = bucket["family"] ∩ bucket["hybrid"].
+		//
+		// Lenient same-element rule (parent-Scope AND): doc 3600
+		// (tokens split across two tag entries of the SAME car)
+		// matches because the cars-self chain bit survives the
+		// intersection. See the file-level header for why we chose
+		// lenient over Python's strict same-tag-entry rule.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// doc 3500 match_via_one_tag: tags=["family hybrid car"] —
+		// one tag entry contains both tokens.
+		local.addDoc(t, prop, 3500, []any{
+			map[string]any{"tags": []any{"family hybrid car"}},
+		})
+		// doc 3600 tokens_split_across_tags: tags=["family sedan",
+		// "hybrid model"] — tokens in DIFFERENT tag entries of the
+		// same car. Matches under lenient.
+		local.addDoc(t, prop, 3600, []any{
+			map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+		})
+		// doc 3700 single_token_missing: tags=["family car"] — only
+		// "family" present, "hybrid" bucket has no bit for this doc.
+		local.addDoc(t, prop, 3700, []any{
+			map[string]any{"tags": []any{"family car"}},
+		})
+		// doc 3800 split_across_cars: cars[0].tags=["family car"],
+		// cars[1].tags=["hybrid model"] — tokens in DIFFERENT cars.
+		// Excluded — cars-self bits differ.
+		local.addDoc(t, prop, 3800, []any{
+			map[string]any{"tags": []any{"family car"}},
+			map[string]any{"tags": []any{"hybrid model"}},
+		})
+		// doc 3900 empty_tags: a car with tags=[].
+		local.addDoc(t, prop, 3900, []any{
+			map[string]any{"tags": []any{}},
+		})
+		// doc 4000 empty_cars: no cars at all.
+		local.addDoc(t, prop, 4000, []any{})
+
+		r := leafContainsAny(local, "cars.tags", "family hybrid")
+
+		assert.ElementsMatch(t, []uint64{3500, 3600}, local.docIDs(r),
+			"docs whose single car has both tokens somewhere in its tags "+
+				"array match (3500 in one tag, 3600 split across two tags "+
+				"of the same car); splits across separate cars (3800), "+
+				"empty tags (3900), and empty cars (4000) excluded")
+	})
+
+	// ---- Harness gap coverage (not in Python suite) ----
+	// Python's array-intermediates suite has no multi-token list-value
+	// tests for ContainsAll / ContainsNone. Adding them here pins the
+	// per-value match composition the new tokenizedMatchBitmap helper
+	// drives — especially the "materialize per-value AND before chained
+	// AndNot" rule that leafContainsNone documents and that's easy to
+	// regress under a future refactor.
+
+	t.Run("contains_none_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter cars.tags ContainsNone ["family hybrid", "luxury"].
+		// Discriminator doc 6300 is the load-bearing one: it has the
+		// single token "family" but neither the full "family hybrid"
+		// pair nor "luxury". A flatten-tokens implementation would
+		// compute anchor AndNot (family ∪ hybrid ∪ luxury) and wrongly
+		// exclude 6300; the correct anchor AndNot (M_fh ∪ M_lux) leaves
+		// it in.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 6100: tags=["family hybrid car"] — full "family hybrid"
+		// satisfaction → excluded.
+		local.addDoc(t, prop, 6100, []any{
+			map[string]any{"tags": []any{"family hybrid car"}},
+		})
+		// 6200: tags=["luxury sedan"] — has luxury → excluded.
+		local.addDoc(t, prop, 6200, []any{
+			map[string]any{"tags": []any{"luxury sedan"}},
+		})
+		// 6300: tags=["family car"] — has family alone, no hybrid, no
+		// luxury → MATCH. Load-bearing.
+		local.addDoc(t, prop, 6300, []any{
+			map[string]any{"tags": []any{"family car"}},
+		})
+		// 6400: tags=["sedan"] — no relevant tokens → match.
+		local.addDoc(t, prop, 6400, []any{
+			map[string]any{"tags": []any{"sedan"}},
+		})
+		// 6500: tags=["family sedan", "hybrid model"] — tokens split
+		// across tag entries of the same car. Lenient: same as having
+		// the full pair → excluded.
+		local.addDoc(t, prop, 6500, []any{
+			map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+		})
+
+		r := leafContainsNone(local, "cars.tags", "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{6300, 6400}, local.docIDs(r),
+			"docs without (family AND hybrid) AND without luxury match; "+
+				"6300 (family alone) is the load-bearing case — a "+
+				"flattened implementation would wrongly exclude it")
+	})
+
+	t.Run("contains_all_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter cars.tags ContainsAll ["family hybrid", "luxury"].
+		// Requires (family AND hybrid) AND luxury all present on the
+		// same car. Single-token "luxury" and multi-token "family
+		// hybrid" mix in the outer AND-fold over per-value Mᵢ.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 6600: all four tokens present → match.
+		local.addDoc(t, prop, 6600, []any{
+			map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+		})
+		// 6700: missing hybrid → no match.
+		local.addDoc(t, prop, 6700, []any{
+			map[string]any{"tags": []any{"family", "luxury"}},
+		})
+		// 6800: missing luxury → no match.
+		local.addDoc(t, prop, 6800, []any{
+			map[string]any{"tags": []any{"family hybrid"}},
+		})
+		// 6900: all tokens present, split across two tag entries of
+		// the same car. Lenient parent-Scope AND → match.
+		local.addDoc(t, prop, 6900, []any{
+			map[string]any{"tags": []any{"luxury hybrid", "family bag"}},
+		})
+		// 7000: no relevant tokens → no match.
+		local.addDoc(t, prop, 7000, []any{
+			map[string]any{"tags": []any{"sedan"}},
+		})
+
+		r := leafContainsAll(local, "cars.tags", "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{6600, 6900}, local.docIDs(r),
+			"docs where all four tokens are present on the same car "+
+				"(lenient: tokens may live in different tag entries — "+
+				"doc 6900 splits them across two entries)")
+	})
+
+	t.Run("contains_none_two_multi_token", func(t *testing.T) {
+		// Filter cars.tags ContainsNone ["family hybrid", "luxury car"].
+		// Both list values multi-token — chained AndNot over consecutive
+		// multi-token Mᵢ. Docs 7100 and 7400 are load-bearing: each has
+		// one token from each list value but neither full pair.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 7100: has family + luxury individually, neither full pair →
+		// MATCH. Load-bearing.
+		local.addDoc(t, prop, 7100, []any{
+			map[string]any{"tags": []any{"family", "luxury"}},
+		})
+		// 7200: full "family hybrid" → excluded.
+		local.addDoc(t, prop, 7200, []any{
+			map[string]any{"tags": []any{"family hybrid"}},
+		})
+		// 7300: full "luxury car" → excluded.
+		local.addDoc(t, prop, 7300, []any{
+			map[string]any{"tags": []any{"luxury car"}},
+		})
+		// 7400: has hybrid + car individually, neither full pair →
+		// match. Load-bearing.
+		local.addDoc(t, prop, 7400, []any{
+			map[string]any{"tags": []any{"hybrid", "car"}},
+		})
+		// 7500: full "family hybrid" + "car" extra. First value
+		// satisfied → excluded (second value's "car" alone isn't
+		// enough on its own).
+		local.addDoc(t, prop, 7500, []any{
+			map[string]any{"tags": []any{"family hybrid car"}},
+		})
+		// 7600: no relevant tokens → match.
+		local.addDoc(t, prop, 7600, []any{
+			map[string]any{"tags": []any{"sedan", "wagon"}},
+		})
+
+		r := leafContainsNone(local, "cars.tags", "family hybrid", "luxury car")
+
+		assert.ElementsMatch(t, []uint64{7100, 7400, 7600}, local.docIDs(r),
+			"docs where neither (family AND hybrid) nor (luxury AND "+
+				"car) is fully present; 7100 and 7400 are the "+
+				"load-bearing cases — a flatten-tokens implementation "+
+				"would wrongly exclude them")
+	})
 }
 
 // TestFastPathL2_PythonPort runs the L2 (countries[].garages[].cars[]) ports as subtests
@@ -1019,9 +1283,11 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		// IS NULL false: docs with ∃ car having make.
 		rFalse := leafIsNullFalse(idx, "countries.garages.cars.make")
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 500, 800, 900, 1000, 1100, 1200,
+			[]uint64{
+				100, 200, 300, 400, 500, 800, 900, 1000, 1100, 1200,
 				1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000,
-				2200, 2300, 2400, 2500, 2700, 2800, 2900, 3000},
+				2200, 2300, 2400, 2500, 2700, 2800, 2900, 3000,
+			},
 			idx.docIDs(rFalse),
 			"IS NULL false: docs with ∃ car having make")
 	})
@@ -1060,9 +1326,11 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			[]pinSpec{{"countries.garages.cars", 0}})
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 500, 800, 900,
+			[]uint64{
+				100, 200, 300, 400, 500, 800, 900,
 				1300, 1400, 1500, 1600, 1700, 1800, 1900,
-				2500, 2700, 2800, 2900}, idx.docIDs(r),
+				2500, 2700, 2800, 2900,
+			}, idx.docIDs(r),
 			"docs with ∃ garage whose cars[0]=Toyota match")
 	})
 
@@ -1125,9 +1393,11 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			[]pinSpec{{"countries.garages.cars", 1}})
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 300, 400, 500, 600, 700, 800, 900,
+			[]uint64{
+				100, 300, 400, 500, 600, 700, 800, 900,
 				1300, 1400, 1600, 1700, 1800, 1900, 2000,
-				2300, 2400, 2600, 2700, 2900, 3000}, idx.docIDs(r),
+				2300, 2400, 2600, 2700, 2900, 3000,
+			}, idx.docIDs(r),
 			"fast-path: docs with ∃ garage whose cars[1] missing or "+
 				"no-make match; includes empty_cars (700)")
 	})
@@ -1221,9 +1491,11 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				[]pinSpec{{"countries.garages.cars", 0}}))
 
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 500, 800, 900,
+			[]uint64{
+				100, 200, 300, 400, 500, 800, 900,
 				1300, 1400, 1500, 1600, 1700, 1800, 1900,
-				2300, 2500, 2600, 2700, 2800, 2900}, idx.docIDs(r),
+				2300, 2500, 2600, 2700, 2800, 2900,
+			}, idx.docIDs(r),
 			"docs whose ∃ garage's cars[0] satisfies make=Toyota OR year=2020")
 	})
 
@@ -1260,10 +1532,12 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			leafPositive(idx, "countries.garages.cars.year", 2020)))
 
 		assert.ElementsMatch(t,
-			[]uint64{200, 300, 400, 500, 600, 800, 900,
+			[]uint64{
+				200, 300, 400, 500, 600, 800, 900,
 				1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700,
 				1800, 1900, 2000, 2200, 2300, 2400, 2500, 2600,
-				2700, 2800, 2900, 3000}, idx.docIDs(r),
+				2700, 2800, 2900, 3000,
+			}, idx.docIDs(r),
 			"docs with ∃ car not satisfying Toyota+2020 same-car match; "+
 				"empty (700) and pure-Toyota+2020 (100) do not")
 	})
@@ -1294,10 +1568,12 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		//   doc 2700 (single car has tires),
 		//   doc 2900 (single car has tires).
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 500, 600, 800, 900,
+			[]uint64{
+				100, 200, 300, 400, 500, 600, 800, 900,
 				1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700,
 				1800, 1900, 2000, 2200, 2300, 2400, 2500, 2600,
-				2800, 3000}, idx.docIDs(r),
+				2800, 3000,
+			}, idx.docIDs(r),
 			"docs with ∃ car missing tires match")
 	})
 
@@ -1341,9 +1617,11 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		// Toyota-having docs that also have at least one car-self surviving
 		// the AndNot (i.e. that car has no red/blue color).
 		assert.ElementsMatch(t,
-			[]uint64{100, 200, 300, 400, 500, 800, 900,
+			[]uint64{
+				100, 200, 300, 400, 500, 800, 900,
 				1000, 1100, 1200,
-				2200, 2500, 2700, 2800, 2900}, idx.docIDs(r),
+				2200, 2500, 2700, 2800, 2900,
+			}, idx.docIDs(r),
 			"fast-path: Toyota docs with at least one Toyota car whose "+
 				"colors don't intersect the listed values")
 	})
@@ -1411,10 +1689,12 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				[]pinSpec{{"countries.garages.cars", 0}})))
 
 		assert.ElementsMatch(t,
-			[]uint64{200, 300, 400, 600, 700, 800, 900,
+			[]uint64{
+				200, 300, 400, 600, 700, 800, 900,
 				1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700,
 				1800, 1900, 2000, 2200, 2300, 2400, 2600,
-				2700, 2800, 2900, 3000}, idx.docIDs(r),
+				2700, 2800, 2900, 3000,
+			}, idx.docIDs(r),
 			"fast-path: docs with ∃ garage whose cars[0] does NOT satisfy "+
 				"Toyota+2020 same-slot; excludes 100/500/2500 (all garages "+
 				"in those docs have cars[0]=Toyota+2020); includes 700 "+
@@ -1427,4 +1707,417 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 	// the Python scenario relies on a flat doc-level property (`category`)
 	// which the L2 schema doesn't carry. Listed in the file-level header
 	// alongside the other unsupported scenarios.
+
+	// Group D — tokenization-aware scenarios. Same convention as the L0
+	// siblings: each subtest builds a minimal local fixture so the new
+	// multi-token discriminators don't pollute the shared L2 fixture's
+	// wantDocs across the earlier groups. L2 adds multi-garage and multi-
+	// country split discriminators that exercise per-element AND across
+	// the deeper path (countries.garages.cars).
+
+	t.Run("multi_token_equal", func(t *testing.T) {
+		// Python: test_multi_token_equal_under_countries_array.
+		// Filter countries.garages.cars.description = "Camry Hybrid"
+		// against a word-tokenized text field. Both tokens must live at
+		// the same cars element regardless of which country / garage
+		// that element sits under.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// doc 4100 both_tokens_one_car: single Camry Hybrid car.
+		local.addDoc(t, prop, 4100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Camry Hybrid"},
+				}},
+			}},
+		})
+		// doc 4200 single_token_one_car: description="Camry" only.
+		local.addDoc(t, prop, 4200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Camry"},
+				}},
+			}},
+		})
+		// doc 4300 tokens_split_across_cars: cars[0]=Camry, cars[1]=Hybrid
+		// inside one garage.
+		local.addDoc(t, prop, 4300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Camry"},
+					map[string]any{"description": "Hybrid"},
+				}},
+			}},
+		})
+		// doc 4400 tokens_split_across_garages: Amsterdam=Camry,
+		// Rotterdam=Hybrid in one country.
+		local.addDoc(t, prop, 4400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "Amsterdam", "cars": []any{
+					map[string]any{"description": "Camry"},
+				}},
+				map[string]any{"city": "Rotterdam", "cars": []any{
+					map[string]any{"description": "Hybrid"},
+				}},
+			}},
+		})
+		// doc 4500 tokens_split_across_countries: NL=Camry, DE=Hybrid.
+		local.addDoc(t, prop, 4500, []any{
+			map[string]any{"name": "Netherlands", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Camry"},
+				}},
+			}},
+			map[string]any{"name": "Germany", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Hybrid"},
+				}},
+			}},
+		})
+		// doc 4600 match_via_one_garage: Amsterdam=Camry Hybrid, Rotterdam
+		// has a Civic LX.
+		local.addDoc(t, prop, 4600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "Amsterdam", "cars": []any{
+					map[string]any{"description": "Camry Hybrid"},
+				}},
+				map[string]any{"city": "Rotterdam", "cars": []any{
+					map[string]any{"description": "Civic LX"},
+				}},
+			}},
+		})
+		// doc 4700 match_via_one_country: NL Camry Hybrid, DE Civic LX.
+		local.addDoc(t, prop, 4700, []any{
+			map[string]any{"name": "Netherlands", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Camry Hybrid"},
+				}},
+			}},
+			map[string]any{"name": "Germany", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Civic LX"},
+				}},
+			}},
+		})
+		// doc 4800 unrelated: Civic LX.
+		local.addDoc(t, prop, 4800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"description": "Civic LX"},
+				}},
+			}},
+		})
+
+		r := leafPositive(local, "countries.garages.cars.description", "Camry Hybrid")
+
+		assert.ElementsMatch(t, []uint64{4100, 4600, 4700}, local.docIDs(r),
+			"docs where ∃ a car has both tokens (4100 directly, 4600/4700 "+
+				"via one matching garage/country); splits across cars, "+
+				"garages, or countries must NOT match — same-element on tokens")
+	})
+
+	t.Run("contains_any_multi_token", func(t *testing.T) {
+		// Python: test_contains_any_multi_token_under_countries_array.
+		// Filter countries.garages.cars.tags ContainsAny ["family hybrid"]
+		// against a word-tokenized text[]. The single query list element
+		// tokenizes to ["family", "hybrid"]; with one list value the
+		// outer OR is a no-op so the result is the per-value match
+		// bitmap.
+		//
+		// Lenient same-element rule (parent-Scope AND): doc 5200
+		// (tokens split across two tag entries of the SAME car)
+		// matches because the cars-self chain bit survives the
+		// intersection. Splits across separate cars (5400), garages
+		// (5500), or countries (5600) stay excluded because the chain
+		// bits at those higher scopes differ.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// doc 5100 match: single car tags=["family hybrid car"] —
+		// one tag entry contains both tokens.
+		local.addDoc(t, prop, 5100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// doc 5200 tokens_split_across_tags: tags=["family sedan",
+		// "hybrid model"] — tokens in DIFFERENT tag entries of the
+		// same car. Matches under lenient.
+		local.addDoc(t, prop, 5200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+				}},
+			}},
+		})
+		// doc 5300 single_token_missing: tags=["family car"].
+		local.addDoc(t, prop, 5300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family car"}},
+				}},
+			}},
+		})
+		// doc 5400 split_across_cars: cars[0].tags=["family car"],
+		// cars[1].tags=["hybrid model"] in one garage. Excluded —
+		// cars-self bits differ.
+		local.addDoc(t, prop, 5400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family car"}},
+					map[string]any{"tags": []any{"hybrid model"}},
+				}},
+			}},
+		})
+		// doc 5500 split_across_garages: Amsterdam tags=["family car"],
+		// Rotterdam tags=["hybrid model"]. Excluded — garages-self
+		// bits differ.
+		local.addDoc(t, prop, 5500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "Amsterdam", "cars": []any{
+					map[string]any{"tags": []any{"family car"}},
+				}},
+				map[string]any{"city": "Rotterdam", "cars": []any{
+					map[string]any{"tags": []any{"hybrid model"}},
+				}},
+			}},
+		})
+		// doc 5600 split_across_countries: NL tags=["family car"],
+		// DE tags=["hybrid model"]. Excluded — countries-self bits
+		// differ.
+		local.addDoc(t, prop, 5600, []any{
+			map[string]any{"name": "Netherlands", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family car"}},
+				}},
+			}},
+			map[string]any{"name": "Germany", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"hybrid model"}},
+				}},
+			}},
+		})
+		// doc 5700 match_via_one_garage: Amsterdam tags=["family
+		// hybrid car"]; Rotterdam tags=["other"].
+		local.addDoc(t, prop, 5700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "Amsterdam", "cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+				map[string]any{"city": "Rotterdam", "cars": []any{
+					map[string]any{"tags": []any{"other"}},
+				}},
+			}},
+		})
+		// doc 5800 match_via_one_country: NL tags=["family hybrid
+		// car"], DE tags=["other"].
+		local.addDoc(t, prop, 5800, []any{
+			map[string]any{"name": "Netherlands", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+			map[string]any{"name": "Germany", "garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"other"}},
+				}},
+			}},
+		})
+
+		r := leafContainsAny(local, "countries.garages.cars.tags", "family hybrid")
+
+		assert.ElementsMatch(t,
+			[]uint64{5100, 5200, 5700, 5800}, local.docIDs(r),
+			"docs where ∃ a car has both tokens somewhere in its tags "+
+				"array (5100 in one tag entry; 5200 across two tag entries "+
+				"of the same car; 5700 via Amsterdam; 5800 via Netherlands); "+
+				"splits across separate cars (5400), garages (5500), or "+
+				"countries (5600) excluded")
+	})
+
+	// ---- Harness gap coverage (not in Python suite) ----
+	// L2 mirrors of the new L0 ContainsAll / ContainsNone tokenization
+	// tests. Fixtures wrap each scenario in countries.garages.cars
+	// with one car per garage, one garage per country, one country
+	// per doc — same code path as the L0 versions, exercised via the
+	// deeper path.
+
+	t.Run("contains_none_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars.tags ContainsNone
+		// ["family hybrid", "luxury"]. Same discriminator as L0:
+		// doc 8300 has "family" alone and must match (a flatten-
+		// tokens implementation would wrongly exclude it).
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 8100: tags=["family hybrid car"] → excluded.
+		local.addDoc(t, prop, 8100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 8200: tags=["luxury sedan"] → excluded.
+		local.addDoc(t, prop, 8200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"luxury sedan"}},
+				}},
+			}},
+		})
+		// 8300: tags=["family car"] → MATCH. Load-bearing.
+		local.addDoc(t, prop, 8300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family car"}},
+				}},
+			}},
+		})
+		// 8400: tags=["sedan"] → match.
+		local.addDoc(t, prop, 8400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+				}},
+			}},
+		})
+		// 8500: tokens split across tag entries of same car → excluded.
+		local.addDoc(t, prop, 8500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+				}},
+			}},
+		})
+
+		r := leafContainsNone(local, "countries.garages.cars.tags",
+			"family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{8300, 8400}, local.docIDs(r),
+			"docs without (family AND hybrid) AND without luxury match; "+
+				"8300 (family alone) is the load-bearing case — a "+
+				"flattened implementation would wrongly exclude it")
+	})
+
+	t.Run("contains_all_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars.tags ContainsAll
+		// ["family hybrid", "luxury"].
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 8600: all four tokens present → match.
+		local.addDoc(t, prop, 8600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+				}},
+			}},
+		})
+		// 8700: missing hybrid → no match.
+		local.addDoc(t, prop, 8700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family", "luxury"}},
+				}},
+			}},
+		})
+		// 8800: missing luxury → no match.
+		local.addDoc(t, prop, 8800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid"}},
+				}},
+			}},
+		})
+		// 8900: tokens split across two tag entries of the same car
+		// → match (lenient).
+		local.addDoc(t, prop, 8900, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"luxury hybrid", "family bag"}},
+				}},
+			}},
+		})
+		// 9000: no relevant tokens → no match.
+		local.addDoc(t, prop, 9000, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+				}},
+			}},
+		})
+
+		r := leafContainsAll(local, "countries.garages.cars.tags",
+			"family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{8600, 8900}, local.docIDs(r),
+			"docs where all four tokens are present on the same car "+
+				"(lenient: doc 8900 splits them across two tag entries)")
+	})
+
+	t.Run("contains_none_two_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars.tags ContainsNone
+		// ["family hybrid", "luxury car"].
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 9100: family + luxury individually, neither full pair →
+		// MATCH. Load-bearing.
+		local.addDoc(t, prop, 9100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family", "luxury"}},
+				}},
+			}},
+		})
+		// 9200: full "family hybrid" → excluded.
+		local.addDoc(t, prop, 9200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid"}},
+				}},
+			}},
+		})
+		// 9300: full "luxury car" → excluded.
+		local.addDoc(t, prop, 9300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"luxury car"}},
+				}},
+			}},
+		})
+		// 9400: hybrid + car individually, neither full pair → match.
+		local.addDoc(t, prop, 9400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"hybrid", "car"}},
+				}},
+			}},
+		})
+		// 9500: full "family hybrid" + "car" extra → excluded.
+		local.addDoc(t, prop, 9500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 9600: no relevant tokens → match.
+		local.addDoc(t, prop, 9600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan", "wagon"}},
+				}},
+			}},
+		})
+
+		r := leafContainsNone(local, "countries.garages.cars.tags",
+			"family hybrid", "luxury car")
+
+		assert.ElementsMatch(t,
+			[]uint64{9100, 9400, 9600}, local.docIDs(r),
+			"docs where neither (family AND hybrid) nor (luxury AND "+
+				"car) is fully present; 9100 and 9400 are the "+
+				"load-bearing cases — a flatten-tokens implementation "+
+				"would wrongly exclude them")
+	})
 }

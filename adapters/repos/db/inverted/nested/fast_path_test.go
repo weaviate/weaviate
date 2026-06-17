@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 // fast_path_test.go is the pre-DB harness for the fast-path nested filter
@@ -198,6 +199,14 @@ type fastPathIndex struct {
 	exists   map[string]*sroar.Bitmap         // path -> positions
 	idx      map[string]map[int]*sroar.Bitmap // path -> array index -> positions
 	anchor   map[string]*sroar.Bitmap         // path -> self-marker positions
+	// tokenization: leaf path -> tokenization strategy (e.g. "field",
+	// "word") propagated from the schema by AssignPositions. Empty for
+	// non-text leaves. Read by addDoc to tokenize stored values and by
+	// the value-leaf helpers (leafPositive, leafContainsAny, etc.) to
+	// tokenize query values, mirroring the production analyzer's
+	// placement of tokenizer.Tokenize between AssignPositions and
+	// bucket emission.
+	tokenization map[string]string
 	// docUniverse: doc-level universe of ingested docs, one Encode(0, 0,
 	// docID) per doc. Lives outside `anchor`/`exists` because those mirror
 	// on-disk meta buckets and the universe isn't a meta entry — the
@@ -208,13 +217,14 @@ type fastPathIndex struct {
 
 func newFastPathIndex(propName string) *fastPathIndex {
 	return &fastPathIndex{
-		propName:    propName,
-		values:      map[string]map[any]*sroar.Bitmap{},
-		exists:      map[string]*sroar.Bitmap{},
-		idx:         map[string]map[int]*sroar.Bitmap{},
-		anchor:      map[string]*sroar.Bitmap{},
-		docUniverse: sroar.NewBitmap(),
-		ops:         NewBitmapOps(roaringset.NewBitmapBufPoolNoop()),
+		propName:     propName,
+		values:       map[string]map[any]*sroar.Bitmap{},
+		exists:       map[string]*sroar.Bitmap{},
+		idx:          map[string]map[int]*sroar.Bitmap{},
+		anchor:       map[string]*sroar.Bitmap{},
+		tokenization: map[string]string{},
+		docUniverse:  sroar.NewBitmap(),
+		ops:          NewBitmapOps(roaringset.NewBitmapBufPoolNoop()),
 	}
 }
 
@@ -257,12 +267,23 @@ func (i *fastPathIndex) addDoc(t *testing.T, prop *models.Property, docID uint64
 		if i.values[path] == nil {
 			i.values[path] = map[any]*sroar.Bitmap{}
 		}
-		bm, ok := i.values[path][v.Value]
-		if !ok {
-			bm = sroar.NewBitmap()
-			i.values[path][v.Value] = bm
+		if v.Tokenization != "" {
+			i.tokenization[path] = v.Tokenization
 		}
-		bm.SetMany(OrDocID(v.Positions, docID))
+		// tokenizeStoredValue mirrors the analyzer's call to
+		// tokenizer.Tokenize after AssignPositions: text and text[] leaves
+		// fan out into one bucket per token; every token shares the
+		// PositionedValue's positions (so multi-token Equal needs both
+		// tokens at the same Scope element). Non-text leaves and untokenized
+		// values bucket on the raw value.
+		for _, token := range tokenizeStoredValue(v) {
+			bm, ok := i.values[path][token]
+			if !ok {
+				bm = sroar.NewBitmap()
+				i.values[path][token] = bm
+			}
+			bm.SetMany(OrDocID(v.Positions, docID))
+		}
 	}
 	for _, e := range result.Exists {
 		path := i.qualify(e.Path)
@@ -325,13 +346,13 @@ func (i *fastPathIndex) addDoc(t *testing.T, prop *models.Property, docID uint64
 //
 //  4. Ceiling: the shallowest scope at which Raw is still authentic.
 //     - Ceiling == pathRoot: fully authentic — every bit traces to a
-//       real matching element's elementPositions encoding (chain +
-//       selfMarker + descendantSelves). Earned by positive leaves and
-//       OR-of-positives.
+//     real matching element's elementPositions encoding (chain +
+//     selfMarker + descendantSelves). Earned by positive leaves and
+//     OR-of-positives.
 //     - Ceiling == some specific path: Raw is authentic only at scopes
-//       from Ceiling down to Scope; above Ceiling, owner-level chain
-//       bits may leak as ghosts. negate, same-Scope AND, ContainsAll,
-//       ContainsNone, and pinned helpers all land here.
+//     from Ceiling down to Scope; above Ceiling, owner-level chain
+//     bits may leak as ghosts. negate, same-Scope AND, ContainsAll,
+//     ContainsNone, and pinned helpers all land here.
 //
 // Dispatch consequence: ceilingAboveScope() (depth(Ceiling) <
 // depth(Scope)) is true iff the operand has authentic descendants below
@@ -376,22 +397,131 @@ func deepestPath(scopes ...string) string {
 // Leaf builders
 // ---------------------------------------------------------------------------
 
+// tokenizeStoredValue mirrors the production analyzer's call to
+// tokenizer.Tokenize after AssignPositions: text and text[] leaves with
+// a tokenization strategy fan out to one bucket per token; non-text and
+// untokenized leaves bucket on the raw value. Tokens are []any so they
+// drop straight into idx.values[path]'s any-keyed bucket map without an
+// extra type assertion at the call site.
+func tokenizeStoredValue(pv PositionedValue) []any {
+	if pv.Tokenization == "" {
+		return []any{pv.Value}
+	}
+	switch schema.DataType(pv.DataType) {
+	case schema.DataTypeText:
+		s, ok := pv.Value.(string)
+		if !ok {
+			return []any{pv.Value}
+		}
+		return tokenizeOne(pv.Tokenization, s)
+	case schema.DataTypeTextArray:
+		var out []any
+		switch arr := pv.Value.(type) {
+		case []string:
+			for _, s := range arr {
+				out = append(out, tokenizeOne(pv.Tokenization, s)...)
+			}
+		case []any:
+			for _, x := range arr {
+				if s, ok := x.(string); ok {
+					out = append(out, tokenizeOne(pv.Tokenization, s)...)
+				}
+			}
+		default:
+			return []any{pv.Value}
+		}
+		return out
+	default:
+		return []any{pv.Value}
+	}
+}
+
+func tokenizeOne(strategy, in string) []any {
+	tokens := tokenizer.Tokenize(strategy, in)
+	out := make([]any, len(tokens))
+	for i, t := range tokens {
+		out[i] = t
+	}
+	return out
+}
+
+// tokenizeQueryValue mirrors tokenizeStoredValue for the query side: if
+// the recorded leaf tokenization is non-empty and the query value is a
+// string, return its tokens; otherwise return the value unchanged.
+// Consumed by tokenizedMatchBitmap to build the per-value match bitmap
+// shared by every value-leaf helper.
+func tokenizeQueryValue(idx *fastPathIndex, path string, value any) []any {
+	strategy := idx.tokenization[path]
+	if strategy == "" {
+		return []any{value}
+	}
+	s, ok := value.(string)
+	if !ok {
+		return []any{value}
+	}
+	return tokenizeOne(strategy, s)
+}
+
+// tokenizedMatchBitmap returns the per-value match bitmap Mᵢ for a
+// single query value: tokenize the value via the recorded leaf
+// tokenization, look up each token's bucket, and AND them together.
+// Single-token values collapse to a single bucket lookup (the original
+// fast path for non-WORD-tokenized leaves); multi-token values
+// intersect the per-token buckets — bitmap positions survive the AND
+// only when every token is present on the same Scope-element.
+//
+// This is the unit every value-leaf helper composes over. Operators
+// differ only in how they merge Mᵢ across list values:
+//
+//   - leafPositive (single value): use M₁ directly.
+//   - leafContainsAny: OR all Mᵢ.
+//   - leafContainsAll: AND all Mᵢ.
+//   - leafContainsNone: AndNot each Mᵢ from anchor(Scope) in turn.
+//
+// Returns an empty bitmap when the tokenizer drops the input
+// (stopword-only) or any token bucket is missing from the index — in
+// either case no Scope-element can satisfy that value. The Contains
+// operators carry that through correctly via their merge step.
+//
+// Same-element semantics: this helper does parent-Scope AND for
+// multi-token values on text[] — tokens may live in different array
+// entries of the same parent element, the lenient interpretation. A
+// strict (same-array-entry) rule would require extracting per-element-
+// self bits at Scope=path and lifting back; that's deliberately not
+// modeled here. See the design note in fast_path_python_port_test.go
+// for the rationale.
+func tokenizedMatchBitmap(idx *fastPathIndex, path string, value any) *sroar.Bitmap {
+	tokens := tokenizeQueryValue(idx, path, value)
+	if len(tokens) == 0 {
+		return sroar.NewBitmap()
+	}
+	bm := cloneOrEmpty(idx.values[path][tokens[0]])
+	for _, t := range tokens[1:] {
+		bm.And(cloneOrEmpty(idx.values[path][t]))
+	}
+	return bm
+}
+
 // leafPositive realizes a positive value leaf `path = value`:
 //
 //	Scope     = parent(path)
-//	Raw       = value(path, value)
+//	Raw       = M  (per-value match bitmap; see tokenizedMatchBitmap)
 //	Witnesses = Raw ∩ _anchor(Scope)
 //	Ceiling   = pathRoot (fully authentic — every bit traces to a real
 //	                       matching element's elementPositions encoding;
 //	                       see fastPathResult doc for the convention)
+//
+// Tokenization handling lives entirely in tokenizedMatchBitmap. Single-
+// token queries collapse to today's single-bucket fast path; multi-
+// token queries produce the AND of per-token buckets (parent-Scope
+// same-element semantic on text[]).
 func leafPositive(idx *fastPathIndex, path string, value any) *fastPathResult {
 	scope := parentPath(path)
-	raw := cloneOrEmpty(idx.values[path][value])
-	witnesses := raw.Clone().And(idx.anchorAt(scope))
+	raw := tokenizedMatchBitmap(idx, path, value)
 	return &fastPathResult{
 		Scope:     scope,
 		Raw:       raw,
-		Witnesses: witnesses,
+		Witnesses: raw.Clone().And(idx.anchorAt(scope)),
 		Ceiling:   pathRoot,
 	}
 }
@@ -811,25 +941,23 @@ func perElementNotFromSubtractands(idx *fastPathIndex, valuePath string, pins []
 	}
 }
 
-// leafContainsAny realizes `path ContainsAny [values]` directly as
-// the union of the per-value buckets. Every sub-leaf shares the same
-// Scope (parent of path) and would be Ceiling=pathRoot at construction, so
-// dispatching through orN would only add overhead: sort the slice
-// (no-op when all keys are equal), allocate a fastPathResult per
-// value, then fold via the same-Scope branch of orLeaves. Computing the
-// raw union directly skips all of that.
+// leafContainsAny realizes `path ContainsAny [values]` as the union of
+// per-value match bitmaps. Each list value is tokenized and reduced to
+// its per-value Mᵢ via tokenizedMatchBitmap (single-token values
+// collapse to a single bucket; multi-token values become the AND of
+// per-token buckets). The outer OR then unions those Mᵢ together —
+// production's extractContains → extractTokenizableProp does the
+// same composition at the wire layer.
 //
-// Semantics: a Scope-element satisfies ContainsAny if it contains at
-// least one of the listed values. For scalar arrays (e.g. text[]),
-// "contains" means a per-element match somewhere in the array; for
-// scalar fields it means the field equals one of the values.
+// Semantics: a Scope-element satisfies ContainsAny if it satisfies at
+// least one list value as a whole — including multi-token values
+// where ALL tokens of THAT value must be present (parent-Scope same
+// element).
 //
-// Result shape matches what orN over leafPositive(path, v) would
-// produce: Scope=parent(path), Raw=union of value buckets, Witnesses=Raw ∩
-// _anchor(Scope), Ceiling=propName.
+// Result shape unchanged from the previous untokenized version:
+// Scope=parent(path), Witnesses=Raw ∩ _anchor(Scope), Ceiling=pathRoot.
 //
-// Panics on an empty value list — ContainsAny over an empty set has
-// no positive witnesses and is better caught at the call site.
+// Panics on an empty value list.
 func leafContainsAny(idx *fastPathIndex, path string, values ...any) *fastPathResult {
 	if len(values) == 0 {
 		panic("leafContainsAny requires at least one value")
@@ -837,58 +965,46 @@ func leafContainsAny(idx *fastPathIndex, path string, values ...any) *fastPathRe
 	scope := parentPath(path)
 	raw := sroar.NewBitmap()
 	for _, v := range values {
-		if bm := idx.values[path][v]; bm != nil {
-			raw.Or(bm)
-		}
+		raw.Or(tokenizedMatchBitmap(idx, path, v))
 	}
-	witnesses := raw.Clone().And(idx.anchorAt(scope))
 	return &fastPathResult{
 		Scope:     scope,
 		Raw:       raw,
-		Witnesses: witnesses,
+		Witnesses: raw.Clone().And(idx.anchorAt(scope)),
 		Ceiling:   pathRoot,
 	}
 }
 
-// leafContainsAll realizes `path ContainsAll [values]` directly as
-// the intersection of the per-value buckets. Same reasoning as
-// leafContainsAny: every sub-leaf shares Scope and Ceiling, so andN's sort
-// and sequential fold are pure overhead. Intersecting the value
-// bitmaps directly enforces per-Scope-element co-occurrence — only
-// chain bits that appear in EVERY value's elementPositions survive,
-// which means the same Scope-element must match every value.
+// leafContainsAll realizes `path ContainsAll [values]` as the
+// intersection of per-value match bitmaps. Each list value reduces to
+// its per-value Mᵢ via tokenizedMatchBitmap; the outer AND then
+// intersects them. Associativity makes this equivalent to flattening
+// every token across every value into one big AND (multi-token values
+// just contribute extra AND terms), but the per-value structure keeps
+// ContainsAll readable as ContainsAll.
 //
-// Ceiling   = Scope in the result: same-Scope AND structurally produces
-// clean only at Scope because chain bits at parent can survive even
-// when different sub-elements satisfy different values.
+// Semantics: a Scope-element satisfies ContainsAll if it satisfies
+// every list value. For tokenized multi-token values, "satisfies"
+// already means "all tokens of that value present" via Mᵢ.
 //
-// For scalar arrays (e.g. text[]), this means the same array must
-// contain every listed value (across its elements).
+// Result shape unchanged: Scope=parent(path), Witnesses=Raw ∩
+// _anchor(Scope), Ceiling=Scope (same-Scope AND can't claim cleanness
+// above).
 //
-// Bails out early when any value is missing from the index — the
-// intersection would be empty regardless of the remaining values.
-//
-// Panics on an empty value list — ContainsAll over an empty set is
-// vacuously true and should be optimised away upstream.
+// Panics on an empty value list.
 func leafContainsAll(idx *fastPathIndex, path string, values ...any) *fastPathResult {
 	if len(values) == 0 {
 		panic("leafContainsAll requires at least one value")
 	}
 	scope := parentPath(path)
-	raw := cloneOrEmpty(idx.values[path][values[0]])
+	raw := tokenizedMatchBitmap(idx, path, values[0])
 	for _, v := range values[1:] {
-		bm := idx.values[path][v]
-		if bm == nil {
-			raw = sroar.NewBitmap()
-			break
-		}
-		raw.And(bm)
+		raw.And(tokenizedMatchBitmap(idx, path, v))
 	}
-	witnesses := raw.Clone().And(idx.anchorAt(scope))
 	return &fastPathResult{
 		Scope:     scope,
 		Raw:       raw,
-		Witnesses: witnesses,
+		Witnesses: raw.Clone().And(idx.anchorAt(scope)),
 		Ceiling:   scope,
 	}
 }
@@ -951,43 +1067,47 @@ func leafPinnedContainsAll(idx *fastPathIndex, valuePath string, pins []pinSpec,
 	return pinnedFromValueSet(idx, a, valuePath, pins)
 }
 
-// leafContainsNone realizes `path ContainsNone [values]` as a direct
-// chained subtraction. Equivalent to negate(leafContainsAny(...)) but
-// computed in one accumulator pass without materialising the value
-// union.
+// leafContainsNone realizes `path ContainsNone [values]` as the
+// universe (anchor at Scope) minus the union of per-value match
+// bitmaps. Each list value reduces to its per-value Mᵢ via
+// tokenizedMatchBitmap; chained AndNot then subtracts each Mᵢ in
+// turn — algebraically equivalent to `anchor AndNot ⋃ Mᵢ`.
 //
-// Algebra (using the identity A ANDNOT (B ∪ C) = (A ANDNOT B) ANDNOT C): //
+// Algebra:
 //
-//	Witnesses = _anchor(Scope) ANDNOT ⋃_v _value(path, v)
-//	             = ((_anchor(Scope) ANDNOT v_1) ANDNOT v_2) ... ANDNOT v_N
+//	Witnesses = _anchor(Scope) ANDNOT ⋃_v Mᵥ
+//	             = ((_anchor(Scope) ANDNOT M_1) ANDNOT M_2) ... ANDNOT M_N
 //	Raw       = (_exists(Scope) ANDNOT _anchor(Scope)) ∪ Witnesses
 //	             (satisfies Raw ∩ _anchor(Scope) == Witnesses)
 //
-// Semantics: a Scope-element satisfies ContainsNone if it contains none of
-// the listed values. For scalar arrays (e.g. text[]) that means no
-// element in the array matches any listed value. Ceiling=Scope (chain bits
-// above Scope aren't authentic — same as any owner-level negation).
+// Correctness note for multi-token list values: the per-value AND
+// MUST be materialized inside tokenizedMatchBitmap and only then
+// subtracted. Folding individual token buckets directly into the
+// outer AndNot loop would compute `anchor AndNot ⋃ tokens` instead
+// of `anchor AndNot ⋃ (per-value AND of tokens)` — semantically
+// stricter (closer to "doc has none of the tokens individually"
+// rather than "doc has none of the values").
 //
-// Panics on an empty value list — ContainsNone over an empty set is
-// vacuously true and should be optimised away upstream.
+// Semantics: a Scope-element satisfies ContainsNone if it doesn't
+// satisfy any list value as a whole. For tokenized text[] the
+// per-element AND inside Mᵢ is parent-Scope (same lenient rule as
+// ContainsAny / ContainsAll).
+//
+// Result shape unchanged: Ceiling=Scope (owner-level negation can't
+// claim cleanness above).
+//
+// Panics on an empty value list.
 func leafContainsNone(idx *fastPathIndex, path string, values ...any) *fastPathResult {
 	if len(values) == 0 {
 		panic("leafContainsNone requires at least one value")
 	}
 	scope := parentPath(path)
 	scopeAnchor := idx.anchorAt(scope)
-
-	// Witnesses = _anchor(Scope) ANDNOT each value bucket (in order).
 	witnesses := cloneOrEmpty(scopeAnchor)
 	for _, v := range values {
-		if bm := idx.values[path][v]; bm != nil {
-			witnesses.AndNot(bm)
-		}
+		witnesses.AndNot(tokenizedMatchBitmap(idx, path, v))
 	}
-
-	// Raw = (_exists(Scope) ANDNOT _anchor(Scope)) ∪ Witnesses.
 	raw := cloneOrEmpty(idx.existsAt(scope)).AndNot(scopeAnchor).Or(witnesses)
-
 	return &fastPathResult{
 		Scope:     scope,
 		Raw:       raw,
@@ -1438,13 +1558,31 @@ func (i *fastPathIndex) docIDs(r *fastPathResult) []uint64 {
 
 func l2Schema() *models.Property {
 	tx := func(name string) *models.NestedProperty {
-		return &models.NestedProperty{Name: name, DataType: []string{string(schema.DataTypeText)}}
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeText)},
+			Tokenization: models.PropertyTokenizationField,
+		}
 	}
 	in := func(name string) *models.NestedProperty {
 		return &models.NestedProperty{Name: name, DataType: []string{string(schema.DataTypeInt)}}
 	}
 	txArr := func(name string) *models.NestedProperty {
-		return &models.NestedProperty{Name: name, DataType: []string{string(schema.DataTypeTextArray)}}
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeTextArray)},
+			Tokenization: models.PropertyTokenizationField,
+		}
+	}
+	txWord := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeText)},
+			Tokenization: models.PropertyTokenizationWord,
+		}
+	}
+	txArrWord := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeTextArray)},
+			Tokenization: models.PropertyTokenizationWord,
+		}
 	}
 	objArr := func(name string, nested ...*models.NestedProperty) *models.NestedProperty {
 		return &models.NestedProperty{
@@ -1465,6 +1603,8 @@ func l2Schema() *models.Property {
 					tx("model"),
 					tx("name"),
 					txArr("colors"),
+					txWord("description"),
+					txArrWord("tags"),
 					objArr("accessories", tx("type")),
 					objArr("tires", in("width")),
 					objArr("doors", in("count")),
