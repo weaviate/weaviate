@@ -31,11 +31,11 @@ import (
 //   under_country_object — country.garages[].cars[]
 //                          (single OBJECT at the outer level, OBJECT_ARRAYs
 //                          below)
-//     → SKIPPED in this first cut. AssignPositions encodes a single OBJECT
-//       as a 1-element array internally, so semantically this is a degenerate
-//       countries_array with one country per doc. Adding it back as a third
-//       schema is a small follow-up if a regression ever shows up specifically
-//       on the OBJECT-outer shape.
+//     → uses the l2ObjectSchema helper. AssignPositions encodes a single
+//       OBJECT as a 1-element array internally, so dispatch is the same as
+//       L2 with one-country-per-doc fixtures. The port mirrors L2 but
+//       drops the multi-country discriminators (no analog under a single
+//       OBJECT root).
 //
 //   under_countries_array — countries[].garages[].cars[]
 //     → reuses the existing L2 schema (l2Schema)
@@ -79,11 +79,16 @@ import (
 //   - Wire-protocol error (invalid_filter_returns_server_error): not a
 //     filter-result test.
 //
-// Structure. Two test functions — TestFastPathL0_PythonPort and TestFastPathL2_PythonPort — each
-// with one t.Run subtest per ported scenario. Both share a fixture built
-// at the top of the test (buildPythonPortL0 / buildPythonPortL2). Each fixture grows as
-// new scenarios are ported; docs are designed so each contributes to as
-// many scenarios' discriminators as possible.
+// Structure. Three test functions — TestFastPathL0_PythonPort,
+// TestFastPathL2_PythonPort, and TestFastPathL2Object_PythonPort — each
+// with one t.Run subtest per ported scenario. Each shares a fixture built
+// at the top of the test (buildPythonPortL0 / buildPythonPortL2 /
+// buildPythonPortL2Object). Each fixture grows as new scenarios are
+// ported; docs are designed so each contributes to as many scenarios'
+// discriminators as possible. The L2_object variant skips Python's
+// multi-country discriminators (split_across_countries, miss_across_
+// countries, match_via_one_country) since they have no analog under a
+// single OBJECT root.
 //
 // Field mapping. Python uses `make` (text, FIELD) + `color` (text, FIELD)
 // as its two scalar filter fields. The L0/L2 schemas now carry `make` +
@@ -601,6 +606,247 @@ func buildPythonPortL2(t *testing.T) *fastPathIndex {
 			}},
 		}},
 	})
+
+	return idx
+}
+
+// buildPythonPortL2Object builds the shared fixture for the L2_object
+// (country.garages[].cars[]) port tests — same as L2 but with a single
+// OBJECT root instead of OBJECT_ARRAY. AssignPositions treats a single
+// OBJECT as a 1-element array internally, so dispatch is the same as L2
+// with one-country-per-doc fixtures. Multi-country discriminators (Python's
+// split_across_countries, miss_across_countries, match_via_one_country)
+// have no analog under a single OBJECT root and are omitted.
+func buildPythonPortL2Object(t *testing.T) *fastPathIndex {
+	t.Helper()
+	prop := l2ObjectSchema()
+	idx := newFastPathIndex("country")
+
+	// --- same_element_and discriminators -------------------------------
+	// Filter: make=Toyota AND year=2020 (year is brand-independent, so
+	// the split fixture can keep brand-consistent make+model pairs).
+	//
+	// doc 100: one country, one Amsterdam garage, one Toyota Camry 2020.
+	// Same-car match.
+	idx.addDoc(t, prop, 100, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "year": 2020},
+		}},
+	}})
+	// doc 200: split within one garage — Toyota Camry 2019 and Honda
+	// Civic 2020 live in different cars. make=Toyota fires at cars[0];
+	// year=2020 fires at cars[1]; no same-car match.
+	idx.addDoc(t, prop, 200, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "year": 2019},
+			map[string]any{"make": "Honda", "model": "Civic", "year": 2020},
+		}},
+	}})
+	// doc 300: split across garages — Toyota Camry 2019 in Amsterdam,
+	// Honda Civic 2020 in Rotterdam. No same-car match anywhere.
+	idx.addDoc(t, prop, 300, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "year": 2019},
+		}},
+		map[string]any{"city": "Rotterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic", "year": 2020},
+		}},
+	}})
+	// doc 400: match via one garage — Amsterdam has Toyota Camry 2020;
+	// Rotterdam has an unrelated Kia Sportage 2018. Same-car match in
+	// Amsterdam.
+	idx.addDoc(t, prop, 400, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "year": 2020},
+		}},
+		map[string]any{"city": "Rotterdam", "cars": []any{
+			map[string]any{"make": "Kia", "model": "Sportage", "year": 2018},
+		}},
+	}})
+
+	// --- is_null_on_leaf discriminators --------------------------------
+	// doc 500: cars[0]=Toyota+make, cars[1]={year only}. Some_missing_make;
+	// pinned_is_null cars1_present_no_make.
+	idx.addDoc(t, prop, 500, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "year": 2020},
+			map[string]any{"year": 2018}, // no make, no model
+		}},
+	}})
+	// doc 600: single car with only year set (no make, no model).
+	// none_have_make; pinned_is_null cars1_missing.
+	idx.addDoc(t, prop, 600, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"year": 2017},
+		}},
+	}})
+	// doc 700: single garage with empty cars[]. empty_cars vacuous case.
+	idx.addDoc(t, prop, 700, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{}},
+	}})
+	// doc 800: split across garages — Amsterdam has Toyota Camry,
+	// Rotterdam has a year-only car (no make). some_missing_across_garages.
+	idx.addDoc(t, prop, 800, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry"},
+		}},
+		map[string]any{"city": "Rotterdam", "cars": []any{
+			map[string]any{"year": 2018}, // no make, no model
+		}},
+	}})
+	// doc 900 [skipped — multi-country, no L2_object analog]
+
+	// --- arr_n_pin discriminators --------------------------------------
+	// doc 1000: Honda Civic + Toyota Camry in one garage. cars[0]=Honda
+	// → arr_n_pin miss; cars[1]=Toyota has make → pinned_is_null
+	// cars1_present_with_make.
+	idx.addDoc(t, prop, 1000, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic"},
+			map[string]any{"make": "Toyota", "model": "Camry"},
+		}},
+	}})
+	// doc 1100: arr_n_pin miss_across_garages — both garages cars[0]
+	// non-Toyota. Amsterdam=[Honda Civic, Toyota Camry];
+	// Rotterdam=[Ford F150, Toyota Camry].
+	idx.addDoc(t, prop, 1100, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic"},
+			map[string]any{"make": "Toyota", "model": "Camry"},
+		}},
+		map[string]any{"city": "Rotterdam", "cars": []any{
+			map[string]any{"make": "Ford", "model": "F150"},
+			map[string]any{"make": "Toyota", "model": "Camry"},
+		}},
+	}})
+	// doc 1200 [skipped — multi-country, no L2_object analog]
+
+	// --- contains_X discriminators -------------------------------------
+	// doc 1300: Toyota Camry with colors=[red, blue]. contains_all
+	// one_car_has_both.
+	idx.addDoc(t, prop, 1300, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "colors": []any{"red", "blue"}},
+		}},
+	}})
+	// doc 1400: Toyota Camry with colors=[red]. contains_all one_car_has_one.
+	idx.addDoc(t, prop, 1400, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "colors": []any{"red"}},
+		}},
+	}})
+	// doc 1500: split colors within one garage — Toyota Camry red +
+	// Honda Civic blue. contains_all split_across_cars.
+	idx.addDoc(t, prop, 1500, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "colors": []any{"red"}},
+			map[string]any{"make": "Honda", "model": "Civic", "colors": []any{"blue"}},
+		}},
+	}})
+	// doc 1600: split colors across garages — Amsterdam Toyota Camry red,
+	// Rotterdam Honda Civic blue. contains_all split_across_garages.
+	idx.addDoc(t, prop, 1600, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "colors": []any{"red"}},
+		}},
+		map[string]any{"city": "Rotterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic", "colors": []any{"blue"}},
+		}},
+	}})
+	// doc 1700 [skipped — multi-country, no L2_object analog]
+	// doc 1800: Amsterdam Toyota Camry [red,blue]; Rotterdam Ford F150
+	// green (unrelated). contains_all match_via_one_garage.
+	idx.addDoc(t, prop, 1800, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "colors": []any{"red", "blue"}},
+		}},
+		map[string]any{"city": "Rotterdam", "cars": []any{
+			map[string]any{"make": "Ford", "model": "F150", "colors": []any{"green"}},
+		}},
+	}})
+	// doc 1900 [skipped — multi-country, no L2_object analog]
+	// doc 2000: Ford F150 with colors=[green] outside the {red, blue} list.
+	// contains_none has_outside_value; contains_any all_outside.
+	idx.addDoc(t, prop, 2000, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Ford", "model": "F150", "colors": []any{"green"}},
+		}},
+	}})
+
+	// --- Group B discriminators (single-garage focused) ---------------
+
+	// doc 2200: Honda Civic 2018 at cars[0], Toyota Camry 2020 at cars[1]
+	// — Toyota+2020 lives at wrong pinned slot.
+	idx.addDoc(t, prop, 2200, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic", "year": 2018},
+			map[string]any{"make": "Toyota", "model": "Camry", "year": 2020},
+		}},
+	}})
+	// doc 2300: single Honda Civic 2020. arr_n_pin_with_or
+	// pinned_only_year discriminator.
+	idx.addDoc(t, prop, 2300, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic", "year": 2020},
+		}},
+	}})
+	// doc 2400: single Honda Civic 2019. or_of_correlated_ands group2.
+	idx.addDoc(t, prop, 2400, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic", "year": 2019},
+		}},
+	}})
+	// doc 2500: Toyota Camry 2020 + Honda Civic 2019 in one garage.
+	// or_of_correlated_ands both_groups_match.
+	idx.addDoc(t, prop, 2500, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "year": 2020},
+			map[string]any{"make": "Honda", "model": "Civic", "year": 2019},
+		}},
+	}})
+	// doc 2600: single car with only year=2020 set (no make).
+	// is_null_in_correlated_and match_same_car.
+	idx.addDoc(t, prop, 2600, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"year": 2020},
+		}},
+	}})
+	// doc 2700: Toyota Camry with tires=[{width:215}].
+	// is_null_on_object_array_subprop car_with_tires.
+	idx.addDoc(t, prop, 2700, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "tires": []any{
+				map[string]any{"width": 215},
+			}},
+		}},
+	}})
+	// doc 2800: cars[0] has tires, cars[1] has no tires.
+	// is_null_on_object_array_subprop mixed_cars.
+	idx.addDoc(t, prop, 2800, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "tires": []any{
+				map[string]any{"width": 215},
+			}},
+			map[string]any{"make": "Honda", "model": "Civic"},
+		}},
+	}})
+	// doc 2900: single car with TWO tires.
+	// is_null_on_object_array_subprop car_with_multiple_tires.
+	idx.addDoc(t, prop, 2900, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Toyota", "model": "Camry", "tires": []any{
+				map[string]any{"width": 215},
+				map[string]any{"width": 215},
+			}},
+		}},
+	}})
+	// doc 3000: Honda Civic with colors=[red, blue] (brand-mismatch).
+	// contains_*_with_equal_in_and discriminator.
+	idx.addDoc(t, prop, 3000, map[string]any{"garages": []any{
+		map[string]any{"city": "Amsterdam", "cars": []any{
+			map[string]any{"make": "Honda", "model": "Civic", "colors": []any{"red", "blue"}},
+		}},
+	}})
 
 	return idx
 }
@@ -2117,6 +2363,641 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			[]uint64{9100, 9400, 9600}, local.docIDs(r),
 			"docs where neither (family AND hybrid) nor (luxury AND "+
 				"car) is fully present; 9100 and 9400 are the "+
+				"load-bearing cases — a flatten-tokens implementation "+
+				"would wrongly exclude them")
+	})
+}
+
+// TestFastPathL2Object_PythonPort runs the L2_object (country.garages[].
+// cars[]) ports as subtests against the shared buildPythonPortL2Object
+// fixture. Subtest names mirror the Python test function names (without
+// the _under_country_object suffix). Multi-country discriminators have
+// no analog under a single OBJECT root and are omitted from both the
+// fixture and the wantDocs.
+func TestFastPathL2Object_PythonPort(t *testing.T) {
+	idx := buildPythonPortL2Object(t)
+
+	t.Run("same_element_and", func(t *testing.T) {
+		// Python: test_same_element_and_under_country_object.
+		// Filter: make=Toyota AND year=2020. Same-Scope AND at
+		// country.garages.cars; Witnesses survive only at cars-self
+		// bits where both leaves fire same-car.
+		//   doc 100: single Toyota Camry 2020 → match.
+		//   doc 400: Amsterdam Toyota Camry 2020 → match.
+		//   doc 500: cars[0] is Toyota Camry 2020 → match.
+		//   docs 200, 300: splits within / across garages → no match.
+		r := andLeaves(idx,
+			leafPositive(idx, "country.garages.cars.make", "Toyota"),
+			leafPositive(idx, "country.garages.cars.year", 2020))
+
+		assert.ElementsMatch(t,
+			[]uint64{100, 400, 500, 2200, 2500}, idx.docIDs(r),
+			"docs with a Toyota 2020 car somewhere match; "+
+				"splits across cars/garages do not")
+	})
+
+	t.Run("is_null_on_leaf", func(t *testing.T) {
+		// Python: test_is_null_on_leaf_under_country_object.
+		//
+		// IS NULL true (fast-path): Witnesses_not = anchor(cars) AndNot
+		// pos.Witnesses (= cars-self bits where make is set). Docs
+		// with ∃ car missing make match:
+		//   doc 500 (cars[1] missing make), doc 600 (single car no make),
+		//   doc 800 (Rotterdam car missing make).
+		rTrue := leafIsNullTrue(idx, "country.garages.cars.make")
+		assert.ElementsMatch(t,
+			[]uint64{500, 600, 800, 2600}, idx.docIDs(rTrue),
+			"IS NULL true: docs with ∃ car missing make")
+
+		// IS NULL false: docs with ∃ car having make.
+		rFalse := leafIsNullFalse(idx, "country.garages.cars.make")
+		assert.ElementsMatch(t,
+			[]uint64{
+				100, 200, 300, 400, 500, 800, 1000, 1100,
+				1300, 1400, 1500, 1600, 1800, 2000,
+				2200, 2300, 2400, 2500, 2700, 2800, 2900, 3000,
+			},
+			idx.docIDs(rFalse),
+			"IS NULL false: docs with ∃ car having make")
+	})
+
+	t.Run("arr_n_pin", func(t *testing.T) {
+		// Python: test_arr_n_pin_under_country_object.
+		// country.garages.cars[0].make=Toyota — ∃ garage whose first car
+		// is Toyota.
+		//
+		// Per-doc trace:
+		//   100 cars[0]=Toyota → match.
+		//   200 cars[0]=Toyota → match.
+		//   300 Amsterdam cars[0]=Toyota → match.
+		//   400 Amsterdam cars[0]=Toyota → match.
+		//   500 cars[0]=Toyota → match.
+		//   600 cars[0]=no-make → miss.
+		//   700 empty cars[] → miss.
+		//   800 Amsterdam cars[0]=Toyota → match.
+		//   1000 cars[0]=Honda → miss.
+		//   1100 Amsterdam cars[0]=Honda, Rotterdam cars[0]=Ford → miss.
+		//   1300 cars[0]=Toyota → match.
+		//   1400 cars[0]=Toyota → match.
+		//   1500 cars[0]=Toyota → match.
+		//   1600 Amsterdam cars[0]=Toyota → match.
+		//   1800 Amsterdam cars[0]=Toyota → match.
+		//   2000 cars[0]=Ford → miss.
+		r := leafPinnedPositive(idx, "country.garages.cars.make", "Toyota",
+			[]pinSpec{{"country.garages.cars", 0}})
+
+		assert.ElementsMatch(t,
+			[]uint64{
+				100, 200, 300, 400, 500, 800,
+				1300, 1400, 1500, 1600, 1800,
+				2500, 2700, 2800, 2900,
+			}, idx.docIDs(r),
+			"docs with ∃ garage whose cars[0]=Toyota match")
+	})
+
+	t.Run("pinned_is_null", func(t *testing.T) {
+		// Python: test_pinned_is_null_under_country_object.
+		// cars[1].make IS NULL — owner-level negation via negate(IsNullFalse).
+		// Same sub-divergences from Python as the L2 sibling (see
+		// L2 test for the full TODO note).
+		r := leafPinnedIsNullTrue(idx, "country.garages.cars.make",
+			[]pinSpec{{"country.garages.cars", 1}})
+
+		assert.ElementsMatch(t,
+			[]uint64{
+				100, 300, 400, 500, 600, 700, 800,
+				1300, 1400, 1600, 1800, 2000,
+				2300, 2400, 2600, 2700, 2900, 3000,
+			}, idx.docIDs(r),
+			"fast-path: docs with ∃ garage whose cars[1] missing or "+
+				"no-make match; includes empty_cars (700)")
+	})
+
+	t.Run("contains_any", func(t *testing.T) {
+		// Python: test_contains_any_under_country_object.
+		// cars.colors ContainsAny [red, blue] — ∃ car owns any listed
+		// value.
+		r := leafContainsAny(idx, "country.garages.cars.colors", "red", "blue")
+
+		assert.ElementsMatch(t,
+			[]uint64{1300, 1400, 1500, 1600, 1800, 3000},
+			idx.docIDs(r),
+			"docs where ∃ car owns red or blue in colors match")
+	})
+
+	t.Run("contains_all", func(t *testing.T) {
+		// Python: test_contains_all_under_country_object.
+		// cars.colors ContainsAll [red, blue] — ∃ car owns BOTH values in
+		// the same colors array.
+		r := leafContainsAll(idx, "country.garages.cars.colors", "red", "blue")
+
+		assert.ElementsMatch(t,
+			[]uint64{1300, 1800, 3000}, idx.docIDs(r),
+			"docs with ∃ single car holding both red and blue match")
+	})
+
+	t.Run("contains_none", func(t *testing.T) {
+		// Python: test_contains_none_under_country_object.
+		// cars.colors ContainsNone [red, blue].
+		//
+		// Fast-path is OWNER-LEVEL: Witnesses = anchor(cars) AndNot
+		// values[red] AndNot values[blue]. Docs with ∃ cars-self bit
+		// not in either value bucket match — INCLUDING docs with no
+		// colors at all (cars-self bits trivially survive AndNot).
+		//
+		// DIVERGENCE FROM PYTHON: Python is per-tag-element existential
+		// (requires ∃ a value outside the list). Docs without any
+		// colors values drop in Python as vacuous; fast-path matches
+		// them.
+		r := leafContainsNone(idx, "country.garages.cars.colors", "red", "blue")
+
+		assert.ElementsMatch(t,
+			[]uint64{
+				100, 200, 300, 400, 500, 600, 800,
+				1000, 1100,
+				1800,
+				2000,
+				// Group B additions: docs without listed colors or with
+				// mixed/outside cars all survive owner-level AndNot.
+				2200, 2300, 2400, 2500, 2600, 2700, 2800, 2900,
+				// NOT: 700 (empty cars, no cars-self), 1300/3000 (all
+				// red+blue), 1400 (all red), 1500/1600 (split — every
+				// car-self in values).
+			}, idx.docIDs(r),
+			"fast-path: docs with ∃ car-self not in any value bucket "+
+				"(includes no-colors docs that Python excludes as vacuous)")
+	})
+
+	t.Run("arr_n_pin_with_and", func(t *testing.T) {
+		// Python: test_arr_n_pin_with_and_under_country_object.
+		// country.garages.cars[0].make=Toyota AND
+		// country.garages.cars[0].year=2020 — both leaves at the same
+		// pinned slot inside a garage.
+		r := andLeaves(idx,
+			leafPinnedPositive(idx, "country.garages.cars.make", "Toyota",
+				[]pinSpec{{"country.garages.cars", 0}}),
+			leafPinnedPositive(idx, "country.garages.cars.year", 2020,
+				[]pinSpec{{"country.garages.cars", 0}}))
+
+		assert.ElementsMatch(t, []uint64{100, 400, 500, 2500}, idx.docIDs(r),
+			"docs whose ∃ garage's cars[0] satisfies both make=Toyota AND year=2020")
+	})
+
+	t.Run("arr_n_pin_with_or", func(t *testing.T) {
+		// Python: test_arr_n_pin_with_or_under_country_object.
+		// country.garages.cars[0].make=Toyota OR cars[0].year=2020.
+		r := orLeaves(idx,
+			leafPinnedPositive(idx, "country.garages.cars.make", "Toyota",
+				[]pinSpec{{"country.garages.cars", 0}}),
+			leafPinnedPositive(idx, "country.garages.cars.year", 2020,
+				[]pinSpec{{"country.garages.cars", 0}}))
+
+		assert.ElementsMatch(t,
+			[]uint64{
+				100, 200, 300, 400, 500, 800,
+				1300, 1400, 1500, 1600, 1800,
+				2300, 2500, 2600, 2700, 2800, 2900,
+			}, idx.docIDs(r),
+			"docs whose ∃ garage's cars[0] satisfies make=Toyota OR year=2020")
+	})
+
+	t.Run("or_of_correlated_ands", func(t *testing.T) {
+		// Python: test_or_of_correlated_ands_under_country_object.
+		// (make=Toyota AND year=2020) OR (make=Honda AND year=2019).
+		r := orLeaves(idx,
+			andLeaves(idx,
+				leafPositive(idx, "country.garages.cars.make", "Toyota"),
+				leafPositive(idx, "country.garages.cars.year", 2020)),
+			andLeaves(idx,
+				leafPositive(idx, "country.garages.cars.make", "Honda"),
+				leafPositive(idx, "country.garages.cars.year", 2019)))
+
+		assert.ElementsMatch(t,
+			[]uint64{100, 400, 500, 2200, 2400, 2500}, idx.docIDs(r),
+			"docs whose ∃ car satisfies (Toyota+2020) OR (Honda+2019) same-car")
+	})
+
+	t.Run("not_of_correlated_and", func(t *testing.T) {
+		// Python: test_not_of_correlated_and_under_country_object.
+		// NOT (make=Toyota AND year=2020). Match docs with ∃ car
+		// violating the AND.
+		r := negate(idx, andLeaves(idx,
+			leafPositive(idx, "country.garages.cars.make", "Toyota"),
+			leafPositive(idx, "country.garages.cars.year", 2020)))
+
+		assert.ElementsMatch(t,
+			[]uint64{
+				200, 300, 400, 500, 600, 800,
+				1000, 1100, 1300, 1400, 1500, 1600,
+				1800, 2000, 2200, 2300, 2400, 2500, 2600,
+				2700, 2800, 2900, 3000,
+			}, idx.docIDs(r),
+			"docs with ∃ car not satisfying Toyota+2020 same-car match; "+
+				"empty (700) and pure-Toyota+2020 (100) do not")
+	})
+
+	t.Run("is_null_in_correlated_and", func(t *testing.T) {
+		// Python: test_is_null_in_correlated_and_under_country_object.
+		// year=2020 AND make IS NULL — both leaves correlated per car.
+		r := andLeaves(idx,
+			leafPositive(idx, "country.garages.cars.year", 2020),
+			leafIsNullTrue(idx, "country.garages.cars.make"))
+
+		assert.ElementsMatch(t, []uint64{2600}, idx.docIDs(r),
+			"only doc 2600 has a car with year=2020 AND make missing same-car")
+	})
+
+	t.Run("is_null_on_object_array_subprop", func(t *testing.T) {
+		// Python: test_is_null_on_object_array_subprop_under_country_object.
+		// cars.tires IS NULL — ∃ car with no tires.
+		r := leafIsNullTrue(idx, "country.garages.cars.tires")
+
+		// Every doc that has at least one car missing tires, excluding:
+		//   doc 700 (empty cars, no cars-self),
+		//   doc 2700 (single car has tires),
+		//   doc 2900 (single car has tires).
+		assert.ElementsMatch(t,
+			[]uint64{
+				100, 200, 300, 400, 500, 600, 800,
+				1000, 1100, 1300, 1400, 1500, 1600,
+				1800, 2000, 2200, 2300, 2400, 2500, 2600,
+				2800, 3000,
+			}, idx.docIDs(r),
+			"docs with ∃ car missing tires match")
+	})
+
+	t.Run("contains_all_with_equal_in_and", func(t *testing.T) {
+		// Python: test_contains_all_with_equal_in_and_under_country_object.
+		// colors ContainsAll [red, blue] AND make=Toyota same-car.
+		r := andLeaves(idx,
+			leafContainsAll(idx, "country.garages.cars.colors", "red", "blue"),
+			leafPositive(idx, "country.garages.cars.make", "Toyota"))
+
+		assert.ElementsMatch(t, []uint64{1300, 1800}, idx.docIDs(r),
+			"docs with ∃ Toyota car holding both red and blue colors")
+	})
+
+	t.Run("contains_any_with_equal_in_and", func(t *testing.T) {
+		// Python: test_contains_any_with_equal_in_and_under_country_object.
+		// colors ContainsAny [red, blue] AND make=Toyota same-car.
+		r := andLeaves(idx,
+			leafContainsAny(idx, "country.garages.cars.colors", "red", "blue"),
+			leafPositive(idx, "country.garages.cars.make", "Toyota"))
+
+		assert.ElementsMatch(t,
+			[]uint64{1300, 1400, 1500, 1600, 1800}, idx.docIDs(r),
+			"docs with ∃ Toyota car owning red or blue (3000 Honda excluded)")
+	})
+
+	t.Run("contains_none_with_equal_in_and", func(t *testing.T) {
+		// Python: test_contains_none_with_equal_in_and_under_country_object.
+		// colors ContainsNone [red, blue] AND make=Toyota.
+		//
+		// DIVERGENCE FROM PYTHON: same root cause as L2 — fast-path's
+		// contains_none is owner-level so docs with Toyota cars and no
+		// listed colors match even when the doc has no colors at all.
+		r := andLeaves(idx,
+			leafContainsNone(idx, "country.garages.cars.colors", "red", "blue"),
+			leafPositive(idx, "country.garages.cars.make", "Toyota"))
+
+		assert.ElementsMatch(t,
+			[]uint64{
+				100, 200, 300, 400, 500, 800,
+				1000, 1100,
+				2200, 2500, 2700, 2800, 2900,
+			}, idx.docIDs(r),
+			"fast-path: Toyota docs with at least one Toyota car whose "+
+				"colors don't intersect the listed values")
+	})
+
+	t.Run("not_of_pinned_correlated_and", func(t *testing.T) {
+		// Python: test_not_of_pinned_correlated_and_under_country_object.
+		// NOT (country.garages.cars[0].make=Toyota AND
+		//      country.garages.cars[0].year=2020).
+		//
+		// Same per-element-at-garages semantics as L2 — multi-garage
+		// docs lift through country.garages because any surviving
+		// garage-self is enough. Same two divergences from Python
+		// (IMPROVEMENT vs Python on pinned_satisfies_with_distractor;
+		// STRUCTURAL OVER-INCLUSION on empty_cars).
+		r := negate(idx, andLeaves(idx,
+			leafPinnedPositive(idx, "country.garages.cars.make", "Toyota",
+				[]pinSpec{{"country.garages.cars", 0}}),
+			leafPinnedPositive(idx, "country.garages.cars.year", 2020,
+				[]pinSpec{{"country.garages.cars", 0}})))
+
+		assert.ElementsMatch(t,
+			[]uint64{
+				200, 300, 400, 600, 700, 800,
+				1000, 1100, 1300, 1400, 1500, 1600,
+				1800, 2000, 2200, 2300, 2400, 2600,
+				2700, 2800, 2900, 3000,
+			}, idx.docIDs(r),
+			"fast-path: docs with ∃ garage whose cars[0] does NOT satisfy "+
+				"Toyota+2020 same-slot; excludes 100/500/2500 (all garages "+
+				"in those docs have cars[0]=Toyota+2020); includes 700 "+
+				"(empty cars — STRUCTURAL OVER-INCLUSION vs Python's "+
+				"vacuous-drop) and 400 (per-element at garages — Rotterdam "+
+				"violates so doc matches)")
+	})
+
+	// or_of_mixed_correlated_ands NOT PORTED. Same reason as the L0/L2
+	// siblings: the Python scenario relies on a flat doc-level property
+	// (`category`) which the L2_object schema doesn't carry.
+
+	// Group D — tokenization-aware scenarios. Same convention as the
+	// L0/L2 siblings: each subtest builds a minimal local fixture so the
+	// new multi-token discriminators don't pollute the shared L2_object
+	// fixture's wantDocs across the earlier groups. Multi-country
+	// discriminators are omitted; doc IDs are bumped +10000 from the L2
+	// siblings to make the local fixtures visually distinct.
+
+	t.Run("multi_token_equal", func(t *testing.T) {
+		// Python: test_multi_token_equal_under_country_object.
+		// Filter country.garages.cars.description = "Camry Hybrid"
+		// against a word-tokenized text field. Both tokens must live at
+		// the same cars element.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// doc 14100 both_tokens_one_car: single Camry Hybrid car.
+		local.addDoc(t, prop, 14100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"description": "Camry Hybrid"},
+			}},
+		}})
+		// doc 14200 single_token_one_car: description="Camry" only.
+		local.addDoc(t, prop, 14200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"description": "Camry"},
+			}},
+		}})
+		// doc 14300 tokens_split_across_cars: cars[0]=Camry, cars[1]=Hybrid
+		// inside one garage.
+		local.addDoc(t, prop, 14300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"description": "Camry"},
+				map[string]any{"description": "Hybrid"},
+			}},
+		}})
+		// doc 14400 tokens_split_across_garages: Amsterdam=Camry,
+		// Rotterdam=Hybrid in one country.
+		local.addDoc(t, prop, 14400, map[string]any{"garages": []any{
+			map[string]any{"city": "Amsterdam", "cars": []any{
+				map[string]any{"description": "Camry"},
+			}},
+			map[string]any{"city": "Rotterdam", "cars": []any{
+				map[string]any{"description": "Hybrid"},
+			}},
+		}})
+		// doc 14500 [skipped — multi-country, no L2_object analog]
+		// doc 14600 match_via_one_garage: Amsterdam=Camry Hybrid, Rotterdam
+		// has a Civic LX.
+		local.addDoc(t, prop, 14600, map[string]any{"garages": []any{
+			map[string]any{"city": "Amsterdam", "cars": []any{
+				map[string]any{"description": "Camry Hybrid"},
+			}},
+			map[string]any{"city": "Rotterdam", "cars": []any{
+				map[string]any{"description": "Civic LX"},
+			}},
+		}})
+		// doc 14700 [skipped — multi-country, no L2_object analog]
+		// doc 14800 unrelated: Civic LX.
+		local.addDoc(t, prop, 14800, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"description": "Civic LX"},
+			}},
+		}})
+
+		r := leafPositive(local, "country.garages.cars.description", "Camry Hybrid")
+
+		assert.ElementsMatch(t, []uint64{14100, 14600}, local.docIDs(r),
+			"docs where ∃ a car has both tokens (14100 directly, 14600 "+
+				"via one matching garage); splits across cars or "+
+				"garages must NOT match — same-element on tokens")
+	})
+
+	t.Run("contains_any_multi_token", func(t *testing.T) {
+		// Python: test_contains_any_multi_token_under_country_object.
+		// Filter country.garages.cars.tags ContainsAny ["family hybrid"]
+		// against a word-tokenized text[].
+		//
+		// Lenient same-element rule (parent-Scope AND): doc 15200
+		// (tokens split across two tag entries of the SAME car)
+		// matches. Splits across separate cars (15400) or garages
+		// (15500) stay excluded.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// doc 15100 match: single car tags=["family hybrid car"] —
+		// one tag entry contains both tokens.
+		local.addDoc(t, prop, 15100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// doc 15200 tokens_split_across_tags: tags=["family sedan",
+		// "hybrid model"] — tokens in DIFFERENT tag entries of the
+		// same car. Matches under lenient.
+		local.addDoc(t, prop, 15200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+			}},
+		}})
+		// doc 15300 single_token_missing: tags=["family car"].
+		local.addDoc(t, prop, 15300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family car"}},
+			}},
+		}})
+		// doc 15400 split_across_cars: cars[0].tags=["family car"],
+		// cars[1].tags=["hybrid model"] in one garage. Excluded.
+		local.addDoc(t, prop, 15400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family car"}},
+				map[string]any{"tags": []any{"hybrid model"}},
+			}},
+		}})
+		// doc 15500 split_across_garages: Amsterdam tags=["family car"],
+		// Rotterdam tags=["hybrid model"]. Excluded.
+		local.addDoc(t, prop, 15500, map[string]any{"garages": []any{
+			map[string]any{"city": "Amsterdam", "cars": []any{
+				map[string]any{"tags": []any{"family car"}},
+			}},
+			map[string]any{"city": "Rotterdam", "cars": []any{
+				map[string]any{"tags": []any{"hybrid model"}},
+			}},
+		}})
+		// doc 15600 [skipped — multi-country, no L2_object analog]
+		// doc 15700 match_via_one_garage: Amsterdam tags=["family
+		// hybrid car"]; Rotterdam tags=["other"].
+		local.addDoc(t, prop, 15700, map[string]any{"garages": []any{
+			map[string]any{"city": "Amsterdam", "cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+			map[string]any{"city": "Rotterdam", "cars": []any{
+				map[string]any{"tags": []any{"other"}},
+			}},
+		}})
+		// doc 15800 [skipped — multi-country, no L2_object analog]
+
+		r := leafContainsAny(local, "country.garages.cars.tags", "family hybrid")
+
+		assert.ElementsMatch(t,
+			[]uint64{15100, 15200, 15700}, local.docIDs(r),
+			"docs where ∃ a car has both tokens somewhere in its tags "+
+				"array (15100 in one tag entry; 15200 across two tag entries "+
+				"of the same car; 15700 via Amsterdam); "+
+				"splits across separate cars (15400) or garages (15500) excluded")
+	})
+
+	// ---- Harness gap coverage (not in Python suite) ----
+	// L2_object mirrors of the L0/L2 ContainsAll / ContainsNone
+	// tokenization tests. Fixtures wrap each scenario in
+	// country.garages.cars with one car per garage, one garage per
+	// country, one country per doc — same code path as the L2
+	// versions, exercised via the single-OBJECT root.
+
+	t.Run("contains_none_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars.tags ContainsNone
+		// ["family hybrid", "luxury"]. Same discriminator as L0/L2:
+		// doc 18300 has "family" alone and must match (a flatten-
+		// tokens implementation would wrongly exclude it).
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 18100: tags=["family hybrid car"] → excluded.
+		local.addDoc(t, prop, 18100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 18200: tags=["luxury sedan"] → excluded.
+		local.addDoc(t, prop, 18200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"luxury sedan"}},
+			}},
+		}})
+		// 18300: tags=["family car"] → MATCH. Load-bearing.
+		local.addDoc(t, prop, 18300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family car"}},
+			}},
+		}})
+		// 18400: tags=["sedan"] → match.
+		local.addDoc(t, prop, 18400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+			}},
+		}})
+		// 18500: tokens split across tag entries of same car → excluded.
+		local.addDoc(t, prop, 18500, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+			}},
+		}})
+
+		r := leafContainsNone(local, "country.garages.cars.tags",
+			"family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{18300, 18400}, local.docIDs(r),
+			"docs without (family AND hybrid) AND without luxury match; "+
+				"18300 (family alone) is the load-bearing case — a "+
+				"flattened implementation would wrongly exclude it")
+	})
+
+	t.Run("contains_all_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars.tags ContainsAll
+		// ["family hybrid", "luxury"].
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 18600: all four tokens present → match.
+		local.addDoc(t, prop, 18600, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+			}},
+		}})
+		// 18700: missing hybrid → no match.
+		local.addDoc(t, prop, 18700, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family", "luxury"}},
+			}},
+		}})
+		// 18800: missing luxury → no match.
+		local.addDoc(t, prop, 18800, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid"}},
+			}},
+		}})
+		// 18900: tokens split across two tag entries of the same car
+		// → match (lenient).
+		local.addDoc(t, prop, 18900, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"luxury hybrid", "family bag"}},
+			}},
+		}})
+		// 19000: no relevant tokens → no match.
+		local.addDoc(t, prop, 19000, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+			}},
+		}})
+
+		r := leafContainsAll(local, "country.garages.cars.tags",
+			"family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{18600, 18900}, local.docIDs(r),
+			"docs where all four tokens are present on the same car "+
+				"(lenient: doc 18900 splits them across two tag entries)")
+	})
+
+	t.Run("contains_none_two_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars.tags ContainsNone
+		// ["family hybrid", "luxury car"].
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 19100: family + luxury individually, neither full pair →
+		// MATCH. Load-bearing.
+		local.addDoc(t, prop, 19100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family", "luxury"}},
+			}},
+		}})
+		// 19200: full "family hybrid" → excluded.
+		local.addDoc(t, prop, 19200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid"}},
+			}},
+		}})
+		// 19300: full "luxury car" → excluded.
+		local.addDoc(t, prop, 19300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"luxury car"}},
+			}},
+		}})
+		// 19400: hybrid + car individually, neither full pair → match.
+		local.addDoc(t, prop, 19400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"hybrid", "car"}},
+			}},
+		}})
+		// 19500: full "family hybrid" + "car" extra → excluded.
+		local.addDoc(t, prop, 19500, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 19600: no relevant tokens → match.
+		local.addDoc(t, prop, 19600, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan", "wagon"}},
+			}},
+		}})
+
+		r := leafContainsNone(local, "country.garages.cars.tags",
+			"family hybrid", "luxury car")
+
+		assert.ElementsMatch(t,
+			[]uint64{19100, 19400, 19600}, local.docIDs(r),
+			"docs where neither (family AND hybrid) nor (luxury AND "+
+				"car) is fully present; 19100 and 19400 are the "+
 				"load-bearing cases — a flatten-tokens implementation "+
 				"would wrongly exclude them")
 	})

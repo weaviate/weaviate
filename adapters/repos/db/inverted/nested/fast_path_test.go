@@ -1614,6 +1614,70 @@ func l2Schema() *models.Property {
 	}
 }
 
+// l2ObjectSchema mirrors l2Schema except the root property is a single
+// OBJECT (`country`) instead of an OBJECT_ARRAY (`countries`). Used by
+// the Python-port L2_object variant tests. AssignPositions treats a
+// single OBJECT as a 1-element array internally — same dispatch path
+// as L2 with one-country-per-doc fixtures — so this schema mostly
+// confirms the OBJECT-vs-OBJECT_ARRAY encoding branch in walkNestedArray.
+func l2ObjectSchema() *models.Property {
+	tx := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeText)},
+			Tokenization: models.PropertyTokenizationField,
+		}
+	}
+	in := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{Name: name, DataType: []string{string(schema.DataTypeInt)}}
+	}
+	txArr := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeTextArray)},
+			Tokenization: models.PropertyTokenizationField,
+		}
+	}
+	txWord := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeText)},
+			Tokenization: models.PropertyTokenizationWord,
+		}
+	}
+	txArrWord := func(name string) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name: name, DataType: []string{string(schema.DataTypeTextArray)},
+			Tokenization: models.PropertyTokenizationWord,
+		}
+	}
+	objArr := func(name string, nested ...*models.NestedProperty) *models.NestedProperty {
+		return &models.NestedProperty{
+			Name:             name,
+			DataType:         []string{string(schema.DataTypeObjectArray)},
+			NestedProperties: nested,
+		}
+	}
+	return &models.Property{
+		Name:     "country",
+		DataType: []string{string(schema.DataTypeObject)},
+		NestedProperties: []*models.NestedProperty{
+			objArr("garages",
+				tx("city"),
+				objArr("cars",
+					in("year"),
+					tx("make"),
+					tx("model"),
+					tx("name"),
+					txArr("colors"),
+					txWord("description"),
+					txArrWord("tags"),
+					objArr("accessories", tx("type")),
+					objArr("tires", in("width")),
+					objArr("doors", in("count")),
+				),
+			),
+		},
+	}
+}
+
 // l2Docs returns the L2 fixtures. 100–600 are the core single-leaf fixtures.
 // 700 carries an empty-cars garage alongside a non-empty one — needed for
 // owner-level `cars IS NULL true|false` on object[]. Docs 800/900 will be
