@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,14 +21,14 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-deepseek/config"
 )
 
-func (m *GenerativeDeepSeekModule) ClassConfigDefaults() map[string]interface{} {
-	return map[string]interface{}{}
+func (m *GenerativeDeepSeekModule) ClassConfigDefaults() map[string]any {
+	return map[string]any{}
 }
 
 func (m *GenerativeDeepSeekModule) PropertyConfigDefaults(
 	dt *schema.DataType,
-) map[string]interface{} {
-	return map[string]interface{}{}
+) map[string]any {
+	return map[string]any{}
 }
 
 func (m *GenerativeDeepSeekModule) ValidateClass(ctx context.Context,

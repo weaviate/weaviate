@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,7 +49,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 	}
 }
 
-func (c *client) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (c *client) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options any, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	monitoring.GetMetrics().ModuleExternalRequestSingleCount.WithLabelValues("generate", "deepseek").Inc()
 	singlePrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
 	if err != nil {
@@ -58,7 +58,7 @@ func (c *client) GenerateSingleResult(ctx context.Context, properties *modulecap
 	return c.doGenerate(ctx, cfg, singlePrompt, options, debug)
 }
 
-func (c *client) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (c *client) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options any, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	monitoring.GetMetrics().ModuleExternalRequestBatchCount.WithLabelValues("generate", "deepseek").Inc()
 	taskPrompt, err := generative.MakeTaskPrompt(generative.Texts(properties), task)
 	if err != nil {
@@ -67,7 +67,7 @@ func (c *client) GenerateAllResults(ctx context.Context, properties []*modulecap
 	return c.doGenerate(ctx, cfg, taskPrompt, options, debug)
 }
 
-func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options any, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	monitoring.GetMetrics().ModuleExternalRequests.WithLabelValues("generate", "deepseek").Inc()
 	start := time.Now()
 
@@ -141,7 +141,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	return &modulecapabilities.GenerateResponse{Result: nil, Debug: debugData}, nil
 }
 
-func (c *client) parseOptions(cfg moduletools.ClassConfig, options interface{}) deepseekparams.Params {
+func (c *client) parseOptions(cfg moduletools.ClassConfig, options any) deepseekparams.Params {
 	settings := config.NewClassSettings(cfg)
 	p := deepseekparams.Params{}
 	if opt, ok := options.(deepseekparams.Params); ok {
@@ -206,16 +206,21 @@ func (c *client) debugData(debug bool, prompt string) *modulecapabilities.Genera
 	return nil
 }
 
-func (c *client) usageParams(u *usage) map[string]interface{} {
+func (c *client) usageParams(u *usage) map[string]any {
 	if u != nil {
-		return map[string]interface{}{
-			deepseekparams.Name: map[string]interface{}{
-				"usage": map[string]interface{}{
-					"prompt_tokens":     u.InputTokens,
-					"completion_tokens": u.OutputTokens,
-					"total_tokens":      u.TotalTokens,
-				},
+		return map[string]any{
+			deepseekparams.Name: map[string]any{
+				"usage": u,
 			},
+		}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]any) *responseParams {
+	if params, ok := result[deepseekparams.Name].(map[string]any); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
 		}
 	}
 	return nil
@@ -247,8 +252,8 @@ func (c *client) apiError(code int, errPayload *apiErr) error {
 	return errors.New(msg)
 }
 
-func (c *client) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (c *client) MetaInfo() (map[string]any, error) {
+	return map[string]any{
 		"name":              "Generative Search - DeepSeek",
 		"documentationHref": "https://api-docs.deepseek.com/",
 	}, nil
@@ -285,6 +290,10 @@ type usage struct {
 	InputTokens  int `json:"prompt_tokens"`
 	OutputTokens int `json:"completion_tokens"`
 	TotalTokens  int `json:"total_tokens"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }
 
 type apiErr struct {

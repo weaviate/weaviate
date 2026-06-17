@@ -23,6 +23,7 @@ import (
 	cohere "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
 	contextualai "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricks "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
+	deepseek "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
 	friendliai "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistral "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
@@ -1215,6 +1216,88 @@ func Test_RequestParser(t *testing.T) {
 						SystemPrompt:    "system prompt value",
 						AvoidCommentary: makeBoolPtr(true),
 						Knowledge:       []string{"knowledge"},
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; nil dynamic deepseek",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Deepseek{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic deepseek",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Deepseek{
+								Deepseek: &pb.GenerativeDeepseek{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"deepseek": deepseek.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic deepseek",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Deepseek{
+								Deepseek: &pb.GenerativeDeepseek{
+									BaseUrl:          makeStrPtr("baseURL"),
+									Model:            makeStrPtr("model"),
+									Temperature:      makeFloat64Ptr(0.5),
+									MaxTokens:        makeInt64Ptr(10),
+									FrequencyPenalty: makeFloat64Ptr(0.6),
+									PresencePenalty:  makeFloat64Ptr(0.7),
+									TopP:             makeFloat64Ptr(0.8),
+									Stop: &pb.TextArray{
+										Values: []string{"stop"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"deepseek": deepseek.Params{
+						BaseURL:          "baseURL",
+						Model:            "model",
+						Temperature:      makeFloat64Ptr(0.5),
+						MaxTokens:        makeIntPtr(10),
+						FrequencyPenalty: makeFloat64Ptr(0.6),
+						PresencePenalty:  makeFloat64Ptr(0.7),
+						TopP:             makeFloat64Ptr(0.8),
+						Stop:             []string{"stop"},
 					},
 				},
 			},

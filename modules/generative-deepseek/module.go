@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,7 @@ type GenerativeDeepSeekModule struct {
 
 type generativeClient interface {
 	modulecapabilities.GenerativeClient
-	MetaInfo() (map[string]interface{}, error)
+	MetaInfo() (map[string]any, error)
 }
 
 func (m *GenerativeDeepSeekModule) Name() string {
@@ -69,7 +69,7 @@ func (m *GenerativeDeepSeekModule) initAdditional(ctx context.Context, timeout t
 	return nil
 }
 
-func (m *GenerativeDeepSeekModule) MetaInfo() (map[string]interface{}, error) {
+func (m *GenerativeDeepSeekModule) MetaInfo() (map[string]any, error) {
 	return m.generative.MetaInfo()
 }
 

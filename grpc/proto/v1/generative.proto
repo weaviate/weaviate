@@ -48,6 +48,7 @@ message GenerativeProvider {
     GenerativeNvidia nvidia = 13;
     GenerativeXAI xai = 14;
     GenerativeContextualAI contextualai = 15;
+    GenerativeDeepseek deepseek = 16;
   }
 }
 
@@ -217,6 +218,17 @@ message GenerativeContextualAI{
   optional TextArray knowledge = 7;
 }
 
+message GenerativeDeepseek{
+  optional string base_url = 1;
+  optional string model = 2;
+  optional double temperature = 3;
+  optional int64 max_tokens = 4;
+  optional double frequency_penalty = 5;
+  optional double presence_penalty = 6;
+  optional double top_p = 7;
+  optional TextArray stop = 8;
+}
+
 message GenerativeAnthropicMetadata {
   message Usage {
     int64 input_tokens = 1;
@@ -334,6 +346,15 @@ message GenerativeXAIMetadata {
   optional Usage usage = 1;
 }
 
+message GenerativeDeepseekMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
 message GenerativeMetadata {
   oneof kind {
     GenerativeAnthropicMetadata anthropic = 1;
@@ -349,6 +370,7 @@ message GenerativeMetadata {
     GenerativeFriendliAIMetadata friendliai = 11;
     GenerativeNvidiaMetadata nvidia = 12;
     GenerativeXAIMetadata xai = 13;
+    GenerativeDeepseekMetadata deepseek = 14;
   }
 }
 
