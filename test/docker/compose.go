@@ -34,6 +34,7 @@ import (
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
+	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
@@ -399,6 +400,12 @@ func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
 func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
 	d.weaviateEnvs["XAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativexai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeDeepseek(apiKey string) *Compose {
+	d.weaviateEnvs["DEEPSEEK_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativedeepseek.Name)
 	return d
 }
 
