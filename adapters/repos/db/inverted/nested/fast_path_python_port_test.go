@@ -40,12 +40,38 @@ import (
 //   under_countries_array — countries[].garages[].cars[]
 //     → reuses the existing L2 schema (l2Schema)
 //
-// Coverage scope. Of the 79 Python tests, 36 directly port to the existing
-// L0+L2 helpers (Groups A+B+C), and an additional 4 multi-token tests port
-// once the harness applies tokenizer.Tokenize between AssignPositions and
-// the value-bucket emit (Group D — multi_token_equal +
-// contains_any_multi_token, both L0 and L2 variants). 3 scenarios partially
-// port (the all_datatypes subset our fixtures already cover).
+// Coverage scope. Of the 79 Python tests, 60 port across the three
+// schemas (20 scenarios × 3 variants), broken down as:
+//
+//   - Groups A+B+C (18 scenarios × 3 = 54): the existing L0+L2+L2_object
+//     helpers cover them directly.
+//   - Group D (2 scenarios × 3 = 6): tokenization-aware scenarios
+//     enabled by running tokenizer.Tokenize between AssignPositions and
+//     the value-bucket emit. Filters: multi_token_equal,
+//     contains_any_multi_token.
+//   - NotEqual (1 scenario × 3 = 3): leafNotEqual as a thin alias for
+//     negate(leafPositive(...)) — owner-level / include-missing
+//     semantics matching the harness's negate convention.
+//
+// 3 scenarios partially port (the all_datatypes subset our fixtures
+// already cover — int/text/text[]). 19 wire-tests are deferred (see below).
+//
+// On top of the Python ports, the file carries harness-gap coverage —
+// scenarios not in Python but where the harness's behaviour benefits
+// from explicit lock-down tests. Each adds 1–3 t.Run cases × 3 schemas:
+//
+//   - Tokenized Contains (5 scenarios): contains_none_mixed_...,
+//     contains_all_mixed_..., contains_none_two_multi_token,
+//     contains_any_two_multi_token, contains_all_two_multi_token.
+//   - Pinned Contains tokenization (3 scenarios):
+//     pinned_contains_any_multi_token, pinned_contains_all_mixed_...,
+//     pinned_contains_none_mixed_....
+//   - Pinned NotEqual (1 scenario): pinned_not_equal — single pin, no
+//     gap, plus a missing-make discriminator.
+//   - Multi-pin tokenized Contains + intermediate-pin NotEqual (2
+//     scenarios × L2 + L2_object): multi_pin_contains_any_multi_token,
+//     intermediate_pin_not_equal — verify dispatch under longer pin
+//     chains and the gap branch.
 //
 // Group D wantDocs follow the harness's lenient same-element rule for
 // tokenized text[]: tokens may come from DIFFERENT tag entries of the
@@ -61,23 +87,34 @@ import (
 // the grounds that nested-default-strict would silently change the
 // semantic of flat→nested migrations.
 //
-// The rest don't port without further harness extensions:
+// Deferred — these don't port without further harness extensions:
 //
-//   - LIKE pattern matching (like_word_tokenized): no pattern-vs-bucket
-//     lookup in the harness.
+//   - LIKE pattern matching (like_word_tokenized × 3 variants = 3): no
+//     pattern-vs-bucket lookup in the harness.
 //
-//   - Range operators (<, >, <=, >=, comparison_operators): no leaf builder
+//   - Range operators (comparison_operators × 3 = 3): no leaf builder
 //     for ranges yet.
 //
-//   - NotEqual: distinct from owner-level NOT (Equal negation). Needs a
-//     dedicated leaf builder for the per-element-existential reading.
+//   - Flat doc-level property combined with nested
+//     (flat_and_nested_in_and, flat_or_nested, or_of_mixed_correlated_ands
+//     × 3 = 9): the L0/L2 schemas have no flat property; would need
+//     a schema extension.
 //
-//   - Flat doc-level property combined with nested (flat_and_nested_in_and,
-//     flat_or_nested, or_of_mixed_correlated_ands): the L0/L2 schemas have
-//     no flat property; would need a schema extension.
+//   - all_datatypes (3): the bool/float/date/uuid subset; fixtures
+//     would need extra type coverage. The int/text/text[] subset is
+//     already implicit in other tests.
 //
-//   - Wire-protocol error (invalid_filter_returns_server_error): not a
-//     filter-result test.
+//   - Wire-protocol error (invalid_filter_returns_server_error × 1):
+//     not a filter-result test; exercises the validator path.
+//
+// Deferred follow-up (Python-parity, not a correctness fix): adding
+// `AndNot ¬exists[cars]` after pinned negation would emulate Python's
+// vacuous-drop layer at empty arrays. The distinction it would add has
+// no semantic basis from the user's standpoint — the dispatch can't
+// distinguish "no cars" from "no pin slot" — and the harness applies a
+// uniform "missing pinned slot → match" rule. See the pinned_is_null,
+// not_of_pinned_correlated_and, and pinned_not_equal tests for the
+// framing.
 //
 // Structure. Three test functions — TestFastPathL0_PythonPort,
 // TestFastPathL2_PythonPort, and TestFastPathL2Object_PythonPort — each
@@ -3180,6 +3217,188 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"docs with ∃ garage whose cars[0].make != Toyota (or pin slot "+
 				"missing); 13700 the per-garage discriminator")
 	})
+
+	t.Run("multi_pin_contains_any_multi_token", func(t *testing.T) {
+		// Harness gap coverage. Filter
+		// countries.garages[0].cars[0].tags ContainsAny ["family hybrid"].
+		// Two pins (garages[0] + cars[0]), no gap — verifies that
+		// tokenization wires through a multi-pin dispatch and that
+		// every pin's _idx narrow correctly restricts the per-value
+		// match bitmap. ContainsAny is positive — missing pin slot →
+		// no match (different from NotEqual).
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 13800: pin slot has both tokens → match.
+		local.addDoc(t, prop, 13800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 13900: pin slot has tokens split across tag entries → match
+		// (lenient parent-Scope AND on tokenized text[]).
+		local.addDoc(t, prop, 13900, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+				}},
+			}},
+		})
+		// 14000: tokens at WRONG car index — garages[0].cars[1] has
+		// the tokens, pin is to cars[0] → no match.
+		local.addDoc(t, prop, 14000, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"other"}},
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 14100: tokens at WRONG garage index — garages[1].cars[0]
+		// has the tokens, pin is to garages[0] → no match.
+		local.addDoc(t, prop, 14100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"other"}},
+				}},
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 14200: missing cars[0] pin slot (garage with no cars) →
+		// no match (positive operator, missing-pin → no value bucket
+		// can fire).
+		local.addDoc(t, prop, 14200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{}},
+			}},
+		})
+
+		r := leafPinnedContainsAny(local, "countries.garages.cars.tags",
+			[]pinSpec{
+				{"countries.garages", 0},
+				{"countries.garages.cars", 0},
+			}, "family hybrid")
+
+		assert.ElementsMatch(t, []uint64{13800, 13900}, local.docIDs(r),
+			"docs where garages[0].cars[0].tags has both tokens (in one "+
+				"tag entry or lenient split across two); wrong slot at "+
+				"any pin level excludes; missing pin slot excludes "+
+				"(positive operator)")
+	})
+
+	t.Run("intermediate_pin_not_equal", func(t *testing.T) {
+		// Harness gap coverage. Filter
+		// countries.garages[1].cars.make != Toyota. Pin only at
+		// garages, cars unpinned → leafPinnedNot routes through the
+		// GAP branch (perElementNotValue).
+		//
+		// The gap branch's per-element formula handles vacuous
+		// descendants differently from the no-gap dispatch: empty
+		// cars under the PINNED garage gives NO match here (no
+		// per-element witness), while at no-gap empty cars under the
+		// pinned slot gives MATCH (uniform "missing pinned slot →
+		// match" rule). Doc 14700 below pins this divergence.
+		//
+		// TODO aliszka:nested_filtering — gap vs no-gap inconsistency
+		// on vacuous descendants under the pin. From the user's
+		// perspective, "no cars in pinned garage" and "no pin slot
+		// itself" both look like "no descendant to evaluate" — the
+		// two dispatches should agree. Loose semantic at gap would
+		// flip 14700 to match, consistent with no-gap. Cost: one
+		// additional LiftToAncestor in perElementNotFromSubtractands
+		// (lift `elementUniverse` to anchor(Scope) to detect "pin
+		// slot exists but vacuous descendants"). Total lifts at the
+		// gap branch goes 1 → 2. Deferred — the precision was
+		// originally chosen by the per-element design; flipping is a
+		// product call.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 14300: no garages[1] (single garage at index 0). Pin slot
+		// missing → match via scopeMissingPin.
+		local.addDoc(t, prop, 14300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Ford"},
+				}},
+			}},
+		})
+		// 14400: garages[1] has [Toyota] only → no match (no car
+		// satisfies != Toyota).
+		local.addDoc(t, prop, 14400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Ford"},
+				}},
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota"},
+				}},
+			}},
+		})
+		// 14500: garages[1] has [Honda] → match.
+		local.addDoc(t, prop, 14500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Ford"},
+				}},
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+		// 14600: garages[1] has [Toyota, Honda] → match via Honda.
+		local.addDoc(t, prop, 14600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Ford"},
+				}},
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota"},
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+		// 14700: garages[1] has empty cars → NO match under current
+		// gap-branch strict semantic. WOULD MATCH under loose
+		// semantic consistent with no-gap (see t.Run-level TODO).
+		// This is the only doc whose verdict depends on the
+		// gap-vs-no-gap policy choice — if loose ever lands,
+		// adding 14700 to wantDocs is the only fixture change.
+		local.addDoc(t, prop, 14700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Ford"},
+				}},
+				map[string]any{"cars": []any{}},
+			}},
+		})
+		// 14800: garages[1] has [no-make car] → match (per-element
+		// include-missing — the no-make car's cars-self bit is in
+		// anchor, not in bucket[Toyota] → survives AndNot).
+		local.addDoc(t, prop, 14800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Ford"},
+				}},
+				map[string]any{"cars": []any{
+					map[string]any{"year": 2020},
+				}},
+			}},
+		})
+
+		r := leafPinnedNotEqual(local, "countries.garages.cars.make", "Toyota",
+			[]pinSpec{{"countries.garages", 1}})
+
+		assert.ElementsMatch(t,
+			[]uint64{14300, 14500, 14600, 14800}, local.docIDs(r),
+			"docs where garages[1] doesn't exist (14300 — scopeMissingPin) "+
+				"or ∃ a car under garages[1] with make != Toyota (14500, "+
+				"14600, 14800); 14400 excluded (only Toyota under "+
+				"garages[1]); 14700 excluded under current strict gap "+
+				"semantic — would flip to match under loose (see TODO)")
+	})
 }
 
 // TestFastPathL2Object_PythonPort runs the L2_object (country.garages[].
@@ -4188,5 +4407,137 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			[]uint64{23200, 23400, 23500, 23600, 23700}, local.docIDs(r),
 			"docs with ∃ garage whose cars[0].make != Toyota (or pin slot "+
 				"missing); 23700 the per-garage discriminator")
+	})
+
+	t.Run("multi_pin_contains_any_multi_token", func(t *testing.T) {
+		// Harness gap coverage. Filter
+		// country.garages[0].cars[0].tags ContainsAny ["family hybrid"].
+		// Mirror of the L2 test under the single-OBJECT country root —
+		// same two-pin no-gap dispatch through tokenizedMatchBitmap.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 23800: pin slot has both tokens → match.
+		local.addDoc(t, prop, 23800, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 23900: pin slot has tokens split across tag entries → match.
+		local.addDoc(t, prop, 23900, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+			}},
+		}})
+		// 24000: tokens at WRONG car index → no match.
+		local.addDoc(t, prop, 24000, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"other"}},
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 24100: tokens at WRONG garage index → no match.
+		local.addDoc(t, prop, 24100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"other"}},
+			}},
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 24200: missing cars[0] pin slot → no match.
+		local.addDoc(t, prop, 24200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{}},
+		}})
+
+		r := leafPinnedContainsAny(local, "country.garages.cars.tags",
+			[]pinSpec{
+				{"country.garages", 0},
+				{"country.garages.cars", 0},
+			}, "family hybrid")
+
+		assert.ElementsMatch(t, []uint64{23800, 23900}, local.docIDs(r),
+			"docs where garages[0].cars[0].tags has both tokens; wrong "+
+				"slot at any pin level or missing pin slot excludes")
+	})
+
+	t.Run("intermediate_pin_not_equal", func(t *testing.T) {
+		// Harness gap coverage. Filter
+		// country.garages[1].cars.make != Toyota. Pin only at
+		// garages → gap branch (perElementNotValue). Same shape as
+		// the L2 sibling. Doc 24700 pins the gap-vs-no-gap
+		// divergence on vacuous descendants.
+		//
+		// TODO aliszka:nested_filtering — same as L2 sibling. The
+		// gap branch's strict handling of empty descendants under
+		// pin (24700 → no match) differs from the no-gap branch's
+		// uniform "missing pinned slot → match" rule. Flipping to
+		// loose costs one additional LiftToAncestor at the gap
+		// branch (1 → 2 total). Deferred — product call.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 24300: no garages[1] → match via scopeMissingPin.
+		local.addDoc(t, prop, 24300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Ford"},
+			}},
+		}})
+		// 24400: garages[1] = [Toyota only] → no match.
+		local.addDoc(t, prop, 24400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Ford"},
+			}},
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota"},
+			}},
+		}})
+		// 24500: garages[1] = [Honda] → match.
+		local.addDoc(t, prop, 24500, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Ford"},
+			}},
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+		// 24600: garages[1] = [Toyota, Honda] → match via Honda.
+		local.addDoc(t, prop, 24600, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Ford"},
+			}},
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota"},
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+		// 24700: garages[1] has empty cars → NO match under current
+		// gap-branch strict semantic. WOULD MATCH under loose
+		// semantic consistent with no-gap (see t.Run-level TODO).
+		// Only doc whose verdict depends on the policy choice.
+		local.addDoc(t, prop, 24700, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Ford"},
+			}},
+			map[string]any{"cars": []any{}},
+		}})
+		// 24800: garages[1] = [no-make car] → match (include-missing
+		// at intermediate pin).
+		local.addDoc(t, prop, 24800, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Ford"},
+			}},
+			map[string]any{"cars": []any{
+				map[string]any{"year": 2020},
+			}},
+		}})
+
+		r := leafPinnedNotEqual(local, "country.garages.cars.make", "Toyota",
+			[]pinSpec{{"country.garages", 1}})
+
+		assert.ElementsMatch(t,
+			[]uint64{24300, 24500, 24600, 24800}, local.docIDs(r),
+			"docs where garages[1] doesn't exist (24300 — scopeMissingPin) "+
+				"or ∃ a car under garages[1] with make != Toyota; 24700 "+
+				"excluded under current strict gap semantic — would flip "+
+				"to match under loose (see TODO)")
 	})
 }
