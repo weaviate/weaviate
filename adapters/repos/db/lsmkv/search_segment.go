@@ -123,14 +123,14 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 		}
 
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
-			if additionalExplanations {
-				docInfos = make([]*terms.DocPointerWithScore, termCount)
-			}
 			if pivotID == results[firstNonExhausted].idPointer {
 				// a deferred tombstone hit: advance the aligned terms past the pivot
 				// (below) but skip scoring/enqueue. See deferTombstoneToScore.
 				pivotTombstoned := deferTombstoneToScore && results[firstNonExhausted].tombstoned(pivotID)
 				if !pivotTombstoned {
+					if additionalExplanations {
+						docInfos = make([]*terms.DocPointerWithScore, termCount)
+					}
 					score := 0.0
 					termsMatched := 0
 					for _, term := range results {
