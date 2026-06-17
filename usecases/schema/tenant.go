@@ -64,10 +64,9 @@ func (h *Handler) AddTenants(ctx context.Context,
 		return 0, err
 	}
 
-	// Per-collection tenant cap. Same pattern as the collection-count check
-	// in class.go — count current tenants, compare against the cap, return
-	// a typed *usagelimits.LimitExceededError on miss. Tenants are checked
-	// at create time only (not on subsequent MT config changes).
+	// Per-collection tenant cap (create time only). Count-then-submit is a
+	// TOCTOU; meta_class.AddTenants is the authoritative serial gate. This
+	// fast-path stays for the common case (typed error, no RAFT round trip).
 	if dv := h.config.UsageLimits.MaxTenantsPerCollection; dv != nil {
 		cap := dv.Get()
 		if cap >= 0 {

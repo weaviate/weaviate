@@ -695,8 +695,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace: db.ExtractReindexTaskCollection,
 		},
-		ReplicaMovementEnabled: appState.ServerConfig.Config.ReplicaMovementEnabled,
-		DrainSleep:             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
+		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {

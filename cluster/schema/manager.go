@@ -83,6 +83,8 @@ type SchemaManager struct {
 	replicationFSM         replicationFSM
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
+	// tenantLimit resolves the tenant cap (negative = unlimited); nil = unenforced.
+	tenantLimit func() int
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -103,6 +105,13 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 // Subsequent calls overwrite the previous registration. The setter
 // itself is not synchronized — it must run during single-threaded
 // FSM bootstrap, before any apply path can read the field.
+// SetTenantLimit installs the tenant-cap resolver re-enforced at apply time to
+// close the AddTenants TOCTOU (negative = unlimited; nil = unenforced). Wiring
+// contract matches [SchemaManager.SetMutationGuard].
+func (s *SchemaManager) SetTenantLimit(resolver func() int) {
+	s.tenantLimit = resolver
+}
+
 func (s *SchemaManager) SetMutationGuard(g MutationGuard) {
 	s.mutationGuard = g
 }
@@ -618,10 +627,16 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// Resolve the tenant cap once per apply (negative = unlimited).
+	tenantLimit := -1
+	if s.tenantLimit != nil {
+		tenantLimit = s.tenantLimit()
+	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req) },
+			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req, tenantLimit) },
 			updateStore:  func() error { return s.db.AddTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},

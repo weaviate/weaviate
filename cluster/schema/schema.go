@@ -518,7 +518,7 @@ func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, re
 	return meta.DeleteReplicaFromShard(v, shard, replica)
 }
 
-func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
+func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest, maxTenants int) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 
 	ok, meta, info, err := s.multiTenancyEnabled(class)
@@ -526,7 +526,7 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 		return err
 	}
 
-	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
+	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v, maxTenants)
 	if err != nil {
 		return err
 	}
