@@ -377,8 +377,8 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 }
 
 // tombstoned reports whether docID is deleted in this iterator's view. All terms
-// in a segment share its tombstone bitmaps, so any aligned term answers for the
-// pivot.
+// in a segment share the same tombstone bitmaps, so any one of them can report
+// tombstone status for a pivot they all align on.
 func (s *SegmentBlockMax) tombstoned(docID uint64) bool {
 	return (s.tombstones != nil && s.tombstones.Contains(docID)) ||
 		(s.memTombstones != nil && s.memTombstones.Contains(docID))
