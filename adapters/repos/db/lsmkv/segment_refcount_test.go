@@ -60,6 +60,7 @@ func TestSegmentDecRefBelowZeroPanics(t *testing.T) {
 	t.Parallel()
 	s := &segment{}
 	require.Panics(t, func() { s.decRef() })
+	require.Equal(t, 0, s.getRefs()) // restored to 0, not pinned negative
 }
 
 // TestSegmentGroupConsistentViewConcurrent hammers the now lock-free

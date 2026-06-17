@@ -786,6 +786,7 @@ func (s *segment) incRef() {
 
 func (s *segment) decRef() {
 	if s.refCount.Add(-1) < 0 {
+		s.refCount.Add(1) // restore: a recovered panic must not pin the counter negative
 		panic("refCount already zero")
 	}
 }
