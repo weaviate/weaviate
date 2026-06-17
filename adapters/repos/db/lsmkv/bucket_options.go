@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/models"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -96,6 +97,16 @@ func WithWalThreshold(threshold uint64) BucketOption {
 func WithLazySegmentLoading(lazyLoading bool) BucketOption {
 	return func(b *Bucket) error {
 		b.lazySegmentLoading = lazyLoading
+		return nil
+	}
+}
+
+// WithLazyPropertyLengths defers loading an inverted segment's property length
+// map until first use. Read live at segment open, so runtime config can flip it
+// without a restart.
+func WithLazyPropertyLengths(lazy *configRuntime.DynamicValue[bool]) BucketOption {
+	return func(b *Bucket) error {
+		b.lazyPropertyLengths = lazy
 		return nil
 	}
 }

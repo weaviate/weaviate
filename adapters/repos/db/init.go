@@ -196,19 +196,20 @@ func (db *DB) init(ctx context.Context) error {
 					}
 					return db.config.HNSWWaitForCachePrefill
 				}(),
-				HNSWFlatSearchConcurrency: db.config.HNSWFlatSearchConcurrency,
-				HNSWAcornFilterRatio:      db.config.HNSWAcornFilterRatio,
-				HNSWGeoIndexEF:            db.config.HNSWGeoIndexEF,
-				VisitedListPoolMaxSize:    db.config.VisitedListPoolMaxSize,
-				QuerySlowLogEnabled:       db.config.QuerySlowLogEnabled,
-				QuerySlowLogThreshold:     db.config.QuerySlowLogThreshold,
-				InvertedSorterDisabled:    db.config.InvertedSorterDisabled,
-				MaintenanceModeEnabled:    db.config.MaintenanceModeEnabled,
-				HFreshEnabled:             db.config.HFreshEnabled,
-				RaftReplicationEnabled:    class.ReplicationConfig.RaftEnabled,
-				ShardRegistry:             db.config.ShardRegistry,
-				AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
-				DisableDimensionMetrics:   db.config.DisableDimensionMetrics,
+				HNSWFlatSearchConcurrency:  db.config.HNSWFlatSearchConcurrency,
+				HNSWAcornFilterRatio:       db.config.HNSWAcornFilterRatio,
+				HNSWGeoIndexEF:             db.config.HNSWGeoIndexEF,
+				VisitedListPoolMaxSize:     db.config.VisitedListPoolMaxSize,
+				QuerySlowLogEnabled:        db.config.QuerySlowLogEnabled,
+				QuerySlowLogThreshold:      db.config.QuerySlowLogThreshold,
+				InvertedSorterDisabled:     db.config.InvertedSorterDisabled,
+				LazyPropertyLengthsEnabled: db.config.LazyPropertyLengthsEnabled,
+				MaintenanceModeEnabled:     db.config.MaintenanceModeEnabled,
+				HFreshEnabled:              db.config.HFreshEnabled,
+				RaftReplicationEnabled:     class.ReplicationConfig.RaftEnabled,
+				ShardRegistry:              db.config.ShardRegistry,
+				AutoTenantActivation:       schema.AutoTenantActivationEnabled(class),
+				DisableDimensionMetrics:    db.config.DisableDimensionMetrics,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -222,6 +223,7 @@ func (db *DB) init(ctx context.Context) error {
 
 			idx.usageLimits = db.usageLimits
 			idx.db = db
+			idx.SetReplicationFSMReader(db.replicationFSM)
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()

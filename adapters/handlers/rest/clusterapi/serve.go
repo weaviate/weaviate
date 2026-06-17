@@ -36,11 +36,10 @@ const (
 
 // Server represents the cluster API server
 type Server struct {
-	server            *http.Server
-	appState          *state.State
-	replicatedIndices *replicatedIndices
-	grpc              *grpc.Server
-	shardStarted      bool
+	server       *http.Server
+	appState     *state.State
+	grpc         *grpc.Server
+	shardStarted bool
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -60,7 +59,6 @@ func NewServer(appState *state.State) *Server {
 		appState.DB,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
 		appState.Logger,
 		appState.ClusterService.Ready)
 
@@ -144,9 +142,8 @@ func NewServer(appState *state.State) *Server {
 			Handler:   handler,
 			Protocols: &protocols,
 		},
-		appState:          appState,
-		replicatedIndices: replicatedIndices,
-		grpc:              grpcServer,
+		appState: appState,
+		grpc:     grpcServer,
 	}
 }
 
@@ -171,18 +168,6 @@ func (s *Server) Serve() error {
 func (s *Server) Close(ctx context.Context) error {
 	s.appState.Logger.WithField("action", "cluster_api_shutdown").
 		Info("server is shutting down")
-
-	// Close the replicatedIndices first to drain the queue and wait for workers
-	// This ensures all pending replication requests are processed before stopping the server
-	if s.replicatedIndices != nil {
-		s.appState.Logger.WithField("action", "cluster_api_shutdown").
-			Info("shutting down replicated indices")
-		if err := s.replicatedIndices.Close(ctx); err != nil {
-			s.appState.Logger.WithField("action", "cluster_api_shutdown").
-				WithError(err).
-				Warn("error shutting down replicated indices")
-		}
-	}
 
 	// Shutdown shard RAFT registry if it was started
 	if s.shardStarted && s.appState.ShardRegistry != nil {
