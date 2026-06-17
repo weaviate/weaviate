@@ -337,3 +337,20 @@ func TestVarIntLargeBitWidthLimitation(t *testing.T) {
 		assert.Equal(t, uint64(0), decoded[1])
 	})
 }
+
+// A zero-length output slice must not panic. Before the guard, decodeReusable
+// wrote deltas[0] before checking the length, so a caller asking for zero values
+// (e.g. a corrupt segment claiming a zero-length block) crashed with an
+// index-out-of-range. The encoded buffers here are well-formed (>= 9 bytes) so
+// the byte-length guard passes and the empty-output guard is what's exercised.
+func TestVarIntDecodeZeroLengthOutputNoPanic(t *testing.T) {
+	enc := &VarIntEncoder{}
+	enc.Init(4)
+	packed := enc.Encode([]uint64{10, 11, 12, 13})
+	require.NotPanics(t, func() { enc.DecodeReusable(packed, []uint64{}) })
+
+	denc := &VarIntDeltaEncoder{}
+	denc.Init(4)
+	dpacked := denc.Encode([]uint64{10, 11, 12, 13})
+	require.NotPanics(t, func() { denc.DecodeReusable(dpacked, []uint64{}) })
+}

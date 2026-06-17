@@ -17,7 +17,7 @@ import (
 )
 
 func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
-	if len(packed) < 9 {
+	if len(deltas) == 0 || len(packed) < 9 {
 		return // Error handling: insufficient input or output space
 	}
 
@@ -76,7 +76,7 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 				bitsAvail -= int(bnu)
 				deltas[i] = prev
 			}
-			decodeTailDelta(deltas, bits, bytePos, bitsLen, buf, bitsAvail, bnu, i, n, &prev)
+			decodeTailDelta(deltas, bits, bytePos, bitsLen, buf, bitsAvail, bnu, i, n, prev)
 		} else {
 			i := 1
 			for ; i < n; i++ {
@@ -185,9 +185,11 @@ func decodeTail(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, 
 	}
 }
 
-// decodeTailDelta is the delta variant of decodeTail.
-func decodeTailDelta(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, bitsAvail int, bnu uint, i, n int, prev *uint64) {
-	p := *prev
+// decodeTailDelta is the delta variant of decodeTail; prev (the last decoded
+// value) is consumed, not returned, since the caller has no values left after
+// the tail.
+func decodeTailDelta(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, bitsAvail int, bnu uint, i, n int, prev uint64) {
+	p := prev
 	for ; i < n; i++ {
 		for bitsAvail < int(bnu) {
 			if bytePos >= bitsLen {
