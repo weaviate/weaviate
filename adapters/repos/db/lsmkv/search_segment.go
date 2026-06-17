@@ -37,7 +37,13 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	var pivotPoint int
 	upperBound := float32(0)
 
-	done := ctx.Done()
+	// done is nil for a nil ctx or a non-cancellable one (Background/TODO); the
+	// guard below then skips the select entirely. Matches the ctx != nil tolerance
+	// in DoBlockMaxAnd/DoWand.
+	var done <-chan struct{}
+	if ctx != nil {
+		done = ctx.Done()
+	}
 	ctxCheck := 0
 	for {
 		iterations++
@@ -47,38 +53,40 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 		ctxCheck++
 		if ctxCheck == 100000 {
 			ctxCheck = 0
-			select {
-			case <-done:
-				segmentPath := ""
-				terms := ""
-				filterCardinality := -1
-				for _, r := range results {
-					if r == nil {
-						continue
-					}
-					if r.segment != nil {
-						segmentPath = r.segment.path
-						if r.filterDocIds != nil {
-							filterCardinality = r.filterDocIds.Len()
+			if done != nil {
+				select {
+				case <-done:
+					segmentPath := ""
+					terms := ""
+					filterCardinality := -1
+					for _, r := range results {
+						if r == nil {
+							continue
 						}
+						if r.segment != nil {
+							segmentPath = r.segment.path
+							if r.filterDocIds != nil {
+								filterCardinality = r.filterDocIds.Len()
+							}
+						}
+						terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
 					}
-					terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
+					logger.WithFields(logrus.Fields{
+						"segment":           segmentPath,
+						"iterations":        iterations,
+						"pivotID":           pivotID,
+						"firstNonExhausted": firstNonExhausted,
+						"lenResults":        len(results),
+						"pivotPoint":        pivotPoint,
+						"upperBound":        upperBound,
+						"terms":             terms,
+						"filterCardinality": filterCardinality,
+						"limit":             limit,
+					}).Warnf("doBlockMaxWand: search timed out, returning partial results")
+					helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
+					return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
+				default:
 				}
-				logger.WithFields(logrus.Fields{
-					"segment":           segmentPath,
-					"iterations":        iterations,
-					"pivotID":           pivotID,
-					"firstNonExhausted": firstNonExhausted,
-					"lenResults":        len(results),
-					"pivotPoint":        pivotPoint,
-					"upperBound":        upperBound,
-					"terms":             terms,
-					"filterCardinality": filterCardinality,
-					"limit":             limit,
-				}).Warnf("doBlockMaxWand: search timed out, returning partial results")
-				helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
-				return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
-			default:
 			}
 		}
 
@@ -112,9 +120,11 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 
 		upperBound = float32(0)
 		for i := 0; i <= pivotPoint; i++ {
-			// exhausted terms carry currentBlockMaxId==MaxUint64 (so the shallow
-			// advance is skipped) and currentBlockImpact==0 (so the add is a no-op),
-			// so no explicit exhausted guard is needed here.
+			// No exhausted guard needed: AdvanceAtLeastShallow is a no-op on
+			// exhausted terms (it early-returns) and every exhausted term has
+			// currentBlockImpact==0, so the add contributes nothing. Don't rely on
+			// currentBlockMaxId as an exhausted sentinel — terms exhausted at
+			// construction (NewSegmentBlockMaxDecoded) leave it 0, not MaxUint64.
 			t := results[i]
 			if t.currentBlockMaxId < pivotID {
 				t.AdvanceAtLeastShallow(pivotID)
