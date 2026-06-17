@@ -694,6 +694,19 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 // coerces the deployment-shape settings (DISABLE_GRAPHQL=true,
 // REPLICATION_MAXIMUM_FACTOR=1, LSMSkipWriteClassNameEnabled=true), overriding
 // any conflicting operator-provided values.
+
+// ensureUnset removes key from the environment for the duration of the test,
+// restoring any prior value on cleanup. The coercion logic keys off
+// os.LookupEnv, so a value leaking in from the dev/CI shell would otherwise
+// make these tests non-hermetic.
+func ensureUnset(t *testing.T, key string) {
+	t.Helper()
+	if v, ok := os.LookupEnv(key); ok {
+		require.NoError(t, os.Unsetenv(key))
+		t.Cleanup(func() { os.Setenv(key, v) })
+	}
+}
+
 func TestFromEnv_NamespacesForcedConfig(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -747,6 +760,12 @@ func TestFromEnv_NamespacesForcedConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Start from a clean slate so the result depends only on what this
+			// subtest sets, not on the surrounding shell.
+			ensureUnset(t, "NAMESPACES_ENABLED")
+			ensureUnset(t, "DISABLE_GRAPHQL")
+			ensureUnset(t, "REPLICATION_MAXIMUM_FACTOR")
+
 			if tt.namespacesEnabled {
 				t.Setenv("NAMESPACES_ENABLED", "true")
 			}
@@ -809,6 +828,7 @@ func TestApplyNamespaceForcedConfig(t *testing.T) {
 	})
 
 	t.Run("DISABLE_GRAPHQL unset — coerced silently", func(t *testing.T) {
+		ensureUnset(t, "DISABLE_GRAPHQL")
 		log, hook := logrustest.NewNullLogger()
 		c := &Config{DisableGraphQL: false}
 		c.Namespaces.Enabled = true
@@ -835,6 +855,7 @@ func TestApplyNamespaceForcedConfig(t *testing.T) {
 	})
 
 	t.Run("REPLICATION_MAXIMUM_FACTOR unset — coerced silently", func(t *testing.T) {
+		ensureUnset(t, "REPLICATION_MAXIMUM_FACTOR")
 		log, hook := logrustest.NewNullLogger()
 		c := &Config{}
 		c.Namespaces.Enabled = true
