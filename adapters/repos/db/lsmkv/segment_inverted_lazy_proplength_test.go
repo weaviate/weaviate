@@ -17,6 +17,7 @@ package lsmkv
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -223,6 +224,93 @@ func TestInvertedLazyPropertyLengthsStatsNoRace(t *testing.T) {
 
 	wg.Wait()
 	require.NoError(t, loadErr)
+}
+
+// TestInvertedPropertyLengthsViewNoEmptyUnderFree pins that a reader taking the
+// load-on-demand slow path never observes an empty property-length view because
+// a concurrent freePropertyLengths niled the cached arrays mid-load. The slow
+// path returns the arrays captured under the load's own lock; re-reading the
+// struct after dropping that lock (the regressed behavior) could hand back a
+// zero-value view with no error, silently scoring every doc with propLength 0.
+// The freer and the readers run in separate goroutines so the free can land in
+// a reader's load window; every stored length is >= 1, so a 0 means "lost".
+func TestInvertedPropertyLengthsViewNoEmptyUnderFree(t *testing.T) {
+	ctx := context.Background()
+	const size = 500
+	key := []byte("my-key")
+	lazy := configRuntime.NewDynamicValue(true)
+
+	dirName := t.TempDir()
+	mk := func() *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyInverted), WithLazyPropertyLengths(lazy))
+		require.Nil(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	want := make([]uint32, size)
+	b := mk()
+	for i := 0; i < size; i++ {
+		propLen := float32(1 + i%50)
+		want[i] = uint32(propLen)
+		require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(uint64(i), float32(1), propLen, false)))
+	}
+	require.Nil(t, b.FlushAndSwitch())
+	require.Nil(t, b.Shutdown(ctx))
+
+	b = mk()
+	defer b.Shutdown(ctx)
+	require.GreaterOrEqual(t, len(b.disk.segments), 1)
+	seg := b.disk.segments[0]
+
+	// hammer free so readers keep falling into the load-on-demand slow path
+	var freerWg sync.WaitGroup
+	stop := make(chan struct{})
+	freerWg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer freerWg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				seg.freePropertyLengths()
+			}
+		}
+	}, nullLogger())
+
+	// each reader builds its own view (own cursor) and scans ascending; under the
+	// fix every present docID must resolve to its stored length, never 0
+	var mismatches atomic.Int64
+	var readersWg sync.WaitGroup
+	const readers = 16
+	for r := 0; r < readers; r++ {
+		readersWg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer readersWg.Done()
+			for iter := 0; iter < 3000; iter++ {
+				view, err := seg.propLengthsView()
+				if err != nil {
+					mismatches.Add(1)
+					continue
+				}
+				for id := uint64(0); id < size; id++ {
+					if view.get(id) != want[id] {
+						mismatches.Add(1)
+					}
+				}
+			}
+		}, nullLogger())
+	}
+
+	readersWg.Wait()
+	close(stop)
+	freerWg.Wait()
+
+	require.Zero(t, mismatches.Load(),
+		"property-length view returned wrong/zero lengths under concurrent free")
 }
 
 // TestInvertedLazyPropertyLengthsBlockMaxQuery runs a BM25 query in lazy mode
