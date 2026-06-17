@@ -87,7 +87,7 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 			seg.freePropertyLengths()
 			require.False(t, seg.isPropertyLengthsLoaded())
 			require.Nil(t, seg.getInvertedData().propLengthsDense)
-			require.Nil(t, seg.getInvertedData().propLengthIds)
+			require.Nil(t, seg.getInvertedData().propLengthsPairIds)
 			avgAfter, countAfter := b.GetAveragePropertyLength()
 			require.Equal(t, avg, avgAfter)
 			require.Equal(t, count, countAfter)
