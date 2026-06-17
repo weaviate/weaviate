@@ -108,6 +108,12 @@ type WeaviateRuntimeConfig struct {
 	// MCP Server settings
 	MCPEnabled            *runtime.DynamicValue[bool] `json:"mcp_server_enabled" yaml:"mcp_server_enabled"`
 	MCPWriteAccessEnabled *runtime.DynamicValue[bool] `json:"mcp_server_write_access_enabled" yaml:"mcp_server_write_access_enabled"`
+
+	// Tracing per-area toggles. Each flips OTel span emission for one query area
+	// live, with no restart. Read at Traverser.GetClass to seed the request flags.
+	TraceVectorSearch *runtime.DynamicValue[bool] `json:"trace_vector_search" yaml:"trace_vector_search"`
+	TraceBM25Search   *runtime.DynamicValue[bool] `json:"trace_bm25_search" yaml:"trace_bm25_search"`
+	TraceHybridSearch *runtime.DynamicValue[bool] `json:"trace_hybrid_search" yaml:"trace_hybrid_search"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
@@ -276,7 +282,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 		})
 
 		if r.err != nil {
-			logger.WithError(r.err).Errorf("runtime overrides: config '%v' change failed", r.field)
+			logger.Errorf("runtime overrides: config '%v' change failed: %v", r.field, r.err)
 			continue
 		}
 		logger.WithField("new_value", r.newV).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", r.field, r.oldV, r.newV)

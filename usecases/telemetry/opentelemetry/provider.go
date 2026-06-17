@@ -13,6 +13,7 @@ package opentelemetry
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/grpc/credentials"
 )
 
 // Provider manages the OpenTelemetry tracing provider
@@ -116,21 +118,36 @@ func createExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 
 // createHTTPExporter creates an HTTP OTLP exporter
 func createHTTPExporter(cfg *Config) (sdktrace.SpanExporter, error) {
-	client := otlptracehttp.NewClient(
+	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(cfg.ExporterEndpoint),
-		otlptracehttp.WithInsecure(), // TODO: make configurable
-	)
+	}
+	if cfg.Insecure {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	} else {
+		opts = append(opts, otlptracehttp.WithTLSClientConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+	}
+	if len(cfg.Headers) > 0 {
+		opts = append(opts, otlptracehttp.WithHeaders(cfg.Headers))
+	}
 
-	return otlptrace.New(context.Background(), client)
+	return otlptrace.New(context.Background(), otlptracehttp.NewClient(opts...))
 }
 
 // createGRPCExporter creates a gRPC OTLP exporter
 func createGRPCExporter(cfg *Config) (sdktrace.SpanExporter, error) {
-	client := otlptracegrpc.NewClient(
+	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(cfg.ExporterEndpoint),
-		otlptracegrpc.WithInsecure(), // TODO: make configurable
-	)
-	return otlptrace.New(context.Background(), client)
+	}
+	if cfg.Insecure {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	} else {
+		// Unset RootCAs falls back to the host's system CA pool.
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})))
+	}
+	if len(cfg.Headers) > 0 {
+		opts = append(opts, otlptracegrpc.WithHeaders(cfg.Headers))
+	}
+	return otlptrace.New(context.Background(), otlptracegrpc.NewClient(opts...))
 }
 
 // Tracer returns the OpenTelemetry tracer

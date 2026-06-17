@@ -109,7 +109,10 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
 	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
 
-	// Add OpenTelemetry tracing interceptors
+	// Add OpenTelemetry tracing interceptors. The unary interceptor opens the
+	// inbound server span that becomes the parent of any usecases/tracing spans
+	// emitted on the search path (client search is gRPC-unary). The HTTP
+	// middleware and the gRPC stream interceptor are not yet wired (deferred).
 	interceptors = append(interceptors, monitoring.GRPCTracingInterceptor())
 
 	if len(interceptors) > 0 {

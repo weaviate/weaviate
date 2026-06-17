@@ -178,6 +178,8 @@ maximum_allowed_collections_count: 13`)
 			TenantActivityReadLogLevel:     runtime.NewDynamicValue("INFO"),
 			TenantActivityWriteLogLevel:    runtime.NewDynamicValue("INFO"),
 			RevectorizeCheckDisabled:       runtime.NewDynamicValue(true),
+			// Tracing toggle defaults off; the live flip is exercised below.
+			TraceVectorSearch: runtime.NewDynamicValue(false),
 		}
 
 		assert.Equal(t, 10, source.MaximumAllowedCollectionsCount.Get())
@@ -186,6 +188,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, "INFO", source.TenantActivityReadLogLevel.Get())
 		assert.Equal(t, "INFO", source.TenantActivityWriteLogLevel.Get())
 		assert.Equal(t, true, source.RevectorizeCheckDisabled.Get())
+		assert.Equal(t, false, source.TraceVectorSearch.Get())
 
 		// Empty Parsing
 		buf := []byte("")
@@ -198,6 +201,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Nil(t, parsed.TenantActivityReadLogLevel)
 		assert.Nil(t, parsed.TenantActivityWriteLogLevel)
 		assert.Nil(t, parsed.RevectorizeCheckDisabled)
+		assert.Nil(t, parsed.TraceVectorSearch)
 
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
 		assert.Equal(t, 10, source.MaximumAllowedCollectionsCount.Get())
@@ -206,10 +210,12 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, "INFO", source.TenantActivityReadLogLevel.Get())
 		assert.Equal(t, "INFO", source.TenantActivityWriteLogLevel.Get())
 		assert.Equal(t, true, source.RevectorizeCheckDisabled.Get())
+		assert.Equal(t, false, source.TraceVectorSearch.Get())
 
 		// Non-empty parsing
 		buf = []byte(`autoschema_enabled: false
-maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
+maximum_allowed_collections_count: 13
+trace_vector_search: true`) // leaving out `asyncRep` config
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
@@ -220,6 +226,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, "INFO", source.TenantActivityReadLogLevel.Get())
 		assert.Equal(t, "INFO", source.TenantActivityWriteLogLevel.Get())
 		assert.Equal(t, true, source.RevectorizeCheckDisabled.Get())
+		assert.Equal(t, true, source.TraceVectorSearch.Get()) // flipped on live, no restart
 
 		// Empty parsing again. Should go back to default values
 		buf = []byte("")
@@ -233,6 +240,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, "INFO", source.TenantActivityReadLogLevel.Get())
 		assert.Equal(t, "INFO", source.TenantActivityWriteLogLevel.Get())
 		assert.Equal(t, true, source.RevectorizeCheckDisabled.Get())
+		assert.Equal(t, false, source.TraceVectorSearch.Get()) // reset to default on removal
 	})
 
 	t.Run("Reset() of non-exist config values in parsed yaml shouldn't panic", func(t *testing.T) {

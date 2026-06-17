@@ -17,18 +17,28 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/filters"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/tracing"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	// Seed trace flags here — the only layer with config access; everything below reads them off ctx.
+	ctx = tracing.WithFlags(ctx, buildTraceFlags(t.config.Config, params.AdditionalProperties.TraceSpans))
+	ctx, span := tracing.StartRootSpan(ctx, "weaviate.traverser.GetClass",
+		trace.WithAttributes(attribute.String("weaviate.collection", params.ClassName)))
+	defer span.End()
+
 	before := time.Now()
 
 	ok := t.ratelimiter.TryInc()
@@ -65,6 +75,22 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	}
 
 	return t.explorer.GetClass(ctx, params)
+}
+
+// buildTraceFlags maps the live per-area runtime toggles into request trace
+// flags. traceSpans is the per-request override: when set it forces every area
+// on for this request, ORed over the runtime toggles (so a request can be traced
+// even while all runtime toggles are off). DynamicValue.Get is nil-safe.
+func buildTraceFlags(cfg config.Config, traceSpans bool) tracing.Flags {
+	flags := tracing.NewFlags(map[tracing.Area]bool{
+		tracing.AreaVector: cfg.TraceVectorSearch.Get(),
+		tracing.AreaBM25:   cfg.TraceBM25Search.Get(),
+		tracing.AreaHybrid: cfg.TraceHybridSearch.Get(),
+	})
+	if traceSpans {
+		flags = tracing.WithForceAll(flags)
+	}
+	return flags
 }
 
 // probeForRefDepthLimit checks to ensure reference nesting depth doesn't exceed the limit

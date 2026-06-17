@@ -13,15 +13,17 @@ package opentelemetry
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-// Global provider instance
-// TODO: find a way to avoid global state of the provider
-var globalProvider *Provider
+// globalProvider holds the process-wide provider. It is an atomic pointer so the
+// lockless hot-path reads in GetTracer/IsEnabled never race with Init (startup)
+// or SetTestProvider (tests).
+var globalProvider atomic.Pointer[Provider]
 
 // Init initializes the global OpenTelemetry provider
 func Init(logger logrus.FieldLogger) error {
@@ -32,7 +34,7 @@ func Init(logger logrus.FieldLogger) error {
 		return err
 	}
 
-	globalProvider = provider
+	globalProvider.Store(provider)
 
 	if provider.IsEnabled() {
 		logger.WithFields(logrus.Fields{
@@ -51,22 +53,25 @@ func Init(logger logrus.FieldLogger) error {
 
 // Shutdown gracefully shuts down the global provider
 func Shutdown(ctx context.Context) error {
-	if globalProvider == nil {
+	p := globalProvider.Load()
+	if p == nil {
 		return nil
 	}
 
-	return globalProvider.Shutdown(ctx)
+	return p.Shutdown(ctx)
 }
 
 // GetTracer returns the global tracer
 func GetTracer() trace.Tracer {
-	if globalProvider == nil {
+	p := globalProvider.Load()
+	if p == nil {
 		return noop.NewTracerProvider().Tracer("noop")
 	}
-	return globalProvider.Tracer()
+	return p.Tracer()
 }
 
 // IsEnabled returns whether OpenTelemetry is enabled globally
 func IsEnabled() bool {
-	return globalProvider != nil && globalProvider.IsEnabled()
+	p := globalProvider.Load()
+	return p != nil && p.IsEnabled()
 }
