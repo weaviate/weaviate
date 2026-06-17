@@ -497,13 +497,7 @@ func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, re
 	return meta.DeleteReplicaFromShard(v, shard, replica)
 }
 
-// tenantCap is the per-collection tenant limit enforced at RAFT apply time.
-type tenantCap struct {
-	max         int    // negative = unlimited
-	errTemplate string // empty = built-in default
-}
-
-func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest, tc tenantCap) error {
+func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 
 	ok, meta, info, err := s.multiTenancyEnabled(class)
@@ -511,7 +505,7 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 		return err
 	}
 
-	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v, tc)
+	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
 	if err != nil {
 		return err
 	}
@@ -520,6 +514,25 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 	}
 
 	return nil
+}
+
+// tenantCapUsage returns the current physical-tenant count for class and how
+// many of the incoming names are not yet present. ok is false if class is
+// unknown.
+func (s *schema) tenantCapUsage(class string, incoming []string) (current, additions int, ok bool) {
+	meta := s.metaClass(class)
+	if meta == nil {
+		return 0, 0, false
+	}
+	meta.RLock()
+	defer meta.RUnlock()
+	current = len(meta.Sharding.Physical)
+	for _, name := range incoming {
+		if _, exists := meta.Sharding.Physical[name]; !exists {
+			additions++
+		}
+	}
+	return current, additions, true
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {

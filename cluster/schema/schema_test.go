@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -127,7 +128,7 @@ func Test_schemaShardMetrics(t *testing.T) {
 			},
 			nil, // nil tenant shouldn't be counted in the metrics
 		},
-	}, tenantCap{max: -1})
+	})
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
 
@@ -141,7 +142,7 @@ func Test_schemaShardMetrics(t *testing.T) {
 			},
 			nil, // nil tenant shouldn't be counted in the metrics
 		},
-	}, tenantCap{max: -1})
+	})
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
 
@@ -234,7 +235,7 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{nodeID},
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
-		}, tenantCap{max: -1}))
+		}))
 		// HOT → FROZEN puts the tenant into FREEZING
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
@@ -255,7 +256,7 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{nodeID},
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
-		}, tenantCap{max: -1}))
+		}))
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
 			ClusterNodes: []string{nodeID},
@@ -274,7 +275,7 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{nodeID},
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
-		}, tenantCap{max: -1}))
+		}))
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
 			ClusterNodes: []string{nodeID},
@@ -293,7 +294,7 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{nodeID},
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
-		}, tenantCap{max: -1}))
+		}))
 		// FROZEN → HOT puts the tenant into UNFREEZING
 		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
 			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},

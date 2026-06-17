@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type (
@@ -236,7 +235,7 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 	return mergedProps
 }
 
-func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64, tc tenantCap) (map[string]int, error) {
+func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64) (map[string]int, error) {
 	req.Tenants = removeNilTenants(req.Tenants)
 	m.Lock()
 	defer m.Unlock()
@@ -246,21 +245,6 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 	for i, tenant := range req.Tenants {
 		names[i] = tenant.Name
 	}
-
-	// Authoritative tenant cap, re-checked serially under the lock to close the
-	// handler's TOCTOU (negative = unlimited).
-	if tc.max >= 0 {
-		incoming := 0
-		for _, t := range req.Tenants {
-			if _, exists := m.Sharding.Physical[t.Name]; !exists {
-				incoming++
-			}
-		}
-		if len(m.Sharding.Physical)+incoming > tc.max {
-			return nil, usagelimits.NewLimitExceededError(tc.errTemplate, usagelimits.LimitTenants, int64(tc.max))
-		}
-	}
-
 	// First determine the partition based on the node *present at the time of the log entry being created*
 	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, names, replFactor)
 	if err != nil {

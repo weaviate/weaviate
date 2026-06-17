@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
@@ -188,11 +189,11 @@ type Config struct {
 	DrainSleep time.Duration
 
 	// MaxTenantsPerCollection caps tenants per collection (nil/negative =
-	// unlimited), re-enforced at apply time. Assumed uniform across nodes.
+	// unlimited), enforced pre-commit on the leader.
 	MaxTenantsPerCollection *runtime.DynamicValue[int]
 
 	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
-	// tenant-cap error raised at apply time, matching the handler fast-path.
+	// tenant-cap rejection, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 }
 
@@ -252,6 +253,10 @@ type Store struct {
 	lastAppliedIndexToDB atomic.Uint64
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	// tenantAddLocks serializes AddTenants per class on the leader so the
+	// pre-commit tenant-cap check cannot race the apply that increments the count.
+	tenantAddLocks *entsync.KeyLocker
 
 	// snapshotter is the snapshotter for the store
 	snapshotter fsm.Snapshotter
@@ -340,6 +345,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:      schemaManager,
+		tenantAddLocks:     entsync.NewKeyLocker(),
 		snapshotter:        snapshotter,
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),

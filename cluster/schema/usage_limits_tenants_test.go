@@ -15,17 +15,21 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
-// TestAddTenants_FSMTenantCapReEnforced pins the RAFT-apply re-enforcement of
-// the per-collection tenant cap, closing the handler's count-then-submit TOCTOU.
-func TestAddTenants_FSMTenantCapReEnforced(t *testing.T) {
+// TestPreApplyFilter_TenantCap pins the pre-commit enforcement of the
+// per-collection tenant cap: an over-cap AddTenants is rejected on the leader
+// before it is proposed to RAFT, never in the deterministic FSM apply path.
+func TestPreApplyFilter_TenantCap(t *testing.T) {
 	const (
 		nodeID    = "testNode"
 		className = "TestClass"
@@ -39,101 +43,128 @@ func TestAddTenants_FSMTenantCapReEnforced(t *testing.T) {
 		return out
 	}
 
-	newSchemaWithClass := func(t *testing.T) *schema {
+	newManager := func(t *testing.T, cap int) *SchemaManager {
 		t.Helper()
-		s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
-		require.NoError(t, s.addClass(&models.Class{
+		sm := NewSchemaManager(nodeID, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		require.NoError(t, sm.schema.addClass(&models.Class{
 			Class:              className,
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
 		}, &sharding.State{Physical: make(map[string]sharding.Physical)}, 0))
-		return s
+		sm.SetTenantLimit(func() int { return cap }, nil)
+		return sm
 	}
 
-	add := func(t *testing.T, s *schema, cap int, names ...string) error {
+	// seed actually creates tenants so the physical count grows.
+	seed := func(t *testing.T, sm *SchemaManager, names ...string) {
 		t.Helper()
-		return s.addTenants(className, 0, &api.AddTenantsRequest{
+		require.NoError(t, sm.schema.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{nodeID},
 			Tenants:      tenants(names...),
-		}, tenantCap{max: cap})
+		}))
 	}
 
-	physicalCount := func(s *schema) int {
-		meta := s.metaClass(className)
+	// preApply runs the pre-commit gate for an AddTenants of the given names.
+	preApply := func(t *testing.T, sm *SchemaManager, names ...string) error {
+		t.Helper()
+		sub, err := gproto.Marshal(&api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      tenants(names...),
+		})
+		require.NoError(t, err)
+		return sm.PreApplyFilter(&api.ApplyRequest{
+			Type:       api.ApplyRequest_TYPE_ADD_TENANT,
+			Class:      className,
+			SubCommand: sub,
+		})
+	}
+
+	physicalCount := func(sm *SchemaManager) int {
+		meta := sm.schema.metaClass(className)
 		meta.RLock()
 		defer meta.RUnlock()
 		return len(meta.Sharding.Physical)
 	}
 
-	t.Run("TOCTOU: serial single-tenant adds cannot overshoot cap", func(t *testing.T) {
-		s := newSchemaWithClass(t)
-		require.NoError(t, add(t, s, 3, "t1", "t2")) // seed cap-1
-		require.NoError(t, add(t, s, 3, "t3"))       // brings count to cap
-		assert.Equal(t, 3, physicalCount(s))
-
-		// Passed the same stale handler check (2+1=3), but applied serially it
-		// overshoots and must be rejected without mutating state.
-		err := add(t, s, 3, "t4")
+	requireRejected := func(t *testing.T, err error, wantCap int64) {
+		t.Helper()
 		require.Error(t, err)
 		le, ok := usagelimits.AsLimitExceeded(err)
 		require.True(t, ok, "expected a typed LimitExceededError, got %v", err)
 		assert.Equal(t, usagelimits.LimitTenants, le.Limit)
-		assert.Equal(t, int64(3), le.Value)
-		assert.Equal(t, 3, physicalCount(s))
+		assert.Equal(t, wantCap, le.Value)
+	}
+
+	t.Run("under the cap is allowed", func(t *testing.T) {
+		sm := newManager(t, 3)
+		seed(t, sm, "t1")
+		require.NoError(t, preApply(t, sm, "t2"))
 	})
 
-	t.Run("batch add up to the cap succeeds, one over fails", func(t *testing.T) {
-		s := newSchemaWithClass(t)
-		require.NoError(t, add(t, s, 3, "t1", "t2", "t3"))
-		assert.Equal(t, 3, physicalCount(s))
-
-		err := add(t, s, 3, "t4")
-		require.Error(t, err)
-		_, ok := usagelimits.AsLimitExceeded(err)
-		require.True(t, ok)
-		assert.Equal(t, 3, physicalCount(s))
+	t.Run("filling the cap exactly is allowed", func(t *testing.T) {
+		sm := newManager(t, 3)
+		seed(t, sm, "t1", "t2")
+		require.NoError(t, preApply(t, sm, "t3"))
 	})
 
-	t.Run("single batch exceeding the cap is rejected atomically", func(t *testing.T) {
-		s := newSchemaWithClass(t)
-		err := add(t, s, 3, "t1", "t2", "t3", "t4")
-		require.Error(t, err)
-		_, ok := usagelimits.AsLimitExceeded(err)
-		require.True(t, ok)
-		assert.Equal(t, 0, physicalCount(s)) // nothing partially applied
+	t.Run("one over the cap is rejected without mutating state", func(t *testing.T) {
+		sm := newManager(t, 3)
+		seed(t, sm, "t1", "t2", "t3")
+		requireRejected(t, preApply(t, sm, "t4"), 3)
+		assert.Equal(t, 3, physicalCount(sm), "PreApplyFilter must not mutate the schema")
 	})
 
-	t.Run("re-adding existing tenants at the cap is idempotent, not over", func(t *testing.T) {
-		s := newSchemaWithClass(t)
-		require.NoError(t, add(t, s, 3, "t1", "t2", "t3"))
-		// Existing tenants add zero new shards, so the count stays at the cap.
-		require.NoError(t, add(t, s, 3, "t1", "t2"))
-		assert.Equal(t, 3, physicalCount(s))
+	t.Run("a single batch exceeding the cap is rejected", func(t *testing.T) {
+		sm := newManager(t, 3)
+		requireRejected(t, preApply(t, sm, "t1", "t2", "t3", "t4"), 3)
+		assert.Equal(t, 0, physicalCount(sm))
+	})
+
+	t.Run("re-adding existing tenants at the cap is allowed (idempotent)", func(t *testing.T) {
+		sm := newManager(t, 3)
+		seed(t, sm, "t1", "t2", "t3")
+		// existing tenants create no new shards, so they don't count against the cap
+		require.NoError(t, preApply(t, sm, "t1", "t2"))
+	})
+
+	t.Run("mixed existing+new is counted by new shards only", func(t *testing.T) {
+		sm := newManager(t, 3)
+		seed(t, sm, "t1", "t2")
+		require.NoError(t, preApply(t, sm, "t1", "t3")) // t1 existing, t3 new -> 3 total
+		requireRejected(t, preApply(t, sm, "t1", "t3", "t4"), 3)
 	})
 
 	t.Run("negative cap means unlimited", func(t *testing.T) {
-		s := newSchemaWithClass(t)
-		require.NoError(t, add(t, s, -1, "t1", "t2", "t3", "t4", "t5"))
-		assert.Equal(t, 5, physicalCount(s))
+		sm := newManager(t, -1)
+		require.NoError(t, preApply(t, sm, "t1", "t2", "t3", "t4", "t5"))
 	})
 
 	t.Run("cap of zero rejects the first add", func(t *testing.T) {
-		s := newSchemaWithClass(t)
-		err := add(t, s, 0, "t1")
-		require.Error(t, err)
-		_, ok := usagelimits.AsLimitExceeded(err)
-		require.True(t, ok)
-		assert.Equal(t, 0, physicalCount(s))
+		sm := newManager(t, 0)
+		requireRejected(t, preApply(t, sm, "t1"), 0)
 	})
 
-	t.Run("operator error template flows into the apply-path error", func(t *testing.T) {
-		s := newSchemaWithClass(t)
-		err := s.addTenants(className, 0, &api.AddTenantsRequest{
-			ClusterNodes: []string{nodeID},
-			Tenants:      tenants("t1"),
-		}, tenantCap{max: 0, errTemplate: "Free-tier limit of {value} {limit} reached, upgrade now"})
-		require.Error(t, err)
-		le, ok := usagelimits.AsLimitExceeded(err)
+	t.Run("no resolver installed is unenforced", func(t *testing.T) {
+		sm := newManager(t, 3)
+		sm.tenantLimit = nil // USAGE_LIMITS unset
+		require.NoError(t, preApply(t, sm, "t1", "t2", "t3", "t4", "t5"))
+	})
+
+	t.Run("unknown class is not falsely rejected", func(t *testing.T) {
+		sm := newManager(t, 0)
+		sub, err := gproto.Marshal(&api.AddTenantsRequest{Tenants: tenants("t1")})
+		require.NoError(t, err)
+		require.NoError(t, sm.PreApplyFilter(&api.ApplyRequest{
+			Type:       api.ApplyRequest_TYPE_ADD_TENANT,
+			Class:      "DoesNotExist",
+			SubCommand: sub,
+		}))
+	})
+
+	t.Run("operator error template renders in the pre-commit rejection", func(t *testing.T) {
+		sm := newManager(t, 0)
+		sm.tenantLimitErrTemplate = func() string { return "Free-tier limit of {value} {limit} reached, upgrade now" }
+		le, ok := usagelimits.AsLimitExceeded(preApply(t, sm, "t1"))
 		require.True(t, ok)
 		assert.Equal(t, "Free-tier limit of 0 tenants reached, upgrade now", le.RenderedMessage)
 	})
