@@ -14,6 +14,7 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -467,14 +468,38 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			name     string
 			old, new *models.Class
 		}{
-			{"compression enabled", legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}})},
-			{"compression disabled", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}), legacy(hnswent.UserConfig{})},
-			{"pq re-parametrized", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Segments: 8}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Segments: 16}})},
-			{"distance change", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "l2-squared"})},
+			// HNSW — quantizer toggles + every structural param, one field per row.
+			{"hnsw distance", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "l2-squared"})},
+			{"hnsw pq enabled", legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}})},
+			{"hnsw pq disabled", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}), legacy(hnswent.UserConfig{})},
+			{"hnsw pq segments", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Segments: 8}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Segments: 16}})},
+			{"hnsw pq centroids", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Centroids: 128}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Centroids: 256}})},
+			{"hnsw pq trainingLimit", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, TrainingLimit: 1000}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, TrainingLimit: 2000}})},
+			{"hnsw pq bitCompression", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, BitCompression: true}})},
+			{"hnsw pq encoder type", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Encoder: hnswent.PQEncoder{Type: "kmeans"}}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Encoder: hnswent.PQEncoder{Type: "tile"}}})},
+			{"hnsw pq encoder distribution", legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Encoder: hnswent.PQEncoder{Distribution: "normal"}}}), legacy(hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true, Encoder: hnswent.PQEncoder{Distribution: "log-normal"}}})},
+			{"hnsw bq enabled", legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{BQ: hnswent.BQConfig{Enabled: true}})},
+			{"hnsw sq enabled", legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{SQ: hnswent.SQConfig{Enabled: true}})},
+			{"hnsw sq trainingLimit", legacy(hnswent.UserConfig{SQ: hnswent.SQConfig{Enabled: true, TrainingLimit: 1000}}), legacy(hnswent.UserConfig{SQ: hnswent.SQConfig{Enabled: true, TrainingLimit: 2000}})},
+			{"hnsw rq enabled", legacy(hnswent.UserConfig{}), legacy(hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true}})},
+			{"hnsw rq bits", legacy(hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 8}}), legacy(hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 1}})},
+			// Flat — quantizer toggles + bits, one field per row.
+			{"flat distance", legacy(flatent.UserConfig{Distance: "cosine"}), legacy(flatent.UserConfig{Distance: "l2-squared"})},
+			{"flat pq enabled", legacy(flatent.UserConfig{}), legacy(flatent.UserConfig{PQ: flatent.CompressionUserConfig{Enabled: true}})},
+			{"flat bq enabled", legacy(flatent.UserConfig{}), legacy(flatent.UserConfig{BQ: flatent.CompressionUserConfig{Enabled: true}})},
+			{"flat sq enabled", legacy(flatent.UserConfig{}), legacy(flatent.UserConfig{SQ: flatent.CompressionUserConfig{Enabled: true}})},
+			{"flat rq enabled", legacy(flatent.UserConfig{}), legacy(flatent.UserConfig{RQ: flatent.RQUserConfig{Enabled: true}})},
+			{"flat rq bits", legacy(flatent.UserConfig{RQ: flatent.RQUserConfig{Enabled: true, Bits: 8}}), legacy(flatent.UserConfig{RQ: flatent.RQUserConfig{Enabled: true, Bits: 1}})},
+			// Dynamic — distance and recursion into both phases (Threshold is query-time-safe; see allowed cases).
+			{"dynamic distance", legacy(dynamicent.UserConfig{Distance: "cosine"}), legacy(dynamicent.UserConfig{Distance: "l2-squared"})},
+			{"dynamic hnsw rq bits", legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 8}}}), legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 1}}})},
+			{"dynamic flat rq enabled", legacy(dynamicent.UserConfig{FlatUC: flatent.UserConfig{}}), legacy(dynamicent.UserConfig{FlatUC: flatent.UserConfig{RQ: flatent.RQUserConfig{Enabled: true}}})},
+			{"dynamic compression toggled", legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{}}), legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}})},
+			// Index type, named vector add/remove, and a within-config change on a named vector.
 			{"index type change", legacy(hnswent.UserConfig{}), legacy(flatent.UserConfig{})},
 			{"named vector added", &models.Class{Class: className}, named(map[string]any{"v1": hnswent.UserConfig{}})},
 			{"named vector removed", named(map[string]any{"v1": hnswent.UserConfig{}}), &models.Class{Class: className}},
-			{"dynamic compression toggled", legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{}}), legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}})},
+			{"named vector pq enabled", named(map[string]any{"v1": hnswent.UserConfig{}}), named(map[string]any{"v1": hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}})},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -490,8 +515,48 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			name     string
 			old, new *models.Class
 		}{
-			{"ef change", legacy(hnswent.UserConfig{EF: 10}), legacy(hnswent.UserConfig{EF: 20})},
 			{"no vector change", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "cosine"})},
+			// HNSW query-time knobs.
+			{"hnsw ef", legacy(hnswent.UserConfig{EF: 10}), legacy(hnswent.UserConfig{EF: 20})},
+			{"hnsw cleanupIntervalSeconds", legacy(hnswent.UserConfig{CleanupIntervalSeconds: 60}), legacy(hnswent.UserConfig{CleanupIntervalSeconds: 120})},
+			{"hnsw dynamicEfMin", legacy(hnswent.UserConfig{DynamicEFMin: 100}), legacy(hnswent.UserConfig{DynamicEFMin: 200})},
+			{"hnsw dynamicEfMax", legacy(hnswent.UserConfig{DynamicEFMax: 500}), legacy(hnswent.UserConfig{DynamicEFMax: 600})},
+			{"hnsw dynamicEfFactor", legacy(hnswent.UserConfig{DynamicEFFactor: 8}), legacy(hnswent.UserConfig{DynamicEFFactor: 16})},
+			{"hnsw vectorCacheMaxObjects", legacy(hnswent.UserConfig{VectorCacheMaxObjects: 1}), legacy(hnswent.UserConfig{VectorCacheMaxObjects: 2})},
+			{"hnsw flatSearchCutoff", legacy(hnswent.UserConfig{FlatSearchCutoff: 40000}), legacy(hnswent.UserConfig{FlatSearchCutoff: 50000})},
+			{"hnsw filterStrategy", legacy(hnswent.UserConfig{FilterStrategy: "acorn"}), legacy(hnswent.UserConfig{FilterStrategy: "sweeping"})},
+			{"hnsw rq rescoreLimit", legacy(hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, RescoreLimit: 10}}), legacy(hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, RescoreLimit: 20}})},
+			{"hnsw sq rescoreLimit", legacy(hnswent.UserConfig{SQ: hnswent.SQConfig{Enabled: true, RescoreLimit: 10}}), legacy(hnswent.UserConfig{SQ: hnswent.SQConfig{Enabled: true, RescoreLimit: 20}})},
+			// HNSW deferred-safe (currently non-blocking; parity must be preserved).
+			{"hnsw maxConnections", legacy(hnswent.UserConfig{MaxConnections: 16}), legacy(hnswent.UserConfig{MaxConnections: 32})},
+			{"hnsw efConstruction", legacy(hnswent.UserConfig{EFConstruction: 128}), legacy(hnswent.UserConfig{EFConstruction: 256})},
+			{"hnsw skip", legacy(hnswent.UserConfig{Skip: false}), legacy(hnswent.UserConfig{Skip: true})},
+			{"hnsw skipDefaultQuantization", legacy(hnswent.UserConfig{SkipDefaultQuantization: false}), legacy(hnswent.UserConfig{SkipDefaultQuantization: true})},
+			{"hnsw trackDefaultQuantization", legacy(hnswent.UserConfig{TrackDefaultQuantization: false}), legacy(hnswent.UserConfig{TrackDefaultQuantization: true})},
+			{"hnsw multivector enabled", legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{Enabled: false}}), legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{Enabled: true}})},
+			{"hnsw multivector aggregation", legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{Aggregation: "maxSim"}}), legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{Aggregation: "other"}})},
+			{"hnsw muvera enabled", legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{Enabled: false}}}), legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{Enabled: true}}})},
+			{"hnsw muvera ksim", legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{KSim: 4}}}), legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{KSim: 8}}})},
+			{"hnsw muvera dprojections", legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{DProjections: 16}}}), legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{DProjections: 32}}})},
+			{"hnsw muvera repetitions", legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{Repetitions: 10}}}), legacy(hnswent.UserConfig{Multivector: hnswent.MultivectorConfig{MuveraConfig: hnswent.MuveraConfig{Repetitions: 20}}})},
+			// Flat query-time knobs.
+			{"flat vectorCacheMaxObjects", legacy(flatent.UserConfig{VectorCacheMaxObjects: 1}), legacy(flatent.UserConfig{VectorCacheMaxObjects: 2})},
+			{"flat pq rescoreLimit", legacy(flatent.UserConfig{PQ: flatent.CompressionUserConfig{RescoreLimit: 10}}), legacy(flatent.UserConfig{PQ: flatent.CompressionUserConfig{RescoreLimit: 20}})},
+			{"flat pq cache", legacy(flatent.UserConfig{PQ: flatent.CompressionUserConfig{Cache: false}}), legacy(flatent.UserConfig{PQ: flatent.CompressionUserConfig{Cache: true}})},
+			{"flat bq rescoreLimit", legacy(flatent.UserConfig{BQ: flatent.CompressionUserConfig{RescoreLimit: 10}}), legacy(flatent.UserConfig{BQ: flatent.CompressionUserConfig{RescoreLimit: 20}})},
+			{"flat bq cache", legacy(flatent.UserConfig{BQ: flatent.CompressionUserConfig{Cache: false}}), legacy(flatent.UserConfig{BQ: flatent.CompressionUserConfig{Cache: true}})},
+			{"flat sq rescoreLimit", legacy(flatent.UserConfig{SQ: flatent.CompressionUserConfig{RescoreLimit: 10}}), legacy(flatent.UserConfig{SQ: flatent.CompressionUserConfig{RescoreLimit: 20}})},
+			{"flat sq cache", legacy(flatent.UserConfig{SQ: flatent.CompressionUserConfig{Cache: false}}), legacy(flatent.UserConfig{SQ: flatent.CompressionUserConfig{Cache: true}})},
+			{"flat rq rescoreLimit", legacy(flatent.UserConfig{RQ: flatent.RQUserConfig{RescoreLimit: 10}}), legacy(flatent.UserConfig{RQ: flatent.RQUserConfig{RescoreLimit: 20}})},
+			{"flat rq cache", legacy(flatent.UserConfig{RQ: flatent.RQUserConfig{Cache: false}}), legacy(flatent.UserConfig{RQ: flatent.RQUserConfig{Cache: true}})},
+			// Dynamic — Threshold is query-time-safe (the flat→HNSW upgrade it gates is deferred during
+			// a move and the schema is replicated to both replicas, so no divergence), plus recursion
+			// into both phases' query-time knobs.
+			{"dynamic threshold", legacy(dynamicent.UserConfig{Threshold: 1000}), legacy(dynamicent.UserConfig{Threshold: 2000})},
+			{"dynamic hnsw ef", legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{EF: 10}}), legacy(dynamicent.UserConfig{HnswUC: hnswent.UserConfig{EF: 20}})},
+			{"dynamic flat vectorCacheMaxObjects", legacy(dynamicent.UserConfig{FlatUC: flatent.UserConfig{VectorCacheMaxObjects: 1}}), legacy(dynamicent.UserConfig{FlatUC: flatent.UserConfig{VectorCacheMaxObjects: 2}})},
+			// Named vector query-time change.
+			{"named vector ef", named(map[string]any{"v1": hnswent.UserConfig{EF: 10}}), named(map[string]any{"v1": hnswent.UserConfig{EF: 20}})},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -513,6 +578,196 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 		require.NotNil(t, cls)
 		require.Equal(t, hnswent.UserConfig{}, cls.VectorIndexConfig, "config must stay uncompressed after a rejected update")
 	})
+}
+
+// vectorConfigClassification maps every leaf field of the parsed vector-config structs (dotted
+// path, rooted at the index type) to whether it is QUERY-TIME-SAFE (true) or STRUCTURAL (false).
+// It is the single source of truth that Test_vectorConfigClassificationComplete cross-checks against
+// both the struct shape (every leaf must appear — fail-closed) and normalize* (safe ⇔ zeroed).
+var vectorConfigClassification = map[string]bool{
+	// hnsw.UserConfig
+	"hnsw.Skip":                                  true,
+	"hnsw.CleanupIntervalSeconds":                true,
+	"hnsw.MaxConnections":                        true,
+	"hnsw.EFConstruction":                        true,
+	"hnsw.EF":                                    true,
+	"hnsw.DynamicEFMin":                          true,
+	"hnsw.DynamicEFMax":                          true,
+	"hnsw.DynamicEFFactor":                       true,
+	"hnsw.VectorCacheMaxObjects":                 true,
+	"hnsw.FlatSearchCutoff":                      true,
+	"hnsw.Distance":                              false,
+	"hnsw.FilterStrategy":                        true,
+	"hnsw.SkipDefaultQuantization":               true,
+	"hnsw.TrackDefaultQuantization":              true,
+	"hnsw.PQ.Enabled":                            false,
+	"hnsw.PQ.BitCompression":                     false,
+	"hnsw.PQ.Segments":                           false,
+	"hnsw.PQ.Centroids":                          false,
+	"hnsw.PQ.TrainingLimit":                      false,
+	"hnsw.PQ.Encoder.Type":                       false,
+	"hnsw.PQ.Encoder.Distribution":               false,
+	"hnsw.BQ.Enabled":                            false,
+	"hnsw.SQ.Enabled":                            false,
+	"hnsw.SQ.TrainingLimit":                      false,
+	"hnsw.SQ.RescoreLimit":                       true,
+	"hnsw.RQ.Enabled":                            false,
+	"hnsw.RQ.Bits":                               false,
+	"hnsw.RQ.RescoreLimit":                       true,
+	"hnsw.Multivector.Enabled":                   true,
+	"hnsw.Multivector.Aggregation":               true,
+	"hnsw.Multivector.MuveraConfig.Enabled":      true,
+	"hnsw.Multivector.MuveraConfig.KSim":         true,
+	"hnsw.Multivector.MuveraConfig.DProjections": true,
+	"hnsw.Multivector.MuveraConfig.Repetitions":  true,
+	// flat.UserConfig
+	"flat.Distance":                 false,
+	"flat.VectorCacheMaxObjects":    true,
+	"flat.SkipDefaultQuantization":  true,
+	"flat.TrackDefaultQuantization": true,
+	"flat.PQ.Enabled":               false,
+	"flat.PQ.RescoreLimit":          true,
+	"flat.PQ.Cache":                 true,
+	"flat.BQ.Enabled":               false,
+	"flat.BQ.RescoreLimit":          true,
+	"flat.BQ.Cache":                 true,
+	"flat.SQ.Enabled":               false,
+	"flat.SQ.RescoreLimit":          true,
+	"flat.SQ.Cache":                 true,
+	"flat.RQ.Enabled":               false,
+	"flat.RQ.RescoreLimit":          true,
+	"flat.RQ.Cache":                 true,
+	"flat.RQ.Bits":                  false,
+	// dynamic.UserConfig (HnswUC/FlatUC recurse under the base hnsw/flat prefixes, not here)
+	"dynamic.Distance":  false,
+	"dynamic.Threshold": true,
+}
+
+// classificationNestedStructs are the config sub-structs the walk recurses into rather than
+// treating as opaque leaves. Dynamic's HnswUC/FlatUC are handled specially (base-prefix remap).
+var classificationNestedStructs = map[reflect.Type]bool{
+	reflect.TypeOf(hnswent.PQConfig{}):              true,
+	reflect.TypeOf(hnswent.PQEncoder{}):             true,
+	reflect.TypeOf(hnswent.BQConfig{}):              true,
+	reflect.TypeOf(hnswent.SQConfig{}):              true,
+	reflect.TypeOf(hnswent.RQConfig{}):              true,
+	reflect.TypeOf(hnswent.MultivectorConfig{}):     true,
+	reflect.TypeOf(hnswent.MuveraConfig{}):          true,
+	reflect.TypeOf(flatent.CompressionUserConfig{}): true,
+	reflect.TypeOf(flatent.RQUserConfig{}):          true,
+}
+
+// Test_vectorConfigClassificationComplete is the fail-closed guarantee: it forces every leaf of
+// every parsed vector-config struct to be consciously classified, and verifies normalize* zeroes
+// exactly the safe leaves. A newly-added field that nobody classifies makes this test fail, which
+// is the whole point — it cannot silently default to query-time-safe and slip past the move guard.
+func Test_vectorConfigClassificationComplete(t *testing.T) {
+	hnswType := reflect.TypeOf(hnswent.UserConfig{})
+	flatType := reflect.TypeOf(flatent.UserConfig{})
+	dynamicType := reflect.TypeOf(dynamicent.UserConfig{})
+
+	t.Run("every leaf is classified", func(t *testing.T) {
+		var missing []string
+		var walk func(prefix string, typ reflect.Type)
+		walk = func(prefix string, typ reflect.Type) {
+			for i := 0; i < typ.NumField(); i++ {
+				f := typ.Field(i)
+				switch {
+				case classificationNestedStructs[f.Type]:
+					walk(prefix+"."+f.Name, f.Type)
+				case f.Name == "HnswUC":
+					walk("hnsw", f.Type) // dynamic's HNSW phase reuses the base hnsw classification
+				case f.Name == "FlatUC":
+					walk("flat", f.Type)
+				default:
+					path := prefix + "." + f.Name
+					if _, ok := vectorConfigClassification[path]; !ok {
+						missing = append(missing, path)
+					}
+				}
+			}
+		}
+		walk("hnsw", hnswType)
+		walk("flat", flatType)
+		walk("dynamic", dynamicType)
+		require.Empty(t, missing,
+			"unclassified vector-config field(s) — classify in vectorConfigClassification AND normalize*: %v", missing)
+	})
+
+	t.Run("normalize zeroes exactly the safe leaves", func(t *testing.T) {
+		hnswNorm := normalizeHNSW(populatedHNSW())
+		flatNorm := normalizeFlat(populatedFlat())
+		// assertLeaves walks a normalized value and checks each leaf against the registry: safe ⇒
+		// must be zero (got normalized away); structural ⇒ must be preserved (sentinel non-zero).
+		var assertLeaves func(prefix string, v reflect.Value)
+		assertLeaves = func(prefix string, v reflect.Value) {
+			typ := v.Type()
+			for i := 0; i < typ.NumField(); i++ {
+				f := typ.Field(i)
+				fv := v.Field(i)
+				path := prefix + "." + f.Name
+				if classificationNestedStructs[f.Type] {
+					assertLeaves(path, fv)
+					continue
+				}
+				isSafe := vectorConfigClassification[path]
+				if isSafe {
+					require.True(t, fv.IsZero(), "%s is safe and must be zeroed by normalize", path)
+				} else {
+					require.False(t, fv.IsZero(), "%s is structural and must be preserved by normalize", path)
+				}
+			}
+		}
+		assertLeaves("hnsw", reflect.ValueOf(hnswNorm))
+		assertLeaves("flat", reflect.ValueOf(flatNorm))
+	})
+}
+
+// populatedHNSW returns an HNSW config with every leaf set to a non-zero sentinel, so a normalized
+// copy reveals exactly which leaves normalizeHNSW zeroes.
+func populatedHNSW() hnswent.UserConfig {
+	return hnswent.UserConfig{
+		Skip:                     true,
+		CleanupIntervalSeconds:   1,
+		MaxConnections:           1,
+		EFConstruction:           1,
+		EF:                       1,
+		DynamicEFMin:             1,
+		DynamicEFMax:             1,
+		DynamicEFFactor:          1,
+		VectorCacheMaxObjects:    1,
+		FlatSearchCutoff:         1,
+		Distance:                 "cosine",
+		FilterStrategy:           "acorn",
+		SkipDefaultQuantization:  true,
+		TrackDefaultQuantization: true,
+		PQ: hnswent.PQConfig{
+			Enabled: true, BitCompression: true, Segments: 1, Centroids: 1, TrainingLimit: 1,
+			Encoder: hnswent.PQEncoder{Type: "kmeans", Distribution: "log-normal"},
+		},
+		BQ: hnswent.BQConfig{Enabled: true},
+		SQ: hnswent.SQConfig{Enabled: true, TrainingLimit: 1, RescoreLimit: 1},
+		RQ: hnswent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 1},
+		Multivector: hnswent.MultivectorConfig{
+			Enabled: true, Aggregation: "maxSim",
+			MuveraConfig: hnswent.MuveraConfig{Enabled: true, KSim: 1, DProjections: 1, Repetitions: 1},
+		},
+	}
+}
+
+// populatedFlat returns a flat config with every leaf set to a non-zero sentinel.
+func populatedFlat() flatent.UserConfig {
+	cuc := flatent.CompressionUserConfig{Enabled: true, RescoreLimit: 1, Cache: true}
+	return flatent.UserConfig{
+		Distance:                 "cosine",
+		VectorCacheMaxObjects:    1,
+		SkipDefaultQuantization:  true,
+		TrackDefaultQuantization: true,
+		PQ:                       cuc,
+		BQ:                       cuc,
+		SQ:                       cuc,
+		RQ:                       flatent.RQUserConfig{Enabled: true, RescoreLimit: 1, Cache: true, Bits: 1},
+	}
 }
 
 // Test_UpdateProperty_MovementRejection verifies that disabling a property index is forbidden
