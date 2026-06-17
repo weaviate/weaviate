@@ -26,7 +26,7 @@ import (
 
 var blockMaxBufferSize = 4096
 
-func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
+func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint64]uint32) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
 	if s.readFromMemory {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
@@ -50,7 +50,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]*terms.BlockEntry, 1)
-		propLength := s.invertedData.propertyLengths[data.DocIds[0]]
+		propLength := propLengths[data.DocIds[0]]
 		tf := data.Tfs[0]
 		entries[0] = &terms.BlockEntry{
 			Offset:              0,
@@ -335,7 +335,7 @@ func (s *SegmentBlockMax) reset() error {
 		return err
 	}
 
-	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node)
+	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node, s.propLengths)
 	if err != nil {
 		return err
 	}

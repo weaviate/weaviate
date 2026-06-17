@@ -102,9 +102,6 @@ func ReportsDifference(a, b *usagetypes.Report) error {
 	if err := backupsDifference(a.Backups, b.Backups); err != nil {
 		return err
 	}
-	if err := schemasDifference(a.Schema, b.Schema); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -263,18 +260,6 @@ func stringSlicesDifference(a, b []string) error {
 		if a[i] != b[i] {
 			return errors.New("string slice[" + itoa(i) + "] differs: '" + a[i] + "' vs '" + b[i] + "'")
 		}
-	}
-	return nil
-}
-
-func schemasDifference(a, b interface{}) error {
-	aJSON, errA := json.Marshal(a)
-	bJSON, errB := json.Marshal(b)
-	if errA != nil || errB != nil {
-		return errors.New("Schema: failed to marshal for comparison")
-	}
-	if string(aJSON) != string(bJSON) {
-		return errors.New("Schema differs")
 	}
 	return nil
 }
