@@ -51,41 +51,36 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 		return Node{}, lsmkv.NotFound
 	}
 	var out Node
-	rw := byteops.NewReadWriter(t.data)
+	data := t.data
+	pos := uint64(0)
 
-	// jump to the buffer until the node with _key_ is found or return a NotFound error.
-	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
-	// extracting the necessary pieces of information while skipping the rest
-	NodeKeyBuffer := make([]byte, len(key))
+	// jump through the buffer until the node with _key_ is found or return a
+	// NotFound error. Node keys are compared in place against the tree data, so
+	// the descent allocates nothing; only the matched node's key is materialized
+	// (callers may keep it beyond the underlying segment's lifetime).
 	for {
 		// detect if there is no node with the wanted key.
-		if rw.Position+4 > uint64(len(t.data)) || rw.Position+4 < 4 {
+		if pos+4 > uint64(len(data)) || pos+4 < 4 {
 			return out, lsmkv.NotFound
 		}
 
-		keyLen := rw.ReadUint32()
-		if int(keyLen) > len(NodeKeyBuffer) {
-			NodeKeyBuffer = make([]byte, int(keyLen))
-		} else if int(keyLen) < len(NodeKeyBuffer) {
-			NodeKeyBuffer = NodeKeyBuffer[:keyLen]
-		}
-		_, err := rw.CopyBytesFromBuffer(uint64(keyLen), NodeKeyBuffer)
-		if err != nil {
-			return out, fmt.Errorf("copy node key: %w", err)
+		keyLen := uint64(binary.LittleEndian.Uint32(data[pos:]))
+		pos += 4
+		if pos+keyLen > uint64(len(data)) {
+			return out, fmt.Errorf("copy node key: key at %d len %d out of range", pos, keyLen)
 		}
 
-		keyEqual := bytes.Compare(key, NodeKeyBuffer)
+		keyEqual := bytes.Compare(key, data[pos:pos+keyLen])
+		pos += keyLen
 		if keyEqual == 0 {
-			out.Key = NodeKeyBuffer
-			out.Start = rw.ReadUint64()
-			out.End = rw.ReadUint64()
+			out.Key = bytes.Clone(data[pos-keyLen : pos])
+			out.Start = binary.LittleEndian.Uint64(data[pos:])
+			out.End = binary.LittleEndian.Uint64(data[pos+8:])
 			return out, nil
 		} else if keyEqual < 0 {
-			rw.MoveBufferPositionForward(2 * 8) // jump over start+end position
-			rw.Position = rw.ReadUint64()       // left child
+			pos = binary.LittleEndian.Uint64(data[pos+16:]) // skip start+end, read left child
 		} else {
-			rw.MoveBufferPositionForward(3 * 8) // jump over start+end position and left child
-			rw.Position = rw.ReadUint64()       // right child
+			pos = binary.LittleEndian.Uint64(data[pos+24:]) // skip start+end+left, read right child
 		}
 	}
 }

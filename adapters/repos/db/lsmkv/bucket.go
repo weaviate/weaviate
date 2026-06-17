@@ -2187,70 +2187,100 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// active memtable
 	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
+	// memtable tombstones are invariant within a consistent view; read them once
+	// per query instead of cloning + OR-ing the same bitmaps for every term.
 	memTombstones := sroar.NewBitmap()
+	var activeTombstones *sroar.Bitmap
+	if view.Active != nil {
+		activeTombstones, err = view.Active.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
+		}
+		memTombstones.Or(activeTombstones)
+	}
+	if view.Flushing != nil {
+		flushingTombstones, err := view.Flushing.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+		}
+		memTombstones.Or(flushingTombstones)
+	}
+
+	// per-(segment, term) index nodes prefetched together with the doc counts in
+	// a single index descent (hasKey, getDocCount and the term constructor each
+	// did their own before). diskSkip marks inverted segments where the key is
+	// definitively absent, so construction is not attempted at all.
+	qn := len(query)
+	diskNodes := make([]segmentindex.Node, len(view.Disk)*qn)
+	diskNodeOk := make([]bool, len(view.Disk)*qn)
+	diskSkip := make([]bool, len(view.Disk)*qn)
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
 		n := uint64(0)
 
-		active := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-
-		var activeTombstones *sroar.Bitmap
+		// memtable terms are built only when the memtable actually holds the key
+		// (the common case is that it doesn't — or there is no memtable at all).
+		var active, flushing *SegmentBlockMax
 		if view.Active != nil {
-			n2, _ := fillTerm(view.Active, key, active, filterDocIds)
-			if active.Count() > 0 {
-				output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
-			}
-			n += n2
+			if mapPairs, err := view.Active.getMap(key); err == nil {
+				if active = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config); active != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, active)
+					if active.Count() > 0 {
+						output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
+					}
+					n += n2
 
-			activeTombstones, err = view.Active.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
-			}
-			memTombstones.Or(activeTombstones)
-
-			if !active.Exhausted() {
-				active.advanceOnTombstoneOrFilter()
+					if !active.Exhausted() {
+						active.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
 		}
 
 		if view.Flushing != nil {
-			n2, _ := fillTerm(view.Flushing, key, flushing, filterDocIds)
-			if flushing.Count() > 0 {
-				output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
-			}
-			n += n2
+			if mapPairs, err := view.Flushing.getMap(key); err == nil {
+				if flushing = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config); flushing != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, flushing)
+					if flushing.Count() > 0 {
+						output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
+					}
+					n += n2
 
-			tombstones, err := view.Flushing.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+					if !flushing.Exhausted() {
+						flushing.tombstones = activeTombstones
+						flushing.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
-			memTombstones.Or(tombstones)
-
-			if !flushing.Exhausted() {
-				flushing.tombstones = activeTombstones
-				flushing.advanceOnTombstoneOrFilter()
-			}
-
 		}
 
-		for _, segment := range view.Disk {
-			if segment.getStrategy() == segmentindex.StrategyInverted && segment.hasKey(key) {
-				n += segment.getDocCount(key)
+		for j, segment := range view.Disk {
+			if segment.getStrategy() != segmentindex.StrategyInverted {
+				continue
+			}
+			if node, docCount, ok := segment.getInvertedNodeAndDocCount(key); ok {
+				n += docCount
+				diskNodes[j*qn+i] = node
+				diskNodeOk[j*qn+i] = true
+			} else {
+				diskSkip[j*qn+i] = true
 			}
 		}
 
 		// we can only know the full n after we have checked all segments and all memtables
 		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
 
-		active.idf = idfs[i]
-		active.currentBlockImpact = float32(idfs[i])
-
-		flushing.idf = idfs[i]
-		flushing.currentBlockImpact = float32(idfs[i])
+		if active != nil {
+			active.idf = idfs[i]
+			active.currentBlockImpact = float32(idfs[i])
+		}
+		if flushing != nil {
+			flushing.idf = idfs[i]
+			flushing.currentBlockImpact = float32(idfs[i])
+		}
 
 		idfCounts[queryTerm] = n
 	}
@@ -2273,7 +2303,17 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 
 		for i, key := range query {
-			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
+			idx := j*qn + i
+			if diskSkip[idx] {
+				continue
+			}
+			// non-inverted segments have no prefetched node; the constructor
+			// falls back to its own index lookup exactly as before.
+			var node *segmentindex.Node
+			if diskNodeOk[idx] {
+				node = &diskNodes[idx]
+			}
+			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
