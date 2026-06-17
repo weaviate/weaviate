@@ -203,6 +203,51 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		assert.GreaterOrEqual(t, d, 100*time.Millisecond)
 	})
 
+	t.Run("idle tick executes nothing", func(t *testing.T) {
+		executedCounter1 := 0
+		callback1 := func(shouldAbort ShouldAbortCallback) bool {
+			executedCounter1++
+			return true
+		}
+		executedCounter2 := 0
+		callback2 := func(shouldAbort ShouldAbortCallback) bool {
+			executedCounter2++
+			return true
+		}
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		callbacks.Register("c1", callback1, WithIntervals(NewFixedIntervals(time.Hour)))
+		callbacks.Register("c2", callback2, WithIntervals(NewFixedIntervals(time.Hour)))
+
+		// 1st tick: both callbacks due (registration allows immediate execution)
+		executed := callbacks.CycleCallback(shouldNotAbort)
+		assert.True(t, executed)
+		assert.Equal(t, 1, executedCounter1)
+		assert.Equal(t, 1, executedCounter2)
+
+		// 2nd tick: intervals not elapsed, nothing due
+		executed = callbacks.CycleCallback(shouldNotAbort)
+		assert.False(t, executed)
+		assert.Equal(t, 1, executedCounter1)
+		assert.Equal(t, 1, executedCounter2)
+	})
+
+	t.Run("idle tick prunes ids of unregistered callbacks", func(t *testing.T) {
+		callback := func(shouldAbort ShouldAbortCallback) bool { return true }
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		ctrl1 := callbacks.Register("c1", callback)
+		ctrl2 := callbacks.Register("c2", callback)
+
+		require.NoError(t, ctrl1.Unregister(context.Background()))
+		require.NoError(t, ctrl2.Unregister(context.Background()))
+
+		executed := callbacks.CycleCallback(shouldNotAbort)
+
+		assert.False(t, executed)
+		assert.Empty(t, callbacks.(*cycleCallbackGroup).callbackIds)
+	})
+
 	t.Run("run with intervals", func(T *testing.T) {
 		ticker := NewFixedTicker(10 * time.Millisecond)
 		intervals2 := NewSeriesIntervals([]time.Duration{
