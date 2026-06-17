@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -197,7 +198,8 @@ func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.App
 		return nil, err
 	}
 
-	return cmd.NewClusterServiceClient(conn).Apply(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).Apply(ctx, req)
+	return resp, fromRPCError(err)
 }
 
 // Query will contact the node at leaderRaftAddr and send req to read data in the RAFT store
@@ -279,14 +281,22 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	return cl.leaderRpcConn, nil
 }
 
-// fromRPCError parses the error sent by rpc server
-// to identify status and chain sentinal errors accordingly.
-// This is helpful on the client side to make decision based on
-// type-full errors rather than just string-based error
+// fromRPCError parses the error sent by rpc server to identify status and chain
+// type-full errors accordingly, so the client can make decisions on typed errors
+// rather than raw gRPC status. It re-types by code: a usage-limit rejection
+// (LimitExceededRPCCode) becomes a *LimitExceededError so a follower that forwarded
+// the request still surfaces the canonical 429, and NotFound chains the sentinel.
 func fromRPCError(err error) error {
 	st, ok := status.FromError(err)
-	if ok && (st.Code() == codes.NotFound) {
-		return errors.Join(err, schemaUC.ErrNotFound)
+	if !ok {
+		return err
 	}
-	return err
+	switch st.Code() {
+	case LimitExceededRPCCode:
+		return &usagelimits.LimitExceededError{RenderedMessage: st.Message()}
+	case codes.NotFound:
+		return errors.Join(err, schemaUC.ErrNotFound)
+	default:
+		return err
+	}
 }

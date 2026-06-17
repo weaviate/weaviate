@@ -65,6 +65,10 @@ func TestTenantCap_HardUnderClusterConcurrency(t *testing.T) {
 
 	createMTCollection(t, ctx, nodes[0], className)
 
+	// Barrier: the class is created on nodes[0], but the burst hits all three.
+	// Wait until every node can serve the class before firing
+	waitForClassOnNodes(t, nodes, className)
+
 	// Fire attempts distinct adds concurrently across all nodes. Outcomes are
 	// collected off the test goroutine; assertions run on the main one.
 	type outcome struct {
@@ -87,10 +91,15 @@ func TestTenantCap_HardUnderClusterConcurrency(t *testing.T) {
 
 	var created, rejected, other int
 	var sawTypedReject bool
+	otherStatuses := map[int]int{}
+	var sampleOtherBody string
 	for _, r := range results {
 		switch {
 		case r.err != nil:
 			other++
+			if sampleOtherBody == "" {
+				sampleOtherBody = "client-err: " + r.err.Error()
+			}
 		case r.status >= 200 && r.status < 300:
 			created++
 		case r.status == http.StatusTooManyRequests:
@@ -100,13 +109,20 @@ func TestTenantCap_HardUnderClusterConcurrency(t *testing.T) {
 			}
 		default:
 			other++
+			otherStatuses[r.status]++
+			if sampleOtherBody == "" {
+				sampleOtherBody = fmt.Sprintf("status=%d body=%s", r.status, string(r.body))
+			}
 		}
 	}
 	t.Logf("created=%d rejected(429)=%d other=%d (cap=%d, attempts=%d)",
 		created, rejected, other, maxTenants, attempts)
 
 	assert.Equal(t, maxTenants, created, "exactly cap tenants must be accepted, no overshoot")
-	assert.Positive(t, rejected, "the surplus adds must be rejected")
+	// Every surplus add must come back as a typed 429 — including the ones a
+	// follower forwarded to the leader, which must not degrade to a 5xx/error.
+	assert.Equal(t, attempts-maxTenants, rejected,
+		"every surplus add must be a 429; got other=%d breakdown=%v sample=%q", other, otherStatuses, sampleOtherBody)
 	assert.True(t, sawTypedReject,
 		"at least one rejection must carry the typed USAGE_LIMIT_EXCEEDED/tenants/%d body", maxTenants)
 
@@ -121,6 +137,19 @@ func TestTenantCap_HardUnderClusterConcurrency(t *testing.T) {
 			}
 		}
 	}, 30*time.Second, 500*time.Millisecond, "all nodes must converge to exactly maxTenants")
+}
+
+// waitForClassOnNodes blocks until the freshly-created class is visible on every
+// node, i.e. the schema has propagated cluster-wide.
+func waitForClassOnNodes(t *testing.T, nodes []string, class string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for _, uri := range nodes {
+			helper.SetupClient(strings.TrimPrefix(uri, "http://"))
+			_, err := helper.GetClassWithoutAssert(t, class)
+			assert.NoError(c, err, "class not yet visible on %s", uri)
+		}
+	}, 30*time.Second, 200*time.Millisecond, "class must propagate to all nodes before the burst")
 }
 
 // postOneTenant adds a single tenant and returns the HTTP status + body without
