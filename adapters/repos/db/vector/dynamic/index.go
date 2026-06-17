@@ -91,6 +91,47 @@ type upgradableIndexer interface {
 	UpgradeInProgress() bool
 }
 
+var (
+	upgrading = "upgrading"
+	upgraded  = "upgraded"
+)
+
+type status atomic.Pointer[string]
+
+// IsUpgraded returns true if the index has been upgraded from flat to HNSW.
+func (s *status) IsUpgraded() bool {
+	if s == nil {
+		return false
+	}
+	v := (*atomic.Pointer[string])(s).Load()
+	return v != nil && *v == upgraded
+}
+
+// IsUpgrading returns true if the index is currently being upgraded from flat to HNSW.
+func (s *status) IsUpgrading() bool {
+	if s == nil {
+		return false
+	}
+	v := (*atomic.Pointer[string])(s).Load()
+	return v != nil && *v == upgrading
+}
+
+// Upgrading sets the status to upgrading. This is used to indicate that the index is currently being upgraded from flat to HNSW.
+func (s *status) Upgrading() {
+	if s == nil {
+		return
+	}
+	(*atomic.Pointer[string])(s).Store(&upgrading)
+}
+
+// Upgraded sets the status to upgraded. This is used to indicate that the index has been upgraded from flat to HNSW.
+func (s *status) Upgraded() {
+	if s == nil {
+		return
+	}
+	(*atomic.Pointer[string])(s).Store(&upgraded)
+}
+
 type dynamic struct {
 	sync.RWMutex
 	id                           string
@@ -108,22 +149,19 @@ type dynamic struct {
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
 	index                        VectorIndex
-	upgraded                     atomic.Bool
-	// upgrading spans Upgrade() through doUpgrade completion; HaltForTransfer
-	// reads it via UpgradeInProgress() to defer a replica movement.
-	upgrading               atomic.Bool
-	upgradeOnce             sync.Once
-	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
-	uc                      ent.UserConfig
-	db                      *bbolt.DB
-	ctx                     context.Context
-	cancel                  context.CancelFunc
-	hnswDisableSnapshots    bool
-	hnswSnapshotOnStartup   bool
-	hnswWaitForCachePrefill bool
-	AllocChecker            memwatch.AllocChecker
-	MakeBucketOptions       lsmkv.MakeBucketOptions
-	AsyncIndexingEnabled    bool
+	status                       status
+	upgradeOnce                  sync.Once
+	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
+	uc                           ent.UserConfig
+	db                           *bbolt.DB
+	ctx                          context.Context
+	cancel                       context.CancelFunc
+	hnswDisableSnapshots         bool
+	hnswSnapshotOnStartup        bool
+	hnswWaitForCachePrefill      bool
+	AllocChecker                 memwatch.AllocChecker
+	MakeBucketOptions            lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled         bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -184,7 +222,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	if upgraded {
-		index.upgraded.Store(true)
+		index.status.Upgraded()
 		hnsw, err := hnsw.New(
 			hnsw.Config{
 				Logger:                       index.logger,
@@ -362,7 +400,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
-	if dynamic.upgraded.Load() {
+	if dynamic.status.IsUpgraded() {
 		dynamic.RLock()
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
@@ -474,7 +512,7 @@ func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.Query
 }
 
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
-	if !dynamic.upgraded.Load() {
+	if !dynamic.status.IsUpgraded() {
 		return true, int(dynamic.threshold)
 	}
 	dynamic.RLock()
@@ -485,16 +523,16 @@ func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 func (dynamic *dynamic) Upgraded() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.upgraded.Load() && dynamic.index.(upgradableIndexer).Upgraded()
+	return dynamic.status.IsUpgraded() && dynamic.index.(upgradableIndexer).Upgraded()
 }
 
 // UpgradeInProgress reports a flat→HNSW restructure in flight, or (post-upgrade)
 // an in-flight compression on the inner HNSW.
 func (dynamic *dynamic) UpgradeInProgress() bool {
-	if dynamic.upgrading.Load() {
+	if dynamic.status.IsUpgrading() {
 		return true
 	}
-	if !dynamic.upgraded.Load() {
+	if !dynamic.status.IsUpgraded() {
 		return false
 	}
 	dynamic.RLock()
@@ -516,16 +554,15 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return dynamic.ctx.Err()
 	}
 
-	if dynamic.upgraded.Load() {
+	if dynamic.status.IsUpgraded() {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
 
 	dynamic.upgradeOnce.Do(func() {
 		// Set before GoWrapper so a movement landing in the goroutine-scheduling
 		// window cannot slip past HaltForTransfer.
-		dynamic.upgrading.Store(true)
+		dynamic.status.Upgrading()
 		enterrors.GoWrapper(func() {
-			defer dynamic.upgrading.Store(false)
 			defer callback()
 			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
@@ -611,7 +648,7 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	dynamic.index.Drop(dynamic.ctx, false)
 	dynamic.index = index
-	dynamic.upgraded.Store(true)
+	dynamic.status.Upgraded()
 
 	var errs []error
 	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
@@ -750,7 +787,7 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 func (dynamic *dynamic) IsUpgraded() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.upgraded.Load()
+	return dynamic.status.IsUpgraded()
 }
 
 type DynamicStats struct{}
