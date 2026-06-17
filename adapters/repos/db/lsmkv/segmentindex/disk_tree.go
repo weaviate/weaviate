@@ -52,40 +52,60 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	}
 	var out Node
 	data := t.data
+	dataLen := uint64(len(data))
 	pos := uint64(0)
 
 	// jump through the buffer until the node with _key_ is found or return a
 	// NotFound error. Node keys are compared in place against the tree data, so
 	// the descent allocates nothing; only the matched node's key is materialized
 	// (callers may keep it beyond the underlying segment's lifetime).
+	//
+	// pos can be an arbitrary child offset read from possibly corrupt data, so
+	// every read is bounds-checked against dataLen-pos (never pos+n, which would
+	// wrap). Truncated or corrupt data yields NotFound or an error, never a panic.
 	for {
-		// detect if there is no node with the wanted key.
-		if pos+4 > uint64(len(data)) || pos+4 < 4 {
+		// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8].
+		if pos+4 > dataLen || pos+4 < 4 {
 			return out, lsmkv.NotFound
 		}
 
 		keyLen := uint64(binary.LittleEndian.Uint32(data[pos:]))
 		pos += 4
-		if pos+keyLen > uint64(len(data)) {
-			return out, fmt.Errorf("copy node key: key at %d len %d out of range", pos, keyLen)
+		if keyLen > dataLen-pos {
+			return out, fmt.Errorf("node key at %d len %d out of range", pos, keyLen)
 		}
 
 		keyEqual := bytes.Compare(key, data[pos:pos+keyLen])
 		pos += keyLen
+		avail := dataLen - pos
 		if keyEqual == 0 {
+			if avail < 16 { // start + end
+				return out, fmt.Errorf("node value at %d out of range", pos)
+			}
 			out.Key = bytes.Clone(data[pos-keyLen : pos])
 			out.Start = binary.LittleEndian.Uint64(data[pos:])
 			out.End = binary.LittleEndian.Uint64(data[pos+8:])
 			return out, nil
 		} else if keyEqual < 0 {
+			if avail < 24 { // start + end + left child
+				return out, fmt.Errorf("node left child at %d out of range", pos)
+			}
 			pos = binary.LittleEndian.Uint64(data[pos+16:]) // skip start+end, read left child
 		} else {
+			if avail < 32 { // start + end + left + right child
+				return out, fmt.Errorf("node right child at %d out of range", pos)
+			}
 			pos = binary.LittleEndian.Uint64(data[pos+24:]) // skip start+end+left, read right child
 		}
 	}
 }
 
 func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
+	// offset is a child pointer that may be corrupt; bound it before slicing so a
+	// stray value yields an error instead of an out-of-range panic.
+	if offset < 0 || offset > int64(len(t.data)) {
+		return dtNode{}, fmt.Errorf("node offset %d out of range (buffer %d)", offset, len(t.data))
+	}
 	retNode, _, err := t.readNode(t.data[offset:])
 	return retNode, err
 }
@@ -101,6 +121,13 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 	rw := byteops.NewReadWriter(in)
 
 	keyLen := uint64(rw.ReadUint32())
+	// the whole node is keyLen + TREE_KEY_STORE_OVERHEAD bytes; the len check
+	// above only covers a zero-length key. Reject a keyLen that would push the
+	// key or the fixed trailer past the buffer (corrupt/truncated index) so the
+	// reads below cannot panic. Compared against len(in)-overhead to avoid wrap.
+	if keyLen > uint64(len(in))-TREE_KEY_STORE_OVERHEAD {
+		return out, int(rw.Position), fmt.Errorf("node key len %d out of range (buffer %d)", keyLen, len(in))
+	}
 	copiedBytes, err := rw.CopyBytesFromBuffer(keyLen, nil)
 	if err != nil {
 		return out, int(rw.Position), fmt.Errorf("copy node key: %w", err)
