@@ -106,7 +106,8 @@ func (s *segment) loadPropertyLengthsStats() error {
 	propertyLengthsSize := binary.LittleEndian.Uint64(buffer[16:24])
 
 	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
-		return s.loadPropertyLengthsLocked()
+		_, _, _, _, err := s.loadPropertyLengthsLocked()
+		return err
 	}
 
 	s.invertedData.propertyLengthsStatsLoaded = true
@@ -119,23 +120,27 @@ func (s *segment) loadPropertyLengthsStats() error {
 func (s *segment) loadPropertyLengths() error {
 	s.invertedData.lockInvertedData.Lock()
 	defer s.invertedData.lockInvertedData.Unlock()
-	return s.loadPropertyLengthsLocked()
+	_, _, _, _, err := s.loadPropertyLengthsLocked()
+	return err
 }
 
-// loadPropertyLengthsLocked requires the caller to hold lockInvertedData.
-func (s *segment) loadPropertyLengthsLocked() error {
+// loadPropertyLengthsLocked requires the caller to hold lockInvertedData. It
+// returns the loaded arrays so callers needn't re-read the struct after
+// unlocking, where a freePropertyLengths could have niled them.
+func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uint32, error) {
 	if s.strategy != segmentindex.StrategyInverted {
-		return fmt.Errorf("property only supported for inverted strategy")
+		return nil, 0, nil, nil, fmt.Errorf("property only supported for inverted strategy")
 	}
 
 	if s.invertedData.propertyLengthsLoaded {
-		return nil
+		return s.invertedData.propLengthsDense, s.invertedData.propLengthsMin,
+			s.invertedData.propLengthIds, s.invertedData.propLengthLens, nil
 	}
 
 	buffer := make([]byte, 8*3)
 
 	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.PropertyLengthsOffset, s.invertedHeader.PropertyLengthsOffset + 8*3}); err != nil {
-		return fmt.Errorf("copy node: %w", err)
+		return nil, 0, nil, nil, fmt.Errorf("copy node: %w", err)
 	}
 
 	// don't re-write stats already set at open: readers access them unlocked
@@ -148,7 +153,7 @@ func (s *segment) loadPropertyLengthsLocked() error {
 
 	if propertyLengthsSize == 0 {
 		s.invertedData.propertyLengthsLoaded = true
-		return nil
+		return nil, 0, nil, nil, nil
 	}
 
 	propertyLengthsStart := s.invertedHeader.PropertyLengthsOffset + 16 + 8
@@ -156,11 +161,11 @@ func (s *segment) loadPropertyLengthsLocked() error {
 
 	buffer = make([]byte, propertyLengthsSize)
 	if err := s.copyNode(buffer, nodeOffset{propertyLengthsStart, propertyLengthsEnd}); err != nil {
-		return fmt.Errorf("copy node: %w", err)
+		return nil, 0, nil, nil, fmt.Errorf("copy node: %w", err)
 	}
 	ids, lens, err := gobenc.DecodePairs(buffer)
 	if err != nil {
-		return fmt.Errorf("decode property lengths: %w", err)
+		return nil, 0, nil, nil, fmt.Errorf("decode property lengths: %w", err)
 	}
 
 	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
@@ -177,16 +182,24 @@ func (s *segment) loadPropertyLengthsLocked() error {
 
 	if len(ids) > 0 {
 		minID, maxID := ids[0], ids[0]
-		for _, id := range ids[1:] {
-			if id < minID {
-				minID = id
+		// min/max only feed the dense gate, so stop at the first zero length — a
+		// zero rules dense out anyway (see the gate below)
+		hasZeroLen := lens[0] == 0
+		for i := 1; i < len(ids) && !hasZeroLen; i++ {
+			if ids[i] < minID {
+				minID = ids[i]
 			}
-			if id > maxID {
-				maxID = id
+			if ids[i] > maxID {
+				maxID = ids[i]
+			}
+			if lens[i] == 0 {
+				hasZeroLen = true
 			}
 		}
 		span := maxID - minID + 1
-		if span/3 <= uint64(len(ids)) {
+		// dense uses 0 as the "docID absent" sentinel (getPropertyLengths drops
+		// zero slots), so a stored 0 would be lost — keep pairs when one exists.
+		if !hasZeroLen && span != 0 && span/3 <= uint64(len(ids)) {
 			// dense path: direct-indexed fill, no sort needed (unlike the pairs branch)
 			dense := make([]uint32, span)
 			for i, id := range ids {
@@ -202,7 +215,8 @@ func (s *segment) loadPropertyLengthsLocked() error {
 	}
 
 	s.invertedData.propertyLengthsLoaded = true
-	return nil
+	return s.invertedData.propLengthsDense, s.invertedData.propLengthsMin,
+		s.invertedData.propLengthIds, s.invertedData.propLengthLens, nil
 }
 
 // sortPropLenPairs sorts both arrays in tandem by docID using an LSD radix sort
@@ -301,8 +315,8 @@ func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
 		return nil, err
 	}
 	if dense != nil {
-		// stored lengths are always >= 1, so zero slots are exactly the absent
-		// docIDs and the reconstruction reproduces the stored key set
+		// dense is only chosen when no stored length is 0, so a zero slot is
+		// always an absent docID and the reconstruction reproduces the key set
 		m := make(map[uint64]uint32)
 		for i, l := range dense {
 			if l != 0 {
@@ -384,11 +398,10 @@ func mergePropLenPairs(ids1 []uint64, lens1 []uint32, ids2 []uint64, lens2 []uin
 	return outIDs, outLens
 }
 
-// propLengthArrays ensures the per-document arrays are loaded and returns them.
-// The loaded check and the array read share one critical section: a concurrent
-// freePropertyLengths can flip loaded back to false and nil the arrays, so a
-// dropped lock between them could hand a live reader empty data. The returned
-// slices alias the cached arrays (immutable while referenced).
+// propLengthArrays loads (if needed) and returns the per-document arrays. Both
+// paths capture the arrays under the lock. The returned slices alias the cached
+// arrays; a later freePropertyLengths nils the struct fields but not these
+// headers, so a reader's slices stay valid.
 func (s *segment) propLengthArrays() (dense []uint32, minID uint64, ids []uint64, lens []uint32, err error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, 0, nil, nil, fmt.Errorf("property length only supported for inverted strategy")
@@ -403,14 +416,9 @@ func (s *segment) propLengthArrays() (dense []uint32, minID uint64, ids []uint64
 	}
 	s.invertedData.lockInvertedData.RUnlock()
 
-	if err := s.loadPropertyLengths(); err != nil {
-		return nil, 0, nil, nil, err
-	}
-
-	s.invertedData.lockInvertedData.RLock()
-	defer s.invertedData.lockInvertedData.RUnlock()
-	return s.invertedData.propLengthsDense, s.invertedData.propLengthsMin,
-		s.invertedData.propLengthIds, s.invertedData.propLengthLens, nil
+	s.invertedData.lockInvertedData.Lock()
+	defer s.invertedData.lockInvertedData.Unlock()
+	return s.loadPropertyLengthsLocked()
 }
 
 // propLengthsView is a no-IO per-docID lookup over a segment's property

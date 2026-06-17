@@ -39,7 +39,6 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 			s.index.Config.MemtablesMaxActiveSeconds,
 		),
 		lsmkv.WithLazySegmentLoading(s.lazySegmentLoadingEnabled),
-		lsmkv.WithLazyPropertyLengths(s.index.Config.LazyPropertyLengthsEnabled),
 	}
 
 	switch strategy {

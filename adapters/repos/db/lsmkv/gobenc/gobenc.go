@@ -165,10 +165,9 @@ func Decode(data []byte) (map[uint64]uint32, error) {
 	return m, nil
 }
 
-// DecodePairs deserializes gob-encoded map[uint64]uint32 bytes into two
-// parallel slices, pre-allocated at the exact entry count from the stream —
-// the map is never materialized. Entries are returned in stream order (gob
-// writes map iteration order, i.e. effectively random); callers sort.
+// DecodePairs deserializes gob-encoded map[uint64]uint32 bytes into two parallel
+// slices in unspecified order (gob stores map-iteration order; the fallback
+// re-ranges a map), so callers needing order must sort.
 func DecodePairs(data []byte) ([]uint64, []uint32, error) {
 	ids, lens, err := decodePairsFast(data)
 	if err == nil {
