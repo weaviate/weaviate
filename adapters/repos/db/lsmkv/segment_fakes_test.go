@@ -385,6 +385,19 @@ func (s *fakeSegment) getDocCount(key []byte) uint64 {
 	return uint64(len(s.collectionStore[string(key)]))
 }
 
+func (s *fakeSegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return segmentindex.Node{}, 0, false
+	}
+	pairs, ok := s.collectionStore[string(key)]
+	if !ok {
+		return segmentindex.Node{}, 0, false
+	}
+	// the fake's newSegmentBlockMax rebuilds terms from collectionStore and
+	// ignores the node, so a zero node with the right count is sufficient
+	return segmentindex.Node{Key: key}, uint64(len(pairs)), true
+}
+
 func (s *fakeSegment) getCountNetAdditions() int {
 	// NOTE: This oversimplified fake implementation ignores deletes and updates,
 	// it pretends every write is a unique insert.
@@ -433,7 +446,7 @@ func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) e
 	return nil
 }
 
-func (s *fakeSegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+func (s *fakeSegment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	// we're taking a bit of a creative route to make this work with a fake
 	// segment. We have existing functions to create a SegmentBlockMax from a
 	// memtable which are used with real memtables. So if we convert the fake

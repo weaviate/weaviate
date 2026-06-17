@@ -202,8 +202,17 @@ type SegmentBlockMax struct {
 	Metrics BlockMetrics
 }
 
-func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
-	return NewSegmentBlockMax(s, key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
+// node may carry the term's index node prefetched by getInvertedNodeAndDocCount
+// (one descent for docCount + construction); nil means look it up here.
+func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	if node == nil {
+		n, err := s.index.Get(key)
+		if err != nil {
+			return nil
+		}
+		node = &n
+	}
+	return newSegmentBlockMaxFromNode(s, *node, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
 }
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
@@ -211,7 +220,10 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	if err != nil {
 		return nil
 	}
+	return newSegmentBlockMaxFromNode(s, node, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
+}
 
+func newSegmentBlockMaxFromNode(s *segment, node segmentindex.Node, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	// if filter is empty after checking for tombstones,
 	// we can skip it and return nil for the segment
 	if filterDocIds != nil && filterDocIds.IsEmpty() {
@@ -255,8 +267,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		sectionReader: sectionReader,
 	}
 
-	err = output.reset()
-	if err != nil {
+	if err := output.reset(); err != nil {
 		return nil
 	}
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
