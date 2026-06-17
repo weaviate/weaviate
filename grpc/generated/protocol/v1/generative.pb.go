@@ -1281,6 +1281,7 @@ type GenerativeGoogle struct {
 	Region           *string                `protobuf:"bytes,12,opt,name=region,proto3,oneof" json:"region,omitempty"`
 	Images           *TextArray             `protobuf:"bytes,13,opt,name=images,proto3,oneof" json:"images,omitempty"`
 	ImageProperties  *TextArray             `protobuf:"bytes,14,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	Location         *string                `protobuf:"bytes,15,opt,name=location,proto3,oneof" json:"location,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1411,6 +1412,13 @@ func (x *GenerativeGoogle) GetImageProperties() *TextArray {
 		return x.ImageProperties
 	}
 	return nil
+}
+
+func (x *GenerativeGoogle) GetLocation() string {
+	if x != nil && x.Location != nil {
+		return *x.Location
+	}
+	return ""
 }
 
 type GenerativeDatabricks struct {
@@ -3989,7 +3997,7 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\x11_image_propertiesB\x13\n" +
 	"\x11_reasoning_effortB\f\n" +
 	"\n" +
-	"_verbosity\"\xb4\x06\n" +
+	"_verbosity\"\xe2\x06\n" +
 	"\x10GenerativeGoogle\x120\n" +
 	"\x11frequency_penalty\x18\x01 \x01(\x01H\x00R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
 	"\n" +
@@ -4009,7 +4017,8 @@ const file_v1_generative_proto_rawDesc = "" +
 	"endpointId\x88\x01\x01\x12\x1b\n" +
 	"\x06region\x18\f \x01(\tH\vR\x06region\x88\x01\x01\x123\n" +
 	"\x06images\x18\r \x01(\v2\x16.weaviate.v1.TextArrayH\fR\x06images\x88\x01\x01\x12F\n" +
-	"\x10image_properties\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\rR\x0fimageProperties\x88\x01\x01B\x14\n" +
+	"\x10image_properties\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\rR\x0fimageProperties\x88\x01\x01\x12\x1f\n" +
+	"\blocation\x18\x0f \x01(\tH\x0eR\blocation\x88\x01\x01B\x14\n" +
 	"\x12_frequency_penaltyB\r\n" +
 	"\v_max_tokensB\b\n" +
 	"\x06_modelB\x13\n" +
@@ -4023,7 +4032,8 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\f_endpoint_idB\t\n" +
 	"\a_regionB\t\n" +
 	"\a_imagesB\x13\n" +
-	"\x11_image_properties\"\xc2\x04\n" +
+	"\x11_image_propertiesB\v\n" +
+	"\t_location\"\xc2\x04\n" +
 	"\x14GenerativeDatabricks\x12\x1f\n" +
 	"\bendpoint\x18\x01 \x01(\tH\x00R\bendpoint\x88\x01\x01\x12\x19\n" +
 	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x120\n" +

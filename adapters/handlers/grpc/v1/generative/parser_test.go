@@ -802,6 +802,7 @@ func Test_RequestParser(t *testing.T) {
 									TopP:             makeFloat64Ptr(0.5),
 									FrequencyPenalty: makeFloat64Ptr(0.5),
 									PresencePenalty:  makeFloat64Ptr(0.5),
+									Location:         makeStrPtr("global"),
 									StopSequences: &pb.TextArray{
 										Values: []string{"stop"},
 									},
@@ -822,6 +823,7 @@ func Test_RequestParser(t *testing.T) {
 						TopP:             makeFloat64Ptr(0.5),
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
+						Location:         "global",
 						StopSequences:    []string{"stop"},
 					},
 				},
