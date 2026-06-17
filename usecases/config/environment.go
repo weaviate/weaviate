@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -2008,22 +2007,6 @@ func parseClusterConfig() (cluster.Config, error) {
 			}
 		}
 	}
-
-	requestQueueIsEnabled := entcfg.Enabled(os.Getenv("REPLICATED_INDICES_REQUEST_QUEUE_ENABLED"))
-	cfg.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(requestQueueIsEnabled)
-	// choosing runtime.GOMAXPROCS(0)*2 for the number of workers as a reasonable default, but can be overridden
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS",
-		func(val int) { cfg.RequestQueueConfig.NumWorkers = val },
-		runtime.GOMAXPROCS(0)*2)
-	parseNonNegativeInt("REPLICATED_INDICES_REQUEST_QUEUE_SIZE",
-		func(val int) { cfg.RequestQueueConfig.QueueSize = val },
-		cluster.DefaultRequestQueueSize)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
-		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
-		cluster.DefaultRequestQueueFullHttpStatus)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
-		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
-		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }
