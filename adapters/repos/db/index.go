@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -230,9 +231,11 @@ type Index struct {
 
 	getSchema    schemaUC.SchemaGetter
 	schemaReader schemaUC.SchemaReader
-	logger       logrus.FieldLogger
-	remote       *sharding.RemoteIndex
-	stopwords    *stopwords.Detector
+
+	replicationFSMReader replicationTypes.ReplicationFSMReader
+	logger               logrus.FieldLogger
+	remote               *sharding.RemoteIndex
+	stopwords            *stopwords.Detector
 	// stopwordProvider bundles the collection-level stopword detector and the
 	// cached user-defined preset detectors. It is replaced atomically when
 	// invertedIndexConfig is updated, so reads on hot query paths do not need
@@ -898,17 +901,14 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
 }
 
-// applyAsyncReplicationToLoadedShardsLocked (re-)applies the current
-// enable/disable decision to every loaded shard. enable/disableAsyncReplication
-// are idempotent, so this is safe to call again.
+// applyAsyncReplicationToLoadedShardsLocked (re-)applies the per-shard
+// enable/disable decision to every loaded shard. The decision is per-shard, so
+// an over-replicated shard at ReplicationFactor 1 keeps async on (e.g. mid
+// scale-out, or while the factor is lowered before the extra replicas drain).
 //
-// The caller MUST hold i.replicationConfigLock for writing; holding it across
-// the apply is deadlock-free (enable/disableAsyncReplication never reacquire it).
-// Note that enableAsyncReplication does synchronous hashtree disk I/O, so the
-// write lock is held for the whole per-shard apply: hashbeat cycles for this
-// index (which read the lock via AsyncReplicationEnabled) stall until it ends.
+// Caller MUST hold i.replicationConfigLock for writing. enableAsyncReplication
+// does synchronous hashtree disk I/O, so hashbeat cycles stall until this ends.
 func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
-	enabled := i.asyncReplicationEnabled()
 	cfg := i.Config.AsyncReplicationConfig
 
 	return i.ForEachLoadedShard(func(name string, shard ShardLike) error {
@@ -923,7 +923,7 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
 		}
 
-		if enabled {
+		if i.asyncReplicationEnabledForShard(name) {
 			if err := ctrl.enableAsyncReplication(ctx, cfg); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
@@ -937,18 +937,13 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 }
 
 // reconcileAsyncReplication re-applies the enable/disable decision to this
-// index's loaded shards. It reacts to a runtime change of the global
-// AsyncReplicationDisabled flag, which would otherwise leave shards loaded
-// while disabled permanently unregistered.
+// index's loaded shards after a runtime change of the global
+// AsyncReplicationDisabled flag. Must not short-circuit on
+// ReplicationFactor <= 1 — over-replicated shards still need async.
 func (i *Index) reconcileAsyncReplication(ctx context.Context) error {
-	// Exclusive lock (matching updateReplicationConfig) so the apply can't
-	// interleave with a concurrent reconcile or be observed half-applied.
 	i.replicationConfigLock.Lock()
 	defer i.replicationConfigLock.Unlock()
 
-	if i.Config.ReplicationFactor <= 1 {
-		return nil // never runs async replication; nothing to reconcile
-	}
 	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
 }
 
@@ -1080,10 +1075,11 @@ type IndexConfig struct {
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
 
-	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
-	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
-	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
-	MaintenanceModeEnabled func() bool
+	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled     *configRuntime.DynamicValue[bool]
+	LazyPropertyLengthsEnabled *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled     func() bool
 
 	HFreshEnabled bool
 
@@ -1349,30 +1345,107 @@ func (i *Index) getShardForRead(
 	return shard, release, nil
 }
 
-func (i *Index) AsyncReplicationEnabled() bool {
-	i.replicationConfigLock.RLock()
-	defer i.replicationConfigLock.RUnlock()
-
-	return i.asyncReplicationEnabled()
-}
-
 func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 }
 
+// asyncReplicationEnabledForShard is the per-shard async-replication gate.
+// Caller MUST hold replicationConfigLock.
+func (i *Index) asyncReplicationEnabledForShard(shardName string) bool {
+	if i.asyncReplicationScheduler == nil {
+		return false
+	}
+
+	if i.asyncReplicationGloballyDisabled() {
+		return false
+	}
+
+	if i.Config.ReplicationFactor > 1 {
+		return true
+	}
+
+	replicas, err := i.schemaReader.ShardReplicas(i.Config.ClassName.String(), shardName)
+	if err != nil {
+		i.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", i.Config.ClassName.String()).
+			WithField("shard_name", shardName).
+			Warnf("asyncReplicationEnabledForShard: could not read shard replicas: %v", err)
+		return false
+	}
+
+	// Over-replication at RF=1: mid scale-out, or RF lowered before extras drained.
+	return len(replicas) > 1
+}
+
+func (i *Index) AsyncReplicationEnabledForShard(shardName string) bool {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.asyncReplicationEnabledForShard(shardName)
+}
+
+func (i *Index) SetReplicationFSMReader(r replicationTypes.ReplicationFSMReader) {
+	i.replicationFSMReader = r
+}
+
 // IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async
-// replication is irrelevant (RF ≤ 1) or enabled (RF > 1 and not globally
-// disabled).
+// replication is irrelevant (RF ≤ 1 and no shard has a non-terminal movement
+// op) or enabled (RF > 1 and not globally disabled).
 //
-// It is config-level by design — per-shard readiness inspection is unstable
-// for multi-tenant classes (tenant shards constantly transition) and would
-// reject create-then-export during warm-up. Reconciliation keeps this view
-// honest by applying the config to loaded shards.
+// The non-terminal-op clause covers the replica-movement window: BelongsToNodes
+// transiently holds source and target, so the export selector could otherwise
+// route the snapshot to either replica via least-loaded scheduling. Per-shard
+// readiness inspection isn't viable here (multi-tenant shards constantly
+// transition and would reject create-then-export during warm-up); the FSM read
+// is safe because it reads RAFT-replicated state that only flips on FSM apply.
 func (i *Index) IsAsyncReplicationEnabledOrIrrelevant() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
-	return i.Config.ReplicationFactor <= 1 || i.asyncReplicationEnabled()
+	if i.Config.ReplicationFactor > 1 {
+		return i.asyncReplicationEnabled()
+	}
+
+	// Conservative on read failure: silently allowing export defeats the gate.
+	midMovement, err := i.anyShardMidMovement()
+	if err != nil {
+		i.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", i.Config.ClassName.String()).
+			Warnf("IsAsyncReplicationEnabledOrIrrelevant: could not read sharding state, refusing export: %v", err)
+		return false
+	}
+	return !midMovement
+}
+
+func (i *Index) anyShardMidMovement() (bool, error) {
+	// Nil reader: treat as "no in-flight ops". Mirrors the runHashbeatCycle
+	// guard so tests without an FSM wired (and any future Index-construction
+	// path that doesn't call SetReplicationFSMReader) don't nil-panic.
+	if i.replicationFSMReader == nil {
+		return false, nil
+	}
+	var midMovement bool
+	className := i.Config.ClassName.String()
+	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
+		}
+		for shardName := range state.Physical {
+			// Short-circuit on first match: map iteration is randomized, so
+			// without this we'd non-deterministically miss other in-flight shards.
+			if i.replicationFSMReader.HasActiveReplicationForShard(className, shardName) {
+				midMovement = true
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return midMovement, nil
 }
 
 func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
@@ -1434,7 +1507,31 @@ func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName str
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
-	if i.asyncReplicationEnabled() {
+	if i.asyncReplicationEnabledForShard(shardName) {
+		return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
+	}
+	return ctrl.disableAsyncReplication(ctx)
+}
+
+// ReconcileAsyncReplicationForShard re-applies the per-shard async-replication
+// decision after a replica was added or removed. No-op when the shard is not
+// loaded locally — it must not be force-loaded just to toggle async; the init
+// gate re-derives on next load.
+func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	if i.asyncReplicationEnabledForShard(shardName) {
 		return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
 	}
 	return ctrl.disableAsyncReplication(ctx)

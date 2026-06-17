@@ -598,9 +598,11 @@ func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly 
 			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode) },
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+					if err := s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode); err != nil {
+						return err
+					}
 				}
-				return nil
+				return s.db.ReconcileAsyncReplicationForShard(req.Class, req.Shard)
 			},
 			schemaOnly: schemaOnly,
 		},
@@ -621,9 +623,11 @@ func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schema
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					return s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode)
+					if err := s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode); err != nil {
+						return err
+					}
 				}
-				return nil
+				return s.db.ReconcileAsyncReplicationForShard(req.Class, req.Shard)
 			},
 			schemaOnly: schemaOnly,
 		},
@@ -824,9 +828,11 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+					if err := s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode); err != nil {
+						return err
+					}
 				}
-				return nil
+				return s.db.ReconcileAsyncReplicationForShard(req.Class, req.Shard)
 			},
 			schemaOnly: schemaOnly,
 		},

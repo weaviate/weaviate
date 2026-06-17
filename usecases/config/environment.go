@@ -437,6 +437,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to false (debug surface closed) only when nothing set it.
+	if v, ok := os.LookupEnv("DEBUG_ENDPOINTS_ENABLED"); ok {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.Profiling.DebugEndpointsEnabled == nil {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(false)
+	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -581,12 +588,13 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
 		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
 		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
-		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
-		if !slices.Contains(validTypes, defaultVectorIndexType) {
-			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
-		}
 	}
-	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+	defaultVectorIndexWithValidation, err := configRuntime.NewDynamicValueWithValidation(
+		defaultVectorIndexType, NewDefaultVectorIndexValidator())
+	if err != nil {
+		return err
+	}
+	config.DefaultVectorIndexType = defaultVectorIndexWithValidation
 
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
@@ -720,6 +728,10 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = parsed
 	} else {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
+	}
+
+	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
+		config.Backup.SkipAccessCheck = true
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -1381,6 +1393,9 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
+	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
+
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
 		operationalMode = v
@@ -1813,14 +1828,14 @@ const (
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
-	DefaultAsyncReplicationSchedulerWorkers    = 10
+	DefaultAsyncReplicationSchedulerWorkers    = 3
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
 	// scaleDownCh) are all sized relative to this value; exceeding it requires
 	// a code change, so we enforce it at config parse time rather than silently
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
-	DefaultAsyncReplicationHashtreeInitConcurrency = 100
+	DefaultAsyncReplicationHashtreeInitConcurrency = 10
 	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
 	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
 	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
@@ -2225,5 +2240,9 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.DefaultPath == nil {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
+
+	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
+		c.Export.SkipAccessCheck = true
 	}
 }

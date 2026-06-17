@@ -254,6 +254,25 @@ func (s *ShardReplicationFSM) HasActiveReplicationForCollection(collection strin
 	return false
 }
 
+func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, shard, replica string) bool {
+	ops, ok := s.GetOpsForTargetNode(replica)
+	if !ok {
+		return false
+	}
+	for _, o := range ops {
+		if o.Op.TargetShard.CollectionId != collection || o.Op.TargetShard.ShardId != shard {
+			continue
+		}
+		switch o.Status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			// terminal — does not block async-repl gating
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
 	opsWithStatus := make([]ShardReplicationOpAndStatus, 0, len(ops))
 	for _, op := range ops {

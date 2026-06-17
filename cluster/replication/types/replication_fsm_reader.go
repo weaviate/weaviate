@@ -20,4 +20,7 @@ type ReplicationFSMReader interface {
 	// HasActiveReplicationForShard reports whether a non-terminal replication op exists for
 	// collection/shard, independent of which node hosts the source or target replica.
 	HasActiveReplicationForShard(collection string, shard string) bool
+	// HasActiveTargetReplicationForShard reports whether the FSM currently tracks any
+	// replication op for (collection, shard, targetNode) whose state is non-terminal.
+	HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool
 }

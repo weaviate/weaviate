@@ -1050,7 +1050,7 @@ func uuid4() strfmt.UUID {
 	return strfmt.UUID(id.String())
 }
 
-func TestReplicationFSM_HasActiveReplication(t *testing.T) {
+func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
 	// Node-independence: the op registered below is node1->node2, yet the queries (which
 	// take no node argument) must report it active for its collection/shard on every node.
 	type shardCheck struct {
@@ -1146,8 +1146,8 @@ func TestReplicationFSM_HasActiveReplication(t *testing.T) {
 					"HasActiveReplicationForShard(%q, %q)", c.collection, c.shard)
 			}
 			for _, c := range tt.collectionChecks {
-				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForCollection(c.collection),
-					"HasActiveReplicationForCollection(%q)", c.collection)
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForShard(c.collection, ""),
+					"HasActiveReplicationForShard(%q)", c.collection)
 			}
 		})
 	}
