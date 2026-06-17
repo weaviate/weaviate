@@ -338,13 +338,152 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 		return nil, nil, ErrMuveraNotEnabled
 	}
 
-	queryFlat := h.muveraEncoder.EncodeQuery(vectors)
-	candidateIDs, _, err := h.SearchByVector(ctx, queryFlat, int(h.rescoreLimit), allow)
+	// Encode query vectors into FDE (Fast Dense Encoding) representation
+	queryFDE := h.muveraEncoder.EncodeQuery(vectors)
+
+	// Compute decoupled budgets:
+	// - routingBudget: controls centroid selection and posting scan breadth
+	// - rerankBudget: controls RQ1 candidate depth and MaxSim candidates
+	//
+	// For backward compatibility, routingBudget defaults to max(searchProbe, rescoreLimit)
+	// to preserve the current effective centroid count. This can be tuned separately
+	// in future versions.
+	searchProbe := int(h.searchProbe)
+	rescoreLimit := int(h.rescoreLimit)
+	routingBudget := max(searchProbe, rescoreLimit)
+	rerankBudget := rescoreLimit
+
+	candidateIDs, err := h.searchByFDE(ctx, queryFDE, routingBudget, rerankBudget, allow)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "muvera candidate search")
 	}
 
 	return h.computeLateInteraction(ctx, vectors, k, candidateIDs)
+}
+
+// searchByFDE performs FDE-based search with explicitly decoupled budgets.
+//
+// Parameters:
+//   - queryFDE: the FDE-encoded query vector
+//   - routingBudget: number of centroids to select (controls posting coverage)
+//   - rerankBudget: number of candidates to keep after RQ1 ranking (controls MaxSim depth)
+//   - allow: optional allow list for filtering
+//
+// This separation allows independent tuning of routing breadth vs reranking depth.
+// The routing stage (centroid selection, posting scan) is controlled only by routingBudget.
+// The ranking stage (RQ1 top-N, candidates for late interaction) is controlled only by rerankBudget.
+func (h *HFresh) searchByFDE(
+	ctx context.Context,
+	queryFDE []float32,
+	routingBudget int,
+	rerankBudget int,
+	allowList helpers.AllowList,
+) ([]uint64, error) {
+	queryFDE = h.normalizeVec(queryFDE)
+	if h.quantizer == nil {
+		if atomic.LoadUint32(&h.dims) == 0 {
+			return nil, nil
+		}
+		return nil, errors.New("quantizer not initialized")
+	}
+	queryDistancer := h.quantizer.NewDistancer(queryFDE)
+
+	// Step 1: Centroid selection - controlled by routingBudget only
+	nAllowList := allowList
+	if allowList != nil {
+		nAllowList = h.wrapAllowList(ctx, allowList)
+		defer nAllowList.Close()
+	}
+
+	centroids, err := h.Centroids.Search(queryFDE, routingBudget, nAllowList)
+	if err != nil {
+		return nil, err
+	}
+	if len(centroids.data) == 0 {
+		return nil, nil
+	}
+
+	// Step 2: Filter centroids by distance and posting existence
+	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
+	selectedCentroids := make([]uint64, 0, routingBudget)
+	for i := 0; i < len(centroids.data) && len(selectedCentroids) < routingBudget; i++ {
+		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
+			continue
+		}
+		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			continue
+		}
+		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
+	}
+
+	// Step 3: Scan postings from selected centroids
+	postings, err := h.PostingStore.MultiGet(ctx, selectedCentroids)
+	if err != nil {
+		return nil, err
+	}
+
+	visited := h.visitedPool.Borrow()
+	defer h.visitedPool.Return(visited)
+
+	// Step 4: RQ1 approximate ranking - controlled by rerankBudget only
+	// This is the key decoupling: routingBudget affects centroid count,
+	// rerankBudget affects how many candidates we keep after RQ1 scoring
+	q := NewResultSet(rerankBudget)
+
+	var decompressBuf []uint64
+
+	for i, p := range postings {
+		if p == nil {
+			continue
+		}
+
+		postingSize := len(p)
+
+		for _, v := range p {
+			id := v.ID()
+
+			deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
+			}
+			if deleted {
+				postingSize--
+				continue
+			}
+
+			if visited.CheckAndVisit(id) {
+				continue
+			}
+
+			if allowList != nil && !allowList.Contains(id) {
+				continue
+			}
+
+			decompressBuf = h.quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
+			dist, err := queryDistancer.Distance(decompressBuf)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
+			}
+
+			q.Insert(id, dist)
+		}
+
+		if postingSize < int(h.minPostingSize) {
+			_ = h.taskQueue.EnqueueMerge(selectedCentroids[i])
+		}
+	}
+
+	// Step 5: Return top rerankBudget candidates for late interaction
+	ids := make([]uint64, 0, q.Len())
+	for id := range q.Iter() {
+		ids = append(ids, id)
+	}
+
+	return ids, nil
 }
 
 func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
