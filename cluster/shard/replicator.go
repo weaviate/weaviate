@@ -60,6 +60,11 @@ type Replicator interface {
 	PutObject(ctx context.Context, shard string, obj *storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) error
 	PutObjects(ctx context.Context, shard string, objs []*storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error
 	CountObjects(ctx context.Context, shard string, l routerTypes.ConsistencyLevel) (int, error)
+	WaitForDrain(ctx context.Context, shard string) error
+	BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames []string, cutoffMs int64, createdAt time.Time) (successes, failures int)
+	BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int)
+	BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNames []string) (statuses map[string][]replica.AsyncCheckpointNodeStatus, successes, failures int)
+	CompareDigests(ctx context.Context, shardName string, host string, digests []routerTypes.RepairResponse) ([]routerTypes.RepairResponse, error)
 }
 
 // ShardReader provides read access to a local shard.

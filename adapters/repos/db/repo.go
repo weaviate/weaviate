@@ -54,23 +54,22 @@ import (
 )
 
 type DB struct {
-	logger                         logrus.FieldLogger
-	localNodeName                  string
-	schemaGetter                   schemaUC.SchemaGetter
-	config                         Config
-	indices                        map[string]*Index
-	remoteIndex                    sharding.RemoteIndexClient
-	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
-	replicaClient                  replica.Client
-	raftClient                     shardproto.ShardReplicationServiceClient
-	nodeResolver                   cluster.NodeResolver
-	remoteNode                     *sharding.RemoteNode
-	promMetrics                    *monitoring.PrometheusMetrics
-	indexCheckpoints               *indexcheckpoint.Checkpoints
-	shutdown                       chan struct{}
-	startupComplete                atomic.Bool
-	resourceScanState              *resourceScanState
-	memMonitor                     *memwatch.Monitor
+	logger                    logrus.FieldLogger
+	localNodeName             string
+	schemaGetter              schemaUC.SchemaGetter
+	config                    Config
+	indices                   map[string]*Index
+	remoteIndex               sharding.RemoteIndexClient
+	asyncReplicationScheduler *AsyncReplicationScheduler
+	replicaClient             replica.Client
+	nodeResolver              cluster.NodeResolver
+	remoteNode                *sharding.RemoteNode
+	promMetrics               *monitoring.PrometheusMetrics
+	indexCheckpoints          *indexcheckpoint.Checkpoints
+	shutdown                  chan struct{}
+	startupComplete           atomic.Bool
+	resourceScanState         *resourceScanState
+	memMonitor                *memwatch.Monitor
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,

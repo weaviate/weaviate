@@ -124,9 +124,15 @@ func TestStorage_EntriesErrors(t *testing.T) {
 	require.NoError(t, s.Append(ctx, GroupWrite{
 		GroupID: 1,
 		Entries: []raftpb.Entry{
-			{Index: 1, Term: 1}, {Index: 2, Term: 1}, {Index: 3, Term: 1},
-			{Index: 4, Term: 1}, {Index: 5, Term: 1}, {Index: 6, Term: 1},
-			{Index: 7, Term: 1}, {Index: 8, Term: 1}, {Index: 9, Term: 1},
+			{Index: 1, Term: 1},
+			{Index: 2, Term: 1},
+			{Index: 3, Term: 1},
+			{Index: 4, Term: 1},
+			{Index: 5, Term: 1},
+			{Index: 6, Term: 1},
+			{Index: 7, Term: 1},
+			{Index: 8, Term: 1},
+			{Index: 9, Term: 1},
 			{Index: 10, Term: 1},
 		},
 	}))
@@ -258,8 +264,11 @@ func TestStorage_FirstIndexAfterSnapshot(t *testing.T) {
 	require.NoError(t, s.Append(ctx, GroupWrite{
 		GroupID: 1,
 		Entries: []raftpb.Entry{
-			{Index: 21, Term: 5}, {Index: 22, Term: 5},
-			{Index: 23, Term: 5}, {Index: 24, Term: 5}, {Index: 25, Term: 5},
+			{Index: 21, Term: 5},
+			{Index: 22, Term: 5},
+			{Index: 23, Term: 5},
+			{Index: 24, Term: 5},
+			{Index: 25, Term: 5},
 		},
 	}))
 

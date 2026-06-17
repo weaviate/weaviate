@@ -93,6 +93,7 @@ func newTestIndexForRaftReadiness(
 		NewShardReindexerV3Noop(),
 		roaringset.NewBitmapBufPoolNoop(),
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 
