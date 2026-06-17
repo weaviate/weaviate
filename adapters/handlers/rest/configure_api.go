@@ -678,6 +678,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicaMovementEnabled:          appState.ServerConfig.Config.ReplicaMovementEnabled,
 		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
 		DrainSleep:                      appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		MaxTenantsPerCollection:         appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {

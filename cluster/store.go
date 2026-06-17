@@ -186,6 +186,10 @@ type Config struct {
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
+
+	// MaxTenantsPerCollection caps tenants per collection (nil/negative =
+	// unlimited), re-enforced at apply time. Assumed uniform across nodes.
+	MaxTenantsPerCollection *runtime.DynamicValue[int]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -310,6 +314,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	if dv := cfg.MaxTenantsPerCollection; dv != nil {
+		schemaManager.SetTenantLimit(dv.Get)
+	}
 
 	return Store{
 		cfg:          cfg,

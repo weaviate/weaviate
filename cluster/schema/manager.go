@@ -48,6 +48,8 @@ type SchemaManager struct {
 	parser         Parser
 	log            *logrus.Logger
 	replicationFSM replicationFSM
+	// tenantLimit resolves the tenant cap (negative = unlimited); nil = unenforced.
+	tenantLimit func() int
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -57,6 +59,13 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 		parser: parser,
 		log:    log,
 	}
+}
+
+// SetTenantLimit installs the tenant-cap resolver re-enforced at apply time to
+// close the AddTenants TOCTOU (negative = unlimited; nil = unenforced). Call
+// once during single-threaded FSM bootstrap, before any apply path reads it.
+func (s *SchemaManager) SetTenantLimit(resolver func() int) {
+	s.tenantLimit = resolver
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -475,10 +484,16 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// Resolve the tenant cap once per apply (negative = unlimited).
+	tenantLimit := -1
+	if s.tenantLimit != nil {
+		tenantLimit = s.tenantLimit()
+	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req) },
+			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req, tenantLimit) },
 			updateStore:  func() error { return s.db.AddTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},
