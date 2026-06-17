@@ -16,11 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -204,7 +206,17 @@ func toRPCError(err error) error {
 	var ec codes.Code
 	switch {
 	case isLimit:
-		return status.Error(LimitExceededRPCCode, le.Error())
+		// Dedicated non-retriable code for by-code dispatch on the follower; the
+		// ErrorInfo carries the structured limit/value the REST 429 payload needs
+		// (the message alone can't — it's operator-customizable).
+		st := status.New(LimitExceededRPCCode, le.Error())
+		if d, derr := st.WithDetails(&errdetails.ErrorInfo{
+			Reason:   usagelimits.ErrorCode,
+			Metadata: map[string]string{"limit": string(le.Limit), "value": strconv.FormatInt(le.Value, 10)},
+		}); derr == nil {
+			return d.Err()
+		}
+		return st.Err()
 	case errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
 		ec = NotLeaderRPCCode
 	case errors.Is(err, types.ErrNotOpen):

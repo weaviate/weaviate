@@ -89,42 +89,31 @@ func TestTenantCap_HardUnderClusterConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 
-	var created, rejected, other int
-	var sawTypedReject bool
-	otherStatuses := map[int]int{}
-	var sampleOtherBody string
+	var created, rejected, typedRejects, other int
 	for _, r := range results {
 		switch {
 		case r.err != nil:
 			other++
-			if sampleOtherBody == "" {
-				sampleOtherBody = "client-err: " + r.err.Error()
-			}
 		case r.status >= 200 && r.status < 300:
 			created++
 		case r.status == http.StatusTooManyRequests:
 			rejected++
 			if isTenantLimitBody(r.body, maxTenants) {
-				sawTypedReject = true
+				typedRejects++
 			}
 		default:
 			other++
-			otherStatuses[r.status]++
-			if sampleOtherBody == "" {
-				sampleOtherBody = fmt.Sprintf("status=%d body=%s", r.status, string(r.body))
-			}
 		}
 	}
-	t.Logf("created=%d rejected(429)=%d other=%d (cap=%d, attempts=%d)",
-		created, rejected, other, maxTenants, attempts)
+	t.Logf("created=%d rejected(429)=%d typed=%d other=%d (cap=%d, attempts=%d)",
+		created, rejected, typedRejects, other, maxTenants, attempts)
 
 	assert.Equal(t, maxTenants, created, "exactly cap tenants must be accepted, no overshoot")
 	// Every surplus add must come back as a typed 429 — including the ones a
 	// follower forwarded to the leader, which must not degrade to a 5xx/error.
-	assert.Equal(t, attempts-maxTenants, rejected,
-		"every surplus add must be a 429; got other=%d breakdown=%v sample=%q", other, otherStatuses, sampleOtherBody)
-	assert.True(t, sawTypedReject,
-		"at least one rejection must carry the typed USAGE_LIMIT_EXCEEDED/tenants/%d body", maxTenants)
+	assert.Equal(t, attempts-maxTenants, rejected, "every surplus add must be a 429, not a 5xx/error")
+	assert.Equal(t, rejected, typedRejects,
+		"every 429 must carry the canonical USAGE_LIMIT_EXCEEDED/tenants/%d body", maxTenants)
 
 	// Hard invariant: every node converges to exactly maxTenants. Overshoot would
 	// be permanent, so reaching exactly maxTenants proves the cap held.

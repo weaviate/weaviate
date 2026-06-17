@@ -23,9 +23,9 @@ import (
 
 // TestFromRPCError_LimitExceeded pins the cluster-RPC round-trip of a usage-limit
 // rejection (toRPCError encode → fromRPCError decode): a follower that forwards
-// AddTenants to the leader recovers a typed *LimitExceededError by code
-// (LimitExceededRPCCode) and still returns a 429, while every other error passes
-// through untouched.
+// AddTenants to the leader recovers the full typed *LimitExceededError —
+// message, Limit and Value all intact, so the REST 429 payload isn't degraded —
+// while every other error passes through untouched.
 func TestFromRPCError_LimitExceeded(t *testing.T) {
 	limitErr := usagelimits.NewLimitExceededError(
 		"Free-tier limit of {value} {limit} reached", usagelimits.LimitTenants, 10)
@@ -33,14 +33,12 @@ func TestFromRPCError_LimitExceeded(t *testing.T) {
 	tests := []struct {
 		name      string
 		in        error
-		wantLimit bool   // expect a typed *LimitExceededError back
-		wantMsg   string // its Error() when wantLimit
+		wantLimit *usagelimits.LimitExceededError // nil ⇒ expect pass-through
 	}{
 		{
-			name:      "limit rejection survives the RPC round-trip",
+			name:      "limit rejection survives the RPC round-trip with limit/value",
 			in:        toRPCError(limitErr),
-			wantLimit: true,
-			wantMsg:   limitErr.Error(),
+			wantLimit: limitErr,
 		},
 		{
 			name: "non-limit error passes through unchanged",
@@ -57,9 +55,11 @@ func TestFromRPCError_LimitExceeded(t *testing.T) {
 			got := fromRPCError(tt.in)
 
 			le, ok := usagelimits.AsLimitExceeded(got)
-			if tt.wantLimit {
+			if tt.wantLimit != nil {
 				require.True(t, ok, "expected a typed *LimitExceededError, got %v", got)
-				assert.Equal(t, tt.wantMsg, le.Error())
+				assert.Equal(t, tt.wantLimit.Error(), le.Error(), "message must survive")
+				assert.Equal(t, tt.wantLimit.Limit, le.Limit, "limit name must survive")
+				assert.Equal(t, tt.wantLimit.Value, le.Value, "limit value must survive")
 				return
 			}
 			assert.False(t, ok, "non-limit error must not become a limit error")

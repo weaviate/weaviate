@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
@@ -22,6 +23,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -284,8 +286,9 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 // fromRPCError parses the error sent by rpc server to identify status and chain
 // type-full errors accordingly, so the client can make decisions on typed errors
 // rather than raw gRPC status. It re-types by code: a usage-limit rejection
-// (LimitExceededRPCCode) becomes a *LimitExceededError so a follower that forwarded
-// the request still surfaces the canonical 429, and NotFound chains the sentinel.
+// (LimitExceededRPCCode) becomes a *LimitExceededError — message from the status,
+// structured limit/value from the ErrorInfo detail — so a follower that forwarded
+// the request surfaces the full canonical 429; NotFound chains the sentinel.
 func fromRPCError(err error) error {
 	st, ok := status.FromError(err)
 	if !ok {
@@ -293,7 +296,15 @@ func fromRPCError(err error) error {
 	}
 	switch st.Code() {
 	case LimitExceededRPCCode:
-		return &usagelimits.LimitExceededError{RenderedMessage: st.Message()}
+		le := &usagelimits.LimitExceededError{RenderedMessage: st.Message()}
+		for _, d := range st.Details() {
+			if info, ok := d.(*errdetails.ErrorInfo); ok {
+				le.Limit = usagelimits.LimitName(info.Metadata["limit"])
+				le.Value, _ = strconv.ParseInt(info.Metadata["value"], 10, 64)
+				break
+			}
+		}
+		return le
 	case codes.NotFound:
 		return errors.Join(err, schemaUC.ErrNotFound)
 	default:
