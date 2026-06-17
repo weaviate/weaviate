@@ -286,8 +286,13 @@ func (s *segment) getDocCount(key []byte) uint64 {
 
 // getInvertedNodeAndDocCount returns a term's index node and posting doc count
 // from a single index descent, letting the caller reuse the node for term
-// construction. Inverted segments only; the caller must check the strategy.
+// construction. The doc count is read from the inverted posting layout, so it
+// returns false for any non-inverted strategy.
 func (s *segment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return segmentindex.Node{}, 0, false
+	}
+
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		return segmentindex.Node{}, 0, false
 	}
