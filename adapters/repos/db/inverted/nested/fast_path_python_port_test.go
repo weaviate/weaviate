@@ -909,9 +909,10 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		// cars[1].make IS NULL — owner-level negation (no pin gap; routes
 		// through negate(leafPinnedIsNullFalse)).
 		//
-		// TWO sub-divergences from Python, both rooted in the same place
-		// (negate at the pinned scope = docUniverse AndNot pos.Witnesses,
-		// no "this doc has any cars" filter):
+		// Two divergences from Python, both rooted in the harness's
+		// uniform "missing pinned slot → match" rule (negate at the
+		// pinned scope = docUniverse AndNot pos.Witnesses, with no
+		// separate "this doc has any cars" filter):
 		//
 		//   1) cars1_missing (doc has cars[] but cars[1] slot is absent —
 		//      e.g. only one car at cars[0]): fast-path matches, Python
@@ -919,19 +920,23 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		//      IsNull recovery lands. IMPROVEMENT — fast-path already
 		//      implements the intended future semantic.
 		//
-		//   2) empty_cars (cars=[] entirely): fast-path matches, Python
-		//      excludes by design (vacuous-drop, no TODO to flip).
-		//      STRUCTURAL OVER-INCLUSION — the bitmap encoding can't
-		//      distinguish "missing slot in a non-empty array" from "no
-		//      array at all" with the current negation formula.
+		//   2) empty_cars (cars=[] entirely): fast-path matches under
+		//      the same uniform rule (there's no encoding difference
+		//      between "no cars" and "no cars[1] slot in a one-car
+		//      array" — both look like "no slot" to the pinned
+		//      dispatch). Python applies an additional vacuous-drop
+		//      layer on top — when the array itself is empty, nested
+		//      filters on it short-circuit to no-match. Not a
+		//      divergence in per-element semantics; it's the absence
+		//      of a separate vacuous-drop layer.
 		//
-		// TODO aliszka:nested_filtering — reconsider sub-divergence (2)
-		// before release. To align with Python's vacuous-drop rule, the
-		// pinned-IsNull builder would need an `AndNot ¬exists[cars]`
-		// step (i.e. subtract docs with no cars at all from the negation
-		// result). Sub-divergence (1) should be kept — it matches the
-		// intended post-recovery Python semantic. Both sub-divergences
-		// are pinned by the wantDocs below.
+		// Optional Python-parity follow-up (deferred): add
+		// `AndNot ¬exists[cars]` after the negate to emulate Python's
+		// vacuous-drop layer. Not a correctness fix — the distinction
+		// it adds has no semantic basis from the user's standpoint
+		// (both "no cars" and "cars[1] missing in a one-car array"
+		// look like "no slot"). Both divergences are pinned by the
+		// wantDocs below.
 		r := leafPinnedIsNullTrue(idx, "cars.make",
 			[]pinSpec{{"cars", 1}})
 
@@ -1197,7 +1202,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		//   500 cars[0]={year:2017} (pinned_only_year-ish, no make):
 		//     no Witness → match.
 		//   600 empty cars (empty_cars): no cars-self bit, no Witness.
-		//     STRUCTURAL OVER-INCLUSION — docUniverse-self survives → match.
+		//     Match under uniform "missing pinned slot → match" rule —
+		//     docUniverse-self survives the AndNot.
 		//   700-1200, 1300, 1500, 1800-2100: cars[0] doesn't fire make=Toyota
 		//     AND year=2020 same-slot → match.
 		//   1300 cars[0]=Honda+2018, cars[1]=Toyota+Camry+2020
@@ -1209,21 +1215,23 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		//     Witness → NOT match.
 		//   1700 cars[0]={year:2020} (year fires, no make): no Witness → match.
 		//
-		// TWO divergences from Python:
+		// Two divergences from Python:
 		//   1) pinned_satisfies_with_distractor (1600): fast-path correctly
 		//      EXCLUDES because the pinned slot satisfies the inner AND.
 		//      Python's TODO acknowledges the production impl ignores the pin
 		//      and flips this in — fast-path already implements the intended
 		//      post-fix semantic. IMPROVEMENT.
-		//   2) empty_cars (600): fast-path INCLUDES because docUniverse-self
-		//      bit survives AndNot (no Witness from empty cars[]). Python
-		//      excludes by design (vacuous-drop). STRUCTURAL OVER-INCLUSION —
-		//      same root cause as pinned_is_null empty_cars sub-divergence.
+		//   2) empty_cars (600): fast-path INCLUDES under the uniform
+		//      "missing pinned slot → match" rule (no encoding
+		//      difference between "no cars" and "no cars[0] slot in a
+		//      one-car array"). Python applies a separate vacuous-drop
+		//      layer when the array itself is empty — not a divergence
+		//      in per-element semantics, just the absence of that layer.
 		//
-		// TODO aliszka:nested_filtering — reconsider sub-divergence (2)
-		// before release. To align with Python's vacuous-drop rule, NOT-of-
-		// pinned-correlated-AND would need an `AndNot ¬exists[cars]` step.
-		// Sub-divergence (1) should be kept — matches intended Python semantic.
+		// Optional Python-parity follow-up (deferred): add
+		// `AndNot ¬exists[cars]` after the negate to emulate Python's
+		// vacuous-drop layer. Not a correctness fix — same rationale as
+		// the pinned_is_null sibling.
 		r := negate(idx, andLeaves(idx,
 			leafPinnedPositive(idx, "cars.make", "Toyota",
 				[]pinSpec{{"cars", 0}}),
@@ -1238,8 +1246,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			idx.docIDs(r),
 			"fast-path: docs whose cars[0] does NOT satisfy Toyota+2020 "+
 				"same-slot; excludes 100/400/1600 (cars[0] satisfies the "+
-				"inner AND); includes 600 (empty cars — STRUCTURAL "+
-				"OVER-INCLUSION vs Python's vacuous-drop)")
+				"inner AND); includes 600 (empty cars — uniform "+
+				"\"missing pinned slot → match\" rule)")
 	})
 
 	// or_of_mixed_correlated_ands NOT PORTED. The Python scenario combines
@@ -1758,6 +1766,64 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"(no-make car) — locks down owner-level / include-missing "+
 				"semantic")
 	})
+
+	t.Run("pinned_not_equal", func(t *testing.T) {
+		// Harness gap coverage — not in Python suite. Filter
+		// cars[0].make != Toyota. Single pin at cars (root array),
+		// no pin gap → leafPinnedNot routes through
+		// negate(leafPinnedPositive(...)). At L0 the result Scope is
+		// pathRoot so the negate universe is docUniverse — every doc
+		// that doesn't have cars[0]=Toyota survives.
+		//
+		// Doc 11400 (missing make at cars[0]) and doc 11500 (empty
+		// cars) both match under the uniform "missing pinned slot →
+		// match" rule. From the dispatch's perspective there's no
+		// encoding difference between "no cars at all" and "cars
+		// exist but the pinned slot has no leaf" — both look like
+		// "no slot". See pinned_is_null for the divergence-from-
+		// Python framing (Python adds a separate vacuous-drop layer
+		// for empty arrays).
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 11000: cars[0]=Toyota → satisfies Equal → no match.
+		local.addDoc(t, prop, 11000, []any{
+			map[string]any{"make": "Toyota"},
+		})
+		// 11100: cars[0]=Honda → match.
+		local.addDoc(t, prop, 11100, []any{
+			map[string]any{"make": "Honda"},
+		})
+		// 11200: cars[0]=Toyota, cars[1]=Honda — pin sees Toyota → no match.
+		local.addDoc(t, prop, 11200, []any{
+			map[string]any{"make": "Toyota"},
+			map[string]any{"make": "Honda"},
+		})
+		// 11300: cars[0]=Honda, cars[1]=Toyota — pin sees Honda → match.
+		local.addDoc(t, prop, 11300, []any{
+			map[string]any{"make": "Honda"},
+			map[string]any{"make": "Toyota"},
+		})
+		// 11400: missing_make_at_pinned_slot — cars[0] has no make.
+		// Match: include-missing under pin (anchor keeps the doc,
+		// no Toyota at slot 0 → no positive witness → docUniverse AndNot
+		// empty survives).
+		local.addDoc(t, prop, 11400, []any{
+			map[string]any{"year": 2020},
+		})
+		// 11500: empty_cars — no cars at all. Match under the uniform
+		// "missing pinned slot → match" rule (same as 11400 — both
+		// look like "no slot" to the dispatch).
+		local.addDoc(t, prop, 11500, []any{})
+
+		r := leafPinnedNotEqual(local, "cars.make", "Toyota",
+			[]pinSpec{{"cars", 0}})
+
+		assert.ElementsMatch(t,
+			[]uint64{11100, 11300, 11400, 11500}, local.docIDs(r),
+			"docs where cars[0].make != Toyota (or cars[0] is absent / "+
+				"missing make); 11400 and 11500 lock down the uniform "+
+				"missing-pin-slot → match rule")
+	})
 }
 
 // TestFastPathL2_PythonPort runs the L2 (countries[].garages[].cars[]) ports as subtests
@@ -1886,9 +1952,11 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		// Witnesses_not = anchor(garages) AndNot pos.W. Docs with ∃ garage
 		// not in pos.W match.
 		//
-		// TWO sub-divergences from Python, both rooted in the same place
-		// (negate at the pinned scope = anchor[countries.garages] AndNot
-		// pos.Witnesses, no "this doc has any cars" filter):
+		// Two divergences from Python, both rooted in the harness's
+		// uniform "missing pinned slot → match" rule (negate at the
+		// pinned scope = anchor[countries.garages] AndNot
+		// pos.Witnesses, with no separate "this garage has any cars"
+		// filter):
 		//
 		//   1) cars1_missing per garage (garage has cars[] but cars[1]
 		//      slot is absent): fast-path matches, Python currently
@@ -1897,20 +1965,20 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		//      the intended future semantic.
 		//
 		//   2) empty_cars (doc 700: a garage with cars=[]): fast-path
-		//      includes because countries.garages-self bit exists even
-		//      when the garage's cars[] is empty. Python excludes by
-		//      design (vacuous-drop, no TODO to flip). STRUCTURAL OVER-
-		//      INCLUSION — the bitmap encoding can't tell "missing cars[1]
-		//      slot in a non-empty cars[]" from "empty cars[]" at the
-		//      garages level.
+		//      matches under the same uniform rule (no encoding
+		//      difference between "garage has no cars" and "garage has
+		//      cars but no cars[1] slot" — both look like "no slot"
+		//      to the dispatch). Python applies an additional
+		//      vacuous-drop layer at empty cars[] — not a divergence
+		//      in per-element semantics, just the absence of that
+		//      layer.
 		//
-		// TODO aliszka:nested_filtering — reconsider sub-divergence (2)
-		// before release. To align with Python's vacuous-drop rule, the
-		// pinned-IsNull builder would need an `AndNot ¬exists[cars]`
-		// step at the truthScope level (drop garages whose cars[] is
-		// empty from the negation result). Sub-divergence (1) should be
-		// kept — it matches the intended post-recovery Python semantic.
-		// Both sub-divergences are pinned by the wantDocs below.
+		// Optional Python-parity follow-up (deferred): add
+		// `AndNot ¬exists[cars]` at the truthScope level after the
+		// negate to emulate Python's vacuous-drop layer (drop garages
+		// whose cars[] is empty). Not a correctness fix — the
+		// distinction it adds has no semantic basis from the user's
+		// standpoint. Both divergences are pinned by the wantDocs below.
 		r := leafPinnedIsNullTrue(idx, "countries.garages.cars.make",
 			[]pinSpec{{"countries.garages.cars", 1}})
 
@@ -2177,7 +2245,9 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		//     NOT match. IMPROVEMENT vs Python (TODO would flip after fix).
 		//   600 single garage cars[0]={year:2017}: no Witness → match.
 		//   700 single garage with empty cars[]: garage-self exists but no
-		//     cars-self/Witness. STRUCTURAL OVER-INCLUSION → match.
+		//     cars-self/Witness. Match under uniform "missing pinned
+		//     slot → match" rule (no encoding distinction between "no
+		//     cars" and "no slot").
 		//   800/900 etc cars[0]=Toyota with no year: no Witness → match.
 		//   1000-1200 cars[0]=Honda/Ford → no Witness → match.
 		//   1300-2000 (colors/tires) cars[0]=Toyota no year → no Witness → match.
@@ -2197,13 +2267,16 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		//      fast-path correctly excludes (Python's TODO acknowledges
 		//      production impl leaks; fast-path implements the intended
 		//      post-fix semantic).
-		//   2) empty_cars (700): STRUCTURAL OVER-INCLUSION — fast-path
-		//      includes because garage-self bit survives even with empty
-		//      cars[]. Python excludes by design.
+		//   2) empty_cars (700): fast-path matches under the uniform
+		//      "missing pinned slot → match" rule. Python applies a
+		//      separate vacuous-drop layer on empty arrays — not a
+		//      divergence in per-element semantics, just the absence
+		//      of that layer.
 		//
-		// TODO aliszka:nested_filtering — see L0 sibling for the planned
-		// `AndNot ¬exists[cars]` fix. The per-element behaviour at L2 is
-		// already correct (doc 400 matches because Rotterdam violates).
+		// Optional Python-parity follow-up (deferred): see L0 sibling
+		// for the `AndNot ¬exists[cars]` shape. The per-element
+		// behaviour at L2 is already correct (doc 400 matches because
+		// Rotterdam violates).
 		r := negate(idx, andLeaves(idx,
 			leafPinnedPositive(idx, "countries.garages.cars.make", "Toyota",
 				[]pinSpec{{"countries.garages.cars", 0}}),
@@ -2220,8 +2293,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"fast-path: docs with ∃ garage whose cars[0] does NOT satisfy "+
 				"Toyota+2020 same-slot; excludes 100/500/2500 (all garages "+
 				"in those docs have cars[0]=Toyota+2020); includes 700 "+
-				"(empty cars — STRUCTURAL OVER-INCLUSION vs Python's "+
-				"vacuous-drop) and 400 (per-element at garages — Rotterdam "+
+				"(empty cars — uniform \"missing pinned slot → match\" "+
+				"rule) and 400 (per-element at garages — Rotterdam "+
 				"violates so doc matches)")
 	})
 
@@ -3026,6 +3099,87 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"docs with ∃ car whose make != Toyota across any garage/country; "+
 				"12900 (missing-make) locks down owner-level / include-missing")
 	})
+
+	t.Run("pinned_not_equal", func(t *testing.T) {
+		// Harness gap coverage — not in Python suite. Filter
+		// countries.garages.cars[0].make != Toyota. No pin gap (single
+		// pin at cars). Scope = countries.garages, so negate is
+		// per-garage existential. The cross-garage discriminator
+		// (13700) verifies the per-element-at-garages behavior.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 13100: cars[0]=Toyota → no match.
+		local.addDoc(t, prop, 13100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota"},
+				}},
+			}},
+		})
+		// 13200: cars[0]=Honda → match.
+		local.addDoc(t, prop, 13200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+		// 13300: cars[0]=Toyota, cars[1]=Honda → no match.
+		local.addDoc(t, prop, 13300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota"},
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+		// 13400: cars[0]=Honda, cars[1]=Toyota → match.
+		local.addDoc(t, prop, 13400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Honda"},
+					map[string]any{"make": "Toyota"},
+				}},
+			}},
+		})
+		// 13500: missing_make_at_pinned_slot → match (include-missing).
+		local.addDoc(t, prop, 13500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"year": 2020},
+				}},
+			}},
+		})
+		// 13600: empty_cars in a garage → match under uniform
+		// "missing pinned slot → match" rule (no encoding distinction
+		// between "no cars in garage" and "no cars[0] slot").
+		local.addDoc(t, prop, 13600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{}},
+			}},
+		})
+		// 13700: cross-garage existential — Amsterdam cars[0]=Toyota
+		// (excluded from its garage), Rotterdam cars[0]=Honda (included).
+		// Per-element negate at garages keeps Rotterdam → doc matches.
+		local.addDoc(t, prop, 13700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "Amsterdam", "cars": []any{
+					map[string]any{"make": "Toyota"},
+				}},
+				map[string]any{"city": "Rotterdam", "cars": []any{
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+
+		r := leafPinnedNotEqual(local, "countries.garages.cars.make", "Toyota",
+			[]pinSpec{{"countries.garages.cars", 0}})
+
+		assert.ElementsMatch(t,
+			[]uint64{13200, 13400, 13500, 13600, 13700}, local.docIDs(r),
+			"docs with ∃ garage whose cars[0].make != Toyota (or pin slot "+
+				"missing); 13700 the per-garage discriminator")
+	})
 }
 
 // TestFastPathL2Object_PythonPort runs the L2_object (country.garages[].
@@ -3337,9 +3491,11 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		//
 		// Same per-element-at-garages semantics as L2 — multi-garage
 		// docs lift through country.garages because any surviving
-		// garage-self is enough. Same two divergences from Python
-		// (IMPROVEMENT vs Python on pinned_satisfies_with_distractor;
-		// STRUCTURAL OVER-INCLUSION on empty_cars).
+		// garage-self is enough. Same two divergences from Python:
+		// IMPROVEMENT vs Python on pinned_satisfies_with_distractor;
+		// empty_cars matches under the uniform "missing pinned slot
+		// → match" rule (Python applies a separate vacuous-drop
+		// layer the harness doesn't model — see L0/L2 siblings).
 		r := negate(idx, andLeaves(idx,
 			leafPinnedPositive(idx, "country.garages.cars.make", "Toyota",
 				[]pinSpec{{"country.garages.cars", 0}}),
@@ -3356,8 +3512,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			"fast-path: docs with ∃ garage whose cars[0] does NOT satisfy "+
 				"Toyota+2020 same-slot; excludes 100/500/2500 (all garages "+
 				"in those docs have cars[0]=Toyota+2020); includes 700 "+
-				"(empty cars — STRUCTURAL OVER-INCLUSION vs Python's "+
-				"vacuous-drop) and 400 (per-element at garages — Rotterdam "+
+				"(empty cars — uniform \"missing pinned slot → match\" "+
+				"rule) and 400 (per-element at garages — Rotterdam "+
 				"violates so doc matches)")
 	})
 
@@ -3970,5 +4126,67 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			[]uint64{22500, 22600, 22700, 22800, 22900}, local.docIDs(r),
 			"docs with ∃ car whose make != Toyota; 22900 (missing-make) "+
 				"locks down owner-level / include-missing")
+	})
+
+	t.Run("pinned_not_equal", func(t *testing.T) {
+		// Harness gap coverage — not in Python suite. Filter
+		// country.garages.cars[0].make != Toyota. Mirror of L0/L2 —
+		// single-OBJECT country root, otherwise identical dispatch
+		// (no pin gap, per-garage negate at country.garages scope).
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 23100: cars[0]=Toyota → no match.
+		local.addDoc(t, prop, 23100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota"},
+			}},
+		}})
+		// 23200: cars[0]=Honda → match.
+		local.addDoc(t, prop, 23200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+		// 23300: cars[0]=Toyota, cars[1]=Honda → no match.
+		local.addDoc(t, prop, 23300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota"},
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+		// 23400: cars[0]=Honda, cars[1]=Toyota → match.
+		local.addDoc(t, prop, 23400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Honda"},
+				map[string]any{"make": "Toyota"},
+			}},
+		}})
+		// 23500: missing_make_at_pinned_slot → match.
+		local.addDoc(t, prop, 23500, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"year": 2020},
+			}},
+		}})
+		// 23600: empty_cars in a garage → match (structural).
+		local.addDoc(t, prop, 23600, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{}},
+		}})
+		// 23700: cross-garage existential.
+		local.addDoc(t, prop, 23700, map[string]any{"garages": []any{
+			map[string]any{"city": "Amsterdam", "cars": []any{
+				map[string]any{"make": "Toyota"},
+			}},
+			map[string]any{"city": "Rotterdam", "cars": []any{
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+
+		r := leafPinnedNotEqual(local, "country.garages.cars.make", "Toyota",
+			[]pinSpec{{"country.garages.cars", 0}})
+
+		assert.ElementsMatch(t,
+			[]uint64{23200, 23400, 23500, 23600, 23700}, local.docIDs(r),
+			"docs with ∃ garage whose cars[0].make != Toyota (or pin slot "+
+				"missing); 23700 the per-garage discriminator")
 	})
 }

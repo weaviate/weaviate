@@ -632,6 +632,30 @@ func leafNotEqual(idx *fastPathIndex, path string, value any) *fastPathResult {
 	return negate(idx, leafPositive(idx, path, value))
 }
 
+// leafPinnedNotEqual realizes `<pinned path>.x != value` — the pinned
+// analog of leafNotEqual. Dispatches via leafPinnedNot on the pin
+// chain:
+//
+//   - No-gap (fully pinned at every array level): owner-level
+//     negate(leafPinnedPositive). The pinned slot is unique per
+//     Scope-element, so owner-level coincides with per-element.
+//   - Gap present (intermediate pin): per-element formula via
+//     perElementNotValue. The unpinned descendant levels can have
+//     multiple candidates per Scope-element; per-element correctly
+//     unions matching and non-matching candidates.
+//
+// In BOTH branches, a Scope-element with the pinned slot missing
+// (e.g. cars[1] when only cars[0] exists) counts as match. Same
+// semantic as leafPinnedIsNullTrue: NOT of a predicate over a slot
+// that doesn't exist is vacuously true — and consistent with the
+// classical-logic reading of "no candidate satisfies the Equal".
+//
+// Same name-only relationship to leafPinnedNot that leafNotEqual has
+// to leafNot — operator identity preserved at call sites.
+func leafPinnedNotEqual(idx *fastPathIndex, valuePath string, value any, pins []pinSpec) *fastPathResult {
+	return leafPinnedNot(idx, valuePath, value, pins)
+}
+
 // leafPinnedIsNullFalse realizes `<pinned path>.x IS NULL false` using the
 // same unified pipeline as leafPinnedPositive, just reading from _exists
 // instead of a value-keyed bucket. Works for any pin layout.
