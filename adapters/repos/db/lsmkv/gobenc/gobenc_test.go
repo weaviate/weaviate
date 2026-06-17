@@ -584,6 +584,46 @@ func TestDecodeErrors(t *testing.T) {
 	}
 }
 
+// malformedCountPastMsgEnd builds a stream whose count varint sits past the
+// declared message end — the input that panicked decodePairsFast before the
+// pos>msgEnd guard.
+func malformedCountPastMsgEnd() []byte {
+	buf := append([]byte{}, gobMapPreamble...)
+	buf = appendGobUint(buf, uint64(len(dataPrefix))) // msgEnd lands right at the count byte
+	buf = append(buf, dataPrefix...)
+	buf = appendGobUint(buf, uint64(1)<<62) // count past msgEnd
+	buf = append(buf, 0x01, 0x02)
+	return buf
+}
+
+// TestDecodePairsMalformedCountNoPanic pins the fix for the makeslice panic: a
+// count that decodes past msgEnd must return an error, never panic, on every
+// entry point (fast path, public DecodePairs incl. its gob fallback, and the
+// parallel map decoder).
+func TestDecodePairsMalformedCountNoPanic(t *testing.T) {
+	t.Parallel()
+	buf := malformedCountPastMsgEnd()
+
+	_, _, err := decodePairsFast(buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "map count truncated")
+
+	_, err = decodeFast(buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "map count truncated")
+
+	// public APIs must not panic; the fast path fails and the gob fallback,
+	// fed the same bytes, also fails, so both return a (combined) error.
+	require.NotPanics(t, func() {
+		_, _, perr := DecodePairs(buf)
+		require.Error(t, perr)
+	})
+	require.NotPanics(t, func() {
+		_, derr := Decode(buf)
+		require.Error(t, derr)
+	})
+}
+
 func BenchmarkEncode(b *testing.B) {
 	m := makeMap(1000)
 	for b.Loop() {

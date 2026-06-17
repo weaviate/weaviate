@@ -223,8 +223,8 @@ func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 		// NOTE: we are returning hardcoded fake data here which is good enough
 		// for the purpose of this test. This could be extended to return real
 		// data if necessary in the future.
-		propLengthIds:           []uint64{0, 1},
-		propLengthLens:          []uint32{3, 3},
+		propLengthsPairIds:      []uint64{0, 1},
+		propLengthsPairLens:     []uint32{3, 3},
 		propertyLengthsLoaded:   true,
 		tombstonesLoaded:        true,
 		avgPropertyLengthsAvg:   3.0,
@@ -395,7 +395,26 @@ func (s *fakeSegment) getCountNetAdditions() int {
 }
 
 func (s *fakeSegment) getPropertyLengths() (map[uint64]uint32, error) {
-	panic("not implemented")
+	// reconstruct from the same getInvertedData arrays propLengthsView reads, so
+	// the map and the view agree (mirrors segment.getPropertyLengths)
+	d := s.getInvertedData()
+	if d.propLengthsDense != nil {
+		m := make(map[uint64]uint32)
+		for i, l := range d.propLengthsDense {
+			if l != 0 {
+				m[d.propLengthsDenseMin+uint64(i)] = l
+			}
+		}
+		return m, nil
+	}
+	if len(d.propLengthsPairIds) == 0 {
+		return nil, nil
+	}
+	m := make(map[uint64]uint32, len(d.propLengthsPairIds))
+	for i, id := range d.propLengthsPairIds {
+		m[id] = d.propLengthsPairLens[i]
+	}
+	return m, nil
 }
 
 func (s *fakeSegment) isPropertyLengthsLoaded() bool { return false }
@@ -403,7 +422,16 @@ func (s *fakeSegment) isPropertyLengthsLoaded() bool { return false }
 func (s *fakeSegment) freePropertyLengths() {}
 
 func (s *fakeSegment) propLengthsView() (propLengthsView, error) {
-	panic("not implemented")
+	// mirror segment.propLengthsView over the fake's getInvertedData arrays so
+	// inverted read paths (Bucket.MapList / DocPointerWithScoreList) get real
+	// lengths instead of a panic
+	d := s.getInvertedData()
+	return propLengthsView{
+		dense: d.propLengthsDense,
+		min:   d.propLengthsDenseMin,
+		ids:   d.propLengthsPairIds,
+		lens:  d.propLengthsPairLens,
+	}, nil
 }
 
 func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {

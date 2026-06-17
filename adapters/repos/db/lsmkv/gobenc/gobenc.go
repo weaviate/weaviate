@@ -227,6 +227,13 @@ func decodePairsFast(data []byte) ([]uint64, []uint32, error) {
 	}
 	pos += n
 
+	// the count varint is bounded only against len(data), so it can run past
+	// msgEnd; without this, uint64(msgEnd-pos) underflows and the guard below
+	// admits a huge count that make([]uint64, count) panics on.
+	if pos > msgEnd {
+		return nil, nil, fmt.Errorf("map count truncated: read to offset %d past message end %d", pos, msgEnd)
+	}
+
 	// Each entry is at least 2 bytes (1 byte key + 1 byte value).
 	if count > uint64(msgEnd-pos)/2 {
 		return nil, nil, fmt.Errorf("count %d too large for remaining %d bytes", count, msgEnd-pos)
@@ -303,6 +310,11 @@ func decodeFast(data []byte) (map[uint64]uint32, error) {
 		return nil, fmt.Errorf("read map count: %w", err)
 	}
 	pos += n
+
+	// see decodePairsFast: bound pos so uint64(msgEnd-pos) can't underflow
+	if pos > msgEnd {
+		return nil, fmt.Errorf("map count truncated: read to offset %d past message end %d", pos, msgEnd)
+	}
 
 	// Each entry is at least 2 bytes (1 byte key + 1 byte value).
 	if count > uint64(msgEnd-pos)/2 {
