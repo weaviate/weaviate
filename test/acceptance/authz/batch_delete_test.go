@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,7 +42,6 @@ const (
 )
 
 func TestAuthZBatchDelete(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
@@ -53,7 +52,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 	readCollectionsAction := authorization.ReadCollections
 	readDataAction := authorization.ReadData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	// add classes with object
@@ -277,7 +276,6 @@ func getBatchDelete(className string, path []string, valueText string, dryRun bo
 }
 
 func TestAuthZBatchDeleteWithMT(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
@@ -286,7 +284,7 @@ func TestAuthZBatchDeleteWithMT(t *testing.T) {
 	testRoleName := "test-role"
 	deleteDataAction := authorization.DeleteData
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	// add classes with object

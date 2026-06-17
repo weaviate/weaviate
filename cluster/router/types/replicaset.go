@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -79,8 +79,7 @@ func (s ReadReplicaSet) EmptyReplicas() bool {
 }
 
 type WriteReplicaSet struct {
-	Replicas           []Replica
-	AdditionalReplicas []Replica
+	Replicas []Replica
 }
 
 // NodeNames returns a list of node names contained in the ReplicaSet.
@@ -111,47 +110,6 @@ func (s WriteReplicaSet) Shards() []string {
 	shards := make([]string, 0, len(s.Replicas))
 
 	for _, replica := range s.Replicas {
-		if !seen[replica.ShardName] {
-			seen[replica.ShardName] = true
-			shards = append(shards, replica.ShardName)
-		}
-	}
-
-	return shards
-}
-
-func (s WriteReplicaSet) EmptyAdditionalReplicas() bool {
-	return len(s.AdditionalReplicas) == 0
-}
-
-// AdditionalNodeNames returns a list of node names contained in the AdditionalReplicaSet.
-func (s WriteReplicaSet) AdditionalNodeNames() []string {
-	nodeNames := make([]string, 0, len(s.AdditionalReplicas))
-	for _, replica := range s.AdditionalReplicas {
-		nodeNames = append(nodeNames, replica.NodeName)
-	}
-	return nodeNames
-}
-
-// AdditionalHostAddresses returns a list of host addresses for all Replicas in the AdditionalReplicaSet.
-func (s WriteReplicaSet) AdditionalHostAddresses() []string {
-	hostAddresses := make([]string, 0, len(s.AdditionalReplicas))
-	for _, replica := range s.AdditionalReplicas {
-		hostAddresses = append(hostAddresses, replica.HostAddr)
-	}
-	return hostAddresses
-}
-
-// AdditionalShards returns a list of unique shard names for all Replicas in the AdditionalReplicaSet.
-func (s WriteReplicaSet) AdditionalShards() []string {
-	if len(s.AdditionalReplicas) == 0 {
-		return []string{}
-	}
-
-	seen := make(map[string]bool, len(s.AdditionalReplicas))
-	shards := make([]string, 0, len(s.AdditionalReplicas))
-
-	for _, replica := range s.AdditionalReplicas {
 		if !seen[replica.ShardName] {
 			seen[replica.ShardName] = true
 			shards = append(shards, replica.ShardName)

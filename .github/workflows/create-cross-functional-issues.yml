@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Check github token existence
         env:
@@ -30,7 +30,7 @@ jobs:
       - name: Check PR body
         id: check_pr
         if: ${{ env.gh_token_exists == 'true' }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{secrets.CROSS_REPO_ISSUE_WRITER_TOKEN}}
           script: |
@@ -62,7 +62,7 @@ jobs:
 
       - name: Create issues in respective repos
         if: ${{ env.gh_token_exists == 'true' }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RESULTS: ${{ steps.check_pr.outputs.result }}
         with:

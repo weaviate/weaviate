@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -187,4 +187,8 @@ func (i *composedAllowListIterator) Next() (uint64, bool) {
 
 func (i *composedAllowListIterator) Len() int {
 	return i.it1.Len() + i.it2.Len()
+}
+
+func (i *composedAllowListIterator) Stop() {
+	// No-op for composed iterator as there's no cleanup needed
 }

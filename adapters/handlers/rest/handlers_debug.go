@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,13 +30,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	ucfg "github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -130,88 +131,6 @@ func setupDebugHandlers(appState *state.State) {
 		props := []byte(strings.Join(propertiesToMigrate, ","))
 
 		changeFile("properties.mig", false, props, logger, appState, r, w)
-	}))
-
-	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		colName := r.URL.Query().Get("collection")
-
-		if colName == "" {
-			http.Error(w, "collection name is required", http.StatusBadRequest)
-			return
-		}
-
-		shardsToMigrateString := strings.TrimSpace(r.URL.Query().Get("shards"))
-
-		shardsToMigrate := []string{}
-		if shardsToMigrateString != "" {
-			shardsToMigrate = strings.Split(shardsToMigrateString, ",")
-		}
-
-		className := schema.ClassName(colName)
-		idx := appState.DB.GetIndex(className)
-
-		if idx == nil {
-			logger.WithField("collection", colName).Error("collection not found or not ready")
-			http.Error(w, "collection not found or not ready", http.StatusNotFound)
-			return
-		}
-
-		output := make(map[string]map[string]string)
-		// shards will not be force loaded, as we are only getting the name
-		err := idx.ForEachShard(
-			func(shardName string, shard db.ShardLike) error {
-				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					err := idx.IncomingReinitShard(
-						context.Background(),
-						shardName,
-					)
-					if err != nil {
-						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
-						output[shardName] = map[string]string{
-							"shard":       shardName,
-							"shardStatus": shard.GetStatus().String(),
-							"status":      "error",
-							"message":     "failed to reinit shard",
-							"error":       err.Error(),
-						}
-						return nil
-					}
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "reinit",
-						"message":     "reinit shard started",
-					}
-				} else {
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "skipped",
-						"message":     fmt.Sprintf("shard %s not selected", shardName),
-					}
-				}
-				return nil
-			},
-		)
-
-		response := map[string]interface{}{
-			"shards": output,
-		}
-
-		if err != nil {
-			logger.WithField("collection", colName).Error("failed to get shard names")
-			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
-			response["error"] = "failed to get shard names: " + err.Error()
-		}
-
-		jsonBytes, err := json.Marshal(response)
-		if err != nil {
-			logger.WithError(err).Error("marshal failed on stats")
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(jsonBytes)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,12 +243,6 @@ func setupDebugHandlers(appState *state.State) {
 				rt := db.NewFileMapToBlockmaxReindexTracker(path, keyParser)
 
 				status, message, action := rt.GetStatusStrings()
-
-				if appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ConditionalStart && !rt.HasStartCondition() {
-					message = "reindexing not started, no start condition file found"
-					status = "not_started"
-					action = "call /start?collection=<> endpoint to start reindexing"
-				}
 
 				output[i]["status"] = status
 				output[i]["message"] = message
@@ -721,12 +634,13 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		defer release()
+
 		if shard == nil {
 			logger.WithField("shard", shardName).Error("shard not found")
 			http.Error(w, "shard not found", http.StatusNotFound)
 			return
 		}
-		defer release()
 
 		vidx, ok := shard.GetVectorIndex(targetVector)
 		if !ok {
@@ -1058,16 +972,15 @@ func setupDebugHandlers(appState *state.State) {
 		w.Write(jsonBytes)
 	}))
 
-	// This endpoint dumps all server configuration from environment.go
-	// e.g. curl -X GET localhost:6060/debug/config
-	// Note: Authentication and Authorization sections are skipped for security
+	// Dumps all server config. e.g. curl localhost:6060/debug/config
+	// Secrets are redacted by redactDebugConfigSecrets before returning.
 	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		jsonBytes, err := json.Marshal(skipSensitiveConfig(appState.ServerConfig.Config))
+		jsonBytes, err := json.Marshal(appState.ServerConfig.Config)
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1082,8 +995,11 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
+		cleaned := cleanEmptyValues(configMap)
+		redactDebugConfigSecrets(cleaned)
+
 		// for human readability
-		jsonBytes, err = json.MarshalIndent(cleanEmptyValues(configMap), "", "  ")
+		jsonBytes, err = json.MarshalIndent(cleaned, "", "  ")
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on cleaned config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1096,6 +1012,11 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		expiration := r.URL.Query().Get("expiration")
 		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
 
@@ -1112,12 +1033,7 @@ func setupDebugHandlers(appState *state.State) {
 			expirationTime = time.Now()
 		}
 
-		targetOwnNode := false
-		if targetOwnNodeStr != "" {
-			if targetOwnNodeStr == "true" {
-				targetOwnNode = true
-			}
-		}
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
 
 		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
 		if err != nil {
@@ -1127,24 +1043,132 @@ func setupDebugHandlers(appState *state.State) {
 
 		w.WriteHeader(http.StatusAccepted)
 	}))
-}
 
-// skipSensitiveConfig creates a copy of the config with Authentication and Authorization
-// sections set to zero values for security purposes
-func skipSensitiveConfig(cfg ucfg.Config) ucfg.Config {
-	safe := cfg
+	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
-	// Skip Authentication section entirely by setting to zero value
-	safe.Authentication = ucfg.Authentication{}
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
 
-	// Skip Authorization section entirely by setting to zero value
-	safe.Authorization = ucfg.Authorization{}
+		aborted, err := appState.ObjectTTLCoordinator.Abort(context.Background(), targetOwnNode)
+		var errMsg string
+		if err != nil {
+			errMsg = err.Error()
+		}
+		resp := map[string]any{"aborted": aborted, "error": errMsg}
 
-	// Skip Cluster BasicAuth credentials
-	safe.Cluster.AuthConfig.BasicAuth.Username = ""
-	safe.Cluster.AuthConfig.BasicAuth.Password = ""
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
+	}))
 
-	return safe
+	// Debug endpoint to hold/release/check a consistent view of segments on a bucket.
+	// Holding a consistent view increments ref counts on all segments, blocking compaction
+	// from deleting old segments. Useful for debugging compaction scheduling.
+	//
+	// POST   /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → hold view
+	// DELETE /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → release view
+	// GET    /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → check if held
+	http.HandleFunc("/debug/consistent-view/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		path := strings.TrimPrefix(r.URL.Path, "/debug/consistent-view/")
+		parts := strings.Split(path, "/")
+		// expect: [collection, "shards", shard, "buckets", bucket]
+		if len(parts) != 5 || parts[1] != "shards" || parts[3] != "buckets" {
+			http.Error(w, `{"error":"invalid path, expected /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket}"}`, http.StatusBadRequest)
+			return
+		}
+		colName, shardName, bucketName := parts[0], parts[2], parts[4]
+		key := colName + "/" + shardName + "/" + bucketName
+
+		switch r.Method {
+		case http.MethodPost:
+			// Resolve bucket
+			idx := appState.DB.GetIndex(schema.ClassName(colName))
+			if idx == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "collection not found"})
+				return
+			}
+			shard, release, err := idx.GetShard(context.Background(), shardName)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+				return
+			}
+			defer release()
+			if shard == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "shard not found"})
+				return
+			}
+			b := shard.Store().Bucket(bucketName)
+			if b == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("bucket %q not found", bucketName)})
+				return
+			}
+
+			debugConsistentViewsLock.Lock()
+			if _, exists := debugConsistentViews[key]; exists {
+				debugConsistentViewsLock.Unlock()
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "view already held"})
+				return
+			}
+			view := b.GetConsistentView()
+			debugConsistentViews[key] = view
+			debugConsistentViewsLock.Unlock()
+
+			addr := "empty"
+			if len(view.Disk) > 0 {
+				addr = fmt.Sprintf("%p", &view.Disk[0])
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"held":     true,
+				"segments": len(view.Disk),
+				"address":  addr,
+			})
+
+		case http.MethodDelete:
+			debugConsistentViewsLock.Lock()
+			view, exists := debugConsistentViews[key]
+			if !exists {
+				debugConsistentViewsLock.Unlock()
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "no view held for this bucket"})
+				return
+			}
+			view.ReleaseView()
+			delete(debugConsistentViews, key)
+			debugConsistentViewsLock.Unlock()
+
+			writeJSON(w, http.StatusOK, map[string]any{"released": true})
+
+		case http.MethodGet:
+			debugConsistentViewsLock.Lock()
+			view, exists := debugConsistentViews[key]
+			debugConsistentViewsLock.Unlock()
+
+			if !exists {
+				writeJSON(w, http.StatusOK, map[string]any{"held": false})
+				return
+			}
+			addr := "empty"
+			if len(view.Disk) > 0 {
+				addr = fmt.Sprintf("%p", &view.Disk[0])
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"held":     true,
+				"segments": len(view.Disk),
+				"address":  addr,
+			})
+
+		default:
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		}
+	}))
 }
 
 // cleanEmptyValues recursively removes empty values from a JSON map.
@@ -1210,10 +1234,88 @@ func cleanValue(v any) any {
 	}
 }
 
+// redactDebugConfigSecrets replaces each known secret value with "<redacted>",
+// leaving the field present so an operator can see it's configured without
+// exposing the value. Add the JSON path of any new secret field here.
+func redactDebugConfigSecrets(m map[string]any) {
+	redactPath(m, "<redacted>", "authentication", "APIKey", "allowed_keys")
+	redactPath(m, "<redacted>", "cluster", "auth", "basic", "password")
+	// The DSN's userinfo segment is the project key, so the whole string is a secret.
+	redactPath(m, "<redacted>", "sentry", "dsn")
+}
+
+// redactPath replaces the value at the given key path with placeholder; for a
+// slice, each element is replaced so the element count is preserved. Missing
+// keys are a no-op.
+func redactPath(m map[string]any, placeholder string, path ...string) {
+	if len(path) == 0 {
+		return
+	}
+	for i := 0; i < len(path)-1; i++ {
+		sub, ok := m[path[i]].(map[string]any)
+		if !ok {
+			return
+		}
+		m = sub
+	}
+	last := path[len(path)-1]
+	v, ok := m[last]
+	if !ok {
+		return
+	}
+	switch x := v.(type) {
+	case []any:
+		out := make([]any, len(x))
+		for i := range x {
+			out[i] = placeholder
+		}
+		m[last] = out
+	default:
+		m[last] = placeholder
+	}
+}
+
+var (
+	debugConsistentViews     = map[string]lsmkv.BucketConsistentView{}
+	debugConsistentViewsLock sync.Mutex
+)
+
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
 }
 
 type hnswStats interface {
 	Stats() (*hnsw.HnswStats, error)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	jsonBytes, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, `{"error":"json marshal failed"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(status)
+	w.Write(jsonBytes)
+}
+
+// setupTelemetryDebugHandlers registers debug endpoints for inspecting live telemetry data.
+// It must be called after the telemeter has been created.
+func setupTelemetryDebugHandlers(telemeter *telemetry.Telemeter) {
+	http.HandleFunc("/debug/telemetry/clients", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		type clientsResponse struct {
+			ClientUsage            map[telemetry.ClientType]map[string]int64 `json:"clientUsage"`
+			ClientIntegrationUsage map[string]map[string]int64               `json:"clientIntegrationUsage"`
+		}
+
+		resp := clientsResponse{}
+		if ct := telemeter.GetClientTracker(); ct != nil {
+			resp.ClientUsage = ct.Get()
+		}
+		if it := telemeter.GetIntegrationTracker(); it != nil {
+			resp.ClientIntegrationUsage = it.Get()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, http.StatusOK, resp)
+	}))
 }

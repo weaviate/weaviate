@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,17 +23,23 @@ import (
 // if one of the selected postings is equal to `reassignedFromID`.
 func (h *HFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
 	replicas := NewResultSet(int(h.replicas))
-	candidates, err := h.Centroids.Search(query, h.config.InternalPostingCandidates)
+	candidates, err := h.Centroids.Search(query, h.config.InternalPostingCandidates, nil)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
 
 	for cID, cDistance := range candidates.Iter() {
-		cCenter := h.Centroids.Get(cID)
+		cCenter, err := h.Centroids.Get(cID)
+		if err != nil {
+			return nil, false, errors.Wrap(err, "failed to get candidate centroid")
+		}
 
 		tooClose := false
 		for _, r := range replicas.data {
-			rCenter := h.Centroids.Get(r.ID)
+			rCenter, err := h.Centroids.Get(r.ID)
+			if err != nil {
+				return nil, false, errors.Wrap(err, "failed to get replica centroid")
+			}
 			centerDist, err := h.distancer.DistanceBetweenVectors(cCenter.Uncompressed, rCenter.Uncompressed)
 			if err != nil {
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", cID, r.ID)

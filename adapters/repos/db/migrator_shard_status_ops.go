@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -26,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *errorcompounder.SafeErrorCompounder) {
+func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec errorcompounder.ErrorCompounder) {
 	if m.cluster == nil {
 		ec.Add(fmt.Errorf("no cluster exists in the migrator"))
 		return
@@ -64,7 +65,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 	eg.Wait()
 }
 
-func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []string, ec *errorcompounder.SafeErrorCompounder) {
+func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []string, ec errorcompounder.ErrorCompounder) {
 	if m.cloud == nil {
 		ec.Add(fmt.Errorf("offload to cloud module is not enabled"))
 		return
@@ -89,8 +90,8 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			idx.backupLock.RLock(name)
 			defer idx.backupLock.RUnlock(name)
 			originalStatus := models.TenantActivityStatusHOT
-			shard, release, err := idx.getOrInitShard(ctx, name)
-			if err != nil {
+			shard, release, err := idx.GetShard(ctx, name)
+			if err != nil && !errors.Is(err, errAlreadyShutdown) {
 				m.logger.WithFields(logrus.Fields{
 					"action": "get_local_shard_no_shutdown",
 					"error":  err,
@@ -192,7 +193,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 	}, idx.logger)
 }
 
-func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfreeze []string, ec *errorcompounder.SafeErrorCompounder) {
+func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfreeze []string, ec errorcompounder.ErrorCompounder) {
 	if m.cloud == nil {
 		ec.Add(fmt.Errorf("offload to cloud module is not enabled"))
 		return

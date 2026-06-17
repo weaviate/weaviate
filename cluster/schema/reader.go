@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
@@ -156,6 +157,15 @@ func (rs SchemaReader) LocalShards(class string) ([]string, error) {
 		return nil
 	})
 	return shards, err
+}
+
+func (rs SchemaReader) LocalActiveShardsCount(class string) (int, error) {
+	var count int
+	err := rs.Read(class, true, func(class *models.Class, state *sharding.State) error {
+		count = state.LocalActivePhysicalShardsCount()
+		return nil
+	})
+	return count, err
 }
 
 // ReadOnlyClass returns a shallow copy of a class.

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,7 @@ func New() *ImageModule {
 
 type ImageModule struct {
 	vectorizer      imageVectorizer
+	batchSimple     *batch.BatchSimple[[]float32]
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher[[]float32]
 	logger          logrus.FieldLogger
@@ -84,6 +85,7 @@ func (m *ImageModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	}
 
 	m.vectorizer = vectorizer.New(client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, 0)
 
 	return nil
 }
@@ -101,7 +103,7 @@ func (m *ImageModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool,
 }
 
 func (m *ImageModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	return m.batchSimple.VectorizeBatch(ctx, objs, skipObject, cfg, m.vectorizer.Object)
 }
 
 func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {

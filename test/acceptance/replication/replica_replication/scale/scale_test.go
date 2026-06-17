@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,13 +22,48 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
+
+// assertAsyncReplicationActive asserts, for every shard of the class on every
+// node, whether async replication is running. AsyncReplicationStatus is
+// populated only after a hashbeat cycle runs, so a non-empty status proves the
+// per-shard gate let the cycle through (and an empty one that it was skipped).
+func assertAsyncReplicationActive(t *testing.T, class string, active bool) {
+	t.Helper()
+	verbose := verbosity.OutputVerbose
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		body, err := helper.Client(t).Nodes.NodesGetClass(
+			nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(class), nil)
+		require.NoError(ct, err)
+		require.NotNil(ct, body.Payload)
+
+		checked := 0
+		for _, node := range body.Payload.Nodes {
+			for _, shard := range node.Shards {
+				if shard.Class != class {
+					continue
+				}
+				checked++
+				if active {
+					require.NotEmpty(ct, shard.AsyncReplicationStatus,
+						"node %s shard %s: expected async replication running", node.Name, shard.Name)
+				} else {
+					require.Empty(ct, shard.AsyncReplicationStatus,
+						"node %s shard %s: expected async replication stopped", node.Name, shard.Name)
+				}
+			}
+		}
+		require.Positive(ct, checked, "expected at least one shard of %s to be reported", class)
+	}, 120*time.Second, 2*time.Second, "async replication active=%v not reached for %s", active, class)
+}
 
 var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("3bf331ac-8c86-4f95-b127-2f8f96bbc093"),
@@ -63,10 +98,9 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start test containers: %+v", err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -82,8 +116,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": shardsCount}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
@@ -108,7 +141,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 		resp, err := helper.Client(t).Replication.
 			GetReplicationScalePlan(replication.NewGetReplicationScalePlanParams().
 				WithCollection(paragraphClass.Class).WithReplicationFactor(3), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get scale plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 
@@ -121,7 +154,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 		resp, err := helper.Client(t).Replication.
 			ApplyReplicationScalePlan(replication.NewApplyReplicationScalePlanParams().
 				WithBody(scalePlan), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to apply scale plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 
@@ -137,7 +170,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 				details, err := helper.Client(t).Replication.ReplicationDetails(
 					replication.NewReplicationDetailsParams().WithID(opId), nil,
 				)
-				require.Nil(ct, err, "failed to get replication details %s", err)
+				require.NoError(ct, err, "failed to get replication details %s", err)
 				require.NotNil(ct, details, "expected replication details to be not nil")
 				require.NotNil(ct, details.Payload, "expected replication details payload to be not nil")
 				require.NotNil(ct, details.Payload.Status, "expected replication status to be not nil")
@@ -151,7 +184,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 			resp, err := helper.Client(t).Replication.
 				GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().
 					WithCollection(&paragraphClass.Class), nil)
-			require.Nil(ct, err)
+			require.NoError(ct, err, "failed to get collection sharding state: %+v", err)
 			require.Equal(ct, http.StatusOK, resp.Code())
 			require.NotNil(ct, resp.Payload)
 			require.Equal(t, paragraphClass.Class, resp.Payload.ShardingState.Collection)
@@ -169,18 +202,22 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
 				for _, objId := range paragraphIDs {
 					obj, err := common.GetObjectFromNode(t, nodeURI, paragraphClass.Class, objId, fmt.Sprintf("node%d", i))
-					require.Nil(ct, err)
+					require.NoError(ct, err, "failed to get object from node: %+v", err)
 					require.NotNil(ct, obj)
 				}
 			}, 30*time.Second, 1*time.Second, "node%d doesn't have paragraph data", i)
 		}
 	})
 
+	t.Run("async replication is active on all nodes after scale-out", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, true)
+	})
+
 	t.Run("get scale plan to decrease replication factor to 1", func(t *testing.T) {
 		resp, err := helper.Client(t).Replication.
 			GetReplicationScalePlan(replication.NewGetReplicationScalePlanParams().
 				WithCollection(paragraphClass.Class).WithReplicationFactor(1), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get scale plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 		scalePlan = resp.Payload
@@ -190,7 +227,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 		resp, err := helper.Client(t).Replication.
 			ApplyReplicationScalePlan(replication.NewApplyReplicationScalePlanParams().
 				WithBody(scalePlan), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to apply scale down plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, scalePlan.PlanID, resp.Payload.PlanID)
@@ -204,7 +241,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 				details, err := helper.Client(t).Replication.ReplicationDetails(
 					replication.NewReplicationDetailsParams().WithID(opId), nil,
 				)
-				require.Nil(ct, err)
+				require.NoError(ct, err, "failed to get replication details: %+v", err)
 				require.NotNil(ct, details)
 				require.NotNil(ct, details.Payload)
 				require.Equal(ct, "READY", details.Payload.Status.State)
@@ -219,7 +256,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 			resp, err := helper.Client(t).Replication.
 				GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().
 					WithCollection(&paragraphClass.Class), nil)
-			require.Nil(ct, err)
+			require.NoError(ct, err, "failed to get collection sharding state: %+v", err)
 			require.Equal(ct, http.StatusOK, resp.Code())
 			require.NotNil(ct, resp.Payload)
 			require.Equal(t, shardsCount, len(resp.Payload.ShardingState.Shards))
@@ -230,6 +267,10 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 
 			shardingState = resp.Payload.ShardingState
 		}, 30*time.Second, 1*time.Second, "sharding state does not reflect new replication factor")
+	})
+
+	t.Run("async replication is off after scale down to 1 replica", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, false)
 	})
 
 	t.Run("verify data is available on remaining nodes after scale down", func(t *testing.T) {
@@ -244,7 +285,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
 				for _, objId := range paragraphIDs {
 					obj, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), paragraphClass.Class, objId, nodeName)
-					require.Nil(ct, err)
+					require.NoError(ct, err, "failed to get object from node: %+v", err)
 					require.NotNil(ct, obj)
 				}
 			}, 30*time.Second, 1*time.Second, "node %s doesn't have paragraph data", nodeName)
@@ -259,10 +300,9 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start test containers: %+v", err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -275,8 +315,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 
 	t.Run("create schema (multi-tenant)", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,
@@ -311,7 +350,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 		resp, err := helper.Client(t).Replication.
 			GetReplicationScalePlan(replication.NewGetReplicationScalePlanParams().
 				WithCollection(paragraphClass.Class).WithReplicationFactor(3), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get scale plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 
@@ -324,7 +363,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 		resp, err := helper.Client(t).Replication.
 			ApplyReplicationScalePlan(replication.NewApplyReplicationScalePlanParams().
 				WithBody(scalePlan), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to apply scale plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 
@@ -340,7 +379,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 				details, err := helper.Client(t).Replication.ReplicationDetails(
 					replication.NewReplicationDetailsParams().WithID(opId), nil,
 				)
-				require.Nil(ct, err, "failed to get replication details %s", err)
+				require.NoError(ct, err, "failed to get replication details %s", err)
 				require.NotNil(ct, details, "expected replication details to be not nil")
 				require.NotNil(ct, details.Payload, "expected replication details payload to be not nil")
 				require.NotNil(ct, details.Payload.Status, "expected replication status to be not nil")
@@ -354,7 +393,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 			resp, err := helper.Client(t).Replication.
 				GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().
 					WithCollection(&paragraphClass.Class), nil)
-			require.Nil(ct, err)
+			require.NoError(ct, err, "failed to get collection sharding state: %+v", err)
 			require.Equal(ct, http.StatusOK, resp.Code())
 			require.NotNil(t, resp.Payload)
 			require.Equal(t, paragraphClass.Class, resp.Payload.ShardingState.Collection)
@@ -373,7 +412,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					for _, objId := range paragraphIDs {
 						obj, err := common.GetTenantObjectFromNode(t, nodeURI, paragraphClass.Class, objId, fmt.Sprintf("node%d", i), tenant)
-						require.Nil(ct, err)
+						require.NoError(ct, err, "failed to get tenant object from node: %+v", err)
 						require.NotNil(ct, obj)
 					}
 				}, 30*time.Second, 1*time.Second, "node%d doesn't have paragraph data for tenant %s", i, tenant)
@@ -381,11 +420,15 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 		}
 	})
 
+	t.Run("async replication is active on all nodes after scale-out", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, true)
+	})
+
 	t.Run("get scale plan to decrease replication factor to 1", func(t *testing.T) {
 		resp, err := helper.Client(t).Replication.
 			GetReplicationScalePlan(replication.NewGetReplicationScalePlanParams().
 				WithCollection(paragraphClass.Class).WithReplicationFactor(1), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get scale plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 		scalePlan = resp.Payload
@@ -395,7 +438,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 		resp, err := helper.Client(t).Replication.
 			ApplyReplicationScalePlan(replication.NewApplyReplicationScalePlanParams().
 				WithBody(scalePlan), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to apply scale down plan: %+v", err)
 		require.Equal(t, http.StatusOK, resp.Code())
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, scalePlan.PlanID, resp.Payload.PlanID)
@@ -409,7 +452,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 				details, err := helper.Client(t).Replication.ReplicationDetails(
 					replication.NewReplicationDetailsParams().WithID(opId), nil,
 				)
-				require.Nil(ct, err)
+				require.NoError(ct, err, "failed to get replication details: %+v", err)
 				require.NotNil(ct, details)
 				require.NotNil(ct, details.Payload)
 				require.Equal(ct, "READY", details.Payload.Status.State)
@@ -424,7 +467,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 			resp, err := helper.Client(t).Replication.
 				GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().
 					WithCollection(&paragraphClass.Class), nil)
-			require.Nil(ct, err)
+			require.NoError(ct, err, "failed to get collection sharding state: %+v", err)
 			require.Equal(ct, http.StatusOK, resp.Code())
 			require.NotNil(t, resp.Payload)
 			require.Equal(t, len(tenants), len(resp.Payload.ShardingState.Shards))
@@ -435,6 +478,10 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 
 			shardingState = resp.Payload.ShardingState
 		}, 30*time.Second, 1*time.Second, "sharding state does not reflect new replication factor")
+	})
+
+	t.Run("async replication is off after scale down to 1 replica", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, false)
 	})
 
 	t.Run("verify data is available on remaining nodes after scale down for each tenant", func(t *testing.T) {
@@ -450,7 +497,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					for _, objId := range paragraphIDs {
 						obj, err := common.GetTenantObjectFromNode(t, compose.GetWeaviate().URI(), paragraphClass.Class, objId, nodeName, tenant)
-						require.Nil(ct, err)
+						require.NoError(ct, err, "failed to get tenant object from node: %+v", err)
 						require.NotNil(ct, obj)
 					}
 				}, 30*time.Second, 1*time.Second, "node %s doesn't have paragraph data for tenant %s", nodeName, tenant)

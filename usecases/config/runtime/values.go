@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,8 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,9 +35,10 @@ type DynamicValue[T DynamicType] struct {
 	val *T
 	// mu protects val
 	mu sync.RWMutex
-
 	// def represents the default value.
 	def T
+	// optional validation
+	validate func(val T) error
 }
 
 // NewDynamicValue returns an instance of DynamicValue as passed in type
@@ -44,6 +47,16 @@ func NewDynamicValue[T DynamicType](val T) *DynamicValue[T] {
 	return &DynamicValue[T]{
 		def: val,
 	}
+}
+
+func NewDynamicValueWithValidation[T DynamicType](val T, validate func(val T) error) (*DynamicValue[T], error) {
+	if err := validate(val); err != nil {
+		return nil, err
+	}
+	return &DynamicValue[T]{
+		def:      val,
+		validate: validate,
+	}, nil
 }
 
 // Get returns a current value for the given config. It can either be dynamic value or default
@@ -78,16 +91,23 @@ func (dv *DynamicValue[T]) Reset() {
 }
 
 // Set is used by the config manager to update the dynamic value.
-func (dv *DynamicValue[T]) SetValue(val T) {
+func (dv *DynamicValue[T]) SetValue(val T) error {
 	// log this at the high level, that someone is trying to set unitilized runtime value
 	if dv == nil {
-		return
+		return nil
+	}
+
+	if dv.validate != nil {
+		if err := dv.validate(val); err != nil {
+			return err
+		}
 	}
 
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
 	dv.val = &val
+	return nil
 
 	// NOTE: doesn't need to set any default value here
 	// as `Get()` api will return default if dynamic value is not set.
@@ -97,6 +117,20 @@ func (dv *DynamicValue[T]) SetValue(val T) {
 func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 	var val T
 	if err := node.Decode(&val); err != nil {
+		// yaml.v3 errors decoding a scalar into a slice T. Coerce only a string
+		// scalar (empty → nil, else comma-split like the env-var path); non-string
+		// scalars fall through to err so a mistyped config doesn't become ["123"].
+		if node.Kind == yaml.ScalarNode && node.ShortTag() == "!!str" && reflect.TypeOf(val).Kind() == reflect.Slice {
+			if ptr, ok := any(&val).(*[]string); ok {
+				if node.Value != "" {
+					*ptr = strings.Split(node.Value, ",")
+				}
+				dv.mu.Lock()
+				defer dv.mu.Unlock()
+				dv.def = val
+				return nil
+			}
+		}
 		return err
 	}
 	dv.mu.Lock()

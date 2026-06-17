@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,6 +38,7 @@ func New() *OllamaModule {
 
 type OllamaModule struct {
 	vectorizer                   batchtext.Vectorizer[[]float32]
+	batchSimple                  *batch.BatchSimple[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -94,6 +95,7 @@ func (m *OllamaModule) initVectorizer(ctx context.Context, timeout time.Duration
 	client := clients.New(timeout, logger)
 	m.metaProvider = client
 	m.vectorizer = batchtext.New(Name, ent.LowerCaseInput, client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, 0)
 	return nil
 }
 
@@ -109,7 +111,7 @@ func (m *OllamaModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *OllamaModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Objects, 10)
+	return m.batchSimple.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.vectorizer.Objects, 10)
 }
 
 func (m *OllamaModule) MetaInfo() (map[string]any, error) {

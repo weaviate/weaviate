@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,10 @@ func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetRangeAdd(key, values...)
@@ -38,7 +41,10 @@ func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetRangeRemove(key, values...)
@@ -59,7 +65,7 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 
 	readers := make([]roaringsetrange.InnerReader, len(view.Disk))
 	for i, segment := range view.Disk {
@@ -70,7 +76,7 @@ func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
 	}
 	readers = append(readers, view.Active.newRoaringSetRangeReader())
 
-	return roaringsetrange.NewCombinedReader(readers, view.Release, concurrency.SROAR_MERGE, b.logger)
+	return roaringsetrange.NewCombinedReader(readers, view.ReleaseView, concurrency.SROAR_MERGE, b.logger)
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange {

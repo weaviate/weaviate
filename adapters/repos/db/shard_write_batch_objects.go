@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,10 +15,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime/debug"
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -37,6 +37,14 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 		return []error{err}
 	}
 
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
+		errs := make([]error, len(objects))
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs
+	}
+
 	return s.putBatch(ctx, objects)
 }
 
@@ -53,7 +61,7 @@ func (s *Shard) putBatch(ctx context.Context,
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 	// When the last batch finishes, all workers receive a shutdown signal and exit
-	batcher := newObjectsBatcher(s)
+	batcher := newObjectsBatcher(s, s.index.logger)
 	err := batcher.Objects(ctx, objects)
 
 	// block until all objects of batch have been added
@@ -67,7 +75,7 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 	beforeBatch := time.Now()
 	defer s.metrics.BatchObject(beforeBatch, len(objects))
 
-	batcher := newObjectsBatcher(s)
+	batcher := newObjectsBatcher(s, s.index.logger)
 
 	batcher.init(objects)
 	batcher.storeInObjectStore(ctx)
@@ -90,10 +98,11 @@ type objectsBatcher struct {
 	objects        []*storobj.Object
 	wg             sync.WaitGroup
 	batchStartTime time.Time
+	logger         logrus.FieldLogger
 }
 
-func newObjectsBatcher(s ShardLike) *objectsBatcher {
-	return &objectsBatcher{shard: s}
+func newObjectsBatcher(s ShardLike, logger logrus.FieldLogger) *objectsBatcher {
+	return &objectsBatcher{shard: s, logger: logger}
 }
 
 // Objects imports the specified objects in parallel in a batch-fashion
@@ -186,7 +195,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
-	status, err := ob.shard.putObjectLSM(object, idBytes)
+	status, err := ob.shard.putObjectLSM(ctx, object, idBytes)
 	if err != nil {
 		return err
 	}
@@ -227,6 +236,15 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		if err := queue.Delete(docIDsToDelete...); err != nil {
 			for _, pos := range positions {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), pos)
 			}
 		}
 		return nil
@@ -363,7 +381,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 			entsentry.Recover(err)
 			ob.setErrorAtIndex(fmt.Errorf("an unexpected error occurred: %s", err), index)
 			fmt.Fprintf(os.Stderr, "panic: %s\n", err)
-			debug.PrintStack()
+			enterrors.PrintStack(ob.logger)
 		}
 	}()
 
@@ -466,6 +484,15 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			for i := range ob.objects {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), i)
 			}
 		}
 		return nil

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -169,27 +169,4 @@ func (p WriteRoutingPlan) Shards() []string {
 // Replicas returns a list of replicas
 func (p WriteRoutingPlan) Replicas() []Replica {
 	return p.ReplicaSet.Replicas
-}
-
-// AdditionalHostNames returns the hostnames of the additional write Replicas,
-// which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalHostNames() []string {
-	return p.ReplicaSet.AdditionalHostAddresses()
-}
-
-// AdditionalHostAddresses returns the host addresses of the additional write
-// Replicas, which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalHostAddresses() []string {
-	return p.ReplicaSet.AdditionalHostAddresses()
-}
-
-// AdditionalShards returns the shard names associated with the additional write Replicas
-// in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalShards() []string {
-	return p.ReplicaSet.AdditionalShards()
-}
-
-// AdditionalReplicas returns a list of additional replicas
-func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
-	return p.ReplicaSet.AdditionalReplicas
 }

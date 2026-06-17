@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -139,6 +139,27 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	status.ChangeState(c.State)
 	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
+	return nil
+}
+
+// NodeReachedState records (c.NodeId → c.State) for op c.Id. Monotonic per
+// peer via StateRank — safe against re-broadcasts from log replay.
+func (s *ShardReplicationFSM) NodeReachedState(c *api.ReplicationNodeReachedStateRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	status, ok := s.statusById[c.Id]
+	if !ok {
+		// Stale broadcast for an op that's been pruned — silent no-op.
+		return nil
+	}
+	if status.PerNodeState == nil {
+		status.PerNodeState = make(map[string]api.ShardReplicationState)
+	}
+	if api.StateRank(c.State) > api.StateRank(status.PerNodeState[c.NodeId]) {
+		status.PerNodeState[c.NodeId] = c.State
+		s.statusById[c.Id] = status
+	}
 
 	return nil
 }
@@ -416,47 +437,6 @@ func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
 	}
 
 	return nil
-}
-
-func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) bool {
-	ops, ok := s.opsBySourceFQDN[sourceFQDN]
-	if !ok {
-		return false
-	}
-
-	for _, op := range ops {
-		status, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-
-		if status.ShouldConsumeOps() {
-			return true
-		} else {
-			continue
-		}
-	}
-	return false
-}
-
-func (s *ShardReplicationFSM) hasOngoingTargetReplication(targetFQDN shardFQDN) bool {
-	op, ok := s.opsByTargetFQDN[targetFQDN]
-	if !ok {
-		return false
-	}
-	status, ok := s.statusById[op.ID]
-	if !ok {
-		return false
-	}
-	return status.ShouldConsumeOps()
-}
-
-func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard string, replica string) bool {
-	s.opsLock.RLock()
-	defer s.opsLock.RUnlock()
-
-	FQDN := newShardFQDN(replica, collection, shard)
-	return s.hasOngoingSourceReplication(FQDN) || s.hasOngoingTargetReplication(FQDN)
 }
 
 // TODO: Improve the error handling in that function

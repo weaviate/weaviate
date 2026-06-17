@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,7 @@ const (
 	REGISTERED  ShardReplicationState = "REGISTERED"
 	HYDRATING   ShardReplicationState = "HYDRATING"
 	FINALIZING  ShardReplicationState = "FINALIZING"
+	INTEGRATING ShardReplicationState = "INTEGRATING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
 	CANCELLED   ShardReplicationState = "CANCELLED" // The operation has been cancelled. It cannot be resumed.
@@ -72,6 +73,38 @@ type ReplicationUpdateOpStateRequest struct {
 }
 
 type ReplicationUpdateOpStateResponse struct{}
+
+// ReplicationNodeReachedStateRequest reports that NodeId has applied State
+// for op Id; recorded into op.PerNodeState on every peer for local
+// convergence checks.
+type ReplicationNodeReachedStateRequest struct {
+	Version int
+	Id      uint64
+	NodeId  string
+	State   ShardReplicationState
+}
+
+// StateRank orders states along the happy-path lifecycle so monotonic and
+// "at least X" comparisons work. CANCELLED ranks below every happy-path
+// state — it never satisfies a convergence check.
+func StateRank(s ShardReplicationState) int {
+	switch s {
+	case REGISTERED:
+		return 1
+	case HYDRATING:
+		return 2
+	case FINALIZING:
+		return 3
+	case INTEGRATING:
+		return 4
+	case DEHYDRATING:
+		return 5
+	case READY:
+		return 6
+	default:
+		return 0
+	}
+}
 
 type ReplicationRegisterErrorRequest struct {
 	Version int

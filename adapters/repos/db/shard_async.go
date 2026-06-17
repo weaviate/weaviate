@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -222,6 +223,11 @@ func (s *Shard) iterateOnLSMObjects(
 	maxDocID := s.Counter().Get()
 	bucket := s.Store().Bucket(helpers.ObjectsBucketLSM)
 
+	className, err := bucket.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
+
 	buf := make([]byte, 8)
 	for i := fromID; i < maxDocID; i++ {
 		if ctx.Err() != nil {
@@ -237,7 +243,7 @@ func (s *Shard) iterateOnLSMObjects(
 		if v == nil {
 			continue
 		}
-		obj, err := storobj.FromBinaryOptional(v, addProps, properties)
+		obj, err := storobj.FromBinaryOptionalDisk(v, className, addProps, properties)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}

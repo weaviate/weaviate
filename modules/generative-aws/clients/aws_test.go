@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,13 +41,24 @@ func TestAWS_ModelChecks(t *testing.T) {
 	assert.False(t, c.isAmazonTitanModel("amazon.nova-micro-v1:0"))
 	assert.True(t, c.isAmazonTitanModel("us.amazon.titan-text-lite-v1"))
 	assert.True(t, c.isAmazonTitanModel("amazon.titan-text-lite-v1"))
-	// Anthropic
+	// Anthropic — Messages API models (Claude 3.x, 4.x, future families)
 	assert.True(t, c.isAnthropicModel("anthropic.claude-3-7-sonnet-20250219-v1:0"))
 	assert.True(t, c.isAnthropicModel("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
-	assert.True(t, c.isAnthropicClaude3Model("anthropic.claude-3-7-sonnet-20250219-v1:0"))
-	assert.True(t, c.isAnthropicClaude3Model("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.False(t, c.isAnthropicLegacyModel("anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.False(t, c.isAnthropicLegacyModel("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
 	assert.False(t, c.isAmazonTitanModel("anthropic.claude-3-7-sonnet-20250219-v1:0"))
-	assert.False(t, c.isAmazonTitanModel("anthropic.claude-3-7-sonnet-20250219-v1:0"))
+	assert.True(t, c.isAnthropicModel("anthropic.claude-sonnet-4-5-20250929-v1:0"))
+	assert.True(t, c.isAnthropicModel("us.anthropic.claude-sonnet-4-5-20250929-v1:0"))
+	assert.False(t, c.isAnthropicLegacyModel("anthropic.claude-sonnet-4-5-20250929-v1:0"))
+	assert.False(t, c.isAnthropicLegacyModel("anthropic.claude-sonnet-4-20250514-v1:0"))
+	assert.False(t, c.isAnthropicLegacyModel("anthropic.claude-haiku-4-5-20251001-v1:0"))
+	assert.False(t, c.isAnthropicLegacyModel("anthropic.claude-opus-4-1-20250805-v1:0"))
+	// Anthropic — legacy text-completion API (claude-v1, claude-v2, claude-instant)
+	assert.True(t, c.isAnthropicModel("anthropic.claude-v2"))
+	assert.True(t, c.isAnthropicModel("anthropic.claude-instant-v1"))
+	assert.True(t, c.isAnthropicLegacyModel("anthropic.claude-v2"))
+	assert.True(t, c.isAnthropicLegacyModel("anthropic.claude-v2:1"))
+	assert.True(t, c.isAnthropicLegacyModel("anthropic.claude-instant-v1"))
 	// Cohere
 	assert.True(t, c.isCohereCommandRModel("cohere.command-r-v1:0"))
 	assert.True(t, c.isCohereCommandRModel("us.cohere.command-r-v1:0"))

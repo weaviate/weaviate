@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,16 +16,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
@@ -80,6 +80,12 @@ func (r *restorer) restore(
 
 	destPath := store.HomeDir(req.Bucket, req.Path)
 
+	if lastOp := r.lastOp.get(); lastOp.ID == req.ID &&
+		(lastOp.Status == backup.Cancelling || lastOp.Status == backup.Cancelled) {
+		err := fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", req.ID)
+		return ret, err
+	}
+
 	// make sure there is no active restore
 	if prevID := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
@@ -100,7 +106,12 @@ func (r *restorer) restore(
 				status.Status = backup.Success
 			} else {
 				status.Err = err.Error()
-				status.Status = backup.Failed
+				// Check if error is due to cancellation
+				if errors.Is(err, context.Canceled) {
+					status.Status = backup.Cancelled
+				} else {
+					status.Status = backup.Failed
+				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
 			r.lastOp.reset()
@@ -113,10 +124,15 @@ func (r *restorer) restore(
 			return
 		}
 
+		// the coordinator might want to abort the restore
+		done := make(chan struct{})
+		ctx := r.withCancellation(context.Background(), req.ID, done, r.logger)
+		defer close(done)
+
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -139,9 +155,20 @@ func (r *restorer) restoreAll(ctx context.Context,
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
+	// Check for cancellation before starting restore operations
+	if err := ctx.Err(); err != nil {
+		r.lastOp.set(backup.Cancelled)
+		return fmt.Errorf("restore cancelled: %w", err)
+	}
+
 	if r.dynUserSourcer != nil && len(desc.UserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
 		if err := r.dynUserSourcer.Restore(desc.UserBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
+		}
+		// Check for cancellation after User restore
+		if err := ctx.Err(); err != nil {
+			r.lastOp.set(backup.Cancelled)
+			return fmt.Errorf("restore cancelled: %w", err)
 		}
 	}
 
@@ -149,21 +176,36 @@ func (r *restorer) restoreAll(ctx context.Context,
 		if err := r.rbacSourcer.Restore(desc.RbacBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
+		// Check for cancellation after RBAC restore
+		if err := ctx.Err(); err != nil {
+			r.lastOp.set(backup.Cancelled)
+			return fmt.Errorf("restore cancelled: %w", err)
+		}
 	}
 
 	for _, cdesc := range desc.Classes {
+		// Check for cancellation before each class restore
+		if err := ctx.Err(); err != nil {
+			r.lastOp.set(backup.Cancelled)
+			return fmt.Errorf("restore cancelled: %w", err)
+		}
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+			if errors.Is(err, context.Canceled) {
+				r.lastOp.set(backup.Cancelled)
+				return fmt.Errorf("restore cancelled: %w", err)
+			}
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
 			WithField("backup_id", desc.ID).
 			WithField("class", cdesc.Name).Info("successfully restored")
 	}
+
 	return nil
 }
 
 func getType(myvar interface{}) string {
-	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
+	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Pointer {
 		return "*" + t.Elem().Name()
 	} else {
 		return t.Name()
@@ -180,7 +222,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		classLabel = "n/a"
 	}
 	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel)
-	if err != nil {
+	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
@@ -232,9 +274,10 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, nil, fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
+			req.ID, path.Join(destPath, BackupFile), meta.ID, destPath)
 	}
-	if meta.Status != string(backup.Success) {
+	if meta.Status != backup.Success {
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}
@@ -252,6 +295,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		}
 		meta.Include(req.Classes)
 	}
+
 	return meta, cs, nil
 }
 

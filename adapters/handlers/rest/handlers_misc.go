@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,7 +40,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			metaInfos, err = modulesProvider.GetMeta()
 			if err != nil {
 				metricRequestsTotal.logError("", err)
-				return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+				return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 			}
 		}
 
@@ -64,7 +64,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			target, err := url.JoinPath(serverConfig.Config.Authentication.OIDC.Issuer.Get(), "/.well-known/openid-configuration")
 			if err != nil {
 				metricRequestsTotal.logError("", err)
-				return well_known.NewGetWellKnownOpenidConfigurationInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+				return well_known.NewGetWellKnownOpenidConfigurationInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 			}
 			clientID := serverConfig.Config.Authentication.OIDC.ClientID
 			scopes := serverConfig.Config.Authentication.OIDC.Scopes

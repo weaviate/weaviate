@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -210,6 +210,51 @@ func (o *GetRolesForUserDeprecatedNotFound) WriteResponse(rw http.ResponseWriter
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// GetRolesForUserDeprecatedGoneCode is the HTTP code returned for type GetRolesForUserDeprecatedGone
+const GetRolesForUserDeprecatedGoneCode int = 410
+
+/*
+GetRolesForUserDeprecatedGone Endpoint not available in the current cluster configuration.
+
+swagger:response getRolesForUserDeprecatedGone
+*/
+type GetRolesForUserDeprecatedGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetRolesForUserDeprecatedGone creates GetRolesForUserDeprecatedGone with default headers values
+func NewGetRolesForUserDeprecatedGone() *GetRolesForUserDeprecatedGone {
+
+	return &GetRolesForUserDeprecatedGone{}
+}
+
+// WithPayload adds the payload to the get roles for user deprecated gone response
+func (o *GetRolesForUserDeprecatedGone) WithPayload(payload *models.ErrorResponse) *GetRolesForUserDeprecatedGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get roles for user deprecated gone response
+func (o *GetRolesForUserDeprecatedGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetRolesForUserDeprecatedGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // GetRolesForUserDeprecatedUnprocessableEntityCode is the HTTP code returned for type GetRolesForUserDeprecatedUnprocessableEntity

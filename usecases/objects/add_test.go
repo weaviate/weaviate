@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -81,7 +81,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	reset := func() {
@@ -284,7 +284,7 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write_With_AutoTenant(t *testing
 	modulesProvider := getFakeModulesProvider()
 	metrics := &fakeMetrics{}
 	manager := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, metrics, nil,
-		NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 
 	modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
 
@@ -327,7 +327,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -440,7 +440,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -501,7 +501,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 	reset()
 	ctx := context.Background()
@@ -557,7 +557,7 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()),
 		)
 	}
 	reset()

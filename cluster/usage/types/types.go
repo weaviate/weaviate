@@ -4,16 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package types
-
-import (
-	"github.com/weaviate/weaviate/entities/models"
-)
 
 const UsageDiskVersion int = 1
 
@@ -42,9 +38,6 @@ type Report struct {
 
 	// CollectingTime The time of the collection of the metric
 	CollectingTime string `json:"-"`
-
-	// The local node's view of the schema
-	Schema *models.Schema `json:"schema,omitempty"`
 
 	GoMemLimit int64 `json:"go_mem_limit,omitempty"`
 }

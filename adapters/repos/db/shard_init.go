@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,9 +13,11 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"runtime/debug"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +50,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if shardusage.RemoveComputedUsageDataForUnloadedShard(index.path(), shardName); err != nil {
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
+	}
+
+	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
+		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
+	}
+
+	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
+		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
 	}
 
 	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
@@ -96,7 +106,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				"index": index.ID(),
 				"shard": shardName,
 			}).Error("panic during shard initialization")
-			debug.PrintStack()
+			enterrors.PrintStack(index.logger)
 		}
 
 		if err != nil {
@@ -137,10 +147,30 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	if err := s.sweepChangelogDir(); err != nil {
+		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
+	}
+
 	// init the store itself synchronously
 	if err := s.initLSMStore(); err != nil {
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
+
+	// Finalize any completed migrations whose directory renames were deferred
+	// from a runtime swap. This must run before bucket loading (initNonVector)
+	// so that buckets are found at their canonical directory names.
+	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+
+	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
+	// migration's target property as "not locally ready" on this shard.
+	// Without this, a post-restart shard whose recovery hasn't finished
+	// the local swap yet would serve range queries from an empty
+	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
+	// flips on another node. See [Shard.rangeableLocalReady] for the
+	// full rationale. Props not found in this scan default to "ready"
+	// (no migration ever ran, or every prior migration already tidied —
+	// FinalizeCompletedMigrations above promoted them to canonical).
+	markInFlightRangeableMigrationsNotReady(s)
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
@@ -188,8 +218,96 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String(), "notify ready")
+	s.UpdateStatus(storagestate.StatusReady.String(), statusReasonNotifyReady)
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
+}
+
+// markInFlightRangeableMigrationsNotReady scans this shard's
+// .migrations/ directory for rangeable-related tracker dirs whose
+// `tidied.mig` sentinel is not present, and flips the corresponding
+// per-prop entry in Shard.rangeableLocalReady to false. See
+// [Shard.rangeableLocalReady] for rationale. Idempotent and safe to
+// call on shards with no rangeable migrations on disk.
+//
+// Property names are read from the on-disk recovery payload (payload.mig
+// inside each tracker dir). Parsing them out of the dir name would be
+// fragile for props whose names themselves contain `_` (e.g.
+// `price_cents`), because [migrationDirWithProps] joins multiple props
+// with `_` — the dir-name decoder can't tell `price_cents` (one prop)
+// from `[price, cents]` (two props).
+//
+// Tracker dirs whose payload.mig is unreadable or missing are skipped
+// — they are either stale (operator surgery, partial-init crash) or
+// from an old build before payload persistence. We accept the
+// default-true policy in [Shard.IsRangeableLocallyReady] for those
+// edge cases; the bucket-existence fallback inside
+// IsRangeableLocallyReady still protects queries when the
+// PreReindexHook hasn't fired yet on this replica.
+//
+// Properties that don't have a tracker dir, or whose dir has
+// `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
+// in this same startup), are left untouched — the default-true policy
+// in [Shard.IsRangeableLocallyReady] applies to them.
+func markInFlightRangeableMigrationsNotReady(s *Shard) {
+	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		// No .migrations dir is the common case: nothing to do.
+		return
+	}
+	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		base, _, ok := parseMigrationDirName(name)
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(base, prefix) {
+			continue
+		}
+		// tidied.mig present means FinalizeCompletedMigrations either
+		// promoted the migration or will at the next call site; the
+		// query-side fallback isn't needed for these.
+		dirPath := filepath.Join(migrationsDir, name)
+		if fileExistsInDir(dirPath, "tidied.mig") {
+			continue
+		}
+		propNames, ok := readRecoveryPropertyNames(dirPath)
+		if !ok {
+			continue
+		}
+		for _, propName := range propNames {
+			s.setRangeableLocallyReady(propName, false)
+		}
+	}
+}
+
+// readRecoveryPropertyNames extracts the `Properties` slice from a
+// migration tracker dir's payload.mig sentinel file (see
+// ShardReindexTaskGeneric.SaveRecoveryPayload). Returns (nil, false)
+// when the file is missing, unreadable, or doesn't parse as a
+// ReindexTaskPayload-shaped JSON — those edge cases are tolerated by
+// the caller, which falls back to the default-true readiness policy.
+func readRecoveryPropertyNames(migDir string) ([]string, bool) {
+	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
+	if err != nil {
+		return nil, false
+	}
+	// Anonymous shape: only the field we need. Avoids depending on
+	// ReindexTaskPayload here (no import cycle risk, but keeping shard
+	// init lean).
+	var rec struct {
+		Payload struct {
+			Properties []string `json:"properties"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return nil, false
+	}
+	return rec.Payload.Properties, true
 }

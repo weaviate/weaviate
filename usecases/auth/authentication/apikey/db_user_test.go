@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,12 +15,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -42,7 +44,7 @@ func TestDynUserConcurrency(t *testing.T) {
 	for i := 0; i < numUsers; i++ {
 		userName := fmt.Sprintf("user%v", i)
 		go func() {
-			err := dynUsers.CreateUser(userName, "something", userName, "", time.Now())
+			err := dynUsers.CreateUser(userName, "something", userName, "", "", time.Now())
 			require.NoError(t, err)
 			wg.Done()
 		}()
@@ -55,6 +57,81 @@ func TestDynUserConcurrency(t *testing.T) {
 	require.Equal(t, len(userNames), len(users))
 }
 
+// Pins UserView's data fields to User's. Adding a field to User without
+// mirroring it in UserView (and view()) would silently drop it from the
+// GetUsers snapshot.
+func TestUserView_MirrorsUserFields(t *testing.T) {
+	collect := func(typ reflect.Type) map[string]string {
+		out := make(map[string]string, typ.NumField())
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			if f.Anonymous || !f.IsExported() {
+				continue
+			}
+			out[f.Name] = f.Type.String()
+		}
+		return out
+	}
+
+	require.Equal(t, collect(reflect.TypeOf(User{})), collect(reflect.TypeOf(UserView{})),
+		"User and UserView must expose the same exported data fields; update UserView and (*User).view() when adding fields to User")
+}
+
+// Concurrent Activate/Deactivate vs GetUsers field reads must stay race-free under -race.
+func TestGetUsers_NoRaceWithMutators(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	const numUsers = 5
+	userIds := make([]string, 0, numUsers)
+	for i := 0; i < numUsers; i++ {
+		id := fmt.Sprintf("u%d", i)
+		require.NoError(t, dynUsers.CreateUser(id, "h", id, "", "", time.Now()))
+		userIds = append(userIds, id)
+	}
+
+	const iterations = 200
+	done := make(chan struct{})
+	wg := sync.WaitGroup{}
+
+	// Mutator: flips Active under c.lock.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			id := userIds[i%numUsers]
+			if i%2 == 0 {
+				_ = dynUsers.DeactivateUser(id, false)
+			} else {
+				_ = dynUsers.ActivateUser(id)
+			}
+		}
+		close(done)
+	}()
+
+	// Reader: GetUsers + read .Active.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			users, err := dynUsers.GetUsers(userIds...)
+			assert.NoError(t, err)
+			for _, u := range users {
+				_ = u.Active
+				_ = u.LastUsedAt
+				_ = u.InternalIdentifier
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestConcurrentValidate(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
@@ -64,12 +141,12 @@ func TestConcurrentValidate(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now()))
 
 	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now()))
 
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -107,7 +184,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -138,7 +215,7 @@ func TestUpdateUser(t *testing.T) {
 	apiKey, hash, oldIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, oldIdentifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, oldIdentifier, "", "", time.Now()))
 
 	// login works
 	randomKeyOld, _, err := keys.DecodeApiKey(apiKey)
@@ -174,6 +251,29 @@ func TestUpdateUser(t *testing.T) {
 	require.Less(t, tookFast, tookSlow)
 }
 
+func TestCheckUserIdentifierExists(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	userId := "id"
+	_, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	exists, err := dynUsers.CheckUserIdentifierExists(identifier)
+	require.NoError(t, err)
+	require.False(t, exists)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+
+	exists, err = dynUsers.CheckUserIdentifierExists(identifier)
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	exists, err = dynUsers.CheckUserIdentifierExists(userId)
+	require.NoError(t, err)
+	require.False(t, exists)
+}
+
 func TestSnapShotAndRestore(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
@@ -184,13 +284,13 @@ func TestSnapShotAndRestore(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now()))
 	login1, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
 	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now()))
 	login2, _, err := keys.DecodeApiKey(apiKey2)
 	require.NoError(t, err)
 
@@ -256,7 +356,7 @@ func TestSuspendAfterDelete(t *testing.T) {
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 	users, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
@@ -281,7 +381,7 @@ func TestLastUsedTime(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 	user, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
@@ -312,6 +412,18 @@ func TestLastUsedTime(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, user[userId].LastUsedAt, updateTime)
+}
+
+func TestUpdateLastUsedTimestamp_NonExistentUser(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	// Should not panic when updating timestamp for a user that doesn't exist
+	require.NotPanics(t, func() {
+		dynUsers.UpdateLastUsedTimestamp(map[string]time.Time{
+			"non-existent-user": time.Now(),
+		})
+	})
 }
 
 func TestImportingAndSuspendingStaticKeys(t *testing.T) {
@@ -434,7 +546,7 @@ func TestSnapshotRestoreEmpty(t *testing.T) {
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 	user, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
 	require.Equal(t, user[userId].Id, userId)
@@ -453,6 +565,189 @@ func TestRestoreInvalidData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Error(t, dynUsers.Restore([]byte("invalid json")))
+}
+
+func TestCreateUserStoresNamespace(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+	}{
+		{name: "with namespace", namespace: "customer1"},
+		{name: "empty namespace", namespace: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dynUsers, err := NewDBUser(t.TempDir(), true, log)
+			require.NoError(t, err)
+
+			_, hash, identifier, err := keys.CreateApiKeyAndHash()
+			require.NoError(t, err)
+
+			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now()))
+
+			users, err := dynUsers.GetUsers("u1")
+			require.NoError(t, err)
+			require.Equal(t, tc.namespace, users["u1"].Namespace)
+		})
+	}
+}
+
+func TestSnapshotRestoreMultipleNamespaces(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+
+	type seed struct {
+		userId    string
+		namespace string
+	}
+	seeds := []seed{
+		{userId: "u1", namespace: "ns1"},
+		{userId: "u2", namespace: "ns1"},
+		{userId: "u3", namespace: "ns2"},
+		{userId: "u4", namespace: ""}, // pre-namespace record
+	}
+	for _, s := range seeds {
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser(s.userId, hash, identifier, "", s.namespace, time.Now()))
+	}
+
+	snap, err := dynUsers.Snapshot()
+	require.NoError(t, err)
+
+	restored, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	require.NoError(t, restored.Restore(snap))
+
+	users, err := restored.GetUsers()
+	require.NoError(t, err)
+	require.Len(t, users, len(seeds))
+	for _, s := range seeds {
+		require.Equal(t, s.namespace, users[s.userId].Namespace, "userId=%s", s.userId)
+	}
+}
+
+func TestValidateAndExtractReturnsNamespace(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+	}{
+		{name: "with namespace", namespace: "customer1"},
+		{name: "empty namespace", namespace: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dynUsers, err := NewDBUser(t.TempDir(), true, log)
+			require.NoError(t, err)
+
+			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+			require.NoError(t, err)
+			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now()))
+
+			randomKey, _, err := keys.DecodeApiKey(apiKey)
+			require.NoError(t, err)
+			principal, err := dynUsers.ValidateAndExtract(randomKey, identifier)
+			require.NoError(t, err)
+			require.NotNil(t, principal)
+			require.Equal(t, tc.namespace, principal.Namespace)
+			require.False(t, principal.IsGlobalOperator, "dynamic users are never global operators")
+		})
+	}
+}
+
+func TestUsersInNamespace(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+
+	seeds := []struct {
+		id, namespace string
+	}{
+		{"u-alpha-1", "alpha"},
+		{"u-alpha-2", "alpha"},
+		{"u-beta", "beta"},
+		{"u-unscoped", ""},
+	}
+	for _, s := range seeds {
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
+	}
+
+	require.ElementsMatch(t, []string{"u-alpha-1", "u-alpha-2"}, dynUsers.UsersInNamespace("alpha"))
+	require.ElementsMatch(t, []string{"u-beta"}, dynUsers.UsersInNamespace("beta"))
+	require.Empty(t, dynUsers.UsersInNamespace("never-existed"))
+	require.Nil(t, dynUsers.UsersInNamespace(""))
+}
+
+func TestDeleteUsersInNamespace(t *testing.T) {
+	t.Run("removes only matching users", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+
+		seeds := []struct {
+			id, namespace string
+		}{
+			{"u-alpha-1", "alpha"},
+			{"u-alpha-2", "alpha"},
+			{"u-beta", "beta"},
+			{"u-unscoped", ""},
+		}
+		for _, s := range seeds {
+			_, hash, identifier, err := keys.CreateApiKeyAndHash()
+			require.NoError(t, err)
+			require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
+		}
+
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+
+		users, err := dynUsers.GetUsers()
+		require.NoError(t, err)
+		require.Len(t, users, 2)
+		require.NotContains(t, users, "u-alpha-1")
+		require.NotContains(t, users, "u-alpha-2")
+		require.Contains(t, users, "u-beta")
+		require.Contains(t, users, "u-unscoped")
+	})
+
+	t.Run("rerun on empty namespace is a no-op", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
+
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("never-existed"))
+	})
+
+	t.Run("frees the user id for re-creation", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+
+		_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("u1", hash2, identifier2, "", "alpha", time.Now()))
+
+		users, err := dynUsers.GetUsers("u1")
+		require.NoError(t, err)
+		require.NotNil(t, users["u1"])
+		require.Equal(t, "alpha", users["u1"].Namespace)
+	})
+
+	t.Run("empty namespace argument is rejected", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+		require.Error(t, dynUsers.DeleteUsersInNamespace(""))
+	})
 }
 
 func TestRestoreIncompleteData(t *testing.T) {

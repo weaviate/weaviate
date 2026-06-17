@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -126,13 +126,11 @@ func New[T dto.Embedding](jinaAIApiKey string,
 ) *Client[T] {
 	return &Client[T]{
 		jinaAIApiKey: jinaAIApiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		buildUrlFn: buildUrlFn,
-		defaultRPM: defaultRPM,
-		defaultTPM: defaultTPM,
-		logger:     logger,
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
+		buildUrlFn:   buildUrlFn,
+		defaultRPM:   defaultRPM,
+		defaultTPM:   defaultTPM,
+		logger:       logger,
 	}
 }
 
@@ -230,7 +228,7 @@ func (c *Client[T]) vectorize(ctx context.Context,
 
 	var resBody embedding[T]
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 {

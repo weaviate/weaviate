@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,19 +39,19 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-type ReplicationTestSuite struct {
+type ReplicationTestSuiteSlow struct {
 	suite.Suite
 }
 
-func (suite *ReplicationTestSuite) SetupTest() {
+func (suite *ReplicationTestSuiteSlow) SetupTest() {
 	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 }
 
-func TestReplicationTestSuite(t *testing.T) {
-	suite.Run(t, new(ReplicationTestSuite))
+func TestReplicationTestSuiteSlow(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuiteSlow))
 }
 
-func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
+func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileCopy() {
 	t := suite.T()
 	ctx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
@@ -62,7 +62,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "20s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start compose cluster: %+v", err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -79,8 +79,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
@@ -112,7 +111,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			require.NoError(ct, clientErr)
+			require.NoError(ct, clientErr, "failed to get nodes status: %+v", clientErr)
 			require.NotNil(ct, body.Payload)
 
 			resp := body.Payload
@@ -131,9 +130,9 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 		verbose := verbosity.OutputVerbose
 		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
 		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr)
+		require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
 		require.NotNil(t, body.Payload)
-		targetNode := "node3"
+		targetNode := docker.Weaviate2
 		hasFoundNode := false
 		hasFoundShard := false
 
@@ -174,7 +173,9 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 							uuid.New().String(),
 							"",
 						)
-						require.NoError(t, err)
+						if !assert.NoError(t, err, "failed to create object on source node: %+v", err) {
+							return
+						}
 						time.Sleep(time.Millisecond)
 
 					}
@@ -194,8 +195,10 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 						),
 						nil,
 					)
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
+					if !assert.NoError(t, err, "failed to start replica replication operation: %+v", err) {
+						return
+					}
+					assert.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
 					opId = *resp.Payload.ID
 				}, logger)
 				wg.Wait()
@@ -216,7 +219,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 			details, err := helper.Client(t).Replication.ReplicationDetails(
 				replication.NewReplicationDetailsParams().WithID(opId), nil,
 			)
-			assert.Nil(t, err, "failed to get replication details %s", err)
+			assert.NoError(t, err, "failed to get replication details %s", err)
 			assert.NotNil(t, details, "expected replication details to be not nil")
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")

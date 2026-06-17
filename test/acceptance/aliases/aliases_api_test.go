@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,6 @@
 package test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,27 +24,13 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
 )
 
-func Test_AliasesAPI(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
-
+func testAliasesAPI(t *testing.T) {
 	t.Run("create schema", func(t *testing.T) {
 		t.Run("Books", func(t *testing.T) {
 			booksClass := books.ClassModel2VecVectorizer()
@@ -74,36 +59,36 @@ func Test_AliasesAPI(t *testing.T) {
 		}{
 			{
 				name:  books.DefaultClassName,
-				alias: &models.Alias{Alias: "BookAlias", Class: books.DefaultClassName},
+				alias: &models.Alias{Alias: "RestBookAlias", Class: books.DefaultClassName},
 			},
 			{
 				name:  documents.Document,
-				alias: &models.Alias{Alias: "DocumentAlias", Class: documents.Document},
+				alias: &models.Alias{Alias: "RestDocumentAlias", Class: documents.Document},
 			},
 			{
 				name:  documents.Document,
-				alias: &models.Alias{Alias: "PassageAlias", Class: documents.Document},
+				alias: &models.Alias{Alias: "RestPassageAlias", Class: documents.Document},
 			},
 			{
 				name:  documents.Passage,
-				alias: &models.Alias{Alias: "PassageAlias1", Class: documents.Passage},
+				alias: &models.Alias{Alias: "RestPassageAlias1", Class: documents.Passage},
 			},
 			{
 				name:  documents.Passage,
-				alias: &models.Alias{Alias: "PassageAlias2", Class: documents.Passage},
+				alias: &models.Alias{Alias: "RestPassageAlias2", Class: documents.Passage},
 			},
 			{
 				name:  documents.Passage,
-				alias: &models.Alias{Alias: "PassageAlias3", Class: documents.Passage},
+				alias: &models.Alias{Alias: "RestPassageAlias3", Class: documents.Passage},
 			},
 			{
 				name:  documents.Passage,
-				alias: &models.Alias{Alias: "AliasThatWillBeReplaced", Class: documents.Passage},
+				alias: &models.Alias{Alias: "RestAliasThatWillBeReplaced", Class: documents.Passage},
 			},
 			{
 				name: "create with different case",
-				// passing in `aliasThatCreated` but should transform into `AliasThatCreated`.
-				alias: &models.Alias{Alias: "aliasThatCreated", Class: documents.Passage},
+				// passing in `restAliasThatCreated` but should transform into `RestAliasThatCreated`.
+				alias: &models.Alias{Alias: "restAliasThatCreated", Class: documents.Passage},
 			},
 		}
 		for _, tt := range tests {
@@ -166,22 +151,19 @@ func Test_AliasesAPI(t *testing.T) {
 	})
 
 	t.Run("get aliases", func(t *testing.T) {
-		resp := helper.GetAliases(t, nil)
-		require.NotNil(t, resp)
-		require.NotEmpty(t, resp.Aliases)
-		require.Equal(t, 8, len(resp.Aliases))
+		require.Equal(t, 8, countAliasesWithPrefix(t, "Rest"))
 	})
 
 	t.Run("get alias", func(t *testing.T) {
-		resp := helper.GetAlias(t, "BookAlias")
+		resp := helper.GetAlias(t, "RestBookAlias")
 		require.NotNil(t, resp)
-		require.Equal(t, "BookAlias", resp.Alias)
+		require.Equal(t, "RestBookAlias", resp.Alias)
 	})
 
 	t.Run("get alias different case", func(t *testing.T) {
-		resp := helper.GetAlias(t, "bookAlias") // first letter is different case.
+		resp := helper.GetAlias(t, "restBookAlias") // first letter is different case.
 		require.NotNil(t, resp)
-		require.Equal(t, "BookAlias", resp.Alias)
+		require.Equal(t, "RestBookAlias", resp.Alias)
 	})
 
 	t.Run("get alias not found", func(t *testing.T) {
@@ -196,7 +178,7 @@ func Test_AliasesAPI(t *testing.T) {
 			require.Equal(t, aliasName, resp.Alias)
 			require.Equal(t, expectedClass, resp.Class)
 		}
-		aliasName := "AliasThatWillBeReplaced"
+		aliasName := "RestAliasThatWillBeReplaced"
 		checkAlias(t, aliasName, documents.Passage)
 		helper.UpdateAlias(t, aliasName, documents.Document)
 		checkAlias(t, aliasName, documents.Document)
@@ -209,8 +191,8 @@ func Test_AliasesAPI(t *testing.T) {
 			require.Equal(t, aliasName, resp.Alias)
 			require.Equal(t, expectedClass, resp.Class)
 		}
-		aliasName := "AliasThatWillBeReplaced"
-		dAliasName := "aliasThatWillBeReplaced" // same with first lower case
+		aliasName := "RestAliasThatWillBeReplaced"
+		dAliasName := "restAliasThatWillBeReplaced" // same with first lower case
 		checkAlias(t, aliasName, documents.Document)
 		helper.UpdateAlias(t, dAliasName, documents.Passage)
 		checkAlias(t, aliasName, documents.Passage)
@@ -236,7 +218,7 @@ func Test_AliasesAPI(t *testing.T) {
 			require.Equal(t, aliasName, resp.Alias)
 			require.Equal(t, expectedClass, resp.Class)
 		}
-		aliasName := "AliasThatWillBeReplaced"
+		aliasName := "RestAliasThatWillBeReplaced"
 		checkAlias(t, aliasName, documents.Passage)
 		resp, err := helper.UpdateAliasWithReturn(t, aliasName, "errorCollection")
 		require.Error(t, err)
@@ -251,30 +233,24 @@ func Test_AliasesAPI(t *testing.T) {
 
 	t.Run("delete alias", func(t *testing.T) {
 		checkAliasesCount := func(t *testing.T, count int) {
-			resp := helper.GetAliases(t, nil)
-			require.NotNil(t, resp)
-			require.NotEmpty(t, resp.Aliases)
-			require.Equal(t, count, len(resp.Aliases))
+			require.Equal(t, count, countAliasesWithPrefix(t, "Rest"))
 		}
 		checkAliasesCount(t, 8)
-		helper.DeleteAlias(t, "AliasThatWillBeReplaced")
+		helper.DeleteAlias(t, "RestAliasThatWillBeReplaced")
 		checkAliasesCount(t, 7)
 	})
 
 	t.Run("delete alias different case", func(t *testing.T) {
 		checkAliasesCount := func(t *testing.T, count int) {
-			resp := helper.GetAliases(t, nil)
-			require.NotNil(t, resp)
-			require.NotEmpty(t, resp.Aliases)
-			require.Equal(t, count, len(resp.Aliases))
+			require.Equal(t, count, countAliasesWithPrefix(t, "Rest"))
 		}
 		checkAliasesCount(t, 7)
-		helper.DeleteAlias(t, "aliasThatCreated") // note first letter is small
+		helper.DeleteAlias(t, "restAliasThatCreated") // note first letter is small
 		checkAliasesCount(t, 6)
 	})
 
 	t.Run("delete alias that doesn't exist", func(t *testing.T) {
-		resp, err := helper.DeleteAliasWithReturn(t, "AliasThatWillBeReplaced")
+		resp, err := helper.DeleteAliasWithReturn(t, "RestAliasThatWillBeReplaced")
 		require.Error(t, err)
 		require.Nil(t, resp)
 	})
@@ -295,8 +271,8 @@ func Test_AliasesAPI(t *testing.T) {
 				},
 				{
 					name:             "clashing alias name",
-					alias:            &models.Alias{Alias: "BookAlias", Class: documents.Passage},
-					expectedErrorMsg: fmt.Sprintf("create alias: %s, alias already exists", "BookAlias"),
+					alias:            &models.Alias{Alias: "RestBookAlias", Class: documents.Passage},
+					expectedErrorMsg: fmt.Sprintf("create alias: %s, alias already exists", "RestBookAlias"),
 				},
 			}
 			for _, tt := range tests {
@@ -326,8 +302,8 @@ func Test_AliasesAPI(t *testing.T) {
 				// trying to create class with existing alias name.
 				{
 					name:             "with existing alias name",
-					class:            books.ClassModel2VecVectorizerWithName("BookAlias"),
-					expectedErrorMsg: fmt.Sprintf("alias name %s already exists", "BookAlias"),
+					class:            books.ClassModel2VecVectorizerWithName("RestBookAlias"),
+					expectedErrorMsg: fmt.Sprintf("alias name %s already exists", "RestBookAlias"),
 				},
 			}
 			for _, tt := range tests {
@@ -350,8 +326,8 @@ func Test_AliasesAPI(t *testing.T) {
 		require.Nil(t, resp)
 	})
 
-	t.Run("tests with BookAlias", func(t *testing.T) {
-		aliasName := "BookAlias"
+	t.Run("tests with RestBookAlias", func(t *testing.T) {
+		aliasName := "RestBookAlias"
 
 		assertGetObject := func(t *testing.T, id strfmt.UUID) {
 			objWithClassName, err := helper.GetObject(t, books.DefaultClassName, id)
@@ -370,7 +346,7 @@ func Test_AliasesAPI(t *testing.T) {
 		}
 
 		// Properties test via alias. Any collection properties manipulation needs
-		// original class name, not the alias. Assumes we have collection: Book, alias: BookAlias.
+		// original class name, not the alias. Assumes we have collection: Book, alias: RestBookAlias.
 		t.Run("update class property with alias - should fail", func(t *testing.T) {
 			c := &models.Class{
 				Class: aliasName, // using alias name to add property
@@ -402,7 +378,7 @@ func Test_AliasesAPI(t *testing.T) {
 		})
 
 		// Tenants test via alias. Any collection tenants manipulation needs
-		// original class name, not the alias. Assumes we have collection: Book, alias: BookAlias.
+		// original class name, not the alias. Assumes we have collection: Book, alias: RestBookAlias.
 		t.Run("add_update_delete tenants withalias - should fail", func(t *testing.T) {
 			className := "MultiTenantClass"
 			testClass := models.Class{
@@ -474,6 +450,57 @@ func Test_AliasesAPI(t *testing.T) {
 			dresp, err := helper.Client(t).Schema.TenantsDelete(dparams, nil)
 			require.Error(t, err)
 			assert.Nil(t, dresp)
+		})
+
+		t.Run("read tenants via alias - should resolve", func(t *testing.T) {
+			className := "TenantReadViaAlias"
+			testClass := models.Class{
+				Class: className,
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: true,
+				},
+				Properties: []*models.Property{
+					{
+						Name:     "name",
+						DataType: entschema.DataTypeText.PropString(),
+					},
+				},
+			}
+			helper.CreateClass(t, &testClass)
+			defer helper.DeleteClass(t, className)
+
+			aliasName := "TenantReadViaAliasAlias"
+			helper.CreateAlias(t, &models.Alias{Class: className, Alias: aliasName})
+			defer helper.DeleteAlias(t, aliasName)
+
+			tenantName := "T1"
+			helper.CreateTenants(t, className, []*models.Tenant{{
+				Name: tenantName, ActivityStatus: "HOT",
+			}})
+
+			// GetConsistentTenants via alias resolves to the underlying class.
+			gresp, err := helper.GetTenants(t, aliasName)
+			require.NoError(t, err)
+			require.NotNil(t, gresp)
+			require.Len(t, gresp.Payload, 1)
+			assert.Equal(t, tenantName, gresp.Payload[0].Name)
+
+			// GetConsistentTenant via alias resolves to the underlying class.
+			oneResp, err := helper.GetOneTenant(t, aliasName, tenantName)
+			require.NoError(t, err)
+			require.NotNil(t, oneResp)
+			assert.Equal(t, tenantName, oneResp.Payload.Name)
+
+			// TenantExists via alias resolves to the underlying class.
+			existsResp, err := helper.TenantExists(t, aliasName, tenantName)
+			require.NoError(t, err)
+			require.True(t, existsResp.IsSuccess())
+
+			// Missing tenant via alias still 404s rather than silently passing.
+			_, err = helper.GetOneTenant(t, aliasName, "Missing")
+			require.Error(t, err)
+			_, err = helper.TenantExists(t, aliasName, "Missing")
+			require.Error(t, err)
 		})
 
 		t.Run("create class with alias name", func(t *testing.T) {
@@ -641,6 +668,19 @@ func Test_AliasesAPI(t *testing.T) {
 			err := helper.ValidateObject(t, obj)
 			require.NoError(t, err)
 			assertGetObject(t, objID)
+		})
+
+		t.Run("tokenize property with alias", func(t *testing.T) {
+			text := "Hello World"
+			resp, err := helper.Client(t).Schema.SchemaObjectsPropertiesTokenize(
+				schema.NewSchemaObjectsPropertiesTokenizeParams().
+					WithClassName(aliasName).
+					WithPropertyName("title").
+					WithBody(&models.PropertyTokenizeRequest{Text: &text}),
+				nil,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"Hello", "World"}, resp.Payload.Indexed)
 		})
 
 		t.Run("batch insert with alias", func(t *testing.T) {

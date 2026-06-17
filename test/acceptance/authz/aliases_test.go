@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,6 @@ import (
 )
 
 func TestAuthzAliases(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
@@ -34,11 +33,7 @@ func TestAuthzAliases(t *testing.T) {
 	customRole := "custom"
 	onlyAliasesStartingWithAliasRole := "only-aliases"
 
-	_, down := composeUp(t,
-		map[string]string{adminUser: adminKey},
-		map[string]string{customUser: customKey, limitedUser: limitedKey},
-		nil,
-	)
+	_, down := composeUpShared(t)
 	defer down()
 
 	clsA := articles.ArticlesClass()

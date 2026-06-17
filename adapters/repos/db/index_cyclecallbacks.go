@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -43,14 +44,25 @@ type indexCycleCallbacks struct {
 func (index *Index) initCycleCallbacks() {
 	routinesN := concurrency.TimesGOMAXPROCS(index.Config.CycleManagerRoutinesFactor)
 
+	// Single-tenant collections let the shared ticker back off when idle, keeping
+	// many quiet collections cheap. Multi-tenant pins the min interval and relies on
+	// per-shard backoff; a shared backoff could stall a newly-active tenant by up to max.
+	backoff := !index.partitioningEnabled
+
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
-	if hnswUserConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig); ok {
-		vectorTombstoneCleanupIntervalSeconds = hnswUserConfig.CleanupIntervalSeconds
+	switch cfg := index.GetVectorIndexConfig("").(type) {
+	case hnsw.UserConfig:
+		vectorTombstoneCleanupIntervalSeconds = cfg.CleanupIntervalSeconds
+	case dynamicent.UserConfig:
+		vectorTombstoneCleanupIntervalSeconds = cfg.HnswUC.CleanupIntervalSeconds
 	}
 
-	id := func(elems ...string) string {
-		elems = append([]string{"index", index.ID()}, elems...)
+	cm := func(elems ...string) string {
+		elems = append([]string{index.ID()}, elems...)
 		return strings.Join(elems, "/")
+	}
+	id := func(elems ...string) string {
+		return "index/" + cm(elems...)
 	}
 
 	var compactionCycle cyclemanager.CycleManager
@@ -61,27 +73,28 @@ func (index *Index) initCycleCallbacks() {
 	if !index.Config.SeparateObjectsCompactions {
 		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction"), index.logger, routinesN)
 		compactionCycle = cyclemanager.NewManager(
-			cyclemanager.CompactionCycleTicker(),
+			cm("compaction"),
+			cyclemanager.CompactionCycleTicker(backoff),
 			compactionCallbacks.CycleCallback, index.logger)
 		compactionAuxCycle = cyclemanager.NewManagerNoop()
 	} else {
-		routinesNDiv2 := routinesN / 2
-		if routinesNDiv2 < 1 {
-			routinesNDiv2 = 1
-		}
+		routinesNDiv2 := max(routinesN/2, 1)
 		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction-non-objects"), index.logger, routinesNDiv2)
 		compactionCycle = cyclemanager.NewManager(
-			cyclemanager.CompactionCycleTicker(),
+			cm("compaction-non-objects"),
+			cyclemanager.CompactionCycleTicker(backoff),
 			compactionCallbacks.CycleCallback, index.logger)
 		compactionAuxCallbacks = cyclemanager.NewCallbackGroup(id("compaction-objects"), index.logger, routinesNDiv2)
 		compactionAuxCycle = cyclemanager.NewManager(
-			cyclemanager.CompactionCycleTicker(),
+			cm("compaction-objects"),
+			cyclemanager.CompactionCycleTicker(backoff),
 			compactionAuxCallbacks.CycleCallback, index.logger)
 	}
 
 	flushCallbacks := cyclemanager.NewCallbackGroup(id("flush"), index.logger, routinesN)
 	flushCycle := cyclemanager.NewManager(
-		cyclemanager.MemtableFlushCycleTicker(),
+		cm("flush"),
+		cyclemanager.MemtableFlushCycleTicker(backoff),
 		flushCallbacks.CycleCallback, index.logger)
 
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("vector", "commit_logger"), index.logger, routinesN)
@@ -102,21 +115,25 @@ func (index *Index) initCycleCallbacks() {
 	// update: switched to dynamic intervals with values between 500ms and 10s
 	// introduced to address https://github.com/weaviate/weaviate/issues/2783
 	vectorCommitLoggerCycle := cyclemanager.NewManager(
-		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cm("vector", "commit_logger"),
+		cyclemanager.HnswCommitLoggerCycleTicker(backoff),
 		vectorCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("vector", "tombstone_cleanup"), index.logger, routinesN)
 	vectorTombstoneCleanupCycle := cyclemanager.NewManager(
+		cm("vector", "tombstone_cleanup"),
 		cyclemanager.NewFixedTicker(time.Duration(vectorTombstoneCleanupIntervalSeconds)*time.Second),
 		vectorTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "commit_logger"), index.logger, routinesN)
 	geoPropsCommitLoggerCycle := cyclemanager.NewManager(
-		cyclemanager.GeoCommitLoggerCycleTicker(),
+		cm("geo_props", "commit_logger"),
+		cyclemanager.GeoCommitLoggerCycleTicker(backoff),
 		geoPropsCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "tombstone_cleanup"), index.logger, routinesN)
 	geoPropsTombstoneCleanupCycle := cyclemanager.NewManager(
+		cm("geo_props", "tombstone_cleanup"),
 		cyclemanager.NewFixedTicker(hnsw.DefaultCleanupIntervalSeconds*time.Second),
 		geoPropsTombstoneCleanupCallbacks.CycleCallback, index.logger)
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -269,7 +270,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 				Debugf("iterating through objects: %d done", i)
 		}
 		docID := object.DocID
-		properties, nilProperties, err := r.shard.AnalyzeObject(object)
+		properties, nilProperties, _, err := r.shard.AnalyzeObject(object)
 		if err != nil {
 			return errors.Wrapf(err, "failed analyzying object")
 		}
@@ -308,7 +309,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	}
 
 	if isMetaCountProperty(property) {
-		propName := strings.TrimSuffix(property.Name, "__meta_count")
+		propName := strings.TrimSuffix(property.Name, schema.InternalMetaCountSuffix)
 		if checker.isReindexable(propName, IndexTypePropMetaCount) {
 			schemaProp := checker.getSchemaProp(propName)
 			if inverted.HasFilterableIndex(schemaProp) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -61,10 +61,45 @@ var (
 
 type AsyncReplicationTestSuite struct {
 	suite.Suite
+	compose *docker.DockerCompose
+	cancel  context.CancelFunc
 }
 
-func (suite *AsyncReplicationTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+// SetupSuite starts one shared 3-node cluster for the plain async-repair
+// scenarios. The methods run sequentially and each restarts the nodes it
+// stops, so the cluster stays healthy between them. Scenarios that need a
+// bespoke cluster env (e.g. the runtime-override toggle) start their own.
+func (suite *AsyncReplicationTestSuite) SetupSuite() {
+	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	suite.cancel = cancel
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithText2VecContextionary().
+		Start(ctx)
+	require.NoError(t, err)
+	suite.compose = compose
+}
+
+func (suite *AsyncReplicationTestSuite) TearDownSuite() {
+	if suite.compose != nil {
+		require.NoError(suite.T(), suite.compose.Terminate(context.Background()))
+	}
+	if suite.cancel != nil {
+		suite.cancel()
+	}
+}
+
+// TearDownTest drops the shared classes so the next test starts from a clean
+// schema. Every shared-cluster scenario restarts node 1 if it stops it, so it
+// is reachable here.
+func (suite *AsyncReplicationTestSuite) TearDownTest() {
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	helper.DeleteClassWithoutAssert(suite.T(), "Article", "")
+	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
 }
 
 func TestAsyncReplicationTestSuite(t *testing.T) {
@@ -78,16 +113,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
@@ -95,14 +121,12 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
 		}
 		helper.CreateClass(t, articleClass)
 	})

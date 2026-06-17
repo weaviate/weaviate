@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -61,14 +61,6 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 		{
 			name:     "muvera enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
-		},
-		{
-			name:     "skipDefaultQuantization",
-			accessor: func(c ent.UserConfig) interface{} { return c.SkipDefaultQuantization },
-		},
-		{
-			name:     "trackDefaultQuantization",
-			accessor: func(c ent.UserConfig) interface{} { return c.TrackDefaultQuantization },
 		},
 	}
 
@@ -142,6 +134,11 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	}
 
 	if !h.compressed.Load() {
+		// Defer compression until the cache is fully prefilled.
+		if !h.cachePrefilled.Load() {
+			callback()
+			return nil
+		}
 		// the compression will fire the callback once it's complete
 		return h.Upgrade(callback)
 	} else {

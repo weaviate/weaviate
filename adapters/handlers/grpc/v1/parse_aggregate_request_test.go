@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -148,9 +148,100 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			},
 			error: true,
 		},
+		{
+			name: "hybrid with alpha",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query: "hello",
+						Alpha: 0.5,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           0.5,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param SET",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query:         "hello",
+						AlphaParam:    ptr(float32(0.5)),
+						UseAlphaParam: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           0.5,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with alpha_param UNSET",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query:         "hello",
+						UseAlphaParam: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					Alpha:           common_filters.DefaultAlpha,
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid with defaults",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Query: "hello",
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				Hybrid: &searchparams.HybridSearch{
+					Query:           "hello",
+					FusionAlgorithm: common_filters.HybridFusionDefault,
+				},
+			},
+			error: false,
+		},
 	}
 
-	parser := NewAggregateParser(getClass)
+	parser := NewAggregateParser(getClass, false, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Aggregate(tt.req)

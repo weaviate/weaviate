@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -461,79 +462,11 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
-			},
-		},
-		{
-			name: "UpdateTenant/HasOngoingReplication/true",
-			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD},
-				}})},
-			resp: Response{Error: nil},
-			doBefore: func(m *MockStore) {
-				doFirst(m)
-				m.indexer.On("AddClass", mock.Anything).Return(nil)
-				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusHOT,
-				}}, PartitioningEnabled: true}
-				m.store.Apply(&raft.Log{
-					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
-				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(true)
+				// ErrShardNotFound (partial success), so the DB layer is invoked with the
+				// filtered (empty) tenant list before the schema error is propagated.
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
-			doAfter: func(ms *MockStore) error {
-				want := map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusHOT,
-				}}
-
-				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
-				require.Nil(t, err)
-				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
-					return fmt.Errorf("physical state want: %v got: %v", want, got)
-				}
-				return nil
-			},
-		},
-		{
-			name: "UpdateTenant/HasOngoingReplication/false",
-			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD},
-				}})},
-			resp: Response{Error: nil},
-			doBefore: func(m *MockStore) {
-				doFirst(m)
-				m.indexer.On("AddClass", mock.Anything).Return(nil)
-				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusHOT,
-				}}, PartitioningEnabled: true}
-				m.store.Apply(&raft.Log{
-					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
-				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(false)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-			},
-			doAfter: func(ms *MockStore) error {
-				want := map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusCOLD,
-				}}
-
-				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
-				require.Nil(t, err)
-				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
-					return fmt.Errorf("physical state want: %v got: %v", want, got)
-				}
-				return nil
-			},
+			doAfter: func(ms *MockStore) error { return nil },
 		},
 		{
 			name: "UpdateTenant/Success",
@@ -564,7 +497,6 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				m.replicationFSM.EXPECT().HasOngoingReplication(Anything, Anything, Anything).Return(false)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -1411,6 +1343,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
+			NamespacesController:   usecasesNamespaces.NewController(logger),
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}

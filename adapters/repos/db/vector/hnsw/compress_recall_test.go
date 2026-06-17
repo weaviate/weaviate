@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,10 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type compressRecallNoopBucketView struct{}
+
+func (n *compressRecallNoopBucketView) ReleaseView() {}
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
@@ -96,7 +100,8 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				}
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+			GetViewThunk: func() common.BucketView { return &compressRecallNoopBucketView{} },
+			TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 				copy(container.Slice, vectors[int(id)])
 				return container.Slice, nil
 			},

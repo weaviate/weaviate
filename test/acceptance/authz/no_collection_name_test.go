@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,7 +30,6 @@ import (
 
 // Test create + delete - update does not seem to work without classname and we should not fix it
 func TestWithoutCollectionName(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -43,7 +42,7 @@ func TestWithoutCollectionName(t *testing.T) {
 	testRoleName := t.Name() + "role"
 	all := "*"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	// add classes with object
@@ -163,7 +162,6 @@ func TestWithoutCollectionName(t *testing.T) {
 }
 
 func TestRefsWithoutCollectionNames(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -177,7 +175,7 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 	readCollectionAction := authorization.ReadCollections
 	all := "*"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	articlesCls := articles.ArticlesClass()

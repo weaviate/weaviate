@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -118,31 +118,38 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 	return resp.Schema, nil
 }
 
-// QueryCollectionsCount build a Query to read the schema that will be directed to the leader to ensure we will read the class
-// with strong consistency
-func (s *Raft) QueryCollectionsCount() (int, error) {
+// QueryCollectionsCount issues a leader-directed count query. An empty
+// namespace returns the cluster-global total; a non-empty namespace returns
+// the count restricted to classes in that namespace.
+func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
 			sentry.WithTransactionName("raft.query.collections.count"),
 			sentry.WithDescription("Query the collections count"),
 		)
+		transaction.SetData("namespace", namespace)
 		ctx = transaction.Context()
 		defer transaction.Finish()
 	}
+
+	req := cmd.QueryCollectionsCountRequest{Namespace: namespace}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal collections count request (namespace=%q): %w", namespace, err)
+	}
 	command := &cmd.QueryRequest{
-		Type: cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT,
+		Type:       cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT,
+		SubCommand: subCommand,
 	}
 	queryResp, err := s.Query(ctx, command)
 	if err != nil {
-		return 0, fmt.Errorf("failed to execute query: %w", err)
+		return 0, fmt.Errorf("execute collections count query (namespace=%q): %w", namespace, err)
 	}
 
-	// Unmarshal the response
 	resp := cmd.QueryCollectionsCountResponse{}
-	err = json.Unmarshal(queryResp.Payload, &resp)
-	if err != nil {
-		return 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+	if err := json.Unmarshal(queryResp.Payload, &resp); err != nil {
+		return 0, fmt.Errorf("unmarshal collections count response (namespace=%q): %w", namespace, err)
 	}
 	return resp.Count, nil
 }

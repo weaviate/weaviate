@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -91,8 +91,9 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 
 	if a.params.Filters != nil {
 		allow, err = inverted.NewSearcher(a.logger, a.store, a.getSchema.ReadOnlyClass, nil,
-			a.classSearcher, a.stopwords, a.shardVersion, a.isFallbackToSearchable,
-			a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
+			a.classSearcher, a.stopwordProvider, a.shardVersion, a.isFallbackToSearchable,
+			a.isRangeableLocallyReady, a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
+			WithTokenizationResolver(a.tokResolver).
 			DocIDs(ctx, a.params.Filters, additional.Properties{},
 				a.params.ClassName)
 		if err != nil {

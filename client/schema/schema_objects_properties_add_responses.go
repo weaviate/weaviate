@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -272,7 +272,7 @@ SchemaObjectsPropertiesAddUnprocessableEntity describes a response with status c
 Invalid property definition provided.
 */
 type SchemaObjectsPropertiesAddUnprocessableEntity struct {
-	Payload *models.ErrorResponse
+	Payload *models.RestrictionViolationResponse
 }
 
 // IsSuccess returns true when this schema objects properties add unprocessable entity response has a 2xx status code
@@ -313,13 +313,13 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
 }
 
-func (o *SchemaObjectsPropertiesAddUnprocessableEntity) GetPayload() *models.ErrorResponse {
+func (o *SchemaObjectsPropertiesAddUnprocessableEntity) GetPayload() *models.RestrictionViolationResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorResponse)
+	o.Payload = new(models.RestrictionViolationResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

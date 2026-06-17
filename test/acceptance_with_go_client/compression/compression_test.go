@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/test/docker"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestCompression_AdaptSegments(t *testing.T) {
@@ -124,7 +126,7 @@ func TestCompression_AdaptSegments(t *testing.T) {
 			},
 		}
 
-		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 		require.NoError(t, err)
 		cleanup := func() {
 			err := client.Schema().AllDeleter().Do(ctx)

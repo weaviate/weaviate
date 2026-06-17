@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -847,4 +848,86 @@ func TestValidateBufferRanges(t *testing.T) {
 			require.Equal(t, tc.expectedRanges, ranges)
 		})
 	}
+}
+
+func TestBitmapBufPoolTracking_Get(t *testing.T) {
+	t.Run("outstanding increments on Get and decrements on release", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+		assert.Equal(t, int64(0), pool.Outstanding())
+
+		_, rel1 := pool.Get(64)
+		assert.Equal(t, int64(1), pool.Outstanding())
+
+		_, rel2 := pool.Get(64)
+		assert.Equal(t, int64(2), pool.Outstanding())
+
+		rel1()
+		assert.Equal(t, int64(1), pool.Outstanding())
+
+		rel2()
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+
+	t.Run("release zeroes backing buffer", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+		buf, release := pool.Get(64)
+		// Write into the backing array through the cap slice.
+		full := buf[:cap(buf)]
+		full[0] = 0xFF
+		full[cap(buf)-1] = 0xFF
+
+		release()
+
+		// Backing array must be zeroed after release.
+		for i, b := range full {
+			if b != 0 {
+				t.Errorf("buf[%d] = %d after release, want 0", i, b)
+			}
+		}
+	})
+
+	t.Run("double release panics", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+		_, release := pool.Get(64)
+		release()
+		assert.Panics(t, release)
+	})
+}
+
+func TestBitmapBufPoolTracking_CloneToBuf(t *testing.T) {
+	t.Run("outstanding increments on CloneToBuf and decrements on release", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+
+		bm := sroar.NewBitmap()
+		bm.SetMany([]uint64{1, 2, 3})
+
+		cloned, release := pool.CloneToBuf(bm)
+		assert.Equal(t, int64(1), pool.Outstanding())
+		assert.Equal(t, bm.ToArray(), cloned.ToArray())
+
+		release()
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+
+	t.Run("release zeroes cloned bitmap backing buffer", func(t *testing.T) {
+		pool := NewBitmapBufPoolTracking()
+
+		bm := sroar.NewBitmap()
+		bm.SetMany([]uint64{10, 20, 30})
+
+		cloned, release := pool.CloneToBuf(bm)
+		assert.False(t, cloned.IsEmpty())
+
+		// ToBuffer returns a view into the backing memory while the bitmap is
+		// non-empty. Capture it before release so we can inspect it afterward.
+		full := cloned.ToBuffer()
+		release()
+
+		// Backing array must be zeroed after release.
+		for i, b := range full {
+			if b != 0 {
+				t.Errorf("buf[%d] = %d after release, want 0", i, b)
+			}
+		}
+	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,10 +33,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+const (
+	testLangchainHeader = "langchain/0.3.0"
+	testMyIntegration   = "my-integration"
+)
+
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withClientTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -120,6 +126,12 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						},
 					}},
 				})
+			ci.On("getCloudInfo").Return(nil)
+
+			// Track some clients before building INIT payload
+			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
+			trackClientRequest(t, tel, "java", "weaviate-client-java/1.0.0")
+
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
 			assert.Nil(t, err)
 			assert.Equal(t, tel.machineID, payload.MachineID)
@@ -137,10 +149,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Contains(t, payload.UsedModules, "text2vec-google-ai-studio")
 			assert.Contains(t, payload.UsedModules, "generative-google-ai-studio")
 			assert.Contains(t, payload.UsedModules, "generative-openai")
+			// INIT payloads should not include client usage data
+			assert.Nil(t, payload.ClientUsage)
+			assert.Nil(t, payload.CloudProvider)
+			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withClientTracker(), withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -178,6 +194,28 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						},
 					}},
 				})
+			ci.On("getCloudInfo").Return(nil)
+
+			// Track multiple client types
+			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
+			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
+			trackClientRequest(t, tel, "java", "weaviate-client-java/1.0.0")
+			trackClientRequest(t, tel, "typescript", "weaviate-client-typescript/1.0.0")
+			trackClientRequest(t, tel, "go", "weaviate-client-go/1.0.0")
+			trackClientRequest(t, tel, "csharp", "weaviate-client-csharp/1.0.0")
+			// Track integrations to populate ClientIntegrationUsage
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "langchain", "0.2.0")
+
+			// Trackers process events asynchronously; wait for the integration
+			// counter to settle before the synchronous GetAndReset inside
+			// buildPayload reads it.
+			require.Eventually(t, func() bool {
+				snapshot := tel.integrationTracker.Get()
+				return snapshot["llamaindex"]["0.10.5"] == 2 && snapshot["langchain"]["0.2.0"] == 1
+			}, time.Second, 10*time.Millisecond)
+
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
 			assert.Nil(t, err)
 			assert.Equal(t, tel.machineID, payload.MachineID)
@@ -191,16 +229,53 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Contains(t, payload.UsedModules, "text2vec-google-vertex-ai")
 			assert.Contains(t, payload.UsedModules, "text2vec-aws")
 			assert.Contains(t, payload.UsedModules, "generative-openai")
+			// UPDATE payloads should include client usage data
+			assert.NotNil(t, payload.ClientUsage)
+			assert.NotNil(t, payload.ClientUsage[ClientTypePython])
+			assert.Equal(t, int64(2), payload.ClientUsage[ClientTypePython]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeJava])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeGo])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeGo]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeCSharp])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeCSharp]["1.0.0"])
+			// UPDATE payloads should include integration usage data
+			assert.NotNil(t, payload.ClientIntegrationUsage)
+			assert.Equal(t, int64(2), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["langchain"]["0.2.0"])
+			// Verify tracker was reset after GetAndReset
+			currentCounts := tel.clientTracker.Get()
+			assert.Empty(t, currentCounts)
+			assert.Empty(t, tel.integrationTracker.Get())
+			assert.Nil(t, payload.CloudProvider)
+			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
+			tel, sg, _, ci := newTestTelemeterWithCloudInfo(withClientTracker(), withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 300_000_000_000,
 					},
 				})
+			ci.On("getCloudInfo").Return(nil)
+
+			// Track some clients before terminate
+			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
+			trackClientRequest(t, tel, "java", "weaviate-client-java/1.0.0")
+			trackClientRequest(t, tel, "typescript", "weaviate-client-typescript/1.0.0")
+			// Track integrations before terminate
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "dspy", "0.1.0")
+
+			require.Eventually(t, func() bool {
+				snapshot := tel.integrationTracker.Get()
+				return snapshot["llamaindex"]["0.10.5"] == 1 && snapshot["dspy"]["0.1.0"] == 1
+			}, time.Second, 10*time.Millisecond)
+
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, err)
 			assert.Equal(t, tel.machineID, payload.MachineID)
@@ -210,6 +285,41 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, runtime.GOOS, payload.OS)
 			assert.Equal(t, runtime.GOARCH, payload.Arch)
 			assert.Empty(t, payload.UsedModules)
+			// TERMINATE payloads should include client usage data
+			assert.NotNil(t, payload.ClientUsage)
+			assert.NotNil(t, payload.ClientUsage[ClientTypePython])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypePython]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeJava])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
+			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
+			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
+			// TERMINATE payloads should include integration usage data
+			assert.NotNil(t, payload.ClientIntegrationUsage)
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["dspy"]["0.1.0"])
+			// Verify integration tracker was reset after GetAndReset
+			assert.Empty(t, tel.integrationTracker.Get())
+			assert.Nil(t, payload.CloudProvider)
+			assert.Nil(t, payload.UniqueID)
+		})
+
+		t.Run("on update with no client usage", func(t *testing.T) {
+			tel, sg, sm := newTestTelemeter()
+			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+				&models.NodeStatus{
+					Stats: &models.NodeStats{
+						ObjectCount: 1000,
+					},
+				})
+			sm.On("GetSchemaSkipAuth").Return(
+				schema.Schema{
+					Objects: &models.Schema{Classes: []*models.Class{}},
+				})
+			// Don't track any clients
+			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
+			assert.Nil(t, err)
+			// When no clients are tracked, ClientUsage should be nil
+			assert.Nil(t, payload.ClientUsage)
 		})
 	})
 
@@ -235,14 +345,26 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 }
 
 func TestTelemetry_WithConsumer(t *testing.T) {
+	// Create a channel-based client counter for tracking expected client requests
+	expectedCounts := newClientCounter()
+	defer expectedCounts.Stop()
+
+	// Channel to receive telemetry payloads for verification
+	telemetryChan := make(chan *Payload, 10)
+
 	config.ServerVersion = "X.X.X"
-	server := httptest.NewServer(&testConsumer{t})
+	server := httptest.NewServer(&testConsumer{
+		t:              t,
+		expectedCounts: expectedCounts,
+		telemetryChan:  telemetryChan,
+	})
 	defer server.Close()
 
 	consumerURL := fmt.Sprintf("%s/weaviate-telemetry", server.URL)
 	opts := []telemetryOpt{
 		withConsumerURL(consumerURL),
 		withPushInterval(100 * time.Millisecond),
+		withClientTracker(),
 	}
 	tel, sg, sm := newTestTelemeter(opts...)
 
@@ -289,19 +411,211 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	err := tel.Start(context.Background())
 	require.Nil(t, err)
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	start := time.Now()
-	wait := make(chan struct{})
-	go func() {
-		for range ticker.C {
-			if time.Since(start) > time.Second {
-				err = tel.Stop(context.Background())
-				assert.Nil(t, err)
-				wait <- struct{}{}
-			}
+	// Wait for INIT payload to be sent
+	initPayload := <-telemetryChan
+	assert.Equal(t, PayloadType.Init, initPayload.Type)
+	assert.Nil(t, initPayload.ClientUsage)
+
+	// Send a fixed number of requests for each client type (deterministic)
+	clientRequests := []struct {
+		clientType ClientType
+		count      int
+	}{
+		{ClientTypePython, 5},
+		{ClientTypeJava, 3},
+		{ClientTypeTypeScript, 2},
+	}
+
+	for _, req := range clientRequests {
+		for i := 0; i < req.count; i++ {
+			trackClientRequest(t, tel, string(req.clientType), fmt.Sprintf("weaviate-client-%s/1.0.0", req.clientType))
+			expectedCounts.Increment(req.clientType)
 		}
-	}()
-	<-wait
+	}
+
+	// Wait for UPDATE payload to be sent (should include client usage)
+	updatePayload := <-telemetryChan
+	assert.Equal(t, PayloadType.Update, updatePayload.Type)
+
+	// Verify client usage matches expected counts
+	expectedCountsMap := expectedCounts.Get()
+	assert.NotNil(t, updatePayload.ClientUsage, "Expected client usage data but got nil")
+	for clientType, expectedCount := range expectedCountsMap {
+		// Sum up all versions for this client type
+		versions, exists := updatePayload.ClientUsage[clientType]
+		assert.True(t, exists, "Expected client type %s to be in ClientUsage", clientType)
+		var totalCount int64
+		for _, count := range versions {
+			totalCount += count
+		}
+		assert.Equal(t, expectedCount, totalCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, totalCount)
+	}
+
+	// Stop telemetry and wait for TERMINATE payload
+	err = tel.Stop(context.Background())
+	require.Nil(t, err)
+
+	// The ticker goroutine may have pushed additional UPDATE payloads between
+	// reading the first UPDATE above and Stop() shutting it down (the push
+	// interval is only 100ms). Drain any extra UPDATEs to find TERMINATE.
+	var terminatePayload *Payload
+	timeout := time.After(time.Second)
+	for terminatePayload == nil {
+		select {
+		case p := <-telemetryChan:
+			if p.Type == PayloadType.Terminate {
+				terminatePayload = p
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for TERMINATE payload")
+		}
+	}
+	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
+}
+
+func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
+	t.Run("on init with cloud info present", func(t *testing.T) {
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+			&models.NodeStatus{
+				Stats: &models.NodeStats{
+					ObjectCount: 100,
+				},
+			})
+		sm.On("GetSchemaSkipAuth").Return(
+			schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{
+					{
+						Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
+						ModuleConfig: map[string]interface{}{
+							"text2vec-google": nil,
+						},
+					},
+				}},
+			})
+		ci.On("getCloudInfo").Return(
+			&cloudInfo{cloudProvider: "GCP", uniqueID: "id"},
+		)
+		payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
+		assert.Nil(t, err)
+		assert.Equal(t, tel.machineID, payload.MachineID)
+		assert.Equal(t, PayloadType.Init, payload.Type)
+		assert.Equal(t, config.ServerVersion, payload.Version)
+		assert.Equal(t, int64(0), payload.ObjectsCount)
+		assert.Equal(t, 1, payload.CollectionsCount)
+		assert.Equal(t, runtime.GOOS, payload.OS)
+		assert.Equal(t, runtime.GOARCH, payload.Arch)
+		assert.NotEmpty(t, payload.UsedModules)
+		assert.Len(t, payload.UsedModules, 1)
+		assert.Contains(t, payload.UsedModules, "text2vec-google-vertex-ai")
+		require.NotNil(t, payload.CloudProvider)
+		assert.Equal(t, "GCP", *payload.CloudProvider)
+		require.NotNil(t, payload.UniqueID)
+		assert.Equal(t, "id", *payload.UniqueID)
+	})
+
+	t.Run("on update with only cloud provider present", func(t *testing.T) {
+		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+			&models.NodeStatus{
+				Stats: &models.NodeStats{
+					ObjectCount: 1000,
+				},
+			})
+		ci.On("getCloudInfo").Return(
+			&cloudInfo{cloudProvider: "GCP"},
+		)
+		payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
+		assert.Nil(t, err)
+		assert.Equal(t, tel.machineID, payload.MachineID)
+		assert.Equal(t, PayloadType.Update, payload.Type)
+		assert.Equal(t, config.ServerVersion, payload.Version)
+		assert.Equal(t, int64(1000), payload.ObjectsCount)
+		assert.Equal(t, 0, payload.CollectionsCount)
+		assert.Equal(t, runtime.GOOS, payload.OS)
+		assert.Equal(t, runtime.GOARCH, payload.Arch)
+		assert.Empty(t, payload.UsedModules)
+		require.NotNil(t, payload.CloudProvider)
+		require.Nil(t, payload.UniqueID)
+	})
+
+	t.Run("on terminate with empty cloud info", func(t *testing.T) {
+		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+			&models.NodeStatus{
+				Stats: &models.NodeStats{
+					ObjectCount: 300_000_000_000,
+				},
+			})
+		ci.On("getCloudInfo").Return(
+			&cloudInfo{},
+		)
+		payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
+		assert.Nil(t, err)
+		assert.Equal(t, tel.machineID, payload.MachineID)
+		assert.Equal(t, PayloadType.Terminate, payload.Type)
+		assert.Equal(t, config.ServerVersion, payload.Version)
+		assert.Equal(t, int64(300_000_000_000), payload.ObjectsCount)
+		assert.Equal(t, runtime.GOOS, payload.OS)
+		assert.Equal(t, runtime.GOARCH, payload.Arch)
+		assert.Empty(t, payload.UsedModules)
+		require.Nil(t, payload.CloudProvider)
+		require.Nil(t, payload.UniqueID)
+	})
+}
+
+func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
+	server := httptest.NewServer(&gcpTestConsumer{t})
+	defer server.Close()
+	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newGCPCloudInfo(server.URL))
+
+	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+		&models.NodeStatus{
+			Stats: &models.NodeStats{
+				ObjectCount: 100,
+			},
+		})
+
+	payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
+	assert.Nil(t, err)
+	assert.Equal(t, tel.machineID, payload.MachineID)
+	assert.Equal(t, PayloadType.Init, payload.Type)
+	assert.Equal(t, config.ServerVersion, payload.Version)
+	assert.Equal(t, int64(0), payload.ObjectsCount)
+	assert.Equal(t, 0, payload.CollectionsCount)
+	assert.Equal(t, runtime.GOOS, payload.OS)
+	assert.Equal(t, runtime.GOARCH, payload.Arch)
+	require.NotNil(t, payload.CloudProvider)
+	assert.Equal(t, "GCP", *payload.CloudProvider)
+	require.NotNil(t, payload.UniqueID)
+	assert.Equal(t, "some-id", *payload.UniqueID)
+}
+
+func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
+	server := httptest.NewServer(&awsTestConsumer{t})
+	defer server.Close()
+	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newAWSCloudInfo(server.URL))
+
+	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+		&models.NodeStatus{
+			Stats: &models.NodeStats{
+				ObjectCount: 100,
+			},
+		})
+
+	payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
+	assert.Nil(t, err)
+	assert.Equal(t, tel.machineID, payload.MachineID)
+	assert.Equal(t, PayloadType.Init, payload.Type)
+	assert.Equal(t, config.ServerVersion, payload.Version)
+	assert.Equal(t, int64(0), payload.ObjectsCount)
+	assert.Equal(t, 0, payload.CollectionsCount)
+	assert.Equal(t, runtime.GOOS, payload.OS)
+	assert.Equal(t, runtime.GOARCH, payload.Arch)
+	require.NotNil(t, payload.CloudProvider)
+	assert.Equal(t, "AWS", *payload.CloudProvider)
+	require.NotNil(t, payload.UniqueID)
+	assert.Equal(t, "101", *payload.UniqueID)
 }
 
 type telemetryOpt func(*Telemeter)
@@ -319,21 +633,127 @@ func withPushInterval(interval time.Duration) telemetryOpt {
 	}
 }
 
+// withIntegrationTracker attaches a freshly-spawned IntegrationTracker so tests
+// that drive buildPayload can exercise the ClientIntegrationUsage field. Needed
+// because the default test telemeter is constructed with telemetryEnabled=false,
+// which skips IntegrationTracker creation to avoid a goroutine leak in disabled
+// deployments.
+func withIntegrationTracker() telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.integrationTracker = NewIntegrationTracker(tel.logger)
+	}
+}
+
+// withClientTracker attaches a freshly-spawned ClientTracker so tests that
+// drive buildPayload or directly invoke clientTracker.Track can exercise the
+// ClientUsage field. Needed because the default test telemeter is constructed
+// with telemetryEnabled=false, which skips ClientTracker creation to avoid a
+// goroutine leak in disabled deployments.
+func withClientTracker() telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.clientTracker = NewClientTracker(tel.logger)
+	}
+}
+
 func newTestTelemeter(opts ...telemetryOpt,
 ) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
 ) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger)
+	// Pass empty url/duration to use defaults
+	tel := New(sg, sm, logger, "", 0, false)
 	for _, opt := range opts {
 		opt(tel)
 	}
 	return tel, sg, sm
 }
 
+func newTestTelemeterWithCloudInfo(opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager, *fakeCloudInfoProvider,
+) {
+	tel, sg, sm := newTestTelemeter(opts...)
+	ci := &fakeCloudInfoProvider{}
+	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
+	return tel, sg, sm, ci
+}
+
+func newTestTelemeterWithCustomCloudInfo(ci cloudInfoProvider, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+) {
+	tel, sg, sm := newTestTelemeter(opts...)
+	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
+	return tel, sg, sm
+}
+
+// clientCounter manages client counts using channel-based concurrency
+type clientCounter struct {
+	increment chan ClientType
+	get       chan chan map[ClientType]int64
+	reset     chan struct{}
+	stop      chan struct{}
+}
+
+// newClientCounter creates and starts a new client counter
+func newClientCounter() *clientCounter {
+	cc := &clientCounter{
+		increment: make(chan ClientType),
+		get:       make(chan chan map[ClientType]int64),
+		reset:     make(chan struct{}),
+		stop:      make(chan struct{}),
+	}
+	go cc.run()
+	return cc
+}
+
+// run is the manager goroutine that processes all operations
+func (cc *clientCounter) run() {
+	counts := make(map[ClientType]int64)
+	for {
+		select {
+		case clientType := <-cc.increment:
+			counts[clientType]++
+		case respChan := <-cc.get:
+			// Create a copy of the map to send back
+			copy := make(map[ClientType]int64)
+			for k, v := range counts {
+				copy[k] = v
+			}
+			respChan <- copy
+		case <-cc.reset:
+			counts = make(map[ClientType]int64)
+		case <-cc.stop:
+			return
+		}
+	}
+}
+
+// Increment increments the count for a client type
+func (cc *clientCounter) Increment(clientType ClientType) {
+	cc.increment <- clientType
+}
+
+// Get returns a copy of all current counts
+func (cc *clientCounter) Get() map[ClientType]int64 {
+	respChan := make(chan map[ClientType]int64, 1)
+	cc.get <- respChan
+	return <-respChan
+}
+
+// Reset clears all counts
+func (cc *clientCounter) Reset() {
+	cc.reset <- struct{}{}
+}
+
+// Stop stops the manager goroutine
+func (cc *clientCounter) Stop() {
+	cc.stop <- struct{}{}
+}
+
 type testConsumer struct {
-	t *testing.T
+	t              *testing.T
+	expectedCounts *clientCounter
+	telemetryChan  chan *Payload
 }
 
 func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -354,11 +774,8 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		PayloadType.Terminate,
 	}, payload.Type)
 	assert.Equal(h.t, config.ServerVersion, payload.Version)
-	if payload.Type == PayloadType.Init {
-		assert.Zero(h.t, payload.ObjectsCount)
-	} else {
-		assert.NotZero(h.t, payload.ObjectsCount)
-	}
+
+	// Basic payload validation
 	assert.Equal(h.t, runtime.GOOS, payload.OS)
 	assert.Equal(h.t, runtime.GOARCH, payload.Arch)
 	assert.NotEmpty(h.t, payload.CollectionsCount)
@@ -368,6 +785,459 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Contains(h.t, payload.UsedModules, "text2vec-aws")
 	assert.Contains(h.t, payload.UsedModules, "generative-openai")
 
+	// Send payload to channel for test verification
+	if h.telemetryChan != nil {
+		select {
+		case h.telemetryChan <- &payload:
+		default:
+			// Channel full, but don't block
+		}
+	}
+
+	// For UPDATE and TERMINATE payloads, verify client usage matches expected counts
+	if payload.Type != PayloadType.Init {
+		expectedCounts := h.expectedCounts.Get()
+		if len(expectedCounts) > 0 {
+			assert.NotNil(h.t, payload.ClientUsage, "Expected client usage data but got nil")
+			for clientType, expectedCount := range expectedCounts {
+				// Sum up all versions for this client type
+				versions, exists := payload.ClientUsage[clientType]
+				if expectedCount > 0 {
+					assert.True(h.t, exists, "Expected client type %s to be in ClientUsage", clientType)
+					var totalCount int64
+					for _, count := range versions {
+						totalCount += count
+					}
+					assert.Equal(h.t, expectedCount, totalCount, "Mismatch for client type %s: expected %d, got %d", clientType, expectedCount, totalCount)
+				}
+			}
+		}
+		// Reset counts after verifying telemetry payload
+		h.expectedCounts.Reset()
+	}
+
 	h.t.Logf("request body: %s", string(b))
 	w.WriteHeader(http.StatusOK)
+}
+
+// trackClientRequest is a helper function to simulate a client request
+func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent string) {
+	require.NotNil(t, tel.clientTracker, "telemeter must be built with withClientTracker()")
+	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
+	// Set X-Weaviate-Client header for explicit identification
+	switch clientType {
+	case "python":
+		req.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
+	case "java":
+		req.Header.Set("X-Weaviate-Client", "weaviate-client-java/1.0.0")
+	case "typescript":
+		req.Header.Set("X-Weaviate-Client", "weaviate-client-typescript/1.0.0")
+	case "go":
+		req.Header.Set("X-Weaviate-Client", "weaviate-client-go/1.0.0")
+	case "csharp":
+		req.Header.Set("X-Weaviate-Client", "weaviate-client-csharp/1.0.0")
+	}
+	tel.clientTracker.Track(req)
+}
+
+func trackIntegrationRequest(t *testing.T, tel *Telemeter, name, version string) {
+	require.NotNil(t, tel.integrationTracker, "telemeter must be built with withIntegrationTracker()")
+	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+	req.Header.Set("X-Weaviate-Client-Integration", name+"/"+version)
+	tel.integrationTracker.Track(req)
+}
+
+func TestClientTracker(t *testing.T) {
+	t.Run("track and get client counts", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
+		defer tracker.Stop()
+
+		// Create requests for different client types
+		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		pythonReq.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
+
+		javaReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		javaReq.Header.Set("X-Weaviate-Client", "weaviate-client-java/1.0.0")
+
+		typescriptReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		typescriptReq.Header.Set("X-Weaviate-Client", "weaviate-client-typescript/1.0.0")
+
+		// Track multiple requests
+		tracker.Track(pythonReq)
+		tracker.Track(pythonReq)
+		tracker.Track(javaReq)
+		tracker.Track(typescriptReq)
+
+		// Get counts without resetting
+		counts := tracker.Get()
+		assert.Equal(t, int64(2), counts[ClientTypePython]["1.0.0"])
+		assert.Equal(t, int64(1), counts[ClientTypeJava]["1.0.0"])
+		assert.Equal(t, int64(1), counts[ClientTypeTypeScript]["1.0.0"])
+
+		// Verify counts are still there
+		counts2 := tracker.Get()
+		assert.Equal(t, int64(2), counts2[ClientTypePython]["1.0.0"])
+		assert.Equal(t, int64(1), counts2[ClientTypeJava]["1.0.0"])
+
+		// Get and reset
+		counts3 := tracker.GetAndReset()
+		assert.Equal(t, int64(2), counts3[ClientTypePython]["1.0.0"])
+		assert.Equal(t, int64(1), counts3[ClientTypeJava]["1.0.0"])
+		assert.Equal(t, int64(1), counts3[ClientTypeTypeScript]["1.0.0"])
+
+		// Verify tracker was reset
+		counts4 := tracker.Get()
+		assert.Empty(t, counts4)
+	})
+
+	t.Run("identify client from User-Agent", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			header   string
+			expected ClientType
+		}{
+			{
+				name:     "Python from explicit header",
+				header:   "weaviate-client-python/1.0.0",
+				expected: ClientTypePython,
+			},
+			{
+				name:     "Java from explicit header",
+				header:   "weaviate-client-java/1.0.0",
+				expected: ClientTypeJava,
+			},
+			{
+				name:     "Go from explicit header",
+				header:   "weaviate-client-go/1.0.0",
+				expected: ClientTypeGo,
+			},
+			{
+				name:     "TypeScript from explicit header",
+				header:   "weaviate-client-typescript/1.0.0",
+				expected: ClientTypeTypeScript,
+			},
+			{
+				name:     "Csharp from explicit header",
+				header:   "weaviate-client-csharp/1.0.0",
+				expected: ClientTypeCSharp,
+			},
+			{
+				name:     "Unset header",
+				expected: ClientTypeUnknown,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+				if tc.header != "" {
+					req.Header.Set("X-Weaviate-Client", tc.header)
+				}
+
+				// Test client identification directly
+				clientInfo := identifyClient(req)
+				assert.Equal(t, tc.expected, clientInfo.Type)
+			})
+		}
+	})
+
+	t.Run("thread safety", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
+		defer tracker.Stop()
+
+		// Create requests for different clients
+		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		pythonReq.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
+
+		javaReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		javaReq.Header.Set("X-Weaviate-Client", "weaviate-client-java/1.0.0")
+
+		// Track concurrently
+		const numGoroutines = 10
+		const numRequestsPerGoroutine = 100
+		done := make(chan struct{})
+
+		for i := 0; i < numGoroutines; i++ {
+			go func() {
+				for j := 0; j < numRequestsPerGoroutine; j++ {
+					if j%2 == 0 {
+						tracker.Track(pythonReq)
+					} else {
+						tracker.Track(javaReq)
+					}
+				}
+				done <- struct{}{}
+			}()
+		}
+
+		// Wait for all goroutines to complete
+		for i := 0; i < numGoroutines; i++ {
+			<-done
+		}
+
+		// Verify counts
+		counts := tracker.GetAndReset()
+		expectedPython := int64(numGoroutines * numRequestsPerGoroutine / 2)
+		expectedJava := int64(numGoroutines * numRequestsPerGoroutine / 2)
+		assert.Equal(t, expectedPython, counts[ClientTypePython]["1.0.0"])
+		assert.Equal(t, expectedJava, counts[ClientTypeJava]["1.0.0"])
+	})
+
+	t.Run("Get and GetAndReset return nil after Stop", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
+
+		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		pythonReq.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
+		tracker.Track(pythonReq)
+
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
+	})
+
+	t.Run("double Stop does not panic", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
+		testMapTrackerDoubleStop(t, tracker.inner)
+	})
+}
+
+func TestIntegrationTracker(t *testing.T) {
+	t.Run("track and get integration counts", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		langchainReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		langchainReq.Header.Set(integrationHeaderKey, testLangchainHeader)
+
+		llamaIndexReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		llamaIndexReq.Header.Set(integrationHeaderKey, "llama-index/0.10.0")
+
+		tracker.Track(langchainReq)
+		tracker.Track(langchainReq)
+		tracker.Track(llamaIndexReq)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(2), counts["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts["llama-index"]["0.10.0"])
+
+		// Counts preserved after Get
+		counts2 := tracker.Get()
+		assert.Equal(t, int64(2), counts2["langchain"]["0.3.0"])
+
+		// GetAndReset returns and clears
+		counts3 := tracker.GetAndReset()
+		assert.Equal(t, int64(2), counts3["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts3["llama-index"]["0.10.0"])
+
+		counts4 := tracker.Get()
+		assert.Empty(t, counts4)
+	})
+
+	t.Run("accepts arbitrary integration names", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, "anydatahere/0.3.0")
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts["anydatahere"]["0.3.0"])
+	})
+
+	t.Run("drops events beyond maxIntegrationKeys distinct names", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		for i := 0; i < maxIntegrationKeys+10; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			req.Header.Set(integrationHeaderKey, fmt.Sprintf("integration-%d/1.0.0", i))
+			tracker.Track(req)
+		}
+
+		assert.Eventually(t, func() bool {
+			counts := tracker.Get()
+			return len(counts) == maxIntegrationKeys
+		}, time.Second, 10*time.Millisecond)
+	})
+
+	t.Run("drops events beyond maxIntegrationVersions per name", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		for i := 0; i < maxIntegrationVersions+10; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			req.Header.Set(integrationHeaderKey, fmt.Sprintf("langchain/%d.0.0", i))
+			tracker.Track(req)
+		}
+
+		assert.Eventually(t, func() bool {
+			counts := tracker.Get()
+			return len(counts["langchain"]) == maxIntegrationVersions
+		}, time.Second, 10*time.Millisecond)
+	})
+
+	t.Run("skips empty header", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		tracker.Track(req) // no header set
+
+		counts := tracker.Get()
+		assert.Empty(t, counts)
+	})
+
+	t.Run("tracks integration name only when no version provided", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, testMyIntegration)
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts[testMyIntegration]["unknown"])
+	})
+
+	t.Run("Get and GetAndReset return nil after Stop", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, testLangchainHeader)
+		tracker.Track(req)
+
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
+	})
+
+	t.Run("double Stop does not panic", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		testMapTrackerDoubleStop(t, tracker.inner)
+	})
+}
+
+func TestIdentifyIntegration(t *testing.T) {
+	testCases := []struct {
+		name            string
+		header          string
+		expectedName    string
+		expectedVersion string
+	}{
+		{
+			name:            "name and version",
+			header:          testLangchainHeader,
+			expectedName:    "langchain",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:            "arbitrary integration name",
+			header:          "anydatahere/0.3.0",
+			expectedName:    "anydatahere",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:         "name only (no version)",
+			header:       testMyIntegration,
+			expectedName: testMyIntegration,
+		},
+		{
+			name: "empty header",
+		},
+		{
+			name:   "whitespace only",
+			header: "   ",
+		},
+		{
+			name:            "header exceeding max length is truncated",
+			header:          strings.Repeat("a", maxClientHeaderLen+10) + "/1.0.0",
+			expectedName:    strings.Repeat("a", maxClientHeaderLen),
+			expectedVersion: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			if tc.header != "" {
+				req.Header.Set(integrationHeaderKey, tc.header)
+			}
+			name, version := identifyIntegration(req)
+			assert.Equal(t, tc.expectedName, name)
+			assert.Equal(t, tc.expectedVersion, version)
+		})
+	}
+}
+
+// testMapTrackerStopBehavior verifies that get and getAndReset return nil
+// after the tracker has been stopped. Uses the inner mapTracker directly
+// since this test file is in the same package.
+func testMapTrackerStopBehavior[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	inner.stop()
+	assert.Nil(t, inner.get())
+	assert.Nil(t, inner.getAndReset())
+}
+
+// testMapTrackerDoubleStop verifies that calling stop multiple times does not panic.
+func testMapTrackerDoubleStop[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	assert.NotPanics(t, func() {
+		inner.stop()
+		inner.stop()
+		inner.stop()
+	})
+}
+
+type gcpTestConsumer struct {
+	t *testing.T
+}
+
+func (h *gcpTestConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.String(), "/instance") {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if strings.Contains(r.URL.String(), "/project/project-id") {
+		w.Write([]byte("some-id"))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusBadRequest)
+}
+
+type awsTestConsumer struct {
+	t *testing.T
+}
+
+func (h *awsTestConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.String(), "/latest/meta-data/") {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if strings.Contains(r.URL.String(), "/latest/api/token") {
+		w.Write([]byte("some-token"))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if strings.Contains(r.URL.String(), "/latest/dynamic/instance-identity/document") {
+		w.Write([]byte(`{"accountId":"101"}`))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusBadRequest)
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -163,6 +163,16 @@ func TestCompaction(t *testing.T) {
 				WithSecondaryIndices(1),
 				WithKeepTombstones(true),
 			},
+		},
+		{
+			name: "compactionReplaceStrategy_MismatchedSecondaryIndexCount",
+			f:    compactionReplaceStrategy_MismatchedSecondaryIndexCount,
+			opts: []BucketOption{},
+		},
+		{
+			name: "compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight",
+			f:    compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight,
+			opts: []BucketOption{},
 		},
 
 		{

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -58,15 +58,17 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
 	version, err = h.VersionMap.Increment(ctx, op.VectorID, version)
-	if err != nil {
+	if errors.Is(err, ErrVersionIncrementFailed) {
 		h.logger.WithField("vectorID", op.VectorID).
-			WithError(err).
-			Error("failed to increment version map for vector, skipping reassign operation")
+			Debug("version changed concurrently, skipping reassign operation")
 		return nil
+	}
+	if err != nil {
+		return errors.Wrapf(err, "failed to increment version map for vector %d", op.VectorID)
 	}
 
 	// create a new vector with the updated version
-	newVector := NewVector(op.VectorID, version, h.quantizer.Encode(q))
+	newVector := NewVector(op.VectorID, version, h.quantizer.CompressedBytes(h.quantizer.Encode(q)))
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {
@@ -150,7 +152,12 @@ func (r *reassignDeduplicator) flush() (err error) {
 		return true
 	})
 
-	return r.bucket.Put([]byte(reassignBucketKey), buf)
+	err = r.bucket.Put([]byte(reassignBucketKey), buf)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // getLastKnownPostingID retrieves the last known posting ID for the given vector ID.

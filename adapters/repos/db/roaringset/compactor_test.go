@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package roaringset
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -479,8 +480,8 @@ func cursorCompactor(t *testing.T, leftCursor, rightCursor SegmentCursor, maxNew
 	f, err := os.Create(segmentFile)
 	require.NoError(t, err)
 
-	c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", cleanup, checkSum, maxNewFileSize, nil)
-	require.NoError(t, c.Do())
+	c := NewCompactor(f, leftCursor, rightCursor, 5, cleanup, checkSum, maxNewFileSize, nil)
+	require.NoError(t, c.Do(context.Background()))
 
 	require.NoError(t, f.Close())
 
@@ -526,9 +527,9 @@ func TestCompactor_InMemoryWritesEfficency(t *testing.T) {
 			maxNewFileSize = compactor.SegmentWriterBufferSize + 1
 		}
 
-		c := NewCompactor(ws, leftCursor, rightCursor, 0, t.TempDir(), true, true, maxNewFileSize, nil)
+		c := NewCompactor(ws, leftCursor, rightCursor, 0, true, true, maxNewFileSize, nil)
 
-		err = c.Do()
+		err = c.Do(context.Background())
 		require.Nil(t, err)
 
 		b, err := ws.Bytes()

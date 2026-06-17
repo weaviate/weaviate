@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,13 +24,12 @@ import (
 )
 
 func TestAuthzRolesForGroups(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	all := "*"
@@ -108,27 +107,31 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		var errType *authz.AssignRoleToGroupForbidden
 		require.True(t, errors.As(err, &errType))
 
+		// The assign guard requires the caller to already hold every permission
+		// the assigned role grants, so customUser needs read_groups in addition
+		// to assign_and_revoke_groups before it can assign groupRead.
 		helper.AssignRoleToUser(t, adminKey, groupAssignName, customUser)
+		helper.AssignRoleToUser(t, adminKey, groupReadName, customUser)
+		t.Cleanup(func() {
+			helper.RevokeRoleFromUser(t, adminKey, groupAssignName, customUser)
+			helper.RevokeRoleFromUser(t, adminKey, groupReadName, customUser)
+		})
 
 		// assigning works after user has appropriate rights
 		helper.AssignRoleToGroup(t, customKey, groupReadName, group)
-		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
+		t.Cleanup(func() { helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group) })
 
 		groupRoles := helper.GetRolesForGroup(t, adminKey, group, false)
 		require.Len(t, groupRoles, 1)
 		require.Equal(t, groupReadName, *groupRoles[0].Name)
-
-		helper.RevokeRoleFromUser(t, adminKey, groupReadName, customUser)
-		helper.RevokeRoleFromUser(t, adminKey, groupAssignName, customUser)
 	})
 
 	t.Run("revoke group", func(t *testing.T) {
 		group := "revoke-group"
 
 		helper.AssignRoleToGroup(t, adminKey, groupReadName, group)
-		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
+		t.Cleanup(func() { helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group) })
 
-		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
 		_, err := helper.Client(t).Authz.RevokeRoleFromGroup(
 			authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{GroupType: models.GroupTypeOidc, Roles: []string{groupReadName}}),
 			helper.CreateAuth(customKey),
@@ -138,13 +141,89 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		require.True(t, errors.As(err, &errType))
 
 		helper.AssignRoleToUser(t, adminKey, groupAssignName, customUser)
+		t.Cleanup(func() { helper.RevokeRoleFromUser(t, adminKey, groupAssignName, customUser) })
 
 		// revoking works after user has appropriate rights
 		helper.RevokeRoleFromGroup(t, customKey, groupReadName, group)
 		groupRoles := helper.GetRolesForGroup(t, adminKey, group, false)
 		require.Len(t, groupRoles, 0)
+	})
 
-		helper.RevokeRoleFromUser(t, adminKey, groupAssignName, customUser)
+	// A delegate holding only assign_and_revoke_groups must not be able to
+	// elevate a group (and through it, every group member) to a role whose
+	// permissions the delegate itself lacks.
+	t.Run("assign_and_revoke_groups alone cannot escalate privileges", func(t *testing.T) {
+		assignGroups := authorization.AssignAndRevokeGroups
+		helper.CreateRoleAndAssign(t, adminKey, customUser, "group-delegate", &models.Permission{
+			Action: &assignGroups,
+			Groups: &models.PermissionGroups{Group: &all, GroupType: models.GroupTypeOidc},
+		})
+		helper.WaitForOwnRole(t, customKey, "group-delegate")
+
+		t.Run("cannot assign built-in admin to a group", func(t *testing.T) {
+			group := "escalation-admin-group"
+			_, err := helper.Client(t).Authz.AssignRoleToGroup(
+				authz.NewAssignRoleToGroupParams().WithID(group).WithBody(
+					authz.AssignRoleToGroupBody{Roles: []string{authorization.Admin}, GroupType: models.GroupTypeOidc}),
+				helper.CreateAuth(customKey),
+			)
+			require.Error(t, err)
+			var forbidden *authz.AssignRoleToGroupForbidden
+			require.True(t, errors.As(err, &forbidden), "expected 403, got %T", err)
+			require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+		})
+
+		t.Run("cannot assign a custom role granting permissions it lacks", func(t *testing.T) {
+			powerful := "powerful-group-role"
+			helper.DeleteRole(t, adminKey, powerful)
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name: &powerful,
+				Permissions: []*models.Permission{
+					helper.NewCollectionsPermission().WithAction(authorization.DeleteCollections).WithCollection("*").Permission(),
+				},
+			})
+			defer helper.DeleteRole(t, adminKey, powerful)
+
+			group := "escalation-custom-group"
+			_, err := helper.Client(t).Authz.AssignRoleToGroup(
+				authz.NewAssignRoleToGroupParams().WithID(group).WithBody(
+					authz.AssignRoleToGroupBody{Roles: []string{powerful}, GroupType: models.GroupTypeOidc}),
+				helper.CreateAuth(customKey),
+			)
+			require.Error(t, err)
+			var forbidden *authz.AssignRoleToGroupForbidden
+			require.True(t, errors.As(err, &forbidden), "expected 403, got %T", err)
+			require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+		})
+
+		t.Run("can assign a role whose permissions it already holds", func(t *testing.T) {
+			readCollectionA := func() *models.Permission {
+				return helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection("CollectionA").Permission()
+			}
+			// Grant the delegate read_data on CollectionA so it now holds
+			// exactly what assignable-group-role grants (identical builder =>
+			// identical policy) and the guard is satisfied.
+			helper.CreateRoleAndAssign(t, adminKey, customUser, "group-data-reader", readCollectionA())
+			helper.WaitForOwnRole(t, customKey, "group-data-reader")
+
+			assignable := "assignable-group-role"
+			helper.DeleteRole(t, adminKey, assignable)
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name:        &assignable,
+				Permissions: []*models.Permission{readCollectionA()},
+			})
+			defer helper.DeleteRole(t, adminKey, assignable)
+
+			group := "escalation-ok-group"
+			resp, err := helper.Client(t).Authz.AssignRoleToGroup(
+				authz.NewAssignRoleToGroupParams().WithID(group).WithBody(
+					authz.AssignRoleToGroupBody{Roles: []string{assignable}, GroupType: models.GroupTypeOidc}),
+				helper.CreateAuth(customKey),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			helper.RevokeRoleFromGroup(t, adminKey, assignable, group)
+		})
 	})
 
 	t.Run("get role for group", func(t *testing.T) {

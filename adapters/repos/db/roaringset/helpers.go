@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,6 +72,11 @@ func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *Bitma
 	}
 }
 
+// BufPool returns the underlying buffer pool used by this factory.
+func (bmf *BitmapFactory) BufPool() BitmapBufPool {
+	return bmf.bufPool
+}
+
 // GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
 // This method is safe to call concurrently. The purpose behind sharing an
 // internal bitmap, is that a Clone() operation is cheaper than prefilling
@@ -123,6 +128,15 @@ func (bmf *BitmapFactory) Remove(ids *sroar.Bitmap) {
 	defer bmf.lock.Unlock()
 
 	bmf.prefilled.AndNot(ids)
+}
+
+func (bmf *BitmapFactory) RemoveIds(ids ...uint64) {
+	bmf.lock.Lock()
+	defer bmf.lock.Unlock()
+
+	for _, id := range ids {
+		bmf.prefilled.Remove(id)
+	}
 }
 
 // ----------------------------------------------------------------------------

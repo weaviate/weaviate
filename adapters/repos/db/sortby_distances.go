@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,11 @@ func (sbd *sortByDistances) Len() int {
 }
 
 func (sbd *sortByDistances) Less(i, j int) bool {
-	return sbd.scores[i] < sbd.scores[j]
+	if sbd.scores[i] != sbd.scores[j] {
+		return sbd.scores[i] < sbd.scores[j]
+	}
+	// Tie-breaker: use document ID for deterministic ordering
+	return sbd.objects[i].ID() < sbd.objects[j].ID()
 }
 
 func (sbd *sortByDistances) Swap(i, j int) {

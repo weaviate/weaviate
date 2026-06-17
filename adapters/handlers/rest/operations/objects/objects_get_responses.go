@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -207,6 +207,51 @@ func (o *ObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runt
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// ObjectsGetGoneCode is the HTTP code returned for type ObjectsGetGone
+const ObjectsGetGoneCode int = 410
+
+/*
+ObjectsGetGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsGetGone
+*/
+type ObjectsGetGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsGetGone creates ObjectsGetGone with default headers values
+func NewObjectsGetGone() *ObjectsGetGone {
+
+	return &ObjectsGetGone{}
+}
+
+// WithPayload adds the payload to the objects get gone response
+func (o *ObjectsGetGone) WithPayload(payload *models.ErrorResponse) *ObjectsGetGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects get gone response
+func (o *ObjectsGetGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsGetGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // ObjectsGetInternalServerErrorCode is the HTTP code returned for type ObjectsGetInternalServerError

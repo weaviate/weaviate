@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,8 +36,9 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
 
-	q.Pause()
-	q.Wait()
+	if err := q.Pause(ctx); err != nil {
+		return errors.Wrap(err, "pause vector index")
+	}
 
 	err := vidx.Drop(ctx, false)
 	if err != nil {

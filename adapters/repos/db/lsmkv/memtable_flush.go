@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,9 +19,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -157,15 +154,10 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		indexes := &segmentindex.Indexes{
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
-			ScratchSpacePath:    m.path + ".scratch.d",
-			ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-				"strategy":  m.strategy,
-				"operation": "writeIndices",
-			}),
-			AllocChecker: m.allocChecker,
+			AllocChecker:        m.allocChecker,
 		}
 
-		if _, err := segmentFile.WriteIndexes(indexes, int64(m.size)); err != nil {
+		if _, err := segmentFile.WriteIndexes(indexes); err != nil {
 			return "", err
 		}
 	}

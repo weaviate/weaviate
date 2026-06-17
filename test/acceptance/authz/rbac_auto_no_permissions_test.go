@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,11 +34,9 @@ func TestCollectEndpoints(t *testing.T) {
 
 func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 	customKey := "custom-key"
-	customUser := "custom-user"
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	// create class via admin

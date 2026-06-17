@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,11 +27,9 @@ import (
 
 func TestAuthzViewerEndpoints(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
-	viewerKey := "viewer-key"
 	viewerUser := "viewer-user"
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
+	compose, down := composeUpShared(t)
 	defer down()
 
 	weaviateUrl := compose.GetWeaviate().URI()

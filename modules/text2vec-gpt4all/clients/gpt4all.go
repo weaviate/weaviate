@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type client struct {
@@ -33,11 +34,9 @@ type client struct {
 
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
-		origin: origin,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		origin:     origin,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 
@@ -66,7 +65,7 @@ func (c *client) Vectorize(ctx context.Context, text string) (*ent.Vectorization
 
 	var resBody vecResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 {

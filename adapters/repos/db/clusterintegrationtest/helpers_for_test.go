@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -297,7 +297,11 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 	}
 
 	sort.Slice(distances, func(a, b int) bool {
-		return distances[a].distance < distances[b].distance
+		if distances[a].distance != distances[b].distance {
+			return distances[a].distance < distances[b].distance
+		}
+		// Tie-breaker: use object ID for deterministic ordering
+		return distances[a].obj.ID < distances[b].obj.ID
 	})
 
 	out := make([]*models.Object, len(objs))

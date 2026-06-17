@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -189,6 +189,8 @@ func (ht *HashTree) root() Digest {
 	return ht.nodes[0]
 }
 
+// Level returns digests for nodes selected by discriminant, which is
+// level-local: Size() must equal nodesAtLevel(level), bit i selects node i.
 func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
@@ -205,7 +207,13 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 		return 0, fmt.Errorf("%w: nil discriminant provided", ErrIllegalArguments)
 	}
 
-	if len(digests) < nodesAtLevel(level) {
+	expectedSize := nodesAtLevel(level)
+	if discriminant.Size() != expectedSize {
+		return 0, fmt.Errorf("%w: discriminant size %d, expected %d for level %d",
+			ErrIllegalArguments, discriminant.Size(), expectedSize, level)
+	}
+
+	if len(digests) < expectedSize {
 		return 0, fmt.Errorf("%w: output buffer has not enough capacity", ErrIllegalArguments)
 	}
 
@@ -213,9 +221,8 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 
 	offset := InnerNodesCount(level)
 
-	// TODO(jeroiraz): it may be more performant to iterate over the set positions in the discriminant
-	for i := 0; i < nodesAtLevel(level); i++ {
-		if discriminant.IsSet(offset + i) {
+	for i := 0; i < expectedSize; i++ {
+		if discriminant.IsSet(i) {
 			digests[n] = ht.nodes[offset+i]
 			n++
 		}

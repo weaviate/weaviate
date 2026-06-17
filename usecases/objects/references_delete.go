@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,15 +17,16 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.
@@ -47,8 +48,13 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	input.Class = schema.UppercaseClassName(input.Class)
-	input.Class, _ = m.resolveAlias(input.Class)
+	if input.Class != "" {
+		class, _, err := m.resolveNS(principal, input.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		input.Class = class
+	}
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
@@ -58,10 +64,29 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
+	// Parse + prefix-validate AFTER authz so unauthorized callers get 403
+	// rather than a body-shape 422 (TestAuthzViewerEndpoints pins this).
+	beacon, err := crossref.Parse(input.Reference.Beacon.String())
+	if err != nil {
+		return &Error{"cannot parse beacon", StatusBadRequest, err}
+	}
+	if beacon.Class != "" {
+		if err := namespacing.ValidateNamespacePrefix(principal, m.config.Config.Namespaces.Enabled, beacon.Class, "class"); err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+	}
+
 	deprecatedEndpoint := input.Class == ""
 	// we need to know which collection an object belongs to, so for the deprecated case we first need to fetch the
 	// object from any collection, to then know its collection to check for the correct permissions after wards
 	if deprecatedEndpoint {
+		// NS-enabled: refuse the legacy scan-all-collections fallback. The
+		// REST layer rejects the deprecated route with 410 before this point;
+		// this is defensive for direct callers.
+		if m.config.Config.Namespaces.Enabled {
+			err := fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")
+			return &Error{err.Error(), StatusGone, err}
+		}
 		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
@@ -100,10 +125,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"source object", StatusInternalServerError, err}
 	}
 
-	beacon, err := crossref.Parse(input.Reference.Beacon.String())
-	if err != nil {
-		return &Error{"cannot parse beacon", StatusBadRequest, err}
-	}
 	if input.Class != "" && beacon.Class == "" {
 		toClass, toBeacon, replace, err := m.autodetectToClass(class, input.Property, beacon)
 		if err != nil {
@@ -112,7 +133,29 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		if replace {
 			input.Reference.Class = toClass
 			input.Reference.Beacon = toBeacon
+			beacon.Class = string(toClass)
 		}
+	}
+
+	// NS: classless supplied beacon on a multi-target prop is ambiguous.
+	// Reject with 400 so the caller sees the error instead of
+	// removeReferenceStructural's silent no-op. Non-NS keeps byte-exact
+	// compare, which already handles classless on both sides safely.
+	if m.config.Config.Namespaces.Enabled && beacon.Class == "" {
+		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
+	// Same cross-NS policy as the write paths. Fail with 422 here so the
+	// caller sees the rejection rather than removeReferenceStructural's
+	// silent no-op.
+	if beacon.Class != "" {
+		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
+			principal, m.config.Config.Namespaces.Enabled, input.Class, beacon.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		beacon.Class = qualifiedTarget
 	}
 
 	if err := input.validateSchema(class); err != nil {
@@ -127,7 +170,13 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	obj := res.Object()
 	obj.Tenant = tenant
-	ok, errmsg := removeReference(obj, input.Property, &input.Reference)
+	var ok bool
+	var errmsg string
+	if m.config.Config.Namespaces.Enabled {
+		ok, errmsg = removeReferenceStructural(obj, input.Property, input.Class, beacon, m.logger)
+	} else {
+		ok, errmsg = removeReferenceByteExact(obj, input.Property, input.Reference.Beacon)
+	}
 	if errmsg != "" {
 		return &Error{errmsg, StatusInternalServerError, nil}
 	}
@@ -165,26 +214,78 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 	return validateReferenceSchema(class, req.Property)
 }
 
-// removeReference removes ref from object obj with property prop.
-// It returns ok (removal took place) and an error message
-func removeReference(obj *models.Object, prop string, remove *models.SingleRef) (ok bool, errmsg string) {
+// removeReferenceStructural matches refs by (short_class, TargetID).
+// Used on NS clusters. Caller must pass qualified sourceClass and
+// remove.Class; the handler enforces that via resolveNS + QualifyRefTarget.
+//
+// Classless or foreign-NS supplied beacons no-op (safety net against a
+// direct caller that skipped the handler's 400/422). Classless stored
+// beacons also no-op — the wildcard semantics the PR briefly carried
+// silently dropped same-UUID refs to unrelated classes; PUT-replace is
+// the documented cleanup path for legacy classless stored data.
+//
+// Malformed stored beacons are skipped (Debug log) so they don't freeze
+// the rest of the multi-ref.
+func removeReferenceStructural(obj *models.Object, prop, sourceClass string,
+	remove *crossref.Ref, logger logrus.FieldLogger,
+) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
 		return false, ""
 	}
-
 	refs, ok := properties[prop].(models.MultipleRef)
 	if !ok {
-		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, refs)
+		// %T on properties[prop] — refs is the zero MultipleRef on a
+		// failed assertion and would misreport the stored type.
+		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, properties[prop])
 	}
 
-	var removed bool
-	properties[prop] = slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
-		if ref.Beacon == remove.Beacon {
-			removed = removed || true
-			return true
+	removeShortClass := namespacing.StripQualification(remove.Class)
+	if removeShortClass == "" {
+		return false, ""
+	}
+	if namespacing.NamespaceFromQualified(remove.Class) != namespacing.NamespaceFromQualified(sourceClass) {
+		return false, ""
+	}
+
+	after := slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
+		stored, err := crossref.Parse(ref.Beacon.String())
+		if err != nil {
+			logger.WithField("object_id", obj.ID).
+				WithField("property", prop).
+				WithField("beacon", ref.Beacon).
+				Debugf("removeReferenceStructural: skipping malformed stored beacon: %v", err)
+			return false
 		}
-		return false
+		if stored.TargetID != remove.TargetID {
+			return false
+		}
+		storedShortClass := namespacing.StripQualification(stored.Class)
+		if storedShortClass == "" {
+			return false
+		}
+		return storedShortClass == removeShortClass
 	})
-	return removed, ""
+	properties[prop] = after
+	return len(after) < len(refs), ""
+}
+
+// removeReferenceByteExact is the non-NS path: byte-exact compare on the
+// stored beacon URI. Preserves the pre-namespacing contract.
+func removeReferenceByteExact(obj *models.Object, prop string, removeBeacon strfmt.URI) (ok bool, errmsg string) {
+	properties := obj.Properties.(map[string]interface{})
+	if properties == nil || properties[prop] == nil {
+		return false, ""
+	}
+	refs, ok := properties[prop].(models.MultipleRef)
+	if !ok {
+		// %T on properties[prop] — refs is the zero MultipleRef on a
+		// failed assertion and would misreport the stored type.
+		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, properties[prop])
+	}
+	after := slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
+		return ref.Beacon == removeBeacon
+	})
+	properties[prop] = after
+	return len(after) < len(refs), ""
 }

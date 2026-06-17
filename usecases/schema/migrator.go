@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,11 +41,12 @@ type Migrator interface {
 	LoadShard(ctx context.Context, class, shard string) error
 	DropShard(ctx context.Context, class, shard string) error
 	ShutdownShard(ctx context.Context, class, shard string) error
+	ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error
 
 	AddProperty(ctx context.Context, className string,
 		props ...*models.Property) error
 	UpdateProperty(ctx context.Context, className string,
-		propName string, newName *string) error
+		property *models.Property) error
 	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error
@@ -59,6 +60,8 @@ type Migrator interface {
 	ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, className string,
 		updated map[string]schemaConfig.VectorIndexConfig) error
+	DropVectorIndex(ctx context.Context, className string, targetVector string) error
+	GetVectorIndexNames(className string) []string
 	ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error

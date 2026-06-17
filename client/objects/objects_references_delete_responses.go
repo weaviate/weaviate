@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,6 +54,12 @@ func (o *ObjectsReferencesDeleteReader) ReadResponse(response runtime.ClientResp
 		return nil, result
 	case 404:
 		result := NewObjectsReferencesDeleteNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 410:
+		result := NewObjectsReferencesDeleteGone()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -306,6 +312,74 @@ func (o *ObjectsReferencesDeleteNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewObjectsReferencesDeleteGone creates a ObjectsReferencesDeleteGone with default headers values
+func NewObjectsReferencesDeleteGone() *ObjectsReferencesDeleteGone {
+	return &ObjectsReferencesDeleteGone{}
+}
+
+/*
+ObjectsReferencesDeleteGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ObjectsReferencesDeleteGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects references delete gone response has a 2xx status code
+func (o *ObjectsReferencesDeleteGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references delete gone response has a 3xx status code
+func (o *ObjectsReferencesDeleteGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references delete gone response has a 4xx status code
+func (o *ObjectsReferencesDeleteGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references delete gone response has a 5xx status code
+func (o *ObjectsReferencesDeleteGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references delete gone response a status code equal to that given
+func (o *ObjectsReferencesDeleteGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the objects references delete gone response
+func (o *ObjectsReferencesDeleteGone) Code() int {
+	return 410
+}
+
+func (o *ObjectsReferencesDeleteGone) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsReferencesDeleteGone) String() string {
+	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsReferencesDeleteGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsReferencesDeleteGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

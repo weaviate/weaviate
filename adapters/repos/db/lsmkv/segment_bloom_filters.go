@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -114,15 +114,11 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 }
 
 func (s *segment) computeAndStoreBloomFilter(path string) error {
-	keys, err := s.index.AllKeys()
-	if err != nil {
-		return err
-	}
-
-	s.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
+	count := s.index.KeyCount()
+	s.bloomFilter = bloom.NewWithEstimates(uint(count), 0.001)
+	s.index.ForEachKey(func(key []byte) {
 		s.bloomFilter.Add(key)
-	}
+	})
 
 	if err := s.storeBloomFilterOnDisk(path); err != nil {
 		return fmt.Errorf("store bloom filter on disk: %w", err)
@@ -206,15 +202,11 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFile
 }
 
 func (s *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) error {
-	keys, err := s.secondaryIndices[pos].AllKeys()
-	if err != nil {
-		return err
-	}
-
-	s.secondaryBloomFilters[pos] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
+	count := s.secondaryIndices[pos].KeyCount()
+	s.secondaryBloomFilters[pos] = bloom.NewWithEstimates(uint(count), 0.001)
+	s.secondaryIndices[pos].ForEachKey(func(key []byte) {
 		s.secondaryBloomFilters[pos].Add(key)
-	}
+	})
 
 	if err := s.storeBloomFilterSecondaryOnDisk(path, pos); err != nil {
 		return fmt.Errorf("store secondary bloom filter on disk: %w", err)

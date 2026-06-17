@@ -99,7 +99,7 @@ def test_index_compression() -> None:
             properties=[
                 Property(name="name", data_type=DataType.TEXT),
                 Property(name="description", data_type=DataType.TEXT),
-            ]
+            ],
         )
 
         with collection.batch.dynamic() as batch:
@@ -129,7 +129,7 @@ def test_index_compression() -> None:
                         enabled=True,
                         training_limit=100,
                     ),
-                )
+                ),
             )
         )
         # we need to wait a little bit before we can enable next compression
@@ -142,7 +142,7 @@ def test_index_compression() -> None:
                         enabled=True,
                         training_limit=100,
                     ),
-                )
+                ),
             )
         )
         # we need to wait a little bit before we can enable next compression
@@ -155,7 +155,7 @@ def test_index_compression() -> None:
                         enabled=True,
                         bits=1,
                     ),
-                )
+                ),
             )
         )
         # we need to wait a little bit before we can enable next compression
@@ -167,7 +167,7 @@ def test_index_compression() -> None:
                     quantizer=Reconfigure.VectorIndex.Quantizer.rq(
                         enabled=True,
                     ),
-                )
+                ),
             )
         )
 

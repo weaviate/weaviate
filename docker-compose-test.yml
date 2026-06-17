@@ -34,7 +34,10 @@ services:
       DISABLE_RECOVERY_ON_PANIC: "true"
       TRACK_VECTOR_DIMENSIONS: "true"
       QUERY_MAXIMUM_RESULTS: 10005
-
+      OBJECTS_TTL_DELETE_SCHEDULE: "@every 12h"
+      ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT: "true"
+      WEAVIATE_PREVIEW_NESTED_FILTERING: "true"
+      DEBUG_ENDPOINTS_ENABLED: "true"
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in
       # memtables, the after run has some flushed which leads to some metrics

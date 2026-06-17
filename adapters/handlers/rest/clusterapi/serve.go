@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package clusterapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -23,11 +22,10 @@ import (
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -38,10 +36,9 @@ const (
 
 // Server represents the cluster API server
 type Server struct {
-	server            *http.Server
-	appState          *state.State
-	replicatedIndices *replicatedIndices
-	grpc              *grpc.Server
+	server   *http.Server
+	appState *state.State
+	grpc     *grpc.Server
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -58,18 +55,18 @@ func NewServer(appState *state.State) *Server {
 
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
-		appState.RemoteReplicaIncoming,
+		appState.DB,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
 		appState.Logger,
 		appState.ClusterService.Ready)
 
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
+	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
-	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger)
+	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
@@ -87,9 +84,21 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 
+	mux.Handle("/exports/prepare", exportsHandler.Prepare())
+	mux.Handle("/exports/commit", exportsHandler.Commit())
+	mux.Handle("/exports/abort", exportsHandler.Abort())
+	mux.Handle("/exports/status", exportsHandler.Status())
+
 	mux.Handle("/", index())
 
-	grpcServer := grpc.NewServer(appState)
+	grpcServer := grpc.NewServer(grpc.Config{
+		State:                              appState,
+		Replicator:                         appState.DB,
+		FileReplicationRepo:                appState.DB,
+		FileReplicationSchema:              appState.ClusterService.SchemaReader(),
+		MaintenanceModeEnabledForLocalhost: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		NodeReady:                          appState.ClusterService.Ready,
+	})
 
 	var handler http.Handler
 	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
@@ -101,7 +110,7 @@ func NewServer(appState *state.State) *Server {
 		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
 	})
 
-	handler = addClusterHandlerMiddleware(handler, appState)
+	handler = addClusterHandlerMiddleware(handler, appState, auth)
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
@@ -132,9 +141,8 @@ func NewServer(appState *state.State) *Server {
 			Handler:   handler,
 			Protocols: &protocols,
 		},
-		appState:          appState,
-		replicatedIndices: replicatedIndices,
-		grpc:              grpcServer,
+		appState: appState,
+		grpc:     grpcServer,
 	}
 }
 
@@ -150,19 +158,6 @@ func (s *Server) Close(ctx context.Context) error {
 	s.appState.Logger.WithField("action", "cluster_api_shutdown").
 		Info("server is shutting down")
 
-	// Close the replicatedIndices first to drain the queue and wait for workers
-	// This ensures all pending replication requests are processed before stopping the server
-	if s.replicatedIndices != nil {
-		s.appState.Logger.WithField("action", "cluster_api_shutdown").
-			Info("shutting down replicated indices")
-		if err := s.replicatedIndices.Close(ctx); err != nil {
-			s.appState.Logger.WithField("action", "cluster_api_shutdown").
-				WithError(err).
-				Warn("error shutting down replicated indices")
-		}
-	}
-
-	// Now shutdown the servers after the replicated indices have been closed
 	eg := enterrors.NewErrorGroupWrapper(s.appState.Logger)
 	eg.Go(func() error {
 		if err := s.server.Shutdown(ctx); err != nil {
@@ -184,17 +179,6 @@ func (s *Server) Close(ctx context.Context) error {
 	})
 
 	return eg.Wait()
-}
-
-// Serve is kept for backward compatibility
-func Serve(appState *state.State) (*Server, error) {
-	server := NewServer(appState)
-	if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		appState.Logger.WithField("action", "cluster_api_shutdown").
-			WithError(err).
-			Error("server error")
-	}
-	return server, nil
 }
 
 func index() http.Handler {
@@ -235,13 +219,16 @@ var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
 // addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
 // If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
 // If the request doesn't match, it will continue to the next handler.
-func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
+// The dedicated http.Handler is wrapped with the provided auth so /v1/cluster/* endpoints
+// require basic auth when it is enabled in the cluster auth config.
+func addClusterHandlerMiddleware(next http.Handler, appState *state.State, auth auth) http.Handler {
 	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
 	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
+	authedRaftRouter := auth.handleFunc(raftRouter.ServeHTTP)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case clusterv1Regexp.MatchString(r.URL.Path):
-			raftRouter.ServeHTTP(w, r)
+			authedRaftRouter(w, r)
 		default:
 			next.ServeHTTP(w, r)
 		}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -79,8 +79,15 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
+			methodName:       "CancelRestore",
+			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
+			expectedVerb:     authorization.DELETE,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
+		},
+		{
 			methodName:     "List",
-			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
+			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc"), false},
 			classes:        []string{"ABC"},
 			ignoreAuthZ:    true,
 		},
@@ -112,7 +119,7 @@ func Test_Authorization(t *testing.T) {
 				nodeResolver := NewMockNodeResolver(t)
 				modcapabilities := modulecapabilities.NewMockBackupBackend(t)
 
-				backupProvider.On("BackupBackend", mock.Anything).Return(modcapabilities, nil).Maybe()
+				backupProvider.On("BackupBackend", mock.Anything, mock.Anything).Return(modcapabilities, nil).Maybe()
 
 				modcapabilities.On("IsExternal").Return(false).Maybe()
 				modcapabilities.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/").Maybe()

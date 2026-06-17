@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -309,7 +309,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		i := 0
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 			if i == 1 {
 				// segment1 and segment2 merged
 				// none of them is root segment, so tombstones
@@ -408,7 +408,7 @@ func compactionSetStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 		}
 		require.Nil(t, err)
 	})
@@ -505,7 +505,7 @@ func compactionSetStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 				}
 				require.Nil(t, err)
 			})

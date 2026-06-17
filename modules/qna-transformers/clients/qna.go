@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type qna struct {
@@ -35,7 +36,7 @@ type qna struct {
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *qna {
 	return &qna{
 		origin:     origin,
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		logger:     logger,
 	}
 }
@@ -70,7 +71,7 @@ func (q *qna) Answer(ctx context.Context,
 
 	var resBody answersResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse QnA response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode > 399 {

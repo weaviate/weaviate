@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -67,24 +68,27 @@ type PrometheusMetrics struct {
 	QueryDimensions                     *prometheus.CounterVec
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
-	BackupRestoreDurations              *prometheus.SummaryVec
-	BackupStoreDurations                *prometheus.SummaryVec
-	BucketPauseDurations                *prometheus.SummaryVec
-	BackupRestoreClassDurations         *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations    *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
-	BackupRestoreDataTransferred        *prometheus.CounterVec
-	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
 	FileIOReads                         *prometheus.SummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
+	// Backup/Restore metrics
+	BackupRestoreDurations            *prometheus.SummaryVec
+	BackupStoreDurations              *prometheus.SummaryVec
+	BucketPauseDurations              *prometheus.SummaryVec
+	BackupRestoreClassDurations       *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations *prometheus.SummaryVec
+	BackupRestoreDataTransferred      *prometheus.CounterVec
+	BackupStoreDataTransferred        *prometheus.CounterVec
+	RestorePhaseDurations             *prometheus.HistogramVec
+
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
 	QueueDiskUsage                   *prometheus.GaugeVec
-	QueuePaused                      *prometheus.GaugeVec
-	QueueCount                       *prometheus.GaugeVec
+	QueuePaused                      prometheus.Gauge
+	QueueCount                       prometheus.Gauge
 	QueuePartitionProcessingDuration *prometheus.HistogramVec
 
 	VectorIndexQueueInsertCount *prometheus.CounterVec
@@ -178,6 +182,12 @@ type PrometheusMetrics struct {
 	// Checksum metrics
 	ChecksumValidationDuration prometheus.Summary
 	ChecksumBytesRead          prometheus.Summary
+
+	objttlCount          prometheus.Counter
+	objttlFailureCount   prometheus.Counter
+	objttlRunning        prometheus.Gauge
+	objttlDuration       prometheus.Histogram
+	objttlObjectsDeleted prometheus.Counter
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -316,8 +326,6 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.LSMSegmentCountByLevel.DeletePartialMatch(labels)
 	pm.QueueSize.DeletePartialMatch(labels)
 	pm.QueueDiskUsage.DeletePartialMatch(labels)
-	pm.QueuePaused.DeletePartialMatch(labels)
-	pm.QueueCount.DeletePartialMatch(labels)
 	pm.QueuePartitionProcessingDuration.DeletePartialMatch(labels)
 	pm.VectorIndexQueueInsertCount.DeletePartialMatch(labels)
 	pm.VectorIndexQueueDeleteCount.DeletePartialMatch(labels)
@@ -383,7 +391,7 @@ var (
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
 	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
 
-	postingSizeBuckets = []float64{10, 40, 70, 100, 130, 160, 190, 250, 500}
+	postingSizeBuckets = []float64{10, 40, 70, 100, 130, 160, 190, 250, 500, 1000, 1500, 2000, 3000, 5000, 10000}
 
 	metrics *PrometheusMetrics = nil
 )
@@ -433,7 +441,7 @@ func InitGaugeVec(vec *prometheus.GaugeVec, labelNames [][]string) {
 }
 
 func newPrometheusMetrics() *PrometheusMetrics {
-	return &PrometheusMetrics{
+	m := &PrometheusMetrics{
 		Registerer: prometheus.DefaultRegisterer,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
@@ -575,14 +583,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "queue_disk_usage",
 			Help: "Disk usage of the queue",
 		}, []string{"class_name", "shard_name"}),
-		QueuePaused: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		QueuePaused: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "queue_paused",
-			Help: "Whether the queue is paused",
-		}, []string{"class_name", "shard_name"}),
-		QueueCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Help: "Number of paused queues",
+		}),
+		QueueCount: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "queue_count",
 			Help: "Number of queues",
-		}, []string{"class_name", "shard_name"}),
+		}),
 		QueuePartitionProcessingDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "queue_partition_processing_duration_ms",
 			Help: "Duration in ms of a single partition processing",
@@ -736,10 +744,15 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		RestorePhaseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_restore_phase_duration_seconds",
+			Help:    "Duration of restore phases (prepare, object_storage_download, schema_apply)",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
+		}, []string{"phase"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "shards_loaded",
+			Name: "7oaded",
 			Help: "Number of shards loaded",
 		}),
 		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{
@@ -928,6 +941,100 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of bytes read during checksum validation",
 		}),
 	}
+
+	if err := m.initObjectsTtl(); err != nil {
+		panic(err)
+	}
+
+	return m
+}
+
+func (m *PrometheusMetrics) initObjectsTtl() error {
+	var err error
+	minute := time.Minute.Seconds()
+	hour := time.Hour.Seconds()
+
+	m.objttlCount, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_count",
+			Help: "Count of object ttl deletions executions",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_count: %w", err)
+	}
+
+	m.objttlFailureCount, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_failure_count",
+			Help: "Count of object ttl deletions failures",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_failure_count: %w", err)
+	}
+
+	m.objttlRunning, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_objects_ttl_deletion_db_running",
+			Help: "Number of object ttl deletions running currently",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_running: %w", err)
+	}
+
+	m.objttlDuration, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name: "weaviate_objects_ttl_deletion_db_duration_seconds",
+			Help: "Duration of object ttl deletions in seconds",
+			Buckets: []float64{
+				minute, 5 * minute, 15 * minute, 30 * minute, hour,
+				2 * hour, 3 * hour, 4 * hour, 8 * hour, 16 * hour, 24 * hour,
+			},
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_duration: %w", err)
+	}
+
+	m.objttlObjectsDeleted, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_objects_deleted",
+			Help: "Count of all expired objects deleted",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_objects_deleted: %w", err)
+	}
+
+	return nil
+}
+
+// --- Objects TTL: main ---
+
+func (m *PrometheusMetrics) IncObjectsTtlCount() {
+	m.objttlCount.Inc()
+}
+
+func (m *PrometheusMetrics) IncObjectsTtlFailureCount() {
+	m.objttlFailureCount.Inc()
+}
+
+func (m *PrometheusMetrics) IncObjectsTtlRunning() {
+	m.objttlRunning.Inc()
+}
+
+func (m *PrometheusMetrics) DecObjectsTtlRunning() {
+	m.objttlRunning.Dec()
+}
+
+func (m *PrometheusMetrics) AddObjectsTtlObjectsDeleted(count float64) {
+	m.objttlObjectsDeleted.Add(count)
+}
+
+func (m *PrometheusMetrics) ObserveObjectsTtlDuration(d time.Duration) {
+	m.objttlDuration.Observe(d.Seconds())
 }
 
 type OnceUponATimer struct {

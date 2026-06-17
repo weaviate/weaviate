@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -170,6 +169,12 @@ func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCall
 }
 
 func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
+	// spawn no workers when nothing is due; callbacks becoming due right after
+	// this check are picked up on the next tick.
+	if c.countDueCallbacks() == 0 {
+		return false
+	}
+
 	anyExecuted := false
 	ch := make(chan uint32)
 	lock := new(sync.Mutex)
@@ -269,10 +274,42 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 	return anyExecuted
 }
 
+// countDueCallbacks prunes ids of deleted callbacks and counts callbacks that
+// are active and whose interval has elapsed, so an idle tick can skip spawning
+// workers entirely. Workers re-verify each callback under lock before executing.
+func (c *cycleCallbackGroup) countDueCallbacks() int {
+	c.Lock()
+	defer c.Unlock()
+
+	due := 0
+	now := time.Now()
+	i := 0
+	for _, callbackId := range c.callbackIds {
+		meta, ok := c.callbacks[callbackId]
+		// callback deleted in the meantime, drop its id
+		if !ok {
+			continue
+		}
+		c.callbackIds[i] = callbackId
+		i++
+		// callback deactivated
+		if !meta.active {
+			continue
+		}
+		// not enough time passed since previous execution
+		if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
+			continue
+		}
+		due++
+	}
+	c.callbackIds = c.callbackIds[:i]
+	return due
+}
+
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		entsentry.Recover(r)
-		debug.PrintStack()
+		enterrors.PrintStack(c.logger)
 		c.logger.WithFields(logrus.Fields{
 			"action":       "cyclemanager",
 			"callback_id":  callbackCustomId,
@@ -445,7 +482,7 @@ func trace() string {
 	pcs = pcs[:n]
 	for i := range pcs {
 		f := errors.Frame(pcs[i])
-		sb.WriteString(fmt.Sprintf("%n@%s:%d", f, f, f))
+		fmt.Fprintf(&sb, "%n@%s:%d", f, f, f)
 		if i < n-1 {
 			sb.WriteString(";")
 		}

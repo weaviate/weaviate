@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddReferences Class Instances in batch to the connected DB
@@ -43,6 +44,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	batchReferences := validateReferencesConcurrently(ctx, refs, b.logger)
+
+	for idx := range batchReferences {
+		if batchReferences[idx].Err != nil {
+			continue
+		}
+		fromClass, _, err := b.resolveNS(principal, batchReferences[idx].From.Class.String())
+		if err != nil {
+			batchReferences[idx].Err = err
+			continue
+		}
+		batchReferences[idx].From.Class = schema.ClassName(fromClass)
+	}
 
 	uniqueClass := map[string]struct{}{}
 	type classAndShard struct {
@@ -63,6 +76,14 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	for classname := range uniqueClass {
 		allClasses = append(allClasses, classname)
 	}
+
+	// All refs failed parsing/NS resolution: return per-ref errors as 200.
+	// The authorizer rejects empty resources with "at least 1 resource
+	// required", which the REST handler maps to 500.
+	if len(allClasses) == 0 {
+		return batchReferences, nil
+	}
+
 	fetchedClasses, err := b.schemaManager.GetCachedClass(ctx, principal, allClasses...)
 	if err != nil {
 		return nil, err
@@ -90,7 +111,9 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
+	// MT validation must run after auto-detection — target class isn't
+	// known beforehand in all cases. Per ref: QualifyRefTarget to get
+	// qualified (for MT/authz/routing) + short (for the stored beacon).
 	type classAndShard struct {
 		Class string
 		Shard string
@@ -102,18 +125,45 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			continue
 		}
 
-		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-			// can only validate multi-tenancy when everything above succeeds
-			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant, fetchedClasses)
+		var qualifiedTarget string
+		if ref.To != nil && ref.To.Class != "" {
+			qualified, short, err := namespacing.QualifyRefTarget(
+				principal, b.config.Config.Namespaces.Enabled,
+				ref.From.Class.String(), ref.To.Class)
 			if err != nil {
 				refs[i].Err = err
+				continue
 			}
-			if classVersion > schemaVersion {
+			qualifiedTarget = qualified
+			ref.To.Class = short
+		}
+
+		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+			// Schema lookup needs qualified; storage struct ref.To stays short.
+			targetQualified := *ref.To
+			targetQualified.Class = qualifiedTarget
+			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
+			if err != nil {
+				// Per-row Err but DON'T skip — authz still needs to track the
+				// caller's intent (a missing READ must surface as 403, not be
+				// hidden by an MT-mismatch). AddBatchReferences skips the row.
+				refs[i].Err = err
+			} else if classVersion > schemaVersion {
 				schemaVersion = classVersion
 			}
 		}
 
-		uniqueClassShard[ref.To.Class+"#"+ref.Tenant] = classAndShard{Class: ref.To.Class, Shard: ref.Tenant}
+		if qualifiedTarget == "" {
+			// Classless beacon on a multi-target prop (autodetect can't pick).
+			// On NS clusters the persisted ref would be un-deletable via the
+			// delete handler's gate — reject. Non-NS keeps the legacy
+			// behaviour (byte-exact compare on delete handles it).
+			if b.config.Config.Namespaces.Enabled {
+				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+			}
+			continue
+		}
+		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
 	}
 
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
@@ -121,10 +171,14 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
-	// the permission for everything, to not complicate things too much
-	if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
-		return nil, err
+	// target object existence is checked only with tenants enabled, but we
+	// require the permission for everything to keep things simple. Skip
+	// the call when every ref hit a pre-authz error (empty slice would
+	// otherwise produce a 500 via "at least 1 resource required").
+	if len(shardsDataPaths) > 0 {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
+			return nil, err
+		}
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
@@ -168,8 +222,9 @@ func validateReferencesConcurrently(ctx context.Context, refs []*models.BatchRef
 func (b *BatchManager) autodetectToClass(batchReferences BatchReferences, fetchedClasses map[string]versioned.Class) error {
 	classPropTarget := make(map[string]string, len(batchReferences))
 	for i, ref := range batchReferences {
-		// get to class from property datatype
-		if ref.To.Class != "" || ref.Err != nil {
+		// Check Err before ref.To: a failed parse in validateReference sets
+		// Err and leaves ref.To nil, so dereferencing first would panic.
+		if ref.Err != nil || ref.To == nil || ref.To.Class != "" {
 			continue
 		}
 		className := string(ref.From.Class)
@@ -191,7 +246,9 @@ func (b *BatchManager) autodetectToClass(batchReferences BatchReferences, fetche
 			if len(prop.DataType) > 1 {
 				continue // can't auto-detect for multi-target
 			}
-			target = prop.DataType[0] // datatype is the name of the class that is referenced
+			// Strip to short so the downstream resolveNS loop accepts it
+			// (storage-shape rule, see namespacing.QualifyPropertyDataTypes).
+			target = namespacing.StripQualification(prop.DataType[0])
 			classPropTarget[className+propName] = target
 		}
 		batchReferences[i].To.Class = target

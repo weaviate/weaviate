@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,10 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type multivectorNoopBucketView struct{}
+
+func (n *multivectorNoopBucketView) ReleaseView() {}
 
 var multiVectors = [][][]float32{
 	// Document ID: 0
@@ -91,6 +95,7 @@ func TestMultiVectorHnsw(t *testing.T) {
 				return multiVectors[id], nil
 			},
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+			GetViewThunk:      func() common.BucketView { return &multivectorNoopBucketView{} },
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 1e12,
 			MaxConnections:        maxConnections,
@@ -204,6 +209,7 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
+				GetViewThunk: func() common.BucketView { return &multivectorNoopBucketView{} },
 				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
@@ -226,6 +232,7 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
+				GetViewThunk: func() common.BucketView { return &multivectorNoopBucketView{} },
 				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
@@ -266,6 +273,7 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 				docID, relativeID := vectorIndex.cache.GetKeys(id)
 				return multiVectors[docID][relativeID], nil
 			},
+			GetViewThunk: func() common.BucketView { return &multivectorNoopBucketView{} },
 			TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 				return multiVectors[id], nil
 			},
@@ -361,6 +369,7 @@ func TestMultivectorPersistence(t *testing.T) {
 			return multiVectors[id], nil
 		},
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		GetViewThunk:      func() common.BucketView { return &multivectorNoopBucketView{} },
 	}, ent.UserConfig{
 		VectorCacheMaxObjects: 1e12,
 		MaxConnections:        maxConnections,
@@ -404,6 +413,7 @@ func TestMultivectorPersistence(t *testing.T) {
 			return multiVectors[id], nil
 		},
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		GetViewThunk:      func() common.BucketView { return &multivectorNoopBucketView{} },
 	}, ent.UserConfig{
 		VectorCacheMaxObjects: 1e12,
 		MaxConnections:        maxConnections,
@@ -444,6 +454,7 @@ func TestMuveraHnsw(t *testing.T) {
 			},
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 			AllocChecker:      memwatch.NewDummyMonitor(),
+			GetViewThunk:      func() common.BucketView { return &multivectorNoopBucketView{} },
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 1e12,
 			MaxConnections:        maxConnections,
@@ -544,6 +555,7 @@ func TestEmptyMuvera(t *testing.T) {
 				return multiVectors[id], nil
 			},
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+			GetViewThunk:      func() common.BucketView { return &multivectorNoopBucketView{} },
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 1e12,
 			MaxConnections:        maxConnections,

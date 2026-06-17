@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,14 +30,25 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestSchemaSnapshotRecovery(t *testing.T) {
+// TestSnapshotRecovery runs the schema and RBAC snapshot-recovery scenarios
+// on one shared RBAC-enabled 3-node cluster. Subtests run sequentially: each
+// stops, restarts, and re-heals node 3 before the next begins.
+func TestSnapshotRecovery(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	testRole := "test_role"
+
 	ctx := context.Background()
-	// Start a 3-node cluster with a low snapshot threshold
+	// Low thresholds force a snapshot per change so node 3 recovers via snapshot.
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("RAFT_SNAPSHOT_THRESHOLD", "1"). // Force snapshot after every change
-		WithWeaviateEnv("RAFT_SNAPSHOT_INTERVAL", "1").  // Force snapshot every second
-		WithWeaviateEnv("RAFT_TRAILING_LOGS", "1").      // Keep one trailing logs
+		WithApiKey().
+		WithUserApiKey(adminUser, adminKey).
+		WithRBAC().
+		WithRbacRoots(adminUser).
+		WithWeaviateEnv("RAFT_SNAPSHOT_THRESHOLD", "1").
+		WithWeaviateEnv("RAFT_SNAPSHOT_INTERVAL", "1").
+		WithWeaviateEnv("RAFT_TRAILING_LOGS", "1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -46,13 +57,26 @@ func TestSchemaSnapshotRecovery(t *testing.T) {
 		}
 	}()
 
+	defer helper.ResetClient()
+
+	t.Run("schema", func(t *testing.T) {
+		testSchemaSnapshotRecovery(t, ctx, compose, adminKey)
+	})
+
+	t.Run("rbac", func(t *testing.T) {
+		testRBACSnapshotRecovery(t, ctx, compose, adminKey, testRole)
+	})
+}
+
+func testSchemaSnapshotRecovery(t *testing.T, ctx context.Context, compose *docker.DockerCompose, adminKey string) {
+	auth := helper.CreateAuth(adminKey)
+
 	// Stop node 3 directly to make sure it doesn't get any added classes
 	t.Run("stop node 3", func(t *testing.T) {
 		require.NoError(t, compose.StopAt(ctx, 2, nil))
 	})
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
 
 	// Create classes while node 3 is down
 	t.Run("create classes while node 3 is down", func(t *testing.T) {
@@ -62,13 +86,13 @@ func TestSchemaSnapshotRecovery(t *testing.T) {
 			class := &models.Class{
 				Class: className,
 			}
-			helper.CreateClass(t, class)
+			helper.CreateClassAuth(t, class, adminKey)
 		}
 
 		// Verify classes exist on running nodes
 		for idx := 0; idx < 100; idx++ {
 			className := fmt.Sprintf("TestClass_%d", idx)
-			class := helper.GetClass(t, className)
+			class := helper.GetClassAuth(t, className, adminKey)
 			require.NotNil(t, class)
 			require.Equal(t, className, class.Class)
 		}
@@ -86,15 +110,15 @@ func TestSchemaSnapshotRecovery(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			// Get schema from all nodes
 			helper.SetupClient(compose.GetWeaviate().URI())
-			schema1, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams().WithConsistency(Bool(false)), nil)
+			schema1, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams().WithConsistency(Bool(false)), auth)
 			assert.NoError(t, err)
 
 			helper.SetupClient(compose.GetWeaviateNode2().URI())
-			schema2, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams().WithConsistency(Bool(false)), nil)
+			schema2, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams().WithConsistency(Bool(false)), auth)
 			assert.NoError(t, err)
 
 			helper.SetupClient(compose.GetWeaviateNode3().URI())
-			schema3, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams().WithConsistency(Bool(false)), nil)
+			schema3, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams().WithConsistency(Bool(false)), auth)
 			assert.NoError(t, err)
 
 			// All schemas should have the same number of classes
@@ -105,38 +129,13 @@ func TestSchemaSnapshotRecovery(t *testing.T) {
 	})
 }
 
-func TestRBACSnapshotRecovery(t *testing.T) {
-	// Set up test users and roles
-	adminUser := "admin-user"
-	adminKey := "admin-key"
-	testRole := "test_role"
-
-	ctx := context.Background()
-	// Start a 3-node cluster with RBAC enabled and a low snapshot threshold
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithApiKey().
-		WithUserApiKey(adminUser, adminKey).
-		WithRBAC().
-		WithRbacRoots(adminUser).
-		WithWeaviateEnv("RAFT_SNAPSHOT_THRESHOLD", "1"). // Force snapshot after every change
-		WithWeaviateEnv("RAFT_SNAPSHOT_INTERVAL", "1").  // Force snapshot every second
-		WithWeaviateEnv("RAFT_TRAILING_LOGS", "1").      // Keep one trailing logs
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
+func testRBACSnapshotRecovery(t *testing.T, ctx context.Context, compose *docker.DockerCompose, adminKey, testRole string) {
 	// Stop node 3 directly to make sure it doesn't get any added roles
 	t.Run("stop node 3", func(t *testing.T) {
 		require.NoError(t, compose.StopAt(ctx, 2, nil))
 	})
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
 
 	// Create all roles while node 3 is down
 	t.Run("create roles while node 3 is down", func(t *testing.T) {

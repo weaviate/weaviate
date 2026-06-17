@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,7 +31,7 @@ var (
 )
 
 func TestValidationReferencesInObject(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
 
 	class := &models.Class{
 		Class: "From",
@@ -55,7 +55,7 @@ func TestValidationReferencesInObject(t *testing.T) {
 }
 
 func TestValidationReference(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
 
 	cref := &models.SingleRef{Beacon: strfmt.URI(BEACON + "To/" + UuidUpper)}
 	ref, err := validator.ValidateSingleRef(cref)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,7 +56,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 		var id strfmt.UUID
 		t.Run("create replication operation", func(t *testing.T) {
 			created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
-			require.Nil(t, err)
+			require.NoError(t, err, "failed to create replication operation: %+v", err)
 			require.NotNil(t, created)
 			require.NotNil(t, created.Payload)
 			require.NotNil(t, created.Payload.ID)
@@ -67,7 +67,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 			t.Run(fmt.Sprintf("wait until op is in %s state", state), func(t *testing.T) {
 				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 					details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-					require.Nil(ct, err)
+					require.NoError(ct, err, "failed to get replication details: %+v", err)
 					require.Equal(ct, state.String(), details.Payload.Status.State)
 				}, 60*time.Second, 10*time.Millisecond, "replication operation should be in %s state", state)
 			})
@@ -80,14 +80,14 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 		t.Run("wait for replication operation to be deleted", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 				_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-				require.NotNil(ct, err)
+				require.Error(ct, err)
 				assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
 			}, 120*time.Second, 1*time.Second, fmt.Sprintf("replication operation should be deleted: %s", id))
 		})
 
 		t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
 			nodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-			require.Nil(t, err)
+			require.NoError(t, err, "failed to get nodes: %+v", err)
 			for _, node := range nodes.Payload.Nodes {
 				for _, shard := range node.Shards {
 					require.Len(t, shard.AsyncReplicationStatus, 0)

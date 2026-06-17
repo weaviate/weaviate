@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,4 +45,29 @@ type ClassConfigurator interface {
 	// from class.ModuleConfig["other-modules-name"].
 	ValidateClass(ctx context.Context, class *models.Class,
 		classConfig moduletools.ClassConfig) error
+}
+
+// MigrateProperty defines module settings property name migration.
+// Example #1:
+// { Name: "baseUrl", NewName: "baseURL" }
+// This definition means that if a class config contains a property
+// with an old name, then it's value will be assigned to new name
+// and the old name will be removed for class's config.
+// Example #2:
+// { Name: "baseURL" }
+// This definition means that a new property with name baseURL
+// was added to configuration and we need to add it to config
+// Example #3:
+// { Name: "baseURL", IsDeleted: true }
+// This definition means that a property with name baseURL
+// was deleted from default configuration and we need to remove it
+type MigrateProperty struct {
+	Name, NewName string
+	IsDeleted     bool
+}
+
+// MigrateProperties interface enables module settings property names to be migrated
+// from old names to new names.
+type MigrateProperties interface {
+	MigrateProperties() []MigrateProperty
 }

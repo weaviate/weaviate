@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,9 @@ var rateLimitPerModel = map[string]voyageai.VoyageRLModel{
 	"voyage-3":         {TokenLimit: 2_000_000, RequestLimit: 1000},
 	"voyage-3-lite":    {TokenLimit: 4_000_000, RequestLimit: 1000},
 	"voyage-context-3": {TokenLimit: 2_000_000, RequestLimit: 1000},
+	"voyage-4":         {TokenLimit: 4_000_000, RequestLimit: 1000},
+	"voyage-4-lite":    {TokenLimit: 16_000_000, RequestLimit: 2000},
+	"voyage-4-large":   {TokenLimit: 3_000_000, RequestLimit: 2000},
 	"default":          {TokenLimit: 1_000_000, RequestLimit: 1000},
 }
 

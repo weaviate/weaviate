@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -28,6 +29,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -37,14 +39,29 @@ const (
 	UserNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
 
+// MakeUserKey returns the internal storage key for a user. Namespaced users
+// are stored under "namespace<sep>userId" so two namespaces can host the same
+// short id without collision; unnamespaced users keep the bare id for
+// backward compatibility with pre-namespace data.
+//
+// The separator is the cluster-wide schema.NamespaceSeparator (also used to
+// qualify class names): ":" is excluded from UserNameRegexCore, so a
+// user-supplied id can never contain it and the split-back is unambiguous.
+func MakeUserKey(userId, namespace string) string {
+	return namespacing.QualifiedName(namespace, userId)
+}
+
+// DBUsers is the cluster-side interface implemented by *cluster.Raft.
+// Write methods accept a context so the implementation can propagate
+// request cancellation through RAFT.
 type DBUsers interface {
-	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error
-	CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
-	DeleteUser(userId string) error
-	ActivateUser(userId string) error
-	DeactivateUser(userId string, revokeKey bool) error
-	GetUsers(userIds ...string) (map[string]*User, error)
-	RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
+	CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
+	CreateUserWithKey(ctx context.Context, userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
+	DeleteUser(ctx context.Context, userId string) error
+	ActivateUser(ctx context.Context, userId string) error
+	DeactivateUser(ctx context.Context, userId string, revokeKey bool) error
+	GetUsers(userIds ...string) (map[string]UserView, error)
+	RotateKey(ctx context.Context, userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
 
@@ -57,6 +74,37 @@ type User struct {
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
 	ImportedWithKey    bool
+	Namespace          string
+}
+
+// UserView is an independent snapshot of [User] returned by [DBUser.GetUsers]
+// so callers can read fields without racing in-place mutators.
+type UserView struct {
+	Id                 string
+	Active             bool
+	InternalIdentifier string
+	ApiKeyFirstLetters string
+	CreatedAt          time.Time
+	LastUsedAt         time.Time
+	ImportedWithKey    bool
+	Namespace          string
+}
+
+// view returns a snapshot taken under the per-user RLock so it cannot
+// observe a torn write from UpdateLastUsedTimestamp.
+func (u *User) view() UserView {
+	u.RLock()
+	defer u.RUnlock()
+	return UserView{
+		Id:                 u.Id,
+		Active:             u.Active,
+		InternalIdentifier: u.InternalIdentifier,
+		ApiKeyFirstLetters: u.ApiKeyFirstLetters,
+		CreatedAt:          u.CreatedAt,
+		LastUsedAt:         u.LastUsedAt,
+		ImportedWithKey:    u.ImportedWithKey,
+		Namespace:          u.Namespace,
+	}
 }
 
 type DBUser struct {
@@ -176,7 +224,7 @@ func restoreAllFields(data dbUserdata) dbUserdata {
 	return data
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -187,7 +235,14 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
-	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt, ApiKeyFirstLetters: apiKeyFirstLetters}
+	c.data.Users[userId] = &User{
+		Id:                 userId,
+		Active:             true,
+		InternalIdentifier: userIdentifier,
+		CreatedAt:          createdAt,
+		ApiKeyFirstLetters: apiKeyFirstLetters,
+		Namespace:          namespace,
+	}
 	return c.storeToFile()
 }
 
@@ -248,6 +303,13 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	c.deleteUserLocked(userId)
+	return c.storeToFile()
+}
+
+// deleteUserLocked removes userId from every in-memory map. Caller must
+// hold the write lock and call storeToFile.
+func (c *DBUser) deleteUserLocked(userId string) {
 	delete(c.data.SecureKeyStorageById, userId)
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
@@ -255,6 +317,51 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	delete(c.data.UserKeyRevoked, userId)
 	delete(c.data.ImportedApiKeysWeakHash, userId)
+}
+
+// UsersInNamespace returns the IDs of users bound to namespace in
+// unspecified order. An empty namespace returns nil.
+//
+// The returned IDs are whatever userId was passed to CreateUser. In the
+// namespaced-handler path that is the [MakeUserKey] qualified form (e.g.
+// "alpha:bob"); DBUser itself does not enforce that shape. Treat them as
+// opaque handles for existence/count checks; do not surface them in
+// user-facing responses.
+func (c *DBUser) UsersInNamespace(namespace string) []string {
+	if namespace == "" {
+		return nil
+	}
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	out := make([]string, 0)
+	for id, u := range c.data.Users {
+		if u != nil && u.Namespace == namespace {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// DeleteUsersInNamespace removes every user bound to namespace. An empty
+// namespace argument is rejected so the helper cannot wipe unscoped users.
+func (c *DBUser) DeleteUsersInNamespace(namespace string) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	deleted := false
+	for id, u := range c.data.Users {
+		if u != nil && u.Namespace == namespace {
+			c.deleteUserLocked(id)
+			deleted = true
+		}
+	}
+	if !deleted {
+		return nil
+	}
 	return c.storeToFile()
 }
 
@@ -284,19 +391,25 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	return c.storeToFile()
 }
 
-func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
+func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
 	if len(userIds) == 0 {
-		return c.data.Users, nil
+		users := make(map[string]UserView, len(c.data.Users))
+		for id, user := range c.data.Users {
+			if user == nil {
+				continue
+			}
+			users[id] = user.view()
+		}
+		return users, nil
 	}
 
-	users := make(map[string]*User, len(userIds))
+	users := make(map[string]UserView, len(userIds))
 	for _, id := range userIds {
-		user, ok := c.data.Users[id]
-		if ok {
-			users[id] = user
+		if user, ok := c.data.Users[id]; ok && user != nil {
+			users[id] = user.view()
 		}
 	}
 	return users, nil
@@ -306,7 +419,7 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	_, ok := c.data.Users[userIdentifier]
+	_, ok := c.data.IdentifierToId[userIdentifier]
 	return ok, nil
 }
 
@@ -317,10 +430,16 @@ func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 	defer c.lock.RUnlock()
 
 	for userID, lastUsed := range users {
-		if c.data.Users[userID].LastUsedAt.Before(lastUsed) {
-			c.data.Users[userID].Lock()
-			c.data.Users[userID].LastUsedAt = lastUsed
-			c.data.Users[userID].Unlock()
+		user, ok := c.data.Users[userID]
+		if !ok {
+			continue
+		}
+		if user.LastUsedAt.Before(lastUsed) {
+			func() {
+				user.Lock()
+				defer user.Unlock()
+				user.LastUsedAt = lastUsed
+			}()
 		}
 	}
 }
@@ -342,6 +461,11 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 			return nil, fmt.Errorf("key is revoked")
 		}
 
+		// imported keys are always without a namespace, something is seriously wrong here
+		if c.data.Users[userId].Namespace != "" {
+			return nil, fmt.Errorf("imported key with namespace %v", c.data.Users[userId].Namespace)
+		}
+
 		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 		// user, only recording one of them is good enough
 		if c.data.Users[userId].TryLock() {
@@ -349,7 +473,12 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 			c.data.Users[userId].Unlock()
 		}
 
-		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+		return &models.Principal{
+			Username:         userId,
+			UserType:         models.UserTypeInputDb,
+			Namespace:        "",
+			IsGlobalOperator: false,
+		}, nil
 	}
 
 	return nil, nil
@@ -408,7 +537,12 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		c.data.Users[userId].Unlock()
 	}
 
-	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+	return &models.Principal{
+		Username:         userId,
+		UserType:         models.UserTypeInputDb,
+		Namespace:        c.data.Users[userId].Namespace,
+		IsGlobalOperator: false,
+	}, nil
 }
 
 func (c *DBUser) validateWeakHash(key []byte, weakHash [32]byte) error {

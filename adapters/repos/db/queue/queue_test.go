@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,19 +45,19 @@ func TestNewDiskQueue(t *testing.T) {
 func TestQueuePush(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close()
+	defer s.Close(t.Context())
 
 	t.Run("a few tasks", func(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
-		q.Close()
+		q.Close(t.Context())
 	})
 
 	t.Run("push when closed", func(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
 
-		err := q.Close()
+		err := q.Close(t.Context())
 		require.NoError(t, err)
 
 		err = q.Push(makeRecord(1, 100))
@@ -99,7 +99,7 @@ func TestQueuePush(t *testing.T) {
 
 		pushMany(t, q, 1, 100, 200, 300)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 
 		q, err = NewDiskQueue(DiskQueueOptions{
@@ -144,7 +144,7 @@ func TestQueuePush(t *testing.T) {
 		q := makeQueueSize(t, s, discardExecutor(), 1000)
 
 		// ensure the queue doesn't get processed
-		q.Pause()
+		q.Pause(t.Context())
 
 		for i := 0; i < 100; i++ {
 			pushMany(t, q, 1, 100, 200, 300)
@@ -196,7 +196,7 @@ func TestQueuePush(t *testing.T) {
 func TestQueueDecodeTask(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close()
+	defer s.Close(t.Context())
 
 	t.Run("a few tasks", func(t *testing.T) {
 		exec := discardExecutor()
@@ -231,14 +231,14 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, batch)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
 	t.Run("many tasks", func(t *testing.T) {
 		exec := discardExecutor()
 		q := makeQueueSize(t, s, exec, 660)
-		q.Pause()
+		q.Pause(t.Context())
 
 		// encode 120 records
 		for i := 0; i < 120; i++ {
@@ -344,7 +344,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 2)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 
 		q, err = NewDiskQueue(DiskQueueOptions{
@@ -380,7 +380,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, batch)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 }
@@ -442,7 +442,7 @@ func TestPartialChunkRecovery(t *testing.T) {
 			}
 
 			// close the queue to ensure all records are flushed
-			err := q.Close()
+			err := q.Close(t.Context())
 			require.NoError(t, err)
 
 			// ensure there is a chunk file
@@ -471,7 +471,7 @@ func TestPartialChunkRecovery(t *testing.T) {
 			require.NoError(t, err)
 
 			s.RegisterQueue(q)
-			q.Pause()
+			q.Pause(t.Context())
 
 			// manually promote a partial chunk to a full chunk
 			err = q.w.Promote()
@@ -497,10 +497,10 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		s := makeScheduler(t)
 		s.Start()
-		defer s.Close()
+		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
-		q.Pause() // prevent scheduler from processing the queue
+		q.Pause(t.Context()) // prevent scheduler from processing the queue
 		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
@@ -540,10 +540,10 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		s := makeScheduler(t)
 		s.Start()
-		defer s.Close()
+		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
-		q.Pause() // prevent scheduler from processing the queue
+		q.Pause(t.Context()) // prevent scheduler from processing the queue
 		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
@@ -587,7 +587,7 @@ func TestQueueListFiles(t *testing.T) {
 	}
 
 	// close the queue to ensure all records are flushed
-	err = q.Close()
+	err = q.Close(t.Context())
 	require.NoError(t, err)
 
 	// ensure there is a chunk file
@@ -618,4 +618,237 @@ func TestQueueListFiles(t *testing.T) {
 		expected := strings.Join(append(tail, entries[i].Name()), string(os.PathSeparator))
 		require.Equal(t, expected, f)
 	}
+}
+
+func TestEnableMaintenanceMode(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	q.Pause(t.Context())
+
+	pushMany(t, q, 1, 100, 200, 300)
+	err := q.Flush()
+	require.NoError(t, err)
+
+	// ensure the partial chunk is promoted
+	time.Sleep(q.staleTimeout)
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+
+	// record the chunk file path before Done
+	entries, err := os.ReadDir(q.dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	chunkFile := filepath.Join(q.dir, entries[0].Name())
+
+	initialCount := q.recordCount
+	initialUsage := q.diskUsage
+
+	// enable maintenance mode and mark batch done
+	q.EnableMaintenanceMode()
+	batch.Done()
+
+	// chunk file must still exist on disk
+	_, err = os.Stat(chunkFile)
+	require.NoError(t, err, "chunk file should still exist when in maintenance mode")
+
+	// tombstone must exist
+	tombstonePath := chunkFile + ".processed"
+	_, err = os.Stat(tombstonePath)
+	require.NoError(t, err, "tombstone file should exist")
+
+	// counters must be decremented
+	require.Less(t, q.recordCount, initialCount)
+	require.Less(t, q.diskUsage, initialUsage)
+}
+
+func TestDisableMaintenanceMode(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	q.Pause(t.Context())
+
+	pushMany(t, q, 1, 100, 200, 300)
+	err := q.Flush()
+	require.NoError(t, err)
+
+	time.Sleep(q.staleTimeout)
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+
+	entries, err := os.ReadDir(q.dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	chunkFile := filepath.Join(q.dir, entries[0].Name())
+	tombstonePath := chunkFile + ".processed"
+
+	q.EnableMaintenanceMode()
+	batch.Done()
+
+	// both files exist after maintenance mode+Done
+	_, err = os.Stat(chunkFile)
+	require.NoError(t, err)
+	_, err = os.Stat(tombstonePath)
+	require.NoError(t, err)
+
+	// disable maintenance mode: both files must be gone
+	err = q.DisableMaintenanceMode()
+	require.NoError(t, err)
+
+	_, err = os.Stat(chunkFile)
+	require.ErrorIs(t, err, os.ErrNotExist, "chunk file should be deleted after disabling maintenance mode")
+
+	_, err = os.Stat(tombstonePath)
+	require.ErrorIs(t, err, os.ErrNotExist, "tombstone should be deleted after disabling maintenance mode")
+}
+
+func TestEnableMaintenanceModeCrashRecovery(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	tmpDir := t.TempDir()
+	decoder := &mockTaskDecoder{}
+	q := makeQueueWith(t, s, decoder, 50, tmpDir)
+	q.Pause(t.Context())
+
+	// push 6 tasks → 2 full chunks (3 each at chunkSize=50)
+	pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
+	err := q.Flush()
+	require.NoError(t, err)
+
+	err = q.Close(t.Context())
+	require.NoError(t, err)
+
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+
+	// simulate crash: manually create a tombstone for the first chunk
+	// (as if it was processed during maintenance mode but the process crashed before cleanup)
+	firstChunk := filepath.Join(tmpDir, entries[0].Name())
+	tombstonePath := firstChunk + ".processed"
+	err = os.WriteFile(tombstonePath, []byte{}, 0o644)
+	require.NoError(t, err)
+
+	// reopen the queue — Init() should clean up the tombstoned chunk
+	q2 := makeQueueWith(t, s, decoder, 50, tmpDir)
+	q2.Pause(t.Context())
+	require.Equal(t, int64(3), q2.Size()) // only the second chunk remains
+
+	// tombstoned chunk and its tombstone are gone
+	_, err = os.Stat(firstChunk)
+	require.ErrorIs(t, err, os.ErrNotExist, "tombstoned chunk should be deleted on init")
+	_, err = os.Stat(tombstonePath)
+	require.ErrorIs(t, err, os.ErrNotExist, "tombstone should be deleted on init")
+
+	// remaining chunk can be dequeued normally
+	time.Sleep(q2.staleTimeout)
+	batch, err := q2.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Len(t, batch.Tasks, 3)
+}
+
+func TestListFilesExcludesTombstoned(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	tmpDir := t.TempDir()
+	_, e := streamExecutor()
+	q := makeQueueWith(t, s, e, 50, tmpDir)
+	q.Pause(t.Context())
+
+	// push 6 tasks → 2 full chunks
+	pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
+	err := q.Flush()
+	require.NoError(t, err)
+
+	// dequeue and process the first chunk in maintenance mode
+	time.Sleep(q.staleTimeout)
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+
+	q.EnableMaintenanceMode()
+	batch.Done()
+
+	// tombstone must exist, chunk file must still be present
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	var tombstoneCount, chunkCount int
+	for _, e := range entries {
+		if processedChunkFilePattern.MatchString(e.Name()) {
+			tombstoneCount++
+		} else if chunkFilePattern.Match([]byte(e.Name())) {
+			chunkCount++
+		}
+	}
+	require.Equal(t, 1, tombstoneCount, "one tombstone should exist")
+	require.Equal(t, 2, chunkCount, "both chunk files should still exist on disk")
+
+	// ListFiles must exclude the tombstoned chunk
+	files, err := q.ListFiles(t.Context(), tmpDir)
+	require.NoError(t, err)
+	require.Len(t, files, 1, "only the unprocessed chunk should appear in backup list")
+
+	for _, f := range files {
+		require.False(t, strings.HasSuffix(f, ".processed"), "tombstone should not appear in list")
+	}
+}
+
+func TestQueueForceSwitch(t *testing.T) {
+	ctx := t.Context()
+	s := makeScheduler(t, 1)
+	s.Start()
+
+	tmpDir := t.TempDir()
+
+	_, e := streamExecutor()
+	q := makeQueueWith(t, s, e, 100, tmpDir)
+
+	// ListFiles on empty queue
+	files, err := q.ListFiles(ctx, tmpDir)
+	require.NoError(t, err)
+	require.Len(t, files, 0)
+
+	// write 50 records
+	for i := 0; i < 50; i++ {
+		err := q.Push(bytes.Repeat([]byte{1}, 10))
+		require.NoError(t, err)
+	}
+
+	// ensure there is a chunk file
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 8)
+
+	// pause the queue
+	q.Pause(t.Context())
+	require.NoError(t, q.Wait(ctx))
+
+	// call ForceSwitch to promote the last chunk
+	got, err := q.ForceSwitch(ctx, q.dir)
+	require.NoError(t, err)
+
+	// compare
+	for i, f := range got {
+		require.Equal(t, entries[i].Name(), f)
+	}
+
+	// write something
+	err = q.Push(bytes.Repeat([]byte{1}, 10))
+	require.NoError(t, err)
+
+	// ListFiles
+	files, err = q.ListFiles(ctx, tmpDir)
+	require.NoError(t, err)
+	require.Len(t, files, 9)
 }

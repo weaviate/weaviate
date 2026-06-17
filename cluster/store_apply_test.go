@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,8 @@
 package cluster
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -248,13 +250,15 @@ func TestStore_Apply_CatchingUp(t *testing.T) {
 }
 
 func TestStore_Apply_ReloadDB(t *testing.T) {
-	t.Run("Reload DB when caught up", func(t *testing.T) {
+	// runFirstApplyTriggeringReload: shared phase-1 setup. Seeds the store
+	// with lastAppliedIndexToDB=100, then applies at index 150 to trigger
+	// the DB-reload path (which resets lastAppliedIndexToDB to 0).
+	runFirstApplyTriggeringReload := func(t *testing.T) (MockStore, *raft.Log) {
+		t.Helper()
 		ms, log := setupApplyTest(t)
-		// Set lastAppliedIndexToDB to trigger DB reload
 		ms.store.lastAppliedIndexToDB.Store(100)
-		log.Index = 150 // Greater than lastAppliedIndexToDB
+		log.Index = 150 // Greater than lastAppliedIndexToDB → triggers reload
 
-		// Setup mocks
 		ms.parser.On("ParseClass", mock.Anything).Return(nil)
 		ms.indexer.On("AddClass", mock.Anything).Return(nil)
 		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -263,32 +267,20 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		resp, ok := result.(Response)
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
-
-		// Verify lastAppliedIndexToDB was reset to 0
+		// lastAppliedIndexToDB must be reset to 0 once the reload runs.
 		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+		return ms, log
+	}
 
+	t.Run("Reload DB when caught up", func(t *testing.T) {
+		ms, _ := runFirstApplyTriggeringReload(t)
 		// Verify all mock expectations
 		ms.parser.AssertExpectations(t)
 		ms.indexer.AssertExpectations(t)
 	})
 
 	t.Run("No reload on subsequent higher indices", func(t *testing.T) {
-		ms, log := setupApplyTest(t)
-		// Set lastAppliedIndexToDB to trigger initial DB reload
-		ms.store.lastAppliedIndexToDB.Store(100)
-		log.Index = 150 // Greater than lastAppliedIndexToDB
-
-		// Setup mocks for first apply
-		ms.parser.On("ParseClass", mock.Anything).Return(nil)
-		ms.indexer.On("AddClass", mock.Anything).Return(nil)
-		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-
-		// First apply should trigger reload
-		result := ms.store.Apply(log)
-		resp, ok := result.(Response)
-		assert.True(t, ok)
-		assert.NoError(t, resp.Error)
-		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+		ms, log := runFirstApplyTriggeringReload(t)
 
 		// Reset mocks for second apply
 		ms.parser.ExpectedCalls = nil
@@ -321,8 +313,8 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		// Second apply with higher index should not trigger reload
 		log.Index = 200
 		log.Data = cmdAsBytes("TestClass2", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls2, State: ss2}, nil)
-		result = ms.store.Apply(log)
-		resp, ok = result.(Response)
+		result := ms.store.Apply(log)
+		resp, ok := result.(Response)
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
 
@@ -533,4 +525,202 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	mockStore.store.schemaManager.SetReplicationFSM(mockStore.replicationFSM)
 
 	return mockStore, log
+}
+
+func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
+	t.Helper()
+	ms := NewMockStore(t, "Node-1", 0)
+	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
+
+	tmpDir := t.TempDir()
+	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
+	if err != nil {
+		t.Fatalf("snapshot store: %v", err)
+	}
+	ms.store.snapshotStore = snapshotStore
+
+	ms.indexer.On("Open", mock.Anything).Return(nil)
+	ms.indexer.On("AddClass", mock.Anything).Return(nil)
+	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	ms.parser.On("ParseClass", mock.Anything).Return(nil)
+	// Optional: skipped on schemaOnly catchup-replay (updateStore branch).
+	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil).Maybe()
+
+	cls := &models.Class{Class: className}
+	state := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"T1": {Name: "T1", BelongsToNodes: []string{"Node-1"}, Status: "HOT"},
+		},
+	}
+	addLog := &raft.Log{
+		Index: 1,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes(className, api.ApplyRequest_TYPE_ADD_CLASS,
+			api.AddClassRequest{Class: cls, State: state}, nil),
+	}
+	deleteLog := &raft.Log{
+		Index: 2,
+		Type:  raft.LogCommand,
+		Data:  cmdAsBytes(className, api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
+	}
+	return &ms, addLog, deleteLog
+}
+
+func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
+	t.Helper()
+	r, ok := ms.store.Apply(log).(Response)
+	if !ok || r.Error != nil {
+		t.Fatalf("apply %s: ok=%v err=%v", label, ok, r.Error)
+	}
+}
+
+// Pins the nil-cascade contract: a partial harness without a wired
+// distributed-task manager must still apply DELETE_CLASS without panicking.
+func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
+	ms, addLog, deleteLog := setupCascadeTestStore(t, "Bareback")
+
+	ms.store.schemaManager.SetDistributedTaskManager(nil)
+
+	applyOrFail(t, ms, addLog, "add-class")
+	applyOrFail(t, ms, deleteLog, "delete-class with nil cascade")
+}
+
+// Pins weaviate/0-weaviate-issues#231 end-to-end through the FSM apply
+// path: a same-name recreate must not inherit the prior incarnation's
+// task records.
+func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
+	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
+
+	ms.store.distributedTasksManager.RegisterCollectionExtractor(
+		"test-namespace",
+		func(payload []byte) (string, bool) {
+			var p struct {
+				Collection string `json:"collection"`
+			}
+			if err := json.Unmarshal(payload, &p); err != nil {
+				return "", false
+			}
+			return p.Collection, p.Collection != ""
+		},
+	)
+
+	// Raft indexes must be monotonic across the test (Store.Apply reads
+	// l.Index for version/metrics/catchingUp): 1=add-class, 2..4=add-task,
+	// 5=delete-class.
+	addTaskAtIndex := func(t *testing.T, idx uint64, id string, collection string) {
+		t.Helper()
+		payloadBytes, err := json.Marshal(map[string]string{"collection": collection})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		result := ms.store.Apply(&raft.Log{
+			Index: idx,
+			Type:  raft.LogCommand,
+			Data: cmdAsBytes("", api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+				&api.AddDistributedTaskRequest{
+					Namespace:             "test-namespace",
+					Id:                    id,
+					Payload:               payloadBytes,
+					SubmittedAtUnixMillis: 1,
+					UnitIds:               []string{"u-" + id},
+				}, nil),
+		})
+		if resp, ok := result.(Response); !ok || resp.Error != nil {
+			t.Fatalf("apply add-task %s: ok=%v err=%v", id, ok, resp.Error)
+		}
+	}
+
+	applyOrFail(t, ms, addLog, "add-class")
+
+	addTaskAtIndex(t, 2, "foo-1", "Foo")
+	addTaskAtIndex(t, 3, "foo-2", "Foo")
+	addTaskAtIndex(t, 4, "bar-1", "Bar")
+
+	preTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list pre: %v", err)
+	}
+	if got, want := len(preTasks["test-namespace"]), 3; got != want {
+		t.Fatalf("pre-delete task count: got %d want %d", got, want)
+	}
+
+	deleteLog.Index = 5 // keep the index sequence monotonic
+	applyOrFail(t, ms, deleteLog, "delete-class")
+
+	postTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list post: %v", err)
+	}
+
+	survivors := make([]string, 0)
+	for _, ts := range postTasks["test-namespace"] {
+		survivors = append(survivors, ts.ID)
+	}
+	if len(survivors) != 1 || survivors[0] != "bar-1" {
+		t.Fatalf("post-delete survivors: got %v want [bar-1]", survivors)
+	}
+}
+
+// Pins the schemaOnly=true catchup-replay path: a node restarting and
+// replaying its RAFT log past lastAppliedIndexToDB hits updateSchema
+// only, with updateStore skipped (cluster/store_apply.go:108). If the
+// cascade lived in updateStore (as it did pre-ff3a199a39), DELETE_CLASS
+// on replay would NOT remove tasks that earlier TYPE_DISTRIBUTED_TASK_ADD
+// applies re-created — the exact resurrection shape QA Claude flagged
+// on weaviate/weaviate#11345.
+func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
+	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
+
+	ms.store.distributedTasksManager.RegisterCollectionExtractor(
+		"test-namespace",
+		func(payload []byte) (string, bool) {
+			var p struct {
+				Collection string `json:"collection"`
+			}
+			if err := json.Unmarshal(payload, &p); err != nil {
+				return "", false
+			}
+			return p.Collection, p.Collection != ""
+		},
+	)
+
+	// Apply ADD_CLASS + ADD_TASK at low indexes, then set
+	// lastAppliedIndexToDB above them and apply DELETE_CLASS at an
+	// index ≤ lastAppliedIndexToDB. That forces catchingUp=true and
+	// schemaOnly=true on the DELETE_CLASS apply.
+	applyOrFail(t, ms, addLog, "add-class")
+
+	payloadBytes, err := json.Marshal(map[string]string{"collection": "Foo"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	addTaskLog := &raft.Log{
+		Index: 2,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("", api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+			&api.AddDistributedTaskRequest{
+				Namespace:             "test-namespace",
+				Id:                    "foo-1",
+				Payload:               payloadBytes,
+				SubmittedAtUnixMillis: 1,
+				UnitIds:               []string{"u-foo-1"},
+			}, nil),
+	}
+	applyOrFail(t, ms, addTaskLog, "add-task")
+
+	// Force schemaOnly=true: any DELETE_CLASS apply with Index ≤
+	// lastAppliedIndexToDB triggers the catchup branch.
+	ms.store.lastAppliedIndexToDB.Store(100)
+	deleteLog.Index = 50
+
+	applyOrFail(t, ms, deleteLog, "delete-class on catchup replay")
+
+	postTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list post: %v", err)
+	}
+	if got := len(postTasks["test-namespace"]); got != 0 {
+		t.Fatalf("post-replay-delete: got %d tasks, want 0 (cascade must fire even on schemaOnly apply)", got)
+	}
 }

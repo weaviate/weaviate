@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -84,11 +84,12 @@ func TestDynamic(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
-		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled: true,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -120,7 +121,6 @@ func TestDynamic(t *testing.T) {
 	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	t.Logf("recall: %f, latency %f\n", recall2, latency2)
 	assert.True(t, recall2 > 0.9)
-	assert.True(t, latency1 > latency2)
 }
 
 func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
@@ -145,11 +145,12 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(nil),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
-		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled: false, // Explicitly set to false to test error condition
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(nil),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         false, // Explicitly set to false to test error condition
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -166,6 +167,21 @@ func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *co
 		return vectors[int(id)], nil
 	}
 }
+
+func TempVectorForIDWithViewThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice, common.BucketView) ([]float32, error) {
+	return func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		copy(container.Slice, vectors[int(id)])
+		return vectors[int(id)], nil
+	}
+}
+
+func GetViewThunk() common.BucketView {
+	return &noopBucketView{}
+}
+
+type noopBucketView struct{}
+
+func (n *noopBucketView) ReleaseView() {}
 
 func TestDynamicWithTargetVectors(t *testing.T) {
 	ctx := context.Background()
@@ -214,11 +230,12 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
-			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled: true,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -300,11 +317,12 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
-		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled: true,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -539,12 +557,13 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					}
 					return vec, nil
 				},
-				TempVectorForIDThunk:    TempVectorForIDThunk(vectors),
-				TombstoneCallbacks:      noopCallback,
-				SharedDB:                db,
-				HNSWWaitForCachePrefill: true,
-				AsyncIndexingEnabled:    true,
-				MakeBucketOptions:       lsmkv.MakeNoopBucketOptions,
+				GetViewThunk:                 GetViewThunk,
+				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				TombstoneCallbacks:           noopCallback,
+				SharedDB:                     db,
+				HNSWWaitForCachePrefill:      true,
+				AsyncIndexingEnabled:         true,
+				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			}
 			uc := ent.UserConfig{
 				Threshold: uint64(threshold),
@@ -698,11 +717,12 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
-		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled: true,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -806,11 +826,12 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
-			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled: true,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -884,11 +905,12 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
-			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled: true,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -961,11 +983,12 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
-			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled: true,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),

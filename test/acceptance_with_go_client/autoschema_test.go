@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,11 +20,13 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	upperClassName := "RandomBlueTree"
@@ -59,7 +61,7 @@ func TestAutoschemaCasingClass(t *testing.T) {
 
 func TestAutoschemaCasingProps(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := "RandomGreenBike"
@@ -106,7 +108,7 @@ func TestAutoschemaCasingProps(t *testing.T) {
 
 func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	objId := "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
@@ -153,7 +155,7 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 
 func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	tests := []struct {
@@ -250,7 +252,7 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 
 func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := "Passage"

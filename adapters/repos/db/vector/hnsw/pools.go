@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,8 +21,7 @@ import (
 )
 
 type pools struct {
-	visitedLists     *visited.Pool
-	visitedListsLock *sync.RWMutex
+	visitedLists *visited.Pool
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
@@ -35,8 +34,7 @@ type pools struct {
 
 func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
 	return &pools{
-		visitedLists:     visited.NewPool(1, cache.InitialSize+500, initialVisitedListPoolSize),
-		visitedListsLock: &sync.RWMutex{},
+		visitedLists: visited.NewPool(cache.InitialSize + 500),
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)

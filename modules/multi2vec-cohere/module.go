@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,6 +36,7 @@ func New() *Module {
 
 type Module struct {
 	vectorizer               batchclip.Vectorizer[[]float32]
+	batchSimple              *batch.BatchSimple[[]float32]
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
 	nearImageSearcher        modulecapabilities.Searcher[[]float32]
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
@@ -98,6 +99,7 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = batchclip.New(Name, client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, 0)
 	m.metaClient = client
 
 	return nil
@@ -110,7 +112,7 @@ func (m *Module) VectorizeObject(ctx context.Context,
 }
 
 func (m *Module) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Objects, 10)
+	return m.batchSimple.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.vectorizer.Objects, 10)
 }
 
 func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,13 +20,11 @@ import (
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthZTenants(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
@@ -40,19 +38,8 @@ func TestAuthZTenants(t *testing.T) {
 	updateTenantAction := authorization.UpdateTenants
 
 	ctx := context.Background()
-	compose, err := docker.New().WithWeaviateWithGRPC().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacRoots(adminUser).
-		WithBackendFilesystem().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
-	defer helper.ResetClient()
+	_, down := composeUpShared(t)
+	defer down()
 
 	className := "AuthzTenantTestClass"
 	deleteObjectClass(t, className, adminAuth)

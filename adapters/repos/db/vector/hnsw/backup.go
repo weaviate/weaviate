@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,13 +21,18 @@ import (
 	"github.com/pkg/errors"
 )
 
-// SwitchCommitLogs makes sure that the previously writeable commitlog is
+// PrepareForBackup makes sure that the previously writeable commitlog is
 // switched to a new one, thus making the existing file read-only.
-func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
-	if err := h.commitLog.SwitchCommitLogs(true); err != nil {
+func (h *hnsw) PrepareForBackup(ctx context.Context) error {
+	if err := h.commitLog.PrepareForBackup(true); err != nil {
 		return fmt.Errorf("switch commitlogs: %w", err)
 	}
 
+	return nil
+}
+
+func (h *hnsw) ResumeAfterBackup(ctx context.Context) error {
+	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
 	return nil
 }
 

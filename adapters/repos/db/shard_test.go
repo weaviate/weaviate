@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,12 +34,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -209,6 +211,36 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 	class := &models.Class{Class: "TestClass"}
 
 	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false, false)
+
+	testShard(t, context.Background(), class.Class)
+
+	r := getRandomSeed()
+
+	batchSize := 1000
+
+	validBatch := createRandomObjects(r, class.Class, batchSize, 4)
+
+	shd.PutObjectBatch(ctx, validBatch)
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
+	invalidBatch := createRandomObjects(r, class.Class, batchSize, 5)
+
+	errs := shd.PutObjectBatch(ctx, invalidBatch)
+	require.Len(t, errs, batchSize)
+	for _, err := range errs {
+		require.ErrorContains(t, err, "new node has a vector with length 5. Existing nodes have vectors with length 4")
+	}
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
+	require.Nil(t, idx.drop())
+}
+
+func TestShard_InvalidHFreshBatches(t *testing.T) {
+	ctx := testCtx()
+
+	class := &models.Class{Class: "TestClass"}
+
+	shd, idx := testShardWithSettings(t, ctx, class, hfresh.NewDefaultUserConfig(), false, false, false)
 
 	testShard(t, context.Background(), class.Class)
 
@@ -542,11 +574,11 @@ func TestShard_RepairIndex(t *testing.T) {
 				binary.LittleEndian.PutUint64(buf, uint64(i))
 				v, err := bucket.GetBySecondary(ctx, 0, buf)
 				require.NoError(t, err)
-				obj, err := storobj.FromBinary(v)
+				obj, err := storobj.FromBinaryDisk(v, className)
 				require.NoError(t, err)
 				idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
 				require.NoError(t, err)
-				err = bucket.Delete(idBytes)
+				err = bucket.Delete(idBytes, lsmkv.WithSecondaryKey(0, buf))
 				require.NoError(t, err)
 			}
 
@@ -852,6 +884,58 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		assert.Zero(t, q.Size())
 	}, 300*time.Second, 1*time.Second)
+}
+
+func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
+	ctx := context.Background()
+	className := "TombstoneClass"
+
+	tests := []struct {
+		name          string
+		config        schemaConfig.VectorIndexConfig
+		expectRunning bool
+	}{
+		{
+			name:          "dynamic starts tombstone cleanup cycle",
+			config:        dynamic.NewDefaultUserConfig(),
+			expectRunning: true,
+		},
+		{
+			name:          "hnsw starts tombstone cleanup cycle",
+			config:        hnsw.NewDefaultUserConfig(),
+			expectRunning: true,
+		},
+		{
+			name:          "flat does not start tombstone cleanup cycle",
+			config:        flat.NewDefaultUserConfig(),
+			expectRunning: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var tombstoneCycle cyclemanager.CycleManager
+
+			asyncIndexingEnabled := true
+			opts := []func(*Index){
+				func(i *Index) {
+					i.vectorIndexUserConfig = tt.config
+					tombstoneCycle = i.cycleCallbacks.vectorTombstoneCleanupCycle
+				},
+			}
+			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, true, asyncIndexingEnabled, opts...)
+
+			defer func(path string) {
+				err := os.RemoveAll(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(shd.Index().Config.RootPath)
+
+			require.Equal(t, tt.expectRunning, tombstoneCycle.Running(),
+				"vectorTombstoneCleanupCycle.Running()")
+		})
+	}
 }
 
 func TestShard_RequantizeIndex(t *testing.T) {

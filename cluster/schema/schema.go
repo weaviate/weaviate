@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,13 +32,35 @@ import (
 )
 
 var (
-	ErrClassExists   = errors.New("class already exists")
-	ErrClassNotFound = errors.New("class not found")
-	ErrShardNotFound = errors.New("shard not found")
-	ErrAliasExists   = errors.New("alias already exists")
-	ErrAliasNotFound = errors.New("alias not found")
-	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
+	ErrClassExists             = errors.New("class already exists")
+	ErrClassNotFound           = errors.New("class not found")
+	ErrShardNotFound           = errors.New("shard not found")
+	ErrAliasExists             = errors.New("alias already exists")
+	ErrAliasNotFound           = errors.New("alias not found")
+	ErrMTDisabled              = errors.New("multi-tenancy is not enabled")
+	ErrTenantTransitionalState = errors.New("tenant is in a transitional state")
 )
+
+// PartialUpdateError wraps one or more schema errors that represent a partial
+// success: some entries in the request were skipped (e.g. missing or
+// transitional-state tenants), but the remaining entries were applied and the
+// DB update should still proceed for them. The wrapped errors are returned to
+// the caller after the DB update completes.
+type PartialUpdateError struct {
+	Errs []error
+}
+
+func (e *PartialUpdateError) Error() string {
+	msgs := make([]string, 0, len(e.Errs))
+	for _, err := range e.Errs {
+		if err != nil {
+			msgs = append(msgs, err.Error())
+		}
+	}
+	return strings.Join(msgs, "; ")
+}
+
+func (e *PartialUpdateError) Unwrap() []error { return e.Errs }
 
 type ClassInfo struct {
 	Exists            bool
@@ -225,11 +248,25 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	return cp
 }
 
-func (s *schema) CollectionsCount() int {
+// CollectionsCount returns the number of stored classes. With an empty
+// namespace it is the cluster-global total. With a non-empty namespace it
+// counts only classes whose internal name carries that namespace prefix.
+func (s *schema) CollectionsCount(namespace string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return len(s.classes)
+	if namespace == "" {
+		return len(s.classes)
+	}
+
+	prefix := namespace + entSchema.NamespaceSeparator
+	count := 0
+	for name := range s.classes {
+		if strings.HasPrefix(name, prefix) {
+			count++
+		}
+	}
+	return count
 }
 
 // ShardOwner returns the node owner of the specified shard
@@ -376,6 +413,14 @@ func (s *schema) deleteClass(name string) bool {
 	return true
 }
 
+func (s *schema) classExists(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, exists := s.classes[name]
+	return exists
+}
+
 // replaceClasses replaces the existing `schema.Classes` with given `classes`
 // mainly used in cases like restoring the whole schema from backup or something.
 func (s *schema) replaceClasses(classes map[string]*metaClass) {
@@ -433,6 +478,24 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 		return ErrClassNotFound
 	}
 	return meta.AddProperty(v, props...)
+}
+
+// updateProperty merges `property` into the named class. When `mask` is
+// non-empty, only the listed fields are merged onto an existing property
+// of the same name (see MergePropsMasked).
+//
+// Returns the merged property (post-merge view) so the FSM apply path can
+// pass it to the storage layer, which needs the full property to decide
+// which buckets to create / remove.
+func (s *schema) updateProperty(class string, v uint64, property *models.Property, mask []string) (*models.Property, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	meta := s.unsafeResolveClass(class)
+	if meta == nil {
+		return nil, ErrClassNotFound
+	}
+	return meta.UpdateProperty(v, property, mask)
 }
 
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
@@ -699,16 +762,12 @@ func (s *schema) unsafeAliasExists(alias string) bool {
 	return false
 }
 
+// canonicalAlias normalizes an alias name to its stored form. On
+// namespaced names ("<ns>:<Name>") only the class portion is uppercased;
+// the lowercase namespace prefix is preserved verbatim so namespace-prefix
+// matchers (e.g. AliasesInNamespace) and the canonical store key agree.
 func (s *schema) canonicalAlias(alias string) string {
-	if len(alias) < 1 {
-		return alias
-	}
-
-	if len(alias) == 1 {
-		return strings.ToUpper(alias)
-	}
-
-	return strings.ToUpper(string(alias[0])) + alias[1:]
+	return entSchema.UppercaseClassName(alias)
 }
 
 func (s *schema) GetAliasesForClass(class string) []*models.Alias {

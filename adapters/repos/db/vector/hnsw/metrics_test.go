@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -38,6 +40,34 @@ func (r rejectingAllocChecker) CheckMappingAndReserve(numberMappings int64, rese
 }
 
 func (r rejectingAllocChecker) Refresh(updateMappings bool) {}
+
+func TestHFreshModeDisablesVectorIndexSize(t *testing.T) {
+	metrics := monitoring.GetMetrics()
+
+	className := "HFreshMetricsTest"
+	shardName := "hfresh-shard"
+
+	sizeGauge := metrics.VectorIndexSize.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	sizeGauge.Set(0)
+	require.Equal(t, float64(0), testutil.ToFloat64(sizeGauge))
+
+	// Create metrics in HFresh mode
+	// SetSize should be a no-op
+	m := newMetrics(metrics, className, shardName, true)
+	m.SetSize(42)
+	require.Equal(t, float64(0), testutil.ToFloat64(sizeGauge),
+		"VectorIndexSize should not change when HFreshMode is true")
+
+	// SetSize should work
+	m2 := newMetrics(metrics, className, shardName, false)
+	m2.SetSize(42)
+	require.Equal(t, float64(42), testutil.ToFloat64(sizeGauge),
+		"VectorIndexSize should change when HFreshMode is false")
+}
 
 func TestAddBatchMemoryAllocationMetric(t *testing.T) {
 	ctx := context.Background()
@@ -66,6 +96,9 @@ func TestAddBatchMemoryAllocationMetric(t *testing.T) {
 				return vectors[id], nil
 			}
 			return nil, fmt.Errorf("vector not found")
+		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
 		},
 		AllocChecker:      rejectingAllocChecker{}, // This will reject all allocations
 		PrometheusMetrics: metrics,
@@ -116,6 +149,7 @@ func TestAddBatchMemoryAllocationMultipleRejections(t *testing.T) {
 			}
 			return nil, fmt.Errorf("vector not found")
 		},
+		GetViewThunk:      GetViewThunk,
 		AllocChecker:      rejectingAllocChecker{},
 		PrometheusMetrics: metrics,
 	}, ent.UserConfig{
@@ -159,6 +193,7 @@ func TestAddBatchMemoryAllocationWithoutMetrics(t *testing.T) {
 			}
 			return nil, fmt.Errorf("vector not found")
 		},
+		GetViewThunk:      GetViewThunk,
 		AllocChecker:      rejectingAllocChecker{},
 		PrometheusMetrics: nil, // No metrics enabled
 	}, ent.UserConfig{
@@ -205,6 +240,7 @@ func TestAddBatchWithSuccessfulAllocation(t *testing.T) {
 			}
 			return nil, fmt.Errorf("vector not found")
 		},
+		GetViewThunk:      GetViewThunk,
 		AllocChecker:      memwatch.NewDummyMonitor(), // This allows all allocations
 		PrometheusMetrics: metrics,
 	}, ent.UserConfig{

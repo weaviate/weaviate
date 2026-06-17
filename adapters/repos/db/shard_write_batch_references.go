@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -126,7 +126,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		}
 
 		mergeDoc := mergeDocFromBatchReference(ref)
-		res, err := b.shard.mutableMergeObjectLSM(mergeDoc, idBytes)
+		res, err := b.shard.mutableMergeObjectLSM(ctx, mergeDoc, idBytes)
 		if err != nil {
 			errLock.Lock()
 			errs[i] = err
@@ -311,10 +311,16 @@ func (b *referencesBatcher) setErrorAtIndex(err error, i int) {
 }
 
 func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocument {
+	// Use the coordinator-assigned stamp so all replicas converge on the
+	// same LastUpdateTime; fall back when the field is unset.
+	updateTime := ref.UpdateTime
+	if updateTime == 0 {
+		updateTime = time.Now().UnixMilli()
+	}
 	return objects.MergeDocument{
 		Class:      ref.From.Class.String(),
 		ID:         ref.From.TargetID,
-		UpdateTime: time.Now().UnixMilli(),
+		UpdateTime: updateTime,
 		References: objects.BatchReferences{ref},
 	}
 }

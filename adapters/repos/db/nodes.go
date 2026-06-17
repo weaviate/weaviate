@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,14 +16,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/pkg/errors"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
@@ -215,6 +214,10 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		// FIXME stats of target vectors
 		var queueLen int64
 		_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+			queueLen += queue.Size()
+			return nil
+		})
+		_ = shard.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
 			queueLen += queue.Size()
 			return nil
 		})

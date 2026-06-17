@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,11 +40,9 @@ type contextualai struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *contextualai {
 	return &contextualai{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 
@@ -98,7 +96,7 @@ func (c *contextualai) generate(ctx context.Context, cfg moduletools.ClassConfig
 		return nil, c.handleAPIError(res.StatusCode, bodyBytes)
 	}
 
-	resBody, err := c.parseResponse(bodyBytes)
+	resBody, err := c.parseResponse(bodyBytes, res.StatusCode)
 	if err != nil {
 		return nil, err
 	}
@@ -219,10 +217,10 @@ func (c *contextualai) handleAPIError(statusCode int, bodyBytes []byte) error {
 	return fmt.Errorf("connection to Contextual AI API request failed with status: %d", statusCode)
 }
 
-func (c *contextualai) parseResponse(bodyBytes []byte) (*generateResponse, error) {
+func (c *contextualai) parseResponse(bodyBytes []byte, statusCode int) (*generateResponse, error) {
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 	}
 	return &resBody, nil
 }

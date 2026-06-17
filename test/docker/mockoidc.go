@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,7 +32,7 @@ import (
 
 const MockOIDC = "mock-oidc"
 
-func startMockOIDC(ctx context.Context, networkName, mockoidcImage, certificate, certificatePrivateKey string) (*DockerContainer, error) {
+func startMockOIDC(ctx context.Context, networkName, mockoidcImage, certificate, certificatePrivateKey, preseedMode string) (*DockerContainer, error) {
 	path, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -63,12 +63,18 @@ func startMockOIDC(ctx context.Context, networkName, mockoidcImage, certificate,
 		containerEnvs["MOCK_CERTIFICATE"] = certificate
 		containerEnvs["MOCK_CERTIFICATE_PRIVATE_KEY"] = certificatePrivateKey
 	}
+	if preseedMode != "" {
+		containerEnvs["MOCK_OIDC_PRESEED"] = preseedMode
+	}
 	port := nat.Port("48001/tcp")
+	// adminPort serves the /queue admin endpoint used by the mockoidc
+	// helper to drain-and-replace the user/code queues per token request.
+	adminPort := nat.Port("48002/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			FromDockerfile: fromDockerFile,
 			Image:          mockoidcImage,
-			ExposedPorts:   []string{"48001/tcp"},
+			ExposedPorts:   []string{"48001/tcp", "48002/tcp"},
 			Name:           MockOIDC,
 			Hostname:       MockOIDC,
 			AutoRemove:     true,
@@ -79,6 +85,7 @@ func startMockOIDC(ctx context.Context, networkName, mockoidcImage, certificate,
 			Env: containerEnvs,
 			WaitingFor: wait.ForAll(
 				wait.ForListeningPort(port),
+				wait.ForListeningPort(adminPort),
 			).WithStartupTimeoutDefault(60 * time.Second),
 		},
 		Started: true,

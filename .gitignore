@@ -127,5 +127,17 @@ exp/query/testdata/lsmroot/lsm/meta.db
 # weaviate backup-filesystem tests
 test/modules/backup-filesystem/bucketPath
 
+# locally-built helper binaries from `go build .` inside their dirs
+/test/docker/mockoidc/mockoidc
+/test/docker/mockoidchelper/mockoidchelper
+
 # go test coverage output files
 *.out
+
+# Agent files
+.cursor/
+
+# Claude
+.claude/*
+!.claude/settings.json
+!.claude/scripts/

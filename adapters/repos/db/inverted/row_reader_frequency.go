@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,32 +19,28 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
-	value         []byte
-	bucket        *lsmkv.Bucket
-	operator      filters.Operator
-	keyOnly       bool
-	shardVersion  uint16
-	bitmapFactory *roaringset.BitmapFactory
+	value        []byte
+	bucket       *lsmkv.Bucket
+	operator     filters.Operator
+	keyOnly      bool
+	shardVersion uint16
+	isDenyList   bool
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
-		bucket:        bucket,
-		value:         value,
-		operator:      operator,
-		keyOnly:       keyOnly,
-		shardVersion:  shardVersion,
-		bitmapFactory: bitmapFactory,
+		bucket:       bucket,
+		value:        value,
+		operator:     operator,
+		keyOnly:      keyOnly,
+		shardVersion: shardVersion,
 	}
 }
 
@@ -82,16 +78,8 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error {
-	v, err := rr.equalHelper(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Invert the Equal results for an efficient NotEqual
-	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotConc(rr.transformToBitmap(v), concurrency.SROAR_MERGE)
-	_, err = readFn(rr.value, inverted, release)
-	return err
+	rr.isDenyList = true
+	return rr.equal(ctx, readFn)
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
@@ -258,14 +246,16 @@ func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPai
 		return v, err
 	}
 
+	// filtering reads only keys, so skip loading the per-doc property length map
 	if rr.shardVersion < 2 {
 		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates(),
-			lsmkv.MapListLegacySortingRequired())
+			lsmkv.MapListLegacySortingRequired(), lsmkv.MapListSkipPropertyLengths())
 		if err != nil {
 			return v, err
 		}
 	} else {
-		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates())
+		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates(),
+			lsmkv.MapListSkipPropertyLengths())
 		if err != nil {
 			return v, err
 		}

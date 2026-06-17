@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,6 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithWeaviateEnv("OBJECTS_TTL_DELETE_SCHEDULE", "@every 1s").
-		WithWeaviateEnv("OBJECTS_TTL_ALLOW_SECONDS", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -98,11 +97,15 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 		}))
 	}
 
+	// On a cold cluster, TTL deletion can stall on a not-yet-ready peer until the
+	// internal request times out (~30s), blocking all deletion until then.
+	const ttlDeletionTimeout = 60 * time.Second
+
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		objs, err := helper.GetObjects(t, class.Class)
 		require.NoError(ct, err)
 		require.Len(ct, objs, numNotExpiredObjs)
-	}, time.Second*15, 500*time.Millisecond)
+	}, ttlDeletionTimeout, 500*time.Millisecond)
 
 	// add more expired objects to see that the ticker continues to work
 	// add objects that are already expired so that the TTL process should delete them
@@ -121,13 +124,14 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 		objs, err := helper.GetObjects(t, class.Class)
 		require.NoError(ct, err)
 		require.Len(ct, objs, numNotExpiredObjs)
-	}, time.Second*15, 500*time.Millisecond)
+	}, ttlDeletionTimeout, 500*time.Millisecond)
 }
 
 func TestObjectTTLMultiNode(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		With3NodeCluster().
+		WithWeaviateEnv("OBJECTS_TTL_DELETE_SCHEDULE", "@every 12h").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -377,7 +381,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 					t.Logf("tenant %q has %d objects, expected 50", tenant.Name, count)
 				}
 
-				require.Equal(t, int(count), 50) // unaffected
+				require.Equal(t, 50, int(count)) // unaffected
 			}
 		}
 	})
@@ -472,7 +476,7 @@ func deleteTTL(t *testing.T, node string, deletionTime time.Time, ownNode bool) 
 	u.RawQuery = q.Encode()
 
 	client := &http.Client{Timeout: time.Minute}
-	resp, err := client.Get(u.String())
+	resp, err := client.Post(u.String(), "", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -222,6 +222,11 @@ func (s *lazySegment) getCollection(key []byte) ([]value, error) {
 	return s.segment.getCollection(key)
 }
 
+func (s *lazySegment) getCollectionBytes(key []byte) ([][]byte, error) {
+	s.mustLoad()
+	return s.segment.getCollectionBytes(key)
+}
+
 func (s *lazySegment) getInvertedData() *segmentInvertedData {
 	s.mustLoad()
 	return s.segment.getInvertedData()
@@ -257,6 +262,11 @@ func (s *lazySegment) newCollectionCursorReusable() *segmentCursorCollectionReus
 func (s *lazySegment) newCursor() innerCursorReplaceAllKeys {
 	s.mustLoad()
 	return s.segment.newCursor()
+}
+
+func (s *lazySegment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
+	s.mustLoad()
+	return s.segment.newReplaceCursorReusable()
 }
 
 func (s *lazySegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
@@ -354,17 +364,33 @@ func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 	return s.segment.getPropertyLengths()
 }
 
+func (s *lazySegment) isPropertyLengthsLoaded() bool {
+	// an unloaded segment cannot have a cached map, and checking must not load it
+	if !s.isLoaded() {
+		return false
+	}
+	return s.segment.isPropertyLengthsLoaded()
+}
+
+func (s *lazySegment) freePropertyLengths() {
+	// freeing must not trigger a load: an unloaded segment has nothing cached
+	if !s.isLoaded() {
+		return
+	}
+	s.segment.freePropertyLengths()
+}
+
 func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	s.mustLoad()
 	return s.segment.newInvertedCursorReusable()
 }
 
 func (s *lazySegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64,
-	propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
+	propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
 	averagePropLength float64, config schema.BM25Config,
 ) *SegmentBlockMax {
 	s.mustLoad()
-	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
 }
 
 func (s *lazySegment) getDocCount(key []byte) uint64 {
@@ -382,6 +408,13 @@ func (s *lazySegment) existsKey(key []byte) (bool, error) {
 		return false, fmt.Errorf("lazySegment::existsKey: %w", err)
 	}
 	return s.segment.existsKey(key)
+}
+
+func (s *lazySegment) exists(key []byte) error {
+	if err := s.load(); err != nil {
+		return fmt.Errorf("lazySegment::exists: %w", err)
+	}
+	return s.segment.exists(key)
 }
 
 func (s *lazySegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -65,10 +65,8 @@ func (s *service) SetJitterInterval(interval time.Duration) {
 // exactObjectCount will return the correct object count (including memtables) when set to true. This is mainly for
 // testing via the debug api. In production, this should be false to avoid the performance hit
 func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
-	scheme := s.schemaManager.GetSchemaSkipAuth().Objects
-	collections := scheme.Classes
+	collections := s.schemaManager.GetSchemaSkipAuth().Objects.Classes
 	usage := &types.Report{
-		Schema:      scheme,
 		Node:        s.schemaManager.NodeName(),
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),
 		Backups:     make([]*types.BackupUsage, 0),
@@ -85,11 +83,14 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
 		// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
 		// as it is no longer relevant for the current node usage
-		if errors.Is(err, clusterSchema.ErrClassNotFound) || collectionUsage == nil {
+		if errors.Is(err, clusterSchema.ErrClassNotFound) {
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
+		}
+		if collectionUsage == nil {
+			continue
 		}
 
 		usage.Collections = append(usage.Collections, collectionUsage)
@@ -108,10 +109,19 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 			if backup.Status != backupent.Success {
 				continue
 			}
+
+			var sizeInGib float64
+			for name, n := range backup.Nodes {
+				if name == usage.Node {
+					sizeInGib = float64(n.PreCompressionSizeBytes) / (1024 * 1024 * 1024) // Convert bytes to GiB
+					break
+				}
+			}
+
 			usage.Backups = append(usage.Backups, &types.BackupUsage{
 				ID:             backup.ID,
 				CompletionTime: backup.CompletedAt.Format(time.RFC3339),
-				SizeInGib:      float64(backup.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB
+				SizeInGib:      sizeInGib,
 				Type:           string(backup.Status),
 				Collections:    backup.Classes(),
 			})

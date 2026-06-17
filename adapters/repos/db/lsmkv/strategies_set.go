@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -101,27 +101,25 @@ func (s *setDecoder) deduplicateResults(in [][]byte) [][]byte {
 }
 
 // DoPartial keeps any extra tombstones, but does not keep tombstones which
-// were "consumed"
+// were "consumed". It writes output into the input slice to avoid allocations.
 func (s *setDecoder) DoPartial(in []value) []value {
-	count := map[string]uint{}
-	for _, value := range in {
-		count[string(value.value)] = count[string(value.value)] + 1
+	count := make(map[string]uint, len(in))
+	for i := range in {
+		count[string(in[i].value)] = count[string(in[i].value)] + 1
 	}
 
-	out := make([]value, len(in))
-
 	i := 0
-	for _, value := range in {
-		if count[string(value.value)] != 1 {
-			count[string(value.value)] = count[string(value.value)] - 1
+	for j := range in {
+		if count[string(in[j].value)] != 1 {
+			count[string(in[j].value)] = count[string(in[j].value)] - 1
 			continue
 		}
 
-		out[i] = value
+		in[i] = in[j]
 		i++
 	}
 
-	return out[:i]
+	return in[:i]
 }
 
 type setEncoder struct{}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,12 +36,16 @@ const (
 	PropertyImageTitle       = "image_title"
 	PropertyImageDescription = "image_description"
 	PropertyImage            = "image"
+	PropertyImageHash        = "image_hash"
 	PropertyVideoTitle       = "video_title"
 	PropertyVideoDescription = "video_description"
 	PropertyVideo            = "video"
+	PropertyAudioTitle       = "audio_title"
+	PropertyAudioDescription = "audio_description"
+	PropertyAudio            = "audio"
 )
 
-func BaseClass(className string, withVideo bool) *models.Class {
+func BaseClass(className string, withVideo, withAudio bool, opts ...func(*models.Class)) *models.Class {
 	properties := []*models.Property{
 		{
 			Name: PropertyImageTitle, DataType: []string{schema.DataTypeText.String()},
@@ -67,13 +71,38 @@ func BaseClass(className string, withVideo bool) *models.Class {
 		}
 		properties = append(properties, videoProperties...)
 	}
-	return &models.Class{
+	if withAudio {
+		audioProperties := []*models.Property{
+			{
+				Name: PropertyAudioTitle, DataType: []string{schema.DataTypeText.String()},
+			},
+			{
+				Name: PropertyAudioDescription, DataType: []string{schema.DataTypeText.String()},
+			},
+			{
+				Name: PropertyAudio, DataType: []string{schema.DataTypeBlob.String()},
+			},
+		}
+		properties = append(properties, audioProperties...)
+	}
+	class := &models.Class{
 		Class:      className,
 		Properties: properties,
 	}
+	for _, opt := range opts {
+		opt(class)
+	}
+	return class
 }
 
-func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo bool) {
+// WithBlobHash adds a blobHash property for the image field.
+func WithBlobHash(class *models.Class) {
+	class.Properties = append(class.Properties, &models.Property{
+		Name: PropertyImageHash, DataType: []string{schema.DataTypeBlobHash.String()},
+	})
+}
+
+func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo, withAudio bool, opts ...func(int, map[string]any) error) {
 	f, err := GetCSV(dataFolderPath)
 	require.NoError(t, err)
 	defer f.Close()
@@ -92,7 +121,7 @@ func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo boo
 			imageDescription := line[3]
 			imageBlob, err := GetImageBlob(dataFolderPath, i)
 			require.NoError(t, err)
-			properties := map[string]interface{}{
+			properties := map[string]any{
 				PropertyImageTitle:       imageTitle,
 				PropertyImageDescription: imageDescription,
 				PropertyImage:            imageBlob,
@@ -105,6 +134,18 @@ func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo boo
 				properties[PropertyVideoTitle] = videoTitle
 				properties[PropertyVideoDescription] = videoDescription
 				properties[PropertyVideo] = videoBlob
+			}
+			if withAudio {
+				audioTitle := line[6]
+				audioDescription := line[7]
+				audioBlob, err := GetAudioBlob(dataFolderPath, i)
+				require.NoError(t, err)
+				properties[PropertyAudioTitle] = audioTitle
+				properties[PropertyAudioDescription] = audioDescription
+				properties[PropertyAudio] = audioBlob
+			}
+			for _, opt := range opts {
+				require.NoError(t, opt(i, properties))
 			}
 
 			obj := &models.Object{
@@ -164,6 +205,20 @@ func CheckObjects(t *testing.T, dataFolderPath, className string, vectors, multi
 	}
 }
 
+// WithImageHash returns an insert option that copies the image blob into the
+// image_hash property so that both blob and blobHash fields receive the same
+// base64 data.
+func WithImageHash(dataFolderPath string) func(int, map[string]any) error {
+	return func(i int, properties map[string]any) error {
+		blob, err := GetImageBlob(dataFolderPath, i)
+		if err != nil {
+			return err
+		}
+		properties[PropertyImageHash] = blob
+		return nil
+	}
+}
+
 func GetImageBlob(dataFolderPath string, i int) (string, error) {
 	path := fmt.Sprintf("%s/images/%v.jpg", dataFolderPath, i)
 	return helper.GetBase64EncodedData(path)
@@ -171,6 +226,11 @@ func GetImageBlob(dataFolderPath string, i int) (string, error) {
 
 func GetVideoBlob(dataFolderPath string, i int) (string, error) {
 	path := fmt.Sprintf("%s/videos/%v.mp4", dataFolderPath, i)
+	return helper.GetBase64EncodedData(path)
+}
+
+func GetAudioBlob(dataFolderPath string, i int) (string, error) {
+	path := fmt.Sprintf("%s/audios/%v.mp3", dataFolderPath, i)
 	return helper.GetBase64EncodedData(path)
 }
 
@@ -210,9 +270,9 @@ func TestQuery(t *testing.T,
 	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, DefaultTimeout, query)
 	objs := result.Get("Get", className).AsSlice()
 	require.Len(t, objs, 2)
-	title := objs[0].(map[string]interface{})[titleProperty]
+	title := objs[0].(map[string]any)[titleProperty]
 	assert.Equal(t, titlePropertyValue, title)
-	additional, ok := objs[0].(map[string]interface{})["_additional"].(map[string]interface{})
+	additional, ok := objs[0].(map[string]any)["_additional"].(map[string]any)
 	require.True(t, ok)
 	certainty := additional["certainty"].(json.Number)
 	assert.NotNil(t, certainty)
@@ -221,12 +281,12 @@ func TestQuery(t *testing.T,
 	assert.Greater(t, certaintyValue, 0.0)
 	assert.GreaterOrEqual(t, certaintyValue, 0.6)
 	if len(targetVectorsList) > 0 {
-		vectors, ok := additional["vectors"].(map[string]interface{})
+		vectors, ok := additional["vectors"].(map[string]any)
 		require.True(t, ok)
 
 		targetVectorsMap := make(map[string][]float32)
 		for targetVector := range targetVectors {
-			vector, ok := vectors[targetVector].([]interface{})
+			vector, ok := vectors[targetVector].([]any)
 			require.True(t, ok)
 
 			vec := make([]float32, len(vector))

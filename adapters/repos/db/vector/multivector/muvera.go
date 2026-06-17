@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type MuveraConfig struct {
@@ -210,17 +212,13 @@ func (e *MuveraEncoder) Dimensions() int {
 
 func MuveraBytesFromFloat32(vec []float32) []byte {
 	slice := make([]byte, len(vec)*4)
-	for i := range vec {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
-	}
+	byteops.CopySliceToBytes(slice, vec)
 	return slice
 }
 
 func MuveraFromBytes(bytes []byte) []float32 {
 	vec := make([]float32, len(bytes)/4)
-	for i := range vec {
-		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(bytes[i*4 : (i+1)*4]))
-	}
+	byteops.CopyBytesToSlice(vec, bytes)
 	return vec
 }
 
@@ -238,15 +236,8 @@ func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucket string) ([]float3
 	return MuveraFromBytes(muveraBytes), nil
 }
 
-type MuveraData struct {
-	KSim         uint32        // 4 bytes
-	NumClusters  uint32        // 4 bytes
-	Dimensions   uint32        // 4 bytes
-	DProjections uint32        // 4 bytes
-	Repetitions  uint32        // 4 bytes
-	Gaussians    [][][]float32 // 4 bytes -> (repetitions, kSim, dimensions)
-	S            [][][]float32 // 4 bytes -> (repetitions, dProjections, dimensions)
-}
+// MuveraData is an alias for the MuveraData type in entities/vectorindex/compression.
+type MuveraData = compression.MuveraData
 
 type CommitLogger interface {
 	AddMuvera(MuveraData) error

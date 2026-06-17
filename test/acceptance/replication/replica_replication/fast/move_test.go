@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,20 +49,20 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 	req.Type = &move
 	// Create MOVE replication operation and wait until the shard is in the sharding state (meaning it is uncancellable)
 	created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), nil)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to create MOVE replication operation: %+v", err)
 	id := *created.Payload.ID
 
 	// Wait until the replication operation is READY
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get replication operation details: %+v", err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
 	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
 	t.Run("ensure target and source replicas are there/gone respectively", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
 		nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get nodes for class: %+v", err)
 		foundSrc := false
 		foundDst := false
 		for _, node := range nodes.Payload.Nodes {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -289,6 +289,40 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 			require.Len(t, rolesWithRoles, 1)
 			require.Equal(t, *rolesWithRoles[0].Name, createSchemaRoleName)
 			require.Len(t, rolesWithRoles[0].Permissions, 2)
+
+			// getGroupsForRole filters through the groups domain and exposes the
+			// caller's own groups. Root bypasses authorization, so exercise the
+			// non-root filter path with the OIDC custom user.
+			t.Run("getGroupsForRole visibility", func(t *testing.T) {
+				otherGroup := "other-oidc-group"
+				helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, otherGroup)
+				defer helper.RevokeRoleFromGroup(t, tokenAdmin, createSchemaRoleName, otherGroup)
+
+				// root sees every group assigned to the role
+				adminGroups := helper.GetGroupsForRole(t, tokenAdmin, createSchemaRoleName)
+				require.ElementsMatch(t, []string{"custom-group", otherGroup}, adminGroups)
+
+				// roles + groups read, but nothing on the users domain
+				viewerRoleName := "groupAndRoleViewer"
+				allResources := "*"
+				viewerRole := &models.Role{
+					Name: &viewerRoleName,
+					Permissions: []*models.Permission{
+						{Action: &authorization.ReadRoles, Roles: &models.PermissionRoles{Role: &allResources}},
+						{Action: &authorization.ReadGroups, Groups: &models.PermissionGroups{Group: &allResources, GroupType: models.GroupTypeOidc}},
+					},
+				}
+				helper.DeleteRole(t, tokenAdmin, viewerRoleName)
+				helper.CreateRole(t, tokenAdmin, viewerRole)
+				defer helper.DeleteRole(t, tokenAdmin, viewerRoleName)
+				helper.AssignRoleToGroup(t, tokenAdmin, viewerRoleName, "custom-group")
+				defer helper.RevokeRoleFromGroup(t, tokenAdmin, viewerRoleName, "custom-group")
+
+				// custom-group via the own-group bypass, other-oidc-group via the
+				// groups-domain filter; neither would appear under the users domain
+				customGroups := helper.GetGroupsForRole(t, tokenCustom, createSchemaRoleName)
+				require.ElementsMatch(t, []string{"custom-group", otherGroup}, customGroups)
+			})
 
 			// delete class to test again after revocation
 			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,7 @@ func New() *AwsModule {
 
 type AwsModule struct {
 	vectorizer                   text2vecbase.TextVectorizer[[]float32]
+	batchSimple                  *batch.BatchSimple[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -96,6 +97,7 @@ func (m *AwsModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	client := clients.New(awsAccessKey, awsSecret, awsSessionToken, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, 0)
 	m.metaProvider = client
 
 	return nil
@@ -127,7 +129,7 @@ func (m *AwsModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *AwsModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	return m.batchSimple.VectorizeBatch(ctx, objs, skipObject, cfg, m.vectorizer.Object)
 }
 
 func (m *AwsModule) MetaInfo() (map[string]interface{}, error) {

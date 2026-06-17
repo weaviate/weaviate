@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,6 @@
 package authz
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -23,43 +22,20 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthzReplicationReplicate(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRoleName := "testRole"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-
-	compose, err := docker.New().
-		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
-		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		With3NodeCluster().
-		WithRBAC().
-		WithApiKey().
-		WithUserApiKey(adminUser, adminKey).
-		WithRbacRoots(adminUser).
-		WithUserApiKey(customUser, customKey).
-		Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		helper.ResetClient()
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-		cancel()
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	_, down := composeUpSharedCluster(t)
+	defer down()
 
 	paragraphClass := articles.ParagraphsClass()
 
@@ -123,7 +99,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				Replicate(replication.NewReplicateParams().WithBody(req), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			replicationId = *resp.Payload.ID
-		}, 10*time.Second, 500*time.Millisecond, "op should be started but got error replicating: %v", err)
+		}, 10*time.Second, 500*time.Millisecond, "op should be started but got error replicating")
 	})
 
 	t.Run("Fail to cancel a replication of a shard without UPDATE permissions", func(t *testing.T) {
@@ -141,7 +117,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewCancelReplicationNoContent(), resp)
-		}, 10*time.Second, 500*time.Millisecond, "op should be cancelled but got error: %v", err)
+		}, 10*time.Second, 500*time.Millisecond, "op should be cancelled but got error")
 	})
 
 	t.Run("Fail to read a replication of a shard without READ permissions", func(t *testing.T) {
@@ -159,7 +135,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				ReplicationDetails(replication.NewReplicationDetailsParams().WithID(replicationId), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			require.Equal(ct, *resp.Payload.ID, replicationId)
-		}, 10*time.Second, 500*time.Millisecond, "op should be read but got error: %v", err)
+		}, 10*time.Second, 500*time.Millisecond, "op should be read but got error")
 	})
 
 	t.Run("Fail to delete a replication of a shard without DELETE permissions", func(t *testing.T) {
@@ -177,7 +153,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 				DeleteReplication(replication.NewDeleteReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewDeleteReplicationNoContent(), resp)
-		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error: %v", err)
+		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error")
 	})
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,12 +17,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestWhereFilter_SingleNode_Contains(t *testing.T) {
-	t.Run("Contains", testContains("localhost:8080"))
-	t.Run("Contains text", testContainsText("localhost:8080"))
-	t.Run("Contains movies", testContainsMovies("localhost:8080"))
+	t.Run("Contains", testContains(wvhost.REST()))
+	t.Run("Contains text", testContainsText(wvhost.REST()))
+	t.Run("Contains movies", testContainsMovies(wvhost.REST()))
 }
 
 func TestWhereFilter_SingleNode_Numerical(t *testing.T) {

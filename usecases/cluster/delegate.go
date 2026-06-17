@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -307,15 +307,44 @@ type events struct {
 
 // NotifyJoin is invoked when a node is detected to have joined.
 // The Node argument must not be modified.
-func (e events) NotifyJoin(*memberlist.Node) {}
+func (e events) NotifyJoin(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "join",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Debug("node joined cluster")
+}
 
 // NotifyLeave is invoked when a node is detected to have left.
 // The Node argument must not be modified.
 func (e events) NotifyLeave(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "leave",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Debug("node left cluster")
 	e.d.delete(node.Name)
 }
 
 // NotifyUpdate is invoked when a node is detected to have
 // updated, usually involving the meta data. The Node argument
 // must not be modified.
-func (e events) NotifyUpdate(*memberlist.Node) {}
+func (e events) NotifyUpdate(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "update",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Debug("node updated in cluster")
+}

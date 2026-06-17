@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,14 +12,13 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"math"
 	"sync"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -35,6 +34,9 @@ type segmentInvertedData struct {
 
 	avgPropertyLengthsAvg   float64
 	avgPropertyLengthsCount uint64
+	// avg/count are read unlocked by combinePropertyLengths; this flag stops the
+	// on-demand load from re-writing (racing) them after open.
+	propertyLengthsStatsLoaded bool
 }
 
 func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
@@ -71,9 +73,50 @@ func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
 	return bitmap, nil
 }
 
+// loadPropertyLengthsStats loads only the avg/count header, leaving the
+// per-document map for on-demand loading. A NaN/Inf stored average can only be
+// recomputed from the full map, so that case falls back to a full load.
+func (s *segment) loadPropertyLengthsStats() error {
+	s.invertedData.lockInvertedData.Lock()
+	defer s.invertedData.lockInvertedData.Unlock()
+	if s.strategy != segmentindex.StrategyInverted {
+		return fmt.Errorf("property only supported for inverted strategy")
+	}
+
+	if s.invertedData.propertyLengthsLoaded {
+		return nil
+	}
+
+	buffer := make([]byte, 8*3)
+	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.PropertyLengthsOffset, s.invertedHeader.PropertyLengthsOffset + 8*3}); err != nil {
+		return fmt.Errorf("copy node: %w", err)
+	}
+
+	s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(buffer))
+	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(buffer[8:16])
+	propertyLengthsSize := binary.LittleEndian.Uint64(buffer[16:24])
+
+	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
+		// a NaN/Inf average can only be recomputed from the full map
+		_, err := s.loadPropertyLengthsLocked()
+		return err
+	}
+
+	s.invertedData.propertyLengthsStatsLoaded = true
+	if propertyLengthsSize == 0 {
+		s.invertedData.propertyLengthsLoaded = true
+	}
+	return nil
+}
+
 func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	s.invertedData.lockInvertedData.Lock()
 	defer s.invertedData.lockInvertedData.Unlock()
+	return s.loadPropertyLengthsLocked()
+}
+
+// loadPropertyLengthsLocked requires the caller to hold lockInvertedData.
+func (s *segment) loadPropertyLengthsLocked() (map[uint64]uint32, error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, fmt.Errorf("property only supported for inverted strategy")
 	}
@@ -88,8 +131,12 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 		return nil, fmt.Errorf("copy node: %w", err)
 	}
 
-	s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(buffer))
-	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(buffer[8:16])
+	// don't re-write stats already set at open: readers access them unlocked
+	if !s.invertedData.propertyLengthsStatsLoaded {
+		s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(buffer))
+		s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(buffer[8:16])
+		s.invertedData.propertyLengthsStatsLoaded = true
+	}
 	propertyLengthsSize := binary.LittleEndian.Uint64(buffer[16:24])
 
 	if propertyLengthsSize == 0 {
@@ -105,12 +152,22 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	if err := s.copyNode(buffer, nodeOffset{propertyLengthsStart, propertyLengthsEnd}); err != nil {
 		return nil, fmt.Errorf("copy node: %w", err)
 	}
-	e := gob.NewDecoder(bytes.NewReader(buffer))
-
-	propLengths := map[uint64]uint32{}
-	err := e.Decode(&propLengths)
+	propLengths, err := gobenc.Decode(buffer)
 	if err != nil {
 		return s.invertedData.propertyLengths, fmt.Errorf("decode property lengths: %w", err)
+	}
+
+	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
+		// recompute property lengths average
+		var totalLength uint64
+		for _, length := range propLengths {
+			totalLength += uint64(length)
+		}
+		if s.invertedData.avgPropertyLengthsCount > 0 && len(propLengths) > 0 {
+			s.invertedData.avgPropertyLengthsAvg = float64(totalLength) / float64(len(propLengths))
+		} else {
+			s.invertedData.avgPropertyLengthsAvg = 0
+		}
 	}
 
 	s.invertedData.propertyLengthsLoaded = true
@@ -159,18 +216,41 @@ func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
 		return nil, fmt.Errorf("property length only supported for inverted strategy")
 	}
 
+	// check the flag and read the map under one RLock: a freePropertyLengths
+	// between the two would hand a live reader a nil map
 	s.invertedData.lockInvertedData.RLock()
-	loaded := s.invertedData.propertyLengthsLoaded
+	if s.invertedData.propertyLengthsLoaded {
+		defer s.invertedData.lockInvertedData.RUnlock()
+		return s.invertedData.propertyLengths, nil
+	}
 	s.invertedData.lockInvertedData.RUnlock()
 
-	if !loaded {
-		return s.loadPropertyLengths()
+	return s.loadPropertyLengths()
+}
+
+func (s *segment) isPropertyLengthsLoaded() bool {
+	if s.strategy != segmentindex.StrategyInverted {
+		return false
 	}
 
 	s.invertedData.lockInvertedData.RLock()
 	defer s.invertedData.lockInvertedData.RUnlock()
 
-	return s.invertedData.propertyLengths, nil
+	return s.invertedData.propertyLengthsLoaded
+}
+
+// freePropertyLengths releases the cached per-document map; the avg/count stats
+// are deliberately kept, as callers still read them after the map is freed.
+func (s *segment) freePropertyLengths() {
+	if s.strategy != segmentindex.StrategyInverted {
+		return
+	}
+
+	s.invertedData.lockInvertedData.Lock()
+	defer s.invertedData.lockInvertedData.Unlock()
+
+	s.invertedData.propertyLengths = nil
+	s.invertedData.propertyLengthsLoaded = false
 }
 
 func (s *segment) hasKey(key []byte) bool {

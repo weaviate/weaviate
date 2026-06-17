@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,7 +29,7 @@ type runWorker struct {
 	jobs         []search.Result
 	successCount *int64
 	errorCount   *int64
-	ec           *errorcompounder.SafeErrorCompounder
+	ec           errorcompounder.ErrorCompounder
 	classify     ClassifyItemFn
 	batchWriter  Writer
 	params       models.Classification
@@ -82,7 +82,7 @@ type runWorkers struct {
 	workers      []*runWorker
 	successCount *int64
 	errorCount   *int64
-	ec           *errorcompounder.SafeErrorCompounder
+	ec           errorcompounder.ErrorCompounder
 	classify     ClassifyItemFn
 	params       models.Classification
 	filters      Filters
@@ -100,7 +100,7 @@ func newRunWorkers(amount int, classifyFn ClassifyItemFn,
 		workers:      make([]*runWorker, amount),
 		successCount: &successCount,
 		errorCount:   &errorCount,
-		ec:           &errorcompounder.SafeErrorCompounder{},
+		ec:           errorcompounder.NewSafe(),
 		classify:     classifyFn,
 		params:       params,
 		filters:      filters,

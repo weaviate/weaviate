@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -152,11 +152,49 @@ func (m *metaClass) TenantsShards(class string, tenants ...string) (map[string]s
 }
 
 func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
+	return m.upsertProperty(v, nil, props...)
+}
+
+// UpdateProperty merges `property` into the existing class. When `mask` is
+// non-empty, only the listed property fields are merged; the rest are kept
+// from the existing class state. An empty / nil mask preserves the legacy
+// "merge everything" semantics.
+//
+// Returns the merged property (a *new* pointer, not aliased with anything
+// stored in the class) so the caller can pass the post-merge view to the
+// storage layer, which needs the full property to decide which buckets to
+// create or remove. Returns nil if the property is not found.
+func (m *metaClass) UpdateProperty(v uint64, property *models.Property, mask []string) (*models.Property, error) {
+	if err := m.upsertProperty(v, mask, property); err != nil {
+		return nil, err
+	}
+	// Look up the merged property (after upsert) and return a copy so the
+	// caller can safely use it without holding m's lock.
+	m.RLock()
+	defer m.RUnlock()
+	for _, p := range m.Class.Properties {
+		if strings.EqualFold(p.Name, property.Name) {
+			merged := *p
+			return &merged, nil
+		}
+	}
+	return nil, nil
+}
+
+// upsertProperty method takes properties and merges them with existing class
+// if property doesn't exist then it will be added
+// if property exists then it will be merged with existing property
+//
+// When `mask` is non-empty, only the listed fields are merged on the update
+// path (see PropertyField* constants in cluster/proto/api). The mask only
+// applies to existing properties; brand new properties (i.e. on AddProperty)
+// are always added in full.
+func (m *metaClass) upsertProperty(v uint64, mask []string, props ...*models.Property) error {
 	m.Lock()
 	defer m.Unlock()
 
 	// update all at once to prevent race condition with concurrent readers
-	mergedProps := MergeProps(m.Class.Properties, props)
+	mergedProps := MergePropsMasked(m.Class.Properties, props, mask)
 	m.Class.Properties = mergedProps
 	m.ClassVersion = v
 	return nil
@@ -189,8 +227,32 @@ func (m *metaClass) DeleteReplicaFromShard(v uint64, shard string, replica strin
 // MergeProps makes sure duplicates are not created by ignoring new props
 // with the same names as old props.
 // If property of nested type is present in both new and old slices,
-// final property is created by merging new property into copy of old one
+// final property is created by merging new property into copy of old one.
+//
+// Equivalent to MergePropsMasked with a nil mask: all supported fields are
+// considered for the merge.
 func MergeProps(old, new []*models.Property) []*models.Property {
+	return MergePropsMasked(old, new, nil)
+}
+
+// MergePropsMasked is the masked variant of MergeProps. When mask is empty
+// or nil, every supported field is considered for the merge (legacy
+// behavior). When mask is non-empty, only the listed fields are merged onto
+// existing properties; the rest are taken from the old slice.
+//
+// New properties (names not present in old) are always inserted in full —
+// the mask only restricts which fields are *overwritten* on existing
+// properties. This matches the AddProperty / UpdateProperty split: the
+// add path uses MergeProps with no mask, while the update path can supply
+// a mask to avoid clobbering fields the caller doesn't own.
+//
+// Concurrency context: without a mask, two concurrent UpdateProperty calls
+// on the same property race because each one reads the schema, then issues
+// a full-property replace. A mask scopes each call to only the fields the
+// caller actually modified, so two disjoint callers (e.g. one flipping
+// IndexFilterable, one flipping IndexSearchable) can both succeed without
+// stepping on each other.
+func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Property {
 	mergedProps := make([]*models.Property, len(old), len(old)+len(new))
 	copy(mergedProps, old)
 
@@ -200,14 +262,54 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 		mem[strings.ToLower(old[idx].Name)] = idx
 	}
 
+	// Build a quick-lookup set for the mask. A nil/empty mask means "every
+	// field allowed" — we encode that as a nil set and check below.
+	var allowed map[string]struct{}
+	if len(mask) > 0 {
+		allowed = make(map[string]struct{}, len(mask))
+		for _, f := range mask {
+			allowed[f] = struct{}{}
+		}
+	}
+	allow := func(field string) bool {
+		if allowed == nil {
+			return true
+		}
+		_, ok := allowed[field]
+		return ok
+	}
+
 	// pick ones not present in old slice or merge nested properties
 	// if already present
 	for idx := range new {
-		if oldIdx, exists := mem[strings.ToLower(new[idx].Name)]; !exists {
+		oldIdx, exists := mem[strings.ToLower(new[idx].Name)]
+		if !exists {
 			mergedProps = append(mergedProps, new[idx])
-		} else {
-			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
+			continue
+		}
 
+		if allow(command.PropertyFieldIndexRangeFilters) {
+			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
+		}
+		if allow(command.PropertyFieldIndexFilterable) {
+			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
+		}
+		if allow(command.PropertyFieldIndexSearchable) {
+			mergedProps[oldIdx].IndexSearchable = new[idx].IndexSearchable
+		}
+		if allow(command.PropertyFieldTokenization) && new[idx].Tokenization != "" {
+			mergedProps[oldIdx].Tokenization = new[idx].Tokenization
+		}
+		if allow(command.PropertyFieldBucketGeneration) {
+			// BucketGeneration is monotonically increasing; semantic
+			// runtime-reindex migrations bump it atomically with the
+			// schema-flag flip. Replace unconditionally — callers always
+			// submit the next-generation value when the field is in the
+			// mask.
+			mergedProps[oldIdx].BucketGeneration = new[idx].BucketGeneration
+		}
+
+		if allow(command.PropertyFieldNestedProperties) {
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
 				mergedProps[oldIdx].NestedProperties,
 				new[idx].NestedProperties)
@@ -355,7 +457,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// we'll return an error but any other successful shard will be updated.
 	// If we're not adding a new shard we'll then check if the activity status needs to be changed
 	// If the activity status is changed we will deep copy the tenant and update the status
-	missingShards := []string{}
+	var partialErrs []error
 	writeIndex := 0
 
 	for i, requestTenant := range req.Tenants {
@@ -363,7 +465,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		oldStatus := oldTenant.Status
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
-			missingShards = append(missingShards, requestTenant.Name)
+			partialErrs = append(partialErrs, fmt.Errorf("%w: %s", ErrShardNotFound, requestTenant.Name))
 			continue
 		}
 
@@ -372,12 +474,19 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		case req.Tenants[i].Status:
 			continue
 		case types.TenantActivityStatusFREEZING:
-			// ignore multiple freezing
+			// Allow the in-flight freeze to complete (FROZEN is the expected terminal state).
+			// Reject any other status change (e.g. HOT/COLD) while freeze is in progress to
+			// prevent a race where UNFREEZE is triggered before the FREEZE goroutine finishes,
+			// which can lead to permanent data loss.
 			if requestTenant.Status == models.TenantActivityStatusFROZEN {
 				continue
 			}
+			partialErrs = append(partialErrs, fmt.Errorf("%w: tenant %q is currently being frozen, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, requestTenant.Status))
+			continue
 		case types.TenantActivityStatusUNFREEZING:
-			// ignore multiple unfreezing
+			// Allow requests that match the status the ongoing unfreeze is targeting.
+			// Reject any conflicting status change while unfreeze is in progress.
 			req.ImplicitUpdateRequest = true
 			var statusInProgress string
 			processes, exists := m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)]
@@ -390,9 +499,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if requestTenant.Status == statusInProgress {
 				continue
 			}
-		}
-
-		if requestTenant.Status == models.TenantActivityStatusCOLD && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {
+			partialErrs = append(partialErrs, fmt.Errorf("%w: tenant %q is currently being unfrozen to %s, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, statusInProgress, requestTenant.Status))
 			continue
 		}
 
@@ -440,10 +548,11 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// Remove the ignore tenants from the request to act as filter on the subsequent DB update
 	req.Tenants = req.Tenants[:writeIndex]
 
-	// Check for any missing shard to return an error
+	// Wrap any partial errors (missing shards, transitional-state conflicts) so
+	// apply() knows to still call updateStore() for the tenants that succeeded.
 	var err error
-	if len(missingShards) > 0 {
-		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
+	if len(partialErrs) > 0 {
+		err = &PartialUpdateError{Errs: partialErrs}
 	}
 	// Update the version of the shard to the current version
 	m.ShardVersion = v

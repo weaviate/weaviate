@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ const (
 	modelIDProperty     = "modelId"
 	modelProperty       = "model"
 	titleProperty       = "titleProperty"
+	locationProperty    = "location"
 	dimensionsProperty  = "dimensions"
 	taskTypeProperty    = "taskType"
 )
@@ -40,6 +41,7 @@ const (
 	DefaultModel                 = "gemini-embedding-001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaulAIStudioModel          = "gemini-embedding-001"
+	DefaultLocation              = "us-central1"
 	DefaultTaskType              = "RETRIEVAL_QUERY"
 )
 
@@ -49,29 +51,6 @@ var DefaultDimensions int64 = 768
 
 var defaultModelDimensions = map[string]*int64{
 	"gemini-embedding-001": &DefaultDimensions,
-}
-
-var availableGoogleModels = []string{
-	"textembedding-gecko@001",
-	"textembedding-gecko@latest",
-	"textembedding-gecko-multilingual@latest",
-	"textembedding-gecko@003",
-	"textembedding-gecko@002",
-	"textembedding-gecko-multilingual@001",
-	"textembedding-gecko@001",
-	"text-embedding-preview-0409",
-	"text-multilingual-embedding-preview-0409",
-	DefaultModel,
-	"text-embedding-005",
-	"text-multilingual-embedding-002",
-}
-
-var availableGenerativeAIModels = []string{
-	"embedding-001",
-	"text-embedding-004",
-	DefaulAIStudioModel,
-	"text-embedding-005",
-	"text-multilingual-embedding-002",
 }
 
 var availableTaskTypes = []string{
@@ -103,18 +82,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	apiEndpoint := ic.ApiEndpoint()
-	model := ic.Model()
-	if apiEndpoint == DefaultAIStudioEndpoint {
-		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
-		}
-	} else {
+	if apiEndpoint != DefaultAIStudioEndpoint {
 		projectID := ic.ProjectID()
 		if projectID == "" {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
-		}
-		if model != "" && !ic.validateGoogleSetting(model, availableGoogleModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availableGoogleModels))
 		}
 	}
 
@@ -127,10 +98,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	return nil
-}
-
-func (ic *classSettings) validateGoogleSetting(value string, availableValues []string) bool {
-	return slices.Contains(availableValues, value)
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
@@ -162,6 +129,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
+}
+
+func (ic *classSettings) Location() string {
+	return ic.getStringProperty(locationProperty, DefaultLocation)
 }
 
 func (ic *classSettings) Dimensions() *int64 {

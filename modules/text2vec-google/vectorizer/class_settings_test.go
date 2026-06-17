@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantProjectID   string
 		wantModelID     string
 		wantTitle       string
+		wantLocation    string
 		wantTaskType    string
 		wantDimensions  *int64
 		wantErr         error
@@ -44,7 +45,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -67,6 +67,21 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
+			name: "custom location",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"location":  "europe-west1",
+				},
+			},
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			wantProjectID:   "projectId",
+			wantModelID:     "gemini-embedding-001",
+			wantLocation:    "europe-west1",
+			wantDimensions:  &DefaultDimensions,
+			wantErr:         nil,
+		},
+		{
 			name: "empty projectId",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -76,35 +91,14 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("projectId cannot be empty"),
 		},
 		{
-			name: "wrong modelId",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "projectId",
-					"modelId":   "wrong-model",
-				},
-			},
-			wantErr: errors.Errorf("wrong modelId available model names are: " +
-				"[textembedding-gecko@001 textembedding-gecko@latest " +
-				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
-				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409 " +
-				"gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
-		},
-		{
-			name: "all wrong",
+			name: "empty projectId",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"projectId": "",
 					"modelId":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("projectId cannot be empty, " +
-				"wrong modelId available model names are: " +
-				"[textembedding-gecko@001 textembedding-gecko@latest " +
-				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
-				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409 " +
-				"gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
+			wantErr: errors.Errorf("projectId cannot be empty"),
 		},
 		{
 			name: "Generative AI",
@@ -116,7 +110,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "gemini-embedding-001",
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -131,19 +124,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-gecko-001",
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
 			wantErr:         nil,
-		},
-		{
-			name: "Generative AI with wrong model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-					"modelId":     "textembedding-gecko@001",
-				},
-			},
-			wantErr: errors.Errorf("wrong modelId available AI Studio model names are: [embedding-001 text-embedding-004 gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
 		},
 		{
 			name: "wrong properties",
@@ -176,20 +158,32 @@ func Test_classSettings_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.EqualError(t, ic.Validate(&models.Class{Class: "Test", Properties: []*models.Property{
-					{
-						Name:     "test",
-						DataType: []string{schema.DataTypeText.String()},
-					},
-				}}), tt.wantErr.Error())
+				assert.EqualError(t, ic.Validate(classForSettingsValidation()), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.Model())
 				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
-				assert.Equal(t, tt.wantTaskType, ic.TaskType())
+				assert.Equal(t, wantOrDefault(tt.wantLocation, DefaultLocation), ic.Location())
+				assert.Equal(t, wantOrDefault(tt.wantTaskType, DefaultTaskType), ic.TaskType())
 				assert.Equal(t, tt.wantDimensions, ic.Dimensions())
 			}
 		})
 	}
+}
+
+func classForSettingsValidation() *models.Class {
+	return &models.Class{Class: "Test", Properties: []*models.Property{
+		{
+			Name:     "test",
+			DataType: []string{schema.DataTypeText.String()},
+		},
+	}}
+}
+
+func wantOrDefault(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }

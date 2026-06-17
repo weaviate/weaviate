@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,6 +41,16 @@ func (s *Shard) initCycleCallbacks() {
 		return strings.Join(elems, "/")
 	}
 
+	// Multi-tenant collections back off per shard; single-tenant collections
+	// back off at the collection (ticker) level instead. Only one of the two
+	// should be active, otherwise the two backoffs interfere.
+	withIntervals := func(intervals cyclemanager.CycleIntervals) cyclemanager.RegisterOption {
+		if !s.index.partitioningEnabled {
+			return nil
+		}
+		return cyclemanager.WithIntervals(intervals)
+	}
+
 	var compactionCallbacks cyclemanager.CycleCallbackGroup
 	var compactionCallbacksCtrl cyclemanager.CycleCallbackCtrl
 	var compactionAuxCallbacks cyclemanager.CycleCallbackGroup
@@ -51,33 +61,33 @@ func (s *Shard) initCycleCallbacks() {
 		compactionCallbacks = cyclemanager.NewCallbackGroup(compactionId, s.index.logger, 1)
 		compactionCallbacksCtrl = s.index.cycleCallbacks.compactionCallbacks.Register(
 			compactionId, compactionCallbacks.CycleCallback,
-			cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+			withIntervals(cyclemanager.CompactionCycleIntervals()))
 		compactionAuxCallbacksCtrl = cyclemanager.NewCallbackCtrlNoop()
 	} else {
 		compactionId := id("compaction-non-objects")
 		compactionCallbacks = cyclemanager.NewCallbackGroup(compactionId, s.index.logger, 1)
 		compactionCallbacksCtrl = s.index.cycleCallbacks.compactionCallbacks.Register(
 			compactionId, compactionCallbacks.CycleCallback,
-			cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+			withIntervals(cyclemanager.CompactionCycleIntervals()))
 
 		compactionAuxId := id("compaction-objects")
 		compactionAuxCallbacks = cyclemanager.NewCallbackGroup(compactionAuxId, s.index.logger, 1)
 		compactionAuxCallbacksCtrl = s.index.cycleCallbacks.compactionAuxCallbacks.Register(
 			compactionAuxId, compactionAuxCallbacks.CycleCallback,
-			cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+			withIntervals(cyclemanager.CompactionCycleIntervals()))
 	}
 
 	flushId := id("flush")
 	flushCallbacks := cyclemanager.NewCallbackGroup(flushId, s.index.logger, 1)
 	flushCallbacksCtrl := s.index.cycleCallbacks.flushCallbacks.Register(
 		flushId, flushCallbacks.CycleCallback,
-		cyclemanager.WithIntervals(cyclemanager.MemtableFlushCycleIntervals()))
+		withIntervals(cyclemanager.MemtableFlushCycleIntervals()))
 
 	vectorCommitLoggerId := id("vector", "commit_logger")
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(vectorCommitLoggerId, s.index.logger, 1)
 	vectorCommitLoggerCallbacksCtrl := s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
 		vectorCommitLoggerId, vectorCommitLoggerCallbacks.CycleCallback,
-		cyclemanager.WithIntervals(cyclemanager.HnswCommitLoggerCycleIntervals()))
+		withIntervals(cyclemanager.HnswCommitLoggerCycleIntervals()))
 
 	vectorTombstoneCleanupId := id("vector", "tombstone_cleanup")
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(vectorTombstoneCleanupId, s.index.logger, 1)
@@ -92,7 +102,7 @@ func (s *Shard) initCycleCallbacks() {
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(geoPropsCommitLoggerId, s.index.logger, 1)
 	geoPropsCommitLoggerCallbacksCtrl := s.index.cycleCallbacks.geoPropsCommitLoggerCallbacks.Register(
 		geoPropsCommitLoggerId, geoPropsCommitLoggerCallbacks.CycleCallback,
-		cyclemanager.WithIntervals(cyclemanager.GeoCommitLoggerCycleIntervals()))
+		withIntervals(cyclemanager.GeoCommitLoggerCycleIntervals()))
 
 	geoPropsTombstoneCleanupId := id("geoProps", "tombstone_cleanup")
 	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(geoPropsTombstoneCleanupId, s.index.logger, 1)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,9 +21,10 @@ import (
 	"sync"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	tailorincgraphql "github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/gqlerrors"
+	tailorincgraphql "github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/gqlerrors"
 
 	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -53,11 +54,19 @@ func setupGraphQLHandlers(
 	gqlProvider graphQLProvider,
 	m *schema.Manager,
 	disabled bool,
+	namespacesEnabled bool,
 	metrics *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
 ) {
 	metricRequestsTotal := newGraphqlRequestsTotal(metrics, logger)
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
+		if namespacesEnabled {
+			metricRequestsTotal.logNamespacesBlocked()
+			metricRequestsTotal.logUserError()
+			return graphql.NewGraphqlPostGone().
+				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration")))
+		}
+
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
 		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.CollectionsMetadata()...)
@@ -66,12 +75,12 @@ func setupGraphQLHandlers(
 			switch {
 			case errors.As(err, &authzerrors.Forbidden{}):
 				return graphql.NewGraphqlPostForbidden().
-					WithPayload(errPayloadFromSingleErr(
+					WithPayload(errPayloadFromSingleErr(principal,
 						fmt.Errorf("due to GraphQL introspection, this role must have the permission to `read_collections` on `*` (all) collections: %w", err),
 					))
 			default:
 				return graphql.NewGraphqlPostUnprocessableEntity().
-					WithPayload(errPayloadFromSingleErr(err))
+					WithPayload(errPayloadFromSingleErr(principal, err))
 			}
 		}
 
@@ -79,7 +88,7 @@ func setupGraphQLHandlers(
 			metricRequestsTotal.logUserError()
 			err := fmt.Errorf("graphql api is disabled")
 			return graphql.NewGraphqlPostUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 
 		errorResponse := &models.ErrorResponse{}
@@ -154,10 +163,17 @@ func setupGraphQLHandlers(
 	})
 
 	api.GraphqlGraphqlBatchHandler = graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
+		if namespacesEnabled {
+			metricRequestsTotal.logNamespacesBlocked()
+			metricRequestsTotal.logUserError()
+			return graphql.NewGraphqlBatchGone().
+				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration")))
+		}
+
 		// this is barely used (if at all) - so require read access to all collections for data and metadata
 		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.Collections()...)
 		if err != nil {
-			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 
 		errorResponse := &models.ErrorResponse{}
@@ -176,7 +192,7 @@ func setupGraphQLHandlers(
 		graphQL := gqlProvider.GetGraphQL()
 		if graphQL == nil {
 			metricRequestsTotal.logUserError()
-			errRes := errPayloadFromSingleErr(fmt.Errorf("no graphql provider present, " +
+			errRes := errPayloadFromSingleErr(principal, fmt.Errorf("no graphql provider present, "+
 				"this is most likely because no schema is present. Import a schema first"))
 			return graphql.NewGraphqlBatchUnprocessableEntity().WithPayload(errRes)
 		}
@@ -292,12 +308,42 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 }
 
 type graphqlRequestsTotal struct {
-	metrics *requestsTotalMetric
-	logger  logrus.FieldLogger
+	metrics           *requestsTotalMetric
+	namespacesBlocked prometheus.Counter
+	logger            logrus.FieldLogger
 }
 
 func newGraphqlRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) *graphqlRequestsTotal {
-	return &graphqlRequestsTotal{newRequestsTotalMetric(metrics, "graphql"), logger}
+	namespacesBlocked, err := newGraphqlNamespacesBlockedCounter(metrics)
+	if err != nil {
+		logger.Errorf("register graphql_namespaces_blocked_requests_total metric: %v", err)
+	}
+	return &graphqlRequestsTotal{
+		metrics:           newRequestsTotalMetric(metrics, "graphql"),
+		namespacesBlocked: namespacesBlocked,
+		logger:            logger,
+	}
+}
+
+func newGraphqlNamespacesBlockedCounter(metrics *monitoring.PrometheusMetrics) (prometheus.Counter, error) {
+	if metrics == nil || metrics.Registerer == nil {
+		return nil, nil
+	}
+	counter := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "graphql_namespaces_blocked_requests_total",
+		Help: "Number of requests to the GraphQL endpoint received while namespaces are enabled, where the GraphQL API is unavailable.",
+	})
+	registered, _, err := monitoring.EnsureRegisteredMetric(metrics.Registerer, counter)
+	if err != nil {
+		return nil, err
+	}
+	return registered, nil
+}
+
+func (e *graphqlRequestsTotal) logNamespacesBlocked() {
+	if e.namespacesBlocked != nil {
+		e.namespacesBlocked.Inc()
+	}
 }
 
 func (e *graphqlRequestsTotal) getQueryType(path []interface{}) string {

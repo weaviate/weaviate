@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,10 @@ import (
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
 
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
@@ -102,17 +105,19 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			vecIdxID := s.vectorIndexID(targetVector)
 
 			vi, err := hnsw.New(hnsw.Config{
-				Logger:                    s.index.logger,
-				RootPath:                  s.path(),
-				ID:                        vecIdxID,
-				ShardName:                 s.name,
-				ClassName:                 s.index.Config.ClassName.String(),
-				PrometheusMetrics:         s.promMetrics,
-				VectorForIDThunk:          hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-				MultiVectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
-				TempVectorForIDThunk:      hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
-				TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
-				DistanceProvider:          distProv,
+				Logger:                            s.index.logger,
+				RootPath:                          s.path(),
+				ID:                                vecIdxID,
+				ShardName:                         s.name,
+				ClassName:                         s.index.Config.ClassName.String(),
+				PrometheusMetrics:                 s.promMetrics,
+				VectorForIDThunk:                  hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
+				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+				GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
+				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
+				DistanceProvider:                  distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -176,6 +181,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				vectorIndexUserConfig)
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
@@ -190,16 +196,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 
 		vi, err := dynamic.New(dynamic.Config{
-			ID:                   vecIdxID,
-			TargetVector:         targetVector,
-			Logger:               s.index.logger,
-			DistanceProvider:     distProv,
-			RootPath:             s.path(),
-			ShardName:            s.name,
-			ClassName:            s.index.Config.ClassName.String(),
-			PrometheusMetrics:    s.promMetrics,
-			VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-			TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
+			ID:                           vecIdxID,
+			TargetVector:                 targetVector,
+			Logger:                       s.index.logger,
+			DistanceProvider:             distProv,
+			RootPath:                     s.path(),
+			ShardName:                    s.name,
+			ClassName:                    s.index.Config.ClassName.String(),
+			PrometheusMetrics:            s.promMetrics,
+			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
+			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -239,7 +246,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		hfreshConfigID := s.vectorIndexID(targetVector)
-		rootPath := filepath.Join(s.path(), "hfresh")
+		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
+
 		hfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
 			Scheduler:         s.index.scheduler,
@@ -257,17 +265,20 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
-					Logger:                    s.index.logger,
-					RootPath:                  rootPath,
-					ID:                        hfreshConfigID + "_centroids",
-					ShardName:                 s.name,
-					ClassName:                 s.index.Config.ClassName.String(),
-					PrometheusMetrics:         s.promMetrics,
-					TempVectorForIDThunk:      hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
-					TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
-					DistanceProvider:          distProv,
+					Logger:                            s.index.logger,
+					RootPath:                          rootPath,
+					ID:                                hfreshConfigID + "_centroids",
+					ShardName:                         s.name,
+					ClassName:                         s.index.Config.ClassName.String(),
+					PrometheusMetrics:                 s.promMetrics,
+					HFreshMode:                        true,
+					TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+					GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
+					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+					TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
+					DistanceProvider:                  distProv,
 					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-						return hnsw.NewCommitLogger(rootPath, "centroids",
+						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							hnsw.WithAllocChecker(s.index.allocChecker),
 							hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
@@ -324,8 +335,10 @@ func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) er
 	defer s.vectorIndexMu.Unlock()
 
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
-		s.index.logger.WithField("action", "init_target_vectors").
-			Errorf("failed to migrate vectors compressed folder: %v", err)
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_target_vectors",
+			"shard_id": s.ID(),
+		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
@@ -387,4 +400,46 @@ func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
 	} else {
 		s.vectorIndexes[targetVector] = index
 	}
+}
+
+// DropVectorIndex shuts down and removes the named vector index and its queue
+// from this shard, deleting associated files from disk. It also removes the
+// LSM buckets that store the raw and compressed vector data.
+func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	if queue, ok := s.queues[targetVector]; ok && queue != nil {
+		if err := queue.Drop(ctx); err != nil {
+			return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+		}
+		delete(s.queues, targetVector)
+	}
+
+	if index, ok := s.vectorIndexes[targetVector]; ok && index != nil {
+		if err := index.Drop(ctx, false); err != nil {
+			return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+		}
+		delete(s.vectorIndexes, targetVector)
+	}
+
+	// Drop LSM buckets that hold the vector data on disk.
+	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
+	if err := s.removeBucket(ctx, vectorsBucket); err != nil {
+		return fmt.Errorf("drop vectors bucket for %q: %w", targetVector, err)
+	}
+
+	compressedBucket := helpers.GetCompressedBucketName(targetVector)
+	if err := s.removeBucket(ctx, compressedBucket); err != nil {
+		return fmt.Errorf("drop compressed vectors bucket for %q: %w", targetVector, err)
+	}
+
+	// Remove the index checkpoint entry for this vector.
+	if s.indexCheckpoints != nil {
+		if err := s.indexCheckpoints.Delete(s.ID(), targetVector); err != nil {
+			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
+		}
+	}
+
+	return nil
 }

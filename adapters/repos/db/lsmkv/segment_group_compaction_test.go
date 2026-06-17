@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -1312,7 +1313,7 @@ func TestSegmenGroup_CompactionLargerThanMaxSize(t *testing.T) {
 		maxSegmentSize: maxSegmentSize,
 	}
 
-	ok, err := sg.compactOnce()
+	ok, err := sg.compactOnce(context.Background())
 	assert.False(t, ok, "segments are too large to run")
 	assert.Nil(t, err)
 }

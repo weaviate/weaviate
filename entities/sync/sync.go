@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -104,6 +104,16 @@ func (s *KeyRWLocker) RLock(ID string) {
 
 	iLock = iLocks.(*sync.RWMutex)
 	iLock.RLock()
+}
+
+// TryRLock attempts to acquire a read lock without blocking.
+// Returns true if the lock was acquired, false otherwise.
+func (s *KeyRWLocker) TryRLock(ID string) bool {
+	iLock := &sync.RWMutex{}
+	iLocks, _ := s.m.LoadOrStore(ID, iLock)
+
+	iLock = iLocks.(*sync.RWMutex)
+	return iLock.TryRLock()
 }
 
 // RUnlock it runlocks a specific item by it's ID

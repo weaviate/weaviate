@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type ner struct {
@@ -54,7 +55,7 @@ type nerResponse struct {
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *ner {
 	return &ner{
 		origin:     origin,
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		logger:     logger,
 	}
 }
@@ -88,7 +89,7 @@ func (n *ner) GetTokens(ctx context.Context, property,
 
 	var resBody nerResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse NER response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode > 399 {

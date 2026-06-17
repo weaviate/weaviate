@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,7 @@ func New() *BindModule {
 
 type BindModule struct {
 	bindVectorizer             bindVectorizer
+	batchSimple                *batch.BatchSimple[[]float32]
 	nearImageGraphqlProvider   modulecapabilities.GraphQLArguments
 	nearImageSearcher          modulecapabilities.Searcher[[]float32]
 	nearAudioGraphqlProvider   modulecapabilities.GraphQLArguments
@@ -152,6 +153,7 @@ func (m *BindModule) initVectorizer(ctx context.Context, timeout time.Duration,
 
 	m.bindVectorizer = vectorizer.New(client)
 	m.textVectorizer = vectorizer.New(client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, 0)
 	m.metaClient = client
 
 	return nil
@@ -174,7 +176,7 @@ func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
 }
 
 func (m *BindModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.bindVectorizer.Object)
+	return m.batchSimple.VectorizeBatch(ctx, objs, skipObject, cfg, m.bindVectorizer.Object)
 }
 
 func (m *BindModule) VectorizeInput(ctx context.Context,

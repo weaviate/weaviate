@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"golang.org/x/exp/maps"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -150,15 +149,15 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 // The lock onto the underlying data is *not acquired* by this function the callee must ensure the lock is held
 func (s *ShardReplicationFSM) resetState() {
 	// Reset data
-	maps.Clear(s.idsByUuid)
-	maps.Clear(s.opsByTarget)
-	maps.Clear(s.opsBySource)
-	maps.Clear(s.opsByCollection)
-	maps.Clear(s.opsByCollectionAndShard)
-	maps.Clear(s.opsByTargetFQDN)
-	maps.Clear(s.opsBySourceFQDN)
-	maps.Clear(s.opsById)
-	maps.Clear(s.statusById)
+	clear(s.idsByUuid)
+	clear(s.opsByTarget)
+	clear(s.opsBySource)
+	clear(s.opsByCollection)
+	clear(s.opsByCollectionAndShard)
+	clear(s.opsByTargetFQDN)
+	clear(s.opsBySourceFQDN)
+	clear(s.opsById)
+	clear(s.statusById)
 
 	s.opsByStateGauge.Reset()
 }
@@ -223,6 +222,41 @@ func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, sha
 		return nil, false
 	}
 	return s.getOpsWithStatus(ops), true
+}
+
+func (s *ShardReplicationFSM) HasOngoingReplication(collection, shard string) bool {
+	ops, ok := s.GetOpsForCollectionAndShard(collection, shard)
+	if !ok {
+		return false
+	}
+	for _, o := range ops {
+		switch o.Status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			// terminal — does not block async-repl gating
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func (s *ShardReplicationFSM) HasOngoingTargetReplication(collection, shard, replica string) bool {
+	ops, ok := s.GetOpsForTargetNode(replica)
+	if !ok {
+		return false
+	}
+	for _, o := range ops {
+		if o.Op.TargetShard.CollectionId != collection || o.Op.TargetShard.ShardId != shard {
+			continue
+		}
+		switch o.Status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			// terminal — does not block async-repl gating
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
@@ -299,7 +333,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasRead(collection string, shar
 	return readReplicas
 }
 
-func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) []string {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
@@ -307,26 +341,14 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, sha
 	// If not we can return early as all replicas can be used for writes
 	byCollection, ok := s.opsByCollectionAndShard[collection]
 	if !ok {
-		return shardReplicasLocation, []string{}
+		return shardReplicasLocation
 	}
-	ops, ok := byCollection[shard]
-	if !ok {
-		return shardReplicasLocation, []string{}
+	if _, ok := byCollection[shard]; !ok {
+		return shardReplicasLocation
 	}
 
 	_, writeReplicas := s.readWriteReplicas(collection, shard, shardReplicasLocation)
-
-	additionalWriteReplicas := []string{}
-	for _, op := range ops {
-		opState, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		if opState.GetCurrentState() == api.FINALIZING {
-			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
-		}
-	}
-	return writeReplicas, additionalWriteReplicas
+	return writeReplicas
 }
 
 func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardReplicasLocation []string) ([]string, []string) {
@@ -370,6 +392,10 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	case api.DEHYDRATING:
 		readOk = true
 		writeOk = true
+	case api.INTEGRATING:
+		// Target is a counted r/w replica while the CCL is still draining.
+		readOk = true
+		writeOk = true
 	default:
 	}
 	return readOk, writeOk
@@ -401,4 +427,22 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 		}
 	}
 	return readOk, writeOk
+}
+
+// AllPeersAtLeast reports whether every peer has PerNodeState[peer] >= target.
+// Missing peers count as not satisfied.
+func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	st, ok := s.statusById[opID]
+	if !ok {
+		return false
+	}
+	floor := api.StateRank(target)
+	for _, st := range st.PerNodeState {
+		if api.StateRank(st) < floor {
+			return false
+		}
+	}
+	return true
 }

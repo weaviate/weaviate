@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,23 +28,25 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath                  string
-	ID                        string
-	MakeCommitLoggerThunk     MakeCommitLogger
-	VectorForIDThunk          common.VectorForID[float32]
-	MultiVectorForIDThunk     common.VectorForID[[]float32]
-	TempVectorForIDThunk      common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	Logger                    logrus.FieldLogger
-	DistanceProvider          distancer.Provider
-	PrometheusMetrics         *monitoring.PrometheusMetrics
-	AllocChecker              memwatch.AllocChecker
-	WaitForCachePrefill       bool
-	FlatSearchConcurrency     int
-	AcornFilterRatio          float64
-	DisableSnapshots          bool
-	SnapshotOnStartup         bool
-	MakeBucketOptions         lsmkv.MakeBucketOptions
+	RootPath                          string
+	ID                                string
+	MakeCommitLoggerThunk             MakeCommitLogger
+	VectorForIDThunk                  common.VectorForID[float32]
+	MultiVectorForIDThunk             common.VectorForID[[]float32]
+	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
+	GetViewThunk                      common.GetViewThunk
+	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
+	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	Logger                            logrus.FieldLogger
+	DistanceProvider                  distancer.Provider
+	PrometheusMetrics                 *monitoring.PrometheusMetrics
+	AllocChecker                      memwatch.AllocChecker
+	WaitForCachePrefill               bool
+	FlatSearchConcurrency             int
+	AcornFilterRatio                  float64
+	DisableSnapshots                  bool
+	SnapshotOnStartup                 bool
+	MakeBucketOptions                 lsmkv.MakeBucketOptions
 
 	// metadata for monitoring
 	ShardName string
@@ -53,6 +55,8 @@ type Config struct {
 	VisitedListPoolMaxSize int
 
 	AsyncIndexingEnabled bool
+
+	HFreshMode bool
 }
 
 func (c Config) Validate() error {
@@ -78,6 +82,10 @@ func (c Config) Validate() error {
 		ec.Addf("distancerProvider cannot be nil")
 	}
 
+	if c.GetViewThunk == nil {
+		ec.Addf("getViewThunk cannot be nil")
+	}
+
 	return ec.ToError()
 }
 
@@ -97,18 +105,18 @@ func NewMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, 
 	return t.VectorForID
 }
 
-func NewTempVectorForIDThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]T, error)) common.TempVectorForID[T] {
-	t := common.TargetTempVectorForID[T]{
-		TargetVector:         targetVector,
-		TempVectorForIDThunk: fn,
-	}
-	return t.TempVectorForID
-}
-
 func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error)) common.TempVectorForID[[]float32] {
 	t := common.TargetTempVectorForID[[]float32]{
 		TargetVector:         targetVector,
 		TempVectorForIDThunk: fn,
 	}
 	return t.TempVectorForID
+}
+
+func NewTempVectorForIDWithViewThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]T, error)) common.TempVectorForIDWithView[T] {
+	t := common.TargetTempVectorForIDWithView[T]{
+		TargetVector:                 targetVector,
+		TempVectorForIDWithViewThunk: fn,
+	}
+	return t.TempVectorForIDWithView
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -342,9 +342,15 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
-// CountPhysicalShards return a count of physical shards
-func (s *State) CountPhysicalShards() int {
-	return len(s.Physical)
+// LocalActivePhysicalShardsCount return a count of physical shards
+func (s *State) LocalActivePhysicalShardsCount() int {
+	count := 0
+	for _, physical := range s.Physical {
+		if s.IsLocalShard(physical.Name) && physical.Status == models.TenantActivityStatusHOT {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *State) AllPhysicalShards() []string {

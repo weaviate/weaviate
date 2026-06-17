@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -35,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 // var metrics = lsmkv.BlockMetrics{}
@@ -53,7 +51,7 @@ func (b *BM25Searcher) wandBlock(
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
 				b.logger.Errorf("Recovered from panic in wandBlock: %v", r)
-				debug.PrintStack()
+				enterrors.PrintStack(b.logger)
 			}
 		}
 	}()
@@ -95,8 +93,7 @@ func (b *BM25Searcher) wandBlock(
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
-	for _, tokenization := range tokenizer.Tokenizations {
-		propNames := propNamesByTokenization[tokenization]
+	for tokenization, propNames := range propNamesByTokenization {
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
@@ -377,32 +374,22 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	// try to get docs up to the limit
 	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
-		// storobj.ObjectsByDocID may return fewer than limit objects
-		// notFoundCount keeps track of the number of objects that were not found,
-		// so we can keep matching scores and explanations to the correct object
-		notFoundCount := 0
-		objsBatch, err := storobj.ObjectsByDocID(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
+		objsBatch, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
 		if err != nil {
 			return objs, nil, errors.Errorf("objects loading")
 		}
 		for i, obj := range objsBatch {
-			if obj == nil {
+			if obj == nil || obj.DocID != ids[startAt+i] {
 				continue
 			}
-			// move forward the notFoundCount until we find the next object
-			// if we enter the loop, it means that doc at ids[startAt+notFoundCount+i]
-			// was not found, so we need to skip it
-			for obj.DocID != ids[startAt+notFoundCount+i] {
-				notFoundCount++
-			}
 			objs = append(objs, obj)
-			scoresResult = append(scoresResult, scores[startAt+notFoundCount+i])
+			scoresResult = append(scoresResult, scores[startAt+i])
 			if explanations != nil {
-				explanationsResults = append(explanationsResults, explanations[startAt+notFoundCount+i])
+				explanationsResults = append(explanationsResults, explanations[startAt+i])
 			}
 		}
 		startAt = endAt
-		endAt = int(math.Min(float64(endAt+limit), float64(len(ids))))
+		endAt = min(endAt+limit, len(ids))
 	}
 
 	if explanationsResults != nil && len(explanationsResults) == len(scoresResult) {

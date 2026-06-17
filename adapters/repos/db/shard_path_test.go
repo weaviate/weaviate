@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -30,7 +29,9 @@ func TestShardFileSanitize(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, idx := testShard(t, ctx, className)
-	require.NoError(t, shd.HaltForTransfer(ctx, false, 100*time.Millisecond))
+	// 0 timeout disables inactivity auto-resume, so slow setup can't resume
+	// the shard before ListBackupFiles runs.
+	require.NoError(t, shd.HaltForTransfer(ctx, false, 0))
 	amount := 10
 
 	for range amount {
@@ -63,7 +64,8 @@ func TestShardFileSanitize(t *testing.T) {
 
 	// now read a valid file
 	ret := &backup.ShardDescriptor{}
-	require.NoError(t, shd.ListBackupFiles(ctx, ret))
+	_, err = shd.ListBackupFiles(ctx, ret)
+	require.NoError(t, err)
 
 	file, err = shd.GetFile(ctx, ret.ShardVersionPath)
 	require.NoError(t, err)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -201,6 +201,51 @@ func (o *ObjectsClassReferencesDeleteNotFound) SetPayload(payload *models.ErrorR
 func (o *ObjectsClassReferencesDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ObjectsClassReferencesDeleteGoneCode is the HTTP code returned for type ObjectsClassReferencesDeleteGone
+const ObjectsClassReferencesDeleteGoneCode int = 410
+
+/*
+ObjectsClassReferencesDeleteGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsClassReferencesDeleteGone
+*/
+type ObjectsClassReferencesDeleteGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassReferencesDeleteGone creates ObjectsClassReferencesDeleteGone with default headers values
+func NewObjectsClassReferencesDeleteGone() *ObjectsClassReferencesDeleteGone {
+
+	return &ObjectsClassReferencesDeleteGone{}
+}
+
+// WithPayload adds the payload to the objects class references delete gone response
+func (o *ObjectsClassReferencesDeleteGone) WithPayload(payload *models.ErrorResponse) *ObjectsClassReferencesDeleteGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class references delete gone response
+func (o *ObjectsClassReferencesDeleteGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassReferencesDeleteGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

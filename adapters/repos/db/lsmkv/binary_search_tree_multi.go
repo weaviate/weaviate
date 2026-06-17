@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -260,19 +260,38 @@ func binarySearchNodeMultiFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMu
 // }
 
 func (n *binarySearchNodeMulti) flattenInOrder() []*binarySearchNodeMulti {
-	var left []*binarySearchNodeMulti
-	var right []*binarySearchNodeMulti
+	// preallocate capacity to avoid repeated reallocations
+	size := n.subtreeSize()
+	res := make([]*binarySearchNodeMulti, 0, size)
+	return n.appendInOrder(res)
+}
 
+func (n *binarySearchNodeMulti) appendInOrder(dst []*binarySearchNodeMulti) []*binarySearchNodeMulti {
+	if n == nil {
+		return dst
+	}
 	if n.left != nil {
-		left = n.left.flattenInOrder()
+		dst = n.left.appendInOrder(dst)
 	}
-
+	dst = append(dst, n.shallowCopy())
 	if n.right != nil {
-		right = n.right.flattenInOrder()
+		dst = n.right.appendInOrder(dst)
 	}
+	return dst
+}
 
-	right = append([]*binarySearchNodeMulti{n.shallowCopy()}, right...)
-	return append(left, right...)
+func (n *binarySearchNodeMulti) subtreeSize() int {
+	if n == nil {
+		return 0
+	}
+	s := 1
+	if n.left != nil {
+		s += n.left.subtreeSize()
+	}
+	if n.right != nil {
+		s += n.right.subtreeSize()
+	}
+	return s
 }
 
 func (n *binarySearchNodeMulti) shallowCopy() *binarySearchNodeMulti {

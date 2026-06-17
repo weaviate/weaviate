@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,53 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
+func TestBuildURL(t *testing.T) {
+	tests := []struct {
+		name            string
+		useGenerativeAI bool
+		apiEndpoint     string
+		projectID       string
+		modelID         string
+		location        string
+		expectedURL     string
+	}{
+		{
+			name:            "Vertex AI with location",
+			useGenerativeAI: false,
+			apiEndpoint:     "europe-west1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "gemini-embedding-001",
+			location:        "europe-west1",
+			expectedURL:     "https://europe-west1-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west1/publishers/google/models/gemini-embedding-001:predict",
+		},
+		{
+			name:            "Generative AI endpoint ignores location",
+			useGenerativeAI: true,
+			apiEndpoint:     "generativelanguage.googleapis.com",
+			projectID:       "",
+			modelID:         "gemini-embedding-001",
+			location:        "europe-west1",
+			expectedURL:     "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents",
+		},
+		{
+			name:            "Legacy PaLM model ignores location",
+			useGenerativeAI: true,
+			apiEndpoint:     "generativelanguage.googleapis.com",
+			projectID:       "",
+			modelID:         "embedding-gecko-001",
+			location:        "europe-west1",
+			expectedURL:     "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := buildURL(tt.useGenerativeAI, tt.apiEndpoint, tt.projectID, tt.modelID, tt.location)
+			assert.Equal(t, tt.expectedURL, url)
+		})
+	}
+}
+
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
@@ -37,24 +84,22 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
 				assert.Equal(t, "endpoint", apiEndpoint)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", modelID)
+				assert.Equal(t, "us-central1", location)
 				return server.URL
 			},
 			logger: nullLogger(),
 		}
-		expected := &modulecomponents.VectorizationResult[[]float32]{
-			Text:       []string{"This is my text"},
-			Vector:     [][]float32{{0.1, 0.2, 0.3}},
-			Dimensions: 3,
-		}
+		expected := expectedTextVectorization("This is my text")
 		res, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "",
 			settings{
 				ApiEndpoint: "endpoint",
 				ProjectID:   "project",
 				Model:       "model",
+				Location:    "us-central1",
 			})
 
 		assert.Nil(t, err)
@@ -68,10 +113,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -92,10 +135,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		_, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "", settings{})
 
@@ -110,19 +151,13 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{"some-key"})
 
-		expected := &modulecomponents.VectorizationResult[[]float32]{
-			Text:       []string{"This is my text"},
-			Vector:     [][]float32{{0.1, 0.2, 0.3}},
-			Dimensions: 3,
-		}
+		expected := expectedTextVectorization("This is my text")
 		res, err := c.vectorize(ctxWithValue, []string{"This is my text"}, retrievalDocument, "", settings{})
 
 		require.Nil(t, err)
@@ -136,10 +171,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
-				return server.URL
-			},
-			logger: nullLogger(),
+			urlBuilderFn: staticURLBuilder(server.URL),
+			logger:       nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -174,6 +207,20 @@ func TestClient(t *testing.T) {
 	})
 }
 
+func staticURLBuilder(url string) func(bool, string, string, string, string) string {
+	return func(bool, string, string, string, string) string {
+		return url
+	}
+}
+
+func expectedTextVectorization(input string) *modulecomponents.VectorizationResult[[]float32] {
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Text:       []string{input},
+		Vector:     [][]float32{{0.1, 0.2, 0.3}},
+		Dimensions: 3,
+	}
+}
+
 type fakeHandler struct {
 	t           *testing.T
 	serverError error
@@ -182,23 +229,33 @@ type fakeHandler struct {
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
-	if f.serverError != nil {
-		embeddingResponse := &embeddingsResponse{
-			Error: &googleApiError{
-				Code:    http.StatusInternalServerError,
-				Status:  "error",
-				Message: f.serverError.Error(),
-			},
-		}
-
-		outBytes, err := json.Marshal(embeddingResponse)
-		require.Nil(f.t, err)
-
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(outBytes)
+	if f.writeError(w) {
 		return
 	}
 
+	req := f.readRequest(r)
+	assert.Greater(f.t, len(req.Instances[0].Content), 0)
+	writeJSON(f.t, w, f.successResponse())
+}
+
+func (f *fakeHandler) writeError(w http.ResponseWriter) bool {
+	if f.serverError == nil {
+		return false
+	}
+
+	w.WriteHeader(http.StatusInternalServerError)
+	writeJSON(f.t, w, &embeddingsResponse{
+		Error: &googleApiError{
+			Code:    http.StatusInternalServerError,
+			Status:  "error",
+			Message: f.serverError.Error(),
+		},
+	})
+
+	return true
+}
+
+func (f *fakeHandler) readRequest(r *http.Request) embeddingsRequest {
 	bodyBytes, err := io.ReadAll(r.Body)
 	require.Nil(f.t, err)
 	defer r.Body.Close()
@@ -208,11 +265,11 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	require.NotNil(f.t, req)
 	require.Len(f.t, req.Instances, 1)
+	return req
+}
 
-	textInput := req.Instances[0].Content
-	assert.Greater(f.t, len(textInput), 0)
-
-	embeddingResponse := &embeddingsResponse{
+func (f *fakeHandler) successResponse() *embeddingsResponse {
+	return &embeddingsResponse{
 		Predictions: []prediction{
 			{
 				Embeddings: embeddings{
@@ -221,9 +278,11 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
+}
 
-	outBytes, err := json.Marshal(embeddingResponse)
-	require.Nil(f.t, err)
+func writeJSON(t *testing.T, w http.ResponseWriter, body interface{}) {
+	outBytes, err := json.Marshal(body)
+	require.Nil(t, err)
 
 	w.Write(outBytes)
 }

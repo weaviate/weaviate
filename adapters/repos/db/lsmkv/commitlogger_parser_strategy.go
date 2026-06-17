@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -88,7 +88,9 @@ func isCommitLogCompatibleReplace(wal io.ReadSeeker) (compatible bool, err error
 		return false, err
 	}
 
-	memtable, err := newMemtable("", StrategyReplace, 0, &noopMemtableCommitLogger{}, nil, nil, false, nil, false, nil, nil)
+	memtable, err := newMemtable(&noopMemtableCommitLogger{}, nil, nil, nil, memtableConfig{
+		strategy: StrategyReplace,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -129,7 +131,9 @@ func isCommitLogCompatibleCollection(wal io.ReadSeeker, collectionStrategy strin
 		}
 	}()
 
-	memtable, err := newMemtable("", collectionStrategy, 0, &noopMemtableCommitLogger{}, nil, nil, false, nil, false, nil, nil)
+	memtable, err := newMemtable(&noopMemtableCommitLogger{}, nil, nil, nil, memtableConfig{
+		strategy: collectionStrategy,
+	})
 	if err != nil {
 		return false, err
 	}

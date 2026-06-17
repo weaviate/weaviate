@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -111,6 +111,51 @@ func (o *ObjectsReferencesCreateForbidden) SetPayload(payload *models.ErrorRespo
 func (o *ObjectsReferencesCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ObjectsReferencesCreateGoneCode is the HTTP code returned for type ObjectsReferencesCreateGone
+const ObjectsReferencesCreateGoneCode int = 410
+
+/*
+ObjectsReferencesCreateGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsReferencesCreateGone
+*/
+type ObjectsReferencesCreateGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsReferencesCreateGone creates ObjectsReferencesCreateGone with default headers values
+func NewObjectsReferencesCreateGone() *ObjectsReferencesCreateGone {
+
+	return &ObjectsReferencesCreateGone{}
+}
+
+// WithPayload adds the payload to the objects references create gone response
+func (o *ObjectsReferencesCreateGone) WithPayload(payload *models.ErrorResponse) *ObjectsReferencesCreateGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects references create gone response
+func (o *ObjectsReferencesCreateGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsReferencesCreateGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

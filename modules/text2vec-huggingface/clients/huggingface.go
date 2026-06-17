@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -76,10 +76,8 @@ type vectorizer struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		apiKey:                apiKey,
+		httpClient:            modulecomponents.NewBaseHttpClient(timeout),
 		bertEmbeddingsDecoder: newBertEmbeddingsDecoder(),
 		logger:                logger,
 	}
@@ -147,7 +145,7 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 		return nil, err
 	}
 
-	vector, errs, err := v.decodeVector(bodyBytes)
+	vector, errs, err := v.decodeVector(res.StatusCode, bodyBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot decode vector")
 	}
@@ -188,14 +186,14 @@ func checkResponse(res *http.Response, bodyBytes []byte) error {
 	return errors.New(message)
 }
 
-func (v *vectorizer) decodeVector(bodyBytes []byte) ([][]float32, []error, error) {
+func (v *vectorizer) decodeVector(statusCode int, bodyBytes []byte) ([][]float32, []error, error) {
 	var emb embedding
 	if err := json.Unmarshal(bodyBytes, &emb); err != nil {
 		var embObject embeddingObject
 		if err := json.Unmarshal(bodyBytes, &embObject); err != nil {
 			var embBert embeddingBert
 			if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
-				return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+				return nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 			}
 
 			if len(embBert) == 1 && len(embBert[0]) > 0 {

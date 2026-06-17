@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -25,16 +26,16 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/integrity"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -91,7 +92,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to get gRPC port for source node: %w", err)
 	}
 
-	client, err := c.clientFactory(ctx, fmt.Sprintf("%s:%d", sourceNodeAddress, sourceNodeGRPCPort))
+	client, err := c.clientFactory(ctx, net.JoinHostPort(sourceNodeAddress, fmt.Sprintf("%d", sourceNodeGRPCPort)))
 	if err != nil {
 		return fmt.Errorf("failed to create gRPC client connection: %w", err)
 	}
@@ -500,17 +501,7 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	if index == nil {
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
-
-	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("get shard %s err: %w", shardName, err)
-	}
-	if shard == nil {
-		return fmt.Errorf("get shard %s: not found", shardName)
-	}
-	defer release()
-
-	return shard.SetAsyncReplicationEnabled(ctx, true)
+	return index.InitAsyncReplicationOnShard(ctx, shardName)
 }
 
 func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -518,17 +509,7 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	if index == nil {
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
-
-	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("get shard %s err: %w", shardName, err)
-	}
-	if shard == nil {
-		return fmt.Errorf("get shard %s: not found", shardName)
-	}
-	defer release()
-
-	return shard.SetAsyncReplicationEnabled(ctx, shard.Index().Config.AsyncReplicationEnabled)
+	return index.RevertAsyncReplicationOnShard(ctx, shardName)
 }
 
 // AsyncReplicationStatus returns the async replication status for a shard.

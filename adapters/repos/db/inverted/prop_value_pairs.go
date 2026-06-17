@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,10 +14,8 @@ package inverted
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -39,11 +37,11 @@ type propValuePair struct {
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
 	valueGeoRange      *filters.GeoRange
-	docIDs             docBitmap
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
 	hasRangeableIndex  bool
+	nested             nestedInfo
 	Class              *models.Class // The schema
 }
 
@@ -51,12 +49,37 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
+	return &propValuePair{Class: class}, nil
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	if err := ctx.Err(); err != nil {
+	if err := ctxExpired(ctx); err != nil {
 		return nil, err
+	}
+
+	// Correlated nested AND created during extraction: all children target the
+	// same root property (stored in pv.prop) and require same-element semantics.
+	if pv.nested.isWithinRootSubtree {
+		return pv.resolveNestedSubtree(ctx, s)
+	}
+
+	// Nested ContainsNone is a first-class operator (first-class-operator approach) with the
+	// scalar-array path on pv.nested.relPath. Dispatch BEFORE the isNested
+	// check because the ContainsNone wrapper itself is not a leaf — its
+	// children are the per-value pvps.
+	if pv.operator == filters.ContainsNone && pv.nested.relPath != "" {
+		return pv.fetchNestedContainsNone(ctx, s)
+	}
+
+	// All nested-specific dispatch: IsNull, value filters, and correlated AND
+	// are all routed here so nested logic stays out of the flat fetch path.
+	if pv.nested.isNested {
+		switch {
+		case pv.operator == filters.OperatorIsNull:
+			return pv.fetchNestedIsNull(s)
+		case pv.operator.OnValue():
+			return pv.fetchNestedDocIDs(ctx, s)
+		}
 	}
 
 	if pv.operator.OnValue() {
@@ -82,7 +105,7 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		case 1:
 			return pv.resolveDocIDsNot(ctx, s)
 		default:
-			return nil, fmt.Errorf("too many children for operator %q. Expected 1, given %q", pv.operator.Name(), ln)
+			return nil, fmt.Errorf("too many children for operator %q. Expected 1, given %d", pv.operator.Name(), ln)
 		}
 
 	default:
@@ -114,7 +137,7 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 			dbm, err2 := child.resolveDocIDs(ctx, s, limit)
 			if err2 != nil {
 				// break on first error
-				err = errors.Wrapf(err, "nested child %d", i)
+				err = errors.Wrapf(err2, "nested child %d", i)
 				break
 			}
 			dbmCh <- dbm
@@ -182,11 +205,8 @@ func (pv *propValuePair) resolveDocIDsNot(ctx context.Context, s *Searcher) (*do
 	if err != nil {
 		return nil, fmt.Errorf("nested NOT query: %w", err)
 	}
-	bm := dbm.docIDs
-	defer dbm.release()
 
-	dbm.docIDs, dbm.release = s.bitmapFactory.GetBitmap()
-	dbm.docIDs.AndNotConc(bm, concurrency.SROAR_MERGE)
+	dbm.isDenyList = !dbm.isDenyList // invert allow/deny list
 	return dbm, nil
 }
 
@@ -217,6 +237,84 @@ func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap,
 	}
 }
 
+func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *docBitmap {
+	//	- both A and B are denylists
+	//	  !A  or !B -> !(A and B) -> denylist A.And(B)
+	//	  !A and !B -> !(A  or B) -> denylist A.Or(B)
+	//
+	//	- one of A and B is a denylist, the other an allowlist
+	//	  !A and B ->   B and !A  -> allowlist B.AndNot(A)
+	//	  !A  or B -> !(A and !B) ->  denylist A.AndNot(B)
+	//
+	//	  (done by swapping A and B in the code below to avoid code duplication)
+	//	  A and !B -> allowlist A.AndNot(B): (same as !B and A)
+	//	  A  or !B -> !B or A -> !(B and !A) -> denylist B.AndNot(A): (same as !A or B)
+	//
+	//	- base case: both A and B are allowlists
+	//	  A or B -> allowlist A.Or(B)
+	//	  A and B -> allowlist A.And(B)
+	//
+	//	- for completeness, here are the remaining combinations, used as part of the Not and NotEqual operators:
+	//	  A -> allowlist A
+	//	  !A -> denylist A
+	//	  !!A -> allowlist A
+
+	// clean up resources of bitmap that is not used in the final result.
+	defer func() {
+		if b != nil {
+			b.release()
+		}
+	}()
+
+	// swapForEfficiency puts the larger bitmap in `a` for Or (fewer union ops),
+	// or the smaller bitmap in `a` for And (fewer intersection ops).
+	swapForEfficiency := func(op filters.Operator) {
+		if (op == filters.OperatorOr && a.docIDs.NumContainers() < b.docIDs.NumContainers()) ||
+			(op == filters.OperatorAnd && a.docIDs.NumContainers() > b.docIDs.NumContainers()) {
+			a, b = b, a
+		}
+	}
+
+	switch {
+	case a.IsDenyList() && b.IsDenyList():
+		// Both denylists — apply De Morgan: invert the operation.
+		// !A and !B -> !(A or B)  -> denylist A.Or(B)
+		// !A  or !B -> !(A and B) -> denylist A.And(B)
+		if operator == filters.OperatorAnd {
+			swapForEfficiency(filters.OperatorOr)
+			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+		} else {
+			swapForEfficiency(filters.OperatorAnd)
+			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
+		}
+
+	case a.IsDenyList() || b.IsDenyList():
+		// Mixed: one denylist, one allowlist.
+		// Normalise so that a=denylist, b=allowlist.
+		if b.IsDenyList() {
+			a, b = b, a
+		}
+		// !A and B -> allowlist B.AndNot(A)
+		// !A  or B -> denylist  A.AndNot(B)
+		if operator == filters.OperatorAnd {
+			b.docIDs.AndNotConc(a.docIDs, concurrency.SROAR_MERGE)
+			a, b = b, a // a=result(allowlist), b=old denylist(released by defer)
+		} else {
+			a.docIDs.AndNotConc(b.docIDs, concurrency.SROAR_MERGE)
+		}
+
+	default:
+		// Both allowlists.
+		swapForEfficiency(operator)
+		if operator == filters.OperatorAnd {
+			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
+		} else {
+			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+		}
+	}
+	return a
+}
+
 // mergeDocIDs merges provided docBitmaps using given operator.
 // It mutates given docBitmaps slice, by changing its length to 1 and putting
 // merge result as first element.
@@ -228,33 +326,20 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 		return dbms
 	}
 
-	var mergeFn func(*sroar.Bitmap, int) *sroar.Bitmap
-	if operator == filters.OperatorOr {
-		// biggest to smallest, so smaller bitmaps are merged into biggest one,
-		// minimising chance of expanding destination bitmap (memory allocations)
-		slices.SortFunc(dbms, func(dbma, dbmb *docBitmap) int {
-			return -dbma.docIDs.CompareNumKeys(dbmb.docIDs)
-		})
-		mergeFn = dbms[0].docIDs.OrConc
-	} else {
-		// smallest to biggest, so data is removed from smallest bitmap
-		// allowing bigger bitmaps to be garbage collected asap
-		slices.SortFunc(dbms, func(dbma, dbmb *docBitmap) int {
-			return dbma.docIDs.CompareNumKeys(dbmb.docIDs)
-		})
-		mergeFn = dbms[0].docIDs.AndConc
-	}
-
-	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs, concurrency.SROAR_MERGE)
-		// release resources of docBitmaps merged into 1st one
-		dbms[i].release()
+	for i := 0; i < len(dbms)-1; i++ {
+		dbms[0] = mergeBitmapsAndOrWithDenyList(dbms[0], dbms[i+1], operator)
 	}
 
 	return dbms[:1]
 }
 
+// fetchDocIDs resolves a value filter on a flat (non-nested) property.
 func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
+	return pv.readFromBucket(ctx, s, limit)
+}
+
+// readFromBucket is the shared low-level implementation for all fetch methods.
+func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	// TODO text_rbm_inverted_index find better way check whether prop len
 	if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 		!pv.Class.InvertedIndexConfig.IndexPropertyLength {
@@ -294,6 +379,13 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 }
 
 func (pv *propValuePair) getBucketName() string {
+	if pv.nested.isNested {
+		if pv.hasFilterableIndex {
+			return helpers.BucketNestedFromPropNameLSM(pv.prop)
+		}
+		return ""
+	}
+
 	if pv.hasRangeableIndex {
 		switch pv.operator {
 		// decide whether handle equal/not_equal with rangeable index

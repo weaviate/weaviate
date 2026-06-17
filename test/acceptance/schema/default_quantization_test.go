@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -37,20 +38,51 @@ func TestAssignDynamic(t *testing.T) {
 	require.Equal(t, "rq-8", d.Get())
 }
 
-func TestDefaultQuantizationRQ8(t *testing.T) {
-	mainCtx := context.Background()
+// DefaultQuantizationRQ8TestSuite shares one cluster booted with
+// DEFAULT_QUANTIZATION=rq-8 across the scenarios that assert the rq-8 default.
+// Each scenario recreates the Paragraph class, so the shared cluster carries no
+// state between them. The rq-1 default needs a different startup env, so
+// TestDefaultQuantizationRQ1 keeps its own cluster.
+type DefaultQuantizationRQ8TestSuite struct {
+	suite.Suite
+	compose *docker.DockerCompose
+	cancel  context.CancelFunc
+}
+
+func (suite *DefaultQuantizationRQ8TestSuite) SetupSuite() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	suite.cancel = cancel
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+		Start(ctx)
+	require.Nil(suite.T(), err)
+	suite.compose = compose
+}
+
+func (suite *DefaultQuantizationRQ8TestSuite) TearDownSuite() {
+	if suite.compose != nil {
+		require.NoError(suite.T(), suite.compose.Terminate(context.Background()))
+	}
+	if suite.cancel != nil {
+		suite.cancel()
+	}
+}
+
+func (suite *DefaultQuantizationRQ8TestSuite) TearDownTest() {
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
+}
+
+func TestDefaultQuantizationRQ8TestSuite(t *testing.T) {
+	suite.Run(t, new(DefaultQuantizationRQ8TestSuite))
+}
+
+func (suite *DefaultQuantizationRQ8TestSuite) TestDefaultQuantizationRQ8() {
+	t := suite.T()
+	compose := suite.compose
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -323,20 +355,9 @@ func TestDefaultQuantizationRQ1(t *testing.T) {
 	})
 }
 
-func TestDefaultQuantizationWithSkipDefaultQuantization(t *testing.T) {
-	mainCtx := context.Background()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
-		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+func (suite *DefaultQuantizationRQ8TestSuite) TestDefaultQuantizationWithSkipDefaultQuantization() {
+	t := suite.T()
+	compose := suite.compose
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -430,20 +451,9 @@ func TestDefaultQuantizationWithSkipDefaultQuantization(t *testing.T) {
 	})
 }
 
-func TestDefaultQuantizationOverride(t *testing.T) {
-	mainCtx := context.Background()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
-		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+func (suite *DefaultQuantizationRQ8TestSuite) TestDefaultQuantizationOverride() {
+	t := suite.T()
+	compose := suite.compose
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	t.Run("BQ override with Hnsw index", func(t *testing.T) {

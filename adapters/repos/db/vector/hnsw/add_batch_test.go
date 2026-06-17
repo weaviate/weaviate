@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -246,6 +246,7 @@ func TestAddBatch_LargeBatch(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForIDFn,
+		GetViewThunk:          GetViewThunk,
 		AllocChecker:          memwatch.NewDummyMonitor(),
 	}
 
@@ -393,6 +394,7 @@ func testHNSWWithAllocChecker(t *testing.T, allocChecker memwatch.AllocChecker) 
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 		AllocChecker:          allocChecker,
+		GetViewThunk:          GetViewThunk,
 	}
 
 	index, err := New(cfg, ent.UserConfig{
@@ -421,6 +423,7 @@ func testHNSWWithCustomVectorFuncAndAllocChecker(
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vectorForID,
 		AllocChecker:          allocChecker,
+		GetViewThunk:          GetViewThunk,
 	}
 
 	index, err := New(cfg, ent.UserConfig{

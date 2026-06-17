@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,6 +33,10 @@ import (
 )
 
 var logger, _ = test.NewNullLogger()
+
+type restoreNoopBucketView struct{}
+
+func (n *restoreNoopBucketView) ReleaseView() {}
 
 func Test_RestartFromZeroSegments(t *testing.T) {
 	testPath := t.TempDir()
@@ -71,7 +75,8 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView { return &restoreNoopBucketView{} },
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -125,7 +130,8 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		GetViewThunk:                 func() common.BucketView { return &restoreNoopBucketView{} },
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}
 
 	store := testinghelpers.NewDummyStore(t)

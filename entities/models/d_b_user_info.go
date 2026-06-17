@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,6 +51,9 @@ type DBUserInfo struct {
 	// Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.
 	// Format: date-time
 	LastUsedAt strfmt.DateTime `json:"lastUsedAt,omitempty"`
+
+	// The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.
+	Namespace string `json:"namespace,omitempty"`
 
 	// The roles associated with the user.
 	// Required: true

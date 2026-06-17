@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,7 +38,7 @@ func (e *comparableValueExtractor) extractFromBytes(objData []byte, propName str
 	}
 	if success {
 		switch e.dataTypesHelper.getType(propName) {
-		case schema.DataTypeBlob:
+		case schema.DataTypeBlob, schema.DataTypeBlobHash:
 			return &value[0]
 		case schema.DataTypeText:
 			return &value[0]
@@ -99,7 +99,7 @@ func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, pro
 	}
 
 	switch e.dataTypesHelper.getType(propName) {
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		s := value.(string)
 		return &s
 	case schema.DataTypeText:

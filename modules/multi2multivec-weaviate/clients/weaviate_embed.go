@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,12 +73,4 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, query bool, 
 	}
 
 	return embeddingsResponse.Embeddings, nil
-}
-
-func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
-	return v.client.GetApiKeyHash(ctx, config)
-}
-
-func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return v.client.GetVectorizerRateLimit(ctx, cfg)
 }

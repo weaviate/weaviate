@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,8 +25,6 @@ type Metrics struct {
 	monitoring                  bool
 	queueSize                   prometheus.Gauge
 	queueDiskUsage              prometheus.Gauge
-	queuesPaused                prometheus.Gauge
-	queuesCount                 prometheus.Gauge
 	partitionProcessingDuration prometheus.Observer
 }
 
@@ -49,59 +47,9 @@ func NewMetrics(
 
 	m.queueSize = prom.QueueSize.With(labels)
 	m.queueDiskUsage = prom.QueueDiskUsage.With(labels)
-	m.queuesPaused = prom.QueuePaused.With(labels)
-	m.queuesCount = prom.QueueCount.With(labels)
 	m.partitionProcessingDuration = prom.QueuePartitionProcessingDuration.With(labels)
 
 	return &m
-}
-
-func (m *Metrics) Paused(id string) {
-	m.logger.WithField("action", "queue_pause").
-		WithField("queue_id", id).
-		Trace("index queue paused")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesPaused.Inc()
-}
-
-func (m *Metrics) Resumed(id string) {
-	m.logger.WithField("action", "queue_resume").
-		WithField("queue_id", id).
-		Trace("index queue resumed")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesPaused.Dec()
-}
-
-func (m *Metrics) Registered(id string) {
-	m.logger.WithField("action", "queue_register").
-		WithField("queue_id", id).
-		Trace("queue registered")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesCount.Inc()
-}
-
-func (m *Metrics) Unregistered(id string) {
-	m.logger.WithField("action", "queue_unregister").
-		WithField("queue_id", id).
-		Trace("queue unregistered")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesCount.Dec()
 }
 
 func (m *Metrics) TasksProcessed(start time.Time, count int) {

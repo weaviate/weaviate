@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,11 @@ type ReplicationFSMReader interface {
 	// It returns a tuple of readReplicas
 	FilterOneShardReplicasRead(collection string, shard string, shardReplicasLocation []string) []string
 	// FilterOneShardReplicasWrite returns the write replicas for a given shard
-	// It returns a tuple of (writeReplicas, additionalWriteReplicas)
-	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
+	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) []string
+	// HasOngoingReplication reports whether the FSM currently tracks any
+	// replication op for (collection, shard) whose state is non-terminal.
+	HasOngoingReplication(collection, shard string) bool
+	// HasOngoingTargetReplication reports whether the FSM currently tracks any
+	// replication op for (collection, shard, targetNode) whose state is non-terminal.
+	HasOngoingTargetReplication(collection, shard, targetNode string) bool
 }

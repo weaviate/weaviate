@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -74,28 +73,16 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil).Maybe()
-				mockReplicaCopier.EXPECT().
-					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					// Simulate that the async replication is already done
-					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
+				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -132,28 +119,16 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil).Maybe()
-				mockReplicaCopier.EXPECT().
-					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					// Simulate that the async replication is already done
-					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
+				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, id uint64, state api.ShardReplicationState) {
@@ -193,28 +168,16 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil).Maybe()
-				mockReplicaCopier.EXPECT().
-					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					// Simulate that the async replication is already done
-					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
+				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -246,47 +209,18 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(fmt.Errorf("failed to initialize async replication")).
-					Times(1)
-				mockFSMUpdater.EXPECT().
-					ReplicationRegisterError(mock.Anything, uint64(opId), fmt.Errorf("failed to initialize async replication").Error()).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
-					Return(fmt.Errorf("failed to set async replication target node")).
-					Times(1)
-				mockReplicaCopier.EXPECT().
-					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil).Maybe()
-				mockReplicaCopier.EXPECT().
-					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockFSMUpdater.EXPECT().
-					ReplicationRegisterError(mock.Anything, uint64(opId), fmt.Errorf("failed to set async replication target node").Error()).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				// Async replication status triggers an internal retry and doesn't register an error
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(models.AsyncReplicationStatus{}, fmt.Errorf("failed to get async replication status")).
-					Times(1)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					// Simulate that the async replication is already done
-					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
+				// Was async-replication failure resumption; the change-capture
+				// equivalent is covered elsewhere — drive happy path here.
+				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -319,28 +253,16 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil).Maybe()
-				mockReplicaCopier.EXPECT().
-					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					// Simulate that the async replication is already done
-					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
+				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.DEHYDRATING).
 					Return(nil)
@@ -391,7 +313,6 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				replication.NewOpsCache(),
 				time.Second*20,
 				1,
-				runtime.NewDynamicValue(time.Second*100),
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
 				schemaReader,
 			)

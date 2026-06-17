@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,9 +64,7 @@ type metadata struct {
 
 func New[T dto.Embedding](timeout time.Duration, defaultRPM, defaultTPM int) *Client[T] {
 	return &Client[T]{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		defaultRPM: defaultRPM,
 		defaultTPM: defaultTPM,
 	}

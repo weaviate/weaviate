@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -43,16 +43,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		With3NodeCluster().
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
@@ -232,7 +223,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("PatchedOnNode-1", func(t *testing.T) {
 			after, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(1),
-				"Article", articleIDs[0], "node1", tenantID.String())
+				"Article", articleIDs[0], docker.Weaviate0, tenantID.String())
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -257,7 +248,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("OnNode-2", func(t *testing.T) {
 			_, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(2),
-				"Article", articleIDs[0], "node2", tenantID.String())
+				"Article", articleIDs[0], docker.Weaviate1, tenantID.String())
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 

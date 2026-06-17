@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -125,63 +125,6 @@ func TestWriteReplicaSet_Shards(t *testing.T) {
 	}
 }
 
-func TestWriteReplicaSet_AdditionalShards(t *testing.T) {
-	tests := []struct {
-		name               string
-		additionalReplicas []types.Replica
-		want               []string
-	}{
-		{
-			name:               "empty additional replicas",
-			additionalReplicas: []types.Replica{},
-			want:               []string{},
-		},
-		{
-			name: "single additional replica",
-			additionalReplicas: []types.Replica{
-				{ShardName: "shard_A", NodeName: "node1", HostAddr: "host1"},
-			},
-			want: []string{"shard_A"},
-		},
-		{
-			name: "multiple additional replicas same shard - should deduplicate",
-			additionalReplicas: []types.Replica{
-				{ShardName: "shard_A", NodeName: "node1", HostAddr: "host1"},
-				{ShardName: "shard_A", NodeName: "node2", HostAddr: "host2"},
-			},
-			want: []string{"shard_A"},
-		},
-		{
-			name: "multiple different additional shards",
-			additionalReplicas: []types.Replica{
-				{ShardName: "shard_A", NodeName: "node1", HostAddr: "host1"},
-				{ShardName: "shard_B", NodeName: "node2", HostAddr: "host2"},
-			},
-			want: []string{"shard_A", "shard_B"},
-		},
-		{
-			name: "complex additional replica scenario",
-			additionalReplicas: []types.Replica{
-				{ShardName: "shard_A", NodeName: "node1", HostAddr: "host1"},
-				{ShardName: "shard_B", NodeName: "node2", HostAddr: "host2"},
-				{ShardName: "shard_A", NodeName: "node3", HostAddr: "host3"}, // duplicate
-				{ShardName: "shard_C", NodeName: "node4", HostAddr: "host4"},
-			},
-			want: []string{"shard_A", "shard_B", "shard_C"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ws := types.WriteReplicaSet{AdditionalReplicas: tt.additionalReplicas}
-			got := ws.AdditionalShards()
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("WriteReplicaSet.AdditionalShards() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestReadReplicaSet_OtherMethods(t *testing.T) {
 	replicas := []types.Replica{
 		{ShardName: "shard_A", NodeName: "node1", HostAddr: "host1:8080"},
@@ -222,12 +165,8 @@ func TestWriteReplicaSet_OtherMethods(t *testing.T) {
 		{ShardName: "shard_A", NodeName: "node1", HostAddr: "host1:8080"},
 		{ShardName: "shard_B", NodeName: "node2", HostAddr: "host2:8080"},
 	}
-	additionalReplicas := []types.Replica{
-		{ShardName: "shard_C", NodeName: "node3", HostAddr: "host3:8080"},
-	}
 	ws := types.WriteReplicaSet{
-		Replicas:           replicas,
-		AdditionalReplicas: additionalReplicas,
+		Replicas: replicas,
 	}
 
 	t.Run("NodeNames", func(t *testing.T) {
@@ -235,14 +174,6 @@ func TestWriteReplicaSet_OtherMethods(t *testing.T) {
 		got := ws.NodeNames()
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("NodeNames() = %v, want %v", got, want)
-		}
-	})
-
-	t.Run("AdditionalNodeNames", func(t *testing.T) {
-		want := []string{"node3"}
-		got := ws.AdditionalNodeNames()
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("AdditionalNodeNames() = %v, want %v", got, want)
 		}
 	})
 
@@ -254,14 +185,6 @@ func TestWriteReplicaSet_OtherMethods(t *testing.T) {
 		}
 	})
 
-	t.Run("AdditionalHostAddresses", func(t *testing.T) {
-		want := []string{"host3:8080"}
-		got := ws.AdditionalHostAddresses()
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("AdditionalHostAddresses() = %v, want %v", got, want)
-		}
-	})
-
 	t.Run("IsEmpty", func(t *testing.T) {
 		if ws.IsEmpty() {
 			t.Error("IsEmpty() should return false for non-empty replica set")
@@ -270,20 +193,6 @@ func TestWriteReplicaSet_OtherMethods(t *testing.T) {
 		emptyWS := types.WriteReplicaSet{Replicas: []types.Replica{}}
 		if !emptyWS.IsEmpty() {
 			t.Error("IsEmpty() should return true for empty replica set")
-		}
-	})
-
-	t.Run("EmptyAdditionalReplicas", func(t *testing.T) {
-		if ws.EmptyAdditionalReplicas() {
-			t.Error("EmptyAdditionalReplicas() should return false when additional replicas exist")
-		}
-
-		wsNoAdditional := types.WriteReplicaSet{
-			Replicas:           replicas,
-			AdditionalReplicas: []types.Replica{},
-		}
-		if !wsNoAdditional.EmptyAdditionalReplicas() {
-			t.Error("EmptyAdditionalReplicas() should return true when no additional replicas")
 		}
 	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,9 +18,10 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
+
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -55,6 +56,7 @@ type Store struct {
 	// Prevent concurrent manipulations to the same Bucket, specially if there is
 	// action on the bucket in the meantime.
 	bucketsLocks *wsync.KeyLocker
+	loadLimiter  *loadlimiter.LoadLimiter
 
 	closeLock sync.RWMutex
 	closed    bool
@@ -63,7 +65,7 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadLimiter *loadlimiter.LoadLimiter,
 	shardCompactionCallbacks, shardCompactionAuxCallbacks,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
@@ -75,6 +77,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
+		loadLimiter:   loadLimiter,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
@@ -85,6 +88,11 @@ func (s *Store) Bucket(name string) *Bucket {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
+	return s.bucketNoLock(name)
+}
+
+// bucketNoLock returns a bucket by name; caller must hold bucketAccessLock.
+func (s *Store) bucketNoLock(name string) *Bucket {
 	return s.bucketsByName[name]
 }
 
@@ -162,8 +170,15 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 				"bucket":   bucketName,
 			}).
 			WithError(err).Errorf("unexpected error loading shard")
-		debug.PrintStack()
+		enterrors.PrintStack(s.logger)
 	}()
+
+	if s.loadLimiter != nil {
+		if err := s.loadLimiter.Acquire(ctx); err != nil {
+			return errors.Wrapf(err, "acquire load limiter for bucket %q", bucketName)
+		}
+		defer s.loadLimiter.Release()
+	}
 
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -236,6 +251,15 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	return eg.Wait()
 }
 
+// ErrBucketNotFound is the sentinel returned by [Store.ShutdownBucket]
+// when the named bucket is absent at shutdown time. Callers that race
+// against another teardown path (cancel-cleanup, restart-bootstrap) can
+// match this sentinel with [errors.Is] to treat "already gone" as the
+// desired post-state. Callers that genuinely expected the bucket to be
+// present (e.g. the reindex task that just created it) propagate the
+// error normally.
+var ErrBucketNotFound = errors.New("bucket not found")
+
 func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -245,7 +269,7 @@ func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 
 	bucket, ok := s.bucketsByName[bucketName]
 	if !ok {
-		return fmt.Errorf("shutdown bucket %q of store %q: bucket not found", bucketName, s.dir)
+		return fmt.Errorf("shutdown bucket %q of store %q: %w", bucketName, s.dir, ErrBucketNotFound)
 	}
 	if err := bucket.Shutdown(ctx); err != nil {
 		return errors.Wrapf(err, "shutdown bucket %q of store %q", bucketName, s.dir)
@@ -373,7 +397,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	wg.Wait()
 	close(resultQueue)
 
-	var errs errorcompounder.ErrorCompounder
+	errs := errorcompounder.New()
 	for _, err := range status.buckets {
 		errs.Add(err)
 	}
@@ -386,7 +410,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 		for b, jobErr := range status.buckets {
 			if jobErr != nil && rollbackFunc != nil {
 				if rollbackErr := rollbackFunc(ctx, b); rollbackErr != nil {
-					errs.AddWrap(rollbackErr, "bucket job rollback")
+					errs.AddWrapf(rollbackErr, "bucket job rollback")
 				}
 			}
 		}
@@ -597,6 +621,139 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	}
 
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
+
+	return nil
+}
+
+// SwapBucketPointer atomically redirects all future Store.Bucket(targetName)
+// calls to return the bucket currently registered as sourceName. The source
+// name is removed from the map. Returns the old bucket (previously at
+// targetName) so the caller can shut it down.
+//
+// This is a pure in-memory operation — no filesystem changes. The caller is
+// responsible for:
+//   - Shutting down the returned old bucket
+//   - Persisting any crash-safety markers (sentinel files) around this call
+//   - Finalizing directory renames at a later point (e.g., next restart)
+//
+// Registry side effect: the source bucket's on-disk path is released from
+// [GlobalBucketRegistry] as part of the swap. The source bucket continues to
+// serve queries from its original on-disk directory (the rename is deferred
+// to next-restart finalization), but in-process callers may now load a fresh
+// bucket at that path (typically after wiping the dir via
+// cleanStaleSidecarDirs). Without this release a back-to-back migration in
+// the same process — e.g. two consecutive filterable retokenizations on the
+// same property — aborts at OnAfterLsmInit with
+// "bucket already registered" when the second cycle's ingest bucket tries to
+// claim the same path. The displaced (old-main) bucket has its own registry
+// entry which is cleaned up by the caller's subsequent Shutdown of the
+// returned bucket — that path is NOT released here.
+func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName string) (*Bucket, error) {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return nil, fmt.Errorf("%w: swapping bucket %q with %q in store %q",
+			ErrAlreadyClosed, targetName, sourceName, s.dir)
+	}
+
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	oldBucket, ok := s.bucketsByName[targetName]
+	if !ok {
+		return nil, fmt.Errorf("target bucket %q not found in store %q", targetName, s.dir)
+	}
+
+	sourceBucket, ok := s.bucketsByName[sourceName]
+	if !ok {
+		return nil, fmt.Errorf("source bucket %q not found in store %q", sourceName, s.dir)
+	}
+
+	s.bucketsByName[targetName] = sourceBucket
+	delete(s.bucketsByName, sourceName)
+
+	// Release the source bucket's on-disk path from the global registry. See
+	// the function doc above for the full rationale. The source bucket is
+	// still alive and operates from this dir on disk until FinalizeBucketSwap
+	// runs (typically on next restart) — but the registry is purely an
+	// in-process de-duplication shield for CreateOrLoadBucket. Releasing it
+	// lets a same-process back-to-back migration claim the same path after
+	// the on-disk dir has been cleaned by cleanStaleSidecarDirs (called from
+	// CleanStalePartialReindexState at submit time).
+	//
+	// Safety vs the source bucket's eventual Shutdown: Bucket.Shutdown calls
+	// GlobalBucketRegistry.Remove(b.GetDir()) which is idempotent — removing
+	// a path that is not in the registry is a no-op, and the bucket that did
+	// claim the path between the swap and the Shutdown is not affected
+	// because every swap in a chain runs this same Remove, so the path is
+	// released BEFORE the next bucket claims it.
+	GlobalBucketRegistry.Remove(sourceBucket.GetDir())
+
+	return oldBucket, nil
+}
+
+// FinalizeBucketSwap completes a deferred bucket swap by renaming directories
+// on disk and updating all in-memory paths.
+//
+// IMPORTANT: This MUST only be called during startup, before the bucket serves
+// any queries. It renames the bucket's on-disk directory and rewrites all
+// in-memory segment paths. Calling this on a live, query-serving bucket will
+// cause data races, stale file handles, and potential data loss.
+//
+//   - canonicalDir: the directory the bucket should ultimately live at
+//   - currentDir:   the directory the bucket was loaded from
+//   - backupDir:    the _bak directory to clean up
+//
+// Steps:
+//  1. Flush any active memtable data to a segment (preserves WAL-replayed data)
+//  2. Remove backupDir if it exists
+//  3. Rename currentDir → canonicalDir
+//  4. Update bucket.dir, bucket.disk.dir, and all segment paths in memory
+//  5. Create a fresh active memtable at the canonical path
+func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir, currentDir, backupDir string) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: finalizing bucket swap for %q in store %q",
+			ErrAlreadyClosed, bucketName, s.dir)
+	}
+
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	bucket, ok := s.bucketsByName[bucketName]
+	if !ok {
+		return fmt.Errorf("bucket %q not found in store %q", bucketName, s.dir)
+	}
+
+	// Flush any in-memory data (e.g. from WAL replay at startup) to a segment
+	// before renaming directories. FlushAndSwitch is a no-op for empty
+	// memtables.
+	if err := bucket.FlushAndSwitch(); err != nil {
+		return fmt.Errorf("flush memtable before dir rename: %w", err)
+	}
+
+	if err := os.RemoveAll(backupDir); err != nil {
+		return fmt.Errorf("remove backup dir %q: %w", backupDir, err)
+	}
+
+	if err := os.Rename(currentDir, canonicalDir); err != nil {
+		return fmt.Errorf("rename %q to %q: %w", currentDir, canonicalDir, err)
+	}
+
+	s.updateBucketDir(bucket, currentDir, canonicalDir)
+	bucket.dir = canonicalDir
+
+	bucket.flushLock.Lock()
+	defer bucket.flushLock.Unlock()
+
+	mt, err := bucket.createNewActiveMemtable()
+	if err != nil {
+		return fmt.Errorf("create new active memtable after dir rename: %w", err)
+	}
+	bucket.active = mt
 
 	return nil
 }

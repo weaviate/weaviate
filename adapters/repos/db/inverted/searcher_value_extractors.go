@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	ent "github.com/weaviate/weaviate/entities/inverted"
 )
@@ -88,4 +89,18 @@ func (s *Searcher) extractDateValue(in interface{}) ([]byte, error) {
 	}
 
 	return ent.LexicographicallySortableInt64(asInt64)
+}
+
+// extractUUIDValue parses a UUID string filter value and returns its 16-byte
+// representation, matching how analyzeValue stores UUID properties.
+func (s *Searcher) extractUUIDValue(in interface{}) ([]byte, error) {
+	asStr, ok := in.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected uuid filter value to be a string, got %T", in)
+	}
+	parsed, err := uuid.Parse(asStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid filter value: %w", err)
+	}
+	return parsed[:], nil
 }

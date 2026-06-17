@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,11 +26,10 @@ import (
 )
 
 func TestAuthZBatchRefAuthZCalls(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	containers := compose.Containers()
@@ -92,14 +91,13 @@ func TestAuthZBatchRefAuthZCalls(t *testing.T) {
 }
 
 func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
 	customKey := "custom-key"
 	customAuth := helper.CreateAuth(customKey)
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	compose, down := composeUpShared(t)
 	defer down()
 
 	containers := compose.Containers()

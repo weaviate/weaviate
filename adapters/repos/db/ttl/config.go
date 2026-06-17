@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,15 +20,20 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const minDefaultTtl = time.Minute
 
-func ValidateObjectTTLConfig(collection *models.Class, isUpdate bool) (*models.ObjectTTLConfig, bool, error) {
+func ValidateObjectTTLConfig(collection *models.Class, isUpdate bool, dbConfig config.Config) (*models.ObjectTTLConfig, bool, error) {
 	ttlConfig := collection.ObjectTTLConfig
 
 	if !IsTtlEnabled(ttlConfig) {
 		return ttlConfig, false, nil
+	}
+
+	if dbConfig.ObjectsTTLDeleteSchedule.Get() == "" {
+		return nil, false, newErrorScheduleNotSet()
 	}
 
 	minimumTTL := minDefaultTtl
@@ -83,6 +88,22 @@ func IsTtlEnabled(config *models.ObjectTTLConfig) bool {
 	return config != nil && config.Enabled
 }
 
+// IsTtlConfigChanged reports whether the TTL configuration differs between
+// the two classes. Any change to the TTL settings (enabled, deleteOn,
+// defaultTtl, filterExpiredObjects) is considered a change.
+func IsTtlConfigChanged(initial, updated *models.ObjectTTLConfig) bool {
+	if initial == nil && updated == nil {
+		return false
+	}
+	if initial == nil || updated == nil {
+		return true
+	}
+	return initial.Enabled != updated.Enabled ||
+		initial.DeleteOn != updated.DeleteOn ||
+		initial.DefaultTTL != updated.DefaultTTL ||
+		initial.FilterExpiredObjects != updated.FilterExpiredObjects
+}
+
 type (
 	errorTtl                         struct{ error }
 	errorEmptyDeleteOn               struct{ errorTtl }
@@ -91,6 +112,7 @@ type (
 	errorMissingDeleteOnProp         struct{ errorTtl }
 	errorInvalidDeleteOnPropDatatype struct{ errorTtl }
 	errorMissingDeleteOnPropIndex    struct{ errorTtl }
+	errorScheduleNotSet              struct{ errorTtl }
 )
 
 func (e errorTtl) Error() string {
@@ -151,16 +173,10 @@ func (e errorMissingDeleteOnPropIndex) Unwrap() error {
 	return e.errorTtl
 }
 
-// type CollectionWithTTL struct {
-// 	CollectionName string
-// 	PropertyName   string
-// 	TtlThreshold   time.Time
-// }
+func newErrorScheduleNotSet() errorScheduleNotSet {
+	return errorScheduleNotSet{errorTtl{fmt.Errorf("enabling objectTTL requires a running background scheduler. Set OBJECTS_TTL_DELETE_SCHEDULE to activate it")}}
+}
 
-// func NewCollectionWithTTL(collectionName, propertyName string, ttlThreshold time.Time) CollectionWithTTL {
-// 	return CollectionWithTTL{
-// 		CollectionName: collectionName,
-// 		PropertyName:   propertyName,
-// 		TtlThreshold:   ttlThreshold,
-// 	}
-// }
+func (e errorScheduleNotSet) Unwrap() error {
+	return e.errorTtl
+}

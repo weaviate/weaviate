@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -43,12 +43,16 @@ type clientConfig struct {
 	// the backup to be stored in a specific
 	// directory inside the provided bucket
 	BackupPath string
+
+	// SkipAccessCheck disables the write+delete probe in Initialize.
+	SkipAccessCheck bool
 }
 
 type Module struct {
-	logger logrus.FieldLogger
-	*gcsClient
-	dataPath string
+	logger       logrus.FieldLogger
+	*gcsClient              // backup client
+	exportClient *gcsClient // export-only client: no default bucket or path; the scheduler supplies both
+	dataPath     string
 }
 
 func New() *Module {
@@ -78,18 +82,30 @@ func (m *Module) Init(ctx context.Context,
 	m.dataPath = params.GetStorageProvider().DataPath()
 
 	config := &clientConfig{
-		Bucket:     os.Getenv(gcsBucket),
-		BackupPath: os.Getenv(gcsPath),
+		Bucket:          os.Getenv(gcsBucket),
+		BackupPath:      os.Getenv(gcsPath),
+		SkipAccessCheck: params.GetConfig().Backup.SkipAccessCheck,
 	}
 	if config.Bucket == "" {
 		return errors.Errorf("backup init: '%s' must be set", gcsBucket)
 	}
 
-	client, err := newClient(ctx, config, m.dataPath)
+	client, err := newClient(ctx, config, m.dataPath, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")
 	}
 	m.gcsClient = client
+
+	exportConfig := &clientConfig{
+		Bucket:          "", // export scheduler provides bucket via EXPORT_DEFAULT_BUCKET
+		BackupPath:      "", // export scheduler provides path via EXPORT_DEFAULT_PATH
+		SkipAccessCheck: params.GetConfig().Export.SkipAccessCheck,
+	}
+	exportClient, err := newClient(ctx, exportConfig, m.dataPath, m.logger)
+	if err != nil {
+		return errors.Wrap(err, "init gcs export client")
+	}
+	m.exportClient = exportClient
 	return nil
 }
 
@@ -102,9 +118,24 @@ func (m *Module) MetaInfo() (map[string]interface{}, error) {
 	return metaInfo, nil
 }
 
+// ExportBackend returns the export-specific backend. It has no default
+// bucket or path; the export scheduler supplies both via
+// EXPORT_DEFAULT_BUCKET and EXPORT_DEFAULT_PATH.
+func (m *Module) ExportBackend() modulecapabilities.BackupBackend {
+	return &exportGCSBackend{m.exportClient}
+}
+
+type exportGCSBackend struct {
+	*gcsClient
+}
+
+func (e *exportGCSBackend) IsExternal() bool { return true }
+func (e *exportGCSBackend) Name() string     { return Name }
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.BackupBackend(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.ExportBackendProvider(New())
 )

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,18 +13,29 @@ package v1
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type AggregateReplier struct {
 	authorizedGetDataTypeOfProp func(string) (string, error)
+	// principal drives the defense-in-depth strip on Reference.PointingTo —
+	// the only ref-shaped field the replier emits — so a stray qualified
+	// beacon doesn't leak the caller's "<ns>:" through aggregation. nil =
+	// no strip (NS-disabled / unauth contexts).
+	principal *models.Principal
 }
 
-func NewAggregateReplier(authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
+func NewAggregateReplier(principal *models.Principal, authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
 	return &AggregateReplier{
+		principal: principal,
 		authorizedGetDataTypeOfProp: func(propName string) (string, error) {
 			class, err := authorizedGetClass(string(params.ClassName))
 			if err != nil {
@@ -66,13 +77,18 @@ func (r *AggregateReplier) Aggregate(res interface{}, isGroupby bool) (*pb.Aggre
 
 		if len(result.Groups) > 0 {
 			groups = make([]*pb.AggregateReply_Group, len(result.Groups))
+			// All groups share one group-by property; resolve ref-ness once.
+			var groupByIsRef bool
+			if gb := result.Groups[0].GroupedBy; gb != nil {
+				groupByIsRef = r.groupByIsRef(gb.Path)
+			}
 			for i := range result.Groups {
 				count := int64(result.Groups[i].Count)
 				aggregations, err := r.parseAggregatedProperties(result.Groups[i].Properties)
 				if err != nil {
 					return nil, fmt.Errorf("aggregations: %w", err)
 				}
-				groupedBy, err := r.parseAggregateGroupedBy(result.Groups[i].GroupedBy)
+				groupedBy, err := r.parseAggregateGroupedBy(result.Groups[i].GroupedBy, groupByIsRef)
 				if err != nil {
 					return nil, fmt.Errorf("groupedBy: %w", err)
 				}
@@ -88,14 +104,52 @@ func (r *AggregateReplier) Aggregate(res interface{}, isGroupby bool) (*pb.Aggre
 	return &pb.AggregateReply{}, nil
 }
 
-func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*pb.AggregateReply_Group_GroupedBy, error) {
+// groupByIsRef reports whether the group-by property is a cross-reference
+// (its buckets are beacon URIs, not user text). Keyed on the schema, not the
+// value's type: remote-shard buckets arrive as plain strings after the
+// shard→coordinator JSON round-trip collapses strfmt.URI, so a type check
+// would miss them.
+func (r *AggregateReplier) groupByIsRef(path []string) bool {
+	if r.authorizedGetDataTypeOfProp == nil || len(path) == 0 {
+		return false
+	}
+	dataType, err := r.authorizedGetDataTypeOfProp(path[len(path)-1])
+	if err != nil {
+		return false
+	}
+	return schema.IsRefDataType([]string{dataType})
+}
+
+const beaconScheme = "weaviate://"
+
+// groupedByText builds a text bucket. For a ref beacon it strips the caller's
+// own "<ns>:" from the embedded class (foreign prefixes stay). The scheme
+// guard matters: crossref.Parse ignores the scheme and Ref.String() rewrites
+// to weaviate:// dropping any query/fragment, so without it a non-beacon
+// "/Class/<uuid>" URI would be mangled. Defense in depth — writes already
+// store beacons short.
+func (r *AggregateReplier) groupedByText(path []string, val string, isRef bool) *pb.AggregateReply_Group_GroupedBy {
+	if isRef && strings.HasPrefix(val, beaconScheme) {
+		if ref, err := crossref.Parse(val); err == nil {
+			ref.Class = namespacing.StripOwnNamespace(r.principal, ref.Class)
+			val = ref.String()
+		}
+	}
+	return &pb.AggregateReply_Group_GroupedBy{
+		Path:  path,
+		Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: val},
+	}
+}
+
+func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy, isRef bool) (*pb.AggregateReply_Group_GroupedBy, error) {
 	if in != nil {
 		switch val := in.Value.(type) {
 		case string:
-			return &pb.AggregateReply_Group_GroupedBy{
-				Path:  in.Path,
-				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: val},
-			}, nil
+			return r.groupedByText(in.Path, val, isRef), nil
+		case strfmt.URI:
+			// Defensive: the grouper emits beacons as plain string; this only
+			// catches a stray named type so it can't fall through to the 500.
+			return r.groupedByText(in.Path, string(val), isRef), nil
 		case bool:
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
@@ -205,7 +259,7 @@ func (r *AggregateReplier) parseAggregationResult(propertyName string, property 
 			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Date_{Date: dateAggregation},
 		}, nil
 	case aggregation.PropertyTypeReference:
-		referenceAggregation := parseReferenceAggregation(property.SchemaType, property.ReferenceAggregation)
+		referenceAggregation := r.parseReferenceAggregation(property.SchemaType, property.ReferenceAggregation)
 		return &pb.AggregateReply_Aggregations_Aggregation{
 			Property:    propertyName,
 			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Reference_{Reference: referenceAggregation},
@@ -346,10 +400,14 @@ func parseDateAggregation(schemaType string, in map[string]interface{}) (*pb.Agg
 	return date, nil
 }
 
-func parseReferenceAggregation(schemaType string, in aggregation.Reference) *pb.AggregateReply_Aggregations_Aggregation_Reference {
+// parseReferenceAggregation builds the gRPC reference aggregation reply.
+// PointingTo is populated two ways: stored beacons (already short via
+// write-path normalization) or bare property.DataType entries (qualified
+// on NS clusters — the real leak vector). StripPointingTo handles both.
+func (r *AggregateReplier) parseReferenceAggregation(schemaType string, in aggregation.Reference) *pb.AggregateReply_Aggregations_Aggregation_Reference {
 	return &pb.AggregateReply_Aggregations_Aggregation_Reference{
 		Type:       &schemaType,
-		PointingTo: in.PointingTo,
+		PointingTo: namespacing.StripPointingTo(r.principal, in.PointingTo),
 	}
 }
 

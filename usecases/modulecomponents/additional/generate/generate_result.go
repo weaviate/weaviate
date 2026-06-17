@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -163,7 +163,7 @@ func (p *GenerateProvider) getProperties(result search.Result,
 				textProperties[property] = p.marshalInput(value)
 			case schema.DataTypeCRef:
 				textProperties[property] = p.marshalInput(value)
-			case schema.DataTypeBlob:
+			case schema.DataTypeBlob, schema.DataTypeBlobHash:
 				v := value.(string)
 				blobProperties[property] = &v
 			default:

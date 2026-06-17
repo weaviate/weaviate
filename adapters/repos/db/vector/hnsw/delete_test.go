@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,11 +30,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -44,6 +44,17 @@ func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *co
 		copy(container.Slice, vectors[int(id)])
 		return vectors[int(id)], nil
 	}
+}
+
+func TempVectorForIDWithViewThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice, common.BucketView) ([]float32, error) {
+	return func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		copy(container.Slice, vectors[int(id)])
+		return vectors[int(id)], nil
+	}
+}
+
+func GetViewThunk() common.BucketView {
+	return &noopBucketView{}
 }
 
 func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
@@ -62,8 +73,9 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -156,8 +168,9 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -275,8 +288,9 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -373,8 +387,9 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections:        30,
 			EFConstruction:        128,
@@ -473,8 +488,9 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -596,8 +612,9 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		AllocChecker:         memwatch.NewDummyMonitor(),
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -827,9 +844,10 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				}
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
@@ -976,8 +994,9 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 				}
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
@@ -1072,9 +1091,10 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id%uint64(len(vectors)))], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
@@ -1261,11 +1281,13 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	// The underlying test set can be found in vectors_for_test.go
 
 	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "delete-entrypoint-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk:      testVectorForID,
+		RootPath:                     "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                           "delete-entrypoint-test",
+		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:             testVectorForID,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(testVectors),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1415,13 +1437,14 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	//     Level 0: Connections: [1]
 
 	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "more-delete-entrypoint-flakyness-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewGeoProvider(),
-		VectorForIDThunk:      vecForID,
-		TempVectorForIDThunk:  TempVectorForIDThunk(vectors),
-		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:                     "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                           "more-delete-entrypoint-flakyness-test",
+		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
+		DistanceProvider:             distancer.NewGeoProvider(),
+		VectorForIDThunk:             vecForID,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1494,13 +1517,14 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		return []float32{0.1, 0.2}, nil
 	}
 	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "tombstoned-entrypoint-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk:      vecForID,
-		TempVectorForIDThunk:  TempVectorForIDThunk([][]float32{{0.1, 0.2}}),
-		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:                     "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                           "tombstoned-entrypoint-test",
+		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:             vecForID,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk([][]float32{{0.1, 0.2}}),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1683,8 +1707,9 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 				fmt.Printf("vec for pos=%d is %v\n", id, vectors[int(id)])
 				return vectors[int(id)], vectorErrors[int(id)]
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -1738,8 +1763,9 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		AllocChecker:         memwatch.NewDummyMonitor(),
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1810,8 +1836,9 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		AllocChecker:         memwatch.NewDummyMonitor(),
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1882,8 +1909,9 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -1945,8 +1973,9 @@ func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)%len(vectors)], nil // Wrap around to reuse vectors
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		AllocChecker:         memwatch.NewDummyMonitor(),
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections:        30,
 		EFConstruction:        128,
@@ -2018,9 +2047,10 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
-			PrometheusMetrics:    metrics,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
+			PrometheusMetrics:            metrics,
 		}, ent.UserConfig{
 			MaxConnections:        30,
 			EFConstruction:        64,
@@ -2066,8 +2096,9 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AllocChecker:         memwatch.NewDummyMonitor(),
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections:        30,
 			EFConstruction:        64,
@@ -2102,5 +2133,108 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background(), false))
+	})
+}
+
+// TestDelete_EntrypointWithLowerLevelThanOtherNodes tests a regression where
+// deleting an entrypoint with a lower level than other nodes in the graph
+// causes a panic. This can happen when:
+// 1. The entrypoint has level = 0
+// 2. Another node has level > 0 (e.g., level = 3)
+// 3. findNewGlobalEntrypoint searches from entrypoint.level (0) down to 0
+// 4. The other node with level = 3 is not found because candidateLevel != l
+// 5. But isOnlyNode considers the other node valid (connections.Layers() > 0)
+// 6. This causes the panic "findNewEntrypoint called on an empty hnsw graph"
+func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
+	ctx := context.Background()
+
+	// Create index with minimal config
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "delete-entrypoint-level-mismatch-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk([][]float32{
+			{0.1, 0.2},
+			{0.3, 0.4},
+		}),
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		EF:                    36,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+	defer index.Drop(ctx, false)
+
+	// Manually build an index with an inconsistent state:
+	// - Entrypoint (node 0) has level = 0
+	// - Node 1 has level = 3 (higher than entrypoint)
+	// - currentMaximumLayer = 0 (doesn't reflect the true max level)
+	//
+	// This simulates a state that could occur after:
+	// - Corrupt commit log replay
+	// - Deserialization bugs where node.level is not set correctly
+	// - Race conditions during recovery
+
+	index.Lock()
+	index.entryPointID = 0
+	index.currentMaximumLayer = 0 // Inconsistent: should be 3 to match node 1's level
+	index.nodes = make([]*vertex, 10)
+
+	// Node 0: entrypoint with level 0
+	conns0, _ := packedconn.NewWithElements([][]uint64{
+		{1}, // connections at level 0
+	})
+	index.nodes[0] = &vertex{
+		id:          0,
+		level:       0,
+		connections: conns0,
+	}
+
+	// Node 1: has level 3 (higher than entrypoint's level 0)
+	// This node has connections at levels 0, 1, 2, 3
+	conns1, _ := packedconn.NewWithElements([][]uint64{
+		{0}, // level 0
+		{},  // level 1
+		{},  // level 2
+		{},  // level 3
+	})
+	index.nodes[1] = &vertex{
+		id:          1,
+		level:       3, // Higher than entrypoint
+		connections: conns1,
+	}
+	index.Unlock()
+
+	// Verify the setup is correct
+	require.Equal(t, uint64(0), index.entryPointID)
+	require.Equal(t, 0, index.currentMaximumLayer)
+	require.Equal(t, 0, index.nodes[0].level)
+	require.Equal(t, 3, index.nodes[1].level)
+	require.Equal(t, uint8(1), index.nodes[0].connections.Layers())
+	require.Equal(t, uint8(4), index.nodes[1].connections.Layers())
+
+	// Now delete the entrypoint (node 0)
+	// This should NOT panic, but currently it does because:
+	// - isOnlyNode sees node 1 as valid (connections.Layers() > 0)
+	// - findNewGlobalEntrypoint searches from level 0 to 0
+	// - Node 1 has level = 3, so candidateLevel (3) != l (0)
+	// - No candidate is found
+	// - isEmpty() returns false (node 0 still exists)
+	// - isOnlyNode() returns false (node 1 is valid)
+	// - PANIC
+
+	t.Run("delete entrypoint should not panic when other nodes have higher levels", func(t *testing.T) {
+		// Guard against a regression where deleting the entrypoint panicked when the
+		// replacement node existed only on higher levels.
+		err := index.Delete(0)
+		require.Nil(t, err)
+
+		// After deletion, node 1 should become the new entrypoint
+		require.Equal(t, uint64(1), index.entryPointID)
+		require.Equal(t, 3, index.currentMaximumLayer)
 	})
 }

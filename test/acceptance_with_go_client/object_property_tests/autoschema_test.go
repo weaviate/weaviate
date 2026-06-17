@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,11 +21,13 @@ import (
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestObjectProperty_AutoSchema(t *testing.T) {
 	ctx := context.Background()
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	id1 := strfmt.UUID("00000000-0000-0000-0000-000000000001")

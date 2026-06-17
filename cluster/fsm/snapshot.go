@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,8 @@ type Snapshot struct {
 	ReplicationOps []byte `json:"replication_ops,omitempty"`
 	// DbUsers is the state of dynamic db users that will be used to restore the FSM
 	DbUsers []byte `json:"dbusers,omitempty"`
+	// Namespaces is the state of cluster-level namespace control-plane entities
+	Namespaces []byte `json:"namespaces,omitempty"`
 }
 
 // Snapshotter is used to snapshot and restore any (FSM) state

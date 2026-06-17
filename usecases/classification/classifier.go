@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -193,17 +193,21 @@ func (c *Classifier) extractFilters(ctx context.Context, principal *models.Princ
 		return classificationFilters{}, nil
 	}
 
-	source, err := filterext.Parse(params.Filters.SourceWhere, params.Class)
+	// Classification is not exercised on namespace-enabled clusters, so the
+	// nested-path qualification in filterext.Parse is hard-wired off here.
+	const namespacesEnabled = false
+
+	source, err := filterext.Parse(params.Filters.SourceWhere, params.Class, namespacesEnabled, principal)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'sourceWhere': %w", err)
 	}
 
-	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere, params.Class)
+	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere, params.Class, namespacesEnabled, principal)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'trainingSetWhere': %w", err)
 	}
 
-	target, err := filterext.Parse(params.Filters.TargetWhere, params.Class)
+	target, err := filterext.Parse(params.Filters.TargetWhere, params.Class, namespacesEnabled, principal)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'targetWhere': %w", err)
 	}

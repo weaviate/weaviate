@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 )
 
@@ -55,7 +56,7 @@ var (
 	semanticSimilarity taskType = "SEMANTIC_SIMILARITY"
 )
 
-func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
+func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
 	if useGenerativeAI {
 		if isLegacyModel(modelID) {
 			// legacy PaLM API
@@ -63,14 +64,15 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID string) stri
 		}
 		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
 	}
-	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, modelID)
+	urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict"
+	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, location, modelID)
 }
 
 type settings struct {
 	ApiEndpoint string
 	ProjectID   string
 	Model       string
+	Location    string
 	Dimensions  *int64
 	TaskType    string
 }
@@ -79,21 +81,21 @@ type google struct {
 	apiKey        string
 	googleApiKey  *apikey.GoogleApiKey
 	useGoogleAuth bool
+	rpm           int
 	httpClient    *http.Client
-	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
+	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string
 	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *google {
+func New(apiKey string, useGoogleAuth bool, rpm int, timeout time.Duration, logger logrus.FieldLogger) *google {
 	return &google{
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
+		rpm:           rpm,
 		googleApiKey:  apikey.NewGoogleApiKey(),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		urlBuilderFn: buildURL,
-		logger:       logger,
+		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilderFn:  buildURL,
+		logger:        logger,
 	}
 }
 
@@ -130,9 +132,9 @@ func (v *google) GetVectorizerRateLimit(ctx context.Context, config moduletools.
 			return
 		}
 
-		limits.LimitRequests = 30000
+		limits.LimitRequests = v.rpm
 		limits.LimitTokens = 1000000
-		limits.RemainingRequests = 30000
+		limits.RemainingRequests = v.rpm
 		limits.RemainingTokens = 1000000
 		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
 		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)
@@ -160,7 +162,7 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 	}
 
 	endpointURL := v.urlBuilderFn(useGenerativeAIEndpoint,
-		v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config))
+		v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config), v.getLocation(config))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL,
 		bytes.NewReader(body))
@@ -254,7 +256,7 @@ func (v *google) parseGenerativeAIApiResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody batchEmbedTextResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
@@ -286,7 +288,7 @@ func (v *google) parseEmbeddingsResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
@@ -326,6 +328,10 @@ func (v *google) getModel(config settings) string {
 	return config.Model
 }
 
+func (v *google) getLocation(config settings) string {
+	return config.Location
+}
+
 func (v *google) isLegacy(config settings) bool {
 	return isLegacyModel(config.Model)
 }
@@ -336,6 +342,7 @@ func (v *google) getSettings(config moduletools.ClassConfig) settings {
 		ApiEndpoint: icheck.ApiEndpoint(),
 		ProjectID:   icheck.ProjectID(),
 		Model:       icheck.Model(),
+		Location:    icheck.Location(),
 		Dimensions:  icheck.Dimensions(),
 		TaskType:    icheck.TaskType(),
 	}

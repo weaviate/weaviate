@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,6 @@ import (
 )
 
 func TestAuthzAggregateWithGRPC(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
@@ -37,7 +36,7 @@ func TestAuthzAggregateWithGRPC(t *testing.T) {
 	customUser2 := "custom-user2"
 	customKey2 := "custom-key2"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, customUser2: customKey2}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	grpcClient := helper.ClientGRPC(t)

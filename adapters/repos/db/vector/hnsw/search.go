@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -235,10 +235,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		took := time.Since(start)
 		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("knn_search_layer_%d_took", level), took)
 	}()
-	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
 	visitedExp := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -285,9 +283,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
-			h.pools.visitedListsLock.RLock()
 			h.pools.visitedLists.Return(visited)
-			h.pools.visitedListsLock.RUnlock()
+			h.pools.visitedLists.Return(visitedExp)
 
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
 			return nil, err
@@ -376,12 +373,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							// skip if we've already visited this neighbor
 							continue
 						}
-						if !visitedExp.Visited(nodeId) {
+						if !visitedExp.CheckAndVisit(nodeId) {
 							if !isMultivec {
 								if allowList.Contains(nodeId) {
 									connectionsReusable[realLen] = nodeId
 									realLen++
-									visitedExp.Visit(nodeId)
 									continue
 								}
 							} else {
@@ -394,14 +390,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								if allowList.Contains(docID) {
 									connectionsReusable[realLen] = nodeId
 									realLen++
-									visitedExp.Visit(nodeId)
 									continue
 								}
 							}
 						} else {
 							continue
 						}
-						visitedExp.Visit(nodeId)
 
 						h.RLock()
 						h.shardedNodeLocks.RLock(nodeId)
@@ -414,7 +408,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						iterator := node.connections.ElementIterator(uint8(level))
 						for iterator.Next() {
 							_, expId := iterator.Current()
-							if visitedExp.Visited(expId) {
+							if visitedExp.CheckAndVisit(expId) {
 								continue
 							}
 							if visited.Visited(expId) {
@@ -427,11 +421,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 							if !isMultivec {
 								if allowList.Contains(expId) {
-									visitedExp.Visit(expId)
 									connectionsReusable[realLen] = expId
 									realLen++
 								} else if hop < maxHops {
-									visitedExp.Visit(expId)
 									pendingNextRound = append(pendingNextRound, expId)
 								}
 							} else {
@@ -442,11 +434,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 									docID, _ = h.cache.GetKeys(expId)
 								}
 								if allowList.Contains(docID) {
-									visitedExp.Visit(expId)
 									connectionsReusable[realLen] = expId
 									realLen++
 								} else if hop < maxHops {
-									visitedExp.Visit(expId)
 									pendingNextRound = append(pendingNextRound, expId)
 								}
 							}
@@ -462,13 +452,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
-			if ok := visited.Visited(neighborID); ok {
+			if visited.CheckAndVisit(neighborID) {
 				// skip if we've already visited this neighbor
 				continue
 			}
-
-			// make sure we never visit this neighbor again
-			visited.Visit(neighborID)
 
 			if strategy == RRE && level == 0 {
 				if isMultivec {
@@ -498,10 +485,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				} else {
-					h.pools.visitedListsLock.RLock()
 					h.pools.visitedLists.Return(visited)
 					h.pools.visitedLists.Return(visitedExp)
-					h.pools.visitedListsLock.RUnlock()
 					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
 			}
@@ -560,17 +545,15 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.pools.visitedListsLock.RLock()
 	h.pools.visitedLists.Return(visited)
 	h.pools.visitedLists.Return(visitedExp)
-	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedList *visited.SparseSet, allowList helpers.AllowList,
 ) {
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
@@ -661,16 +644,16 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
-	slice := h.pools.tempVectors.Get(int(h.dims))
+func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64, view common.BucketView) (float32, error) {
+	slice := h.pools.tempVectors.Get(int(h.dims.Load()))
 	defer h.pools.tempVectors.Put(slice)
 	var vec []float32
 	var err error
 	if h.muvera.Load() || !h.multivector.Load() {
-		vec, err = h.TempVectorForIDThunk(ctx, nodeID, slice)
+		vec, err = h.TempVectorForIDWithViewThunk(ctx, nodeID, slice, view)
 	} else {
 		docID, relativeID := h.cache.GetKeys(nodeID)
-		vecs, err := h.TempMultiVectorForIDThunk(ctx, docID, slice)
+		vecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
 		if err != nil {
 			return 0, err
 		} else if len(vecs) <= int(relativeID) {
@@ -681,13 +664,16 @@ func (h *hnsw) distanceFromBytesToFloatNode(ctx context.Context, concreteDistanc
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNode")
+			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNodeWithView")
 			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
-	vec = h.normalizeVec(vec)
+	// Normalize in-place since vec points to a pooled slice that will be
+	// returned after this function. This avoids allocating a new slice
+	// for every vector during rescoring.
+	h.normalizeVecInPlace(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 
@@ -746,19 +732,20 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		defer returnFn()
 	}
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
-	var e storobj.ErrNotFound
-	if err != nil && errors.As(err, &e) {
-		h.handleDeletedNode(e.DocID, "knnSearchByVector")
-		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-	}
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID, "knnSearchByVector")
+			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	// stop at layer 1, not 0!
+	eps := priorityqueue.NewMin[any](10)
 	for level := maxLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin[any](10)
+		eps.Reset()
 		eps.Insert(entryPointID, entryPointDistance)
 
 		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
@@ -802,7 +789,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		h.pools.pqResults.Put(res)
 	}
 
-	eps := priorityqueue.NewMin[any](10)
+	eps.Reset()
 	eps.Insert(entryPointID, entryPointDistance)
 	var strategy FilterStrategy
 	h.shardedNodeLocks.RLock(entryPointID)
@@ -846,24 +833,34 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	if allowList != nil && useAcorn {
+		seeds := 10
 		it := allowList.Iterator()
+		defer it.Stop()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
-		if !isMultivec {
-			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-				idx, ok = it.Next()
+		for seeds > 0 {
+			if !isMultivec {
+				for ok && (h.nodes[idx] == nil || h.hasTombstone(idx)) {
+					idx, ok = it.Next()
+				}
+			} else {
+				_, exists := h.docIDVectors[idx]
+				for ok && !exists {
+					idx, ok = it.Next()
+					_, exists = h.docIDVectors[idx]
+				}
 			}
-		} else {
-			_, exists := h.docIDVectors[idx]
-			for ok && !exists {
-				idx, ok = it.Next()
-				_, exists = h.docIDVectors[idx]
+
+			if !ok || !allowList.Contains(idx) {
+				break
 			}
+
+			entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+			eps.Insert(idx, entryPointDistance)
+			idx, ok = it.Next()
+			seeds--
 		}
 		h.shardedNodeLocks.RUnlockAll()
-
-		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-		eps.Insert(idx, entryPointDistance)
 	}
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
@@ -957,7 +954,7 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	h.RUnlock()
 	var docVecs [][]float32
 	if h.compressed.Load() {
-		slice := h.pools.tempVectors.Get(int(h.dims))
+		slice := h.pools.tempVectors.Get(int(h.dims.Load()))
 		var err error
 		docVecs, err = h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
 		if err != nil {
@@ -1064,6 +1061,10 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 	}
 	res.Reset()
 
+	// Get a consistent view once for all vector lookups to reduce lock contention
+	view := h.GetViewThunk()
+	defer view.ReleaseView()
+
 	mu := sync.Mutex{} // protect res
 	addID := func(id uint64, dist float32) {
 		mu.Lock()
@@ -1086,7 +1087,7 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 				}
 
 				id := ids[idPos]
-				dist, err := h.distanceFromBytesToFloatNode(ctx, compressorDistancer, id)
+				dist, err := h.distanceFromBytesToFloatNodeWithView(ctx, compressorDistancer, id, view)
 				if err == nil {
 					addID(id, dist)
 				} else {

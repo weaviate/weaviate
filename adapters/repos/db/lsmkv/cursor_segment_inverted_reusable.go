@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,20 +19,16 @@ import (
 )
 
 type segmentCursorInvertedReusable struct {
-	segment     *segment
-	nextOffset  uint64
-	nodeBuf     binarySearchNodeMap
-	propLengths map[uint64]uint32
+	segment    *segment
+	nextOffset uint64
+	nodeBuf    binarySearchNodeMap
 }
 
 func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
-	propLengths, err := s.getPropertyLengths()
-	if err != nil {
-		return nil
-	}
+	// this cursor never reads the property length map; loading it would only
+	// defeat lazy property-length loading
 	return &segmentCursorInvertedReusable{
-		segment:     s,
-		propLengths: propLengths,
+		segment: s,
 	}
 }
 
