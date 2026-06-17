@@ -525,158 +525,87 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 	})
 }
 
-// vectorConfigClassification maps every leaf field of the parsed vector-config structs (dotted
-// path, rooted at the index type) to whether it is QUERY-TIME-SAFE (true) or STRUCTURAL (false).
-// It is the single source of truth that Test_vectorConfigClassificationComplete cross-checks against
-// both the struct shape (every leaf must appear — fail-closed) and normalize* (safe ⇔ zeroed).
-var vectorConfigClassification = map[string]bool{
-	// hnsw.UserConfig
-	"hnsw.Skip":                                  true,
-	"hnsw.CleanupIntervalSeconds":                true,
-	"hnsw.MaxConnections":                        true,
-	"hnsw.EFConstruction":                        true,
-	"hnsw.EF":                                    true,
-	"hnsw.DynamicEFMin":                          true,
-	"hnsw.DynamicEFMax":                          true,
-	"hnsw.DynamicEFFactor":                       true,
-	"hnsw.VectorCacheMaxObjects":                 true,
-	"hnsw.FlatSearchCutoff":                      true,
-	"hnsw.Distance":                              false,
-	"hnsw.FilterStrategy":                        true,
-	"hnsw.SkipDefaultQuantization":               true,
-	"hnsw.TrackDefaultQuantization":              true,
-	"hnsw.PQ.Enabled":                            false,
-	"hnsw.PQ.BitCompression":                     false,
-	"hnsw.PQ.Segments":                           false,
-	"hnsw.PQ.Centroids":                          false,
-	"hnsw.PQ.TrainingLimit":                      false,
-	"hnsw.PQ.Encoder.Type":                       false,
-	"hnsw.PQ.Encoder.Distribution":               false,
-	"hnsw.BQ.Enabled":                            false,
-	"hnsw.SQ.Enabled":                            false,
-	"hnsw.SQ.TrainingLimit":                      false,
-	"hnsw.SQ.RescoreLimit":                       true,
-	"hnsw.RQ.Enabled":                            false,
-	"hnsw.RQ.Bits":                               false,
-	"hnsw.RQ.RescoreLimit":                       true,
-	"hnsw.Multivector.Enabled":                   true,
-	"hnsw.Multivector.Aggregation":               true,
-	"hnsw.Multivector.MuveraConfig.Enabled":      true,
-	"hnsw.Multivector.MuveraConfig.KSim":         true,
-	"hnsw.Multivector.MuveraConfig.DProjections": true,
-	"hnsw.Multivector.MuveraConfig.Repetitions":  true,
-	// flat.UserConfig
-	"flat.Distance":                 false,
-	"flat.VectorCacheMaxObjects":    true,
-	"flat.SkipDefaultQuantization":  true,
-	"flat.TrackDefaultQuantization": true,
-	"flat.PQ.Enabled":               false,
-	"flat.PQ.RescoreLimit":          true,
-	"flat.PQ.Cache":                 true,
-	"flat.BQ.Enabled":               false,
-	"flat.BQ.RescoreLimit":          true,
-	"flat.BQ.Cache":                 true,
-	"flat.SQ.Enabled":               false,
-	"flat.SQ.RescoreLimit":          true,
-	"flat.SQ.Cache":                 true,
-	"flat.RQ.Enabled":               false,
-	"flat.RQ.RescoreLimit":          true,
-	"flat.RQ.Cache":                 true,
-	"flat.RQ.Bits":                  false,
-	// dynamic.UserConfig (HnswUC/FlatUC recurse under the base hnsw/flat prefixes, not here)
-	"dynamic.Distance":  false,
-	"dynamic.Threshold": true,
-}
-
-// classificationNestedStructs are the config sub-structs the walk recurses into rather than
-// treating as opaque leaves. Dynamic's HnswUC/FlatUC are handled specially (base-prefix remap).
-var classificationNestedStructs = map[reflect.Type]bool{
-	reflect.TypeOf(hnswent.PQConfig{}):              true,
-	reflect.TypeOf(hnswent.PQEncoder{}):             true,
-	reflect.TypeOf(hnswent.BQConfig{}):              true,
-	reflect.TypeOf(hnswent.SQConfig{}):              true,
-	reflect.TypeOf(hnswent.RQConfig{}):              true,
-	reflect.TypeOf(hnswent.MultivectorConfig{}):     true,
-	reflect.TypeOf(hnswent.MuveraConfig{}):          true,
-	reflect.TypeOf(flatent.CompressionUserConfig{}): true,
-	reflect.TypeOf(flatent.RQUserConfig{}):          true,
-}
+// querySafeLeaves and structuralLeaves classify every leaf of the parsed vector-config structs by
+// dotted path (rooted at the index type; dynamic's HnswUC/FlatUC reuse the hnsw/flat paths). Every
+// leaf must appear in exactly one — that is the fail-closed guarantee: a newly-added field fails
+// Test_vectorConfigClassificationComplete until it is consciously placed here, so it cannot silently
+// slip past the move guard. normalize must zero exactly the safe leaves and preserve the structural.
+var (
+	querySafeLeaves = []string{
+		"hnsw.Skip", "hnsw.CleanupIntervalSeconds", "hnsw.MaxConnections", "hnsw.EFConstruction", "hnsw.EF",
+		"hnsw.DynamicEFMin", "hnsw.DynamicEFMax", "hnsw.DynamicEFFactor", "hnsw.VectorCacheMaxObjects", "hnsw.FlatSearchCutoff",
+		"hnsw.FilterStrategy", "hnsw.SkipDefaultQuantization", "hnsw.TrackDefaultQuantization", "hnsw.SQ.RescoreLimit", "hnsw.RQ.RescoreLimit",
+		"hnsw.Multivector.Enabled", "hnsw.Multivector.Aggregation", "hnsw.Multivector.MuveraConfig.Enabled",
+		"hnsw.Multivector.MuveraConfig.KSim", "hnsw.Multivector.MuveraConfig.DProjections", "hnsw.Multivector.MuveraConfig.Repetitions",
+		"flat.VectorCacheMaxObjects", "flat.SkipDefaultQuantization", "flat.TrackDefaultQuantization",
+		"flat.PQ.RescoreLimit", "flat.PQ.Cache", "flat.BQ.RescoreLimit", "flat.BQ.Cache",
+		"flat.SQ.RescoreLimit", "flat.SQ.Cache", "flat.RQ.RescoreLimit", "flat.RQ.Cache", "dynamic.Threshold",
+	}
+	structuralLeaves = []string{
+		"hnsw.Distance", "hnsw.PQ.Enabled", "hnsw.PQ.BitCompression", "hnsw.PQ.Segments", "hnsw.PQ.Centroids",
+		"hnsw.PQ.TrainingLimit", "hnsw.PQ.Encoder.Type", "hnsw.PQ.Encoder.Distribution", "hnsw.BQ.Enabled",
+		"hnsw.SQ.Enabled", "hnsw.SQ.TrainingLimit", "hnsw.RQ.Enabled", "hnsw.RQ.Bits",
+		"flat.Distance", "flat.PQ.Enabled", "flat.BQ.Enabled", "flat.SQ.Enabled", "flat.RQ.Enabled", "flat.RQ.Bits",
+		"dynamic.Distance",
+	}
+)
 
 // Test_vectorConfigClassificationComplete is the fail-closed guarantee: it forces every leaf of
-// every parsed vector-config struct to be consciously classified, and verifies normalize* zeroes
-// exactly the safe leaves. A newly-added field that nobody classifies makes this test fail, which
-// is the whole point — it cannot silently default to query-time-safe and slip past the move guard.
+// every parsed vector-config struct to be classified safe or structural, and verifies normalize
+// zeroes exactly the safe leaves. A newly-added field is unclassified until placed in
+// querySafeLeaves or structuralLeaves, so it cannot silently default to safe and slip past the guard.
 func Test_vectorConfigClassificationComplete(t *testing.T) {
-	hnswType := reflect.TypeOf(hnswent.UserConfig{})
-	flatType := reflect.TypeOf(flatent.UserConfig{})
-	dynamicType := reflect.TypeOf(dynamicent.UserConfig{})
+	toSet := func(xs []string) map[string]struct{} {
+		s := make(map[string]struct{}, len(xs))
+		for _, x := range xs {
+			s[x] = struct{}{}
+		}
+		return s
+	}
+	safe, structural := toSet(querySafeLeaves), toSet(structuralLeaves)
 
-	t.Run("every leaf is classified", func(t *testing.T) {
-		var missing []string
-		var walk func(prefix string, typ reflect.Type)
-		walk = func(prefix string, typ reflect.Type) {
-			for i := 0; i < typ.NumField(); i++ {
-				f := typ.Field(i)
-				switch {
-				case classificationNestedStructs[f.Type]:
-					walk(prefix+"."+f.Name, f.Type)
-				case f.Name == "HnswUC":
-					walk("hnsw", f.Type) // dynamic's HNSW phase reuses the base hnsw classification
-				case f.Name == "FlatUC":
-					walk("flat", f.Type)
-				default:
-					path := prefix + "." + f.Name
-					if _, ok := vectorConfigClassification[path]; !ok {
-						missing = append(missing, path)
-					}
+	// Walk a normalized, fully-populated config of each index type. Every leaf must be in exactly
+	// one bucket, and normalize must have zeroed it iff it is safe. Any field-typed struct is
+	// recursed into; dynamic's HnswUC/FlatUC reuse the hnsw/flat paths.
+	var walk func(prefix string, v reflect.Value)
+	walk = func(prefix string, v reflect.Value) {
+		for i := 0; i < v.NumField(); i++ {
+			f, fv := v.Type().Field(i), v.Field(i)
+			switch {
+			case f.Name == "HnswUC":
+				walk("hnsw", fv)
+			case f.Name == "FlatUC":
+				walk("flat", fv)
+			case f.Type.Kind() == reflect.Struct:
+				walk(prefix+"."+f.Name, fv)
+			default:
+				path := prefix + "." + f.Name
+				_, inSafe := safe[path]
+				_, inStructural := structural[path]
+				require.True(t, inSafe != inStructural,
+					"vector-config leaf %q must be classified in exactly one of querySafeLeaves / structuralLeaves", path)
+				if inSafe {
+					require.True(t, fv.IsZero(), "%s is query-time-safe and must be zeroed by normalize", path)
+				} else {
+					require.False(t, fv.IsZero(), "%s is structural and must be preserved by normalize", path)
 				}
 			}
 		}
-		walk("hnsw", hnswType)
-		walk("flat", flatType)
-		walk("dynamic", dynamicType)
-		require.Empty(t, missing,
-			"unclassified vector-config field(s) — classify in vectorConfigClassification AND normalize*: %v", missing)
-	})
-
-	t.Run("normalize zeroes exactly the safe leaves", func(t *testing.T) {
-		// assertLeaves walks a normalized config and checks each leaf against the registry: safe ⇒
-		// zeroed by normalize, structural ⇒ preserved (the fillNonZero sentinel survives). Dynamic's
-		// HnswUC/FlatUC remap to the base hnsw/flat prefixes, matching the completeness walk above.
-		var assertLeaves func(prefix string, v reflect.Value)
-		assertLeaves = func(prefix string, v reflect.Value) {
-			typ := v.Type()
-			for i := 0; i < typ.NumField(); i++ {
-				f, fv := typ.Field(i), v.Field(i)
-				switch {
-				case classificationNestedStructs[f.Type]:
-					assertLeaves(prefix+"."+f.Name, fv)
-				case f.Name == "HnswUC":
-					assertLeaves("hnsw", fv)
-				case f.Name == "FlatUC":
-					assertLeaves("flat", fv)
-				case vectorConfigClassification[prefix+"."+f.Name]:
-					require.True(t, fv.IsZero(), "%s.%s is safe and must be zeroed by normalize", prefix, f.Name)
-				default:
-					require.False(t, fv.IsZero(), "%s.%s is structural and must be preserved by normalize", prefix, f.Name)
-				}
-			}
-		}
-		for _, root := range []struct {
-			prefix string
-			typ    reflect.Type
-		}{
-			{"hnsw", hnswType},
-			{"flat", flatType},
-			{"dynamic", dynamicType},
-		} {
-			filled := reflect.New(root.typ).Elem()
-			fillNonZero(filled)
-			norm, ok := normalizeVectorConfig(filled.Interface())
-			require.True(t, ok, "normalizeVectorConfig(%s) returned ok=false", root.prefix)
-			assertLeaves(root.prefix, reflect.ValueOf(norm))
-		}
-	})
+	}
+	for _, root := range []struct {
+		prefix string
+		typ    reflect.Type
+	}{
+		{"hnsw", reflect.TypeOf(hnswent.UserConfig{})},
+		{"flat", reflect.TypeOf(flatent.UserConfig{})},
+		{"dynamic", reflect.TypeOf(dynamicent.UserConfig{})},
+	} {
+		filled := reflect.New(root.typ).Elem()
+		fillNonZero(filled)
+		norm, ok := normalizeVectorConfig(filled.Interface())
+		require.True(t, ok, "normalizeVectorConfig(%s) returned ok=false", root.prefix)
+		walk(root.prefix, reflect.ValueOf(norm))
+	}
 }
 
 // fillNonZero sets every scalar leaf of the addressable struct value v to a non-zero sentinel,
