@@ -167,9 +167,9 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 
 			}
 		} else {
-			// single pass over [0, pivotPoint] computing both the heaviest term to
-			// advance (over [0, pivotPoint)) and the smallest block-max id (over
-			// [0, pivotPoint]) — formerly two separate scans.
+			// single pass over [0, pivotPoint]: pick the heaviest term to advance
+			// (over [0, pivotPoint)) and the smallest block-max id (over
+			// [0, pivotPoint]).
 			nextList := pivotPoint
 			maxWeight := results[nextList].Idf()
 			next := uint64(math.MaxUint64) // max uint

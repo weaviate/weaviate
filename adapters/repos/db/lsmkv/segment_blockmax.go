@@ -409,6 +409,11 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.blockDataSize = int(s.docCount)
 		s.freqDecoded = true
 		s.decoded = true
+		// seed the WAND upper-bound fields, same as the multi-doc path below:
+		// the scoring loop sums currentBlockImpact into the pruning bound, so
+		// leaving it at zero drops this term's document once the heap is full.
+		s.currentBlockImpact = s.computeCurrentBlockImpact()
+		s.currentBlockMaxId = s.blockEntries[s.blockEntryIdx].MaxId
 		if collectBlockMetrics {
 			s.Metrics.BlockCountDecodedDocIds++
 			s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
@@ -458,9 +463,8 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.freqDecoded = false
 	}
 
-	// the loop only stops when blockEntryIdx hits the end or docId <= this
-	// block's MaxId, so the "last block, still past it" case the old condition
-	// also tested can never hold here — a bounds check is enough.
+	// the loop stops only at blockEntryIdx == len or docId <= this block's
+	// MaxId, so a bounds check is enough to detect exhaustion here.
 	if s.blockEntryIdx >= len(s.blockEntries) {
 		s.exhaust()
 		return
@@ -497,9 +501,8 @@ func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
 		}
 	}
 
-	// the loop exits only by reaching a block with docId <= MaxId (the >= len
-	// case returns inside the loop above), so no further exhaustion check is
-	// needed here.
+	// reaching here means docId <= MaxId of the current block; exhaustion
+	// (blockEntryIdx == len) already returned inside the loop above.
 	s.idPointer = s.blockEntries[s.blockEntryIdx-1].MaxId
 	s.currentBlockMaxId = s.blockEntries[s.blockEntryIdx].MaxId
 	s.currentBlockImpact = s.computeCurrentBlockImpact()
