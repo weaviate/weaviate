@@ -1573,6 +1573,143 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"present match; 8700 (each token in its own tag entry) "+
 				"matches under lenient parent-Scope AND")
 	})
+
+	t.Run("pinned_contains_any_multi_token", func(t *testing.T) {
+		// Filter cars[0].tags ContainsAny ["family hybrid"] — pinned
+		// to cars[0] with a multi-token list value. Verifies that the
+		// pinned dispatch correctly tokenizes through the per-value
+		// match step (M = bucket["family"] ∩ bucket["hybrid"]) and
+		// that the pin-narrow keeps only positions where cars-self is
+		// at array index 0.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 8900: cars[0]=tags["family hybrid car"] → match (full pair
+		// at pinned slot).
+		local.addDoc(t, prop, 8900, []any{
+			map[string]any{"tags": []any{"family hybrid car"}},
+		})
+		// 9000: cars[0]=tags["family sedan", "hybrid model"] → match
+		// (lenient: tokens in different tag entries but at the same
+		// pinned car).
+		local.addDoc(t, prop, 9000, []any{
+			map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+		})
+		// 9100: cars[0]=tags["sedan"], cars[1]=tags["family hybrid"]
+		// → NO match (full pair at WRONG pinned slot).
+		local.addDoc(t, prop, 9100, []any{
+			map[string]any{"tags": []any{"sedan"}},
+			map[string]any{"tags": []any{"family hybrid"}},
+		})
+		// 9200: cars[0]=tags["family"] (only one token) → no match.
+		local.addDoc(t, prop, 9200, []any{
+			map[string]any{"tags": []any{"family"}},
+		})
+		// 9300: no cars[0] (empty cars[]) → no match.
+		local.addDoc(t, prop, 9300, []any{})
+
+		r := leafPinnedContainsAny(local, "cars.tags",
+			[]pinSpec{{"cars", 0}}, "family hybrid")
+
+		assert.ElementsMatch(t, []uint64{8900, 9000}, local.docIDs(r),
+			"docs where cars[0] has both tokens of \"family hybrid\" match; "+
+				"9100 (full pair at wrong slot) and 9200 (single token) "+
+				"excluded; verifies tokenization fires through the "+
+				"pinned dispatch")
+	})
+
+	t.Run("pinned_contains_none_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter cars[0].tags ContainsNone ["family hybrid", "luxury"].
+		// Mirrors the unpinned correctness test for ContainsNone with
+		// the pin restricting evaluation to cars[0]. Load-bearing doc
+		// 9600 has "family" alone at cars[0] — no full "family hybrid"
+		// pair, no "luxury" — and must match. A flatten-tokens
+		// implementation under pin would wrongly exclude it.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 9400: cars[0]=tags["family hybrid car"] → excluded (first
+		// value satisfied at pinned slot).
+		local.addDoc(t, prop, 9400, []any{
+			map[string]any{"tags": []any{"family hybrid car"}},
+		})
+		// 9500: cars[0]=tags["luxury sedan"] → excluded (second value
+		// satisfied).
+		local.addDoc(t, prop, 9500, []any{
+			map[string]any{"tags": []any{"luxury sedan"}},
+		})
+		// 9600: cars[0]=tags["family car"] → MATCH. Load-bearing —
+		// has "family" alone at pinned slot, no full pair, no luxury.
+		local.addDoc(t, prop, 9600, []any{
+			map[string]any{"tags": []any{"family car"}},
+		})
+		// 9700: cars[0]=tags["sedan"], cars[1]=tags["family hybrid"]
+		// → MATCH (full pair at WRONG slot; pinned slot has neither
+		// value).
+		local.addDoc(t, prop, 9700, []any{
+			map[string]any{"tags": []any{"sedan"}},
+			map[string]any{"tags": []any{"family hybrid"}},
+		})
+
+		r := leafPinnedContainsNone(local, "cars.tags",
+			[]pinSpec{{"cars", 0}}, "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{9600, 9700}, local.docIDs(r),
+			"docs where cars[0] satisfies neither (family AND hybrid) "+
+				"nor luxury; 9600 (family alone at pinned slot) is the "+
+				"load-bearing case for the per-value AND correctness "+
+				"rule under pin narrowing")
+	})
+
+	t.Run("pinned_contains_all_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter cars[0].tags ContainsAll ["family hybrid", "luxury"].
+		// Verifies the AND-fold over per-value Mᵢ survives pin
+		// narrowing and that lenient parent-Scope AND inside each Mᵢ
+		// still permits all-tokens-different-tag-entries (doc 10100).
+		// Doc 10200 is the "wrong slot" discriminator — all tokens at
+		// cars[1] don't match a pin on cars[0].
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 9800: cars[0]=tags["family hybrid", "luxury car"] — first
+		// pair in one tag, second value in another → match.
+		local.addDoc(t, prop, 9800, []any{
+			map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+		})
+		// 9900: cars[0]=tags["family hybrid"] — missing luxury →
+		// no match.
+		local.addDoc(t, prop, 9900, []any{
+			map[string]any{"tags": []any{"family hybrid"}},
+		})
+		// 10000: cars[0]=tags["luxury sedan"] — missing family/hybrid
+		// pair → no match.
+		local.addDoc(t, prop, 10000, []any{
+			map[string]any{"tags": []any{"luxury sedan"}},
+		})
+		// 10100: cars[0]=tags["family", "hybrid", "luxury"] — every
+		// token in its own tag entry. Lenient parent-Scope AND →
+		// match (cars-self chain bit survives every Mᵢ).
+		local.addDoc(t, prop, 10100, []any{
+			map[string]any{"tags": []any{"family", "hybrid", "luxury"}},
+		})
+		// 10200: cars[0]=tags["sedan"], cars[1]=tags["family hybrid",
+		// "luxury"] — all values fully satisfied at WRONG slot → NO
+		// match. Pin discriminator.
+		local.addDoc(t, prop, 10200, []any{
+			map[string]any{"tags": []any{"sedan"}},
+			map[string]any{"tags": []any{"family hybrid", "luxury"}},
+		})
+		// 10300: cars[0]=tags["sedan"] — no relevant tokens → no match.
+		local.addDoc(t, prop, 10300, []any{
+			map[string]any{"tags": []any{"sedan"}},
+		})
+
+		r := leafPinnedContainsAll(local, "cars.tags",
+			[]pinSpec{{"cars", 0}}, "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{9800, 10100}, local.docIDs(r),
+			"docs where cars[0] has BOTH (family AND hybrid) AND luxury; "+
+				"10100 (each token in its own tag entry) matches under "+
+				"lenient parent-Scope AND; 10200 (all values at wrong "+
+				"slot) is the pin discriminator")
+	})
 }
 
 // TestFastPathL2_PythonPort runs the L2 (countries[].garages[].cars[]) ports as subtests
@@ -2592,6 +2729,177 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"fully present match; 10700 (each token in its own tag "+
 				"entry) matches under lenient parent-Scope AND")
 	})
+
+	t.Run("pinned_contains_any_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars[0].tags ContainsAny ["family
+		// hybrid"]. Mirror of the L0 sibling — pin restricts to
+		// cars[0] inside any garage of the country.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 10900: cars[0]=tags["family hybrid car"] → match.
+		local.addDoc(t, prop, 10900, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 11000: cars[0]=tags["family sedan", "hybrid model"] → match
+		// (lenient, tokens in different tag entries of pinned car).
+		local.addDoc(t, prop, 11000, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+				}},
+			}},
+		})
+		// 11100: cars[0]=tags["sedan"], cars[1]=tags["family hybrid"]
+		// → NO match (full pair at WRONG slot).
+		local.addDoc(t, prop, 11100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+					map[string]any{"tags": []any{"family hybrid"}},
+				}},
+			}},
+		})
+		// 11200: cars[0]=tags["family"] only → no match.
+		local.addDoc(t, prop, 11200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family"}},
+				}},
+			}},
+		})
+		// 11300: empty cars[] → no match.
+		local.addDoc(t, prop, 11300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{}},
+			}},
+		})
+
+		r := leafPinnedContainsAny(local, "countries.garages.cars.tags",
+			[]pinSpec{{"countries.garages.cars", 0}}, "family hybrid")
+
+		assert.ElementsMatch(t, []uint64{10900, 11000}, local.docIDs(r),
+			"docs where cars[0] has both tokens of \"family hybrid\" match")
+	})
+
+	t.Run("pinned_contains_none_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars[0].tags ContainsNone
+		// ["family hybrid", "luxury"]. Doc 11600 is load-bearing —
+		// cars[0] has "family" alone, no full pair, no luxury.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 11400: cars[0]=tags["family hybrid car"] → excluded.
+		local.addDoc(t, prop, 11400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid car"}},
+				}},
+			}},
+		})
+		// 11500: cars[0]=tags["luxury sedan"] → excluded.
+		local.addDoc(t, prop, 11500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"luxury sedan"}},
+				}},
+			}},
+		})
+		// 11600: cars[0]=tags["family car"] → MATCH. Load-bearing.
+		local.addDoc(t, prop, 11600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family car"}},
+				}},
+			}},
+		})
+		// 11700: cars[0]=tags["sedan"], cars[1]=tags["family hybrid"]
+		// → MATCH (full pair at wrong slot; pinned slot has neither
+		// value).
+		local.addDoc(t, prop, 11700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+					map[string]any{"tags": []any{"family hybrid"}},
+				}},
+			}},
+		})
+
+		r := leafPinnedContainsNone(local, "countries.garages.cars.tags",
+			[]pinSpec{{"countries.garages.cars", 0}}, "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{11600, 11700}, local.docIDs(r),
+			"docs where cars[0] satisfies neither (family AND hybrid) "+
+				"nor luxury; 11600 (family alone at pinned slot) locks "+
+				"down the per-value AND correctness rule under pin")
+	})
+
+	t.Run("pinned_contains_all_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter countries.garages.cars[0].tags ContainsAll ["family
+		// hybrid", "luxury"]. Mirror of the L0 sibling.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 11800: cars[0]=tags["family hybrid", "luxury car"] → match.
+		local.addDoc(t, prop, 11800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+				}},
+			}},
+		})
+		// 11900: cars[0]=tags["family hybrid"] → missing luxury, no match.
+		local.addDoc(t, prop, 11900, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family hybrid"}},
+				}},
+			}},
+		})
+		// 12000: cars[0]=tags["luxury sedan"] → missing pair, no match.
+		local.addDoc(t, prop, 12000, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"luxury sedan"}},
+				}},
+			}},
+		})
+		// 12100: cars[0]=tags["family", "hybrid", "luxury"] — each
+		// token in its own tag entry → match (lenient).
+		local.addDoc(t, prop, 12100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"family", "hybrid", "luxury"}},
+				}},
+			}},
+		})
+		// 12200: cars[0]=tags["sedan"], cars[1]=tags["family hybrid",
+		// "luxury"] → all values at WRONG slot, no match.
+		local.addDoc(t, prop, 12200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+					map[string]any{"tags": []any{"family hybrid", "luxury"}},
+				}},
+			}},
+		})
+		// 12300: cars[0]=tags["sedan"] → no relevant tokens, no match.
+		local.addDoc(t, prop, 12300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"tags": []any{"sedan"}},
+				}},
+			}},
+		})
+
+		r := leafPinnedContainsAll(local, "countries.garages.cars.tags",
+			[]pinSpec{{"countries.garages.cars", 0}}, "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{11800, 12100}, local.docIDs(r),
+			"docs where cars[0] has BOTH (family AND hybrid) AND luxury; "+
+				"12100 lenient discriminator, 12200 wrong-slot discriminator")
+	})
 }
 
 // TestFastPathL2Object_PythonPort runs the L2_object (country.garages[].
@@ -3336,5 +3644,144 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			"docs where (family AND hybrid) AND (luxury AND car) is "+
 				"fully present match; 20700 (each token in its own tag "+
 				"entry) matches under lenient parent-Scope AND")
+	})
+
+	t.Run("pinned_contains_any_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars[0].tags ContainsAny ["family
+		// hybrid"]. Mirror of L0/L2 — pin restricts to cars[0] under
+		// the single-OBJECT country root.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 20900: cars[0]=tags["family hybrid car"] → match.
+		local.addDoc(t, prop, 20900, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 21000: cars[0]=tags["family sedan", "hybrid model"] → match
+		// (lenient).
+		local.addDoc(t, prop, 21000, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family sedan", "hybrid model"}},
+			}},
+		}})
+		// 21100: cars[0]=tags["sedan"], cars[1]=tags["family hybrid"]
+		// → NO match (full pair at wrong slot).
+		local.addDoc(t, prop, 21100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+				map[string]any{"tags": []any{"family hybrid"}},
+			}},
+		}})
+		// 21200: cars[0]=tags["family"] only → no match.
+		local.addDoc(t, prop, 21200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family"}},
+			}},
+		}})
+		// 21300: empty cars[] → no match.
+		local.addDoc(t, prop, 21300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{}},
+		}})
+
+		r := leafPinnedContainsAny(local, "country.garages.cars.tags",
+			[]pinSpec{{"country.garages.cars", 0}}, "family hybrid")
+
+		assert.ElementsMatch(t, []uint64{20900, 21000}, local.docIDs(r),
+			"docs where cars[0] has both tokens of \"family hybrid\" match")
+	})
+
+	t.Run("pinned_contains_none_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars[0].tags ContainsNone
+		// ["family hybrid", "luxury"]. Doc 21600 is load-bearing.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 21400: cars[0]=tags["family hybrid car"] → excluded.
+		local.addDoc(t, prop, 21400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid car"}},
+			}},
+		}})
+		// 21500: cars[0]=tags["luxury sedan"] → excluded.
+		local.addDoc(t, prop, 21500, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"luxury sedan"}},
+			}},
+		}})
+		// 21600: cars[0]=tags["family car"] → MATCH. Load-bearing.
+		local.addDoc(t, prop, 21600, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family car"}},
+			}},
+		}})
+		// 21700: cars[0]=tags["sedan"], cars[1]=tags["family hybrid"]
+		// → MATCH (wrong slot has the full pair, pinned slot doesn't).
+		local.addDoc(t, prop, 21700, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+				map[string]any{"tags": []any{"family hybrid"}},
+			}},
+		}})
+
+		r := leafPinnedContainsNone(local, "country.garages.cars.tags",
+			[]pinSpec{{"country.garages.cars", 0}}, "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{21600, 21700}, local.docIDs(r),
+			"docs where cars[0] satisfies neither (family AND hybrid) "+
+				"nor luxury; 21600 (family alone at pinned slot) locks "+
+				"down the per-value AND correctness rule under pin")
+	})
+
+	t.Run("pinned_contains_all_mixed_single_and_multi_token", func(t *testing.T) {
+		// Filter country.garages.cars[0].tags ContainsAll ["family
+		// hybrid", "luxury"]. Mirror of L0/L2.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 21800: cars[0]=tags["family hybrid", "luxury car"] → match.
+		local.addDoc(t, prop, 21800, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid", "luxury car"}},
+			}},
+		}})
+		// 21900: cars[0]=tags["family hybrid"] → no match.
+		local.addDoc(t, prop, 21900, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family hybrid"}},
+			}},
+		}})
+		// 22000: cars[0]=tags["luxury sedan"] → no match.
+		local.addDoc(t, prop, 22000, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"luxury sedan"}},
+			}},
+		}})
+		// 22100: cars[0]=tags["family", "hybrid", "luxury"] → match
+		// (lenient).
+		local.addDoc(t, prop, 22100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"family", "hybrid", "luxury"}},
+			}},
+		}})
+		// 22200: cars[0]=tags["sedan"], cars[1]=tags["family hybrid",
+		// "luxury"] → wrong slot, no match.
+		local.addDoc(t, prop, 22200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+				map[string]any{"tags": []any{"family hybrid", "luxury"}},
+			}},
+		}})
+		// 22300: cars[0]=tags["sedan"] → no match.
+		local.addDoc(t, prop, 22300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"tags": []any{"sedan"}},
+			}},
+		}})
+
+		r := leafPinnedContainsAll(local, "country.garages.cars.tags",
+			[]pinSpec{{"country.garages.cars", 0}}, "family hybrid", "luxury")
+
+		assert.ElementsMatch(t, []uint64{21800, 22100}, local.docIDs(r),
+			"docs where cars[0] has BOTH (family AND hybrid) AND luxury; "+
+				"22100 lenient discriminator, 22200 wrong-slot discriminator")
 	})
 }

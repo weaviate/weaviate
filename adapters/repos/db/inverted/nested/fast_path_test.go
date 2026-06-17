@@ -1011,8 +1011,12 @@ func leafContainsAll(idx *fastPathIndex, path string, values ...any) *fastPathRe
 
 // leafPinnedContainsAny realizes `<pinned path>.x ContainsAny [values]`
 // — for example `garages[1].cars[2].colors ContainsAny [red, blue]`.
-// Mirrors the optimisation used by the unpinned leafContainsAny: // compute the union of per-value buckets directly, narrow with every
-// pin's _idx raw, then hand off to the shared pin-lift stage.
+// Each list value reduces to its per-value match bitmap Mᵢ via
+// tokenizedMatchBitmap (single-token → single bucket lookup;
+// multi-token → AND of per-token buckets, lenient parent-Scope rule
+// inside Mᵢ). The outer OR unions the Mᵢ's, the pin narrow restricts
+// to positions where the pinned slot matches, and pinnedFromValueSet
+// lifts to parent Scope.
 //
 // Panics on an empty pin list (the function would have no Scope)
 // or an empty value list (no positive witnesses possible).
@@ -1025,9 +1029,7 @@ func leafPinnedContainsAny(idx *fastPathIndex, valuePath string, pins []pinSpec,
 	}
 	a := sroar.NewBitmap()
 	for _, v := range values {
-		if bm := idx.values[valuePath][v]; bm != nil {
-			a.Or(bm)
-		}
+		a.Or(tokenizedMatchBitmap(idx, valuePath, v))
 	}
 	for _, pin := range pins {
 		a.And(idx.idx[pin.path][pin.index])
@@ -1039,10 +1041,11 @@ func leafPinnedContainsAny(idx *fastPathIndex, valuePath string, pins []pinSpec,
 // — for example `cars[1].colors ContainsAll [red, blue]`, "cars[1]'s
 // colors array contains both red and blue."
 //
-// Computes the intersection of per-value buckets directly, then
-// narrows with every pin's _idx raw before the pin-lift stage.
-// Bails out early when any value is absent from the index — the
-// intersection is already empty.
+// Each list value reduces to its per-value match bitmap Mᵢ via
+// tokenizedMatchBitmap; the outer AND-fold intersects them and the
+// pin narrow restricts to the pinned slot. For multi-token list
+// values the per-value AND inside Mᵢ runs at lenient parent-Scope,
+// same as the unpinned variant.
 //
 // Panics on an empty pin list or empty value list.
 func leafPinnedContainsAll(idx *fastPathIndex, valuePath string, pins []pinSpec, values ...any) *fastPathResult {
@@ -1052,14 +1055,9 @@ func leafPinnedContainsAll(idx *fastPathIndex, valuePath string, pins []pinSpec,
 	if len(values) == 0 {
 		panic("pinned ContainsAll requires at least one value")
 	}
-	a := cloneOrEmpty(idx.values[valuePath][values[0]])
+	a := tokenizedMatchBitmap(idx, valuePath, values[0])
 	for _, v := range values[1:] {
-		bm := idx.values[valuePath][v]
-		if bm == nil {
-			a = sroar.NewBitmap()
-			break
-		}
-		a.And(bm)
+		a.And(tokenizedMatchBitmap(idx, valuePath, v))
 	}
 	for _, pin := range pins {
 		a.And(idx.idx[pin.path][pin.index])
