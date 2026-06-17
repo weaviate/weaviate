@@ -826,29 +826,29 @@ func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, pr
 		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	users, err := h.controller.GetUsersOrGroupForRole(params.ID, authentication.AuthTypeOIDC, true)
+	groups, err := h.controller.GetUsersOrGroupForRole(params.ID, authentication.AuthTypeOIDC, true)
 	if err != nil {
 		return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 	}
 
-	filteredUsers := make([]string, 0, len(users))
-	for _, userName := range users {
-		if userName == principal.Username {
-			// own username
-			filteredUsers = append(filteredUsers, userName)
+	filteredGroups := make([]string, 0, len(groups))
+	for _, groupName := range groups {
+		if slices.Contains(principal.Groups, groupName) {
+			// own group
+			filteredGroups = append(filteredGroups, groupName)
 			continue
 		}
-		if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(userName)...); err == nil {
-			filteredUsers = append(filteredUsers, userName)
+		if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Groups(authentication.AuthTypeOIDC, groupName)...); err == nil {
+			filteredGroups = append(filteredGroups, groupName)
 		}
 	}
-	slices.Sort(filteredUsers)
+	slices.Sort(filteredGroups)
 
 	// only OIDC groups so far
 	oidc := models.GroupTypeOidc
 	var response []*authz.GetGroupsForRoleOKBodyItems0
-	for _, userId := range filteredUsers {
-		response = append(response, &authz.GetGroupsForRoleOKBodyItems0{GroupID: userId, GroupType: &oidc})
+	for _, groupID := range filteredGroups {
+		response = append(response, &authz.GetGroupsForRoleOKBodyItems0{GroupID: groupID, GroupType: &oidc})
 	}
 
 	h.logger.WithFields(logrus.Fields{
