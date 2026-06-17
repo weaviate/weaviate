@@ -469,78 +469,6 @@ func TestStoreApply(t *testing.T) {
 			doAfter: func(ms *MockStore) error { return nil },
 		},
 		{
-			name: "UpdateTenant/HasOngoingReplication/true",
-			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD},
-				}})},
-			resp: Response{Error: nil},
-			doBefore: func(m *MockStore) {
-				doFirst(m)
-				m.indexer.On("AddClass", mock.Anything).Return(nil)
-				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusHOT,
-				}}, PartitioningEnabled: true}
-				m.store.Apply(&raft.Log{
-					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
-				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(true)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-			},
-			doAfter: func(ms *MockStore) error {
-				want := map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusHOT,
-				}}
-
-				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
-				require.Nil(t, err)
-				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
-					return fmt.Errorf("physical state want: %v got: %v", want, got)
-				}
-				return nil
-			},
-		},
-		{
-			name: "UpdateTenant/HasOngoingReplication/false",
-			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
-				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD},
-				}})},
-			resp: Response{Error: nil},
-			doBefore: func(m *MockStore) {
-				doFirst(m)
-				m.indexer.On("AddClass", mock.Anything).Return(nil)
-				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusHOT,
-				}}, PartitioningEnabled: true}
-				m.store.Apply(&raft.Log{
-					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
-				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(false)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-			},
-			doAfter: func(ms *MockStore) error {
-				want := map[string]sharding.Physical{"T1": {
-					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusCOLD,
-				}}
-
-				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
-				require.Nil(t, err)
-				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
-					return fmt.Errorf("physical state want: %v got: %v", want, got)
-				}
-				return nil
-			},
-		},
-		{
 			name: "UpdateTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
@@ -569,7 +497,6 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				m.replicationFSM.EXPECT().HasOngoingReplication(Anything, Anything, Anything).Return(false)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {

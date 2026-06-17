@@ -92,7 +92,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
-	if s.index.AsyncReplicationEnabled() {
+	if s.index.AsyncReplicationEnabledForShard(s.name) {
 		config := s.index.AsyncReplicationConfig()
 
 		// Compute the effective config (needed for hashtreeHeight) before taking

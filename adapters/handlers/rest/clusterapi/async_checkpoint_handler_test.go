@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
@@ -43,7 +42,6 @@ func asyncCheckpointHandlerTestServer(t *testing.T, rep replicaTypes.Replicator)
 	indices := clusterapi.NewReplicatedIndices(
 		rep, auth,
 		func() bool { return false }, // maintenance mode off
-		cluster.RequestQueueConfig{},
 		logger,
 		func() bool { return true }, // node ready
 	)

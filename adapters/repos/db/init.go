@@ -221,6 +221,7 @@ func (db *DB) init(ctx context.Context) error {
 
 			idx.usageLimits = db.usageLimits
 			idx.db = db
+			idx.SetReplicationFSMReader(db.replicationFSM)
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()
