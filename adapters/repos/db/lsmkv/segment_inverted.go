@@ -182,16 +182,24 @@ func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uin
 
 	if len(ids) > 0 {
 		minID, maxID := ids[0], ids[0]
-		for _, id := range ids[1:] {
-			if id < minID {
-				minID = id
+		// min/max only feed the dense gate, so stop at the first zero length — a
+		// zero rules dense out anyway (see the gate below)
+		hasZeroLen := lens[0] == 0
+		for i := 1; i < len(ids) && !hasZeroLen; i++ {
+			if ids[i] < minID {
+				minID = ids[i]
 			}
-			if id > maxID {
-				maxID = id
+			if ids[i] > maxID {
+				maxID = ids[i]
+			}
+			if lens[i] == 0 {
+				hasZeroLen = true
 			}
 		}
 		span := maxID - minID + 1
-		if span != 0 && span/3 <= uint64(len(ids)) {
+		// dense uses 0 as the "docID absent" sentinel (getPropertyLengths drops
+		// zero slots), so a stored 0 would be lost — keep pairs when one exists.
+		if !hasZeroLen && span != 0 && span/3 <= uint64(len(ids)) {
 			// dense path: direct-indexed fill, no sort needed (unlike the pairs branch)
 			dense := make([]uint32, span)
 			for i, id := range ids {
@@ -307,8 +315,8 @@ func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
 		return nil, err
 	}
 	if dense != nil {
-		// stored lengths are always >= 1, so zero slots are exactly the absent
-		// docIDs and the reconstruction reproduces the stored key set
+		// dense is only chosen when no stored length is 0, so a zero slot is
+		// always an absent docID and the reconstruction reproduces the key set
 		m := make(map[uint64]uint32)
 		for i, l := range dense {
 			if l != 0 {
