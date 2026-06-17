@@ -226,14 +226,11 @@ func TestInvertedLazyPropertyLengthsStatsNoRace(t *testing.T) {
 	require.NoError(t, loadErr)
 }
 
-// TestInvertedPropertyLengthsViewNoEmptyUnderFree pins that a reader taking the
-// load-on-demand slow path never observes an empty property-length view because
-// a concurrent freePropertyLengths niled the cached arrays mid-load. The slow
-// path returns the arrays captured under the load's own lock; re-reading the
-// struct after dropping that lock (the regressed behavior) could hand back a
-// zero-value view with no error, silently scoring every doc with propLength 0.
-// The freer and the readers run in separate goroutines so the free can land in
-// a reader's load window; every stored length is >= 1, so a 0 means "lost".
+// TestInvertedPropertyLengthsViewNoEmptyUnderFree pins that the load-on-demand
+// slow path never hands a reader an empty view because a concurrent
+// freePropertyLengths niled the arrays mid-load (which would silently score
+// every doc with propLength 0). Freer and readers race in separate goroutines;
+// every stored length is >= 1, so any 0 a reader sees means the view was lost.
 func TestInvertedPropertyLengthsViewNoEmptyUnderFree(t *testing.T) {
 	ctx := context.Background()
 	const size = 500
@@ -281,8 +278,7 @@ func TestInvertedPropertyLengthsViewNoEmptyUnderFree(t *testing.T) {
 		}
 	}, nullLogger())
 
-	// each reader builds its own view (own cursor) and scans ascending; under the
-	// fix every present docID must resolve to its stored length, never 0
+	// each reader builds its own view (own cursor) and scans ascending
 	var mismatches atomic.Int64
 	var readersWg sync.WaitGroup
 	const readers = 16
