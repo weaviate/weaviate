@@ -125,9 +125,8 @@ func (s *segment) loadPropertyLengths() error {
 }
 
 // loadPropertyLengthsLocked requires the caller to hold lockInvertedData. It
-// returns the arrays it loaded (or the already-cached ones) so callers can use
-// them without re-reading the struct after dropping the lock — a re-read could
-// race a freePropertyLengths and observe niled arrays.
+// returns the loaded arrays so callers needn't re-read the struct after
+// unlocking, where a freePropertyLengths could have niled them.
 func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uint32, error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, 0, nil, nil, fmt.Errorf("property only supported for inverted strategy")
@@ -192,7 +191,7 @@ func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uin
 			}
 		}
 		span := maxID - minID + 1
-		if span/3 <= uint64(len(ids)) {
+		if span != 0 && span/3 <= uint64(len(ids)) {
 			// dense path: direct-indexed fill, no sort needed (unlike the pairs branch)
 			dense := make([]uint32, span)
 			for i, id := range ids {
@@ -363,13 +362,10 @@ func mergePropLenPairs(ids1 []uint64, lens1 []uint32, ids2 []uint64, lens2 []uin
 	return outIDs, outLens
 }
 
-// propLengthArrays ensures the per-document arrays are loaded and returns them.
-// Both paths capture the arrays while holding the lock — the fast path reads the
-// cached arrays under a single RLock, the slow path returns what the load set
-// under its write lock. Re-reading the struct after dropping the lock could race
-// a freePropertyLengths and hand a live reader niled arrays (an empty view) with
-// no error. The returned slices alias the cached arrays; a later free nils the
-// struct fields but not these headers (the backing array stays referenced).
+// propLengthArrays loads (if needed) and returns the per-document arrays. Both
+// paths capture the arrays under the lock. The returned slices alias the cached
+// arrays; a later freePropertyLengths nils the struct fields but not these
+// headers, so a reader's slices stay valid.
 func (s *segment) propLengthArrays() (dense []uint32, minID uint64, ids []uint64, lens []uint32, err error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, 0, nil, nil, fmt.Errorf("property length only supported for inverted strategy")
