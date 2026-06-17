@@ -366,9 +366,9 @@ type segmentInvertedNode struct {
 	values     []MapPair
 	primaryKey []byte
 	offset     int
-	// propLengths is the compaction-time cursor over the merged segments'
-	// property lengths; nil for the flush path (which carries lengths inline in
-	// the postings' value bytes).
+	// propLengths is the lookup over the merged segments' property lengths used
+	// by block encoding. Required (non-nil): this node is built only during
+	// compaction; the flush path encodes via createAndEncodeBlocksWithLengths.
 	propLengths *propLengthsView
 }
 
