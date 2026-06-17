@@ -202,8 +202,8 @@ type SegmentBlockMax struct {
 	Metrics BlockMetrics
 }
 
-// node may carry the term's index node prefetched by getInvertedNodeAndDocCount
-// (one descent for docCount + construction); nil means look it up here.
+// A non-nil node is the term's prefetched index node, reused as-is; nil means
+// look it up here.
 func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	if node == nil {
 		n, err := s.index.Get(key)
