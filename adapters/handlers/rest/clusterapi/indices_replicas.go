@@ -12,7 +12,6 @@
 package clusterapi
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -33,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -47,17 +45,10 @@ type replicatedIndices struct {
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
 
-	requestQueueConfig cluster.RequestQueueConfig
-	requestQueue       *shared.RequestQueue[queuedRequest]
-	logger             logrus.FieldLogger
+	logger logrus.FieldLogger
 	// nodeReady reports whether the node is ready to accept requests
 	nodeReady func() bool
 }
-
-const (
-	responseShuttingDown = "503 Service Unavailable - shutting down"
-	responseQueueFull    = "too many buffered requests"
-)
 
 // zstdDecoderPool pools *zstd.Decoder instances to avoid the allocation cost
 // of zstd.NewReader on every compressed request. New returns nil only when
@@ -104,59 +95,16 @@ func NewReplicatedIndices(
 	replicator replicaTypes.Replicator,
 	auth auth,
 	maintenanceModeEnabled func() bool,
-	requestQueueConfig cluster.RequestQueueConfig,
 	logger logrus.FieldLogger,
 	nodeReady func() bool,
 ) *replicatedIndices {
-	// validate the requestQueueConfig
-	if requestQueueConfig.QueueFullHttpStatus == 0 {
-		logger.WithField("default_status", cluster.DefaultRequestQueueFullHttpStatus).Debug("no replicated indices buffer full http status provided, using default")
-		requestQueueConfig.QueueFullHttpStatus = cluster.DefaultRequestQueueFullHttpStatus
-	}
-	if requestQueueConfig.QueueFullHttpStatus != http.StatusTooManyRequests && requestQueueConfig.QueueFullHttpStatus != http.StatusGatewayTimeout {
-		logger.WithField("status", requestQueueConfig.QueueFullHttpStatus).Warn("unexpected replicated indices buffer full http status")
-	}
-
-	i := &replicatedIndices{
+	return &replicatedIndices{
 		replicator:             replicator,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
-		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
 		nodeReady:              nodeReady,
 	}
-
-	i.requestQueue = shared.NewRequestQueue(requestQueueConfig, logger,
-		func(qr queuedRequest) { i.handleRequest(qr) },
-		func(qr queuedRequest) bool { return qr.r.Context().Err() != nil },
-		func(qr queuedRequest) {
-			if qr.wg != nil {
-				qr.wg.Done() //nolint:SA2000
-			}
-			qr.w.WriteHeader(http.StatusRequestTimeout)
-		},
-	)
-
-	return i
-}
-
-func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, shared.ErrShutdown):
-		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
-	case errors.Is(err, shared.ErrQueueFull):
-		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
-	default:
-		i.logger.WithError(err).Error("unhandled error in replicated indices handler")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-}
-
-type queuedRequest struct {
-	r *http.Request
-	w http.ResponseWriter
-	// when the request is done being handled, the waitgroup is done
-	wg *sync.WaitGroup
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
@@ -175,36 +123,11 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 
-		if i.requestQueue.IsShutdown() {
-			i.writeResponse(w, shared.ErrShutdown)
-			return
-		}
-
-		if i.requestQueue.Enabled() {
-			i.requestQueue.EnsureStarted()
-
-			wg := &sync.WaitGroup{}
-			wg.Add(1)
-			err := i.requestQueue.Enqueue(queuedRequest{r: r, w: w, wg: wg})
-			if err != nil {
-				wg.Done() //nolint:SA2000
-				i.writeResponse(w, err)
-				return
-			}
-			wg.Wait() // worker calls Done() after handling request
-			return
-		}
-
-		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
+		i.handleRequest(w, r)
 	}
 }
 
-func (i *replicatedIndices) handleRequest(qr queuedRequest) {
-	if qr.wg != nil {
-		defer qr.wg.Done()
-	}
-	r := qr.r
-	w := qr.w
+func (i *replicatedIndices) handleRequest(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
@@ -1133,9 +1056,4 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 		w.Write(b)
 	})
-}
-
-// Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
-func (i *replicatedIndices) Close(ctx context.Context) error {
-	return i.requestQueue.Close(ctx)
 }

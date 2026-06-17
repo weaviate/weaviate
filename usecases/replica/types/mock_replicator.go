@@ -149,6 +149,67 @@ func (_c *MockReplicator_CommitReplication_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
+// CompareDigests provides a mock function with given fields: ctx, className, shardName, digests
+func (_m *MockReplicator) CompareDigests(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse) ([]routertypes.RepairResponse, error) {
+	ret := _m.Called(ctx, className, shardName, digests)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompareDigests")
+	}
+
+	var r0 []routertypes.RepairResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)); ok {
+		return rf(ctx, className, shardName, digests)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) []routertypes.RepairResponse); ok {
+		r0 = rf(ctx, className, shardName, digests)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]routertypes.RepairResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, []routertypes.RepairResponse) error); ok {
+		r1 = rf(ctx, className, shardName, digests)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicator_CompareDigests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompareDigests'
+type MockReplicator_CompareDigests_Call struct {
+	*mock.Call
+}
+
+// CompareDigests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - className string
+//   - shardName string
+//   - digests []routertypes.RepairResponse
+func (_e *MockReplicator_Expecter) CompareDigests(ctx interface{}, className interface{}, shardName interface{}, digests interface{}) *MockReplicator_CompareDigests_Call {
+	return &MockReplicator_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, className, shardName, digests)}
+}
+
+func (_c *MockReplicator_CompareDigests_Call) Run(run func(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse)) *MockReplicator_CompareDigests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]routertypes.RepairResponse))
+	})
+	return _c
+}
+
+func (_c *MockReplicator_CompareDigests_Call) Return(_a0 []routertypes.RepairResponse, _a1 error) *MockReplicator_CompareDigests_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicator_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)) *MockReplicator_CompareDigests_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CountObjects provides a mock function with given fields: ctx, indexName, shardName
 func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
 	ret := _m.Called(ctx, indexName, shardName)
@@ -509,67 +570,6 @@ func (_c *MockReplicator_FindUUIDs_Call) Return(_a0 []strfmt.UUID, _a1 error) *M
 }
 
 func (_c *MockReplicator_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)) *MockReplicator_FindUUIDs_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// CompareDigests provides a mock function with given fields: ctx, className, shardName, digests
-func (_m *MockReplicator) CompareDigests(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse) ([]routertypes.RepairResponse, error) {
-	ret := _m.Called(ctx, className, shardName, digests)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CompareDigests")
-	}
-
-	var r0 []routertypes.RepairResponse
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)); ok {
-		return rf(ctx, className, shardName, digests)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) []routertypes.RepairResponse); ok {
-		r0 = rf(ctx, className, shardName, digests)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]routertypes.RepairResponse)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, []routertypes.RepairResponse) error); ok {
-		r1 = rf(ctx, className, shardName, digests)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockReplicator_CompareDigests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompareDigests'
-type MockReplicator_CompareDigests_Call struct {
-	*mock.Call
-}
-
-// CompareDigests is a helper method to define mock.On call
-//   - ctx context.Context
-//   - className string
-//   - shardName string
-//   - digests []routertypes.RepairResponse
-func (_e *MockReplicator_Expecter) CompareDigests(ctx interface{}, className interface{}, shardName interface{}, digests interface{}) *MockReplicator_CompareDigests_Call {
-	return &MockReplicator_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, className, shardName, digests)}
-}
-
-func (_c *MockReplicator_CompareDigests_Call) Run(run func(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse)) *MockReplicator_CompareDigests_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]routertypes.RepairResponse))
-	})
-	return _c
-}
-
-func (_c *MockReplicator_CompareDigests_Call) Return(result []routertypes.RepairResponse, err error) *MockReplicator_CompareDigests_Call {
-	_c.Call.Return(result, err)
-	return _c
-}
-
-func (_c *MockReplicator_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)) *MockReplicator_CompareDigests_Call {
 	_c.Call.Return(run)
 	return _c
 }
