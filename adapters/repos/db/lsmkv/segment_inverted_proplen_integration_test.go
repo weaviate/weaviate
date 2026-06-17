@@ -187,3 +187,39 @@ func TestSegmentPropertyLengthsSpanOverflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
+
+// TestSegmentPropertyLengthsZeroLengthForcesPairs pins that a stored length of 0
+// keeps the segment on the pairs layout. Dense treats a 0 slot as "docID absent"
+// and getPropertyLengths drops it, so a dense layout would lose the key on the
+// compaction round-trip; pairs preserves it.
+func TestSegmentPropertyLengthsZeroLengthForcesPairs(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyInverted))
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+
+	// contiguous docIDs (span==count) would select dense were it not for the 0
+	key := []byte("term")
+	want := map[uint64]uint32{0: 0, 1: 5, 2: 5, 3: 5}
+	for id := uint64(0); id < 4; id++ {
+		require.NoError(t, bucket.MapSet(key, NewMapPairFromDocIdAndTf(id, 1, float32(want[id]), false)))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	require.Len(t, view.Disk, 1)
+	seg := view.Disk[0]
+
+	plView, err := seg.propLengthsView()
+	require.NoError(t, err)
+	assert.Nil(t, plView.dense, "a stored 0-length must force the pairs layout")
+	assert.NotNil(t, plView.ids)
+
+	got, err := seg.getPropertyLengths()
+	require.NoError(t, err)
+	assert.Equal(t, want, got, "the 0-length key must survive reconstruction")
+}
