@@ -50,6 +50,8 @@ type SchemaManager struct {
 	replicationFSM replicationFSM
 	// tenantLimit resolves the tenant cap (negative = unlimited); nil = unenforced.
 	tenantLimit func() int
+	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
+	tenantLimitErrTemplate func() string
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -61,11 +63,13 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 	}
 }
 
-// SetTenantLimit installs the tenant-cap resolver re-enforced at apply time to
-// close the AddTenants TOCTOU (negative = unlimited; nil = unenforced). Call
-// once during single-threaded FSM bootstrap, before any apply path reads it.
-func (s *SchemaManager) SetTenantLimit(resolver func() int) {
-	s.tenantLimit = resolver
+// SetTenantLimit installs the resolvers for the per-collection tenant cap
+// re-enforced at apply time (negative = unlimited; nil limit = unenforced).
+// errTemplate resolves USAGE_LIMITS_ERROR_MESSAGE so apply-path rejections match
+// the handler fast-path. Call once during single-threaded FSM bootstrap.
+func (s *SchemaManager) SetTenantLimit(limit func() int, errTemplate func() string) {
+	s.tenantLimit = limit
+	s.tenantLimitErrTemplate = errTemplate
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -484,16 +488,19 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Resolve the tenant cap once per apply (negative = unlimited).
-	tenantLimit := -1
+	// Resolve the cap once per apply (negative = unlimited).
+	tc := tenantCap{max: -1}
 	if s.tenantLimit != nil {
-		tenantLimit = s.tenantLimit()
+		tc.max = s.tenantLimit()
+	}
+	if s.tenantLimitErrTemplate != nil {
+		tc.errTemplate = s.tenantLimitErrTemplate()
 	}
 
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req, tenantLimit) },
+			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req, tc) },
 			updateStore:  func() error { return s.db.AddTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},

@@ -667,7 +667,7 @@ func testConcurrentTenantManagementOperations(t *testing.T, s *schema) {
 						{Name: fmt.Sprintf("new_tenant_%d_%d", id, j)},
 					},
 				}
-				_ = s.addTenants("TestClass", uint64(j), req, -1)
+				_ = s.addTenants("TestClass", uint64(j), req, tenantCap{max: -1})
 				time.Sleep(time.Microsecond)
 			}
 		}(i)

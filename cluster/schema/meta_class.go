@@ -236,7 +236,7 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 	return mergedProps
 }
 
-func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64, maxTenants int) (map[string]int, error) {
+func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64, tc tenantCap) (map[string]int, error) {
 	req.Tenants = removeNilTenants(req.Tenants)
 	m.Lock()
 	defer m.Unlock()
@@ -249,15 +249,15 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 
 	// Authoritative tenant cap, re-checked serially under the lock to close the
 	// handler's TOCTOU (negative = unlimited).
-	if maxTenants >= 0 {
+	if tc.max >= 0 {
 		incoming := 0
 		for _, t := range req.Tenants {
 			if _, exists := m.Sharding.Physical[t.Name]; !exists {
 				incoming++
 			}
 		}
-		if len(m.Sharding.Physical)+incoming > maxTenants {
-			return nil, usagelimits.NewLimitExceededError("", usagelimits.LimitTenants, int64(maxTenants))
+		if len(m.Sharding.Physical)+incoming > tc.max {
+			return nil, usagelimits.NewLimitExceededError(tc.errTemplate, usagelimits.LimitTenants, int64(tc.max))
 		}
 	}
 

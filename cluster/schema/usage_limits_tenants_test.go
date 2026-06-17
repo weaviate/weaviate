@@ -55,7 +55,7 @@ func TestAddTenants_FSMTenantCapReEnforced(t *testing.T) {
 		return s.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{nodeID},
 			Tenants:      tenants(names...),
-		}, cap)
+		}, tenantCap{max: cap})
 	}
 
 	physicalCount := func(s *schema) int {
@@ -124,5 +124,17 @@ func TestAddTenants_FSMTenantCapReEnforced(t *testing.T) {
 		_, ok := usagelimits.AsLimitExceeded(err)
 		require.True(t, ok)
 		assert.Equal(t, 0, physicalCount(s))
+	})
+
+	t.Run("operator error template flows into the apply-path error", func(t *testing.T) {
+		s := newSchemaWithClass(t)
+		err := s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      tenants("t1"),
+		}, tenantCap{max: 0, errTemplate: "Free-tier limit of {value} {limit} reached, upgrade now"})
+		require.Error(t, err)
+		le, ok := usagelimits.AsLimitExceeded(err)
+		require.True(t, ok)
+		assert.Equal(t, "Free-tier limit of 0 tenants reached, upgrade now", le.RenderedMessage)
 	})
 }

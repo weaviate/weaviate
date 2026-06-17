@@ -190,6 +190,10 @@ type Config struct {
 	// MaxTenantsPerCollection caps tenants per collection (nil/negative =
 	// unlimited), re-enforced at apply time. Assumed uniform across nodes.
 	MaxTenantsPerCollection *runtime.DynamicValue[int]
+
+	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
+	// tenant-cap error raised at apply time, matching the handler fast-path.
+	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -315,7 +319,11 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
-		schemaManager.SetTenantLimit(dv.Get)
+		errTemplate := func() string { return "" }
+		if t := cfg.UsageLimitsErrorMessage; t != nil {
+			errTemplate = t.Get
+		}
+		schemaManager.SetTenantLimit(dv.Get, errTemplate)
 	}
 
 	return Store{

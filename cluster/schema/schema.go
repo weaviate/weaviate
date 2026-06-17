@@ -497,7 +497,13 @@ func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, re
 	return meta.DeleteReplicaFromShard(v, shard, replica)
 }
 
-func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest, maxTenants int) error {
+// tenantCap is the per-collection tenant limit enforced at RAFT apply time.
+type tenantCap struct {
+	max         int    // negative = unlimited
+	errTemplate string // empty = built-in default
+}
+
+func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest, tc tenantCap) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 
 	ok, meta, info, err := s.multiTenancyEnabled(class)
@@ -505,7 +511,7 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 		return err
 	}
 
-	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v, maxTenants)
+	sc, err := meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v, tc)
 	if err != nil {
 		return err
 	}
