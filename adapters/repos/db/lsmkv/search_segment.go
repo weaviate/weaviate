@@ -127,29 +127,34 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 				docInfos = make([]*terms.DocPointerWithScore, termCount)
 			}
 			if pivotID == results[firstNonExhausted].idPointer {
-				score := 0.0
-				termsMatched := 0
-				for _, term := range results {
-					if term.idPointer != pivotID {
-						break
-					}
-					termsMatched++
-					_, s, d := term.Score(averagePropLength, additionalExplanations)
-					score += s
+				// a deferred tombstone hit: advance the aligned terms past the pivot
+				// (below) but skip scoring/enqueue. See deferTombstoneToScore.
+				pivotTombstoned := deferTombstoneToScore && results[firstNonExhausted].tombstoned(pivotID)
+				if !pivotTombstoned {
+					score := 0.0
+					termsMatched := 0
+					for _, term := range results {
+						if term.idPointer != pivotID {
+							break
+						}
+						termsMatched++
+						_, s, d := term.Score(averagePropLength, additionalExplanations)
+						score += s
 
-					if additionalExplanations {
-						docInfos[term.QueryTermIndex()] = d
-					}
+						if additionalExplanations {
+							docInfos[term.QueryTermIndex()] = d
+						}
 
+					}
+					if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumOrTokensMatch {
+						topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+					}
 				}
 				for _, term := range results {
 					if !term.exhausted && term.idPointer != pivotID {
 						break
 					}
 					term.Advance()
-				}
-				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumOrTokensMatch {
-					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 				}
 
 				results.sortByID()
@@ -290,20 +295,28 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 				}
 			}
 			if isCandidate {
-				score := 0.0
-				if additionalExplanations {
-					docInfos = make([]*terms.DocPointerWithScore, termCount)
-				}
-				for _, term := range results {
-					_, s, d := term.Score(averagePropLength, additionalExplanations)
-					score += s
-					if additionalExplanations {
-						docInfos[term.QueryTermIndex()] = d
+				// deferred tombstone hit (see deferTombstoneToScore): advance past the
+				// candidate without scoring it.
+				if deferTombstoneToScore && results[0].tombstoned(pivotID) {
+					for _, term := range results {
+						term.Advance()
 					}
-					term.Advance()
-				}
-				if topKHeap.ShouldEnqueue(float32(score), limit) {
-					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+				} else {
+					score := 0.0
+					if additionalExplanations {
+						docInfos = make([]*terms.DocPointerWithScore, termCount)
+					}
+					for _, term := range results {
+						_, s, d := term.Score(averagePropLength, additionalExplanations)
+						score += s
+						if additionalExplanations {
+							docInfos[term.QueryTermIndex()] = d
+						}
+						term.Advance()
+					}
+					if topKHeap.ShouldEnqueue(float32(score), limit) {
+						topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+					}
 				}
 			} else {
 				pivotID += 1
