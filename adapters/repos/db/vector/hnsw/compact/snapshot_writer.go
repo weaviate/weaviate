@@ -723,8 +723,8 @@ func (s *SnapshotWriter) commitsToNodeState(nc *NodeCommits) *nodeStateWithTombs
 				"node_id":   nc.NodeID,
 				"level":     maxLevel,
 				"max_level": packedconn.MaxLayerCount - 1,
-			}).Error(fmt.Errorf("node level %d exceeds maximum %d, skipping corrupt node",
-				maxLevel, packedconn.MaxLayerCount-1))
+			}).Errorf("node level %d exceeds maximum %d, skipping corrupt node",
+				maxLevel, packedconn.MaxLayerCount-1)
 		}
 		return nil
 	}

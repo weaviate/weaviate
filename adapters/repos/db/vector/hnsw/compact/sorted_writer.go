@@ -186,7 +186,7 @@ func (s *SortedWriter) writeNodeCommits(res *ent.DeserializationResult) error {
 						WithField("level", level).
 						WithField("original_length", len(links)).
 						WithField("maximum_length", math.MaxUint16).
-						Warning("length of connections would overflow uint16, cutting off")
+						Warn("length of connections would overflow uint16, cutting off")
 					links = links[:math.MaxUint16]
 				}
 

@@ -488,7 +488,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 	// Delete source files after successful merge
 	for _, f := range filesToMerge {
 		if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
-			c.logger.WithError(err).WithField("file", f.Path).Warn("failed to delete source file after merge")
+			c.logger.WithField("file", f.Path).Warnf("failed to delete source file after merge: %v", err)
 		}
 	}
 
@@ -607,7 +607,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 			continue
 		}
 		if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
-			c.logger.WithError(err).WithField("file", f.Path).Warn("failed to delete source file after snapshot")
+			c.logger.WithField("file", f.Path).Warnf("failed to delete source file after snapshot: %v", err)
 		}
 	}
 

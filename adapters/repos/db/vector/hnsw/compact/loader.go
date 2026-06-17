@@ -263,8 +263,7 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 			l.config.Logger.WithFields(logrus.Fields{
 				"action": "hnsw_loader",
 				"file":   f.Path,
-				"error":  err.Error(),
-			}).Warn("WAL file truncated - recovering from crash")
+			}).Warnf("WAL file truncated - recovering from crash: %v", err)
 
 			// Truncate raw files to remove partial entries.
 			// This prevents the partial entry from becoming corrupted on next write
@@ -272,10 +271,10 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 			if f.Type == FileTypeRaw {
 				validBytes := walReader.BytesRead()
 				if truncErr := l.fs.Truncate(f.Path, validBytes); truncErr != nil {
-					l.config.Logger.WithError(truncErr).
+					l.config.Logger.
 						WithField("file", f.Path).
 						WithField("valid_bytes", validBytes).
-						Error("failed to truncate corrupt WAL file")
+						Errorf("failed to truncate corrupt WAL file: %v", truncErr)
 				} else {
 					l.config.Logger.WithFields(logrus.Fields{
 						"action":      "hnsw_loader",
