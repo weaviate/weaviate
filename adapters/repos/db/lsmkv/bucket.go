@@ -2169,8 +2169,8 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// active memtable
 	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	// memtable tombstones are invariant within a consistent view; read them once
-	// per query instead of cloning + OR-ing the same bitmaps for every term.
+	// Memtable tombstones are invariant within a consistent view: read once and
+	// OR into a single bitmap shared by every term.
 	memTombstones := sroar.NewBitmap()
 	var activeTombstones *sroar.Bitmap
 	if view.Active != nil {
@@ -2190,10 +2190,10 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		memTombstones.Or(flushingTombstones)
 	}
 
-	// per-(segment, term) index nodes prefetched together with the doc counts in
-	// a single index descent (hasKey, getDocCount and the term constructor each
-	// did their own before). diskSkip marks inverted segments where the key is
-	// definitively absent, so construction is not attempted at all.
+	// One index descent per (segment, term): diskNodes/diskNodeOk cache the node
+	// and doc count for reuse by both the count below and term construction.
+	// diskSkip marks inverted segments where the key is absent, so construction
+	// is skipped.
 	qn := len(query)
 	diskNodes := make([]segmentindex.Node, len(view.Disk)*qn)
 	diskNodeOk := make([]bool, len(view.Disk)*qn)
@@ -2203,8 +2203,6 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		key := []byte(queryTerm)
 		n := uint64(0)
 
-		// memtable terms are built only when the memtable actually holds the key
-		// (the common case is that it doesn't — or there is no memtable at all).
 		var active, flushing *SegmentBlockMax
 		if view.Active != nil {
 			if mapPairs, err := view.Active.getMap(key); err == nil {
@@ -2289,8 +2287,8 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			if diskSkip[idx] {
 				continue
 			}
-			// non-inverted segments have no prefetched node; the constructor
-			// falls back to its own index lookup exactly as before.
+			// non-inverted segments have no prefetched node; nil makes the
+			// constructor do its own index lookup.
 			var node *segmentindex.Node
 			if diskNodeOk[idx] {
 				node = &diskNodes[idx]
