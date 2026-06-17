@@ -80,7 +80,13 @@ func vecDelta(name string, oldCfg, newCfg any) string {
 	no, normOk1 := normalizeVectorConfig(oldCfg)
 	nn, normOk2 := normalizeVectorConfig(newCfg)
 	if !normOk1 || !normOk2 {
-		return fmt.Sprintf("structural vector config change on %s", label) // unknown type ⇒ fail closed
+		// Unknown config type (e.g. the experimental hfresh index, whose fields we don't yet
+		// classify): we can't isolate its structural from its query-time fields, so fail closed on
+		// any real change — but a no-op update changes nothing on disk and must pass.
+		if reflect.DeepEqual(oldCfg, newCfg) {
+			return ""
+		}
+		return fmt.Sprintf("structural vector config change on %s", label)
 	}
 	if !reflect.DeepEqual(no, nn) {
 		return fmt.Sprintf("structural vector config change on %s", label)

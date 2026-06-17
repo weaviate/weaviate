@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -479,6 +480,9 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			{"named vector added", &models.Class{Class: className}, named(map[string]any{"v1": hnswent.UserConfig{}})},
 			{"named vector removed", named(map[string]any{"v1": hnswent.UserConfig{}}), &models.Class{Class: className}},
 			{"named vector structural change", named(map[string]any{"v1": hnswent.UserConfig{}}), named(map[string]any{"v1": hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}})},
+			// hfresh is an unclassified (experimental) index type: any real change fails closed.
+			{"hfresh field change", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 64})},
+			{"hfresh distance change", legacy(hfreshent.UserConfig{Distance: "cosine"}), legacy(hfreshent.UserConfig{Distance: "l2-squared"})},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -498,6 +502,8 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			// Test_vectorConfigClassificationComplete. dynamic-threshold and a deferred-safe field
 			// are kept explicitly because both are deliberate, contestable classifications.
 			{"no vector change", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "cosine"})},
+			// A no-op update on an unclassified (hfresh) config must pass — nothing changed on disk.
+			{"hfresh no-op", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48, Distance: "cosine"}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48, Distance: "cosine"})},
 			{"hnsw query-time knob", legacy(hnswent.UserConfig{EF: 10}), legacy(hnswent.UserConfig{EF: 20})},
 			{"hnsw deferred-safe field", legacy(hnswent.UserConfig{MaxConnections: 16}), legacy(hnswent.UserConfig{MaxConnections: 32})},
 			{"dynamic threshold", legacy(dynamicent.UserConfig{Threshold: 1000}), legacy(dynamicent.UserConfig{Threshold: 2000})},
