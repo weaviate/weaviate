@@ -1710,6 +1710,54 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"lenient parent-Scope AND; 10200 (all values at wrong "+
 				"slot) is the pin discriminator")
 	})
+
+	t.Run("not_equal", func(t *testing.T) {
+		// Python: test_not_equal_at_root_cars.
+		// Filter cars.make != Toyota. Per-Scope-element existential
+		// owner-level: ∃ a car whose cars-self bit isn't in the Toyota
+		// bucket. Includes cars where make isn't set at all (the no-make
+		// car's cars-self bit is in anchor(cars) but not in
+		// bucket["Toyota"] → survives the AndNot).
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 10400: single_toyota → no match.
+		local.addDoc(t, prop, 10400, []any{
+			map[string]any{"make": "Toyota"},
+		})
+		// 10500: single_honda → match.
+		local.addDoc(t, prop, 10500, []any{
+			map[string]any{"make": "Honda"},
+		})
+		// 10600: mixed_toyota_and_honda → match (∃ Honda car).
+		local.addDoc(t, prop, 10600, []any{
+			map[string]any{"make": "Toyota"},
+			map[string]any{"make": "Honda"},
+		})
+		// 10700: multiple_non_toyota → match.
+		local.addDoc(t, prop, 10700, []any{
+			map[string]any{"make": "Honda"},
+			map[string]any{"make": "Ford"},
+		})
+		// 10800: empty_cars → no match (vacuous, anchor empty).
+		local.addDoc(t, prop, 10800, []any{})
+		// 10900: missing_make_only — single car with no make at all.
+		// Locks down the owner-level / include-missing semantic: the
+		// car's cars-self bit is in anchor(cars), not in bucket["Toyota"]
+		// → survives. Doc matches. If anyone refactors leafNotEqual to
+		// use _exists(path) as the universe ("must exist" semantic),
+		// this assertion fails.
+		local.addDoc(t, prop, 10900, []any{
+			map[string]any{"year": 2020},
+		})
+
+		r := leafNotEqual(local, "cars.make", "Toyota")
+
+		assert.ElementsMatch(t,
+			[]uint64{10500, 10600, 10700, 10900}, local.docIDs(r),
+			"docs with ∃ car whose make != Toyota (Python set) plus 10900 "+
+				"(no-make car) — locks down owner-level / include-missing "+
+				"semantic")
+	})
 }
 
 // TestFastPathL2_PythonPort runs the L2 (countries[].garages[].cars[]) ports as subtests
@@ -2900,6 +2948,84 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"docs where cars[0] has BOTH (family AND hybrid) AND luxury; "+
 				"12100 lenient discriminator, 12200 wrong-slot discriminator")
 	})
+
+	t.Run("not_equal", func(t *testing.T) {
+		// Python: test_not_equal_under_countries_array.
+		// Filter countries.garages.cars.make != Toyota. Owner-level at
+		// scope=countries.garages.cars — Python set + missing-make
+		// discriminator (12900) + cross-garage existential (12800).
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 12400: single_toyota → no match.
+		local.addDoc(t, prop, 12400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota"},
+				}},
+			}},
+		})
+		// 12500: single_honda → match.
+		local.addDoc(t, prop, 12500, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+		// 12600: mixed_toyota_and_honda → match.
+		local.addDoc(t, prop, 12600, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota"},
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+		// 12700: multiple_non_toyota → match.
+		local.addDoc(t, prop, 12700, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Honda"},
+					map[string]any{"make": "Ford"},
+				}},
+			}},
+		})
+		// 12800: mixed_across_garages — Amsterdam=Toyota, Rotterdam=Honda.
+		// Existential per-element across garages → match (Rotterdam's
+		// Honda car satisfies).
+		local.addDoc(t, prop, 12800, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"city": "Amsterdam", "cars": []any{
+					map[string]any{"make": "Toyota"},
+				}},
+				map[string]any{"city": "Rotterdam", "cars": []any{
+					map[string]any{"make": "Honda"},
+				}},
+			}},
+		})
+		// 12900: missing_make_only — locks down the owner-level /
+		// include-missing semantic at L2.
+		local.addDoc(t, prop, 12900, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"year": 2020},
+				}},
+			}},
+		})
+		// 13000: empty_cars → no match.
+		local.addDoc(t, prop, 13000, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{}},
+			}},
+		})
+
+		r := leafNotEqual(local, "countries.garages.cars.make", "Toyota")
+
+		assert.ElementsMatch(t,
+			[]uint64{12500, 12600, 12700, 12800, 12900}, local.docIDs(r),
+			"docs with ∃ car whose make != Toyota across any garage/country; "+
+				"12900 (missing-make) locks down owner-level / include-missing")
+	})
 }
 
 // TestFastPathL2Object_PythonPort runs the L2_object (country.garages[].
@@ -3783,5 +3909,66 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{21800, 22100}, local.docIDs(r),
 			"docs where cars[0] has BOTH (family AND hybrid) AND luxury; "+
 				"22100 lenient discriminator, 22200 wrong-slot discriminator")
+	})
+
+	t.Run("not_equal", func(t *testing.T) {
+		// Python: test_not_equal_under_country_object.
+		// Filter country.garages.cars.make != Toyota. Mirror of L0/L2 —
+		// Python set + cross-garage existential + missing-make discriminator.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 22400: single_toyota → no match.
+		local.addDoc(t, prop, 22400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota"},
+			}},
+		}})
+		// 22500: single_honda → match.
+		local.addDoc(t, prop, 22500, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+		// 22600: mixed_toyota_and_honda → match.
+		local.addDoc(t, prop, 22600, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota"},
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+		// 22700: multiple_non_toyota → match.
+		local.addDoc(t, prop, 22700, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Honda"},
+				map[string]any{"make": "Ford"},
+			}},
+		}})
+		// 22800: mixed_across_garages → match.
+		local.addDoc(t, prop, 22800, map[string]any{"garages": []any{
+			map[string]any{"city": "Amsterdam", "cars": []any{
+				map[string]any{"make": "Toyota"},
+			}},
+			map[string]any{"city": "Rotterdam", "cars": []any{
+				map[string]any{"make": "Honda"},
+			}},
+		}})
+		// 22900: missing_make_only — locks down owner-level /
+		// include-missing semantic.
+		local.addDoc(t, prop, 22900, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"year": 2020},
+			}},
+		}})
+		// 23000: empty_cars → no match.
+		local.addDoc(t, prop, 23000, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{}},
+		}})
+
+		r := leafNotEqual(local, "country.garages.cars.make", "Toyota")
+
+		assert.ElementsMatch(t,
+			[]uint64{22500, 22600, 22700, 22800, 22900}, local.docIDs(r),
+			"docs with ∃ car whose make != Toyota; 22900 (missing-make) "+
+				"locks down owner-level / include-missing")
 	})
 }

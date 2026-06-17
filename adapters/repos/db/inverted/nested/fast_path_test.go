@@ -610,6 +610,28 @@ func leafNot(idx *fastPathIndex, path string, value any) *fastPathResult {
 	return negate(idx, leafPositive(idx, path, value))
 }
 
+// leafNotEqual realizes `path != value`.
+//
+// Owner-level negation at Scope: a Scope-element matches if its leaf
+// value isn't the listed one. Universe = _anchor(Scope) — every
+// Scope-element gets a chance to satisfy. A Scope-element with the
+// leaf absent ALSO matches (it's in the anchor, not in the Equal
+// witnesses → survives the AndNot). Empty arrays don't match because
+// the doc contributes no Scope-element bits to the anchor.
+//
+// Semantically identical to NOT(Equal) in the harness's encoding —
+// both fall out of `negate(leafPositive(...))`. The separate name
+// preserves operator identity at call sites: a reader sees the
+// inequality intent without having to recognize `negate(leafPositive)`
+// as the production NotEqual idiom.
+//
+// Tokenization is inherited from leafPositive: single-token Field
+// values take the single-bucket fast path; multi-token WORD values
+// fan out per-token through tokenizedMatchBitmap before the negate.
+func leafNotEqual(idx *fastPathIndex, path string, value any) *fastPathResult {
+	return negate(idx, leafPositive(idx, path, value))
+}
+
 // leafPinnedIsNullFalse realizes `<pinned path>.x IS NULL false` using the
 // same unified pipeline as leafPinnedPositive, just reading from _exists
 // instead of a value-keyed bucket. Works for any pin layout.
