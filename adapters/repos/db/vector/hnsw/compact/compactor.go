@@ -284,9 +284,9 @@ func (c *Compactor) convertToSorted(state *DirectoryState, shouldAbort func() bo
 	return nil
 }
 
-// discardFilesBeforeReset removes every commit-log file strictly older than
-// boundaryTS (the StartTS of the file carrying the ResetIndex). That file's own
-// output shares boundaryTS and is preserved; the live file is never removed.
+// discardFilesBeforeReset removes every commit-log file whose range starts
+// before boundaryTS (the StartTS of the file carrying the ResetIndex). That
+// file's own output shares boundaryTS and is preserved; the live file is never removed.
 func (c *Compactor) discardFilesBeforeReset(boundaryTS int64) error {
 	discovery := NewFileDiscoveryWithFS(c.config.Dir, c.fs)
 	state, err := discovery.Scan()
