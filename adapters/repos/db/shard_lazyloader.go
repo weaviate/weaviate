@@ -577,6 +577,8 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 
 // Skips Load: a never-loaded shard can't be halted, so there's no timer.
 func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 	if l.shard == nil {
 		return
 	}
