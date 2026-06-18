@@ -540,20 +540,12 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
-	reason := statusReasonVectorIndexUpdate
-	err := s.SetStatusReadonly(reason)
-	if err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
 	index, ok := s.GetVectorIndex("")
 	if !ok {
 		return fmt.Errorf("vector index does not exist")
 	}
 
-	return index.UpdateUserConfig(updated, func() {
-		s.UpdateStatus(storagestate.StatusReady.String(), reason)
-	})
+	return index.UpdateUserConfig(updated, func() {})
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
