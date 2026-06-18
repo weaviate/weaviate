@@ -19,6 +19,7 @@ import (
 	"hash/crc32"
 	"io"
 	"math"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -52,19 +53,36 @@ const (
 // The V3 snapshot format consists of:
 //   - Metadata header: version, checksum, metadata size, and metadata content
 //   - Body: fixed-size blocks (4MB each) containing node data with checksums
+//
+// Node data is streamed: as each node arrives (in ascending ID order) it is
+// encoded straight into the current body block and full blocks are spilled to
+// a scratch file. The writer never holds the whole graph, so peak heap is
+// bounded by one block plus the largest single node, independent of the
+// live-set size and of maxNodeID. The metadata header is written to w only
+// once the node count is known (after the body has been spilled), then the
+// spilled body is copied in behind it. See bodyStreamer.
 type SnapshotWriter struct {
 	w         io.Writer
 	blockSize int64
 	logger    logrus.FieldLogger
 
+	// scratchDir is where the body spill file is created. Empty means the OS
+	// temp dir. Production sets this to the index directory (a data volume) so
+	// a multi-GB body never lands on a small tmpfs. See WithScratchDir.
+	scratchDir string
+
 	// Metadata collected before writing
 	entrypoint uint64
 	level      uint16
 
-	// Node state accumulated during writing
-	nodes      []*nodeState
-	tombstones map[uint64]struct{}
-	maxNodeID  uint64
+	// body streams encoded node blocks to a scratch file; created lazily on
+	// the first node and torn down by Flush.
+	body         *bodyStreamer
+	nodeEntryBuf bytes.Buffer // reused scratch for encoding a single node entry
+
+	// firstErr latches the first error from the no-return AddNode/AddTombstone
+	// API so it surfaces from Flush, preserving the pre-streaming contract.
+	firstErr error
 
 	// Compression data (only one can be set at a time)
 	pqData  *compression.PQData
@@ -82,18 +100,11 @@ type SnapshotWriter struct {
 	shouldAbort func() bool
 }
 
-// nodeState represents the absolute state of a single node.
-type nodeState struct {
-	level       uint16
-	connections [][]uint64 // connections per level
-}
-
 // NewSnapshotWriter creates a new snapshot writer.
 func NewSnapshotWriter(w io.Writer) *SnapshotWriter {
 	return &SnapshotWriter{
-		w:          w,
-		blockSize:  defaultBlockSize,
-		tombstones: make(map[uint64]struct{}),
+		w:         w,
+		blockSize: defaultBlockSize,
 	}
 }
 
@@ -101,10 +112,17 @@ func NewSnapshotWriter(w io.Writer) *SnapshotWriter {
 // This is primarily useful for testing with smaller block sizes.
 func NewSnapshotWriterWithBlockSize(w io.Writer, blockSize int64) *SnapshotWriter {
 	return &SnapshotWriter{
-		w:          w,
-		blockSize:  blockSize,
-		tombstones: make(map[uint64]struct{}),
+		w:         w,
+		blockSize: blockSize,
 	}
+}
+
+// WithScratchDir sets the directory for the body spill file. It should be on
+// the same (large) volume as the snapshot output; the default OS temp dir may
+// be a small tmpfs that a large body would exhaust.
+func (s *SnapshotWriter) WithScratchDir(dir string) *SnapshotWriter {
+	s.scratchDir = dir
+	return s
 }
 
 // WithLogger sets the logger for the snapshot writer. If set, corrupt nodes
@@ -166,90 +184,112 @@ func (s *SnapshotWriter) isMuveraEnabled() bool {
 
 // AddNode adds a node with its connections to the snapshot.
 // Nodes must be added in ascending node ID order.
+//
+// The node is encoded and spilled to the body immediately; any error is
+// latched and surfaced from Flush, preserving the original no-error signature.
 func (s *SnapshotWriter) AddNode(nodeID uint64, level uint16, connections [][]uint64, hasTombstone bool) {
-	// Expand nodes slice if needed using exponential growth
-	s.ensureNodesCapacity(nodeID)
-
-	s.nodes[nodeID] = &nodeState{
-		level:       level,
-		connections: connections,
+	if s.firstErr != nil {
+		return
 	}
-
-	if hasTombstone {
-		s.tombstones[nodeID] = struct{}{}
-	}
-
-	if nodeID > s.maxNodeID {
-		s.maxNodeID = nodeID
+	if err := s.addNodeStreaming(nodeID, level, connections, hasTombstone); err != nil {
+		s.firstErr = err
 	}
 }
 
-// ensureNodesCapacity grows the nodes slice to accommodate nodeID using exponential growth.
-func (s *SnapshotWriter) ensureNodesCapacity(nodeID uint64) {
-	required := int(nodeID + 1)
-	if required <= len(s.nodes) {
-		return
+// addNodeStreaming encodes one node entry and hands it to the body streamer.
+// The encode buffer is reused across calls so the per-node heap cost is just
+// the node's own connection data, not retained after the block absorbs it.
+func (s *SnapshotWriter) addNodeStreaming(nodeID uint64, level uint16, connections [][]uint64, hasTombstone bool) error {
+	if err := s.ensureBody(); err != nil {
+		return err
 	}
 
-	// If we have enough capacity, just extend the length (no allocation)
-	if required <= cap(s.nodes) {
-		s.nodes = s.nodes[:required]
-		return
+	s.nodeEntryBuf.Reset()
+	if hasTombstone {
+		_ = writeByte(&s.nodeEntryBuf, 1) // exists with tombstone
+	} else {
+		_ = writeByte(&s.nodeEntryBuf, 2) // exists without tombstone
 	}
+	_ = writeUint32(&s.nodeEntryBuf, uint32(level))
 
-	// Need to allocate - calculate new capacity with exponential growth
-	newCap := cap(s.nodes)
-	if newCap == 0 {
-		newCap = 1024 // initial capacity
+	connData, err := s.packConnections(level, connections)
+	if err != nil {
+		return errors.Wrapf(err, "pack connections for node %d", nodeID)
 	}
-	for newCap < required {
-		newCap *= 2
-	}
+	_ = writeUint32(&s.nodeEntryBuf, uint32(len(connData)))
+	_, _ = s.nodeEntryBuf.Write(connData)
 
-	// Grow the slice
-	newNodes := make([]*nodeState, required, newCap)
-	copy(newNodes, s.nodes)
-	s.nodes = newNodes
+	return s.body.addLiveNode(nodeID, s.nodeEntryBuf.Bytes())
 }
 
 // AddTombstone marks a standalone tombstone for a nil slot.
 //
-// Note that this does NOT cause a tombstone to be emitted to the snapshot
-// body: the V3 snapshot format has only three existence bytes (0=absent,
-// 1=alive-with-tombstone, 2=alive-without-tombstone) and no encoding for a
-// "deleted-with-tombstone" slot. Tombstones on nil slots are dropped by
-// writeBody on purpose — see the comment there for why that is safe under
-// the runtime's cleanup ordering.
-//
-// The method is retained for API symmetry and because it still has a visible
-// side effect on sizing: it grows the nodes slice so that the nodes-array
-// length reported in the metadata block covers nodeID. Use AddNode with
-// hasTombstone=true to persist a tombstone for an alive node.
+// This does NOT emit a tombstone to the body: the V3 format has only three
+// existence bytes (0=absent, 1=alive-with-tombstone, 2=alive-without-tombstone)
+// and no encoding for a "deleted-with-tombstone" slot, so tombstones on nil
+// slots are dropped on purpose (see the absent-slot handling in bodyStreamer
+// for why that is safe under the runtime's cleanup ordering). Its only visible
+// effect is on sizing: it extends the node count so the metadata covers nodeID.
+// Use AddNode with hasTombstone=true to persist a tombstone for an alive node.
 func (s *SnapshotWriter) AddTombstone(nodeID uint64) {
-	// Expand nodes slice if needed to include this tombstone
-	s.ensureNodesCapacity(nodeID)
-
-	s.tombstones[nodeID] = struct{}{}
-	if nodeID > s.maxNodeID {
-		s.maxNodeID = nodeID
+	if s.firstErr != nil {
+		return
 	}
+	if err := s.ensureBody(); err != nil {
+		s.firstErr = err
+		return
+	}
+	s.body.reserve(nodeID)
 }
 
-// Flush writes all accumulated state to the snapshot file.
+// ensureBody lazily opens the body spill file on the first node.
+func (s *SnapshotWriter) ensureBody() error {
+	if s.body != nil {
+		return nil
+	}
+	b, err := newBodyStreamer(s.scratchDir, s.blockSize)
+	if err != nil {
+		return err
+	}
+	s.body = b
+	return nil
+}
+
+// Flush finalizes the body, writes the metadata header (now that the node
+// count is known), then copies the spilled body in behind it. The spill file
+// is always removed, including on the error paths.
 func (s *SnapshotWriter) Flush() error {
-	if err := s.writeMetadata(); err != nil {
+	if s.body != nil {
+		defer s.body.close()
+	}
+	if s.firstErr != nil {
+		return s.firstErr
+	}
+
+	var nodeCount uint32
+	if s.body != nil {
+		if err := s.body.finish(); err != nil {
+			return errors.Wrap(err, "finalize snapshot body")
+		}
+		nodeCount = uint32(s.body.count)
+	}
+
+	if err := s.writeMetadata(nodeCount); err != nil {
 		return errors.Wrap(err, "write metadata")
 	}
 
-	if err := s.writeBody(); err != nil {
-		return errors.Wrap(err, "write body")
+	if s.body != nil && nodeCount > 0 {
+		if err := s.body.copyTo(s.w); err != nil {
+			return errors.Wrap(err, "write body")
+		}
 	}
 
 	return nil
 }
 
-// writeMetadata writes the snapshot metadata header.
-func (s *SnapshotWriter) writeMetadata() error {
+// writeMetadata writes the snapshot metadata header. nodeCount is the total
+// slot count (maxNodeID+1), sized so the reader can pre-allocate Graph.Nodes.
+func (s *SnapshotWriter) writeMetadata(nodeCount uint32) error {
 	var buf bytes.Buffer
 
 	// Metadata content
@@ -277,7 +317,7 @@ func (s *SnapshotWriter) writeMetadata() error {
 	}
 
 	// Node count
-	_ = writeUint32(&buf, uint32(len(s.nodes)))
+	_ = writeUint32(&buf, nodeCount)
 
 	// Compute checksum of metadata
 	metadataSize := uint32(buf.Len())
@@ -438,132 +478,194 @@ func (s *SnapshotWriter) writeMuveraData(buf *bytes.Buffer) error {
 	return nil
 }
 
-// writeBody writes the snapshot body in fixed-size blocks.
-func (s *SnapshotWriter) writeBody() error {
-	if len(s.nodes) == 0 {
-		return nil
+// absentSlot is the single-byte body entry for a slot with no live node
+// (existence == 0). It is never mutated.
+var absentSlot = []byte{0}
+
+// bodyStreamer encodes nodes into the V3 body block format and spills full
+// blocks to a scratch file as they fill, so peak heap stays bounded by one
+// block plus the largest single node entry — independent of the live-set size
+// and of maxNodeID. The byte stream it produces is identical to materializing
+// the whole graph and writing it slot-by-slot: every slot from 0 to the max
+// reserved ID gets exactly one entry (a full node or a one-byte absent
+// marker), each fixed-size block is self-describing (leading start-node-ID,
+// trailing length, leading CRC), and gaps are absent markers so the reader's
+// per-slot counter stays aligned with node IDs.
+type bodyStreamer struct {
+	scratch      *os.File
+	scratchPath  string
+	blockSize    int64
+	maxBlockSize int
+
+	block   bytes.Buffer
+	hasher  hash.Hash32
+	hw      io.Writer // MultiWriter(&block, hasher) for the current block
+	zeroPad []byte    // reusable maxBlockSize-sized zero buffer for padding
+
+	started bool   // current block has been initialized with a start-node-ID
+	nextID  uint64 // next slot ID expected by the block stream
+	count   uint64 // total slots reserved (= maxNodeID+1); the metadata node count
+}
+
+// newBodyStreamer creates the scratch spill file. scratchDir empty means the
+// OS temp dir. The file is O_RDWR (created via CreateTemp) so it can be read
+// back when copied behind the header. It is always removed via close.
+func newBodyStreamer(scratchDir string, blockSize int64) (*bodyStreamer, error) {
+	f, err := os.CreateTemp(scratchDir, "hnsw-snapshot-body-*.tmp")
+	if err != nil {
+		return nil, errors.Wrap(err, "create snapshot body scratch file")
 	}
+	maxBlockSize := int(blockSize - 8) // reserve 8 bytes for checksum and block length
+	return &bodyStreamer{
+		scratch:      f,
+		scratchPath:  f.Name(),
+		blockSize:    blockSize,
+		maxBlockSize: maxBlockSize,
+		hasher:       crc32.NewIEEE(),
+		zeroPad:      make([]byte, maxBlockSize),
+	}, nil
+}
 
-	var block bytes.Buffer
-	var nodeBuf bytes.Buffer
+// reserve grows the node count so the metadata covers id, without emitting a
+// live node — used for standalone tombstones on nil slots.
+func (b *bodyStreamer) reserve(id uint64) {
+	if id+1 > b.count {
+		b.count = id + 1
+	}
+}
 
-	hasher := crc32.NewIEEE()
-	hw := io.MultiWriter(&block, hasher)
-
-	maxBlockSize := int(s.blockSize - 8) // reserve 8 bytes for checksum and block length
-
-	// Write first node ID at the start of the first block
-	if err := writeUint64(hw, 0); err != nil {
+// addLiveNode writes the encoded entry for a live node at id, first emitting
+// absent markers for any skipped slots so the on-disk slot index stays aligned
+// with node IDs. entry is consumed synchronously (copied into the block), so
+// the caller may reuse its backing buffer afterwards.
+func (b *bodyStreamer) addLiveNode(id uint64, entry []byte) error {
+	if id < b.nextID {
+		return errors.Errorf("nodes must be added in ascending ID order: got %d after %d", id, b.nextID)
+	}
+	for ; b.nextID < id; b.nextID++ {
+		if err := b.writeSlot(b.nextID, absentSlot); err != nil {
+			return err
+		}
+	}
+	if err := b.writeSlot(id, entry); err != nil {
 		return err
 	}
-
-	for nodeID := uint64(0); nodeID < uint64(len(s.nodes)); nodeID++ {
-		nodeBuf.Reset()
-
-		node := s.nodes[nodeID]
-		if node != nil {
-			_, hasTombstone := s.tombstones[nodeID]
-			if hasTombstone {
-				_ = writeByte(&nodeBuf, 1) // exists with tombstone
-			} else {
-				_ = writeByte(&nodeBuf, 2) // exists without tombstone
-			}
-
-			_ = writeUint32(&nodeBuf, uint32(node.level))
-
-			// Pack connections into binary format
-			connData, err := s.packConnections(node.level, node.connections)
-			if err != nil {
-				return errors.Wrapf(err, "pack connections for node %d", nodeID)
-			}
-			_ = writeUint32(&nodeBuf, uint32(len(connData)))
-			_, _ = nodeBuf.Write(connData)
-		} else {
-			// Nil slot: either the node never existed or it was deleted.
-			// If an entry for this ID exists in s.tombstones it is dropped
-			// on purpose — the snapshot format has no encoding for a
-			// deleted-but-tombstoned slot, and it does not need one.
-			// DeleteNode is only emitted by the runtime after
-			// reassignNeighborsOf has rewritten every surviving node's
-			// outbound links to exclude this ID (see
-			// adapters/repos/db/vector/hnsw/delete.go, cleanUpTombstonedNodes:
-			// reassignNeighborsOf is ordered strictly before
-			// removeTombstonesAndNodes, which is the only writer of
-			// DeleteNode). In a snapshot — which is an absolute-state root
-			// file, never layered on top of older logs — no survivor
-			// references this slot, so the tombstone has nothing left to
-			// drive and is operationally equivalent to "never existed".
-			_ = writeByte(&nodeBuf, 0)
-		}
-
-		// Check if node fits in current block
-		if nodeBuf.Len()+block.Len() < maxBlockSize {
-			_, err := hw.Write(nodeBuf.Bytes())
-			if err != nil {
-				return err
-			}
-			continue
-		}
-
-		// Node doesn't fit - flush current block and start new one
-		if err := s.flushBlock(&block, hasher, maxBlockSize); err != nil {
-			return err
-		}
-
-		// Reset for new block
-		block.Reset()
-		hasher.Reset()
-		hw = io.MultiWriter(&block, hasher)
-
-		// Write node ID at start of new block
-		if err := writeUint64(hw, nodeID); err != nil {
-			return err
-		}
-
-		// Write the node data to the new block
-		_, err := hw.Write(nodeBuf.Bytes())
-		if err != nil {
-			return err
-		}
-	}
-
-	// Flush final block if it has data
-	if block.Len() > 0 {
-		if err := s.flushBlock(&block, hasher, maxBlockSize); err != nil {
-			return err
-		}
-	}
-
+	b.nextID = id + 1
+	b.reserve(id)
 	return nil
 }
 
-// flushBlock writes a complete block to the output.
-func (s *SnapshotWriter) flushBlock(block *bytes.Buffer, hasher hash.Hash32, maxBlockSize int) error {
-	blockLen := block.Len()
+// writeSlot appends one slot entry to the current block, flushing and starting
+// a fresh block (keyed on slotID) when the entry would not fit. This mirrors
+// the original per-node loop exactly, including the strict-less-than fit test.
+func (b *bodyStreamer) writeSlot(slotID uint64, entry []byte) error {
+	if !b.started {
+		// The first block always starts at slot 0; gap fills begin at nextID==0.
+		if err := b.initBlock(0); err != nil {
+			return err
+		}
+		b.started = true
+	}
 
-	// Pad block to maxBlockSize
-	padding := make([]byte, maxBlockSize-blockLen)
-	_, _ = block.Write(padding)
-	_, _ = hasher.Write(padding)
+	// A single entry that cannot fit even an otherwise-empty block (8-byte
+	// start-node-ID header) would overflow flushBlock's padding. This only
+	// occurs for corrupt nodes with absurd connection counts; fail loudly
+	// rather than emit a malformed (oversized) block.
+	if len(entry)+8 > b.maxBlockSize {
+		return errors.Errorf("node %d entry of %d bytes exceeds block capacity %d", slotID, len(entry), b.maxBlockSize-8)
+	}
 
-	// Write block length at end
-	if err := writeUint32(block, uint32(blockLen)); err != nil {
+	if len(entry)+b.block.Len() < b.maxBlockSize {
+		_, err := b.hw.Write(entry)
+		return err
+	}
+
+	if err := b.flushBlock(); err != nil {
+		return err
+	}
+	if err := b.initBlock(slotID); err != nil {
+		return err
+	}
+	_, err := b.hw.Write(entry)
+	return err
+}
+
+// initBlock resets the block buffer and hasher and writes the start-node-ID
+// header for the next block.
+func (b *bodyStreamer) initBlock(startID uint64) error {
+	b.block.Reset()
+	b.hasher.Reset()
+	b.hw = io.MultiWriter(&b.block, b.hasher)
+	return writeUint64(b.hw, startID)
+}
+
+// flushBlock pads the current block to maxBlockSize, appends the block length
+// and CRC, and writes the complete fixed-size block to the scratch file.
+func (b *bodyStreamer) flushBlock() error {
+	blockLen := b.block.Len()
+
+	if pad := b.maxBlockSize - blockLen; pad > 0 {
+		_, _ = b.block.Write(b.zeroPad[:pad])
+		_, _ = b.hasher.Write(b.zeroPad[:pad])
+	}
+
+	// Block length goes at the end of the block and into the hash.
+	if err := writeUint32(&b.block, uint32(blockLen)); err != nil {
 		return err
 	}
 	var blockLenBuf [4]byte
 	binary.LittleEndian.PutUint32(blockLenBuf[:], uint32(blockLen))
-	_, _ = hasher.Write(blockLenBuf[:])
+	_, _ = b.hasher.Write(blockLenBuf[:])
 
-	// Write checksum first, then block data
-	checksum := hasher.Sum32()
-	if err := writeUint32(s.w, checksum); err != nil {
+	// Checksum first, then the padded block + length.
+	checksum := b.hasher.Sum32()
+	if err := writeUint32(b.scratch, checksum); err != nil {
 		return err
 	}
-	if _, err := s.w.Write(block.Bytes()); err != nil {
+	if _, err := b.scratch.Write(b.block.Bytes()); err != nil {
 		return err
 	}
-
 	return nil
+}
+
+// finish emits absent markers for any reserved-but-unwritten trailing slots
+// (e.g. tombstones past the last live node) and flushes the final block.
+func (b *bodyStreamer) finish() error {
+	for ; b.nextID < b.count; b.nextID++ {
+		if err := b.writeSlot(b.nextID, absentSlot); err != nil {
+			return err
+		}
+	}
+	if b.started && b.block.Len() > 0 {
+		if err := b.flushBlock(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyTo streams the spilled body from the start of the scratch file to w
+// using a bounded buffer.
+func (b *bodyStreamer) copyTo(w io.Writer) error {
+	if _, err := b.scratch.Seek(0, io.SeekStart); err != nil {
+		return errors.Wrap(err, "seek body scratch file")
+	}
+	if _, err := io.Copy(w, b.scratch); err != nil {
+		return errors.Wrap(err, "copy body from scratch file")
+	}
+	return nil
+}
+
+// close removes the scratch file. It is idempotent so it can be deferred on
+// every path (Flush, abort, error) without double-free concerns.
+func (b *bodyStreamer) close() {
+	if b.scratch == nil {
+		return
+	}
+	name := b.scratchPath
+	_ = b.scratch.Close()
+	_ = os.Remove(name)
+	b.scratch = nil
 }
 
 // packConnections converts connections to the packed binary format.
@@ -588,8 +690,19 @@ func (s *SnapshotWriter) packConnections(level uint16, connections [][]uint64) (
 }
 
 // WriteFromMerger writes snapshot data from an n-way merger.
-// This converts commit-based data to absolute state and writes it as a snapshot.
+// This converts commit-based data to absolute state and streams it to the
+// snapshot. Each node is encoded and spilled as it arrives; the writer never
+// holds the whole graph.
 func (s *SnapshotWriter) WriteFromMerger(merger *NWayMerger) error {
+	// The body spill file is removed on every exit path. close is idempotent,
+	// so the successful path (Flush also closes) and the abort/error paths
+	// (which return before Flush) all leave no scratch file behind.
+	defer func() {
+		if s.body != nil {
+			s.body.close()
+		}
+	}()
+
 	// Extract global state from merged commits
 	for _, c := range merger.GlobalCommits() {
 		switch ct := c.(type) {
@@ -626,11 +739,13 @@ func (s *SnapshotWriter) WriteFromMerger(merger *NWayMerger) error {
 		// is deleted (commitsToNodeState's only nil-return path) and is
 		// therefore absent from the snapshot's absolute state. Any
 		// AddTombstoneCommit paired with a DeleteNodeCommit is dropped
-		// here deliberately — see writeBody for the invariant that makes
-		// this safe.
+		// here deliberately — see the absent-slot handling in bodyStreamer
+		// for the invariant that makes this safe.
 		state := s.commitsToNodeState(nodeCommits)
 		if state != nil {
-			s.AddNode(nodeCommits.NodeID, state.level, state.connections, state.hasTombstone)
+			if err := s.addNodeStreaming(nodeCommits.NodeID, state.level, state.connections, state.hasTombstone); err != nil {
+				return errors.Wrapf(err, "add node %d", nodeCommits.NodeID)
+			}
 		}
 	}
 

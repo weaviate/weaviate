@@ -583,7 +583,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 	}
 	defer sfw.Abort()
 
-	snapshotWriter := NewSnapshotWriter(sfw.Writer()).WithLogger(c.logger).WithAbort(shouldAbort)
+	snapshotWriter := NewSnapshotWriter(sfw.Writer()).WithLogger(c.logger).WithAbort(shouldAbort).WithScratchDir(c.config.Dir)
 	if err := snapshotWriter.WriteFromMerger(merger); err != nil {
 		return errors.Wrap(err, "write snapshot from merger")
 	}

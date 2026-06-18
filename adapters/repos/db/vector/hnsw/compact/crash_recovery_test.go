@@ -122,18 +122,21 @@ func TestCrashRecovery_OverlapAfterMerge(t *testing.T) {
 	dir := t.TempDir()
 	logger := crashTestLogger()
 
-	// Create 3 sorted files with distinct data
+	// Create 3 sorted files with distinct data. Within a .sorted file every
+	// commit is grouped under its source node in ascending node-ID order (see
+	// SortedWriter.WriteAll), so a backlink from node 0 is written before
+	// node 1's AddNode, and a backlink from node 1 before node 2's AddNode.
 	writeTestSortedFileWithData(t, dir, 1000, 1000, func(w *WALWriter) {
 		require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
 		require.NoError(t, w.WriteAddNode(0, 0))
 	})
 	writeTestSortedFileWithData(t, dir, 2000, 2000, func(w *WALWriter) {
-		require.NoError(t, w.WriteAddNode(1, 0))
 		require.NoError(t, w.WriteAddLinkAtLevel(0, 0, 1))
+		require.NoError(t, w.WriteAddNode(1, 0))
 	})
 	writeTestSortedFileWithData(t, dir, 3000, 3000, func(w *WALWriter) {
-		require.NoError(t, w.WriteAddNode(2, 0))
 		require.NoError(t, w.WriteAddLinkAtLevel(1, 0, 2))
+		require.NoError(t, w.WriteAddNode(2, 0))
 	})
 
 	// First compactor run with FS that fails on remove — merge succeeds but
