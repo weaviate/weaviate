@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -65,6 +66,10 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 				IsPrimitive: true,
 			}
 		}
+	} else {
+		// Default to all non-ref, non-blob properties (mirrors gRPC). An empty
+		// selection makes the hybrid vector leg return objects without properties.
+		selectProps = s.allSelectProperties(args.CollectionName)
 	}
 
 	// Build additional properties from return_metadata
@@ -141,6 +146,30 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	res = stripResultsOwnNamespace(principal, res)
 
 	return &QueryHybridResp{Results: res}, nil
+}
+
+// allSelectProperties returns all non-ref, non-blob properties of the class,
+// mirroring the gRPC default. Returns a nil selection if the class is not in
+// the schema, letting the traverser produce the "class not found" error.
+func (s *WeaviateSearcher) allSelectProperties(className string) search.SelectProperties {
+	class := s.schemaReader.ReadOnlyClass(className)
+	if class == nil {
+		return nil
+	}
+
+	selectProps := make(search.SelectProperties, 0, len(class.Properties))
+	for _, prop := range class.Properties {
+		if schema.IsRefDataType(prop.DataType) ||
+			schema.IsBlobDataType(prop.DataType) ||
+			schema.IsBlobHashDataType(prop.DataType) {
+			continue
+		}
+		selectProps = append(selectProps, search.SelectProperty{
+			Name:        prop.Name,
+			IsPrimitive: true,
+		})
+	}
+	return selectProps
 }
 
 func buildAdditionalProperties(metadata []string) additional.Properties {

@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -578,12 +577,13 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
 		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
 		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
-		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
-		if !slices.Contains(validTypes, defaultVectorIndexType) {
-			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
-		}
 	}
-	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+	defaultVectorIndexWithValidation, err := configRuntime.NewDynamicValueWithValidation(
+		defaultVectorIndexType, NewDefaultVectorIndexValidator())
+	if err != nil {
+		return err
+	}
+	config.DefaultVectorIndexType = defaultVectorIndexWithValidation
 
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
@@ -1382,6 +1382,9 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
+	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
+
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
 		operationalMode = v
@@ -1999,22 +2002,6 @@ func parseClusterConfig() (cluster.Config, error) {
 			}
 		}
 	}
-
-	requestQueueIsEnabled := entcfg.Enabled(os.Getenv("REPLICATED_INDICES_REQUEST_QUEUE_ENABLED"))
-	cfg.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(requestQueueIsEnabled)
-	// choosing runtime.GOMAXPROCS(0)*2 for the number of workers as a reasonable default, but can be overridden
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS",
-		func(val int) { cfg.RequestQueueConfig.NumWorkers = val },
-		runtime.GOMAXPROCS(0)*2)
-	parseNonNegativeInt("REPLICATED_INDICES_REQUEST_QUEUE_SIZE",
-		func(val int) { cfg.RequestQueueConfig.QueueSize = val },
-		cluster.DefaultRequestQueueSize)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
-		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
-		cluster.DefaultRequestQueueFullHttpStatus)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
-		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
-		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }

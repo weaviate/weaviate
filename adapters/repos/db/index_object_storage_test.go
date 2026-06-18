@@ -146,14 +146,12 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
-				return readerFunc(class, shardState)
-			}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
@@ -318,14 +316,12 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
 
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
-		return readerFunc(class, shardState)
-	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantNamePopulated).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().

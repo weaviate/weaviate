@@ -400,6 +400,10 @@ func (s *fakeSegment) getPropertyLengths() (map[uint64]uint32, error) {
 	panic("not implemented")
 }
 
+func (s *fakeSegment) isPropertyLengthsLoaded() bool { return false }
+
+func (s *fakeSegment) freePropertyLengths() {}
+
 func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	panic("not implemented")
 }

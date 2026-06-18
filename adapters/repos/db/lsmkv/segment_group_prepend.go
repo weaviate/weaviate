@@ -372,6 +372,7 @@ func (sg *SegmentGroup) initPrependedSegments(dbFiles []string) ([]Segment, erro
 				allocChecker:             sg.allocChecker,
 				writeMetadata:            sg.writeMetadata,
 				deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+				lazyPropertyLengths:      sg.lazyPropertyLengths,
 			})
 		if err != nil {
 			// Close any segments already initialized.

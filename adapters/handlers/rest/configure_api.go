@@ -553,6 +553,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
+		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
@@ -2579,16 +2580,15 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.AllowedVectorIndexTypes = appState.ServerConfig.Config.Restrictions.AllowedVectorIndexTypes
 		registered.AllowedCompressionTypes = appState.ServerConfig.Config.Restrictions.AllowedCompressionTypes
 		registered.RestrictionsErrorMessage = appState.ServerConfig.Config.Restrictions.ErrorMessage
-		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
-		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 		registered.NamespaceCleanupInterval = appState.ServerConfig.Config.Namespaces.CleanupInterval
 		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule

@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
@@ -40,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // uuidLow and uuidHigh are deterministic UUIDs with clear binary ordering:
@@ -556,47 +558,126 @@ func asyncSchedulerOption(t *testing.T, ctx context.Context) func(*Index) {
 	}
 }
 
-// TestDBReconcileAsyncReplicationAggregatesErrors verifies that
-// DB.ReconcileAsyncReplication walks every index, and that a reconcile failure
-// on one index (here: a misconfigured index with no scheduler) is aggregated
-// into the returned error without preventing the other index from reconciling.
-func TestDBReconcileAsyncReplicationAggregatesErrors(t *testing.T) {
+func setShardReplicas(t *testing.T, idx *Index, nodes ...string) {
+	t.Helper()
+	m, ok := idx.schemaReader.(*schemaUC.MockSchemaReader)
+	require.True(t, ok, "schemaReader is not a *MockSchemaReader")
+	for _, c := range m.ExpectedCalls {
+		if c.Method == "ShardReplicas" {
+			c.ReturnArguments = mock.Arguments{nodes, error(nil)}
+			return
+		}
+	}
+	m.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(nodes, nil).Maybe()
+}
+
+// TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard pins the cycle's
+// in-flight short-circuit: while a non-terminal op targets the local node for
+// this shard, the cycle must return without invoking the replicator so the
+// CCL stays the exclusive catch-up channel. A nil FSM reader is treated as
+// "no in-flight ops" — the fall-through path for tests that don't plumb one.
+func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "HashbeatInflightCheck"
+
+	sh, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	shardName := sh.Name()
+	setShardReplicas(t, idx, "node1", "node2")
+	localNode := idx.db.localNodeName
+
+	// Swap in a fresh FSM reader so we control the predicate this cycle reads.
+	fsmMock := replicationTypes.NewMockReplicationFSMReader(t)
+	saved := idx.replicationFSMReader
+	idx.replicationFSMReader = fsmMock
+	defer func() { idx.replicationFSMReader = saved }()
+
+	// Resolve the concrete *Shard to invoke runHashbeatCycle directly.
+	concrete, ok := sh.(*Shard)
+	require.True(t, ok, "expected a concrete *Shard from testShard")
+
+	cfg := idx.AsyncReplicationConfig()
+
+	t.Run("non-terminal op short-circuits the cycle", func(t *testing.T) {
+		// Cycle must consult the FSM, see the in-flight op, and return without
+		// calling the replicator (asserted implicitly via NewMockReplicationFSMReader's
+		// Cleanup: any unexpected call would fail the mock).
+		call := fsmMock.EXPECT().HasOngoingTargetReplication(class, shardName, localNode).Return(true).Once()
+		defer call.Unset()
+		propagated, err := concrete.runHashbeatCycle(ctx, cfg)
+		require.NoError(t, err)
+		require.False(t, propagated, "no objects must be propagated while an op is in flight")
+	})
+
+	t.Run("nil FSM reader is treated as no in-flight ops", func(t *testing.T) {
+		// Tests that never plumb the reader should not have their hashbeat
+		// gated by an absent FSM — they fall through to the normal gate.
+		idx.replicationFSMReader = nil
+		defer func() { idx.replicationFSMReader = fsmMock }()
+
+		// We don't need to drive a full diff; we just want to confirm we got
+		// past the FSM short-circuit. With no peers configured, the cycle
+		// exits cleanly via the existing "no diff found" path. The mock would
+		// catch any FSM call here (none allowed; we restored the nil reader).
+		_, _ = concrete.runHashbeatCycle(ctx, cfg)
+	})
+}
+
+func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "ReconcileNoForceLoad"
+
+	_, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	setShardReplicas(t, idx, "node1", "node2")
+
+	// Register an unloaded lazy shard under a fresh name (disableLazyLoad=false).
+	const lazyName = "lazy-cold-shard"
+	sl, err := idx.initShard(ctx, lazyName, &models.Class{Class: class}, nil, false, false)
+	require.NoError(t, err)
+	lazy, ok := sl.(*LazyLoadShard)
+	require.True(t, ok, "expected a *LazyLoadShard")
+	require.False(t, lazy.isLoaded(), "precondition: shard must start unloaded")
+	idx.shards.Store(lazyName, sl)
+
+	require.NoError(t, idx.ReconcileAsyncReplicationForShard(ctx, lazyName))
+	require.False(t, lazy.isLoaded(), "reconcile must not force-load an unloaded shard")
+}
+
+// TestDBReconcileAsyncReplicationWalksEveryIndex verifies that
+// DB.ReconcileAsyncReplication visits every index (not just the first) and
+// applies the per-shard decision to each one's loaded shards after a runtime
+// flip of the global ASYNC_REPLICATION_DISABLED flag.
+func TestDBReconcileAsyncReplicationWalksEveryIndex(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 
-	// Index-level flag shared by both indices; both load with it disabled.
 	disabled := configRuntime.NewDynamicValue(true)
 	globalConfig := &entreplication.GlobalConfig{AsyncReplicationDisabled: disabled}
 
-	// Healthy index: RF > 1 with a scheduler installed → reconcile succeeds.
-	healthySL, healthy := testShard(t, ctx, "ReconcileHealthy", func(i *Index) {
+	idxASL, idxA := testShard(t, ctx, "ReconcileWalkA", func(i *Index) {
 		i.Config.ReplicationFactor = 3
 		i.globalreplicationConfig = globalConfig
 		asyncSchedulerOption(t, ctx)(i)
 	})
-	// Broken index: RF > 1 but no scheduler → enableAsyncReplication errors.
-	_, broken := testShard(t, ctx, "ReconcileBroken", func(i *Index) {
+	idxBSL, idxB := testShard(t, ctx, "ReconcileWalkB", func(i *Index) {
 		i.Config.ReplicationFactor = 3
 		i.globalreplicationConfig = globalConfig
+		asyncSchedulerOption(t, ctx)(i)
 	})
 
 	db := &DB{
 		logger:  logger,
-		indices: map[string]*Index{healthy.ID(): healthy, broken.ID(): broken},
+		indices: map[string]*Index{idxA.ID(): idxA, idxB.ID(): idxB},
 	}
 
 	disabled.SetValue(false)
-	err := db.ReconcileAsyncReplication(ctx)
-	require.Error(t, err, "a per-index reconcile failure must surface as an error")
-	require.Contains(t, err.Error(), "1 of 2",
-		"the error must report how many indices failed")
+	require.NoError(t, db.ReconcileAsyncReplication(ctx))
 
-	// The broken index must not have blocked the healthy one.
-	healthyShard := concreteShard(t, healthySL)
-	healthyShard.asyncReplicationRWMux.RLock()
-	require.NotNil(t, healthyShard.hashtree,
-		"the healthy index must still be reconciled despite the other index failing")
-	healthyShard.asyncReplicationRWMux.RUnlock()
+	for _, sl := range []ShardLike{idxASL, idxBSL} {
+		s := concreteShard(t, sl)
+		s.asyncReplicationRWMux.RLock()
+		require.NotNil(t, s.hashtree, "every index must have its shards reconciled")
+		s.asyncReplicationRWMux.RUnlock()
+	}
 }
 
 // TestInitScanPopulatesHashtree validates that objects on disk when async
