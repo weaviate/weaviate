@@ -446,3 +446,22 @@ func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardRepli
 	}
 	return true
 }
+
+// NonTerminalOpStates returns the current state of every op that has not reached
+// a terminal state (READY/CANCELLED), keyed by op id. It is used after a
+// snapshot restore to re-announce this node's reached state for in-progress ops;
+// see Manager.Restore.
+func (s *ShardReplicationFSM) NonTerminalOpStates() map[uint64]api.ShardReplicationState {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	out := make(map[uint64]api.ShardReplicationState, len(s.statusById))
+	for id, status := range s.statusById {
+		switch status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			continue
+		default:
+			out[id] = status.GetCurrentState()
+		}
+	}
+	return out
+}

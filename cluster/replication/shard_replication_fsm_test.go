@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package replication_test
 
 import (
 	"testing"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 )
 
 // TestShardReplicationFSM_FilterReplicas_ByState: read/write filter
@@ -75,7 +76,7 @@ func TestShardReplicationFSM_FilterReplicas_ByState(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
 			seedOp(t, fsm, 1)
 			driveToState(t, fsm, 1, tc.state)
 
@@ -163,7 +164,7 @@ func TestShardReplicationFSM_AllPeersAtLeast(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+			fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 			seedOp(t, fsm, opID) // source node1, target node2
 			for node, state := range tc.reached {
 				require.NoError(t, fsm.NodeReachedState(&api.ReplicationNodeReachedStateRequest{
@@ -178,7 +179,7 @@ func TestShardReplicationFSM_AllPeersAtLeast(t *testing.T) {
 	}
 
 	t.Run("unknown op is never converged", func(t *testing.T) {
-		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 		require.False(t, fsm.AllPeersAtLeast(999, api.INTEGRATING, []string{"node1"}))
 	})
 }

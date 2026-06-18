@@ -150,7 +150,25 @@ func (m *Manager) Snapshot() ([]byte, error) {
 }
 
 func (m *Manager) Restore(bytes []byte) error {
-	return m.replicationFSM.Restore(bytes)
+	if err := m.replicationFSM.Restore(bytes); err != nil {
+		return err
+	}
+	m.reannounceReachedStatesAfterRestore()
+	return nil
+}
+
+// reannounceReachedStatesAfterRestore re-broadcasts this node's reached state for
+// every in-progress op after a snapshot restore. The case that matters is a
+// runtime InstallSnapshot — a far-behind follower, or a node joining mid-op —
+// where the node learns an op's state without applying its UPDATE_STATE, so it
+// never broadcasts NodeReachedState. That leaves it absent from peers'
+// PerNodeState and stalls the all-nodes AllPeersAtLeast cutover barrier forever.
+// Re-announcing closes the gap and is idempotent on receipt, so redundant
+// announcements are harmless.
+func (m *Manager) reannounceReachedStatesAfterRestore() {
+	for opID, state := range m.replicationFSM.NonTerminalOpStates() {
+		m.broadcastNodeReachedState(opID, state)
+	}
 }
 
 func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
