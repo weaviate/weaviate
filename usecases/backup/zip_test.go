@@ -202,13 +202,13 @@ func TestZipConfig(t *testing.T) {
 		minPoolSize int
 		maxPoolSize int
 	}{
-		{0, 0, 1, _NUMCPU / 2},
-		{2 - 1, 50, _NUMCPU / 2, _NUMCPU},
-		{512 + 1, 50, _NUMCPU / 2, _NUMCPU},
-		{2, 0, 1, _NUMCPU / 2},
-		{1, 100, 1, _NUMCPU},
-		{100, 0, 1, _NUMCPU / 2}, // 100 MB
-		{513, 0, 1, _NUMCPU / 2},
+		{0, 0, 1, numCPU() / 2},
+		{2 - 1, 50, numCPU() / 2, numCPU()},
+		{512 + 1, 50, numCPU() / 2, numCPU()},
+		{2, 0, 1, numCPU() / 2},
+		{1, 100, 1, numCPU()},
+		{100, 0, 1, numCPU() / 2}, // 100 MB
+		{513, 0, 1, numCPU() / 2},
 	}
 
 	for i, test := range tests {
