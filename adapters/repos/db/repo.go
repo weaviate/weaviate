@@ -421,17 +421,22 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 
 // WaitForLocalInflightWrites blocks until this node's in-flight coordinated
 // writes to the given shard have drained, or ctx is done.
+//
+// If the index is not found, or if the index has no replicator (i.e. this node is not a replica for the given shard), this method returns immediately without error.
 func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard string) error {
 	var index *Index
-	func() {
+	if ok := func() bool {
 		db.indexLock.RLock()
 		defer db.indexLock.RUnlock()
 		index = db.indices[indexID(schema.ClassName(class))]
 		if index == nil || index.replicator == nil {
-			return
+			return false
 		}
 		index.dropIndex.RLock()
-	}()
+		return true
+	}(); !ok {
+		return nil
+	}
 	defer index.dropIndex.RUnlock()
 	return index.replicator.WaitForDrain(ctx, shard)
 }
