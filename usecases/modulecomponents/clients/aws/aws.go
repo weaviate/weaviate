@@ -358,14 +358,14 @@ func (c *Client) createAmazonTitanBody(text, image string, settings Settings) be
 		InputImage: c.ptrString(image),
 	}
 	if settings.Dimensions != nil {
-		// The two Titan embedding families expose the output size through different fields:
-		// Titan Multimodal Embeddings G1 (amazon.titan-embed-image-v1) uses the nested
-		// embeddingConfig.outputEmbeddingLength, while Titan Text Embeddings V2
-		// (amazon.titan-embed-text-v2) expects a top-level dimensions field.
-		if strings.Contains(settings.Model, "titan-embed-image") {
-			req.EmbeddingConfig = &bedrockEmbeddingsRequestConfig{OutputEmbeddingLength: settings.Dimensions}
-		} else {
+		// Only Titan Text Embeddings V2 (amazon.titan-embed-text-v2) expects a
+		// top-level dimensions field. The other Titan embedding models (e.g. Titan
+		// Multimodal Embeddings G1 / amazon.titan-embed-image-v1) use the nested
+		// embeddingConfig.outputEmbeddingLength field.
+		if strings.Contains(settings.Model, "titan-embed-text-v2") {
 			req.Dimensions = settings.Dimensions
+		} else {
+			req.EmbeddingConfig = &bedrockEmbeddingsRequestConfig{OutputEmbeddingLength: settings.Dimensions}
 		}
 	}
 	return req

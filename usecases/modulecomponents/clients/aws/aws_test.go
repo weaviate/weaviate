@@ -87,6 +87,12 @@ func TestCreateAmazonTitanBody(t *testing.T) {
 			model:      "amazon.titan-embed-text-v1",
 			dimensions: nil,
 		},
+		{
+			name:              "titan text v1 with dimensions uses embeddingConfig",
+			model:             "amazon.titan-embed-text-v1",
+			dimensions:        &dims,
+			wantEmbeddingConf: &dims,
+		},
 	}
 
 	for _, tt := range tests {
