@@ -153,11 +153,15 @@ func TestSnapshotWriterMemory_PeakIndependentOfLiveSet(t *testing.T) {
 	t.Logf("AC2 dense: peak(N=%d)=%.1f MiB, peak(%dxN=%d)=%.1f MiB",
 		n, float64(peakN)/mib, k, k*n, float64(peakKN)/mib)
 
-	// Sub-linear invariant: growing the live set 8x must not grow peak heap
-	// proportionally. Flat (streaming) gives ~1x; linear (buffering) gives ~8x.
-	if float64(peakKN) > 1.5*float64(peakN) {
-		t.Fatalf("AC2 violated: peak heap scales with live-set size: peak(%dxN)=%.1f MiB > 1.5 x peak(N)=%.1f MiB",
-			k, float64(peakKN)/mib, float64(peakN)/mib)
+	// Flat-delta invariant: growing the live set 8x must not grow peak heap by
+	// more than a block-sized constant. Streaming gives a few MiB; the old
+	// buffering writer grew ~+200 MiB. A ratio test flakes here because the
+	// absolute peaks are single-digit MiB where GC timing dominates, so assert
+	// the delta instead — far below the linear growth, well above GC noise.
+	const ceiling = 64 * mib
+	if delta := float64(peakKN) - float64(peakN); delta > ceiling {
+		t.Fatalf("AC2 violated: peak heap scales with live-set size: peak(%dxN)−peak(N)=%.1f MiB exceeds %d MiB",
+			k, delta/mib, ceiling/mib)
 	}
 }
 

@@ -19,6 +19,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func loaderTestLogger() logrus.FieldLogger {
@@ -693,4 +696,85 @@ func TestLoader_PresizedReplayEquivalence(t *testing.T) {
 
 	require.NotNil(t, g.Nodes[100], "node past snapshot max loaded via pre-sized path")
 	assert.Equal(t, []uint64{0}, g.Nodes[100].Connections.GetLayer(0))
+}
+
+// TestLoader_CompressionSurvivesPresizedReplay covers issue #264's AC1 across
+// compression/encoder types: a compressed snapshot plus a WAL whose node lands
+// past the snapshot max (the pre-sized path) must load with both the
+// compression metadata and the beyond-snapshot node intact. Compression is
+// snapshot metadata and never touches Graph.Nodes, so the pre-sizing cannot
+// regress it; this pins that.
+func TestLoader_CompressionSurvivesPresizedReplay(t *testing.T) {
+	rot := compression.FastRotation{
+		OutputDim: 4, Rounds: 2,
+		Swaps: [][]compression.Swap{{{I: 0, J: 1}, {I: 2, J: 3}}, {{I: 0, J: 1}, {I: 2, J: 3}}},
+		Signs: [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}},
+	}
+	cases := []struct {
+		name   string
+		set    func(*SnapshotWriter)
+		verify func(*testing.T, *ent.DeserializationResult)
+	}{
+		{
+			"SQ", func(sw *SnapshotWriter) { sw.SetSQData(&compression.SQData{A: 0.5, B: 1.5, Dimensions: 128}) },
+			func(t *testing.T, r *ent.DeserializationResult) {
+				require.True(t, r.Compressed())
+				require.NotNil(t, r.CompressionSQData())
+				assert.Equal(t, uint16(128), r.CompressionSQData().Dimensions)
+			},
+		},
+		{
+			"RQ", func(sw *SnapshotWriter) { sw.SetRQData(&compression.RQData{InputDim: 128, Bits: 4, Rotation: rot}) },
+			func(t *testing.T, r *ent.DeserializationResult) {
+				require.True(t, r.Compressed())
+				require.NotNil(t, r.CompressionRQData())
+				assert.Equal(t, uint32(128), r.CompressionRQData().InputDim)
+			},
+		},
+		{"BRQ", func(sw *SnapshotWriter) {
+			sw.SetBRQData(&compression.BRQData{InputDim: 128, Rotation: rot, Rounding: []float32{1, 2, 3, 4}})
+		}, func(t *testing.T, r *ent.DeserializationResult) {
+			require.True(t, r.Compressed())
+			require.NotNil(t, r.CompressionBRQData())
+			assert.Equal(t, uint32(128), r.CompressionBRQData().InputDim)
+		}},
+		{"Muvera", func(sw *SnapshotWriter) {
+			sw.SetMuveraData(&multivector.MuveraData{
+				Dimensions: 2, KSim: 1, NumClusters: 2, DProjections: 1, Repetitions: 1,
+				Gaussians: [][][]float32{{{0.1, 0.2}}}, S: [][][]float32{{{0.3, 0.4}}},
+			})
+		}, func(t *testing.T, r *ent.DeserializationResult) {
+			require.True(t, r.MuveraEnabled())
+			require.NotNil(t, r.EncoderMuvera())
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			f, err := os.Create(filepath.Join(dir, "1000.snapshot"))
+			require.NoError(t, err)
+			sw := NewSnapshotWriter(f) // default block size, matches the loader's reader
+			sw.SetEntrypoint(0, 0)
+			tc.set(sw)
+			sw.AddNode(0, 0, [][]uint64{{10}}, false)
+			sw.AddNode(10, 0, [][]uint64{{0}}, false)
+			require.NoError(t, sw.Flush())
+			require.NoError(t, f.Close())
+
+			// WAL node 100 lands past the snapshot's max (10) → pre-sized path.
+			createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(100, 0))
+				require.NoError(t, w.WriteAddLinkAtLevel(100, 0, 0))
+			})
+
+			res, err := NewLoader(LoaderConfig{Dir: dir, Logger: loaderTestLogger()}).Load()
+			require.NoError(t, err)
+			require.NotNil(t, res)
+			require.Equal(t, 101, len(res.State.Graph.Nodes), "slice pre-sized to cover node 100")
+			require.NotNil(t, res.State.Graph.Nodes[100], "beyond-snapshot node loaded")
+			tc.verify(t, res.State)
+		})
+	}
 }
