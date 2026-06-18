@@ -65,10 +65,10 @@ func (v *nvidia) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Nvidia-Baseurl"); err != nil {
+	nvidiaUrl, err := v.getNvidiaUrl(ctx, params.BaseURL)
+	if err != nil {
 		return nil, err
 	}
-	nvidiaUrl := v.getNvidiaUrl(ctx, params.BaseURL)
 	input := v.getRequest(prompt, params)
 
 	body, err := json.Marshal(input)
@@ -181,12 +181,12 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *nvidia) getNvidiaUrl(ctx context.Context, baseURL string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Nvidia-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (v *nvidia) getNvidiaUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Nvidia-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
+	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL), nil
 }
 
 func (v *nvidia) getApiKey(ctx context.Context) (string, error) {

@@ -36,11 +36,19 @@ func BaseURLValidationEnabled() bool {
 	return entcfg.Enabled(os.Getenv("MODULES_VALIDATE_BASE_URL"))
 }
 
-// ValidateBaseURLHeader validates the baseURL carried in the given request
-// header (e.g. "X-Openai-Baseurl"). It is the call-site guard for module
-// clients; a no-op when the header is absent or validation is disabled.
-func ValidateBaseURLHeader(ctx context.Context, headerKey string) error {
-	return ValidateBaseURL(GetValueFromContext(ctx, headerKey))
+// ValidatedBaseURLFromHeader returns the baseURL carried in the given request
+// header if present and valid, otherwise fallback. Validation is a no-op unless
+// MODULES_VALIDATE_BASE_URL is enabled. It folds the recurring
+// fetch-check-validate-assign block in module URL builders into one call.
+func ValidatedBaseURLFromHeader(ctx context.Context, headerKey, fallback string) (string, error) {
+	headerBaseURL := GetValueFromContext(ctx, headerKey)
+	if headerBaseURL == "" {
+		return fallback, nil
+	}
+	if err := ValidateBaseURL(headerBaseURL); err != nil {
+		return "", err
+	}
+	return headerBaseURL, nil
 }
 
 // isDisallowedIP reports whether an IP points at the local host or an internal

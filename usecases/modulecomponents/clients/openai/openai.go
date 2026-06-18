@@ -259,11 +259,9 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) {
 	baseURL, resourceName, deploymentID, apiVersion, endpoint, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.Endpoint, config.IsAzure
 
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
-		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
-			return "", err
-		}
-		baseURL = headerBaseURL
+	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
 
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {

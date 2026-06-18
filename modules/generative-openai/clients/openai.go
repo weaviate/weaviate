@@ -284,16 +284,12 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params) (string, error) {
-	baseURL := params.BaseURL
-
 	deploymentID := params.DeploymentID
 	resourceName := params.ResourceName
 
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
-		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
-			return "", err
-		}
-		baseURL = headerBaseURL
+	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", params.BaseURL)
+	if err != nil {
+		return "", err
 	}
 
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {

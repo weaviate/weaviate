@@ -87,10 +87,10 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Anyscale-Baseurl"); err != nil {
+	anyscaleUrl, err := v.getAnyscaleUrl(ctx, params.BaseURL)
+	if err != nil {
 		return nil, err
 	}
-	anyscaleUrl := v.getAnyscaleUrl(ctx, params.BaseURL)
 	anyscalePrompt := []map[string]string{
 		{"role": "system", "content": "You are a helpful assistant."},
 		{"role": "user", "content": prompt},
@@ -149,12 +149,12 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	}, nil
 }
 
-func (v *anyscale) getAnyscaleUrl(ctx context.Context, baseURL string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Anyscale-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (v *anyscale) getAnyscaleUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Anyscale-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
+	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL), nil
 }
 
 func (v *anyscale) getApiKey(ctx context.Context) (string, error) {

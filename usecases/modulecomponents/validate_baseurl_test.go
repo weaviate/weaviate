@@ -72,21 +72,25 @@ func TestValidateBaseURLHeader(t *testing.T) {
 	ctxWith := func(v string) context.Context {
 		return context.WithValue(context.Background(), key, []string{v})
 	}
+	validate := func(ctx context.Context) error {
+		_, err := ValidatedBaseURLFromHeader(ctx, key, "")
+		return err
+	}
 
 	t.Run("validation enabled", func(t *testing.T) {
 		t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
 
-		assert.NoError(t, ValidateBaseURLHeader(context.Background(), key)) // absent
-		assert.NoError(t, ValidateBaseURLHeader(ctxWith("https://8.8.8.8"), key))
-		assert.Error(t, ValidateBaseURLHeader(ctxWith("https://169.254.169.254/"), key))
-		assert.Error(t, ValidateBaseURLHeader(ctxWith("https://127.0.0.1/"), key))
-		assert.Error(t, ValidateBaseURLHeader(ctxWith("https://10.0.0.5/"), key))
-		assert.Error(t, ValidateBaseURLHeader(ctxWith("https://localhost/"), key))
-		assert.Error(t, ValidateBaseURLHeader(ctxWith("http://169.254.169.254/"), key))
+		assert.NoError(t, validate(context.Background())) // absent
+		assert.NoError(t, validate(ctxWith("https://8.8.8.8")))
+		assert.Error(t, validate(ctxWith("https://169.254.169.254/")))
+		assert.Error(t, validate(ctxWith("https://127.0.0.1/")))
+		assert.Error(t, validate(ctxWith("https://10.0.0.5/")))
+		assert.Error(t, validate(ctxWith("https://localhost/")))
+		assert.Error(t, validate(ctxWith("http://169.254.169.254/")))
 	})
 
 	t.Run("validation disabled is a no-op even for internal headers", func(t *testing.T) {
-		assert.NoError(t, ValidateBaseURLHeader(ctxWith("http://169.254.169.254/"), key))
+		assert.NoError(t, validate(ctxWith("http://169.254.169.254/")))
 	})
 }
 

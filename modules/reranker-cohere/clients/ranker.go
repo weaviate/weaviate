@@ -94,10 +94,10 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 ) ([]ent.DocumentScore, error) {
 	settings := config.NewClassSettings(cfg)
 
-	if err := modulecomponents.ValidateBaseURLHeader(ctx, "X-Cohere-Baseurl"); err != nil {
+	cohereUrl, err := c.getCohereUrl(ctx, settings.BaseURL())
+	if err != nil {
 		return nil, err
 	}
-	cohereUrl := c.getCohereUrl(ctx, settings.BaseURL())
 	input := RankInput{
 		Documents:       documents,
 		Query:           query,
@@ -202,12 +202,12 @@ func (c *client) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under COHERE_APIKEY")
 }
 
-func (c *client) getCohereUrl(ctx context.Context, baseURL string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (c *client) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Cohere-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return c.urlBuilder.URL(passedBaseURL)
+	return c.urlBuilder.URL(passedBaseURL), nil
 }
 
 type RankInput struct {

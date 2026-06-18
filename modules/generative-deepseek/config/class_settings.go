@@ -73,6 +73,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
+	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {
+		return err
+	}
+
 	temperature := ic.Temperature()
 	if temperature != nil && (*temperature < 0 || *temperature > 2) {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 2.0")

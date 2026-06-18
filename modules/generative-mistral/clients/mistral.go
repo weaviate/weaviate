@@ -184,12 +184,9 @@ func (v *mistral) getDebugInformation(debug bool, prompt string) *modulecapabili
 }
 
 func (v *mistral) getMistralUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Mistral-Baseurl"); headerBaseURL != "" {
-		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
-			return "", err
-		}
-		passedBaseURL = headerBaseURL
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Mistral-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
 	return url.JoinPath(passedBaseURL, "/v1/chat/completions")
 }
