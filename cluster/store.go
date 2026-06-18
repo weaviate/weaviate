@@ -40,11 +40,13 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -194,6 +196,14 @@ type Config struct {
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
+
+	// MaxTenantsPerCollection caps tenants per collection (nil/negative =
+	// unlimited), enforced pre-commit on the leader.
+	MaxTenantsPerCollection *runtime.DynamicValue[int]
+
+	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
+	// tenant-cap rejection, matching the handler fast-path.
+	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -255,6 +265,10 @@ type Store struct {
 	lastAppliedIndexToDB atomic.Uint64
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	// tenantAddLocks serializes AddTenants per class on the leader so the
+	// pre-commit tenant-cap check cannot race the apply that increments the count.
+	tenantAddLocks *entsync.KeyLocker
 
 	// snapshotter is the snapshotter for the store
 	snapshotter fsm.Snapshotter
@@ -321,6 +335,13 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	if dv := cfg.MaxTenantsPerCollection; dv != nil {
+		errTemplate := func() string { return "" }
+		if t := cfg.UsageLimitsErrorMessage; t != nil {
+			errTemplate = t.Get
+		}
+		schemaManager.SetTenantLimit(dv.Get, errTemplate)
+	}
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
@@ -361,6 +382,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
+		tenantAddLocks:          entsync.NewKeyLocker(),
 		snapshotter:             snapshotter,
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),

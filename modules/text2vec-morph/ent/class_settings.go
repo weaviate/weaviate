@@ -23,6 +23,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.morphllm.com"
+	DefaultEndpoint              = "/v1/embeddings"
 	LowerCaseInput               = false
 )
 
@@ -37,6 +38,10 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 
 func (cs *classSettings) BaseURL() string {
 	return cs.GetPropertyAsString("baseURL", DefaultBaseURL)
+}
+
+func (cs *classSettings) Endpoint() string {
+	return cs.GetPropertyAsString("endpoint", DefaultEndpoint)
 }
 
 func (cs *classSettings) Model() string {
