@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -721,6 +722,21 @@ func TestLoader_CompressionSurvivesPresizedReplay(t *testing.T) {
 				require.True(t, r.Compressed())
 				require.NotNil(t, r.CompressionSQData())
 				assert.Equal(t, uint16(128), r.CompressionSQData().Dimensions)
+			},
+		},
+		{
+			"PQ", func(sw *SnapshotWriter) {
+				sw.SetPQData(&compression.PQData{
+					Dimensions: 2, Ks: 1, M: 1, EncoderType: compression.UseKMeansEncoder,
+					Encoders: []compression.PQSegmentEncoder{
+						compressionhelpers.NewKMeansEncoderWithCenters(1, 2, 0, [][]float32{{0.1, 0.2}}),
+					},
+				})
+			},
+			func(t *testing.T, r *ent.DeserializationResult) {
+				require.True(t, r.Compressed())
+				require.NotNil(t, r.CompressionPQData())
+				assert.Equal(t, uint16(2), r.CompressionPQData().Dimensions)
 			},
 		},
 		{
