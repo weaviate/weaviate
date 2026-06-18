@@ -271,7 +271,11 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 			return fmt.Errorf("failed to send GetReplicaSnapshotFileMetadata request for %q: %w", fileName, err)
 		}
 
-		metadataChan <- meta
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case metadataChan <- meta:
+		}
 	}
 
 	return nil
@@ -281,7 +285,18 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 	opID strfmt.UUID, collectionName, shardName string, metadataChan <-chan *protocol.FileMetadata,
 ) error {
 	shardBase := c.shardPath(collectionName, shardName)
-	for meta := range metadataChan {
+	for {
+		var meta *protocol.FileMetadata
+		var open bool
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case meta, open = <-metadataChan:
+			if !open {
+				return nil
+			}
+		}
+
 		localFilePath := filepath.Join(shardBase, meta.FileName)
 
 		_, checksum, err := integrity.CRC32(localFilePath)
@@ -391,8 +406,6 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			return err
 		}
 	}
-
-	return nil
 }
 
 func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName string) error {
