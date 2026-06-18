@@ -39,7 +39,12 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	var pivotPoint int
 	upperBound := float32(0)
 
-	done := ctx.Done()
+	// a nil ctx is tolerated (some callers pass none): a nil done channel never
+	// selects, so cancellation is simply disabled rather than panicking.
+	var done <-chan struct{}
+	if ctx != nil {
+		done = ctx.Done()
+	}
 	ctxCheck := 0
 	for {
 		iterations++
