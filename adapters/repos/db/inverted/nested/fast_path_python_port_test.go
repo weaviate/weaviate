@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fast_path_python_port_test.go ports filter scenarios from the Python e2e
@@ -908,6 +909,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{100, 400, 1300, 1600}, idx.docIDs(r),
 			"docs with a Toyota 2020 car (single or alongside others) "+
 				"match; cross-car split (doc 200) does not")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_on_leaf", func(t *testing.T) {
@@ -916,6 +919,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		rTrue := leafIsNullTrue(idx, "cars.make")
 		assert.ElementsMatch(t, []uint64{400, 500, 1700}, idx.docIDs(rTrue),
 			"IS NULL true: docs with ∃ car missing make")
+		require.Equal(t, "cars", rTrue.Scope, "Scope")
+		require.Equal(t, "cars", rTrue.Ceiling, "Ceiling")
 
 		rFalse := leafIsNullFalse(idx, "cars.make")
 		assert.ElementsMatch(t,
@@ -925,6 +930,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			},
 			idx.docIDs(rFalse),
 			"IS NULL false: docs with ∃ car having make")
+		require.Equal(t, "cars", rFalse.Scope, "Scope")
+		require.Equal(t, pathRoot, rFalse.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin", func(t *testing.T) {
@@ -939,6 +946,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				1600, 1800, 1900, 2000,
 			}, idx.docIDs(r),
 			"docs where cars[0].make=Toyota match; cars[0]≠Toyota miss")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_is_null", func(t *testing.T) {
@@ -984,6 +993,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"fast-path: cars[1] missing or no-make → match; "+
 				"includes empty_cars (600), which Python excludes")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any", func(t *testing.T) {
@@ -994,6 +1005,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{700, 800, 900, 1200, 2100}, idx.docIDs(r),
 			"docs where ∃ car owns red or blue in colors match")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all", func(t *testing.T) {
@@ -1004,6 +1017,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{700, 2100}, idx.docIDs(r),
 			"docs with ∃ single car holding both red and blue match")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none", func(t *testing.T) {
@@ -1025,6 +1040,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			"fast-path: docs with at least one car whose colors don't "+
 				"intersect the listed values match (including no-colors-"+
 				"at-all docs which Python excludes as vacuous)")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin_with_and", func(t *testing.T) {
@@ -1046,6 +1063,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{100, 400, 1600}, idx.docIDs(r),
 			"docs whose cars[0] satisfies both make=Toyota AND year=2020")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin_with_or", func(t *testing.T) {
@@ -1069,6 +1088,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				1400, 1600, 1700, 1800, 1900, 2000,
 			}, idx.docIDs(r),
 			"docs whose cars[0] satisfies make=Toyota OR year=2020")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("or_of_correlated_ands", func(t *testing.T) {
@@ -1090,6 +1111,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{100, 400, 1300, 1500, 1600}, idx.docIDs(r),
 			"docs whose ∃ car satisfies (Toyota+2020) OR (Honda+2019) same-car")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_of_correlated_and", func(t *testing.T) {
@@ -1113,6 +1136,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			idx.docIDs(r),
 			"docs with ∃ car not satisfying Toyota+2020 same-car match; "+
 				"empty (600) and all-satisfying (100) do not")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_in_correlated_and", func(t *testing.T) {
@@ -1130,6 +1155,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{1700}, idx.docIDs(r),
 			"only doc 1700 has a single car with year=2020 AND make missing")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_on_object_array_subprop", func(t *testing.T) {
@@ -1158,6 +1185,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			idx.docIDs(r),
 			"docs with ∃ car missing tires match (everything except docs "+
 				"600 empty, 1800 all-have-tires, 2000 all-have-tires)")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_with_equal_in_and", func(t *testing.T) {
@@ -1173,6 +1202,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{700}, idx.docIDs(r),
 			"only single Toyota car with both red and blue colors matches")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_with_equal_in_and", func(t *testing.T) {
@@ -1190,6 +1221,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{700, 800, 900, 1200}, idx.docIDs(r),
 			"docs with ∃ Toyota car owning red or blue colors")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none_with_equal_in_and", func(t *testing.T) {
@@ -1216,6 +1249,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			idx.docIDs(r),
 			"fast-path: Toyota docs with at least one Toyota car whose "+
 				"colors don't intersect the listed values")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_of_pinned_correlated_and", func(t *testing.T) {
@@ -1285,6 +1320,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"same-slot; excludes 100/400/1600 (cars[0] satisfies the "+
 				"inner AND); includes 600 (empty cars — uniform "+
 				"\"missing pinned slot → match\" rule)")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	// or_of_mixed_correlated_ands NOT PORTED. The Python scenario combines
@@ -1339,6 +1376,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{3100}, local.docIDs(r),
 			"only doc 3100 has one car owning both tokens; doc 3300 split "+
 				"across two cars must NOT match (same-element on tokens)")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_multi_token", func(t *testing.T) {
@@ -1393,6 +1432,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"array match (3500 in one tag, 3600 split across two tags "+
 				"of the same car); splits across separate cars (3800), "+
 				"empty tags (3900), and empty cars (4000) excluded")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	// ---- Harness gap coverage (not in Python suite) ----
@@ -1444,6 +1485,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			"docs without (family AND hybrid) AND without luxury match; "+
 				"6300 (family alone) is the load-bearing case — a "+
 				"flattened implementation would wrongly exclude it")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_mixed_single_and_multi_token", func(t *testing.T) {
@@ -1481,6 +1524,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			"docs where all four tokens are present on the same car "+
 				"(lenient: tokens may live in different tag entries — "+
 				"doc 6900 splits them across two entries)")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none_two_multi_token", func(t *testing.T) {
@@ -1526,6 +1571,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"car) is fully present; 7100 and 7400 are the "+
 				"load-bearing cases — a flatten-tokens implementation "+
 				"would wrongly exclude them")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_two_multi_token", func(t *testing.T) {
@@ -1571,6 +1618,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"present match; 8000 (individual tokens, no full pair) is "+
 				"the load-bearing case — a flatten-tokens implementation "+
 				"would wrongly include it")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_two_multi_token", func(t *testing.T) {
@@ -1617,6 +1666,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			"docs where (family AND hybrid) AND (luxury AND car) is fully "+
 				"present match; 8700 (each token in its own tag entry) "+
 				"matches under lenient parent-Scope AND")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_any_multi_token", func(t *testing.T) {
@@ -1660,6 +1711,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"9100 (full pair at wrong slot) and 9200 (single token) "+
 				"excluded; verifies tokenization fires through the "+
 				"pinned dispatch")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_none_mixed_single_and_multi_token", func(t *testing.T) {
@@ -1702,6 +1755,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"nor luxury; 9600 (family alone at pinned slot) is the "+
 				"load-bearing case for the per-value AND correctness "+
 				"rule under pin narrowing")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_all_mixed_single_and_multi_token", func(t *testing.T) {
@@ -1754,6 +1809,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 				"10100 (each token in its own tag entry) matches under "+
 				"lenient parent-Scope AND; 10200 (all values at wrong "+
 				"slot) is the pin discriminator")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_equal", func(t *testing.T) {
@@ -1802,6 +1859,8 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			"docs with ∃ car whose make != Toyota (Python set) plus 10900 "+
 				"(no-make car) — locks down owner-level / include-missing "+
 				"semantic")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_not_equal", func(t *testing.T) {
@@ -1860,6 +1919,51 @@ func TestFastPathL0_PythonPort(t *testing.T) {
 			"docs where cars[0].make != Toyota (or cars[0] is absent / "+
 				"missing make); 11400 and 11500 lock down the uniform "+
 				"missing-pin-slot → match rule")
+		require.Equal(t, pathRoot, r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
+	})
+
+	t.Run("mixed_ceiling_or", func(t *testing.T) {
+		// Harness gap coverage — verifies orLeaves at same Scope with
+		// MIXED operand Ceilings (one pathRoot, one scope). The
+		// shared L0/L2 fixtures don't construct this shape — every
+		// other orLeaves call has operands with matching Ceilings.
+		//
+		// Filter: cars.make = Toyota OR cars.make IS NULL true.
+		//   leafPositive("cars.make", Toyota): Scope=cars, Ceiling=pathRoot.
+		//   leafIsNullTrue("cars.make"):       Scope=cars, Ceiling=cars.
+		// orLeaves uses deepestPath(l.Ceiling, r.Ceiling) → cars.
+		local := newFastPathIndex("cars")
+		prop := l0Schema()
+		// 12000: Toyota Camry → matches Toyota leg.
+		local.addDoc(t, prop, 12000, []any{
+			map[string]any{"make": "Toyota", "model": "Camry"},
+		})
+		// 12100: Honda Civic → all cars have make and none is
+		// Toyota → no match.
+		local.addDoc(t, prop, 12100, []any{
+			map[string]any{"make": "Honda", "model": "Civic"},
+		})
+		// 12200: car with no make → matches IS NULL true leg.
+		local.addDoc(t, prop, 12200, []any{
+			map[string]any{"year": 2020},
+		})
+		// 12300: Toyota + no-make car → matches via both legs.
+		local.addDoc(t, prop, 12300, []any{
+			map[string]any{"make": "Toyota", "model": "Camry"},
+			map[string]any{"year": 2020},
+		})
+		// 12400: empty cars → neither leg fires.
+		local.addDoc(t, prop, 12400, []any{})
+
+		r := orLeaves(local,
+			leafPositive(local, "cars.make", "Toyota"),
+			leafIsNullTrue(local, "cars.make"))
+
+		assert.ElementsMatch(t, []uint64{12000, 12200, 12300}, local.docIDs(r),
+			"docs where ∃ car has make=Toyota OR ∃ car has no make")
+		require.Equal(t, "cars", r.Scope, "Scope")
+		require.Equal(t, "cars", r.Ceiling, "Ceiling")
 	})
 }
 
@@ -1886,6 +1990,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			[]uint64{100, 400, 500, 2200, 2500}, idx.docIDs(r),
 			"docs with a Toyota 2020 car somewhere match; "+
 				"splits across cars/garages do not")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_on_leaf", func(t *testing.T) {
@@ -1904,6 +2010,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{500, 600, 800, 900, 2600}, idx.docIDs(rTrue),
 			"IS NULL true: docs with ∃ car missing make")
+		require.Equal(t, "countries.garages.cars", rTrue.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", rTrue.Ceiling, "Ceiling")
 
 		// IS NULL false: docs with ∃ car having make.
 		rFalse := leafIsNullFalse(idx, "countries.garages.cars.make")
@@ -1915,6 +2023,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			},
 			idx.docIDs(rFalse),
 			"IS NULL false: docs with ∃ car having make")
+		require.Equal(t, "countries.garages.cars", rFalse.Scope, "Scope")
+		require.Equal(t, pathRoot, rFalse.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin", func(t *testing.T) {
@@ -1957,6 +2067,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				2500, 2700, 2800, 2900,
 			}, idx.docIDs(r),
 			"docs with ∃ garage whose cars[0]=Toyota match")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_is_null", func(t *testing.T) {
@@ -2027,6 +2139,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"fast-path: docs with ∃ garage whose cars[1] missing or "+
 				"no-make match; includes empty_cars (700)")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any", func(t *testing.T) {
@@ -2043,6 +2157,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			[]uint64{1300, 1400, 1500, 1600, 1700, 1800, 1900, 3000},
 			idx.docIDs(r),
 			"docs where ∃ car owns red or blue in colors match")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all", func(t *testing.T) {
@@ -2054,6 +2170,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{1300, 1800, 1900, 3000}, idx.docIDs(r),
 			"docs with ∃ single car holding both red and blue match")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none", func(t *testing.T) {
@@ -2086,6 +2204,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"fast-path: docs with ∃ car-self not in any value bucket "+
 				"(includes no-colors docs that Python excludes as vacuous)")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin_with_and", func(t *testing.T) {
@@ -2106,6 +2226,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{100, 400, 500, 2500}, idx.docIDs(r),
 			"docs whose ∃ garage's cars[0] satisfies both make=Toyota AND year=2020")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin_with_or", func(t *testing.T) {
@@ -2124,6 +2246,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				2300, 2500, 2600, 2700, 2800, 2900,
 			}, idx.docIDs(r),
 			"docs whose ∃ garage's cars[0] satisfies make=Toyota OR year=2020")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("or_of_correlated_ands", func(t *testing.T) {
@@ -2145,6 +2269,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{100, 400, 500, 2200, 2400, 2500}, idx.docIDs(r),
 			"docs whose ∃ car satisfies (Toyota+2020) OR (Honda+2019) same-car")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_of_correlated_and", func(t *testing.T) {
@@ -2167,6 +2293,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"docs with ∃ car not satisfying Toyota+2020 same-car match; "+
 				"empty (700) and pure-Toyota+2020 (100) do not")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_in_correlated_and", func(t *testing.T) {
@@ -2179,6 +2307,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{2600}, idx.docIDs(r),
 			"only doc 2600 has a car with year=2020 AND make missing same-car")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_on_object_array_subprop", func(t *testing.T) {
@@ -2202,6 +2332,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				2800, 3000,
 			}, idx.docIDs(r),
 			"docs with ∃ car missing tires match")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_with_equal_in_and", func(t *testing.T) {
@@ -2216,6 +2348,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{1300, 1800, 1900}, idx.docIDs(r),
 			"docs with ∃ Toyota car holding both red and blue colors")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_with_equal_in_and", func(t *testing.T) {
@@ -2228,6 +2362,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{1300, 1400, 1500, 1600, 1700, 1800, 1900}, idx.docIDs(r),
 			"docs with ∃ Toyota car owning red or blue (3000 Honda excluded)")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none_with_equal_in_and", func(t *testing.T) {
@@ -2251,6 +2387,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"fast-path: Toyota docs with at least one Toyota car whose "+
 				"colors don't intersect the listed values")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_of_pinned_correlated_and", func(t *testing.T) {
@@ -2333,6 +2471,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"(empty cars — uniform \"missing pinned slot → match\" "+
 				"rule) and 400 (per-element at garages — Rotterdam "+
 				"violates so doc matches)")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	// or_of_mixed_correlated_ands NOT PORTED. Same reason as the L0 sibling:
@@ -2446,6 +2586,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"docs where ∃ a car has both tokens (4100 directly, 4600/4700 "+
 				"via one matching garage/country); splits across cars, "+
 				"garages, or countries must NOT match — same-element on tokens")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_multi_token", func(t *testing.T) {
@@ -2566,6 +2708,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"of the same car; 5700 via Amsterdam; 5800 via Netherlands); "+
 				"splits across separate cars (5400), garages (5500), or "+
 				"countries (5600) excluded")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	// ---- Harness gap coverage (not in Python suite) ----
@@ -2630,6 +2774,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"docs without (family AND hybrid) AND without luxury match; "+
 				"8300 (family alone) is the load-bearing case — a "+
 				"flattened implementation would wrongly exclude it")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_mixed_single_and_multi_token", func(t *testing.T) {
@@ -2685,6 +2831,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{8600, 8900}, local.docIDs(r),
 			"docs where all four tokens are present on the same car "+
 				"(lenient: doc 8900 splits them across two tag entries)")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none_two_multi_token", func(t *testing.T) {
@@ -2751,6 +2899,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"car) is fully present; 9100 and 9400 are the "+
 				"load-bearing cases — a flatten-tokens implementation "+
 				"would wrongly exclude them")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_two_multi_token", func(t *testing.T) {
@@ -2818,6 +2968,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"present match; 10000 (individual tokens, no full pair) "+
 				"is the load-bearing case — a flatten-tokens "+
 				"implementation would wrongly include it")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_two_multi_token", func(t *testing.T) {
@@ -2886,6 +3038,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"docs where (family AND hybrid) AND (luxury AND car) is "+
 				"fully present match; 10700 (each token in its own tag "+
 				"entry) matches under lenient parent-Scope AND")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_any_multi_token", func(t *testing.T) {
@@ -2941,6 +3095,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{10900, 11000}, local.docIDs(r),
 			"docs where cars[0] has both tokens of \"family hybrid\" match")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_none_mixed_single_and_multi_token", func(t *testing.T) {
@@ -2992,6 +3148,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			"docs where cars[0] satisfies neither (family AND hybrid) "+
 				"nor luxury; 11600 (family alone at pinned slot) locks "+
 				"down the per-value AND correctness rule under pin")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_all_mixed_single_and_multi_token", func(t *testing.T) {
@@ -3057,6 +3215,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{11800, 12100}, local.docIDs(r),
 			"docs where cars[0] has BOTH (family AND hybrid) AND luxury; "+
 				"12100 lenient discriminator, 12200 wrong-slot discriminator")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_equal", func(t *testing.T) {
@@ -3135,6 +3295,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			[]uint64{12500, 12600, 12700, 12800, 12900}, local.docIDs(r),
 			"docs with ∃ car whose make != Toyota across any garage/country; "+
 				"12900 (missing-make) locks down owner-level / include-missing")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_not_equal", func(t *testing.T) {
@@ -3216,6 +3378,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 			[]uint64{13200, 13400, 13500, 13600, 13700}, local.docIDs(r),
 			"docs with ∃ garage whose cars[0].make != Toyota (or pin slot "+
 				"missing); 13700 the per-garage discriminator")
+		require.Equal(t, "countries.garages", r.Scope, "Scope")
+		require.Equal(t, "countries.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("multi_pin_contains_any_multi_token", func(t *testing.T) {
@@ -3287,6 +3451,8 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"tag entry or lenient split across two); wrong slot at "+
 				"any pin level excludes; missing pin slot excludes "+
 				"(positive operator)")
+		require.Equal(t, "countries", r.Scope, "Scope")
+		require.Equal(t, "countries", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("intermediate_pin_not_equal", func(t *testing.T) {
@@ -3398,6 +3564,71 @@ func TestFastPathL2_PythonPort(t *testing.T) {
 				"14600, 14800); 14400 excluded (only Toyota under "+
 				"garages[1]); 14700 excluded under current strict gap "+
 				"semantic — would flip to match under loose (see TODO)")
+		require.Equal(t, "countries", r.Scope, "Scope")
+		require.Equal(t, "countries", r.Ceiling, "Ceiling")
+	})
+
+	t.Run("mixed_ceiling_or", func(t *testing.T) {
+		// Harness gap coverage. Filter
+		// countries.garages.cars.make = Toyota OR
+		// countries.garages.cars.make IS NULL true. Mirror of L0
+		// sibling — orLeaves at same Scope with mixed Ceilings.
+		//
+		//   leafPositive:    Scope=countries.garages.cars, Ceiling=pathRoot.
+		//   leafIsNullTrue:  Scope=countries.garages.cars, Ceiling=cars.
+		// orLeaves → Scope=countries.garages.cars,
+		//            Ceiling=deepestPath(pathRoot, cars) =
+		//            countries.garages.cars.
+		local := newFastPathIndex("countries")
+		prop := l2Schema()
+		// 15000: Toyota Camry → matches.
+		local.addDoc(t, prop, 15000, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota", "model": "Camry"},
+				}},
+			}},
+		})
+		// 15100: Honda only → no match.
+		local.addDoc(t, prop, 15100, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Honda", "model": "Civic"},
+				}},
+			}},
+		})
+		// 15200: no-make car → matches IS NULL true.
+		local.addDoc(t, prop, 15200, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"year": 2020},
+				}},
+			}},
+		})
+		// 15300: Toyota + no-make car → both legs.
+		local.addDoc(t, prop, 15300, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{
+					map[string]any{"make": "Toyota", "model": "Camry"},
+					map[string]any{"year": 2020},
+				}},
+			}},
+		})
+		// 15400: empty cars → no match.
+		local.addDoc(t, prop, 15400, []any{
+			map[string]any{"garages": []any{
+				map[string]any{"cars": []any{}},
+			}},
+		})
+
+		r := orLeaves(local,
+			leafPositive(local, "countries.garages.cars.make", "Toyota"),
+			leafIsNullTrue(local, "countries.garages.cars.make"))
+
+		assert.ElementsMatch(t, []uint64{15000, 15200, 15300}, local.docIDs(r),
+			"docs where ∃ car has make=Toyota OR ∃ car has no make")
+		require.Equal(t, "countries.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "countries.garages.cars", r.Ceiling, "Ceiling")
 	})
 }
 
@@ -3427,6 +3658,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			[]uint64{100, 400, 500, 2200, 2500}, idx.docIDs(r),
 			"docs with a Toyota 2020 car somewhere match; "+
 				"splits across cars/garages do not")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_on_leaf", func(t *testing.T) {
@@ -3441,6 +3674,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{500, 600, 800, 2600}, idx.docIDs(rTrue),
 			"IS NULL true: docs with ∃ car missing make")
+		require.Equal(t, "country.garages.cars", rTrue.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", rTrue.Ceiling, "Ceiling")
 
 		// IS NULL false: docs with ∃ car having make.
 		rFalse := leafIsNullFalse(idx, "country.garages.cars.make")
@@ -3452,6 +3687,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			},
 			idx.docIDs(rFalse),
 			"IS NULL false: docs with ∃ car having make")
+		require.Equal(t, "country.garages.cars", rFalse.Scope, "Scope")
+		require.Equal(t, pathRoot, rFalse.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin", func(t *testing.T) {
@@ -3486,6 +3723,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				2500, 2700, 2800, 2900,
 			}, idx.docIDs(r),
 			"docs with ∃ garage whose cars[0]=Toyota match")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_is_null", func(t *testing.T) {
@@ -3504,6 +3743,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"fast-path: docs with ∃ garage whose cars[1] missing or "+
 				"no-make match; includes empty_cars (700)")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any", func(t *testing.T) {
@@ -3516,6 +3757,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			[]uint64{1300, 1400, 1500, 1600, 1800, 3000},
 			idx.docIDs(r),
 			"docs where ∃ car owns red or blue in colors match")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all", func(t *testing.T) {
@@ -3527,6 +3770,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{1300, 1800, 3000}, idx.docIDs(r),
 			"docs with ∃ single car holding both red and blue match")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none", func(t *testing.T) {
@@ -3559,6 +3804,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"fast-path: docs with ∃ car-self not in any value bucket "+
 				"(includes no-colors docs that Python excludes as vacuous)")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin_with_and", func(t *testing.T) {
@@ -3574,6 +3821,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{100, 400, 500, 2500}, idx.docIDs(r),
 			"docs whose ∃ garage's cars[0] satisfies both make=Toyota AND year=2020")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("arr_n_pin_with_or", func(t *testing.T) {
@@ -3592,6 +3841,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				2300, 2500, 2600, 2700, 2800, 2900,
 			}, idx.docIDs(r),
 			"docs whose ∃ garage's cars[0] satisfies make=Toyota OR year=2020")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("or_of_correlated_ands", func(t *testing.T) {
@@ -3608,6 +3859,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{100, 400, 500, 2200, 2400, 2500}, idx.docIDs(r),
 			"docs whose ∃ car satisfies (Toyota+2020) OR (Honda+2019) same-car")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_of_correlated_and", func(t *testing.T) {
@@ -3627,6 +3880,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"docs with ∃ car not satisfying Toyota+2020 same-car match; "+
 				"empty (700) and pure-Toyota+2020 (100) do not")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_in_correlated_and", func(t *testing.T) {
@@ -3638,6 +3893,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{2600}, idx.docIDs(r),
 			"only doc 2600 has a car with year=2020 AND make missing same-car")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("is_null_on_object_array_subprop", func(t *testing.T) {
@@ -3657,6 +3914,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				2800, 3000,
 			}, idx.docIDs(r),
 			"docs with ∃ car missing tires match")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_with_equal_in_and", func(t *testing.T) {
@@ -3668,6 +3927,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{1300, 1800}, idx.docIDs(r),
 			"docs with ∃ Toyota car holding both red and blue colors")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_with_equal_in_and", func(t *testing.T) {
@@ -3680,6 +3941,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]uint64{1300, 1400, 1500, 1600, 1800}, idx.docIDs(r),
 			"docs with ∃ Toyota car owning red or blue (3000 Honda excluded)")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none_with_equal_in_and", func(t *testing.T) {
@@ -3701,6 +3964,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			}, idx.docIDs(r),
 			"fast-path: Toyota docs with at least one Toyota car whose "+
 				"colors don't intersect the listed values")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_of_pinned_correlated_and", func(t *testing.T) {
@@ -3734,6 +3999,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				"(empty cars — uniform \"missing pinned slot → match\" "+
 				"rule) and 400 (per-element at garages — Rotterdam "+
 				"violates so doc matches)")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	// or_of_mixed_correlated_ands NOT PORTED. Same reason as the L0/L2
@@ -3809,6 +4076,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			"docs where ∃ a car has both tokens (14100 directly, 14600 "+
 				"via one matching garage); splits across cars or "+
 				"garages must NOT match — same-element on tokens")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_multi_token", func(t *testing.T) {
@@ -3882,6 +4151,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				"array (15100 in one tag entry; 15200 across two tag entries "+
 				"of the same car; 15700 via Amsterdam); "+
 				"splits across separate cars (15400) or garages (15500) excluded")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	// ---- Harness gap coverage (not in Python suite) ----
@@ -3936,6 +4207,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			"docs without (family AND hybrid) AND without luxury match; "+
 				"18300 (family alone) is the load-bearing case — a "+
 				"flattened implementation would wrongly exclude it")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_mixed_single_and_multi_token", func(t *testing.T) {
@@ -3981,6 +4254,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{18600, 18900}, local.docIDs(r),
 			"docs where all four tokens are present on the same car "+
 				"(lenient: doc 18900 splits them across two tag entries)")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_none_two_multi_token", func(t *testing.T) {
@@ -4035,6 +4310,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				"car) is fully present; 19100 and 19400 are the "+
 				"load-bearing cases — a flatten-tokens implementation "+
 				"would wrongly exclude them")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_any_two_multi_token", func(t *testing.T) {
@@ -4090,6 +4367,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				"present match; 20000 (individual tokens, no full pair) "+
 				"is the load-bearing case — a flatten-tokens "+
 				"implementation would wrongly include it")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, pathRoot, r.Ceiling, "Ceiling")
 	})
 
 	t.Run("contains_all_two_multi_token", func(t *testing.T) {
@@ -4145,6 +4424,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			"docs where (family AND hybrid) AND (luxury AND car) is "+
 				"fully present match; 20700 (each token in its own tag "+
 				"entry) matches under lenient parent-Scope AND")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_any_multi_token", func(t *testing.T) {
@@ -4190,6 +4471,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 
 		assert.ElementsMatch(t, []uint64{20900, 21000}, local.docIDs(r),
 			"docs where cars[0] has both tokens of \"family hybrid\" match")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_none_mixed_single_and_multi_token", func(t *testing.T) {
@@ -4231,6 +4514,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			"docs where cars[0] satisfies neither (family AND hybrid) "+
 				"nor luxury; 21600 (family alone at pinned slot) locks "+
 				"down the per-value AND correctness rule under pin")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_contains_all_mixed_single_and_multi_token", func(t *testing.T) {
@@ -4284,6 +4569,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{21800, 22100}, local.docIDs(r),
 			"docs where cars[0] has BOTH (family AND hybrid) AND luxury; "+
 				"22100 lenient discriminator, 22200 wrong-slot discriminator")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("not_equal", func(t *testing.T) {
@@ -4345,6 +4632,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			[]uint64{22500, 22600, 22700, 22800, 22900}, local.docIDs(r),
 			"docs with ∃ car whose make != Toyota; 22900 (missing-make) "+
 				"locks down owner-level / include-missing")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("pinned_not_equal", func(t *testing.T) {
@@ -4407,6 +4696,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 			[]uint64{23200, 23400, 23500, 23600, 23700}, local.docIDs(r),
 			"docs with ∃ garage whose cars[0].make != Toyota (or pin slot "+
 				"missing); 23700 the per-garage discriminator")
+		require.Equal(t, "country.garages", r.Scope, "Scope")
+		require.Equal(t, "country.garages", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("multi_pin_contains_any_multi_token", func(t *testing.T) {
@@ -4458,6 +4749,8 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{23800, 23900}, local.docIDs(r),
 			"docs where garages[0].cars[0].tags has both tokens; wrong "+
 				"slot at any pin level or missing pin slot excludes")
+		require.Equal(t, "country", r.Scope, "Scope")
+		require.Equal(t, "country", r.Ceiling, "Ceiling")
 	})
 
 	t.Run("intermediate_pin_not_equal", func(t *testing.T) {
@@ -4539,5 +4832,52 @@ func TestFastPathL2Object_PythonPort(t *testing.T) {
 				"or ∃ a car under garages[1] with make != Toyota; 24700 "+
 				"excluded under current strict gap semantic — would flip "+
 				"to match under loose (see TODO)")
+		require.Equal(t, "country", r.Scope, "Scope")
+		require.Equal(t, "country", r.Ceiling, "Ceiling")
+	})
+
+	t.Run("mixed_ceiling_or", func(t *testing.T) {
+		// Harness gap coverage — mirror of L0/L2 mixed-Ceiling OR
+		// test under the single-OBJECT country root.
+		local := newFastPathIndex("country")
+		prop := l2ObjectSchema()
+		// 25000: Toyota Camry → matches.
+		local.addDoc(t, prop, 25000, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota", "model": "Camry"},
+			}},
+		}})
+		// 25100: Honda only → no match.
+		local.addDoc(t, prop, 25100, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Honda", "model": "Civic"},
+			}},
+		}})
+		// 25200: no-make car → matches IS NULL true.
+		local.addDoc(t, prop, 25200, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"year": 2020},
+			}},
+		}})
+		// 25300: Toyota + no-make car → both legs.
+		local.addDoc(t, prop, 25300, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{
+				map[string]any{"make": "Toyota", "model": "Camry"},
+				map[string]any{"year": 2020},
+			}},
+		}})
+		// 25400: empty cars → no match.
+		local.addDoc(t, prop, 25400, map[string]any{"garages": []any{
+			map[string]any{"cars": []any{}},
+		}})
+
+		r := orLeaves(local,
+			leafPositive(local, "country.garages.cars.make", "Toyota"),
+			leafIsNullTrue(local, "country.garages.cars.make"))
+
+		assert.ElementsMatch(t, []uint64{25000, 25200, 25300}, local.docIDs(r),
+			"docs where ∃ car has make=Toyota OR ∃ car has no make")
+		require.Equal(t, "country.garages.cars", r.Scope, "Scope")
+		require.Equal(t, "country.garages.cars", r.Ceiling, "Ceiling")
 	})
 }
