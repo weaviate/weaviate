@@ -178,6 +178,11 @@ func (c *client) parseOptions(cfg moduletools.ClassConfig, options any) deepseek
 			p.MaxTokens = &val
 		}
 	}
+	if len(p.Stop) == 0 {
+		if stop := settings.Stop(); len(stop) > 0 {
+			p.Stop = stop
+		}
+	}
 	return p
 }
 
