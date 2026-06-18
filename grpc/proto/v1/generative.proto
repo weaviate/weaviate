@@ -165,6 +165,7 @@ message GenerativeGoogle{
   optional string region = 12;
   optional TextArray images = 13;
   optional TextArray image_properties = 14;
+  optional string location = 15;
 }
 
 message GenerativeDatabricks{

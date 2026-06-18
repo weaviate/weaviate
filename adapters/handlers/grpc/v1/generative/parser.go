@@ -386,6 +386,7 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			ProjectID:        in.GetProjectId(),
 			EndpointID:       in.GetEndpointId(),
 			Region:           in.GetRegion(),
+			Location:         in.GetLocation(),
 			Model:            in.GetModel(),
 			Temperature:      in.Temperature,
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
