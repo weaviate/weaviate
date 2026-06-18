@@ -41,11 +41,9 @@ type client struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 
@@ -227,8 +225,9 @@ func GetResponseParams(result map[string]any) *responseParams {
 }
 
 func (c *client) url(ctx context.Context, base string) (string, error) {
-	if override := modulecomponents.GetValueFromContext(ctx, "X-Deepseek-Baseurl"); override != "" {
-		return url.JoinPath(override, "/chat/completions")
+	base, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Deepseek-Baseurl", base)
+	if err != nil {
+		return "", err
 	}
 	return url.JoinPath(base, "/chat/completions")
 }
