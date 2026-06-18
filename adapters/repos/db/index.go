@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -248,6 +249,11 @@ type Index struct {
 	partitioningEnabled  bool
 	AsyncIndexingEnabled bool
 
+	// coldObjects caches object counts for COLD tenants so the cap check can
+	// account for them without loading the shards. Allocated only when
+	// partitioningEnabled is true; nil for single-tenant indexes.
+	coldObjects *coldObjectCounts
+
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
@@ -418,6 +424,9 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
+	if index.partitioningEnabled {
+		index.coldObjects = newColdObjectCounts()
+	}
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
@@ -509,38 +518,59 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	eg.SetLimit(_NUMCPU)
 
 	for _, shard := range localShards {
-		if shard.activityStatus != models.TenantActivityStatusHOT {
-			continue
-		}
-		hotShardNames = append(hotShardNames, shard.name)
 		shardName := shard.name
-		eg.Go(func() error {
-			switch {
-			case i.Config.EnableLazyLoadShards:
-				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
-				i.shards.Store(shardName, lazyShard)
-				return nil
-			default:
-				// default behavior is to load all shards immediately
-				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
-					return fmt.Errorf("acquiring permit to load shard: %w", err)
-				}
-				defer i.shardLoadLimiter.Release()
+		switch shard.activityStatus {
+		case models.TenantActivityStatusHOT:
+			hotShardNames = append(hotShardNames, shardName)
+			eg.Go(func() error {
+				switch {
+				case i.Config.EnableLazyLoadShards:
+					lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+						i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
+					i.shards.Store(shardName, lazyShard)
+					return nil
+				default:
+					// default behavior is to load all shards immediately
+					if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+						return fmt.Errorf("acquiring permit to load shard: %w", err)
+					}
+					defer i.shardLoadLimiter.Release()
 
-				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
-				if err != nil {
-					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
-				}
+					newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+						i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
+					if err != nil {
+						return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+					}
 
-				promMetrics.NewLoadedShard()
-				newShard.metricsRegistered.Store(true)
-				i.shards.Store(shardName, newShard)
-				return nil
+					promMetrics.NewLoadedShard()
+					newShard.metricsRegistered.Store(true)
+					i.shards.Store(shardName, newShard)
+					return nil
+				}
+			}, shardName)
+
+		case models.TenantActivityStatusCOLD:
+			// COLD activity status is a multi-tenant concept: single-tenant
+			// collections only ever have HOT shards. The check is defensive
+			// — if some future change ever lets COLD leak into a non-MT
+			// index, we skip cleanly instead of crashing on the nil cache.
+			if !i.partitioningEnabled {
+				continue
 			}
-		}, shardName)
-
+			// Populate the cold-tenant object-count cache from on-disk segment
+			// metadata. Walk failures log and skip — partial under-count is
+			// acceptable, don't fail init.
+			eg.Go(func() error {
+				u, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName, true)
+				if err != nil {
+					i.logger.WithField("shard", shardName).WithError(err).
+						Warn("usagelimits: failed to populate cold object count at startup")
+					return nil
+				}
+				i.coldObjects.set(shardName, u.Count)
+				return nil
+			}, shardName)
+		}
 	}
 
 	if err := eg.Wait(); err != nil {
