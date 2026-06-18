@@ -1146,8 +1146,8 @@ func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
 					"HasActiveReplicationForShard(%q, %q)", c.collection, c.shard)
 			}
 			for _, c := range tt.collectionChecks {
-				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForShard(c.collection, ""),
-					"HasActiveReplicationForShard(%q)", c.collection)
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForCollection(c.collection),
+					"HasActiveReplicationForCollection(%q)", c.collection)
 			}
 		})
 	}
