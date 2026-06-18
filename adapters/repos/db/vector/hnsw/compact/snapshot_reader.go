@@ -57,6 +57,10 @@ type ReadSeekReaderAt interface {
 type SnapshotReader struct {
 	blockSize int64
 	logger    logrus.FieldLogger
+
+	// minNodes pre-sizes Graph.Nodes to cover trailing-WAL IDs so in-place
+	// replay never reallocates the whole O(maxNodeID) slice (issue #264).
+	minNodes uint64
 }
 
 // NewSnapshotReader creates a new snapshot reader with the default 4MB block size.
@@ -73,6 +77,12 @@ func NewSnapshotReaderWithBlockSize(logger logrus.FieldLogger, blockSize int64) 
 		blockSize: blockSize,
 		logger:    logger,
 	}
+}
+
+// WithMinNodes sets a floor on the allocated Graph.Nodes length. See minNodes.
+func (r *SnapshotReader) WithMinNodes(n uint64) *SnapshotReader {
+	r.minNodes = n
+	return r
 }
 
 // ReadFromFile reads a snapshot file into a DeserializationResult.
@@ -216,8 +226,11 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.Deserialization
 		return errors.Wrap(err, "read node count")
 	}
 
-	// Pre-allocate nodes slice
-	res.Graph.Nodes = make([]*ent.Vertex, nodeCount)
+	size := uint64(nodeCount)
+	if r.minNodes > size {
+		size = r.minNodes
+	}
+	res.Graph.Nodes = make([]*ent.Vertex, size)
 
 	res.Graph.EntrypointChanged = true
 

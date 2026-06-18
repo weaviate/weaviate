@@ -646,3 +646,51 @@ func createTestSnapshot(t *testing.T, path string, entrypoint uint64, level uint
 	err = sw.Flush()
 	require.NoError(t, err)
 }
+
+// TestLoader_PresizedReplayEquivalence pins issue #264's AC1: the pre-sized
+// in-place WAL replay must produce the same graph as before. It drives a rich
+// commit mix — a node well past the snapshot's max (exercising the pre-sized
+// path), link adds/replace, clear-links, a tombstone, and a delete — and
+// asserts the resulting nodes, connections, tombstones, and slice length.
+func TestLoader_PresizedReplayEquivalence(t *testing.T) {
+	dir := t.TempDir()
+
+	// Snapshot: sparse, max ID 10 (slice length 11).
+	createTestSnapshot(t, filepath.Join(dir, "1000.snapshot"), 0, 1, []testNode{
+		{id: 0, level: 1, connections: [][]uint64{{5}, {10}}, tombstone: false},
+		{id: 5, level: 0, connections: [][]uint64{{0, 10}}, tombstone: false},
+		{id: 10, level: 0, connections: [][]uint64{{0}}, tombstone: false},
+	})
+
+	// WAL: add node 100 (far past the snapshot max → pre-sized path), replace
+	// node 5's links, clear node 10's links, tombstone node 0, delete node 5.
+	createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(100, 0))
+		require.NoError(t, w.WriteAddLinkAtLevel(100, 0, 0))
+		require.NoError(t, w.WriteReplaceLinksAtLevel(5, 0, []uint64{100}))
+		require.NoError(t, w.WriteClearLinksAtLevel(10, 0))
+		require.NoError(t, w.WriteAddTombstone(0))
+		require.NoError(t, w.WriteDeleteNode(5))
+	})
+
+	result, err := NewLoader(LoaderConfig{Dir: dir, Logger: loaderTestLogger()}).Load()
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	g := result.State.Graph
+	require.Equal(t, 101, len(g.Nodes), "slice must be sized to cover node 100")
+
+	require.NotNil(t, g.Nodes[0])
+	assert.Equal(t, []uint64{5}, g.Nodes[0].Connections.GetLayer(0))
+	assert.Equal(t, []uint64{10}, g.Nodes[0].Connections.GetLayer(1))
+	_, tomb0 := g.Tombstones[0]
+	assert.True(t, tomb0, "node 0 tombstoned")
+
+	assert.Nil(t, g.Nodes[5], "node 5 deleted")
+
+	require.NotNil(t, g.Nodes[10])
+	assert.Empty(t, g.Nodes[10].Connections.GetLayer(0), "node 10 links cleared")
+
+	require.NotNil(t, g.Nodes[100], "node past snapshot max loaded via pre-sized path")
+	assert.Equal(t, []uint64{0}, g.Nodes[100].Connections.GetLayer(0))
+}

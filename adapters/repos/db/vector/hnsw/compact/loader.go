@@ -130,36 +130,46 @@ func (l *Loader) Load() (*LoadResult, error) {
 		return walFiles[i].StartTS < walFiles[j].StartTS
 	})
 
-	// 6. Load snapshot if exists (starting point)
-	var result *ent.DeserializationResult
-	var snapshotEndTS int64
+	// 6. Establish the exact replay set. The snapshot's coverage comes from its
+	// filename (state.Snapshot.EndTS), so we can filter without reading it yet.
+	hasSnapshot := state.Snapshot != nil
+	if hasSnapshot {
+		walFiles = l.filterFilesAlreadyInSnapshot(walFiles, state.Snapshot.EndTS)
+	}
 
-	if state.Snapshot != nil {
+	// 7. If no snapshot and no WAL files, return nil (empty directory)
+	if !hasSnapshot && len(walFiles) == 0 {
+		return nil, nil
+	}
+
+	// 8. Pre-scan the replay set for its max node ID so the snapshot's Nodes
+	// slice is allocated once at the final size; applying these WALs in place
+	// then never reallocates the whole O(maxNodeID) backing array (issue #264).
+	var walMaxID uint64
+	if hasSnapshot && len(walFiles) > 0 {
+		walMaxID = l.maxNodeIDInWALs(walFiles)
+	}
+
+	// 9. Load snapshot (starting point), pre-sized to cover the trailing WALs.
+	var result *ent.DeserializationResult
+	if hasSnapshot {
 		snapshotReader := NewSnapshotReader(l.config.Logger)
+		if walMaxID > 0 {
+			snapshotReader = snapshotReader.WithMinNodes(walMaxID + 1)
+		}
 		result, err = snapshotReader.ReadFromFileWithFS(state.Snapshot.Path, l.fs)
 		if err != nil {
 			return nil, errors.Wrapf(err, "read snapshot %s", state.Snapshot.Path)
 		}
-		snapshotEndTS = state.Snapshot.EndTS
 
 		l.config.Logger.WithFields(logrus.Fields{
 			"action":   "hnsw_loader",
 			"snapshot": state.Snapshot.Path,
-			"end_ts":   snapshotEndTS,
+			"end_ts":   state.Snapshot.EndTS,
 		}).Debug("loaded snapshot")
 	}
 
-	// 7. Filter WAL files that are already covered by snapshot
-	if result != nil {
-		walFiles = l.filterFilesAlreadyInSnapshot(walFiles, snapshotEndTS)
-	}
-
-	// 8. If no snapshot and no WAL files, return nil (empty directory)
-	if result == nil && len(walFiles) == 0 {
-		return nil, nil
-	}
-
-	// 9. Load WAL files sequentially (oldest to newest)
+	// 10. Load WAL files sequentially (oldest to newest)
 	var recoveredFromCrash bool
 	for _, f := range walFiles {
 		var crashed bool
@@ -298,4 +308,64 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}).Debug("loaded WAL file")
 
 	return result, false, nil
+}
+
+// maxNodeIDInWALs scans the given WAL files for the highest node ID they
+// reference, used to pre-size the snapshot's Nodes slice (issue #264). Open and
+// read errors are ignored: a truncated tail yields the max seen so far, and the
+// apply phase surfaces genuine failures.
+func (l *Loader) maxNodeIDInWALs(files []FileInfo) uint64 {
+	var maxID uint64
+	consider := func(id uint64) {
+		if id <= maxNodeID && id > maxID {
+			maxID = id
+		}
+	}
+
+	for _, f := range files {
+		file, err := l.fs.Open(f.Path)
+		if err != nil {
+			continue
+		}
+
+		reader := NewWALCommitReader(file, l.config.Logger)
+		for {
+			c, err := reader.ReadNextCommit()
+			if err != nil {
+				break
+			}
+			switch ct := c.(type) {
+			case *AddNodeCommit:
+				consider(ct.ID)
+			case *SetEntryPointMaxLevelCommit:
+				consider(ct.Entrypoint)
+			case *AddLinkAtLevelCommit:
+				consider(ct.Source)
+				consider(ct.Target)
+			case *AddLinksAtLevelCommit:
+				consider(ct.Source)
+				for _, t := range ct.Targets {
+					consider(t)
+				}
+			case *ReplaceLinksAtLevelCommit:
+				consider(ct.Source)
+				for _, t := range ct.Targets {
+					consider(t)
+				}
+			case *AddTombstoneCommit:
+				consider(ct.ID)
+			case *RemoveTombstoneCommit:
+				consider(ct.ID)
+			case *ClearLinksCommit:
+				consider(ct.ID)
+			case *ClearLinksAtLevelCommit:
+				consider(ct.ID)
+			case *DeleteNodeCommit:
+				consider(ct.ID)
+			}
+		}
+		file.Close()
+	}
+
+	return maxID
 }
