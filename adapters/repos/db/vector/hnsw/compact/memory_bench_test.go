@@ -164,8 +164,9 @@ func TestSnapshotWriterMemory_PeakIndependentOfLiveSet(t *testing.T) {
 // TestSnapshotWriterMemory_PeakIndependentOfMaxNodeID is AC3: peak heap for
 // 100k live nodes must not grow with the ID space (#262's scenario).
 func TestSnapshotWriterMemory_PeakIndependentOfMaxNodeID(t *testing.T) {
-	if testing.Short() {
-		t.Skip("memory invariant test; skipped in -short")
+	if testing.Short() || raceDetectorEnabled {
+		// -race turns this 1e8-slot peak-heap test into minutes for no signal.
+		t.Skip("heavy 1e8 memory test; skipped in -short and under -race")
 	}
 	const (
 		liveNodes = 100_000
@@ -192,8 +193,9 @@ func TestSnapshotWriterMemory_PeakIndependentOfMaxNodeID(t *testing.T) {
 // graph keeps peak additional heap below a fixed ceiling on the order of
 // blockSize x small constant, independent of N. Uses the production 4MB block.
 func TestSnapshotWriterMemory_AbsoluteCeiling(t *testing.T) {
-	if testing.Short() {
-		t.Skip("memory ceiling test; skipped in -short")
+	if testing.Short() || raceDetectorEnabled {
+		// -race turns this 1.5M-node peak-heap test into minutes for no signal.
+		t.Skip("heavy memory ceiling test; skipped in -short and under -race")
 	}
 	const (
 		liveNodes = 1_500_000

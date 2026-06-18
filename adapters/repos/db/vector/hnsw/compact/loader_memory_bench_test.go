@@ -130,8 +130,10 @@ func TestLoaderMemory_PeakIndependentOfWALCount(t *testing.T) {
 // Pre-fix the replay realloc is ~one full O(maxNodeID) slice (+~800 MiB at 1e8);
 // the fix keeps the delta to the new nodes.
 func TestLoaderMemory_PeakIndependentOfMaxNodeID(t *testing.T) {
-	if testing.Short() {
-		t.Skip("heavy 1e8 memory test; skipped in -short")
+	if testing.Short() || raceDetectorEnabled {
+		// -race instruments every access to the ~800 MB slice and inflates a
+		// pure heap-measurement test into minutes, blowing the package timeout.
+		t.Skip("heavy 1e8 memory test; skipped in -short and under -race")
 	}
 	const (
 		liveNodes = 100_000
