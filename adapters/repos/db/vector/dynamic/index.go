@@ -400,17 +400,19 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
+	// doUpgrade swaps dynamic.index and flips upgraded under the exclusive lock;
+	// hold it across the check and the use so an upgrade can't land in between
+	// and route the wrong sub-config into the swapped index.
+	dynamic.Lock()
+	defer dynamic.Unlock()
 	if dynamic.status.IsUpgraded() {
-		dynamic.RLock()
-		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	} else {
 		dynamic.uc = parsed
-		dynamic.RLock()
-		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 	}
-	return nil
+	dynamic.uc = parsed
+	return dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 }
 
 func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
@@ -745,6 +747,8 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 }
 
 func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
 	dynamic.index.Iterate(fn)
 }
 

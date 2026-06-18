@@ -85,7 +85,7 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
+func buildUrl(baseURL, resourceName, deploymentID, apiVersion, endpoint string, isAzure bool) (string, error) {
 	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
@@ -99,13 +99,18 @@ func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bo
 	}
 
 	host := baseURL
-	path := "/v1/embeddings"
+	path := endpoint
+	if path == "" {
+		// fallback to default endpoint
+		path = "/v1/embeddings"
+	}
 	return url.JoinPath(host, path)
 }
 
 type Settings struct {
 	Type, Model, ModelVersion, ModelString, ResourceName string
 	BaseURL                                              string
+	Endpoint                                             string
 	DeploymentID                                         string
 	ApiVersion                                           string
 	IsAzure                                              bool
@@ -118,7 +123,7 @@ type Client struct {
 	openAIOrganization string
 	azureApiKey        string
 	httpClient         *http.Client
-	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error)
+	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion, endpoint string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
 	sampledLogger      *logrusext.Sampler
 }
@@ -252,10 +257,11 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 }
 
 func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) {
-	baseURL, resourceName, deploymentID, apiVersion, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure
+	baseURL, resourceName, deploymentID, apiVersion, endpoint, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.Endpoint, config.IsAzure
 
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
-		baseURL = headerBaseURL
+	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
 
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
@@ -266,7 +272,7 @@ func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) 
 		resourceName = headerResourceName
 	}
 
-	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, isAzure)
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, endpoint, isAzure)
 }
 
 func (v *Client) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
