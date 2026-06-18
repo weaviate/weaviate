@@ -440,7 +440,11 @@ func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardRepli
 	}
 	floor := api.StateRank(target)
 	for _, peer := range peers {
-		if api.StateRank(st.PerNodeState[peer]) < floor {
+		state, ok := st.PerNodeState[peer]
+		if !ok {
+			return false
+		}
+		if api.StateRank(state) < floor {
 			return false
 		}
 	}
