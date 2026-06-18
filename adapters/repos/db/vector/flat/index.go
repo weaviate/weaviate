@@ -486,9 +486,11 @@ func (index *flat) searchTimeRescore(k int) int {
 }
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	// route on the runtime compression state, not the configured type: with RQ
-	// the quantizer only exists after the first Add ran initializeDimensionsAndRQ,
-	// and until then the uncompressed bucket is the only complete source
+	// BQ's sign bits do not preserve Manhattan distance, so search original vectors.
+	if index.compressionType == CompressionBQ && index.distancerProvider.Type() == "manhattan" {
+		return index.searchByVector(ctx, vector, k, allow)
+	}
+	// Route on runtime state: RQ is only initialized after the first Add.
 	if index.Compressed() {
 		return index.searchByVectorQuantized(ctx, vector, k, allow)
 	}
