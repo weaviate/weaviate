@@ -66,7 +66,10 @@ func (v *xai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	xaiUrl := v.getXaiUrl(ctx, params.BaseURL)
+	xaiUrl, err := v.getXaiUrl(ctx, params.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	input := v.getRequest(prompt, params)
 
 	body, err := json.Marshal(input)
@@ -207,12 +210,12 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *xai) getXaiUrl(ctx context.Context, baseURL string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Xai-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (v *xai) getXaiUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Xai-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
+	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL), nil
 }
 
 func (v *xai) getApiKey(ctx context.Context) (string, error) {

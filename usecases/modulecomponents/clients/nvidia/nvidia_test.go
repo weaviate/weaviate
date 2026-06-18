@@ -180,10 +180,12 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Nvidia-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL := c.getNvidiaUrl(ctxWithValue, baseURL)
+		buildURL, err := c.getNvidiaUrl(ctxWithValue, baseURL)
+		assert.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings", buildURL)
 
-		buildURL = c.getNvidiaUrl(context.TODO(), baseURL)
+		buildURL, err = c.getNvidiaUrl(context.TODO(), baseURL)
+		assert.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
 
