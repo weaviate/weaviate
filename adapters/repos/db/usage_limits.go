@@ -13,9 +13,43 @@ package db
 
 import (
 	"context"
+	"sync"
 
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
+
+// coldObjectCounts caches object counts for COLD tenants (data on local
+// disk, shard not loaded), keyed by tenant name. Safe for concurrent use.
+type coldObjectCounts struct {
+	sync.RWMutex
+	counts map[string]int64
+}
+
+func newColdObjectCounts() *coldObjectCounts {
+	return &coldObjectCounts{counts: map[string]int64{}}
+}
+
+// set stores the count for name, overwriting any prior value.
+func (c *coldObjectCounts) set(name string, n int64) {
+	c.Lock()
+	c.counts[name] = n
+	c.Unlock()
+}
+
+// drop removes the entry for name. No-op when the entry doesn't exist.
+func (c *coldObjectCounts) drop(name string) {
+	c.Lock()
+	delete(c.counts, name)
+	c.Unlock()
+}
+
+// get returns the cached count and whether an entry exists. Returns (0, false) when not.
+func (c *coldObjectCounts) get(name string) (int64, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	v, ok := c.counts[name]
+	return v, ok
+}
 
 // LocalObjectCount sums async object counts across all locally-loaded
 // shards on this node. Implements usagelimits.ObjectCounter.
