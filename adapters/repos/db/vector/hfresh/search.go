@@ -476,7 +476,7 @@ func (h *HFresh) searchByFDE(
 		for _, v := range p {
 			id := v.ID()
 
-			deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
+			deleted, err := h.VersionMap.IsDeleted(ctx, id)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
 			}
@@ -544,7 +544,7 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 
 		ids, dists = ids[offsetCap:totalLimitCap], dists[offsetCap:totalLimitCap]
 		for i := range ids {
-			if aboveThresh := dists[i] <= targetDistance; aboveThresh ||
+			if dists[i] <= targetDistance ||
 				floatcomp.InDelta(float64(dists[i]), float64(targetDistance), 1e-6) {
 				resultIDs = append(resultIDs, ids[i])
 				resultDist = append(resultDist, dists[i])
@@ -629,7 +629,7 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 // sums across all query tokens. Lower score = more similar.
 // Callers must pass query tokens already normalized (normalizeMultiVec) when
 // the configured distance is cosine; document tokens are handled here.
-func (h *HFresh) maxSimScore(queryVectors [][]float32, docVectors [][]float32) (float32, error) {
+func (h *HFresh) maxSimScore(queryVectors, docVectors [][]float32) (float32, error) {
 	if h.config.DistanceProvider.Type() == "cosine-dot" {
 		return h.maxSimScoreCosine(queryVectors, docVectors)
 	}
