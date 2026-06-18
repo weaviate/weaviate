@@ -14,6 +14,8 @@ package tests
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
@@ -22,9 +24,13 @@ func testText2VecAWS(rest, grpc, region string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		className := "VectorizerTest"
+		ptrInt := func(i int) *int { return &i }
 		tests := []struct {
 			name  string
 			model string
+			// dimensions, when set, configures the output vector size. Only Titan Text
+			// Embeddings V2 supports it (accepted values: 256, 512, 1024).
+			dimensions *int
 		}{
 			{
 				name:  "amazon.titan-embed-text-v1",
@@ -33,6 +39,11 @@ func testText2VecAWS(rest, grpc, region string) func(t *testing.T) {
 			{
 				name:  "amazon.titan-embed-text-v2:0",
 				model: "amazon.titan-embed-text-v2:0",
+			},
+			{
+				name:       "amazon.titan-embed-text-v2:0 with dimensions",
+				model:      "amazon.titan-embed-text-v2:0",
+				dimensions: ptrInt(512),
 			},
 			{
 				name:  "cohere.embed-english-v3",
@@ -63,12 +74,38 @@ func testText2VecAWS(rest, grpc, region string) func(t *testing.T) {
 						"model":              tt.model,
 					},
 				}
+				if tt.dimensions != nil {
+					descriptionVectorizer["text2vec-aws"].(map[string]any)["dimensions"] = *tt.dimensions
+					emptyVectorizer["text2vec-aws"].(map[string]any)["dimensions"] = *tt.dimensions
+				}
 				t.Run("search", func(t *testing.T) {
 					companies.TestSuite(t, rest, grpc, className, descriptionVectorizer)
 				})
 				t.Run("empty values", func(t *testing.T) {
 					companies.TestSuiteWithEmptyValues(t, rest, grpc, className, descriptionVectorizer, emptyVectorizer)
 				})
+				if tt.dimensions != nil {
+					t.Run("dimensions", func(t *testing.T) {
+						class := companies.BaseClass(className)
+						class.VectorConfig = map[string]models.VectorConfig{
+							"description": {
+								Vectorizer:      descriptionVectorizer,
+								VectorIndexType: "hnsw",
+							},
+						}
+						helper.CreateClass(t, class)
+						defer helper.DeleteClass(t, class.Class)
+
+						companies.InsertObjects(t, rest, class.Class)
+
+						obj, err := helper.GetObject(t, class.Class, companies.SpaceX, "vector")
+						require.NoError(t, err)
+						require.NotNil(t, obj)
+						vector, ok := obj.Vectors["description"].([]float32)
+						require.True(t, ok)
+						require.Len(t, vector, *tt.dimensions)
+					})
+				}
 			})
 		}
 	}

@@ -125,3 +125,28 @@ func Test_classSettings_Validate(t *testing.T) {
 		})
 	}
 }
+
+func Test_classSettings_Endpoint(t *testing.T) {
+	tests := []struct {
+		name             string
+		cfg              moduletools.ClassConfig
+		expectedEndpoint string
+	}{
+		{
+			name:             "defaults to /v1/embeddings when not set",
+			cfg:              &fakeClassConfig{classConfig: map[string]any{}},
+			expectedEndpoint: DefaultEndpoint,
+		},
+		{
+			name:             "uses custom endpoint when set",
+			cfg:              &fakeClassConfig{classConfig: map[string]any{"endpoint": "/api/v3/embeddings"}},
+			expectedEndpoint: "/api/v3/embeddings",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := NewClassSettings(tt.cfg)
+			assert.Equal(t, tt.expectedEndpoint, cs.Endpoint())
+		})
+	}
+}
