@@ -2173,6 +2173,12 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	}
 	term.propLengths = make(map[uint64]uint32)
 
+	// SetIdf later recomputes currentBlockImpact from MaxImpactTf/PropLength. If
+	// those fields are left at zero, the recomputed impact — the WAND upper bound
+	// — is zero too, so record the posting list's max-impact pair here.
+	maxImpact := float64(0)
+	var maxImpactTf, maxImpactPropLength uint32
+
 	for _, v := range mem {
 		if v.Tombstone {
 			continue
@@ -2194,6 +2200,13 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
 
+		tf := float64(d.Frequency)
+		pl := float64(d.PropLength)
+		if impact := tf / (tf + term.k1*(1-term.b+term.b*(pl/term.averagePropLength))); impact > maxImpact {
+			maxImpact = impact
+			maxImpactTf = uint32(d.Frequency)
+			maxImpactPropLength = uint32(d.PropLength)
+		}
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
@@ -2201,8 +2214,10 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	term.exhausted = false
 	term.blockEntries = make([]*terms.BlockEntry, 1)
 	term.blockEntries[0] = &terms.BlockEntry{
-		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
-		Offset: 0,
+		MaxId:               term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
+		Offset:              0,
+		MaxImpactTf:         maxImpactTf,
+		MaxImpactPropLength: maxImpactPropLength,
 	}
 
 	term.currentBlockMaxId = term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1]
