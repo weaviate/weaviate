@@ -446,7 +446,7 @@ func (h *HFresh) searchByFDE(
 		for _, v := range p {
 			id := v.ID()
 
-			deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
+			deleted, err := h.VersionMap.IsDeleted(ctx, id)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
 			}
@@ -512,7 +512,7 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 
 		ids, dists = ids[offsetCap:totalLimitCap], dists[offsetCap:totalLimitCap]
 		for i := range ids {
-			if aboveThresh := dists[i] <= targetDistance; aboveThresh ||
+			if dists[i] <= targetDistance ||
 				floatcomp.InDelta(float64(dists[i]), float64(targetDistance), 1e-6) {
 				resultIDs = append(resultIDs, ids[i])
 				resultDist = append(resultDist, dists[i])
@@ -594,7 +594,7 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 // maxSimScore computes the MaxSim score between query and document multi-vectors.
 // For each query token, it finds the minimum distance to any document token, then
 // sums across all query tokens. Lower score = more similar.
-func (h *HFresh) maxSimScore(queryVectors [][]float32, docVectors [][]float32) (float32, error) {
+func (h *HFresh) maxSimScore(queryVectors, docVectors [][]float32) (float32, error) {
 	var score float32
 	for _, queryToken := range queryVectors {
 		d := h.config.DistanceProvider.New(queryToken)
