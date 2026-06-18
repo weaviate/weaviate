@@ -1405,7 +1405,7 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 		className,
 		schema,
 		meta,
-		vectorWeights, nil, 0,
+		vectorWeights, properties, uint32(schemaLength),
 	)
 }
 
