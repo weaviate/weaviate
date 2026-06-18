@@ -185,10 +185,12 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Voyageai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL := c.getVoyageAIUrl(ctxWithValue, baseURL, "test-model")
+		buildURL, err := c.getVoyageAIUrl(ctxWithValue, baseURL, "test-model")
+		assert.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/embeddings", buildURL)
 
-		buildURL = c.getVoyageAIUrl(context.TODO(), baseURL, "test-model")
+		buildURL, err = c.getVoyageAIUrl(context.TODO(), baseURL, "test-model")
+		assert.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/embeddings", buildURL)
 	})
 }

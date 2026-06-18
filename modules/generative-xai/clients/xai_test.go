@@ -90,10 +90,12 @@ func TestGetAnswer(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Xai-BaseURL", []string{"https://integrate.api.xai.com"})
-		buildURL := c.getXaiUrl(ctxWithValue, baseUrl)
+		buildURL, err := c.getXaiUrl(ctxWithValue, baseUrl)
+		assert.NoError(t, err)
 		assert.Equal(t, "https://integrate.api.xai.com/v1/chat/completions", buildURL)
 
-		buildURL = c.getXaiUrl(context.Background(), baseUrl)
+		buildURL, err = c.getXaiUrl(context.Background(), baseUrl)
+		assert.NoError(t, err)
 		assert.Equal(t, "https://integrate.api.xai.com/v1/chat/completions", buildURL)
 	})
 }
