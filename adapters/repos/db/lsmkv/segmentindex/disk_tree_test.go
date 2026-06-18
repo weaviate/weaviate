@@ -43,7 +43,7 @@ func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
 	// queries span match, descend-left and descend-right branches plus misses.
 	queries := [][]byte{
 		[]byte("aaa"), []byte("abc"), []byte("foobar"), []byte("zzz"), []byte("zzzz"),
-		[]byte("a"), []byte("m"), []byte("zzzzz"), {},
+		[]byte("a"), []byte("m"), []byte("zzzzz"), []byte(""),
 	}
 
 	t.Run("every truncation of the buffer", func(t *testing.T) {
