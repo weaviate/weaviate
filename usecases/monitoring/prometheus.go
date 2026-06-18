@@ -775,7 +775,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "shard_halt_for_transfer_force_resume_total",
 			Help: "Halt-for-transfer inactivity watchdog firings. Non-zero indicates a transfer was force-resumed mid-stream.",
-		}, []string{"class_name", "shard_name"}),
+		}, []string{}),
 
 		// Schema TX-metrics. Can be removed when RAFT is ready
 		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{

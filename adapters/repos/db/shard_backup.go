@@ -314,7 +314,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		// mid-stream — i.e. the read-path timer reset isn't reaching us.
 		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
 			s.promMetrics.ShardHaltForTransferForceResume.
-				WithLabelValues(s.index.Config.ClassName.String(), s.name).
+				WithLabelValues().
 				Inc()
 		}
 	} else {
