@@ -25,7 +25,7 @@ func Test_UserConfig(t *testing.T) {
 	t.Run("default searchProbe is 256", func(t *testing.T) {
 		cfg := NewDefaultUserConfig()
 
-		assert.Equal(t, uint32(256), cfg.SearchProbe)
+		assert.Equal(t, uint32(DefaultSearchProbe), cfg.SearchProbe)
 	})
 
 	type test struct {
