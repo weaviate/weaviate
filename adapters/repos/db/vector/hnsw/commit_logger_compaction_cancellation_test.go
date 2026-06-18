@@ -62,9 +62,12 @@ import (
 )
 
 const (
-	cancelTestNumFiles     = 5
+	// Wide absolute margins so -race + CI scheduling jitter can't tip a prompt
+	// abort past the budget: prompt-abort (~one 100ms open) << ctxBudget (2s)
+	// << full cycle (40*100ms). The old 200ms budget left only ~100ms headroom.
+	cancelTestNumFiles     = 40
 	cancelTestPerOpenDelay = 100 * time.Millisecond
-	cancelTestCtxBudget    = 200 * time.Millisecond
+	cancelTestCtxBudget    = 2 * time.Second
 )
 
 // slowOpenFS wraps any common.FS and adds a deterministic per-Open delay
