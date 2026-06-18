@@ -406,10 +406,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	dynamic.Lock()
 	defer dynamic.Unlock()
 	if dynamic.status.IsUpgraded() {
-		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
-	} else {
-		dynamic.uc = parsed
-		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
+		return dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	}
 	dynamic.uc = parsed
 	return dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
