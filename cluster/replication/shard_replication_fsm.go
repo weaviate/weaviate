@@ -431,7 +431,7 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 
 // AllPeersAtLeast reports whether every peer has PerNodeState[peer] >= target.
 // Missing peers count as not satisfied.
-func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState) bool {
+func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState, peers []string) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	st, ok := s.statusById[opID]
@@ -439,8 +439,8 @@ func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardRepli
 		return false
 	}
 	floor := api.StateRank(target)
-	for _, st := range st.PerNodeState {
-		if api.StateRank(st) < floor {
+	for _, peer := range peers {
+		if api.StateRank(st.PerNodeState[peer]) < floor {
 			return false
 		}
 	}
