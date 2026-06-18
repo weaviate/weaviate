@@ -259,7 +259,7 @@ func (i *fastPathIndex) qualify(path string) string {
 
 func (i *fastPathIndex) addDoc(t *testing.T, prop *models.Property, docID uint64, value any) {
 	t.Helper()
-	result, err := AssignPositions(prop, value)
+	result, err := assignPositionsFn(prop, value)
 	require.NoError(t, err)
 
 	for _, v := range result.Values {
