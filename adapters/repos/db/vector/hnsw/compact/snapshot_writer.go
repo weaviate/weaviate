@@ -19,6 +19,7 @@ import (
 	"hash/crc32"
 	"io"
 	"math"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -61,10 +62,27 @@ type SnapshotWriter struct {
 	entrypoint uint64
 	level      uint16
 
-	// Node state accumulated during writing
-	nodes      []*nodeState
+	// Node state accumulated during writing.
+	//
+	// nodes is a sparse map of live nodes by ID. This replaces a previous
+	// []*nodeState slice indexed by node ID, which scaled in O(maxNodeID)
+	// — for shards with sparse IDs (e.g. heavy historical churn with a
+	// small live set) that dominated peak heap during snapshot creation.
+	// Last-write-wins semantics are preserved: AddNode for the same ID
+	// twice overwrites, matching the slot-indexed behaviour and the way
+	// the NWayMerger may emit a node twice when fed a malformed sorted
+	// file.
+	//
+	// On-disk format is unchanged: writeBody still emits one existence
+	// byte per slot from 0 to maxNodeID; we materialize a sorted-keys
+	// slice once at Flush time and walk it with a cursor.
+	nodes      map[uint64]*nodeState
 	tombstones map[uint64]struct{}
 	maxNodeID  uint64
+	// hasContent tracks whether AddNode or AddTombstone was ever called.
+	// Distinguishes "writer used with maxNodeID=0 (one node at id 0)"
+	// from "writer never received anything to write".
+	hasContent bool
 
 	// Compression data (only one can be set at a time)
 	pqData  *compression.PQData
@@ -88,11 +106,13 @@ type nodeState struct {
 	connections [][]uint64 // connections per level
 }
 
+
 // NewSnapshotWriter creates a new snapshot writer.
 func NewSnapshotWriter(w io.Writer) *SnapshotWriter {
 	return &SnapshotWriter{
 		w:          w,
 		blockSize:  defaultBlockSize,
+		nodes:      make(map[uint64]*nodeState),
 		tombstones: make(map[uint64]struct{}),
 	}
 }
@@ -103,6 +123,7 @@ func NewSnapshotWriterWithBlockSize(w io.Writer, blockSize int64) *SnapshotWrite
 	return &SnapshotWriter{
 		w:          w,
 		blockSize:  blockSize,
+		nodes:      make(map[uint64]*nodeState),
 		tombstones: make(map[uint64]struct{}),
 	}
 }
@@ -165,15 +186,14 @@ func (s *SnapshotWriter) isMuveraEnabled() bool {
 }
 
 // AddNode adds a node with its connections to the snapshot.
-// Nodes must be added in ascending node ID order.
+// Nodes are typically added in ascending node ID order (the NWayMerger
+// feeds them that way), but AddNode is safe to call out of order or for
+// the same ID twice — last-write-wins semantics are preserved by the
+// underlying map. This matches the behaviour of the previous slot-indexed
+// implementation, which writers in WriteFromMerger rely on when malformed
+// inputs cause the merger to emit a node ID twice.
 func (s *SnapshotWriter) AddNode(nodeID uint64, level uint16, connections [][]uint64, hasTombstone bool) {
-	// Expand nodes slice if needed using exponential growth
-	s.ensureNodesCapacity(nodeID)
-
-	s.nodes[nodeID] = &nodeState{
-		level:       level,
-		connections: connections,
-	}
+	s.nodes[nodeID] = &nodeState{level: level, connections: connections}
 
 	if hasTombstone {
 		s.tombstones[nodeID] = struct{}{}
@@ -182,34 +202,7 @@ func (s *SnapshotWriter) AddNode(nodeID uint64, level uint16, connections [][]ui
 	if nodeID > s.maxNodeID {
 		s.maxNodeID = nodeID
 	}
-}
-
-// ensureNodesCapacity grows the nodes slice to accommodate nodeID using exponential growth.
-func (s *SnapshotWriter) ensureNodesCapacity(nodeID uint64) {
-	required := int(nodeID + 1)
-	if required <= len(s.nodes) {
-		return
-	}
-
-	// If we have enough capacity, just extend the length (no allocation)
-	if required <= cap(s.nodes) {
-		s.nodes = s.nodes[:required]
-		return
-	}
-
-	// Need to allocate - calculate new capacity with exponential growth
-	newCap := cap(s.nodes)
-	if newCap == 0 {
-		newCap = 1024 // initial capacity
-	}
-	for newCap < required {
-		newCap *= 2
-	}
-
-	// Grow the slice
-	newNodes := make([]*nodeState, required, newCap)
-	copy(newNodes, s.nodes)
-	s.nodes = newNodes
+	s.hasContent = true
 }
 
 // AddTombstone marks a standalone tombstone for a nil slot.
@@ -222,17 +215,15 @@ func (s *SnapshotWriter) ensureNodesCapacity(nodeID uint64) {
 // the runtime's cleanup ordering.
 //
 // The method is retained for API symmetry and because it still has a visible
-// side effect on sizing: it grows the nodes slice so that the nodes-array
+// side effect on sizing: it bumps the writer's maxNodeID so the nodes-array
 // length reported in the metadata block covers nodeID. Use AddNode with
 // hasTombstone=true to persist a tombstone for an alive node.
 func (s *SnapshotWriter) AddTombstone(nodeID uint64) {
-	// Expand nodes slice if needed to include this tombstone
-	s.ensureNodesCapacity(nodeID)
-
 	s.tombstones[nodeID] = struct{}{}
 	if nodeID > s.maxNodeID {
 		s.maxNodeID = nodeID
 	}
+	s.hasContent = true
 }
 
 // Flush writes all accumulated state to the snapshot file.
@@ -276,8 +267,14 @@ func (s *SnapshotWriter) writeMetadata() error {
 		}
 	}
 
-	// Node count
-	_ = writeUint32(&buf, uint32(len(s.nodes)))
+	// Node count = maxNodeID + 1 if any node was added (live or
+	// tombstone-only), else 0. Matches the previous len(s.nodes) signal,
+	// which was 0 before any AddNode/AddTombstone and maxNodeID+1 after.
+	var nodeCount uint32
+	if s.hasContent {
+		nodeCount = uint32(s.maxNodeID + 1)
+	}
+	_ = writeUint32(&buf, nodeCount)
 
 	// Compute checksum of metadata
 	metadataSize := uint32(buf.Len())
@@ -439,8 +436,16 @@ func (s *SnapshotWriter) writeMuveraData(buf *bytes.Buffer) error {
 }
 
 // writeBody writes the snapshot body in fixed-size blocks.
+//
+// The byte stream is unchanged from the slot-indexed implementation: one
+// existence byte per slot in [0, maxNodeID], packed into fixed-size 4 MB
+// blocks. The difference is the source of truth — instead of indexing
+// into a slot-sized `[]*nodeState`, we walk the sorted entries slice with
+// a cursor while iterating the slot space. Memory drops from
+// O(maxNodeID) to O(liveNodes). The on-disk format and SnapshotReader
+// are unaffected.
 func (s *SnapshotWriter) writeBody() error {
-	if len(s.nodes) == 0 {
+	if !s.hasContent {
 		return nil
 	}
 
@@ -457,10 +462,25 @@ func (s *SnapshotWriter) writeBody() error {
 		return err
 	}
 
-	for nodeID := uint64(0); nodeID < uint64(len(s.nodes)); nodeID++ {
+	// Materialize sorted node IDs once; walk them with a cursor while
+	// iterating the slot stream. O(liveNodes) memory + O(n log n) sort,
+	// instead of O(maxNodeID) for the previous slot-indexed slice.
+	sortedIDs := make([]uint64, 0, len(s.nodes))
+	for id := range s.nodes {
+		sortedIDs = append(sortedIDs, id)
+	}
+	sort.Slice(sortedIDs, func(i, j int) bool { return sortedIDs[i] < sortedIDs[j] })
+
+	cursor := 0
+	totalSlots := s.maxNodeID + 1
+	for nodeID := uint64(0); nodeID < totalSlots; nodeID++ {
 		nodeBuf.Reset()
 
-		node := s.nodes[nodeID]
+		var node *nodeState
+		if cursor < len(sortedIDs) && sortedIDs[cursor] == nodeID {
+			node = s.nodes[nodeID]
+			cursor++
+		}
 		if node != nil {
 			_, hasTombstone := s.tombstones[nodeID]
 			if hasTombstone {
