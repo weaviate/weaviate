@@ -560,23 +560,10 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
-	i := 0
-	targetVecs := make([]string, len(updated))
-	for targetVec := range updated {
-		targetVecs[i] = targetVec
-		i++
-	}
-	reason := fmt.Sprintf("UpdateVectorIndexConfigs: %v", targetVecs)
-	if err := s.SetStatusReadonly(reason); err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
-	wg := new(sync.WaitGroup)
 	var err error
 	for targetVector, targetCfg := range updated {
 		if index, ok := s.GetVectorIndex(targetVector); ok {
-			wg.Add(1)
-			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+			if err = index.UpdateUserConfig(targetCfg, func() {}); err != nil {
 				break
 			}
 		} else {
@@ -586,12 +573,6 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 			}
 		}
 	}
-
-	f := func() {
-		wg.Wait()
-		s.UpdateStatus(storagestate.StatusReady.String(), reason)
-	}
-	enterrors.GoWrapper(f, s.index.logger)
 
 	return err
 }
