@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -201,4 +202,117 @@ func TestCompareRevectorizeDisabled(t *testing.T) {
 	different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, []string{"text"}, "", findObjectMock, disabled)
 	require.NoError(t, err)
 	require.Equal(t, different, true)
+}
+
+// TestCompareRevectorize_NonTextSourceProperties pins the stale-vector bug: when
+// a named vector's source_properties includes a non-text property (number, int,
+// date, boolean, or an array variant), that property IS vectorized (the corpus
+// builder stringifies it when source properties are set), so changing only that
+// property must trigger re-vectorization. Previously reVectorizeEmbeddings only
+// diffed text/text[]/media properties, so such a change was silently skipped and
+// the stored vector went stale.
+func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
+	class := &models.Class{
+		Class: "MyClass",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{schema.DataTypeText.String()}},
+			{Name: "price", DataType: []string{schema.DataTypeNumber.String()}},
+			{Name: "qty", DataType: []string{schema.DataTypeInt.String()}},
+			{Name: "released", DataType: []string{schema.DataTypeDate.String()}},
+			{Name: "active", DataType: []string{schema.DataTypeBoolean.String()}},
+			{Name: "sizes", DataType: []string{schema.DataTypeNumberArray.String()}},
+			{Name: "meta", DataType: []string{schema.DataTypeObject.String()}},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"v": {
+				Vectorizer: map[string]interface{}{
+					"my-module": map[string]interface{}{"vectorizeClassName": false},
+				},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
+	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+
+	cases := []struct {
+		name        string
+		sourceProps []string
+		oldProps    map[string]interface{}
+		newProps    map[string]interface{}
+		different   bool
+	}{
+		{name: "number unchanged", sourceProps: []string{"price"}, oldProps: map[string]interface{}{"price": 9.99}, newProps: map[string]interface{}{"price": 9.99}, different: false},
+		{name: "number changed", sourceProps: []string{"price"}, oldProps: map[string]interface{}{"price": 9.99}, newProps: map[string]interface{}{"price": 19.99}, different: true},
+		{name: "int unchanged", sourceProps: []string{"qty"}, oldProps: map[string]interface{}{"qty": 1}, newProps: map[string]interface{}{"qty": 1}, different: false},
+		{name: "int changed", sourceProps: []string{"qty"}, oldProps: map[string]interface{}{"qty": 1}, newProps: map[string]interface{}{"qty": 2}, different: true},
+		{name: "date changed", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T00:00:00Z"}, newProps: map[string]interface{}{"released": "2025-01-01T00:00:00Z"}, different: true},
+		{name: "bool changed", sourceProps: []string{"active"}, oldProps: map[string]interface{}{"active": true}, newProps: map[string]interface{}{"active": false}, different: true},
+		{name: "number array unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]interface{}{"sizes": []float64{1, 2}}, newProps: map[string]interface{}{"sizes": []float64{1, 2}}, different: false},
+		{name: "number array changed", sourceProps: []string{"sizes"}, oldProps: map[string]interface{}{"sizes": []float64{1, 2}}, newProps: map[string]interface{}{"sizes": []float64{1, 3}}, different: true},
+		{name: "mixed text+number source, only number changed", sourceProps: []string{"title", "price"}, oldProps: map[string]interface{}{"title": "a", "price": 9.99}, newProps: map[string]interface{}{"title": "a", "price": 19.99}, different: true},
+		{name: "non-source number changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]interface{}{"title": "a", "price": 9.99}, newProps: map[string]interface{}{"title": "a", "price": 19.99}, different: false},
+		// representation drift: the same logical value stored vs supplied with
+		// different Go types must NOT re-vectorize (rendered corpus form is equal).
+		{name: "date drift time.Time vs RFC3339 string, unchanged", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}, newProps: map[string]interface{}{"released": "2024-01-01T00:00:00Z"}, different: false},
+		{name: "int drift int64 vs float64, unchanged", sourceProps: []string{"qty"}, oldProps: map[string]interface{}{"qty": int64(5)}, newProps: map[string]interface{}{"qty": float64(5)}, different: false},
+		{name: "empty array drift []interface{} vs []float64, unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]interface{}{"sizes": []interface{}{}}, newProps: map[string]interface{}{"sizes": []float64{}}, different: false},
+		{name: "presence change (source prop removed)", sourceProps: []string{"price"}, oldProps: map[string]interface{}{"price": 9.99}, newProps: map[string]interface{}{}, different: true},
+		{name: "object source prop unchanged", sourceProps: []string{"meta"}, oldProps: map[string]interface{}{"meta": map[string]interface{}{"a": "b"}}, newProps: map[string]interface{}{"meta": map[string]interface{}{"a": "b"}}, different: false},
+		{name: "object source prop changed", sourceProps: []string{"meta"}, oldProps: map[string]interface{}{"meta": map[string]interface{}{"a": "b"}}, newProps: map[string]interface{}{"meta": map[string]interface{}{"a": "c"}}, different: true},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			uid, _ := uuid.NewUUID()
+			uidfmt := strfmt.UUID(uid.String())
+			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: uidfmt}
+			objsToReturn[uid.String()] = tt.oldProps
+			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, tt.sourceProps, "", findObject, false)
+			require.NoError(t, err)
+			require.Equal(t, tt.different, different)
+		})
+	}
+}
+
+// TestCompareRevectorize_SkipIgnoredWithSourceProperties pins the skip+source
+// stale path: when source_properties is set, the corpus builder vectorizes a
+// listed property even if it has moduleConfig skip:true (PropertyIndexed ignores
+// skip when source props are configured), so the comparator must compare it too.
+// Previously the comparator honored skip and never compared it -> stale vector.
+func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
+	class := &models.Class{
+		Class:      "MyClass",
+		Vectorizer: "my-module",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{schema.DataTypeText.String()}},
+			{
+				Name:         "price",
+				DataType:     []string{schema.DataTypeNumber.String()},
+				ModuleConfig: map[string]interface{}{"my-module": map[string]interface{}{"skip": true}},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"v": {
+				Vectorizer:      map[string]interface{}{"my-module": map[string]interface{}{"vectorizeClassName": false}},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
+	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+
+	uid, _ := uuid.NewUUID()
+	uidfmt := strfmt.UUID(uid.String())
+	objsToReturn[uid.String()] = map[string]interface{}{"title": "a", "price": 9.99}
+	objNew := &models.Object{
+		Class:      class.Class,
+		Properties: map[string]interface{}{"title": "a", "price": 19.99},
+		ID:         uidfmt,
+	}
+	// price is in source_properties AND marked skip:true; it is still vectorized,
+	// so a change to it must re-vectorize despite the skip flag.
+	different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, []string{"price"}, "", findObject, false)
+	require.NoError(t, err)
+	require.True(t, different)
 }

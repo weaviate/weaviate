@@ -182,6 +182,9 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 		return nil, fmt.Errorf("no vectorizer found for class %q", class.Class)
 	}
 	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector, &p.cfg)
+	// Honor each named vector's configured source properties so a batch update
+	// only re-vectorizes objects whose source properties actually changed.
+	targetProperties := sourcePropertiesFromModConfig(modConfig, found.Name())
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		// each target vector can have its own associated properties, and we need to determine for each one if we should
@@ -195,7 +198,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				continue
 			}
 			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj,
-				class, nil, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
+				class, targetProperties, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
@@ -235,7 +238,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				continue
 			}
 			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg,
-				vectorizer, obj, class, nil, targetVector, findObjectFn,
+				vectorizer, obj, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
@@ -369,15 +372,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string
-			vecConfig, ok := modConfig[found.Name()]
-			if ok {
-				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					if propSlice, ok := properties.([]string); ok {
-						targetProperties = propSlice
-					}
-				}
-			}
+			targetProperties := sourcePropertiesFromModConfig(modConfig, found.Name())
 			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx,
 				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
@@ -399,15 +394,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 		}
 	} else if vectorizer, ok := found.(modulecapabilities.Vectorizer[[][]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string
-			vecConfig, ok := modConfig[found.Name()]
-			if ok {
-				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					if propSlice, ok := properties.([]string); ok {
-						targetProperties = propSlice
-					}
-				}
-			}
+			targetProperties := sourcePropertiesFromModConfig(modConfig, found.Name())
 			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx,
 				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
@@ -545,6 +532,42 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	}
 
 	return modConfigs, nil
+}
+
+// sourcePropertiesFromModConfig returns the configured source properties
+// ("properties") for a named vector's module config. Schema configs are
+// deserialized from JSON / the RAFT store, so this value is normally
+// []interface{}; in-memory configs may use []string. Both forms are handled.
+// A nil result means "no explicit source properties configured".
+//
+// This must stay consistent with how the corpus builder reads the same field
+// (settings.BaseClassSettings.Properties); otherwise the set of properties that
+// is vectorized and the set that is diffed to decide re-vectorization can drift.
+func sourcePropertiesFromModConfig(modConfig map[string]interface{}, moduleName string) []string {
+	vecConfig, ok := modConfig[moduleName].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	switch props := vecConfig["properties"].(type) {
+	case []string:
+		return props
+	case []interface{}:
+		out := make([]string, 0, len(props))
+		for _, p := range props {
+			s, ok := p.(string)
+			if !ok {
+				// Class-settings validation rejects non-string entries; if one
+				// somehow appears, treat the config as absent rather than using a
+				// partial source-property list (which would silently change the
+				// re-vectorization decision and diverge from the corpus builder).
+				return nil
+			}
+			out = append(out, s)
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func (p *Provider) getModule(modConfig map[string]interface{}) (found modulecapabilities.Module) {

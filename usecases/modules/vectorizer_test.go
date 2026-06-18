@@ -21,11 +21,15 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestProvider_ValidateVectorizer(t *testing.T) {
@@ -315,4 +319,401 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 func newUUID() strfmt.UUID {
 	return strfmt.UUID(uuid.NewString())
+}
+
+// countingText2VecModule / countingText2ColBERTModule record how many objects
+// would actually be sent to the embedding model. They count in BOTH the
+// single-object path (VectorizeObject) and the batch path (VectorizeBatch, where
+// objects flagged in skipObject are NOT sent to the model), so a single counter
+// works for every journey under test.
+
+type countingText2VecModule struct {
+	dummyText2VecModuleNoCapabilities
+	calls *int
+}
+
+func (m *countingText2VecModule) VectorizeObject(ctx context.Context,
+	in *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	*m.calls++
+	return []float32{9, 9, 9}, nil, nil
+}
+
+func (m *countingText2VecModule) VectorizeBatch(ctx context.Context,
+	objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
+) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs := make([][]float32, len(objs))
+	for i := range objs {
+		if !skipObject[i] {
+			*m.calls++
+		}
+		vecs[i] = []float32{9, 9, 9}
+	}
+	return vecs, nil, map[int]error{}
+}
+
+type countingText2ColBERTModule struct {
+	dummyText2ColBERTModuleNoCapabilities
+	calls *int
+}
+
+func (m *countingText2ColBERTModule) VectorizeObject(ctx context.Context,
+	in *models.Object, cfg moduletools.ClassConfig,
+) ([][]float32, models.AdditionalProperties, error) {
+	*m.calls++
+	return [][]float32{{9, 9, 9}, {9, 9, 9}}, nil, nil
+}
+
+func (m *countingText2ColBERTModule) VectorizeBatch(ctx context.Context,
+	objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
+) ([][][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs := make([][][]float32, len(objs))
+	for i := range objs {
+		if !skipObject[i] {
+			*m.calls++
+		}
+		vecs[i] = [][]float32{{9, 9, 9}, {9, 9, 9}}
+	}
+	return vecs, nil, map[int]error{}
+}
+
+// newCountingProvider returns a Provider with a call-counting vectorizer module
+// registered under moduleName, plus a pointer to its embedding-call counter.
+func newCountingProvider(moduleName string, multiVector, revectorizeCheckDisabled bool) (*Provider, *int) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{
+		RevectorizeCheckDisabled: configRuntime.NewDynamicValue(revectorizeCheckDisabled),
+	})
+	calls := 0
+	if multiVector {
+		p.Register(&countingText2ColBERTModule{
+			dummyText2ColBERTModuleNoCapabilities: newDummyText2ColBERTModule(moduleName, nil),
+			calls:                                 &calls,
+		})
+	} else {
+		p.Register(&countingText2VecModule{
+			dummyText2VecModuleNoCapabilities: newDummyText2VecModule(moduleName, nil),
+			calls:                             &calls,
+		})
+	}
+	return p, &calls
+}
+
+// newSourcePropsTestClass builds a "Products" class with one named vector backed
+// by moduleName and the given source_properties config value.
+func newSourcePropsTestClass(moduleName, targetVector string, sourceProperties any) *models.Class {
+	return &models.Class{
+		Class:      "Products",
+		Vectorizer: config.VectorizerModuleNone, // no legacy vector; only the named vector
+		Properties: []*models.Property{
+			{Name: "vector_input", DataType: []string{schema.DataTypeText.String()}},
+			{Name: "delivery_label", DataType: []string{schema.DataTypeText.String()}},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			targetVector: {
+				Vectorizer: map[string]interface{}{
+					moduleName: map[string]interface{}{
+						"vectorizeClassName": false,
+						"properties":         sourceProperties,
+					},
+				},
+				VectorIndexConfig: hnsw.UserConfig{},
+				VectorIndexType:   "hnsw",
+			},
+		},
+	}
+}
+
+// staticFindObject returns a FindObjectFn that yields the same old props and
+// vector for every id.
+func staticFindObject(targetVector string, oldProps map[string]interface{}, oldVector models.Vector) modulecapabilities.FindObjectFn {
+	return func(ctx context.Context, className string, oid strfmt.UUID,
+		props search.SelectProperties, adds additional.Properties, tenant string,
+	) (*search.Result, error) {
+		return &search.Result{
+			Schema:  oldProps,
+			Vectors: models.Vectors{targetVector: oldVector},
+		}, nil
+	}
+}
+
+// sourcePropsTestVectors returns the previously-stored vector and the freshly
+// recomputed sentinel for a journey, matching the vectorizer's type (single
+// []float32 vs multi [][]float32).
+func sourcePropsTestVectors(multiVector bool) (stored, recomputed models.Vector) {
+	if multiVector {
+		return [][]float32{{1, 2, 3}, {1, 2, 3}}, [][]float32{{9, 9, 9}, {9, 9, 9}}
+	}
+	return []float32{1, 2, 3}, []float32{9, 9, 9}
+}
+
+// mergedPropsForChange returns the merged property set for an update that changes
+// exactly one property (the PATCH/merge result).
+func mergedPropsForChange(changedProp string) map[string]interface{} {
+	props := map[string]interface{}{"vector_input": "embed me", "delivery_label": "1 day"}
+	switch changedProp {
+	case "delivery_label":
+		props["delivery_label"] = "2 days"
+	case "vector_input":
+		props["vector_input"] = "embed me differently"
+	}
+	return props
+}
+
+// runUpdateVector runs the single-object or batch update path and asserts success.
+func runUpdateVector(t *testing.T, p *Provider, class *models.Class, obj *models.Object,
+	findObject modulecapabilities.FindObjectFn, batch bool,
+) {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	if batch {
+		vecErrors, err := p.BatchUpdateVector(context.Background(), class, []*models.Object{obj}, findObject, logger)
+		require.NoError(t, err)
+		require.Empty(t, vecErrors)
+		return
+	}
+	require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
+}
+
+// assertStoredVector checks that the object kept the preserved old vector when
+// re-vectorization was skipped, or the freshly computed sentinel when it ran.
+func assertStoredVector(t *testing.T, obj *models.Object, targetVector string, multiVector, revectorized bool) {
+	t.Helper()
+	stored, recomputed := sourcePropsTestVectors(multiVector)
+	want := stored
+	if revectorized {
+		want = recomputed
+	}
+	require.Equal(t, want, obj.Vectors[targetVector])
+}
+
+// TestUpdateVector_RespectsNamedVectorSourceProperties is a regression test for
+// https://github.com/weaviate/weaviate/issues/11781
+//
+// A partial update (single-object PATCH/merge, or batch) must only re-vectorize a
+// named vector when one of its configured source_properties actually changed.
+//
+// The bug: Provider.vectorize() / batchUpdateVector() failed to read the source
+// properties — vectorize() used a `properties.([]string)` assertion that never
+// matched the []interface{} a schema config is deserialized into, and the batch
+// path passed a hardcoded nil. With the source-property list dropped,
+// reVectorizeEmbeddings compared every text property, so any changed text
+// property forced an embedding call.
+//
+// Covered journeys: {single-object, batch} x {regular vector, multi-vector}.
+func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
+	const targetVector = "vector_input"
+	const moduleName = "my-module"
+
+	journeys := []struct {
+		name        string
+		multiVector bool
+		batch       bool
+	}{
+		{name: "single-object/regular-vector", multiVector: false, batch: false},
+		{name: "single-object/multi-vector", multiVector: true, batch: false},
+		{name: "batch/regular-vector", multiVector: false, batch: true},
+		{name: "batch/multi-vector", multiVector: true, batch: true},
+	}
+
+	cases := []struct {
+		name               string
+		sourceProperties   interface{}
+		changedProp        string
+		wantVectorizeCalls int
+	}{
+		{
+			name:               "[]interface{} source props; change NON-source prop -> skip",
+			sourceProperties:   []interface{}{"vector_input"},
+			changedProp:        "delivery_label",
+			wantVectorizeCalls: 0,
+		},
+		{
+			name:               "[]interface{} source props; change SOURCE prop -> re-vectorize",
+			sourceProperties:   []interface{}{"vector_input"},
+			changedProp:        "vector_input",
+			wantVectorizeCalls: 1,
+		},
+		{
+			name:               "[]string source props; change NON-source prop -> skip",
+			sourceProperties:   []string{"vector_input"},
+			changedProp:        "delivery_label",
+			wantVectorizeCalls: 0,
+		},
+		{
+			// empty source props => no explicit list => fall back to comparing all
+			// text props, so changing any text prop re-vectorizes.
+			name:               "empty source props; change a text prop -> re-vectorize",
+			sourceProperties:   []interface{}{},
+			changedProp:        "delivery_label",
+			wantVectorizeCalls: 1,
+		},
+	}
+
+	for _, j := range journeys {
+		for _, tc := range cases {
+			t.Run(j.name+"/"+tc.name, func(t *testing.T) {
+				p, calls := newCountingProvider(moduleName, j.multiVector, false)
+				class := newSourcePropsTestClass(moduleName, targetVector, tc.sourceProperties)
+				oldProps := map[string]interface{}{"vector_input": "embed me", "delivery_label": "1 day"}
+				storedVector, _ := sourcePropsTestVectors(j.multiVector)
+
+				// Merged object as produced by the PATCH/merge path: previous props
+				// overlaid with the single updated property and no vector supplied.
+				obj := &models.Object{
+					Class:      class.Class,
+					ID:         newUUID(),
+					Properties: mergedPropsForChange(tc.changedProp),
+					Vectors:    models.Vectors{},
+				}
+				findObject := staticFindObject(targetVector, oldProps, storedVector)
+
+				runUpdateVector(t, p, class, obj, findObject, j.batch)
+
+				require.Equalf(t, tc.wantVectorizeCalls, *calls,
+					"unexpected number of embedding-model invocations")
+				// The stored vector must also be correct: the old vector is
+				// preserved on skip, the freshly computed sentinel on re-vectorize.
+				assertStoredVector(t, obj, targetVector, j.multiVector, tc.wantVectorizeCalls > 0)
+			})
+		}
+	}
+}
+
+// TestBatchUpdateVector_MixedSkipAndRevectorize exercises the batch-specific
+// per-object skip decision and the mapping of VectorizeBatch results back to the
+// right objects: in a single batch, an object whose source property changed must
+// be re-vectorized while an object whose non-source property changed must keep
+// its stored vector. A single-object batch cannot catch a mis-indexed result.
+func TestBatchUpdateVector_MixedSkipAndRevectorize(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const targetVector = "vector_input"
+	const moduleName = "my-module"
+
+	p, calls := newCountingProvider(moduleName, false, false)
+	class := newSourcePropsTestClass(moduleName, targetVector, []interface{}{"vector_input"})
+
+	changedID := newUUID()   // source property changes -> must re-vectorize
+	unchangedID := newUUID() // only a non-source property changes -> must skip
+
+	oldProps := map[strfmt.UUID]map[string]interface{}{
+		changedID:   {"vector_input": "A old", "delivery_label": "x"},
+		unchangedID: {"vector_input": "B keep", "delivery_label": "x"},
+	}
+	oldVecs := map[strfmt.UUID][]float32{
+		changedID:   {1, 1, 1},
+		unchangedID: {2, 2, 2},
+	}
+	findObject := func(ctx context.Context, className string, oid strfmt.UUID,
+		props search.SelectProperties, adds additional.Properties, tenant string,
+	) (*search.Result, error) {
+		return &search.Result{
+			Schema:  oldProps[oid],
+			Vectors: models.Vectors{targetVector: oldVecs[oid]},
+		}, nil
+	}
+
+	objChanged := &models.Object{
+		Class: class.Class, ID: changedID, Vectors: models.Vectors{},
+		Properties: map[string]interface{}{"vector_input": "A NEW", "delivery_label": "x"},
+	}
+	objUnchanged := &models.Object{
+		Class: class.Class, ID: unchangedID, Vectors: models.Vectors{},
+		Properties: map[string]interface{}{"vector_input": "B keep", "delivery_label": "y changed"},
+	}
+
+	vecErrors, err := p.BatchUpdateVector(context.Background(), class,
+		[]*models.Object{objChanged, objUnchanged}, findObject, logger)
+	require.NoError(t, err)
+	require.Empty(t, vecErrors)
+
+	require.Equal(t, 1, *calls,
+		"only the object whose source property changed should be re-vectorized")
+	require.Equal(t, []float32{9, 9, 9}, objChanged.Vectors[targetVector],
+		"changed-source object must get the freshly computed vector")
+	require.Equal(t, []float32{2, 2, 2}, objUnchanged.Vectors[targetVector],
+		"unchanged-source object must keep its stored vector (correct result-to-object mapping)")
+}
+
+// TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes verifies that when
+// the re-vectorize check is globally disabled, an update re-vectorizes
+// unconditionally — even when only a non-source property changed — i.e. the
+// source-property skip path is bypassed.
+func TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const targetVector = "vector_input"
+	const moduleName = "my-module"
+
+	p, calls := newCountingProvider(moduleName, false, true)
+	class := newSourcePropsTestClass(moduleName, targetVector, []interface{}{"vector_input"})
+
+	findObject := staticFindObject(targetVector,
+		map[string]interface{}{"vector_input": "embed me", "delivery_label": "1 day"},
+		[]float32{1, 2, 3})
+
+	// Only the non-source property changes; with the check disabled this must
+	// still re-vectorize.
+	obj := &models.Object{
+		Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
+		Properties: map[string]interface{}{"vector_input": "embed me", "delivery_label": "2 days"},
+	}
+
+	require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
+	require.Equal(t, 1, *calls,
+		"with RevectorizeCheckDisabled=true, updates must always re-vectorize")
+}
+
+// TestUpdateVector_NonTextSourcePropertyEndToEnd is the end-to-end counterpart of
+// the compare_test stale-vector coverage: through Provider.UpdateVector (which
+// runs the source-property extraction), changing only a numeric source property
+// must re-vectorize, while changing a non-source property must not.
+func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const targetVector = "vec"
+	const moduleName = "my-module"
+
+	newClass := func() *models.Class {
+		return &models.Class{
+			Class:      "Products",
+			Vectorizer: config.VectorizerModuleNone,
+			Properties: []*models.Property{
+				{Name: "price", DataType: []string{schema.DataTypeNumber.String()}},
+				{Name: "label", DataType: []string{schema.DataTypeText.String()}},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				targetVector: {
+					Vectorizer: map[string]interface{}{
+						moduleName: map[string]interface{}{
+							"vectorizeClassName": false,
+							"properties":         []interface{}{"price"},
+						},
+					},
+					VectorIndexConfig: hnsw.UserConfig{},
+					VectorIndexType:   "hnsw",
+				},
+			},
+		}
+	}
+
+	cases := []struct {
+		name      string
+		merged    map[string]interface{}
+		wantCalls int
+	}{
+		{name: "source (price) changed -> re-vectorize", merged: map[string]interface{}{"price": 19.99, "label": "x"}, wantCalls: 1},
+		{name: "non-source (label) changed -> skip", merged: map[string]interface{}{"price": 9.99, "label": "y"}, wantCalls: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, calls := newCountingProvider(moduleName, false, false)
+			class := newClass()
+			findObject := staticFindObject(targetVector,
+				map[string]interface{}{"price": 9.99, "label": "x"}, []float32{1, 2, 3})
+			obj := &models.Object{
+				Class: class.Class, ID: newUUID(), Properties: tc.merged, Vectors: models.Vectors{},
+			}
+			require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
+			require.Equal(t, tc.wantCalls, *calls)
+		})
+	}
 }
