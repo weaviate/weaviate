@@ -212,7 +212,8 @@ func distToScore(results []search.Result) {
 // precomputePropertyValueScores computes normalized [0,1] scores for each
 // property_value condition across all results. Min-max normalization is applied
 // after the modifier so that the highest value in the result set scores 1.0.
-// Returns a slice indexed by [conditionIdx][resultIdx].
+// Results missing the property score 0. Returns a slice indexed by
+// [conditionIdx][resultIdx].
 func precomputePropertyValueScores(results []search.Result, conditions []filters.BoostCondition) [][]float32 {
 	scores := make([][]float32, len(conditions))
 
@@ -241,6 +242,8 @@ func precomputePropertyValueScores(results []search.Result, conditions []filters
 		fv := cond.PropertyValue
 		propName := string(fv.Path.Property)
 		raw := make([]float64, len(results))
+		present := make([]bool, len(results))
+		minVal, maxVal := math.Inf(1), math.Inf(-1)
 
 		for j := range results {
 			if propsByIdx[j] == nil {
@@ -251,28 +254,22 @@ func precomputePropertyValueScores(results []search.Result, conditions []filters
 				continue
 			}
 			raw[j] = applyPropertyValueModifier(val, fv.Modifier)
+			present[j] = true
+			minVal = math.Min(minVal, raw[j])
+			maxVal = math.Max(maxVal, raw[j])
 		}
 
-		// Min-max normalize to [0,1].
-		minVal, maxVal := raw[0], raw[0]
-		for _, v := range raw[1:] {
-			if v < minVal {
-				minVal = v
-			}
-			if v > maxVal {
-				maxVal = v
-			}
-		}
-
+		// Normalize over present values only; missing properties score 0 so
+		// they can't outrank actual negative values.
 		scores[i] = make([]float32, len(results))
 		rangeVal := maxVal - minVal
-		if rangeVal > 0 {
-			for j := range raw {
+		for j := range raw {
+			switch {
+			case !present[j]:
+				// stays 0
+			case rangeVal > 0:
 				scores[i][j] = float32((raw[j] - minVal) / rangeVal)
-			}
-		} else {
-			// All same value — normalize to 1.0
-			for j := range scores[i] {
+			default:
 				scores[i][j] = 1.0
 			}
 		}

@@ -90,6 +90,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
+	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
@@ -558,6 +559,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
+		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
@@ -588,7 +590,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	setupDebugHandlers(appState)
-	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
+	setupGoProfiling(appState)
+	setupRuntimeProfiling(appState)
 
 	migrator := db.NewMigrator(repo, appState.Logger, appState.Cluster.LocalName())
 	migrator.SetNode(appState.Cluster.LocalName())
@@ -693,8 +696,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace: db.ExtractReindexTaskCollection,
 		},
-		ReplicaMovementEnabled: appState.ServerConfig.Config.ReplicaMovementEnabled,
-		DrainSleep:             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
+		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		UsageLimitsErrorMessage: appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -1722,6 +1727,7 @@ func registerModules(appState *state.State) error {
 		modmistral.Name,
 		modtext2vecoctoai.Name,
 		modopenai.Name,
+		modgenerativedeepseek.Name,
 		moddigitalocean.Name,
 		modmorph.Name,
 		modvoyageai.Name,
@@ -2074,6 +2080,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativedeepseek.Name]; ok {
+		appState.Modules.Register(modgenerativedeepseek.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedeepseek.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modgenerativexai.Name]; ok {
 		appState.Modules.Register(modgenerativexai.New())
 		appState.Logger.
@@ -2408,8 +2422,17 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 	return &http.Client{Transport: transport}
 }
 
-func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
+func setupGoProfiling(appState *state.State) {
+	config := appState.ServerConfig.Config
+	logger := appState.Logger
+	port := config.Profiling.Port
+	if port == 0 {
+		port = 6060
+	}
+	// GO_PROFILING_DISABLE is the only switch that prevents binding;
+	// DEBUG_ENDPOINTS_ENABLED is enforced per-request by the gate below.
 	if config.Profiling.Disabled {
+		logger.Infof("debug HTTP listener (port %d) disabled by GO_PROFILING_DISABLE; unset to enable", port)
 		return
 	}
 
@@ -2428,21 +2451,34 @@ func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
 		"batchWorker",
 	}
 	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler(functionsToIgnoreInProfiling...))
+
+	enabled := config.Profiling.DebugEndpointsEnabled
+	gateOpen := enabled != nil && enabled.Get()
+	if gateOpen {
+		logger.Infof("debug HTTP listener bound on :%d (DebugEndpointsEnabled=true; requests are served)", port)
+	} else {
+		logger.Infof("debug HTTP listener bound on :%d (DebugEndpointsEnabled=false; requests return 404 until enabled)", port)
+	}
+	debugHandler := makeDebugEndpointsGate(enabled)(http.DefaultServeMux)
 	enterrors.GoWrapper(func() {
-		portNumber := config.Profiling.Port
-		if portNumber == 0 {
-			if err := http.ListenAndServe(":6060", nil); err != nil {
-				logger.Error("error listinening and serve :6060 : %w", err)
-			}
-		} else {
-			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), debugHandler); err != nil {
+			logger.WithField("action", "debug_listener").Error(err)
 		}
 	}, logger)
+}
 
+// setupRuntimeProfiling sets the Go block/mutex profile rates. Independent of
+// the debug HTTP listener and DEBUG_ENDPOINTS_ENABLED (profiles can still be
+// collected via runtime/pprof dumps), but GO_PROFILING_DISABLE switches them
+// off too.
+func setupRuntimeProfiling(appState *state.State) {
+	config := appState.ServerConfig.Config
+	if config.Profiling.Disabled {
+		return
+	}
 	if config.Profiling.BlockProfileRate > 0 {
 		goruntime.SetBlockProfileRate(config.Profiling.BlockProfileRate)
 	}
-
 	if config.Profiling.MutexProfileFraction > 0 {
 		goruntime.SetMutexProfileFraction(config.Profiling.MutexProfileFraction)
 	}
@@ -2561,16 +2597,15 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.AllowedVectorIndexTypes = appState.ServerConfig.Config.Restrictions.AllowedVectorIndexTypes
 		registered.AllowedCompressionTypes = appState.ServerConfig.Config.Restrictions.AllowedCompressionTypes
 		registered.RestrictionsErrorMessage = appState.ServerConfig.Config.Restrictions.ErrorMessage
-		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
-		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 		registered.NamespaceCleanupInterval = appState.ServerConfig.Config.Namespaces.CleanupInterval
 		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
@@ -2584,6 +2619,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
+		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

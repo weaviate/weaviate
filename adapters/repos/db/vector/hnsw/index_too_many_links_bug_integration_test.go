@@ -56,7 +56,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
 	parentCommitLoggerCycle := cyclemanager.NewManager(
 		"commit-logger",
-		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.HnswCommitLoggerCycleTicker(false),
 		parentCommitLoggerCallbacks.CycleCallback, logger)
 	parentCommitLoggerCycle.Start()
 	defer parentCommitLoggerCycle.StopAndWait(ctx)

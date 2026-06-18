@@ -1,0 +1,72 @@
+name: Notify Slack on release
+
+on:
+  release:
+    types: [published]
+
+# No repo contents are read and no GitHub API is called — least privilege.
+permissions: {}
+
+jobs:
+  notify-slack:
+    name: Post release notes to Slack
+    runs-on: ubuntu-latest
+    # Skip drafts only — publish for stable GA and pre-releases (rc/beta/alpha).
+    if: ${{ github.event.release.draft == false }}
+    steps:
+      - name: Build Slack payload
+        env:
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REL_URL: ${{ github.event.release.html_url }}
+          REL_BODY: ${{ github.event.release.body }}          
+          CC_USER_ID: ${{ secrets.SLACK_CC_USER_ID }}
+        run: |
+          set -euo pipefail
+
+          # "Weaviate Core <release number>" — strip a leading "v" from the tag.
+          number="${REL_TAG#v}"
+
+          # Convert a subset of GitHub Markdown to Slack mrkdwn. GitHub release
+          # bodies are CRLF, so strip carriage returns first (otherwise stray \r
+          # leaks into Slack and the line-anchored regexes below mis-match).
+          # - drop authorship/PR refs: "by @user", "in #123", "in <pull-url>"
+          # - drop empty "## Section\n*none*" blocks (Breaking Changes/New Features)
+          # - md → mrkdwn: "## heading" → "*heading*" (trailing space trimmed so
+          #   Slack still bolds it), "**x**" → "*x*"
+          changes="$(printf '%s' "$REL_BODY" \
+            | tr -d '\r' \
+            | sed -E 's#[[:space:]]+in[[:space:]]+https?://[^[:space:]]+##g' \
+            | sed -E 's/[[:space:]]+in[[:space:]]+#[0-9]+//g' \
+            | sed -E 's/[[:space:]]+by[[:space:]]+@[A-Za-z0-9_-]+//g' \
+            | perl -0777 -pe 's/^#{1,6}\h+.*\n\h*\*?none\*?\h*\n\n?//gmi' \
+            | sed -E 's/^#{1,6}[[:space:]]+(.*[^[:space:]])[[:space:]]*$/*\1*/' \
+            | sed -E 's/\*\*([^*]+)\*\*/*\1*/g' \
+            | sed -E 's/^([[:space:]]*)\*[[:space:]]+/\1• /')"
+
+          # Assemble the message entirely inside jq, which handles JSON escaping and
+          # operates on Unicode code points — so the truncation below (to stay under
+          # Slack's 3000-char section-block limit) can never split a multi-byte rune
+          # or emit invalid UTF-8, and string slicing is character- not byte-based.
+          jq -n \
+            --arg number "$number" \
+            --arg changes "$changes" \
+            --arg url "$REL_URL" \
+            --arg cc "${CC_USER_ID:-}" \
+            '
+              # All-whitespace body (spaces, tabs, newlines) counts as empty.
+              (if ($changes | test("[^[:space:]]")) then $changes else "_(see release notes below)_" end) as $c
+              | (if ($c | length) > 2500 then ($c[0:2500] + "…") else $c end) as $c
+              | ":tada: Weaviate Core `\($number)` release :tada:\n\nThis release contains:\n\n\($c)\n\nRelease notes: \($url)"
+                + (if ($cc | length) > 0 then "\n\ncc: <@\($cc)>" else "" end)
+              | { blocks: [ { type: "section", text: { type: "mrkdwn", text: . } } ] }
+            ' > payload.json
+
+          echo "Generated payload:"
+          cat payload.json
+
+      - name: Send to Slack
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload-file-path: payload.json
