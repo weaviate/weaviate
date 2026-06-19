@@ -163,6 +163,24 @@ func ParseRuntimeConfigPartial(buf []byte) (*WeaviateRuntimeConfig, []FieldError
 	return conf, fieldErrs, nil
 }
 
+// NewRuntimeConfigParser returns a Parser that decodes the overrides file
+// field-by-field. A value that fails to decode is logged and recorded in skipped
+// so the remaining valid fields still apply; only a malformed document aborts the
+// whole load.
+func NewRuntimeConfigParser(log logrus.FieldLogger) runtime.Parser[WeaviateRuntimeConfig] {
+	return func(b []byte, skipped map[string]struct{}) (*WeaviateRuntimeConfig, error) {
+		cfg, fieldErrs, err := ParseRuntimeConfigPartial(b)
+		for _, fe := range fieldErrs {
+			skipped[fe.Field] = struct{}{}
+			log.WithFields(logrus.Fields{
+				"action": "runtime_overrides_parse",
+				"field":  fe.Field,
+			}).Error(fe.Err)
+		}
+		return cfg, err
+	}
+}
+
 // yamlKey returns the YAML name of a struct field (tag value minus options).
 func yamlKey(sf reflect.StructField) string {
 	tag := sf.Tag.Get("yaml")

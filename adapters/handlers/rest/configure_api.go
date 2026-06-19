@@ -2314,24 +2314,9 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered.OIDCSkipTLSVerify = appState.ServerConfig.Config.Authentication.OIDC.SkipTLSVerify
 		}
 
-		// parser decodes the overrides file field-by-field. A value that fails to
-		// decode is logged and recorded in skipped so the remaining valid fields
-		// still apply; only a malformed document aborts the whole load.
-		parser := func(b []byte, skipped map[string]struct{}) (*config.WeaviateRuntimeConfig, error) {
-			cfg, fieldErrs, err := config.ParseRuntimeConfigPartial(b)
-			for _, fe := range fieldErrs {
-				skipped[fe.Field] = struct{}{}
-				appState.Logger.WithFields(logrus.Fields{
-					"action": "runtime_overrides_parse",
-					"field":  fe.Field,
-				}).Error(fe.Err)
-			}
-			return cfg, err
-		}
-
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			parser,
+			config.NewRuntimeConfigParser(appState.Logger),
 			config.UpdateRuntimeConfig,
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
