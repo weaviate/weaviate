@@ -285,6 +285,7 @@ var (
 	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
 	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
 	usersPrefix              = authorization.UsersDomain + "/"
+	rolesPrefix              = authorization.RolesDomain + "/"
 
 	// Operator-only domain prefixes; see operatorOnlyResource.
 	backupsPrefix    = authorization.BackupsDomain + "/"
@@ -336,6 +337,10 @@ func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	// /aliases/ delimiter like the collection shapes above).
 	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
 		return len(usersPrefix), len(path), false
+	}
+	// roles/<id> is terminal, mirroring users/<id>.
+	if _, ok := strings.CutPrefix(path, rolesPrefix); ok {
+		return len(rolesPrefix), len(path), false
 	}
 	// groups/ is intentionally not registered: a colon-bearing group id is
 	// matched literally. Don't add it without also short-circuiting groups/

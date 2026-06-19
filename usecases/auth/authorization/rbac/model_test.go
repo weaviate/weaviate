@@ -355,12 +355,54 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"",
 			true,
 		},
-		// no bleed: roles/ is not namespace-bearing, so it stays global.
+		// roles/<id> — terminal namespace-bearing shape (mirrors users/<id>).
 		{
-			"ns=customer1, roles/ path → not specialized (still global)",
+			"ns=customer1, in-ns role, roles/.* policy → match (specialize)",
+			"roles/customer1:editor",
+			"roles/.*",
+			"customer1",
+			true,
+		},
+		{
+			"ns=customer1, unqualified role request, roles/.* policy → mismatch (specialized away)",
 			"roles/editor",
 			"roles/.*",
 			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, cross-ns role, roles/.* policy → mismatch (cross-ns deny)",
+			"roles/customer2:editor",
+			"roles/.*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, exact qualified role policy → match",
+			"roles/customer1:editor",
+			"roles/customer1:editor",
+			"customer1",
+			true,
+		},
+		{
+			"empty ns, qualified role, roles/.* policy → match (any-ns widen)",
+			"roles/customer1:editor",
+			"roles/.*",
+			"",
+			true,
+		},
+		{
+			"empty ns, qualified role, literal roles/* policy → match (/* normalized)",
+			"roles/customer1:editor",
+			"roles/*",
+			"",
+			true,
+		},
+		{
+			"empty ns, unqualified role, roles/.* policy → passthrough match (operator unchanged)",
+			"roles/editor",
+			"roles/.*",
+			"",
 			true,
 		},
 	}
@@ -478,12 +520,17 @@ func TestNamespaceAwareMatcherGate(t *testing.T) {
 	assert.False(t, namespaceAwareMatcher("users/x:a", "users/a", ""),
 		"NS-enabled global caller: grant to user 'a' must not match OIDC user 'x:a'")
 
+	// NS-disabled: roles/ mirrors users/ — grant to 'foo' must not match 'x:foo'.
+	assert.False(t, call(false, "roles/x:foo", "roles/foo", ""),
+		"NS-disabled: grant to role 'foo' must not match 'x:foo'")
+	assert.True(t, call(false, "roles/editor", "roles/.*", ""),
+		"NS-disabled: plain wildcard role match still works")
+
 	// NS-enabled: the gate delegates to the namespace-aware core.
 	assert.True(t, call(true, "users/customer1:bob", "users/.*", "customer1"),
 		"NS-enabled: users/.* specializes to the caller's namespace")
 	assert.False(t, call(true, "users/customer2:bob", "users/.*", "customer1"),
 		"NS-enabled: cross-namespace user access denied")
-
 	// Operator-only domains are denied to namespaced callers (ns != "") even
 	// when a delegated role's wildcard policy would otherwise match, but stay
 	// reachable for the global caller (ns == "").
@@ -498,7 +545,9 @@ func TestNamespaceAwareMatcherGate(t *testing.T) {
 	// roles/groups are namespace-bearing via qualified names, so the gate must
 	// not blanket-deny them for namespaced callers.
 	assert.True(t, call(true, "roles/customer1:editor", "roles/.*", "customer1"),
-		"namespaced caller keeps access to its own qualified role")
+		"NS-enabled: roles/.* specializes to the caller's namespace")
+	assert.False(t, call(true, "roles/customer2:editor", "roles/.*", "customer1"),
+		"NS-enabled: cross-namespace role access denied")
 }
 
 // TestRewriteSegment locks the contract of the per-segment rewriter directly,
@@ -647,6 +696,29 @@ func TestRewritePolicy(t *testing.T) {
 		{
 			name:    "aliases path, fixed-ns, qualified alias names different NS → cross-NS deny on second segment",
 			policy:  "aliases/collections/customer1:Movies/aliases/customer2:Films",
+			prefix:  "customer1:",
+			fixedNs: true,
+			wantOK:  false,
+		},
+		{
+			name:     "roles path, fixed-ns specialize, unqualified role",
+			policy:   "roles/.*",
+			prefix:   "customer1:",
+			fixedNs:  true,
+			wantOK:   true,
+			wantText: "roles/customer1:.*",
+		},
+		{
+			name:     "roles path, fixed-ns, already-qualified matching role → policy unchanged",
+			policy:   "roles/customer1:editor",
+			prefix:   "customer1:",
+			fixedNs:  true,
+			wantOK:   true,
+			wantText: "roles/customer1:editor",
+		},
+		{
+			name:    "roles path, fixed-ns, already-qualified mismatching role → cross-NS deny",
+			policy:  "roles/customer2:editor",
 			prefix:  "customer1:",
 			fixedNs: true,
 			wantOK:  false,
