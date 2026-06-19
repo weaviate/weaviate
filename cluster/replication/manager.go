@@ -98,7 +98,7 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 					"op_id":   opID,
 					"node_id": m.localNodeID,
 					"state":   state,
-				}).Warnf("not reporting %s: in-flight drain did not complete: %v", state, err)
+				}).Warnf("not reporting %s: %v", state, err)
 				return
 			}
 		}
@@ -151,8 +151,8 @@ func (m *Manager) drainInflight(opID uint64) error {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), inflightDrainBackstop)
-		defer cancel()
 		err := m.inflightDrainer(ctx, class, shard)
+		cancel()
 		if err != nil {
 			m.inflightDrainFailuresCounter.Inc()
 			m.logger.WithFields(logrus.Fields{
