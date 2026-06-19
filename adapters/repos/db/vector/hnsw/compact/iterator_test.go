@@ -357,7 +357,7 @@ func TestIterator_RemoveTombstoneCommit(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// truncatedCommitReader simulates a sorted file truncated mid-write:
+// truncatedCommitReader simulates a sorted file corrupted after commit:
 // it returns commits normally, then io.ErrUnexpectedEOF instead of io.EOF.
 type truncatedCommitReader struct {
 	commits []Commit
@@ -373,19 +373,16 @@ func (f *truncatedCommitReader) ReadNextCommit() (Commit, error) {
 	return commit, nil
 }
 
-func TestIterator_TruncatedFile_GlobalCommitsOnly(t *testing.T) {
+func TestIterator_TruncatedFile_GlobalCommitsOnlyReturnsError(t *testing.T) {
 	reader := &truncatedCommitReader{commits: []Commit{
 		&SetEntryPointMaxLevelCommit{Entrypoint: 1, Level: 1},
 	}}
 
-	it, err := NewIterator(reader, 0, logrus.New())
-	require.NoError(t, err)
-
-	assert.True(t, it.Exhausted())
-	assert.Equal(t, 1, len(it.GlobalCommits()))
+	_, err := NewIterator(reader, 0, logrus.New())
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
 
-func TestIterator_TruncatedFile_MidNode(t *testing.T) {
+func TestIterator_TruncatedFile_MidNodeReturnsError(t *testing.T) {
 	// Simulate: two complete nodes, then truncation where a third would start.
 	reader := &truncatedCommitReader{commits: []Commit{
 		&AddNodeCommit{ID: 1, Level: 0},
@@ -401,27 +398,17 @@ func TestIterator_TruncatedFile_MidNode(t *testing.T) {
 	assert.Equal(t, uint64(1), it.Current().NodeID)
 	assert.Equal(t, 2, len(it.Current().Commits))
 
-	// Node 2
-	hasNext, err := it.Next()
-	require.NoError(t, err)
-	assert.True(t, hasNext)
-	assert.Equal(t, uint64(2), it.Current().NodeID)
-
-	// Exhausted — truncation treated as EOF
-	hasNext, err = it.Next()
-	require.NoError(t, err)
-	assert.False(t, hasNext)
-	assert.True(t, it.Exhausted())
+	// Node 2 cannot be trusted because the immutable sorted stream ended
+	// unexpectedly while reading it.
+	_, err = it.Next()
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
 
-func TestIterator_TruncatedFile_Empty(t *testing.T) {
+func TestIterator_TruncatedFile_EmptyReturnsError(t *testing.T) {
 	reader := &truncatedCommitReader{commits: []Commit{}}
 
-	it, err := NewIterator(reader, 0, logrus.New())
-	require.NoError(t, err)
-
-	assert.True(t, it.Exhausted())
-	assert.Nil(t, it.Current())
+	_, err := NewIterator(reader, 0, logrus.New())
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
 
 func TestIterator_ClearLinksCommit(t *testing.T) {

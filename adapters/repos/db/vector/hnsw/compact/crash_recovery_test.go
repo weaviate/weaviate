@@ -13,6 +13,7 @@ package compact
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -109,6 +110,135 @@ func TestCrashRecovery_TruncatedWALFile_MultipleGarbageBytes(t *testing.T) {
 	assert.Equal(t, uint64(5), result.State.Graph.Entrypoint)
 	require.True(t, len(result.State.Graph.Nodes) > 5)
 	require.NotNil(t, result.State.Graph.Nodes[5])
+}
+
+func TestCrashRecovery_CompleteCompactedWALFilesLoad(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		write func(*testing.T, string)
+	}{
+		{
+			name: "sorted",
+			write: func(t *testing.T, dir string) {
+				writeTestSortedFileWithData(t, dir, 1000, 1000, func(w *WALWriter) {
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+					require.NoError(t, w.WriteAddNode(0, 0))
+					require.NoError(t, w.WriteAddNode(1, 0))
+				})
+			},
+		},
+		{
+			name: "condensed",
+			write: func(t *testing.T, dir string) {
+				createTestWALFile(t, filepath.Join(dir, BuildMergedFilename(1000, 1000, FileTypeCondensed)), func(w *WALWriter) {
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+					require.NoError(t, w.WriteAddNode(0, 0))
+					require.NoError(t, w.WriteAddNode(1, 0))
+				})
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.write(t, dir)
+
+			loader := NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()})
+			result, err := loader.Load()
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.False(t, result.RecoveredFromCrash)
+			require.GreaterOrEqual(t, len(result.State.Graph.Nodes), 2)
+			require.NotNil(t, result.State.Graph.Nodes[0])
+			require.NotNil(t, result.State.Graph.Nodes[1])
+		})
+	}
+}
+
+func TestCrashRecovery_TruncatedCompactedWALFilesFailClosed(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		path  func(string) string
+		write func(*testing.T, string)
+	}{
+		{
+			name: "sorted",
+			path: func(dir string) string {
+				return filepath.Join(dir, BuildMergedFilename(1000, 1000, FileTypeSorted))
+			},
+			write: func(t *testing.T, dir string) {
+				writeTestSortedFileWithData(t, dir, 1000, 1000, func(w *WALWriter) {
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+					require.NoError(t, w.WriteAddNode(0, 0))
+					require.NoError(t, w.WriteAddNode(1, 0))
+				})
+			},
+		},
+		{
+			name: "condensed",
+			path: func(dir string) string {
+				return filepath.Join(dir, BuildMergedFilename(1000, 1000, FileTypeCondensed))
+			},
+			write: func(t *testing.T, dir string) {
+				createTestWALFile(t, filepath.Join(dir, BuildMergedFilename(1000, 1000, FileTypeCondensed)), func(w *WALWriter) {
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+					require.NoError(t, w.WriteAddNode(0, 0))
+					require.NoError(t, w.WriteAddNode(1, 0))
+				})
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.write(t, dir)
+
+			f, err := os.OpenFile(tt.path(dir), os.O_WRONLY|os.O_APPEND, 0o666)
+			require.NoError(t, err)
+			_, err = f.Write([]byte{byte(AddNode), 0x01, 0x02, 0x03})
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+
+			loader := NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()})
+			result, err := loader.Load()
+			require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+			assert.Nil(t, result)
+		})
+	}
+}
+
+func TestCrashRecovery_TruncatedSortedMergeFailsClosedAndKeepsSources(t *testing.T) {
+	dir := t.TempDir()
+	paths := make([]string, 0, 6)
+
+	for i := int64(0); i < 6; i++ {
+		ts := 1000 + i
+		writeTestSortedFileWithData(t, dir, ts, ts, func(w *WALWriter) {
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(uint64(i), 0))
+			require.NoError(t, w.WriteAddNode(uint64(i), 0))
+		})
+		paths = append(paths, filepath.Join(dir, BuildMergedFilename(ts, ts, FileTypeSorted)))
+	}
+
+	f, err := os.OpenFile(paths[0], os.O_WRONLY|os.O_APPEND, 0o666)
+	require.NoError(t, err)
+	_, err = f.Write([]byte{byte(AddNode), 0x01, 0x02, 0x03})
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	compactor := NewCompactor(DefaultCompactorConfig(dir), crashTestLogger())
+	action, err := compactor.RunCycle(nil)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	assert.Equal(t, ActionNone, action)
+
+	for _, path := range paths[:5] {
+		_, statErr := os.Stat(path)
+		require.NoError(t, statErr, "source file %s should remain after failed merge", path)
+	}
+
+	mergedPath := filepath.Join(dir, BuildMergedFilename(1000, 1004, FileTypeSorted))
+	_, err = os.Stat(mergedPath)
+	assert.True(t, os.IsNotExist(err), "failed merge should not commit output")
+	_, err = os.Stat(mergedPath + tempFileSuffix)
+	assert.True(t, os.IsNotExist(err), "failed merge should clean up temp output")
 }
 
 // ---------------------------------------------------------------------------

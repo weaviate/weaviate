@@ -267,9 +267,11 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	// keepLinkReplaceInfo=false at startup since we're building final state
 	result, err := inMemReader.Do(state, false)
 	if err != nil {
-		// For EOF/UnexpectedEOF, log warning and continue with partial state
-		// This can happen if the file was truncated due to crash
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		// Raw/live WAL files may be interrupted mid-write by a crash. Immutable
+		// compacted files (.condensed/.sorted) are created through SafeFileWriter,
+		// so truncation there indicates committed-file corruption and must fail
+		// closed instead of preserving a partial prefix.
+		if f.Type == FileTypeRaw && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 			l.config.Logger.WithFields(logrus.Fields{
 				"action": "hnsw_loader",
 				"file":   f.Path,
@@ -278,20 +280,18 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 			// Truncate raw files to remove partial entries.
 			// This prevents the partial entry from becoming corrupted on next write
 			// and ensures clean compaction later.
-			if f.Type == FileTypeRaw {
-				validBytes := walReader.BytesRead()
-				if truncErr := l.fs.Truncate(f.Path, validBytes); truncErr != nil {
-					l.config.Logger.
-						WithField("file", f.Path).
-						WithField("valid_bytes", validBytes).
-						Errorf("failed to truncate corrupt WAL file: %v", truncErr)
-				} else {
-					l.config.Logger.WithFields(logrus.Fields{
-						"action":      "hnsw_loader",
-						"file":        f.Path,
-						"valid_bytes": validBytes,
-					}).Info("truncated corrupt WAL file")
-				}
+			validBytes := walReader.BytesRead()
+			if truncErr := l.fs.Truncate(f.Path, validBytes); truncErr != nil {
+				l.config.Logger.
+					WithField("file", f.Path).
+					WithField("valid_bytes", validBytes).
+					Errorf("failed to truncate corrupt WAL file: %v", truncErr)
+			} else {
+				l.config.Logger.WithFields(logrus.Fields{
+					"action":      "hnsw_loader",
+					"file":        f.Path,
+					"valid_bytes": validBytes,
+				}).Info("truncated corrupt WAL file")
 			}
 
 			return result, true, nil // true = recovered from crash

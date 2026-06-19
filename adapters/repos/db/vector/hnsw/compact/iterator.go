@@ -18,10 +18,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// isEOF returns true if the error indicates end of data, either a clean EOF
-// or an unexpected EOF from a file truncated mid-write (e.g., crash during flush).
+// isEOF returns true only for a clean EOF. Iterator inputs are immutable
+// compacted files; an unexpected EOF means committed-file corruption and must
+// abort the merge instead of materializing a partial prefix.
 func isEOF(err error) bool {
-	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+	return errors.Is(err, io.EOF)
 }
 
 // NodeCommits represents all commits for a single node.
@@ -129,7 +130,7 @@ func (it *Iterator) readGlobalCommits() error {
 		c, err := it.reader.ReadNextCommit()
 		if err != nil {
 			if isEOF(err) {
-				// File ended (possibly truncated mid-write)
+				// File ended cleanly.
 				return nil
 			}
 			return err
