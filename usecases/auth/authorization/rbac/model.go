@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const DEFAULT_POLICY_VERSION = "1.29.0"
@@ -281,12 +282,6 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 }
 
 var (
-	schemaCollectionsPrefix  = authorization.SchemaDomain + "/collections/"
-	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
-	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
-	usersPrefix              = authorization.UsersDomain + "/"
-	rolesPrefix              = authorization.RolesDomain + "/"
-
 	// Operator-only domain prefixes; see operatorOnlyResource.
 	backupsPrefix    = authorization.BackupsDomain + "/"
 	nodesPrefix      = authorization.NodesDomain + "/"
@@ -295,69 +290,14 @@ var (
 	namespacesPrefix = authorization.NamespacesDomain + "/"
 )
 
-const (
-	shardsMidSeg  = "/shards/"
-	aliasesMidSeg = "/aliases/"
-)
-
 // anyNamespacePattern matches exactly one `<ns>:` prefix.
 var anyNamespacePattern = "[^/" + schema.NamespaceSeparator + "]+" + schema.NamespaceSeparator
-
-// findNamespaceSegments returns the [start, end) bounds of the collection-name
-// segment in path for the known shapes (schema/data/aliases). end == 0 means
-// path is not namespaceable. hasAlias reports whether path also has a 2nd
-// namespace-bearing alias segment, located at
-// [end + len(aliasesMidSeg), len(path)).
-func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
-	if rest, ok := strings.CutPrefix(path, schemaCollectionsPrefix); ok {
-		idx := strings.Index(rest, shardsMidSeg)
-		if idx == -1 {
-			return 0, 0, false
-		}
-		s := len(schemaCollectionsPrefix)
-		return s, s + idx, false
-	}
-	if rest, ok := strings.CutPrefix(path, dataCollectionsPrefix); ok {
-		idx := strings.Index(rest, shardsMidSeg)
-		if idx == -1 {
-			return 0, 0, false
-		}
-		s := len(dataCollectionsPrefix)
-		return s, s + idx, false
-	}
-	if rest, ok := strings.CutPrefix(path, aliasesCollectionsPrefix); ok {
-		idx := strings.Index(rest, aliasesMidSeg)
-		if idx == -1 {
-			return 0, 0, false
-		}
-		s := len(aliasesCollectionsPrefix)
-		return s, s + idx, true
-	}
-	// users/<id> is terminal — the id runs to end of string (no /shards/ or
-	// /aliases/ delimiter like the collection shapes above).
-	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
-		return len(usersPrefix), len(path), false
-	}
-	// roles/<id> is terminal, mirroring users/<id>.
-	if _, ok := strings.CutPrefix(path, rolesPrefix); ok {
-		return len(rolesPrefix), len(path), false
-	}
-	// groups/ is intentionally not registered: a colon-bearing group id is
-	// matched literally. Don't add it without also short-circuiting groups/
-	// in globalCallerNeedsNoWidening, or such ids would wrongly widen.
-	return 0, 0, false
-}
-
-// segmentHasSeparator reports whether path[start:end] contains the namespace separator.
-func segmentHasSeparator(path string, start, end int) bool {
-	return strings.IndexByte(path[start:end], schema.NamespaceSeparator[0]) >= 0
-}
 
 // rewriteSegment appends prefix+seg to b (unqualified policy segment) or seg
 // verbatim (already-qualified). In fixedNs mode an already-qualified segment
 // must start with prefix exactly, otherwise ok=false.
 func rewriteSegment(b *strings.Builder, policy string, start, end int, prefix string, fixedNs bool) (ok bool) {
-	if segmentHasSeparator(policy, start, end) {
+	if namespacing.SegmentHasSeparator(policy, start, end) {
 		if fixedNs && !strings.HasPrefix(policy[start:end], prefix) {
 			return false
 		}
@@ -390,7 +330,7 @@ func rewritePolicy(policy string, colStart, colEnd int, hasAlias bool, prefix st
 		return b.String(), true
 	}
 
-	aliasStart := colEnd + len(aliasesMidSeg)
+	aliasStart := colEnd + len(namespacing.AliasesMidSeg)
 	aliasEnd := len(policy)
 	b.WriteString(policy[colEnd:aliasStart])
 	if !rewriteSegment(&b, policy, aliasStart, aliasEnd, prefix, fixedNs) {
@@ -404,7 +344,7 @@ func rewritePolicy(policy string, colStart, colEnd int, hasAlias bool, prefix st
 // no ':', or is a users/<id> resource (a user id may contain ':', which is
 // part of the id, not a namespace prefix).
 func globalCallerNeedsNoWidening(reqObj string) bool {
-	if strings.HasPrefix(reqObj, usersPrefix) {
+	if strings.HasPrefix(reqObj, namespacing.UsersPrefix) {
 		return true
 	}
 	return strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) < 0
@@ -482,13 +422,13 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	//   - ns=""          → policy becomes "schema/collections/[^/:]+:Movies.*/shards/#"
 	//     (widen);       KeyMatch5 matches any namespace prefix.
 
-	// 1. Locate the collection segment in each path. findNamespaceSegments
+	// 1. Locate the collection segment in each path. FindNamespaceSegments
 	//    returns its [start, end) bounds and a flag set on aliases paths,
 	//    which carry a *second* namespace-bearing segment after "/aliases/".
 	//    The request side only needs end+hasAlias (for the shape check
 	//    below); we don't rewrite the request, so its start is discarded.
-	polColStart, polColEnd, polHasAlias := findNamespaceSegments(polObj)
-	_, reqColEnd, reqHasAlias := findNamespaceSegments(reqObj)
+	polColStart, polColEnd, polHasAlias := namespacing.FindNamespaceSegments(polObj)
+	_, reqColEnd, reqHasAlias := namespacing.FindNamespaceSegments(reqObj)
 
 	// 2. Shape check. If either path isn't a namespaceable shape (end==0),
 	//    or the two disagree on alias-ness (one is schema/data, the other
