@@ -12,9 +12,11 @@
 package lsmkv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
@@ -49,5 +51,49 @@ func BenchmarkSegmentReader(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, release, _ := segment.bufferedReaderAt(0, "some op")
 		release()
+	}
+}
+
+func newBenchSegment(b *testing.B) *segment {
+	b.Helper()
+	dirName := b.TempDir()
+	f, err := os.Create(filepath.Join(dirName, "segment1.tmp"))
+	require.NoError(b, err)
+
+	data := make([]byte, 1024*1024)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	f.Write(data)
+	f.Sync()
+
+	reg := prometheus.NewRegistry()
+	ioRead := prometheus.NewSummaryVec(prometheus.SummaryOpts{
+		Name: fmt.Sprintf("bench_io_reads_%d", time.Now().UnixNano()),
+		Help: "Total number of bytes read from disk",
+	}, []string{"operation"})
+	require.NoError(b, reg.Register(ioRead))
+
+	return &segment{
+		contentFile: f,
+		size:        1024 * 1024,
+		metrics:     &Metrics{IORead: ioRead},
+	}
+}
+
+func BenchmarkCopyNode(b *testing.B) {
+	seg := newBenchSegment(b)
+
+	for _, size := range []int{64, 256, 1024, 4096} {
+		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
+			buf := make([]byte, size)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := seg.copyNode(buf, nodeOffset{start: 0, end: uint64(size)}); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
