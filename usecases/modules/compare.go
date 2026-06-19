@@ -109,18 +109,22 @@ func getMultiVector(v models.Vector) ([][]float32, error) {
 	}
 }
 
-// renderSourceValue renders a non-text source-property value to a stable string
-// so that equal values stored and supplied in different Go representations
-// (e.g. an RFC3339 date string vs time.Time, int64 vs float64, []interface{} vs
-// []float64) compare as equal and don't force an unnecessary re-vectorization.
-//
-// Composite values (maps, slices) are JSON-marshaled: that is deterministic
-// (encoding/json sorts map keys), collapses equivalent representations, and
-// matches how the corpus builder renders maps. Dates use RFC3339 and scalars use
-// fmt, matching the corpus builder.
+// renderSourceValue renders a value to a stable string so the same logical value in
+// different Go representations (date string vs time.Time, int64 vs float64,
+// []interface{} vs []float64) compares equal. It mirrors the corpus builder:
+// time.Time and date strings -> RFC3339, maps/slices -> JSON, scalars -> fmt.
 func renderSourceValue(v interface{}) string {
-	if t, ok := v.(time.Time); ok {
-		return t.Format(time.RFC3339)
+	switch val := v.(type) {
+	case time.Time:
+		return val.Format(time.RFC3339)
+	case string:
+		// Disk stores a date as an RFC3339(Nano) string, an update supplies time.Time.
+		// Canonicalize to RFC3339 (the corpus's second-precision form) so one instant
+		// compares equal; sub-second changes, which the corpus drops, don't re-vectorize.
+		if t, err := time.Parse(time.RFC3339, val); err == nil {
+			return t.Format(time.RFC3339)
+		}
+		return val
 	}
 	if k := reflect.ValueOf(v).Kind(); k == reflect.Map || k == reflect.Slice || k == reflect.Array {
 		if b, err := json.Marshal(v); err == nil {
@@ -146,10 +150,8 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	type compareProps struct {
 		Name    string
 		IsArray bool
-		// Generic marks a non-text source property (number, int, boolean, date,
-		// object, or an array variant) that the corpus builder vectorizes when
-		// explicit source properties are configured. It is compared by rendering
-		// to the corpus string form rather than via the text-specific path.
+		// Generic marks a non-text source property (number/int/bool/date/object or an
+		// array variant) compared by rendering to the corpus string form, not as text.
 		Generic bool
 	}
 	propsToCompare := make([]compareProps, 0)
@@ -178,11 +180,9 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 			}
 		}
 
-		// The per-property skip flag is honored only when there are no explicit
-		// source properties. With source properties set, membership in that list
-		// governs what gets vectorized (PropertyIndexed ignores skip), so the
-		// comparator must ignore skip too -- otherwise a skipped-but-source-listed
-		// property would be vectorized yet never compared (a stale vector).
+		// Honor the per-property skip flag only without source properties. With them,
+		// membership governs vectorization (PropertyIndexed ignores skip), so honoring
+		// skip here would skip a property that is still vectorized -> stale vector.
 		if sourcePropsSet == nil && prop.ModuleConfig != nil {
 			if modConfig, ok := prop.ModuleConfig.(map[string]interface{})[class.Vectorizer]; ok {
 				if skip, ok2 := modConfig.(map[string]interface{})["skip"]; ok2 && skip == true {
@@ -206,13 +206,18 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 			continue
 		}
 
-		// With explicit source properties configured, the corpus builder also
-		// vectorizes the non-text source properties it understands (see
-		// object_texts.go: numbers, ints, booleans, dates, objects, and their
-		// array variants). A change to any of them must trigger re-vectorization,
-		// so compare them generically. Types the corpus builder does NOT vectorize
-		// (uuid, geo-coordinates, phone numbers, blobs, cross-references) are left
-		// out so they never force an unnecessary re-vectorization.
+		// A blob is a base64 string and the corpus vectorizes any indexed string
+		// (object_texts.go's `case string`, not gated on source properties), so a
+		// changed blob must re-vectorize. Compare as a string, regardless of source props.
+		if schema.DataType(prop.DataType[0]) == schema.DataTypeBlob {
+			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name})
+			continue
+		}
+
+		// With source properties set, the corpus also vectorizes the non-text types it
+		// understands (object_texts.go: number/int/bool/date/object + array variants),
+		// so compare them generically. uuid, geo, phone, and cross-refs are not
+		// vectorized, so they are left out (changing them must not re-vectorize).
 		if sourcePropsSet != nil {
 			switch schema.DataType(prop.DataType[0]) {
 			case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate,
@@ -220,9 +225,8 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 				schema.DataTypeObject, schema.DataTypeObjectArray:
 				propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, Generic: true})
 			default:
-				// text/text[] are handled above; uuid, geo-coordinates, phone
-				// numbers, blobs, and cross-references are not vectorized by the
-				// corpus builder, so changes to them must not re-vectorize.
+				// text/text[] and blob handled above; uuid, geo, phone, and
+				// cross-refs are not vectorized, so changes must not re-vectorize.
 			}
 		}
 	}
@@ -264,14 +268,9 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if propStruct.Generic {
-			// Compare the corpus contribution, not the raw Go value: the same
-			// logical value can be stored (disk) and supplied (update) with
-			// different representations (e.g. a date as an RFC3339 string vs
-			// time.Time, an int as int64 vs float64, or an empty []interface{} vs a
-			// typed empty slice). Rendering both the way the corpus builder
-			// stringifies them keeps the decision aligned with what is actually
-			// vectorized; equal renders imply an identical corpus, so this can
-			// never leave a stale vector.
+			// Compare the corpus contribution, not the raw Go value: one logical value
+			// can be stored and supplied in different representations. Equal renders
+			// imply an identical corpus, so this never leaves a stale vector.
 			if renderSourceValue(valOld) != renderSourceValue(valNew) {
 				return true, nil
 			}

@@ -204,13 +204,10 @@ func TestCompareRevectorizeDisabled(t *testing.T) {
 	require.Equal(t, different, true)
 }
 
-// TestCompareRevectorize_NonTextSourceProperties pins the stale-vector bug: when
-// a named vector's source_properties includes a non-text property (number, int,
-// date, boolean, or an array variant), that property IS vectorized (the corpus
-// builder stringifies it when source properties are set), so changing only that
-// property must trigger re-vectorization. Previously reVectorizeEmbeddings only
-// diffed text/text[]/media properties, so such a change was silently skipped and
-// the stored vector went stale.
+// TestCompareRevectorize_NonTextSourceProperties pins the stale-vector bug: a
+// non-text source property (number/int/date/bool or an array variant) IS vectorized
+// when source properties are set, so changing it must re-vectorize. The comparator
+// previously diffed only text/text[]/media, leaving a stale vector.
 func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 	class := &models.Class{
 		Class: "MyClass",
@@ -255,6 +252,11 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 		// representation drift: the same logical value stored vs supplied with
 		// different Go types must NOT re-vectorize (rendered corpus form is equal).
 		{name: "date drift time.Time vs RFC3339 string, unchanged", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}, newProps: map[string]interface{}{"released": "2024-01-01T00:00:00Z"}, different: false},
+		// sub-second precision: disk holds an RFC3339Nano string, the update a time.Time;
+		// the corpus uses RFC3339 (no sub-seconds), so the same instant must not re-vectorize.
+		{name: "date sub-second drift string(micros) vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC)}, different: false},
+		{name: "date millisecond drift string vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T12:30:45.123Z"}, newProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC)}, different: false},
+		{name: "date changed at seconds despite sub-second noise", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC)}, different: true},
 		{name: "int drift int64 vs float64, unchanged", sourceProps: []string{"qty"}, oldProps: map[string]interface{}{"qty": int64(5)}, newProps: map[string]interface{}{"qty": float64(5)}, different: false},
 		{name: "empty array drift []interface{} vs []float64, unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]interface{}{"sizes": []interface{}{}}, newProps: map[string]interface{}{"sizes": []float64{}}, different: false},
 		{name: "presence change (source prop removed)", sourceProps: []string{"price"}, oldProps: map[string]interface{}{"price": 9.99}, newProps: map[string]interface{}{}, different: true},
@@ -275,11 +277,10 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 	}
 }
 
-// TestCompareRevectorize_SkipIgnoredWithSourceProperties pins the skip+source
-// stale path: when source_properties is set, the corpus builder vectorizes a
-// listed property even if it has moduleConfig skip:true (PropertyIndexed ignores
-// skip when source props are configured), so the comparator must compare it too.
-// Previously the comparator honored skip and never compared it -> stale vector.
+// TestCompareRevectorize_SkipIgnoredWithSourceProperties pins the skip+source stale
+// path: with source_properties set, a listed property is vectorized even with
+// skip:true (PropertyIndexed ignores skip), so the comparator must compare it. It
+// previously honored skip and never diffed it -> stale vector.
 func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
 	class := &models.Class{
 		Class:      "MyClass",
@@ -315,4 +316,53 @@ func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
 	different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, []string{"price"}, "", findObject, false)
 	require.NoError(t, err)
 	require.True(t, different)
+}
+
+// TestCompareRevectorize_BlobSourceProperty pins the blob stale-vector case: a blob
+// is a base64 string and the corpus vectorizes any indexed string, so a changed blob
+// must re-vectorize. The comparator previously excluded blob -> stale vector.
+func TestCompareRevectorize_BlobSourceProperty(t *testing.T) {
+	class := &models.Class{
+		Class: "MyClass",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{schema.DataTypeText.String()}},
+			{Name: "thumbnail", DataType: []string{schema.DataTypeBlob.String()}},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"v": {
+				Vectorizer:      map[string]interface{}{"my-module": map[string]interface{}{"vectorizeClassName": false}},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
+	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+
+	cases := []struct {
+		name        string
+		sourceProps []string
+		oldProps    map[string]interface{}
+		newProps    map[string]interface{}
+		different   bool
+	}{
+		{name: "blob source prop changed", sourceProps: []string{"thumbnail"}, oldProps: map[string]interface{}{"thumbnail": "QQ=="}, newProps: map[string]interface{}{"thumbnail": "Qg=="}, different: true},
+		{name: "blob source prop unchanged", sourceProps: []string{"thumbnail"}, oldProps: map[string]interface{}{"thumbnail": "QQ=="}, newProps: map[string]interface{}{"thumbnail": "QQ=="}, different: false},
+		// no explicit source properties: a blob is still indexed/vectorized, so a
+		// change to it must re-vectorize (the fix is not gated on source props).
+		{name: "blob changed, no source props", sourceProps: nil, oldProps: map[string]interface{}{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]interface{}{"title": "a", "thumbnail": "Qg=="}, different: true},
+		// blob not listed as a source property: not vectorized -> must not re-vectorize.
+		{name: "non-source blob changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]interface{}{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]interface{}{"title": "a", "thumbnail": "Qg=="}, different: false},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			uid, _ := uuid.NewUUID()
+			uidfmt := strfmt.UUID(uid.String())
+			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: uidfmt}
+			objsToReturn[uid.String()] = tt.oldProps
+			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, tt.sourceProps, "", findObject, false)
+			require.NoError(t, err)
+			require.Equal(t, tt.different, different)
+		})
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -713,6 +714,66 @@ func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
 				Class: class.Class, ID: newUUID(), Properties: tc.merged, Vectors: models.Vectors{},
 			}
 			require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
+			require.Equal(t, tc.wantCalls, *calls)
+		})
+	}
+}
+
+// TestBatchUpdateVector_SubSecondDateSourceProperty pins the sub-second date bug on
+// the batch path: disk holds an RFC3339Nano string, the update supplies time.Time.
+// The corpus uses RFC3339, so the same instant must not re-vectorize at any
+// sub-second precision; a second-level change still must.
+func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const targetVector = "vec"
+	const moduleName = "my-module"
+
+	newClass := func() *models.Class {
+		return &models.Class{
+			Class:      "Products",
+			Vectorizer: config.VectorizerModuleNone,
+			Properties: []*models.Property{
+				{Name: "released", DataType: []string{schema.DataTypeDate.String()}},
+				{Name: "label", DataType: []string{schema.DataTypeText.String()}},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				targetVector: {
+					Vectorizer: map[string]interface{}{
+						moduleName: map[string]interface{}{
+							"vectorizeClassName": false,
+							"properties":         []interface{}{"released"},
+						},
+					},
+					VectorIndexConfig: hnsw.UserConfig{},
+					VectorIndexType:   "hnsw",
+				},
+			},
+		}
+	}
+
+	cases := []struct {
+		name      string
+		diskDate  interface{} // RFC3339(Nano) string, as read from disk
+		newDate   interface{} // time.Time, as produced by validation on the update
+		wantCalls int
+	}{
+		{name: "same instant, microsecond string vs time.Time -> skip", diskDate: "2024-01-01T12:30:45.123456Z", newDate: time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC), wantCalls: 0},
+		{name: "same instant, millisecond string vs time.Time -> skip", diskDate: "2024-01-01T12:30:45.123Z", newDate: time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC), wantCalls: 0},
+		{name: "changed second -> re-vectorize", diskDate: "2024-01-01T12:30:45.123456Z", newDate: time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC), wantCalls: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, calls := newCountingProvider(moduleName, false, false)
+			class := newClass()
+			findObject := staticFindObject(targetVector,
+				map[string]interface{}{"released": tc.diskDate, "label": "x"}, []float32{1, 2, 3})
+			obj := &models.Object{
+				Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
+				Properties: map[string]interface{}{"released": tc.newDate, "label": "x"},
+			}
+			vecErrors, err := p.BatchUpdateVector(context.Background(), class, []*models.Object{obj}, findObject, logger)
+			require.NoError(t, err)
+			require.Empty(t, vecErrors)
 			require.Equal(t, tc.wantCalls, *calls)
 		})
 	}
