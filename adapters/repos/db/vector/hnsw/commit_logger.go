@@ -451,6 +451,17 @@ func (l *hnswCommitLogger) ActiveFilePath() string {
 }
 
 func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	// EXPERIMENT (#199 follow-up, env-gated, not for unconditional merge): if
+	// HNSW_DISABLE_SWITCH_LOGS=1, skip the periodic commit-log switch to
+	// measure whether the rotation fsync + file-open cost contributes to the
+	// residual import-time gap on slow disks. Note disabling switch_logs
+	// entirely means the active WAL file grows unbounded for the duration of
+	// the import; this is a short-window measurement, not a production setting.
+	// The per-batch fsync fix (#11385) removed the dominant Flush-path cost;
+	// this measures whether rotation-time fsync is a secondary contributor.
+	if os.Getenv("HNSW_DISABLE_SWITCH_LOGS") == "1" {
+		return false
+	}
 	executed, err := l.switchCommitLogs(false)
 	if err != nil {
 		l.logger.WithError(err).
@@ -463,6 +474,17 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 }
 
 func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	// EXPERIMENT (#199 follow-up, env-gated, not for unconditional merge): if
+	// HNSW_DISABLE_COMPACTION_CYCLE=1, skip the compactor RunCycle to measure
+	// whether maintenance-cycle compaction contributes meaningfully to the
+	// residual import-time gap on slow disks. Yesterday's pre-fsync-fix
+	// measurement showed no improvement; re-checking now that the per-batch
+	// fsync (#11385) is gone. If this shows positive impact, the production
+	// shape would be backpressure-aware scheduling (skip when write rate is
+	// high), not unconditional disable.
+	if os.Getenv("HNSW_DISABLE_COMPACTION_CYCLE") == "1" {
+		return false
+	}
 	action, err := l.compactor.RunCycle(shouldAbort)
 	switch {
 	case errors.Is(err, compact.ErrCompactionAborted):
