@@ -123,53 +123,55 @@ func (r *SnapshotReader) Read(reader ReadSeekReaderAt) (*ent.DeserializationResu
 	res := ent.NewDeserializationResult(0)
 
 	// Read and verify metadata
-	if err := r.readMetadata(reader, res); err != nil {
+	nodeCount, err := r.readMetadata(reader, res)
+	if err != nil {
 		return nil, errors.Wrap(err, "read metadata")
 	}
 
 	// Read body with concurrent block reading
-	if err := r.readBodyConcurrent(reader, res); err != nil {
+	if err := r.readBodyConcurrent(reader, res, nodeCount); err != nil {
 		return nil, errors.Wrap(err, "read body")
 	}
 
 	return res, nil
 }
 
-// readMetadata reads the snapshot metadata header.
-func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.DeserializationResult) error {
+// readMetadata reads the snapshot metadata header and returns the snapshot's
+// own node count before any replay pre-sizing is applied.
+func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.DeserializationResult) (uint32, error) {
 	// Read version
 	var version uint8
 	if err := binary.Read(reader, binary.LittleEndian, &version); err != nil {
-		return errors.Wrap(err, "read version")
+		return 0, errors.Wrap(err, "read version")
 	}
 
 	switch version {
 	case snapshotVersionV1, snapshotVersionV2:
-		return fmt.Errorf("legacy snapshot version %d detected; upgrade not supported. "+
+		return 0, fmt.Errorf("legacy snapshot version %d detected; upgrade not supported. "+
 			"Please downgrade Weaviate and either: (1) delete the snapshot file and let it "+
 			"regenerate, or (2) run a compaction cycle to create a V3 snapshot before upgrading", version)
 	case snapshotVersionV3:
 		// V3 is supported, continue with reading
 	default:
-		return fmt.Errorf("unsupported snapshot version %d", version)
+		return 0, fmt.Errorf("unsupported snapshot version %d", version)
 	}
 
 	// Read checksum
 	var checksum uint32
 	if err := binary.Read(reader, binary.LittleEndian, &checksum); err != nil {
-		return errors.Wrap(err, "read checksum")
+		return 0, errors.Wrap(err, "read checksum")
 	}
 
 	// Read metadata size
 	var metadataSize uint32
 	if err := binary.Read(reader, binary.LittleEndian, &metadataSize); err != nil {
-		return errors.Wrap(err, "read metadata size")
+		return 0, errors.Wrap(err, "read metadata size")
 	}
 
 	// Read metadata
 	metadata := make([]byte, metadataSize)
 	if _, err := io.ReadFull(reader, metadata); err != nil {
-		return errors.Wrap(err, "read metadata")
+		return 0, errors.Wrap(err, "read metadata")
 	}
 
 	// Verify checksum
@@ -182,7 +184,7 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.Deserialization
 	_, _ = hasher.Write(metaSizeBuf[:])
 	_, _ = hasher.Write(metadata)
 	if hasher.Sum32() != checksum {
-		return fmt.Errorf("metadata checksum mismatch")
+		return 0, fmt.Errorf("metadata checksum mismatch")
 	}
 
 	// Parse metadata
@@ -191,47 +193,47 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.Deserialization
 	// Entrypoint
 	var entrypoint uint64
 	if err := binary.Read(metaReader, binary.LittleEndian, &entrypoint); err != nil {
-		return errors.Wrap(err, "read entrypoint")
+		return 0, errors.Wrap(err, "read entrypoint")
 	}
 	res.Graph.Entrypoint = entrypoint
 
 	// Level
 	var level uint16
 	if err := binary.Read(metaReader, binary.LittleEndian, &level); err != nil {
-		return errors.Wrap(err, "read level")
+		return 0, errors.Wrap(err, "read level")
 	}
 	res.Graph.Level = level
 
 	// isCompressed
 	var isCompressed uint8
 	if err := binary.Read(metaReader, binary.LittleEndian, &isCompressed); err != nil {
-		return errors.Wrap(err, "read isCompressed")
+		return 0, errors.Wrap(err, "read isCompressed")
 	}
 	res.SetCompressed(isCompressed != 0)
 
 	if res.Compressed() {
 		if err := r.readCompressionData(metaReader, res); err != nil {
-			return errors.Wrap(err, "read compression data")
+			return 0, errors.Wrap(err, "read compression data")
 		}
 	}
 
 	// isEncoded (Muvera)
 	var isEncoded uint8
 	if err := binary.Read(metaReader, binary.LittleEndian, &isEncoded); err != nil {
-		return errors.Wrap(err, "read isEncoded")
+		return 0, errors.Wrap(err, "read isEncoded")
 	}
 	res.SetMuveraEnabled(isEncoded != 0)
 
 	if res.MuveraEnabled() {
 		if err := r.readMuveraData(metaReader, res); err != nil {
-			return errors.Wrap(err, "read muvera data")
+			return 0, errors.Wrap(err, "read muvera data")
 		}
 	}
 
 	// Node count
 	var nodeCount uint32
 	if err := binary.Read(metaReader, binary.LittleEndian, &nodeCount); err != nil {
-		return errors.Wrap(err, "read node count")
+		return 0, errors.Wrap(err, "read node count")
 	}
 
 	size := uint64(nodeCount)
@@ -242,7 +244,7 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.Deserialization
 
 	res.Graph.EntrypointChanged = true
 
-	return nil
+	return nodeCount, nil
 }
 
 // readCompressionData reads compression data from the metadata.
@@ -613,8 +615,8 @@ func (r *SnapshotReader) readMuveraData(reader io.Reader, res *ent.Deserializati
 
 // readBodyConcurrent reads the snapshot body blocks concurrently using multiple goroutines.
 // This significantly improves startup performance for large indexes.
-func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.DeserializationResult) error {
-	if len(res.Graph.Nodes) == 0 {
+func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.DeserializationResult, nodeCount uint32) error {
+	if nodeCount == 0 {
 		return nil
 	}
 
@@ -631,7 +633,7 @@ func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.De
 
 	bodySize := int(endPos - currentPos)
 	if bodySize == 0 {
-		return fmt.Errorf("snapshot body missing for %d nodes", len(res.Graph.Nodes))
+		return fmt.Errorf("snapshot body missing for %d nodes", nodeCount)
 	}
 
 	// Seek back to where we were (body start)
@@ -703,7 +705,7 @@ LOOP:
 		return err
 	}
 
-	return validateSnapshotBlockRanges(ranges, len(res.Graph.Nodes))
+	return validateSnapshotBlockRanges(ranges, int(nodeCount))
 }
 
 // readBlockConcurrent parses a single block and populates nodes in the result.
