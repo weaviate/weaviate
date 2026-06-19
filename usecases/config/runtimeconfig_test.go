@@ -800,7 +800,7 @@ func TestUpdateRuntimeConfig_DefaultVectorIndex(t *testing.T) {
 			}
 			parsed, err := ParseRuntimeConfig([]byte(yaml))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 
 			assert.Equal(t, tt.expected, source.DefaultVectorIndexType.Get())
 		})
