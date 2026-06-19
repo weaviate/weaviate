@@ -19,6 +19,7 @@ import (
 	"hash/crc32"
 	"io"
 	"math"
+	"sort"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -37,6 +38,13 @@ const (
 	// snapshotConcurrency is the number of goroutines used for concurrent block reading.
 	snapshotConcurrency = 8
 )
+
+// snapshotBlockRange is the node ID range covered by one body block: start is
+// included, end is excluded.
+type snapshotBlockRange struct {
+	start uint64
+	end   uint64
+}
 
 // ReadSeekReaderAt combines io.Reader, io.Seeker, and io.ReaderAt interfaces.
 // This is needed for concurrent block reading using io.SectionReader.
@@ -623,7 +631,7 @@ func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.De
 
 	bodySize := int(endPos - currentPos)
 	if bodySize == 0 {
-		return nil
+		return fmt.Errorf("snapshot body missing for %d nodes", len(res.Graph.Nodes))
 	}
 
 	// Seek back to where we were (body start)
@@ -633,6 +641,7 @@ func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.De
 
 	// Setup concurrent block reading
 	var mu sync.Mutex
+	ranges := make([]snapshotBlockRange, 0, (bodySize+int(r.blockSize)-1)/int(r.blockSize))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, context.Background())
 	eg.SetLimit(snapshotConcurrency)
 
@@ -666,9 +675,13 @@ func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.De
 					}
 
 					// Parse block and update result with mutex protection
-					if err := r.readBlockConcurrent(buf[:n], res, &mu); err != nil {
+					blockRange, err := r.readBlockConcurrent(buf[:n], res, &mu)
+					if err != nil {
 						return errors.Wrapf(err, "parse block at offset %d", offset)
 					}
+					mu.Lock()
+					ranges = append(ranges, blockRange)
+					mu.Unlock()
 				}
 			}
 		})
@@ -686,14 +699,18 @@ LOOP:
 	close(ch)
 
 	// Wait for all workers to complete
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	return validateSnapshotBlockRanges(ranges, len(res.Graph.Nodes))
 }
 
 // readBlockConcurrent parses a single block and populates nodes in the result.
 // Uses mutex protection for concurrent access to the result.
-func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.DeserializationResult, mu *sync.Mutex) error {
+func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.DeserializationResult, mu *sync.Mutex) (snapshotBlockRange, error) {
 	if len(buf) < 8 {
-		return fmt.Errorf("block too small: %d bytes", len(buf))
+		return snapshotBlockRange{}, fmt.Errorf("block too small: %d bytes", len(buf))
 	}
 
 	// Verify checksum
@@ -701,11 +718,17 @@ func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.Deserializatio
 	hasher := crc32.NewIEEE()
 	_, _ = hasher.Write(buf[4:])
 	if hasher.Sum32() != blockChecksum {
-		return fmt.Errorf("block checksum mismatch")
+		return snapshotBlockRange{}, fmt.Errorf("block checksum mismatch")
 	}
 
 	// Read block length from end
 	blockLen := binary.LittleEndian.Uint32(buf[len(buf)-4:])
+	if blockLen < 8 {
+		return snapshotBlockRange{}, fmt.Errorf("block length too small: %d bytes", blockLen)
+	}
+	if blockLen > uint32(len(buf)-8) {
+		return snapshotBlockRange{}, fmt.Errorf("block length %d exceeds buffer payload %d", blockLen, len(buf)-8)
+	}
 	block := buf[4 : 4+blockLen]
 
 	// Use byteops.ReadWriter instead of bytes.Reader + binary.Read
@@ -756,6 +779,43 @@ func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.Deserializatio
 		}
 
 		currNodeID++
+	}
+
+	return snapshotBlockRange{start: startNodeID, end: currNodeID}, nil
+}
+
+// validateSnapshotBlockRanges catches missing snapshot body blocks. The format
+// has per-block checksums, but no whole-file checksum or block count, so a file
+// truncated at a block boundary can otherwise look valid.
+func validateSnapshotBlockRanges(ranges []snapshotBlockRange, nodeCount int) error {
+	if nodeCount == 0 {
+		return nil
+	}
+	if len(ranges) == 0 {
+		return fmt.Errorf("snapshot body missing for %d nodes", nodeCount)
+	}
+
+	sort.Slice(ranges, func(i, j int) bool {
+		return ranges[i].start < ranges[j].start
+	})
+
+	expected := uint64(0)
+	for _, blockRange := range ranges {
+		if blockRange.end < blockRange.start {
+			return fmt.Errorf("snapshot block range [%d,%d) is invalid", blockRange.start, blockRange.end)
+		}
+		if blockRange.start != expected {
+			return fmt.Errorf("snapshot body has range gap or overlap: expected node %d, got range [%d,%d)",
+				expected, blockRange.start, blockRange.end)
+		}
+		expected = blockRange.end
+		if expected > uint64(nodeCount) {
+			return fmt.Errorf("snapshot body covers node %d beyond metadata node count %d", expected, nodeCount)
+		}
+	}
+
+	if expected != uint64(nodeCount) {
+		return fmt.Errorf("snapshot body ended at node %d, expected %d", expected, nodeCount)
 	}
 
 	return nil

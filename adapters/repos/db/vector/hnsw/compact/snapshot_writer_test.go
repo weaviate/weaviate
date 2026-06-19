@@ -360,6 +360,47 @@ func TestSnapshotReader_ChecksumValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), "checksum")
 }
 
+func TestSnapshotReader_TruncatedAfterMetadataFails(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewSnapshotWriterWithBlockSize(&buf, 256)
+	sw.SetEntrypoint(0, 0)
+	sw.AddNode(0, 0, [][]uint64{{1}}, false)
+	sw.AddNode(1, 0, [][]uint64{{0}}, false)
+	require.NoError(t, sw.Flush())
+
+	data := buf.Bytes()
+	metadataSize := binary.LittleEndian.Uint32(data[5:9])
+	bodyStart := 9 + int(metadataSize)
+	require.Greater(t, len(data), bodyStart)
+
+	sr := NewSnapshotReaderWithBlockSize(logrus.New(), 256)
+	_, err := sr.Read(bytes.NewReader(data[:bodyStart]))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "snapshot body missing")
+}
+
+func TestSnapshotReader_TruncatedAtBlockBoundaryFails(t *testing.T) {
+	const blockSize int64 = 256
+
+	var buf bytes.Buffer
+	sw := NewSnapshotWriterWithBlockSize(&buf, blockSize)
+	sw.SetEntrypoint(0, 0)
+	for i := uint64(0); i < 80; i++ {
+		sw.AddNode(i, 0, nil, false)
+	}
+	require.NoError(t, sw.Flush())
+
+	data := buf.Bytes()
+	metadataSize := binary.LittleEndian.Uint32(data[5:9])
+	bodyStart := 9 + int(metadataSize)
+	require.Greater(t, len(data)-bodyStart, int(blockSize))
+
+	sr := NewSnapshotReaderWithBlockSize(logrus.New(), blockSize)
+	_, err := sr.Read(bytes.NewReader(data[:bodyStart+int(blockSize)]))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "snapshot body ended")
+}
+
 // verifySnapshotMetadata checks the snapshot header values
 func verifySnapshotMetadata(t *testing.T, data []byte, expectedEntrypoint uint64, expectedLevel uint16, expectedNodeCount uint32) {
 	t.Helper()
