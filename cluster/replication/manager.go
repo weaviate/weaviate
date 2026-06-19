@@ -48,22 +48,35 @@ type Manager struct {
 	submitNodeReached            func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
 	inflightDrainer              func(ctx context.Context, class, shard string) error
 	inflightDrainFailuresCounter prometheus.Counter
+
+	// ctx is cancelled by Close to stop in-flight broadcast/drain retry loops on
+	// shutdown (the drain otherwise retries until the op is drained or terminal).
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 const inflightDrainBackstop = 60 * time.Second
 
 func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
 		nodeSelector:   nodeSelector,
+		ctx:            ctx,
+		cancel:         cancel,
 		inflightDrainFailuresCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
 			Name:      "inflight_drain_failures_total",
 			Help:      "Total number of failures to drain in-flight writes before transitioning to INTEGRATING or DEHYDRATING state",
 		}),
 	}
+}
+
+// Close cancels any in-flight node-reached-state broadcast and drain retry loops.
+func (m *Manager) Close() {
+	m.cancel()
 }
 
 func (m *Manager) SetLogger(logger logrus.FieldLogger) {
@@ -112,8 +125,8 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 		bo := backoff.NewExponentialBackOff()
 		bo.MaxElapsedTime = 30 * time.Second
 		err := backoff.Retry(func() error {
-			return m.submitNodeReached(context.Background(), req)
-		}, bo)
+			return m.submitNodeReached(m.ctx, req)
+		}, backoff.WithContext(bo, m.ctx))
 		if err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"op_id":   opID,
@@ -140,7 +153,7 @@ func (m *Manager) drainInflight(opID uint64) error {
 	shard := op.Op.SourceShard.ShardId
 
 	bo := backoff.NewExponentialBackOff()
-	bo.MaxElapsedTime = 0 // retry until drained; the op-liveness check below bounds it
+	bo.MaxElapsedTime = 0 // retry until drained; bounded by op state below and Close (ctx)
 	return backoff.Retry(func() error {
 		cur, ok := m.replicationFSM.GetOpById(opID)
 		if !ok {
@@ -150,7 +163,7 @@ func (m *Manager) drainInflight(opID uint64) error {
 			return backoff.Permanent(fmt.Errorf("op %d terminal (%s); abandoning drain", opID, s))
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), inflightDrainBackstop)
+		ctx, cancel := context.WithTimeout(m.ctx, inflightDrainBackstop)
 		err := m.inflightDrainer(ctx, class, shard)
 		cancel()
 		if err != nil {
@@ -163,7 +176,7 @@ func (m *Manager) drainInflight(opID uint64) error {
 			}).Warnf("in-flight write drain not complete, retrying before reporting: %v", err)
 		}
 		return err
-	}, bo)
+	}, backoff.WithContext(bo, m.ctx))
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
