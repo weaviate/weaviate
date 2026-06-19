@@ -511,8 +511,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		// breaks an in-flight movement. (oldTenant is never FREEZING/UNFREEZING here.)
 		toCold := requestTenant.Status == models.TenantActivityStatusCOLD
 		toFrozen := requestedToFrozen && !existedSharedFrozen
-		unfreeze := existedSharedFrozen && !requestedToFrozen
-		if (toCold || toFrozen || unfreeze) && replicationFSM != nil && replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name) {
+		fromFrozen := existedSharedFrozen && !requestedToFrozen
+		if (toCold || toFrozen || fromFrozen) && replicationFSM != nil && replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name) {
 			partialErrs = append(partialErrs, fmt.Errorf(
 				"%w: tenant %q status change to %s blocked; retry after movement completes",
 				ErrReplicaMovementInProgress, requestTenant.Name, requestTenant.Status))
