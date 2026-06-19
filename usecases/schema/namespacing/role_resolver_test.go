@@ -1,0 +1,239 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package namespacing
+
+import (
+	"errors"
+	"slices"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+)
+
+func namespaced(ns string) *models.Principal { return &models.Principal{Namespace: ns} }
+
+func global() *models.Principal { return &models.Principal{IsGlobalOperator: true} }
+
+func TestRoleResolverQualifyNameForCreate(t *testing.T) {
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		nsEnabled bool
+		raw       string
+		want      string
+		wantErr   bool
+	}{
+		{"NS-disabled passthrough", namespaced("customer1"), false, "editor", "editor", false},
+		{"NS-disabled passthrough keeps colon", global(), false, "weird:name", "weird:name", false},
+		{"namespaced short qualifies", namespaced("customer1"), true, "editor", "customer1:editor", false},
+		{"namespaced colon input rejected", namespaced("customer1"), true, "customer2:editor", "", true},
+		// Built-in names qualify here; the handler rejects them separately.
+		{"namespaced built-in name qualifies", namespaced("customer1"), true, "admin", "customer1:admin", false},
+		{"global short passes", global(), true, "editor", "editor", false},
+		{"global colon input rejected", global(), true, "customer1:editor", "", true},
+		{"nil principal NS-enabled passthrough", nil, true, "editor", "editor", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := QualifyRoleNameForCreate(tt.principal, tt.nsEnabled, tt.raw)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRoleResolverResolveRoleName(t *testing.T) {
+	// Both customer1:editor and global editor exist, so local-precedence is exercised.
+	existing := map[string]bool{
+		"customer1:editor": true,
+		"editor":           true,
+		"viewer":           true,
+	}
+	exists := func(name string) (bool, error) { return existing[name], nil }
+
+	tests := []struct {
+		name         string
+		principal    *models.Principal
+		nsEnabled    bool
+		raw          string
+		wantStored   string
+		wantLocal    bool
+		wantNotFound bool
+		wantErr      bool
+	}{
+		{name: "NS-disabled passthrough", principal: namespaced("customer1"), nsEnabled: false, raw: "editor", wantStored: "editor"},
+		{name: "global short stays global", principal: global(), nsEnabled: true, raw: "viewer", wantStored: "viewer"},
+		{name: "global colon addresses local", principal: global(), nsEnabled: true, raw: "customer1:editor", wantStored: "customer1:editor", wantLocal: true},
+		{name: "global absent name returned without existence check", principal: global(), nsEnabled: true, raw: "phantom", wantStored: "phantom"},
+		{name: "global absent local addressed without existence check", principal: global(), nsEnabled: true, raw: "customer1:ghost", wantStored: "customer1:ghost", wantLocal: true},
+		{name: "namespaced short prefers local over existing global", principal: namespaced("customer1"), nsEnabled: true, raw: "editor", wantStored: "customer1:editor", wantLocal: true},
+		{name: "namespaced short falls through to global", principal: namespaced("customer1"), nsEnabled: true, raw: "viewer", wantStored: "viewer"},
+		{name: "namespaced unknown not found", principal: namespaced("customer1"), nsEnabled: true, raw: "ghost", wantNotFound: true},
+		{name: "namespaced colon input rejected", principal: namespaced("customer1"), nsEnabled: true, raw: "customer2:editor", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stored, isLocal, err := ResolveRoleName(tt.principal, tt.nsEnabled, tt.raw, exists)
+			switch {
+			case tt.wantNotFound:
+				require.ErrorIs(t, err, ErrRoleNotFound)
+			case tt.wantErr:
+				require.Error(t, err)
+			default:
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantStored, stored)
+				assert.Equal(t, tt.wantLocal, isLocal)
+			}
+		})
+	}
+
+	t.Run("propagates existence-callback error", func(t *testing.T) {
+		boom := errors.New("store unavailable")
+		failing := func(string) (bool, error) { return false, boom }
+		_, _, err := ResolveRoleName(namespaced("customer1"), true, "editor", failing)
+		require.ErrorIs(t, err, boom)
+		require.NotErrorIs(t, err, ErrRoleNotFound)
+	})
+}
+
+func TestRoleResolverQualifyPoliciesForCreate(t *testing.T) {
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		nsEnabled bool
+		in        []authorization.Policy
+		want      []string // expected Resource per policy
+		wantErr   bool
+	}{
+		{
+			name:      "NS-disabled no-op",
+			principal: namespaced("customer1"),
+			nsEnabled: false,
+			in:        []authorization.Policy{{Resource: "data/collections/Movies/shards/.*/objects/.*"}},
+			want:      []string{"data/collections/Movies/shards/.*/objects/.*"},
+		},
+		{
+			name:      "global no-op",
+			principal: global(),
+			nsEnabled: true,
+			in:        []authorization.Policy{{Resource: "data/collections/Movies/shards/.*/objects/.*"}},
+			want:      []string{"data/collections/Movies/shards/.*/objects/.*"},
+		},
+		{
+			name:      "namespaced prefixes collection + role + user segments",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in: []authorization.Policy{
+				{Resource: "data/collections/Movies/shards/.*/objects/.*"},
+				{Resource: "roles/*"},
+				{Resource: "users/bob"},
+				{Resource: "cluster/*"}, // not namespaceable
+			},
+			want: []string{
+				"data/collections/customer1:Movies/shards/.*/objects/.*",
+				"roles/customer1:*",
+				"users/customer1:bob",
+				"cluster/*",
+			},
+		},
+		{
+			name:      "namespaced prefixes both alias segments",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in:        []authorization.Policy{{Resource: "aliases/collections/Movies/aliases/Films"}},
+			want:      []string{"aliases/collections/customer1:Movies/aliases/customer1:Films"},
+		},
+		{
+			name:      "namespaced prefixes wildcard segments",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in: []authorization.Policy{
+				{Resource: "users/*"},
+				{Resource: "schema/collections/*/shards/#"},
+			},
+			want: []string{
+				"users/customer1:*",
+				"schema/collections/customer1:*/shards/#",
+			},
+		},
+		{
+			// Write-isolation: a built-in role reference auto-prefixes too.
+			name:      "namespaced cannot reference global built-in role",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in:        []authorization.Policy{{Resource: "roles/admin"}},
+			want:      []string{"roles/customer1:admin"},
+		},
+		{
+			name:      "namespaced already-qualified collection rejected",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in:        []authorization.Policy{{Resource: "data/collections/customer1:Movies/shards/.*/objects/.*"}},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := QualifyRolePoliciesForCreate(tt.principal, tt.nsEnabled, tt.in)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			for i := range tt.want {
+				assert.Equal(t, tt.want[i], tt.in[i].Resource)
+			}
+		})
+	}
+}
+
+func TestRoleResolverFindShortNameConflict(t *testing.T) {
+	tests := []struct {
+		name      string
+		existing  []string
+		candidate string
+		want      RoleShortNameConflict
+	}{
+		{"no conflict empty", nil, "customer1:editor", NoRoleConflict},
+		{"two namespaces same short coexist", []string{"customer1:editor"}, "customer2:editor", NoRoleConflict},
+		{"local duplicate", []string{"customer1:editor"}, "customer1:editor", RoleConflictDuplicate},
+		{"local blocked by global reservation", []string{"editor"}, "customer1:editor", RoleConflictGlobal},
+		{"global blocked by existing local", []string{"customer1:editor"}, "editor", RoleConflictLocal},
+		{"global duplicate", []string{"editor"}, "editor", RoleConflictDuplicate},
+		{"different short no conflict", []string{"customer1:editor"}, "customer1:viewer", NoRoleConflict},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FindShortNameConflict(slices.Values(tt.existing), tt.candidate))
+		})
+	}
+}
+
+// Collision matrix from the spec — both create directions.
+func TestRoleResolverCollisionMatrix(t *testing.T) {
+	// customer1 editor, then customer2 editor: both fine.
+	assert.Equal(t, NoRoleConflict, FindShortNameConflict(slices.Values([]string(nil)), "customer1:editor"))
+	assert.Equal(t, NoRoleConflict, FindShortNameConflict(slices.Values([]string{"customer1:editor"}), "customer2:editor"))
+	// then a global editor: blocked by the existing locals.
+	assert.Equal(t, RoleConflictLocal, FindShortNameConflict(slices.Values([]string{"customer1:editor", "customer2:editor"}), "editor"))
+
+	// Reverse direction: global editor first, then customer1 editor blocked.
+	assert.Equal(t, RoleConflictGlobal, FindShortNameConflict(slices.Values([]string{"editor"}), "customer1:editor"))
+}
