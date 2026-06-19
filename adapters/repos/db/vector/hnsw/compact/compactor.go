@@ -260,8 +260,8 @@ func (c *Compactor) convertToSorted(state *DirectoryState, shouldAbort func() bo
 		}
 		if hasReset {
 			// ResetIndex is consumed when this file is materialized into sorted
-			// output. Discard older files before any later abort can leave the
-			// directory without a durable reset marker.
+			// output. Discard older files before removing the source so crash
+			// recovery can still replay the reset if cleanup is interrupted.
 			if err := c.discardFilesBeforeReset(f.StartTS); err != nil {
 				return errors.Wrap(err, "discard files before reset")
 			}
