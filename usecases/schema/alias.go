@@ -61,6 +61,9 @@ func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, ali
 	a, err := h.schemaManager.GetAlias(ctx, alias)
 	if err != nil {
 		if errors.Is(err, cschema.ErrAliasNotFound) {
+			if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases("*", "*")...); err != nil {
+				return nil, err
+			}
 			return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotFound)
 		}
 		return nil, err
@@ -134,6 +137,9 @@ func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, 
 	a, err := h.schemaManager.GetAlias(ctx, aliasName)
 	if err != nil {
 		if errors.Is(err, cschema.ErrAliasNotFound) {
+			if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("*", "*")...); err != nil {
+				return err
+			}
 			return fmt.Errorf("alias %s not found: %w", aliasName, ErrNotFound)
 		}
 		return err

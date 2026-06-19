@@ -83,7 +83,8 @@ func TestReplicationReplicate(t *testing.T) {
 
 	t.Run("missing collection in request body", func(t *testing.T) {
 		// GIVEN
-		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		shard := fmt.Sprintf("shard-%d", randomInt(10))
 		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
@@ -108,7 +109,8 @@ func TestReplicationReplicate(t *testing.T) {
 
 	t.Run("missing target node id in request body", func(t *testing.T) {
 		// GIVEN
-		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
 		shard := fmt.Sprintf("shard-%d", randomInt(10))
@@ -133,7 +135,8 @@ func TestReplicationReplicate(t *testing.T) {
 
 	t.Run("missing shard id in request body", func(t *testing.T) {
 		// GIVEN
-		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
 		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
@@ -158,7 +161,7 @@ func TestReplicationReplicate(t *testing.T) {
 
 	t.Run("missing source node id in request body", func(t *testing.T) {
 		// GIVEN
-		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
 		shard := fmt.Sprintf("shard-%d", randomInt(10))
@@ -173,6 +176,10 @@ func TestReplicationReplicate(t *testing.T) {
 				Type:       &replicationType,
 			},
 		}
+
+		// Authz now runs before validation, so an authorized caller still reaches
+		// the 400 for the missing source node.
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.CREATE, authorization.Replications(collection, shard)).Return(nil)
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -542,7 +549,8 @@ func randomReplicationType() string {
 
 func TestGetReplicationScalePlan(t *testing.T) {
 	t.Run("missing collection name", func(t *testing.T) {
-		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		params := replication.GetReplicationScalePlanParams{
 			HTTPRequest:       &http.Request{},
 			Collection:        "",
@@ -553,7 +561,8 @@ func TestGetReplicationScalePlan(t *testing.T) {
 	})
 
 	t.Run("invalid replication factor", func(t *testing.T) {
-		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		params := replication.GetReplicationScalePlanParams{
 			HTTPRequest:       &http.Request{},
 			Collection:        "TestCollection",
@@ -669,7 +678,8 @@ func TestGetReplicationScalePlan(t *testing.T) {
 
 func TestApplyReplicationScalePlan(t *testing.T) {
 	t.Run("missing plan or collection", func(t *testing.T) {
-		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		params := replication.ApplyReplicationScalePlanParams{
 			HTTPRequest: &http.Request{},
 			Body:        &models.ReplicationScalePlan{},

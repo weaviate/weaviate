@@ -58,20 +58,10 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/graphql",
 		"/graphql/batch",
 		"/objects/validate",
-		"/replication/replicate/{id}", // for the same reason as backups above
-		"/replication/replicate/{id}/cancel",
 		"/authz/roles/{id}/has-permission", // must be a POST rather than GET or HEAD due to need of body. but viewer can access it due to its permissions
 	}
 
-	// TODO: these leak status (404 for aliases, 501 for replication) before
-	// authz runs, so a viewer mutating them gets 404/501 instead of 403.
-	// Fix by moving authz to the top of each handler, then drop these entries.
-	ignoreEndpoints := []string{
-		"/aliases/{aliasName}",
-		"/replication/replicate",
-		"/replication/replicate/force-delete",
-		"/replication/scale",
-	}
+	ignoreEndpoints := []string{}
 
 	// Restore leaks 404 on a non-existent backup ID because the meta is read
 	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
