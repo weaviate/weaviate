@@ -2316,14 +2316,14 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseRuntimeConfig,
+			config.NewRuntimeConfigParser(appState.Logger),
 			config.UpdateRuntimeConfig,
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
 			prometheus.DefaultRegisterer)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").Errorf("could not create runtime config manager: %v", err)
+			appState.Logger.WithField("action", "runtime_overrides_parse").Errorf("could not create runtime config manager: %v", err)
 		}
 		return cm
 	}
