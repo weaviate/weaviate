@@ -38,7 +38,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -528,6 +527,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 						i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 					i.shards.Store(shardName, lazyShard)
+					i.dropColdObjectCount(shardName)
 					return nil
 				default:
 					// default behavior is to load all shards immediately
@@ -545,6 +545,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					promMetrics.NewLoadedShard()
 					newShard.metricsRegistered.Store(true)
 					i.shards.Store(shardName, newShard)
+					i.dropColdObjectCount(shardName)
 					return nil
 				}
 			}, shardName)
@@ -554,20 +555,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			// collections only ever have HOT shards. The check is defensive
 			// — if some future change ever lets COLD leak into a non-MT
 			// index, we skip cleanly instead of crashing on the nil cache.
-			if !i.partitioningEnabled {
+			if !i.tracksColdObjects() {
 				continue
 			}
-			// Populate the cold-tenant object-count cache from on-disk segment
-			// metadata. Walk failures log and skip — partial under-count is
-			// acceptable, don't fail init.
 			eg.Go(func() error {
-				u, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName, true)
-				if err != nil {
-					i.logger.WithField("shard", shardName).WithError(err).
-						Warn("usagelimits: failed to populate cold object count at startup")
-					return nil
-				}
-				i.coldObjects.set(shardName, u.Count)
+				i.cacheColdCountFromDisk(shardName)
 				return nil
 			}, shardName)
 		}
@@ -2761,6 +2753,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	i.shards.Store(shardName, shard)
+	i.dropColdObjectCount(shardName)
 
 	return nil
 }
@@ -2780,6 +2773,8 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	if !ok {
 		return nil // shard was not found, nothing to unload
 	}
+
+	i.cacheColdCountFromShard(ctx, shardLike)
 
 	if err := shardLike.Shutdown(ctx); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
@@ -2856,6 +2851,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 				return nil, func() {}, err
 			}
 			i.shards.Store(shardName, shard)
+			i.dropColdObjectCount(shardName)
 		}
 	}
 
@@ -3118,6 +3114,8 @@ func (i *Index) dropShards(names []string) error {
 			defer i.backupLock.RUnlock(name)
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
+
+			i.dropColdObjectCount(name)
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {

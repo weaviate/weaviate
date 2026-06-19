@@ -15,6 +15,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -49,6 +50,62 @@ func (c *coldObjectCounts) get(name string) (int64, bool) {
 	defer c.RUnlock()
 	v, ok := c.counts[name]
 	return v, ok
+}
+
+// tracksColdObjects reports whether this Index maintains the cold-tenant
+// object-count cache. Centralizes the gating policy so each lifecycle hook
+// asks one question; today it's a synonym for partitioningEnabled, but it
+// can grow conditions (operator config, runtime feature flag, etc.)
+// without touching every call site.
+//
+// When this returns true, coldObjects is expected to be non-nil; a nil
+// here is a NewIndex bug we want to surface loudly via panic.
+func (i *Index) tracksColdObjects() bool {
+	return i.partitioningEnabled
+}
+
+// cacheColdCountFromShard reads the tenant's object count from a loaded
+// shard via ObjectCountAsync and writes it to the cache. Caller is
+// responsible for shardCreateLocks. Errors are logged and swallowed —
+// we'd rather accept a bounded under-count for this tenant than fail
+// the deactivation.
+func (i *Index) cacheColdCountFromShard(ctx context.Context, shard ShardLike) {
+	if !i.tracksColdObjects() {
+		return
+	}
+	c, err := shard.ObjectCountAsync(ctx)
+	if err != nil {
+		i.logger.WithField("shard", shard.Name()).WithError(err).
+			Warn("usagelimits: failed to cache cold object count from shard")
+		return
+	}
+	i.coldObjects.set(shard.Name(), c)
+}
+
+// cacheColdCountFromDisk reads the tenant's object count from on-disk
+// segment metadata and writes it to the cache. Used when the shard
+// isn't loaded (startup walk, post-unfreeze restore). Errors are logged
+// and swallowed.
+func (i *Index) cacheColdCountFromDisk(tenant string) {
+	if !i.tracksColdObjects() {
+		return
+	}
+	u, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), tenant, true)
+	if err != nil {
+		i.logger.WithField("shard", tenant).WithError(err).
+			Warn("usagelimits: failed to cache cold object count from disk")
+		return
+	}
+	i.coldObjects.set(tenant, u.Count)
+}
+
+// dropColdObjectCount removes a tenant's entry. Safe to call when no
+// entry exists.
+func (i *Index) dropColdObjectCount(tenant string) {
+	if !i.tracksColdObjects() {
+		return
+	}
+	i.coldObjects.drop(tenant)
 }
 
 // LocalObjectCount sums async object counts across all locally-loaded
