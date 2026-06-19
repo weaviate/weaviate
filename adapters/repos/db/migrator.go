@@ -243,7 +243,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return errors.Wrap(err, "create index")
 	}
 
-	idx.usageLimits = m.db.usageLimits
+	idx.SetUsageLimits(m.db.usageLimits)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()

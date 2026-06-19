@@ -219,7 +219,10 @@ func (db *DB) init(ctx context.Context) error {
 				return errors.Wrap(err, "create index")
 			}
 
-			idx.usageLimits = db.usageLimits
+			idx.SetUsageLimits(db.usageLimits)
+			if err := idx.RestoreColdCounts(); err != nil {
+				return fmt.Errorf("restore cold-tenant counts for index %q: %w", idx.ID(), err)
+			}
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()

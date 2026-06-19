@@ -23,13 +23,16 @@ import (
 )
 
 // setupColdObjectsCacheTest reuses testShardMultiTenant — the canonical
-// MT Index+Shard helper — and initializes coldObjects, which the helper
-// itself doesn't set up (it predates the field). Returns the live shard
-// and the tenant name (the builder default).
+// MT Index+Shard helper — and manually wires up the cold-tenant cache
+// the way SetUsageLimits would in production. The helper itself doesn't
+// go through SetUsageLimits because it predates both the field and the
+// install method; flipping coldObjectsTracked + allocating the map is
+// the minimal stand-in. Returns the live shard and tenant name.
 func setupColdObjectsCacheTest(t *testing.T, className string) (*Index, ShardLike, string) {
 	t.Helper()
 	shard, idx := testShardMultiTenant(t, testCtx(), className)
 	idx.coldObjects = newColdObjectCounts()
+	idx.coldObjectsTracked = true
 	return idx, shard, shard.Name()
 }
 

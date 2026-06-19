@@ -248,10 +248,20 @@ type Index struct {
 	partitioningEnabled  bool
 	AsyncIndexingEnabled bool
 
-	// coldObjects caches object counts for COLD tenants so the cap check can
-	// account for them without loading the shards. Allocated only when
-	// partitioningEnabled is true; nil for single-tenant indexes.
+	// coldObjects caches object counts for COLD tenants so the cap check
+	// can account for them without loading the shards. Allocated by
+	// SetUsageLimits when both partitioningEnabled is true *and* the
+	// object cap is configured at that moment; nil otherwise. When
+	// coldObjectsTracked is true this field is guaranteed non-nil.
 	coldObjects *coldObjectCounts
+
+	// coldObjectsTracked is the snapshot-once gate decided at
+	// SetUsageLimits time. The single source of truth for whether
+	// lifecycle hooks should populate or drop coldObjects. Never flips
+	// after install — operators who turn the object cap on after
+	// existing indexes already exist must restart for those indexes
+	// to track.
+	coldObjectsTracked bool
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -337,7 +347,7 @@ func (i *Index) snapshotsPath() string {
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
-// the shards that are local to a node
+// the shards that are local to a node.
 func NewIndex(
 	ctx context.Context,
 	cfg IndexConfig,
@@ -422,9 +432,6 @@ func NewIndex(
 		bitmapBufPool:           bitmapBufPool,
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
-	}
-	if index.partitioningEnabled {
-		index.coldObjects = newColdObjectCounts()
 	}
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
@@ -517,52 +524,39 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	eg.SetLimit(_NUMCPU)
 
 	for _, shard := range localShards {
-		shardName := shard.name
-		switch shard.activityStatus {
-		case models.TenantActivityStatusHOT:
-			hotShardNames = append(hotShardNames, shardName)
-			eg.Go(func() error {
-				switch {
-				case i.Config.EnableLazyLoadShards:
-					lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-						i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
-					i.shards.Store(shardName, lazyShard)
-					i.dropColdObjectCount(shardName)
-					return nil
-				default:
-					// default behavior is to load all shards immediately
-					if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
-						return fmt.Errorf("acquiring permit to load shard: %w", err)
-					}
-					defer i.shardLoadLimiter.Release()
-
-					newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-						i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
-					if err != nil {
-						return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
-					}
-
-					promMetrics.NewLoadedShard()
-					newShard.metricsRegistered.Store(true)
-					i.shards.Store(shardName, newShard)
-					i.dropColdObjectCount(shardName)
-					return nil
-				}
-			}, shardName)
-
-		case models.TenantActivityStatusCOLD:
-			// COLD activity status is a multi-tenant concept: single-tenant
-			// collections only ever have HOT shards. The check is defensive
-			// — if some future change ever lets COLD leak into a non-MT
-			// index, we skip cleanly instead of crashing on the nil cache.
-			if !i.tracksColdObjects() {
-				continue
-			}
-			eg.Go(func() error {
-				i.cacheColdCountFromDisk(shardName)
-				return nil
-			}, shardName)
+		if shard.activityStatus != models.TenantActivityStatusHOT {
+			continue
 		}
+		shardName := shard.name
+		hotShardNames = append(hotShardNames, shardName)
+		eg.Go(func() error {
+			switch {
+			case i.Config.EnableLazyLoadShards:
+				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
+				i.shards.Store(shardName, lazyShard)
+				i.dropColdObjectCount(shardName)
+				return nil
+			default:
+				// default behavior is to load all shards immediately
+				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+					return fmt.Errorf("acquiring permit to load shard: %w", err)
+				}
+				defer i.shardLoadLimiter.Release()
+
+				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
+				if err != nil {
+					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+				}
+
+				promMetrics.NewLoadedShard()
+				newShard.metricsRegistered.Store(true)
+				i.shards.Store(shardName, newShard)
+				i.dropColdObjectCount(shardName)
+				return nil
+			}
+		}, shardName)
 	}
 
 	if err := eg.Wait(); err != nil {

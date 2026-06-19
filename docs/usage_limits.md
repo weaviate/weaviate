@@ -46,7 +46,7 @@ The object count is **node-wide** across all local tenants. Per-tenant decision 
 - **COLD** (data on disk, shard not loaded) contributes from an in-memory cache (`coldObjects` on `*Index`, `adapters/repos/db/usage_limits.go`). Pure RAM read.
 - **FROZEN** contributes 0 — data lives in the cloud.
 
-The cache closes an abuse vector that would let an account deactivate tenants to dodge the cap. Allocated only when `partitioningEnabled` (multi-tenant); single-tenant indexes never see it.
+The cache closes an abuse vector that would let an account deactivate tenants to dodge the cap. Allocated only when the collection is multi-tenant **and** `MAXIMUM_ALLOWED_OBJECTS_COUNT` is set at the moment `Index.SetUsageLimits` runs (index construction / startup load). Single-tenant indexes never see it, and deployments without the cap pay nothing. The gate is **snapshot-once** — turning the cap on after the fact via runtime override only affects indexes created afterward; existing indexes need a restart to start tracking COLD tenants.
 
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
 
@@ -58,7 +58,7 @@ The per-Index cache is maintained by hooks at every transition that changes the 
 |---|---|---|
 | HOT → COLD | `cacheColdCountFromShard` | `Index.UnloadLocalShard`; `Migrator.UpdateTenants` cold branch; `Migrator.ShutdownShard` |
 | COLD → HOT | `dropColdObjectCount` | `Index.initLocalShardWithForcedLoading`; `Index.getOptInitLocalShard` |
-| Startup, tenant COLD on disk | `cacheColdCountFromDisk` | `Index.initAndStoreShards` |
+| Startup, tenant COLD on disk | `cacheColdCountFromDisk` | `Index.RestoreColdCounts` (called once by the startup load) |
 | Unfreeze (cloud download) | `cacheColdCountFromDisk` | `Migrator.unfreeze` success branch |
 | Tenant deleted | `dropColdObjectCount` | `Index.dropShards`; `Migrator.frozen` |
 

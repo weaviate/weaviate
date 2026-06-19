@@ -166,8 +166,16 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 		require.True(t, fired2, "post-deactivation: object cap should still fire on T2")
 		t.Logf("post-deactivation: T2 needed %d inserts to trip cap", t2Insert)
 
-		require.Less(t, t2Insert, t1Insert/10,
-			"T2 must trip cap much faster than T1 (≤10×) — T1's cold objects must still count")
+		// T2 must trip on (or very close to) its first insert: T1's cold
+		// objects already fill the cap. Use a small constant rather than
+		// a ratio against t1Insert — integer division of t1Insert/10
+		// truncates to 1 in normal runs and to 0 if memtable lag pulls
+		// T1 below 10 inserts, making the original ratio flake-prone in
+		// slow CI. 3 is generous slack while still failing loudly if
+		// cold tenants drop out of the count (which would push T2 to
+		// ~t1Insert inserts).
+		require.Less(t, t2Insert, 3,
+			"T2 must trip cap almost immediately — T1's cold objects must still count")
 	})
 
 	t.Run("object limit single create — loops until limit fires", func(t *testing.T) {

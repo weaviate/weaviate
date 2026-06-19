@@ -13,9 +13,11 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -54,16 +56,66 @@ func (c *coldObjectCounts) get(name string) (int64, bool) {
 	return v, ok
 }
 
-// tracksColdObjects reports whether this Index maintains the cold-tenant
-// object-count cache. Centralizes the gating policy so each lifecycle hook
-// asks one question; today it's a synonym for partitioningEnabled, but it
-// can grow conditions (operator config, runtime feature flag, etc.)
-// without touching every call site.
+// SetUsageLimits installs the usage-limits Manager on the Index and
+// snapshots the cold-tenant cache gate. Must be called by the index's
+// owner after NewIndex returns and before the Index is registered in
+// db.indices.
+func (i *Index) SetUsageLimits(m *usagelimits.Manager) {
+	i.usageLimits = m
+	if i.partitioningEnabled && m.HasObjectCap() {
+		i.coldObjects = newColdObjectCounts()
+		i.coldObjectsTracked = true
+	}
+}
+
+// RestoreColdCounts populates the cold-tenant cache from on-disk
+// segment metadata for every local tenant that the schema state marks
+// COLD. Intended for startup paths where the index is rehydrated from
+// disk and the schema may already contain COLD tenants from a prior
+// run. No-op when tracking is disabled.
 //
-// When this returns true, coldObjects is expected to be non-nil; a nil
-// here is a NewIndex bug we want to surface loudly via panic.
-func (i *Index) tracksColdObjects() bool {
-	return i.partitioningEnabled
+// Errors from the schema read are returned; per-tenant disk-read
+// failures are logged and swallowed inside cacheColdCountFromDisk —
+// we'd rather accept a bounded under-count than refuse to start.
+func (i *Index) RestoreColdCounts() error {
+	if !i.coldObjectsTracked {
+		return nil
+	}
+
+	var coldTenants []string
+	className := i.Config.ClassName.String()
+	err := i.schemaReader.Read(className, true,
+		func(_ *models.Class, state *sharding.State) error {
+			if state == nil {
+				return fmt.Errorf("unable to retrieve sharding state for class %s", className)
+			}
+			for shardName, physical := range state.Physical {
+				if !state.IsLocalShard(shardName) {
+					continue
+				}
+				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+					coldTenants = append(coldTenants, shardName)
+				}
+			}
+			return nil
+		})
+	if err != nil {
+		return fmt.Errorf("read schema for cold tenants: %w", err)
+	}
+
+	if len(coldTenants) == 0 {
+		return nil
+	}
+
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
+	for _, name := range coldTenants {
+		eg.Go(func() error {
+			i.cacheColdCountFromDisk(name)
+			return nil
+		}, name)
+	}
+	return eg.Wait()
 }
 
 // cacheColdCountFromShard reads the tenant's object count from a loaded
@@ -72,7 +124,7 @@ func (i *Index) tracksColdObjects() bool {
 // we'd rather accept a bounded under-count for this tenant than fail
 // the deactivation.
 func (i *Index) cacheColdCountFromShard(ctx context.Context, shard ShardLike) {
-	if !i.tracksColdObjects() {
+	if !i.coldObjectsTracked {
 		return
 	}
 	c, err := shard.ObjectCountAsync(ctx)
@@ -89,7 +141,7 @@ func (i *Index) cacheColdCountFromShard(ctx context.Context, shard ShardLike) {
 // isn't loaded (startup walk, post-unfreeze restore). Errors are logged
 // and swallowed.
 func (i *Index) cacheColdCountFromDisk(tenant string) {
-	if !i.tracksColdObjects() {
+	if !i.coldObjectsTracked {
 		return
 	}
 	u, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), tenant, true)
@@ -104,7 +156,7 @@ func (i *Index) cacheColdCountFromDisk(tenant string) {
 // dropColdObjectCount removes a tenant's entry. Safe to call when no
 // entry exists.
 func (i *Index) dropColdObjectCount(tenant string) {
-	if !i.tracksColdObjects() {
+	if !i.coldObjectsTracked {
 		return
 	}
 	i.coldObjects.drop(tenant)
@@ -171,7 +223,7 @@ func (i *Index) localObjectCount(ctx context.Context) (int64, error) {
 				i.logger.WithField("shard", name).WithError(err).
 					Warn("usagelimits: error counting objects for shard")
 			}
-		} else if i.tracksColdObjects() {
+		} else if i.coldObjectsTracked {
 			if cached, ok := i.coldObjects.get(name); ok {
 				total += cached
 			}

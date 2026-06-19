@@ -15,6 +15,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func TestColdObjectCounts(t *testing.T) {
@@ -76,4 +79,66 @@ func TestColdObjectCounts(t *testing.T) {
 		assert.True(t, ok3)
 		assert.Equal(t, int64(3), v3)
 	})
+}
+
+// TestIndex_SetUsageLimits pins the install-time gating contract:
+// the cold-tenant cache is allocated only when the index is
+// multi-tenant *and* the object cap is configured at install time.
+// Any other combination must leave coldObjects nil and
+// coldObjectsTracked false.
+func TestIndex_SetUsageLimits(t *testing.T) {
+	mgrCapSet := usagelimits.NewManager(usagelimits.Config{
+		MaxObjectsCount: runtime.NewDynamicValue(100),
+	}, nil)
+	mgrCapUnset := usagelimits.NewManager(usagelimits.Config{
+		MaxObjectsCount: nil,
+	}, nil)
+
+	tests := []struct {
+		name         string
+		partitioning bool
+		manager      *usagelimits.Manager
+		wantTracked  bool
+	}{
+		{
+			name:         "single-tenant index never tracks, even with cap set",
+			partitioning: false,
+			manager:      mgrCapSet,
+		},
+		{
+			name:         "multi-tenant with cap unset does not track",
+			partitioning: true,
+			manager:      mgrCapUnset,
+		},
+		{
+			name:         "multi-tenant with nil manager does not track",
+			partitioning: true,
+			manager:      nil,
+		},
+		{
+			name:         "multi-tenant with cap set tracks",
+			partitioning: true,
+			manager:      mgrCapSet,
+			wantTracked:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := &Index{partitioningEnabled: tc.partitioning}
+			idx.SetUsageLimits(tc.manager)
+
+			assert.Equal(t, tc.wantTracked, idx.coldObjectsTracked,
+				"coldObjectsTracked must reflect the snapshot gate")
+			if tc.wantTracked {
+				assert.NotNil(t, idx.coldObjects,
+					"cache must be allocated when tracking is on")
+			} else {
+				assert.Nil(t, idx.coldObjects,
+					"cache must stay nil when tracking is off")
+			}
+			assert.Same(t, tc.manager, idx.usageLimits,
+				"manager must always be installed regardless of the gate")
+		})
+	}
 }
