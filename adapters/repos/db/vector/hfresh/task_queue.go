@@ -293,7 +293,7 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version Vec
 		return nil
 	}
 
-	if err := tq.reassignQueue.Push(encodeTask(vecID, taskQueueReassignOp)); err != nil {
+	if err := tq.reassignQueue.Push(encodeReassignTask(vecID, postingID)); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
@@ -345,12 +345,21 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 			idx: tq.index,
 		}, nil
 	case taskQueueReassignOp:
-		// decode vector ID
-		vecID := binary.LittleEndian.Uint64(data)
+		// Decode the legacy byte-compatible prefix first:
+		// op + vecID. Newer records append hintPostingID and may append
+		// additional fields in future versions.
+		if len(data) < 8 {
+			return nil, errors.Errorf("invalid reassign task length: %d", len(data)+1)
+		}
+		vecID := binary.LittleEndian.Uint64(data[:8])
+		var postingID uint64
+		if len(data) >= 16 {
+			postingID = binary.LittleEndian.Uint64(data[8:16])
+		}
 
 		return &ReassignTask{
 			vecID:     vecID,
-			postingID: tq.reassignList.getLastKnownPostingID(vecID),
+			postingID: postingID,
 			idx:       tq.index,
 		}, nil
 	}
@@ -490,5 +499,12 @@ func encodeTask(id uint64, op uint8) []byte {
 	buf := make([]byte, 9)
 	buf[0] = op
 	binary.LittleEndian.PutUint64(buf[1:9], id)
+	return buf
+}
+
+func encodeReassignTask(vecID, postingID uint64) []byte {
+	buf := make([]byte, 17)
+	copy(buf[:9], encodeTask(vecID, taskQueueReassignOp))
+	binary.LittleEndian.PutUint64(buf[9:17], postingID)
 	return buf
 }

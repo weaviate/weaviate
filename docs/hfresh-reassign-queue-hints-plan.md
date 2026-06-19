@@ -74,8 +74,9 @@ Compatibility and migration:
 - Append `hintPostingID` after the old payload. This lets older versions decode
   the vector ID and ignore the trailing hint bytes during downgrade.
 - Decode legacy reassign records with length 9 as `vecID` plus hint `0`.
-- Decode new reassign records with length 17 as `vecID` plus persisted hint.
-- Reject malformed reassign records with other lengths.
+- Decode new reassign records with length 17 or greater as `vecID` plus
+  persisted hint, ignoring any future trailing fields.
+- Reject malformed reassign records shorter than the legacy 9-byte prefix.
 - Do not rewrite existing queue chunks in place.
 
 Tests:
@@ -243,3 +244,11 @@ Tests:
 - Created branch `codex/hfresh-reassign-queue-hints` from `stable/v1.37`.
 - Agreed on queue-embedded posting hints to avoid per-reassign LSM writes.
 - Added this plan and changelog.
+- Implemented and verified Slice 1:
+  - New reassign task records keep the old `op + vecID` prefix and append
+    `hintPostingID`.
+  - Decoder accepts legacy 9-byte records, new 17-byte records, and future
+    records with trailing fields.
+  - Added focused task queue format tests.
+  - Verified with `go test ./adapters/repos/db/vector/hfresh` and
+    `go test ./adapters/repos/db/queue`.

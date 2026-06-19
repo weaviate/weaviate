@@ -58,3 +58,105 @@ func TestTaskQueueRegisterIsExplicit(t *testing.T) {
 
 	require.Equal(t, 4, scheduler.QueueCount())
 }
+
+func TestDecodeReassignTaskLegacyFormat(t *testing.T) {
+	tq := &TaskQueue{}
+	vecID := uint64(1234)
+
+	task, err := tq.DecodeTask(encodeTask(vecID, taskQueueReassignOp))
+
+	require.NoError(t, err)
+	reassignTask, ok := task.(*ReassignTask)
+	require.True(t, ok)
+	require.Equal(t, vecID, reassignTask.vecID)
+	require.Zero(t, reassignTask.postingID)
+}
+
+func TestDecodeReassignTaskWithPostingHint(t *testing.T) {
+	tq := &TaskQueue{}
+	vecID := uint64(1234)
+	postingID := uint64(5678)
+
+	task, err := tq.DecodeTask(encodeReassignTask(vecID, postingID))
+
+	require.NoError(t, err)
+	reassignTask, ok := task.(*ReassignTask)
+	require.True(t, ok)
+	require.Equal(t, vecID, reassignTask.vecID)
+	require.Equal(t, postingID, reassignTask.postingID)
+}
+
+func TestDecodeReassignTaskIgnoresFutureTrailingFields(t *testing.T) {
+	tq := &TaskQueue{}
+	vecID := uint64(1234)
+	postingID := uint64(5678)
+	record := append(encodeReassignTask(vecID, postingID), []byte{1, 2, 3, 4}...)
+
+	task, err := tq.DecodeTask(record)
+
+	require.NoError(t, err)
+	reassignTask, ok := task.(*ReassignTask)
+	require.True(t, ok)
+	require.Equal(t, vecID, reassignTask.vecID)
+	require.Equal(t, postingID, reassignTask.postingID)
+}
+
+func TestEncodeReassignTaskKeepsLegacyPrefix(t *testing.T) {
+	vecID := uint64(1234)
+	postingID := uint64(5678)
+
+	legacy := encodeTask(vecID, taskQueueReassignOp)
+	encoded := encodeReassignTask(vecID, postingID)
+
+	require.Len(t, encoded, len(legacy)+8)
+	require.Equal(t, legacy, encoded[:len(legacy)])
+}
+
+func TestDecodeReassignTaskRejectsMalformedLength(t *testing.T) {
+	tq := &TaskQueue{}
+	record := []byte{taskQueueReassignOp, 1, 2, 3}
+
+	_, err := tq.DecodeTask(record)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid reassign task length")
+}
+
+func TestDecodeTaskNonReassignFormatsUnchanged(t *testing.T) {
+	tq := &TaskQueue{}
+
+	tests := []struct {
+		name string
+		op   uint8
+		id   uint64
+		want any
+	}{
+		{
+			name: "analyze",
+			op:   taskQueueAnalyzeOp,
+			id:   11,
+			want: &AnalyzeTask{},
+		},
+		{
+			name: "split",
+			op:   taskQueueSplitOp,
+			id:   22,
+			want: &SplitTask{},
+		},
+		{
+			name: "merge",
+			op:   taskQueueMergeOp,
+			id:   33,
+			want: &MergeTask{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task, err := tq.DecodeTask(encodeTask(tt.id, tt.op))
+
+			require.NoError(t, err)
+			require.IsType(t, tt.want, task)
+		})
+	}
+}
