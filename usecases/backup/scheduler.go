@@ -17,12 +17,14 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -30,6 +32,7 @@ import (
 var (
 	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
 	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	errShuttingDown     = errors.New("node is shutting down, backup/restore not accepted")
 )
 
 const (
@@ -51,6 +54,15 @@ type Scheduler struct {
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
+
+	// shutdownCancel cancels the ctx shared by both coordinators.
+	shutdownCancel context.CancelFunc
+	shutdownOnce   sync.Once
+	// shutdownMu: Backup/Restore hold RLock for their full duration so
+	// coordinator.inflight.Add happens-before the drain goroutine's Wait.
+	shutdownMu sync.RWMutex
+	closed     bool
+	drained    chan struct{}
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -63,22 +75,57 @@ func NewScheduler(
 	schema schemaManger,
 	logger logrus.FieldLogger,
 ) *Scheduler {
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	m := &Scheduler{
-		logger:     logger,
-		authorizer: authorizer,
-		backends:   backends,
+		logger:         logger,
+		authorizer:     authorizer,
+		backends:       backends,
+		shutdownCancel: shutdownCancel,
+		drained:        make(chan struct{}),
 		backupper: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends, shutdownCtx),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends, shutdownCtx),
 	}
 	return m
+}
+
+// Shutdown signals in-flight backups to abort and rejects new ones. Use Wait
+// to block on the drain. Idempotent.
+func (s *Scheduler) Shutdown() {
+	s.shutdownOnce.Do(func() {
+		// Lock waits for in-progress Backup/Restore RLock holders to release.
+		s.shutdownMu.Lock()
+		s.closed = true
+		s.shutdownMu.Unlock()
+		s.logger.WithField("action", "backup_scheduler_shutdown").
+			Warn("backup scheduler shutdown initiated")
+		s.shutdownCancel()
+		enterrors.GoWrapper(func() {
+			defer close(s.drained)
+			s.backupper.inflight.Wait()
+			s.restorer.inflight.Wait()
+		}, s.logger)
+	})
+}
+
+// Drain blocks until the shutdown drain completes or the package-internal
+// timeout elapses. Call after Shutdown.
+func (s *Scheduler) Drain() { s.wait(_ShutdownDrainTimeout) }
+
+func (s *Scheduler) wait(timeout time.Duration) {
+	select {
+	case <-s.drained:
+	case <-time.After(timeout):
+		s.logger.WithField("action", "backup_scheduler_shutdown").
+			Warn("timeout waiting for in-flight backup/restore operations to drain")
+	}
 }
 
 func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {
@@ -124,6 +171,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
+
+	// RLock held through coordinator.Backup so inflight.Add cannot race the drain.
+	s.shutdownMu.RLock()
+	defer s.shutdownMu.RUnlock()
+	if s.closed {
+		return nil, backup.NewErrUnprocessable(errShuttingDown)
+	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
@@ -177,6 +231,12 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
+
+	s.shutdownMu.RLock()
+	defer s.shutdownMu.RUnlock()
+	if s.closed {
+		return nil, backup.NewErrUnprocessable(errShuttingDown)
+	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
@@ -275,6 +335,9 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		var err error
 		logOperation(s.logger, "cancel_backup", backupID, backend, begin, err)
 	}(time.Now())
+
+	// Not gated on s.closed: Cancel doesn't Add to inflight, and operators
+	// may run it as part of orchestrated shutdown.
 
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {

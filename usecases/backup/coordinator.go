@@ -44,12 +44,17 @@ var (
 )
 
 const (
-	_BookingPeriod      = time.Second * 20
-	_TimeoutNodeDown    = 7 * time.Minute
-	_TimeoutQueryStatus = 5 * time.Second
-	_TimeoutCanCommit   = 8 * time.Second
-	_NextRoundPeriod    = 10 * time.Second
-	_MaxNumberConns     = 16
+	_BookingPeriod          = time.Second * 20
+	_TimeoutNodeDown        = 7 * time.Minute
+	_TimeoutQueryStatus     = 5 * time.Second
+	_TimeoutCanCommit       = 8 * time.Second
+	_NextRoundPeriod        = 10 * time.Second
+	_MaxNumberConns         = 16
+	_ShutdownPutMetaTimeout = 30 * time.Second
+	_ShutdownAbortTimeout   = 10 * time.Second
+	// _ShutdownDrainTimeout bounds Scheduler.Drain / Handler.Drain. Covers
+	// the worst-case inner chain (abort + final PutMeta) plus a safety margin.
+	_ShutdownDrainTimeout = _ShutdownAbortTimeout + _ShutdownPutMetaTimeout + 5*time.Second
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
@@ -102,6 +107,10 @@ type coordinator struct {
 	descriptor   *backup.DistributedBackupDescriptor
 	shardSyncChan
 
+	// shutdownCtx cancels in-flight ops; drained via inflight.
+	shutdownCtx context.Context
+	inflight    sync.WaitGroup
+
 	// timeouts
 	timeoutNodeDown    time.Duration
 	timeoutQueryStatus time.Duration
@@ -117,6 +126,7 @@ func newCoordinator(
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
+	shutdownCtx context.Context,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -126,6 +136,7 @@ func newCoordinator(
 		nodeResolver:       nodeResolver,
 		backends:           backends,
 		Participants:       make(map[string]participantStatus, 16),
+		shutdownCtx:        shutdownCtx,
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
 		timeoutCanCommit:   _TimeoutCanCommit,
@@ -214,12 +225,16 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		BaseBackupID: req.BaseBackupID,
 	}
 
+	c.inflight.Add(1)
 	f := func() {
+		defer c.inflight.Done()
 		defer c.lastOp.reset()
-		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, false)
+		c.commit(c.shutdownCtx, &statusReq, nodes, false)
+		// Fresh ctx: shutdownCtx may be cancelled, but persist the descriptor anyway.
+		putCtx, putCancel := context.WithTimeout(context.Background(), _ShutdownPutMetaTimeout)
+		defer putCancel()
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		if err := cstore.PutMeta(putCtx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -270,13 +285,16 @@ func (c *coordinator) Restore(
 	}
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
+	c.inflight.Add(1)
 	g := func() {
+		defer c.inflight.Done()
 		defer c.lastOp.reset()
-		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, true)
-		c.restoreClasses(ctx, schema, req)
+		c.commit(c.shutdownCtx, &statusReq, nodes, true)
+		c.restoreClasses(c.shutdownCtx, schema, req)
+		putCtx, putCancel := context.WithTimeout(context.Background(), _ShutdownPutMetaTimeout)
+		defer putCancel()
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
-		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		if err := store.PutMeta(putCtx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -442,15 +460,46 @@ func (c *coordinator) commit(ctx context.Context,
 	nFailures := c.commitAll(ctx, req, node2Host)
 	retryAfter := c.timeoutNextRound / 5 // 2s for first time
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+	shutdownTriggered := false
 	for canContinue {
-		<-time.After(retryAfter)
+		select {
+		case <-ctx.Done():
+			// abortAll below uses node2Addr (full set), so all participants
+			// get aborted on shutdown; deletes here only keep nFailures consistent.
+			c.log.WithFields(logrus.Fields{
+				"action":    "coordinator_shutdown",
+				"method":    req.Method,
+				"backup_id": req.ID,
+				"remaining": len(node2Host),
+			}).Warn("node shutting down: cancelling backup, aborting participants")
+			for node := range node2Host {
+				st := c.Participants[node]
+				st.Status = backup.Cancelled
+				st.Reason = "node shutting down: " + ctx.Err().Error()
+				c.Participants[node] = st
+				delete(node2Host, node)
+				nFailures++
+			}
+			shutdownTriggered = true
+			canContinue = false
+			continue
+		case <-time.After(retryAfter):
+		}
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
-	if !toleratePartialFailure && nFailures > 0 {
+	// Abort on backup failure OR on shutdown (restore otherwise tolerates partial
+	// failure). ctx.Err() catches the race where shutdownCtx was cancelled during
+	// commitAll itself: every Commit fails, node2Host empties, the polling loop
+	// never enters, and shutdownTriggered would otherwise stay false — leaving
+	// participants that already received the commit without an abort.
+	if shutdownTriggered || ctx.Err() != nil || (!toleratePartialFailure && nFailures > 0) {
 		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
-		c.abortAll(context.Background(), req, node2Addr)
+		// Bounded fresh ctx so a hanging participant can't block the drain.
+		abortCtx, abortCancel := context.WithTimeout(context.Background(), _ShutdownAbortTimeout)
+		c.abortAll(abortCtx, req, node2Addr)
+		abortCancel()
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
 	status := backup.Success
@@ -488,7 +537,13 @@ func (c *coordinator) commit(ctx context.Context,
 						},
 					}
 
-					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
+					// Fresh ctx: ctx may be the cancelled shutdownCtx, but a
+					// participant that finished before shutdown still has a valid
+					// per-node descriptor we want to aggregate.
+					metaCtx, metaCancel := context.WithTimeout(context.Background(), c.timeoutQueryStatus)
+					meta, err := nodeStore.Meta(metaCtx, req.ID, req.Bucket, req.Path, false)
+					metaCancel()
+					if err == nil {
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{

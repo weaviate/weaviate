@@ -1121,6 +1121,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		backupScheduler.Shutdown()
+		if appState.BackupManager != nil {
+			appState.BackupManager.Shutdown()
+		}
 		batchDrain()
 	}
 
@@ -1189,6 +1193,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				WithError(err).
 				WithField("action", "shutdown db users").
 				Errorf("failed to gracefully shutdown")
+		}
+
+		// Drain backup goroutines before closing modules: the backup backend
+		// is sourced from appState.Modules, so the final PutMeta / abort RPCs
+		// must run while the backends are still alive.
+		backupScheduler.Drain()
+		if appState.BackupManager != nil {
+			appState.BackupManager.Drain()
 		}
 
 		if err := appState.Modules.Close(); err != nil {
