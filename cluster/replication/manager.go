@@ -19,9 +19,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -32,7 +29,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -93,7 +92,15 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 
 	enterrors.GoWrapper(func() {
 		if state == cmd.INTEGRATING || state == cmd.DEHYDRATING {
-			m.drainInflight(opID)
+			if err := m.drainInflight(opID); err != nil {
+				// Op gone or terminal — nothing left to seal over, so skip the report.
+				m.logger.WithFields(logrus.Fields{
+					"op_id":   opID,
+					"node_id": m.localNodeID,
+					"state":   state,
+				}).Warnf("not reporting %s: in-flight drain did not complete: %v", state, err)
+				return
+			}
 		}
 
 		req := &cmd.ReplicationNodeReachedStateRequest{
@@ -117,28 +124,46 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 	}, m.logger)
 }
 
-func (m *Manager) drainInflight(opID uint64) {
+// drainInflight blocks until this node's in-flight coordinated writes to the op's
+// shard drain. It retries rather than proceeding on a backstop timeout: reporting
+// INTEGRATING with writes still in flight lets the consumer seal the source log
+// over them. Returns non-nil only once the op is gone or terminal (no report owed).
+func (m *Manager) drainInflight(opID uint64) error {
 	if m.inflightDrainer == nil {
-		return
+		return nil
 	}
 	op, ok := m.replicationFSM.GetOpById(opID)
 	if !ok {
-		return
+		return fmt.Errorf("op %d not found; skipping drain", opID)
 	}
 	class := op.Op.SourceShard.CollectionId
 	shard := op.Op.SourceShard.ShardId
 
-	ctx, cancel := context.WithTimeout(context.Background(), inflightDrainBackstop)
-	defer cancel()
-	if err := m.inflightDrainer(ctx, class, shard); err != nil {
-		m.inflightDrainFailuresCounter.Inc()
-		m.logger.WithFields(logrus.Fields{
-			"op_id":   opID,
-			"node_id": m.localNodeID,
-			"class":   class,
-			"shard":   shard,
-		}).Warnf("in-flight write drain before INTEGRATING did not complete, proceeding: %v", err)
-	}
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxElapsedTime = 0 // retry until drained; the op-liveness check below bounds it
+	return backoff.Retry(func() error {
+		cur, ok := m.replicationFSM.GetOpById(opID)
+		if !ok {
+			return backoff.Permanent(fmt.Errorf("op %d gone; abandoning drain", opID))
+		}
+		if s := cur.Status.GetCurrentState(); s == cmd.READY || s == cmd.CANCELLED {
+			return backoff.Permanent(fmt.Errorf("op %d terminal (%s); abandoning drain", opID, s))
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), inflightDrainBackstop)
+		defer cancel()
+		err := m.inflightDrainer(ctx, class, shard)
+		if err != nil {
+			m.inflightDrainFailuresCounter.Inc()
+			m.logger.WithFields(logrus.Fields{
+				"op_id":   opID,
+				"node_id": m.localNodeID,
+				"class":   class,
+				"shard":   shard,
+			}).Warnf("in-flight write drain not complete, retrying before reporting: %v", err)
+		}
+		return err
+	}, bo)
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
