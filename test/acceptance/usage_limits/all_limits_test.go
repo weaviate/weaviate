@@ -60,11 +60,11 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 	// One container, every limit set tight enough to hit, and a custom
 	// message template that exercises both placeholders. Collection cap
 	// is 5 to leave room for the two MT collections used in the tenant
-	// sub-tests (1 plain MT + 1 auto-tenant MT + 3 single-tenant = 5 = at
-	// cap; a 6th create rejects).
+	// sub-tests (1 plain MT + 2 auto-tenant MT + 3 single-tenant = 6 = at
+	// cap; a 7th create rejects).
 	compose, terminate := startContainer(t, ctx, mergeEnv(aggressiveFlushEnv(), map[string]string{
 		"MAXIMUM_ALLOWED_OBJECTS_COUNT":          "10",
-		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT":      "5",
+		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT":      "6",
 		"MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION": "2",
 		"MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION":  "1",
 		"USAGE_LIMITS_ERROR_MESSAGE":             "hit limit of {value} {limit}, upgrade at https://x",
@@ -75,11 +75,13 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 	httpURI := "http://" + compose.GetWeaviate().URI()
 	grpcURI := compose.GetWeaviate().GrpcURI()
 
-	// Set up the two MT collections up front so the tenant sub-tests can
-	// run without consuming "collection" slots mid-suite. Together they
-	// count for 2 toward MAXIMUM_ALLOWED_COLLECTIONS_COUNT (5).
+	// Set up the three MT collections up front so each tenant sub-test
+	// owns its own collection (no cross-sub-test interference) and
+	// without consuming "collection" slots mid-suite. Together they count
+	// for 3 toward MAXIMUM_ALLOWED_COLLECTIONS_COUNT (6).
 	createMTCollection(t, ctx, httpURI, "MTcoll")
 	createAutoTenantMTCollection(t, ctx, httpURI, "MTautocoll")
+	createAutoTenantMTCollection(t, ctx, httpURI, "MTcoldcoll")
 
 	t.Run("shard limit on class create", func(t *testing.T) {
 		body := []byte(`{
@@ -106,13 +108,13 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 	})
 
 	t.Run("collection limit hit after cap", func(t *testing.T) {
-		// MTcoll + MTautocoll already count as 2; create 3 more (5 total
-		// = cap), then the 6th must 429.
+		// MTcoll + MTautocoll + MTcoldcoll already count as 3; create 3
+		// more (6 total = cap), then the 7th must 429.
 		for _, name := range []string{"C1", "C2", "C3"} {
 			createCollection(t, ctx, httpURI, name)
 		}
 		body := []byte(`{"class":"C4","vectorizer":"none"}`)
-		assertLimitExceeded(t, ctx, httpURI+"/v1/schema", body, "collections", 5)
+		assertLimitExceeded(t, ctx, httpURI+"/v1/schema", body, "collections", 6)
 	})
 
 	t.Run("tenant limit per collection", func(t *testing.T) {
@@ -143,6 +145,31 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 		assertLimitExceeded(t, ctx, objectsURL, body, "tenants", 2)
 	})
 
+	t.Run("cold tenants count toward object cap (abuse-vector defense)", func(t *testing.T) {
+		// Pre-fix: a deactivated tenant's objects were skipped from the
+		// cap, so a user could fill T1, deactivate, fill T2, etc. — bypass
+		// the cap by cycling tenants. Post-fix: the cache holds the
+		// deactivated tenant's count and it still counts toward the cap.
+		//
+		// Compare iterations: T1 fills until cap trips, then T1 is
+		// deactivated, then T2 fills. Under the fix T1's cached count
+		// keeps the cap tripped, so T2 trips almost immediately. Under
+		// the bug T2 would need roughly as many inserts as T1 did, since
+		// T1's COLD objects disappear from the accounting.
+		t1Insert, fired1 := loopInsertUntilLimit(t, ctx, httpURI, "MTcoldcoll", "T1", "objects", 10)
+		require.True(t, fired1, "baseline: object cap should fire when filling T1")
+		t.Logf("baseline: T1 needed %d inserts to trip cap", t1Insert)
+
+		setTenantStatus(t, ctx, httpURI, "MTcoldcoll", "T1", "INACTIVE")
+
+		t2Insert, fired2 := loopInsertUntilLimit(t, ctx, httpURI, "MTcoldcoll", "T2", "objects", 10)
+		require.True(t, fired2, "post-deactivation: object cap should still fire on T2")
+		t.Logf("post-deactivation: T2 needed %d inserts to trip cap", t2Insert)
+
+		require.Less(t, t2Insert, t1Insert/10,
+			"T2 must trip cap much faster than T1 (≤10×) — T1's cold objects must still count")
+	})
+
 	t.Run("object limit single create — loops until limit fires", func(t *testing.T) {
 		// We don't pin the exact count at which the limit fires: the
 		// implementation uses an async count that lags the memtable
@@ -151,7 +178,7 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 		// limit fires *eventually* with the canonical 429 body. The
 		// container is configured with aggressive flush settings so
 		// "eventually" is bounded to a few seconds beyond the cap.
-		gotLimit := loopInsertUntilLimit(t, ctx, httpURI, "C1", "objects", 10)
+		_, gotLimit := loopInsertUntilLimit(t, ctx, httpURI, "C1", "", "objects", 10)
 		require.True(t, gotLimit,
 			"expected the object cap to fire eventually within the suite timeout")
 	})
@@ -233,8 +260,9 @@ func mergeEnv(a, b map[string]string) map[string]string {
 
 // loopInsertUntilLimit hammers the single-object create endpoint until
 // the configured object-limit fires (HTTP 429 with USAGE_LIMIT_EXCEEDED)
-// or a generous deadline elapses. Returns true if the limit fired
-// before the deadline.
+// or a generous deadline elapses. Pass tenant="" for single-tenant
+// collections. Returns the iteration on which the limit fired (or 0 on
+// timeout) and whether it fired.
 //
 // The async object-count path lags writes (RFC: "bounded overshoot,
 // self-corrects on flush"), so the limit may not fire at exactly
@@ -244,12 +272,16 @@ func mergeEnv(a, b map[string]string) map[string]string {
 // when it does. Deadline is generous (120s) because
 // PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1 is a *trigger*
 // rather than a guarantee — slow CI shouldn't flake this.
-func loopInsertUntilLimit(t *testing.T, ctx context.Context, httpURI, class, expectLimit string, expectValue int64) bool {
+func loopInsertUntilLimit(t *testing.T, ctx context.Context, httpURI, class, tenant, expectLimit string, expectValue int64) (int, bool) {
 	t.Helper()
 	deadline := time.Now().Add(120 * time.Second)
 	probeURL := httpURI + "/v1/objects"
+	tenantField := ""
+	if tenant != "" {
+		tenantField = fmt.Sprintf(`"tenant":"%s",`, tenant)
+	}
 	for i := 0; time.Now().Before(deadline); i++ {
-		body := []byte(fmt.Sprintf(`{"class":"%s","properties":{"i":%d}}`, class, i))
+		body := []byte(fmt.Sprintf(`{"class":"%s",%s"properties":{"i":%d}}`, class, tenantField, i))
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, probeURL, bytes.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
@@ -276,12 +308,12 @@ func loopInsertUntilLimit(t *testing.T, ctx context.Context, httpURI, class, exp
 			assert.Equal(t, expectLimit, parsed.Limit)
 			assert.Equal(t, expectValue, parsed.Value)
 			assert.NotEmpty(t, parsed.Message)
-			return true
+			return i + 1, true
 		default:
 			t.Fatalf("unexpected status %d on insert %d: %s", resp.StatusCode, i, raw)
 		}
 	}
-	return false
+	return 0, false
 }
 
 // --- helpers ---
@@ -365,6 +397,25 @@ func createAutoTenantMTCollection(t *testing.T, ctx context.Context, httpURI, na
 		`{"class":"%s","vectorizer":"none","multiTenancyConfig":{"enabled":true,"autoTenantCreation":true}}`,
 		name))
 	postOK(t, ctx, httpURI+"/v1/schema", body)
+}
+
+// setTenantStatus updates a tenant's activity status via the schema PUT
+// endpoint. Use ACTIVE / INACTIVE (the API names; converted internally
+// to HOT / COLD).
+func setTenantStatus(t *testing.T, ctx context.Context, httpURI, class, tenant, status string) {
+	t.Helper()
+	body := []byte(fmt.Sprintf(`[{"name":"%s","activityStatus":"%s"}]`, tenant, status))
+	url := httpURI + "/v1/schema/" + class + "/tenants"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "PUT %s", url)
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 2xx for PUT %s, got %d: %s", url, resp.StatusCode, raw)
+	}
 }
 
 func addTenants(t *testing.T, ctx context.Context, httpURI, class string,
