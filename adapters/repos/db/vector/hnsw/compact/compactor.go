@@ -240,44 +240,31 @@ func (c *Compactor) resolveOverlaps(state *DirectoryState) error {
 // SafeFileWriter would otherwise leak a tmp file we can't cleanly orphan
 // from inside this function).
 func (c *Compactor) convertToSorted(state *DirectoryState, shouldAbort func() bool) error {
-	// A ResetIndex wipes all prior state, but each file is converted in
-	// isolation, so without discarding older files the reset's effect stays
-	// confined to its own file and older files resurrect pre-reset data on load.
-	var resetBoundaryTS int64
-	foundReset := false
-
-	noteReset := func(f FileInfo, hasReset bool) {
-		if hasReset && f.StartTS > resetBoundaryTS {
-			resetBoundaryTS = f.StartTS
-			foundReset = true
+	files := make([]FileInfo, 0, len(state.RawFiles)+len(state.CondensedFiles))
+	files = append(files, state.RawFiles...)
+	files = append(files, state.CondensedFiles...)
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].StartTS != files[j].StartTS {
+			return files[i].StartTS < files[j].StartTS
 		}
-	}
+		return files[i].Type < files[j].Type
+	})
 
-	for _, f := range state.RawFiles {
+	for _, f := range files {
 		if isAborted(shouldAbort) {
 			return ErrCompactionAborted
 		}
 		hasReset, err := c.convertFileToSorted(f)
 		if err != nil {
-			return errors.Wrapf(err, "convert raw file %s", f.Path)
+			return errors.Wrapf(err, "convert %s file %s", f.Type.String(), f.Path)
 		}
-		noteReset(f, hasReset)
-	}
-
-	for _, f := range state.CondensedFiles {
-		if isAborted(shouldAbort) {
-			return ErrCompactionAborted
-		}
-		hasReset, err := c.convertFileToSorted(f)
-		if err != nil {
-			return errors.Wrapf(err, "convert condensed file %s", f.Path)
-		}
-		noteReset(f, hasReset)
-	}
-
-	if foundReset {
-		if err := c.discardFilesBeforeReset(resetBoundaryTS); err != nil {
-			return errors.Wrap(err, "discard files before reset")
+		if hasReset {
+			// ResetIndex is consumed when this file is materialized into sorted
+			// output. Discard older files before any later abort can leave the
+			// directory without a durable reset marker.
+			if err := c.discardFilesBeforeReset(f.StartTS); err != nil {
+				return errors.Wrap(err, "discard files before reset")
+			}
 		}
 	}
 

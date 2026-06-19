@@ -67,6 +67,8 @@ func NewInMemoryReader(reader *WALCommitReader, logger logrus.FieldLogger) *InMe
 // If initialState is provided, commits are applied on top of it.
 // keepLinkReplaceInformation controls whether LinksReplaced tracking is maintained.
 func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkReplaceInformation bool) (*ent.DeserializationResult, error) {
+	r.hasReset = false
+
 	out := initialState
 	commitTypeMetrics := make(map[HnswCommitType]int)
 

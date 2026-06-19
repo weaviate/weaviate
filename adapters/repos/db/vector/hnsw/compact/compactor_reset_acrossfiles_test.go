@@ -14,9 +14,12 @@ package compact
 import (
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 // These tests pin the contract that, after compaction, a ResetIndex in a later
@@ -214,4 +217,47 @@ func TestCompact_ResetDiscardsOlderSnapshot(t *testing.T) {
 		"pre-reset tombstone resurrected after compaction")
 	require.True(t, effectivelyAbsent(nodeAt(compacted, 1)),
 		"pre-reset node 1 resurrected after compaction")
+}
+
+func TestCompact_ResetAbortAfterConversionDiscardsPreResetFiles(t *testing.T) {
+	writeScenario := func(dir string) {
+		createTestWALFile(t, filepath.Join(dir, "1000"), func(w *WALWriter) {
+			require.NoError(t, w.WriteAddNode(1, 1))
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(1, 1))
+		})
+		createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {
+			require.NoError(t, w.WriteResetIndex())
+			require.NoError(t, w.WriteAddNode(2, 1))
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(2, 1))
+		})
+		createTestWALFile(t, filepath.Join(dir, "3000"), func(w *WALWriter) {
+			require.NoError(t, w.WriteAddNode(3, 1))
+		})
+		createTestWALFile(t, filepath.Join(dir, "4000"), func(w *WALWriter) {})
+	}
+
+	baseDir := t.TempDir()
+	workDir := t.TempDir()
+	writeScenario(baseDir)
+	writeScenario(workDir)
+
+	baseline := loadGraph(t, baseDir)
+	require.True(t, effectivelyAbsent(nodeAt(baseline, 1)),
+		"baseline reset should remove pre-reset node 1")
+
+	var opens atomic.Int32
+	config := DefaultCompactorConfig(workDir)
+	config.FS = &countingOpenFS{FS: common.NewOSFS(), suffix: "", count: &opens}
+	compactor := NewCompactor(config, quietLogger())
+
+	_, err := compactor.RunCycle(func() bool {
+		return opens.Load() >= 2
+	})
+	require.True(t, errors.Is(err, ErrCompactionAborted),
+		"RunCycle should abort after the reset file is converted; got %v", err)
+
+	aborted := loadGraph(t, workDir)
+	assertGraphEqual(t, baseline, aborted)
+	require.True(t, effectivelyAbsent(nodeAt(aborted, 1)),
+		"pre-reset node 1 resurrected after aborting reset conversion")
 }

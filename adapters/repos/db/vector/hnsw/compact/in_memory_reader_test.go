@@ -107,6 +107,26 @@ func TestInMemoryReader_GarbageTargets(t *testing.T) {
 	})
 }
 
+func TestInMemoryReader_HasResetReflectsLastDoCall(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWALWriter(&buf)
+	require.NoError(t, w.WriteResetIndex())
+	require.NoError(t, w.WriteAddNode(1, 1))
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+	reader := NewWALCommitReader(&buf, logger)
+	memReader := NewInMemoryReader(reader, logger)
+
+	_, err := memReader.Do(nil, false)
+	require.NoError(t, err)
+	require.True(t, memReader.HasReset(), "first Do should report the reset it applied")
+
+	_, err = memReader.Do(nil, false)
+	require.NoError(t, err)
+	require.False(t, memReader.HasReset(), "second Do should clear the previous reset state")
+}
+
 func TestFilterValidTargets(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
