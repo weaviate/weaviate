@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func testKeyMatch5(t *testing.T, key1, key2 string, expected bool) {
@@ -727,7 +728,7 @@ func TestRewritePolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			colStart, colEnd, hasAlias := findNamespaceSegments(tt.policy)
+			colStart, colEnd, hasAlias := namespacing.FindNamespaceSegments(tt.policy)
 			if colEnd == 0 {
 				t.Fatalf("test setup: %q is not namespaceable", tt.policy)
 			}
