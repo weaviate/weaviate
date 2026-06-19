@@ -185,6 +185,14 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 	if _, ok := ob.duplicates[objectIndex]; ok {
 		return nil
 	}
+
+	// Reject batch items carrying a dropped vector before persisting anything.
+	if len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
+		if err := rejectDroppedObjectVectors(ob.shard.Index().getClass(), object); err != nil {
+			return err
+		}
+	}
+
 	uuidParsed, err := uuid.Parse(object.ID().String())
 	if err != nil {
 		return errors.Wrap(err, "invalid id")
