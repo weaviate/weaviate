@@ -55,9 +55,14 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 			if err == nil {
 				return true, nil // successfully loaded
 			}
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !recoverableSidecarLoadErr(err) {
 				return false, err
+			}
+
+			if errors.Is(err, os.ErrNotExist) {
+				s.logger.WithField("action", "lsm_recover_missing_sidecar").
+					WithField("path", path).WithError(err).
+					Warn("metadata sidecar missing despite directory listing; recomputing from segment")
 			}
 
 			// now continue re-calculating

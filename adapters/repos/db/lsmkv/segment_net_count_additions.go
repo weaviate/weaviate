@@ -30,6 +30,25 @@ var ErrInvalidChecksum = errors.New("invalid checksum")
 
 const CountNetAdditionsFileSuffix = ".cna"
 
+// recoverableSidecarLoadErr reports whether err from loading a precomputed
+// sidecar file (.cna, .bloom, .metadata) can be recovered from by recomputing
+// the data from the underlying .db segment. The two recoverable cases are:
+//
+//   - ErrInvalidChecksum: the file is present but its contents are corrupt or
+//     truncated (e.g. a partial flush that did not survive a crash).
+//   - os.ErrNotExist: the file appeared in the directory listing built when
+//     the bucket was opened but is gone by the time the segment tries to
+//     read it. This has been observed after ungraceful shutdowns where the
+//     dirent is preserved but the file's inode/contents are not, and would
+//     otherwise leave the class permanently broken on the affected node.
+//
+// In both cases the data can be safely rebuilt from the .db segment, so the
+// caller should fall through to the recomputation path rather than aborting
+// segment init.
+func recoverableSidecarLoadErr(err error) bool {
+	return errors.Is(err, ErrInvalidChecksum) || errors.Is(err, os.ErrNotExist)
+}
+
 // existOnLowerSegments is a simple function that can be passed at segment
 // initialization time to check if any of the keys are truly new or previously
 // seen. This can in turn be used to build up the net count additions. The
@@ -65,9 +84,14 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 				return nil
 			}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !recoverableSidecarLoadErr(err) {
 				return err
+			}
+
+			if errors.Is(err, os.ErrNotExist) {
+				s.logger.WithField("action", "lsm_recover_missing_sidecar").
+					WithField("path", path).WithError(err).
+					Warn("count net additions sidecar missing despite directory listing; recomputing from segment")
 			}
 
 			// now continue re-calculating
