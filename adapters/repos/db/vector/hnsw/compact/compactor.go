@@ -266,6 +266,9 @@ func (c *Compactor) convertToSorted(state *DirectoryState, shouldAbort func() bo
 				return errors.Wrap(err, "discard files before reset")
 			}
 		}
+		if err := c.removeConvertedSource(f); err != nil {
+			return errors.Wrap(err, "remove converted source file")
+		}
 	}
 
 	return nil
@@ -357,11 +360,6 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 		return false, errors.Wrap(err, "commit sorted file")
 	}
 
-	// Delete original file after successful conversion
-	if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
-		return false, errors.Wrap(err, "remove original file")
-	}
-
 	c.logger.WithFields(logrus.Fields{
 		"action":   "hnsw_compactor_convert",
 		"original": filepath.Base(f.Path),
@@ -369,6 +367,13 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 	}).Debug("converted file to sorted format")
 
 	return inMemReader.HasReset(), nil
+}
+
+func (c *Compactor) removeConvertedSource(f FileInfo) error {
+	if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
+		return errors.Wrap(err, "remove original file")
+	}
+	return nil
 }
 
 // decideAction determines what compaction action to take based on current state.

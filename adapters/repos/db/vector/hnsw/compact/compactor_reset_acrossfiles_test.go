@@ -13,6 +13,7 @@ package compact
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -260,4 +261,75 @@ func TestCompact_ResetAbortAfterConversionDiscardsPreResetFiles(t *testing.T) {
 	assertGraphEqual(t, baseline, aborted)
 	require.True(t, effectivelyAbsent(nodeAt(aborted, 1)),
 		"pre-reset node 1 resurrected after aborting reset conversion")
+}
+
+func TestCompact_ResetDiscardFailureKeepsResetSourceForCrashRecovery(t *testing.T) {
+	tests := []struct {
+		name      string
+		resetFile string
+	}{
+		{
+			name:      "raw reset source",
+			resetFile: "2000",
+		},
+		{
+			name:      "condensed reset source",
+			resetFile: "2000.condensed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			writeScenario := func(dir string) {
+				createTestWALFile(t, filepath.Join(dir, "1000"), func(w *WALWriter) {
+					require.NoError(t, w.WriteAddNode(1, 1))
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(1, 1))
+				})
+				createTestWALFile(t, filepath.Join(dir, tc.resetFile), func(w *WALWriter) {
+					require.NoError(t, w.WriteResetIndex())
+					require.NoError(t, w.WriteAddNode(2, 1))
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(2, 1))
+				})
+				createTestWALFile(t, filepath.Join(dir, "3000"), func(w *WALWriter) {
+					require.NoError(t, w.WriteAddNode(3, 1))
+				})
+				createTestWALFile(t, filepath.Join(dir, "4000"), func(w *WALWriter) {})
+			}
+
+			baseDir := t.TempDir()
+			workDir := t.TempDir()
+			writeScenario(baseDir)
+			writeScenario(workDir)
+
+			baseline := loadGraph(t, baseDir)
+			require.True(t, effectivelyAbsent(nodeAt(baseline, 1)),
+				"baseline reset should remove pre-reset node 1")
+
+			fs := common.NewTestFS()
+			fs.OnRemove = func(name string) error {
+				if filepath.Base(name) == "1000.sorted" {
+					return os.ErrPermission
+				}
+				return os.Remove(name)
+			}
+
+			config := DefaultCompactorConfig(workDir)
+			config.FS = fs
+			compactor := NewCompactor(config, quietLogger())
+
+			_, err := compactor.RunCycle(nil)
+			require.Error(t, err, "discard failure should abort this compaction cycle")
+
+			_, err = os.Stat(filepath.Join(workDir, tc.resetFile))
+			require.NoError(t, err, "reset source must survive until pre-reset discard succeeds")
+
+			recovered := loadGraph(t, workDir)
+			assertGraphEqual(t, baseline, recovered)
+			require.True(t, effectivelyAbsent(nodeAt(recovered, 1)),
+				"pre-reset node 1 resurrected after failed reset discard recovery")
+
+			_, err = os.Stat(filepath.Join(workDir, "2000.sorted"))
+			require.True(t, os.IsNotExist(err), "loader should remove duplicate sorted reset output")
+		})
+	}
 }
