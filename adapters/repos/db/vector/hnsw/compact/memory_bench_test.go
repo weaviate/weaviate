@@ -135,8 +135,9 @@ func genConns(seed uint64, n int) []uint64 {
 	return c
 }
 
-// TestSnapshotWriterMemory_PeakIndependentOfLiveSet is AC2: peak heap for an
-// 8x larger dense graph must stay within 1.5x (i.e. sub-linear, not ~8x).
+// TestSnapshotWriterMemory_PeakIndependentOfLiveSet is AC2: an 8x larger dense
+// graph must not grow peak heap by more than a block-sized constant (flat, not
+// ~8x linear).
 func TestSnapshotWriterMemory_PeakIndependentOfLiveSet(t *testing.T) {
 	if testing.Short() {
 		t.Skip("memory invariant test; skipped in -short")

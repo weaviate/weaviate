@@ -556,8 +556,7 @@ func (b *bodyStreamer) addLiveNode(id uint64, entry []byte) error {
 }
 
 // writeSlot appends one slot entry to the current block, flushing and starting
-// a fresh block (keyed on slotID) when the entry would not fit. This mirrors
-// the original per-node loop exactly, including the strict-less-than fit test.
+// a fresh block (keyed on slotID) when the entry would not fit.
 func (b *bodyStreamer) writeSlot(slotID uint64, entry []byte) error {
 	if !b.started {
 		// The first block always starts at slot 0; gap fills begin at nextID==0.
@@ -859,7 +858,8 @@ func (s *SnapshotWriter) commitsToNodeState(nc *NodeCommits) *nodeStateWithTombs
 	}
 }
 
-// nodeStateWithTombstone extends nodeState with tombstone tracking.
+// nodeStateWithTombstone is a node's absolute state: level, per-level
+// connections, and whether it carries a tombstone.
 type nodeStateWithTombstone struct {
 	level        uint16
 	connections  [][]uint64

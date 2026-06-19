@@ -110,11 +110,6 @@ func TestSnapshotRoundTrip_MultiBlock(t *testing.T) {
 // deterministic graphs at blockSize 256. They pin the format: any drift in the
 // body block layout or the metadata/compression serialization flips a hash.
 //
-// These exact hashes were captured from BOTH the previous buffering writer and
-// the streaming writer — identical — which is the in-tree reconciliation of the
-// "byte-identical on-disk format" claim (the buffering writer is gone, so the
-// A/B itself cannot live in the tree; these constants are its residue).
-//
 // To regenerate after an *intentional* format change: run this test, copy the
 // "GOLDEN <name> sha256=<hash>" lines printed on failure into the map below.
 var goldenSnapshots = map[string]string{

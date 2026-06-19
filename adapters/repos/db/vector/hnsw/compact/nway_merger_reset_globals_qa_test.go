@@ -21,11 +21,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// QA finding 2 (FALSIFIED as a reachable bug). mergeGlobalCommits previously used
-// `lastResetIndexID < it.ID()`, an off-by-one that dropped global commits
-// (entrypoint / compression) following a ResetIndexCommit WITHIN THE SAME
-// iterator. It could not lose data in production because the merger never sees a
-// ResetIndexCommit:
+// mergeGlobalCommits fails closed on a ResetIndexCommit in a merge input,
+// because the merger can only ever ingest sorted + snapshot iterators and
+// neither file type can contain a ResetIndexCommit:
 //
 //   - ResetIndexCommit is only written to raw WAL files by the live commit logger
 //     (commit_logger.Reset -> WriteResetIndex; delete.go resetUnlocked).
@@ -35,10 +33,9 @@ import (
 //   - NWayMerger (and thus mergeGlobalCommits) only ever ingests sorted + snapshot
 //     iterators; neither file type can contain a ResetIndexCommit.
 //
-// The dead reset-precedence machinery has been trimmed. A ResetIndexCommit in a
-// merge input now signals a malformed file and aborts the merge with an error
-// (fail-closed) rather than being silently mishandled. These tests pin that
-// contract and prove the real conversion path produces input the merger accepts.
+// So a ResetIndexCommit in a merge input signals a malformed file and aborts the
+// merge with an error. These tests pin that contract and prove the real
+// conversion path produces input the merger accepts.
 
 // Test_QA_MergeGlobals_RejectsUnexpectedReset asserts the merger fails closed when
 // an input iterator carries a ResetIndexCommit (which can only happen on a
