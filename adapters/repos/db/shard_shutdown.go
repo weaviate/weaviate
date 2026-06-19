@@ -116,6 +116,9 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	s.mayStopAsyncReplication()
 
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
 	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
 			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
