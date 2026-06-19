@@ -46,6 +46,13 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
+	// Reject writes carrying a dropped vector before persisting anything.
+	if len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
+		if err := rejectDroppedObjectVectors(s.index.getClass(), object); err != nil {
+			return err
+		}
+	}
+
 	status, err := s.putObjectLSM(ctx, object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
