@@ -130,7 +130,7 @@ func (it *Iterator) readGlobalCommits() error {
 		c, err := it.reader.ReadNextCommit()
 		if err != nil {
 			if isEOF(err) {
-				// File ended (possibly truncated mid-write)
+				// File ended cleanly.
 				return nil
 			}
 			return err

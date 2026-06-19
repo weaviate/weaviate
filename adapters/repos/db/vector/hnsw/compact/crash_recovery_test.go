@@ -112,6 +112,48 @@ func TestCrashRecovery_TruncatedWALFile_MultipleGarbageBytes(t *testing.T) {
 	require.NotNil(t, result.State.Graph.Nodes[5])
 }
 
+func TestCrashRecovery_CompleteCompactedWALFilesLoad(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		write func(*testing.T, string)
+	}{
+		{
+			name: "sorted",
+			write: func(t *testing.T, dir string) {
+				writeTestSortedFileWithData(t, dir, 1000, 1000, func(w *WALWriter) {
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+					require.NoError(t, w.WriteAddNode(0, 0))
+					require.NoError(t, w.WriteAddNode(1, 0))
+				})
+			},
+		},
+		{
+			name: "condensed",
+			write: func(t *testing.T, dir string) {
+				createTestWALFile(t, filepath.Join(dir, BuildMergedFilename(1000, 1000, FileTypeCondensed)), func(w *WALWriter) {
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+					require.NoError(t, w.WriteAddNode(0, 0))
+					require.NoError(t, w.WriteAddNode(1, 0))
+				})
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.write(t, dir)
+
+			loader := NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()})
+			result, err := loader.Load()
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.False(t, result.RecoveredFromCrash)
+			require.GreaterOrEqual(t, len(result.State.Graph.Nodes), 2)
+			require.NotNil(t, result.State.Graph.Nodes[0])
+			require.NotNil(t, result.State.Graph.Nodes[1])
+		})
+	}
+}
+
 func TestCrashRecovery_TruncatedCompactedWALFilesFailClosed(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
