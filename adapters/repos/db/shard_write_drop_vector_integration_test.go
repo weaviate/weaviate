@@ -55,12 +55,14 @@ func setupDropVectorShard(t *testing.T, ctx context.Context) (*Shard, *models.Cl
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			"foo": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+			"mv":  {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
 		},
 	}
 	vic := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
 	shardLike, _ := testShardWithSettings(t, ctx, class, vic, false, true, false, func(i *Index) {
 		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 			"foo": hnsw.NewDefaultUserConfig(),
+			"mv":  hnsw.NewDefaultMultiVectorUserConfig(),
 		}
 	})
 
@@ -92,8 +94,21 @@ func dropVecObject(t *testing.T, label string, withFoo bool) *storobj.Object {
 	return obj
 }
 
-func markFooDropped(class *models.Class) {
-	class.VectorConfig["foo"] = models.VectorConfig{VectorIndexType: modelsext.VectorIndexTypeNone}
+func dropVecMultiObject(t *testing.T, label string) *storobj.Object {
+	t.Helper()
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      dropVecClassName,
+			Properties: map[string]interface{}{"label": label},
+		},
+		MultiVectors: map[string][][]float32{"mv": {{1, 2}, {3, 4}}},
+	}
+}
+
+func markDropped(class *models.Class, targetVector string) {
+	class.VectorConfig[targetVector] = models.VectorConfig{VectorIndexType: modelsext.VectorIndexTypeNone}
 }
 
 // TestDropVectorIndex_PutRejected covers the put path (PutObject -> putOne),
@@ -105,7 +120,7 @@ func TestDropVectorIndex_PutRejected(t *testing.T) {
 	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "a", true)))
 
 	// Drop the marker but leave the queue alive (the race window).
-	markFooDropped(class)
+	markDropped(class, "foo")
 
 	err := shard.PutObject(ctx, dropVecObject(t, "b", true))
 	require.Error(t, err)
@@ -130,7 +145,7 @@ func TestDropVectorIndex_MergeRejected(t *testing.T) {
 		obj := dropVecObject(t, "a", true)
 		require.NoError(t, shard.PutObject(ctx, obj))
 
-		markFooDropped(class)
+		markDropped(class, "foo")
 
 		err := shard.MergeObject(ctx, objects.MergeDocument{
 			ID:              obj.ID(),
@@ -149,7 +164,7 @@ func TestDropVectorIndex_MergeRejected(t *testing.T) {
 		obj := dropVecObject(t, "a", true)
 		require.NoError(t, shard.PutObject(ctx, obj))
 
-		markFooDropped(class)
+		markDropped(class, "foo")
 		// Tear the queue down for the real post-drop state: the stored object
 		// still carries the foo vector but GetVectorIndexQueue returns !ok. The
 		// merge omits vectors, so mergeProps copies foo forward; the re-index
@@ -169,6 +184,48 @@ func TestDropVectorIndex_MergeRejected(t *testing.T) {
 		require.NotNil(t, retrieved)
 		require.Equal(t, "b", retrieved.Object.Properties.(map[string]interface{})["label"])
 	})
+
+	t.Run("client-supplied dropped multivector is rejected", func(t *testing.T) {
+		shard, class := setupDropVectorShard(t, ctx)
+		obj := dropVecMultiObject(t, "a")
+		require.NoError(t, shard.PutObject(ctx, obj))
+
+		markDropped(class, "mv")
+
+		err := shard.MergeObject(ctx, objects.MergeDocument{
+			ID:              obj.ID(),
+			Class:           dropVecClassName,
+			PrimitiveSchema: map[string]interface{}{"label": "b"},
+			Vectors:         models.Vectors{"mv": [][]float32{{5, 6}, {7, 8}}},
+			UpdateTime:      2_000,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "vector index not found")
+		require.Contains(t, err.Error(), "mv")
+	})
+
+	t.Run("property-only merge carrying a dropped multivector succeeds", func(t *testing.T) {
+		shard, class := setupDropVectorShard(t, ctx)
+		obj := dropVecMultiObject(t, "a")
+		require.NoError(t, shard.PutObject(ctx, obj))
+
+		markDropped(class, "mv")
+		require.NoError(t, shard.DropVectorIndex(ctx, "mv"))
+
+		// mergeProps copies MultiVectors forward too; the re-index loop must skip
+		// the carried-over dropped multivector instead of erroring.
+		require.NoError(t, shard.MergeObject(ctx, objects.MergeDocument{
+			ID:              obj.ID(),
+			Class:           dropVecClassName,
+			PrimitiveSchema: map[string]interface{}{"label": "b"},
+			UpdateTime:      2_000,
+		}))
+
+		retrieved, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+		require.NoError(t, err)
+		require.NotNil(t, retrieved)
+		require.Equal(t, "b", retrieved.Object.Properties.(map[string]interface{})["label"])
+	})
 }
 
 // TestDropVectorIndex_BatchRejected covers the batch path
@@ -179,7 +236,7 @@ func TestDropVectorIndex_BatchRejected(t *testing.T) {
 
 	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "warmup", true)))
 
-	markFooDropped(class)
+	markDropped(class, "foo")
 
 	withFoo := dropVecObject(t, "withfoo", true)
 	withoutFoo := dropVecObject(t, "withoutfoo", false)

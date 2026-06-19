@@ -26,6 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -160,11 +161,16 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	eg := enterrors.NewErrorGroupWrapper(ob.shard.Index().logger)
 	eg.SetLimit(_NUMCPU)
 
+	// Read the class once: it is invariant across the batch, and getClass()
+	// clones the class on every call. Passed into the per-item dropped-vector
+	// guard below.
+	class := ob.shard.Index().getClass()
+
 	for j, object := range batch {
 		object := object
 		index := j
 		f := func() error {
-			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
+			if err := ob.storeObjectOfBatchInLSM(ctx, class, index, object); err != nil {
 				errLock.Lock()
 				errs[index] = err
 				errLock.Unlock()
@@ -180,7 +186,7 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 }
 
 func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
-	objectIndex int, object *storobj.Object,
+	class *models.Class, objectIndex int, object *storobj.Object,
 ) error {
 	if _, ok := ob.duplicates[objectIndex]; ok {
 		return nil
@@ -188,7 +194,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 
 	// Reject batch items carrying a dropped vector before persisting anything.
 	if len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
-		if err := rejectDroppedObjectVectors(ob.shard.Index().getClass(), object); err != nil {
+		if err := rejectDroppedObjectVectors(class, object); err != nil {
 			return err
 		}
 	}

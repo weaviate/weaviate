@@ -78,7 +78,10 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
 	// Read once for both the reject below and the carried-over skip in the
 	// re-index loop. The guard lives here, not in MergeObject, because
-	// replication enters merge directly (shard_replication.go).
+	// replication enters merge directly (shard_replication.go). This is a
+	// consistent snapshot: a drop applying after this read uses the pre-drop
+	// view for the rest of the call — the same inherent concurrent-schema-change
+	// window that predates this guard, not widened by it.
 	class := s.index.getClass()
 
 	// Reject a merge that explicitly supplies a dropped vector.
@@ -100,9 +103,6 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 	}
 
 	for targetVector, vector := range obj.Vectors {
-		// mergeProps copies prev vectors forward when the merge omits them, so
-		// a dropped vector can reach here; skip it rather than re-index into a
-		// queue that no longer exists.
 		if isDroppedVectorIndex(class, targetVector) {
 			continue
 		}
