@@ -25,6 +25,11 @@ type UsageConfig struct {
 	S3Bucket *runtime.DynamicValue[string] `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
 	S3Prefix *runtime.DynamicValue[string] `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
 
+	DOBucket   *runtime.DynamicValue[string] `json:"usage_do_bucket" yaml:"usage_do_bucket"`
+	DOPrefix   *runtime.DynamicValue[string] `json:"usage_do_prefix" yaml:"usage_do_prefix"`
+	DORegion   *runtime.DynamicValue[string] `json:"usage_do_region" yaml:"usage_do_region"`
+	DOEndpoint *runtime.DynamicValue[string] `json:"usage_do_endpoint" yaml:"usage_do_endpoint"`
+
 	ScrapeInterval      *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
 	ShardJitterInterval *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
 	PolicyVersion       *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
