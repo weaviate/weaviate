@@ -65,20 +65,9 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/.well-known/openid-configuration",
 		"/.well-known/ready",
 		"/meta",
-		"/users/own-info",             // will return info for own user
-		"/replication/replicate/{id}", // for the same reason as backups above
-		"/replication/replicate/{id}/cancel",
-		"/replication/sharding-state",
+		"/users/own-info",       // will return info for own user
 		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
-		// TODO: these leak status (404 for aliases, 501 for replication) before
-		// authz runs, so a caller without permission learns the resource exists.
-		// Fix by moving authz to the top of each handler, then drop these entries.
-		"/aliases/{aliasName}",
-		"/replication/replicate",
-		"/replication/replicate/force-delete",
-		"/replication/replicate/list",
-		"/replication/scale",
 	}
 
 	// These leak 404 on a non-existent backup ID because the meta is read

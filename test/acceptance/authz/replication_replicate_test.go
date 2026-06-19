@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -154,6 +155,72 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 			require.Nil(ct, err)
 			require.IsType(ct, replication.NewDeleteReplicationNoContent(), resp)
 		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error")
+	})
+
+	var (
+		errListForbidden          *replication.ListReplicationForbidden
+		errForceDeleteForbidden   *replication.ForceDeleteReplicationsForbidden
+		errShardingStateForbidden *replication.GetCollectionShardingStateForbidden
+		errScalePlanForbidden     *replication.GetReplicationScalePlanForbidden
+		errApplyScaleForbidden    *replication.ApplyReplicationScalePlanForbidden
+	)
+
+	wildcardRead := &models.Permission{
+		Action:    &authorization.ReadReplicate,
+		Replicate: &models.PermissionReplicate{},
+	}
+	wildcardUpdate := &models.Permission{
+		Action:    &authorization.UpdateReplicate,
+		Replicate: &models.PermissionReplicate{Collection: req.Collection},
+	}
+	wildcardDelete := &models.Permission{
+		Action:    &authorization.DeleteReplicate,
+		Replicate: &models.PermissionReplicate{},
+	}
+	helper.AddPermissions(t, adminKey, testRoleName, wildcardRead, wildcardUpdate, wildcardDelete)
+
+	t.Run("list replications with READ permissions", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams(), helper.CreateAuth(customKey))
+			require.NotErrorAs(ct, err, &errListForbidden)
+		}, 10*time.Second, 500*time.Millisecond, "list should not be forbidden")
+	})
+
+	t.Run("force-delete replications with DELETE permissions", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.ForceDeleteReplications(replication.NewForceDeleteReplicationsParams(), helper.CreateAuth(customKey))
+			require.NotErrorAs(ct, err, &errForceDeleteForbidden)
+		}, 10*time.Second, 500*time.Millisecond, "force-delete should not be forbidden")
+	})
+
+	t.Run("get sharding state with READ permissions", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.GetCollectionShardingState(
+				replication.NewGetCollectionShardingStateParams().WithCollection(req.Collection), helper.CreateAuth(customKey))
+			require.NotErrorAs(ct, err, &errShardingStateForbidden)
+		}, 10*time.Second, 500*time.Millisecond, "sharding-state should not be forbidden")
+	})
+
+	t.Run("get scale plan with READ permissions", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.GetReplicationScalePlan(
+				replication.NewGetReplicationScalePlanParams().WithCollection(*req.Collection).WithReplicationFactor(1), helper.CreateAuth(customKey))
+			require.NotErrorAs(ct, err, &errScalePlanForbidden)
+		}, 10*time.Second, 500*time.Millisecond, "scale plan should not be forbidden")
+	})
+
+	t.Run("apply scale plan with UPDATE permissions", func(t *testing.T) {
+		planID := strfmt.UUID(uuid.NewString())
+		body := &models.ReplicationScalePlan{
+			PlanID:            planID,
+			Collection:        *req.Collection,
+			ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{},
+		}
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+				replication.NewApplyReplicationScalePlanParams().WithBody(body), helper.CreateAuth(customKey))
+			require.NotErrorAs(ct, err, &errApplyScaleForbidden)
+		}, 10*time.Second, 500*time.Millisecond, "apply scale plan should not be forbidden")
 	})
 }
 

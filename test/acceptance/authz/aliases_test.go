@@ -28,6 +28,7 @@ func TestAuthzAliases(t *testing.T) {
 
 	customUser := "custom-user"
 	customKey := "custom-key"
+	customKey2 := "custom-key2"
 	limitedUser := "limited-user"
 	limitedKey := "limited-key"
 	customRole := "custom"
@@ -91,5 +92,30 @@ func TestAuthzAliases(t *testing.T) {
 		resp, err := helper.Client(t).Schema.AliasesGetAlias(params, helper.CreateAuth(limitedKey))
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
+	})
+
+	t.Run("no-permission caller gets 403 not 404 for a non-existent alias", func(t *testing.T) {
+		params := schema.NewAliasesGetAliasParams().WithAliasName("DoesNotExist")
+		_, err := helper.Client(t).Schema.AliasesGetAlias(params, helper.CreateAuth(customKey2))
+		require.NotNil(t, err)
+		require.IsType(t, schema.NewAliasesGetAliasForbidden(), err)
+
+		delParams := schema.NewAliasesDeleteParams().WithAliasName("DoesNotExist")
+		_, err = helper.Client(t).Schema.AliasesDelete(delParams, helper.CreateAuth(customKey2))
+		require.NotNil(t, err)
+		require.IsType(t, schema.NewAliasesDeleteForbidden(), err)
+	})
+
+	t.Run("a user with delete_aliases permission can delete an existing alias", func(t *testing.T) {
+		deleteAliasesRole := "delete-aliases"
+		helper.CreateRole(t, adminKey, &models.Role{Name: &deleteAliasesRole, Permissions: []*models.Permission{
+			helper.NewAliasesPermission().WithAction(authorization.DeleteAliases).Permission(),
+		}})
+		helper.AssignRoleToUser(t, adminKey, deleteAliasesRole, limitedUser)
+
+		params := schema.NewAliasesDeleteParams().WithAliasName(otherAlias1)
+		resp, err := helper.Client(t).Schema.AliasesDelete(params, helper.CreateAuth(limitedKey))
+		require.Nil(t, err)
+		require.IsType(t, schema.NewAliasesDeleteNoContent(), resp)
 	})
 }

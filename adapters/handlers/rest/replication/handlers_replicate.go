@@ -29,15 +29,22 @@ import (
 )
 
 func (h *replicationHandler) replicate(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
-	if err := params.Body.Validate(nil /* pass nil as we don't validate formatting here*/); err != nil {
-		return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
-
-	collection := schema.UppercaseClassName(*params.Body.Collection)
 	ctx := params.HTTPRequest.Context()
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Replications(collection, *params.Body.Shard)); err != nil {
+	collection := "*"
+	if params.Body != nil && params.Body.Collection != nil {
+		collection = schema.UppercaseClassName(*params.Body.Collection)
+	}
+	shard := "*"
+	if params.Body != nil && params.Body.Shard != nil {
+		shard = *params.Body.Shard
+	}
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Replications(collection, shard)); err != nil {
 		return replication.NewReplicateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := params.Body.Validate(nil /* pass nil as we don't validate formatting here*/); err != nil {
+		return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	id, err := uuid.NewRandom()
@@ -188,6 +195,9 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
+			return replication.NewDeleteReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
 		return replication.NewDeleteReplicationNoContent()
 	} else if err != nil {
 		return replication.NewDeleteReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -336,6 +346,9 @@ func (h *replicationHandler) cancelReplication(params replication.CancelReplicat
 
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications("*", "*")); err != nil {
+			return replication.NewCancelReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
 		return replication.NewCancelReplicationNoContent()
 	} else if err != nil {
 		return replication.NewCancelReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -420,18 +433,22 @@ func (h *replicationHandler) generateShardingState(collection string, shards map
 
 func (h *replicationHandler) getCollectionShardingState(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	if params.Collection == nil {
-		return replication.NewGetCollectionShardingStateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection is required")))
-	}
-	collection := *params.Collection
 
 	shard := "*"
 	if params.Shard != nil {
 		shard = *params.Shard
 	}
 
+	collection := "*"
+	if params.Collection != nil {
+		collection = *params.Collection
+	}
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(collection, shard)); err != nil {
 		return replication.NewGetCollectionShardingStateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if params.Collection == nil {
+		return replication.NewGetCollectionShardingStateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection is required")))
 	}
 
 	var shardingState api.ShardingState
@@ -458,6 +475,16 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 func (h *replicationHandler) getReplicationScalePlan(params replication.GetReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
+	collection := params.Collection
+	if collection == "" {
+		collection = "*"
+	}
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(collection, "*")); err != nil {
+		return replication.NewGetReplicationScalePlanForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(err),
+		)
+	}
+
 	// Validate input
 	if params.Collection == "" {
 		return replication.NewGetReplicationScalePlanBadRequest().WithPayload(
@@ -467,13 +494,6 @@ func (h *replicationHandler) getReplicationScalePlan(params replication.GetRepli
 	if params.ReplicationFactor <= 0 {
 		return replication.NewGetReplicationScalePlanBadRequest().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("replication factor must be greater than zero")),
-		)
-	}
-
-	// Authorize
-	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(params.Collection, "*")); err != nil {
-		return replication.NewGetReplicationScalePlanForbidden().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(err),
 		)
 	}
 
@@ -513,17 +533,20 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 
 	modelsScalePlan := params.Body
 
+	collection := "*"
+	if modelsScalePlan != nil && modelsScalePlan.Collection != "" {
+		collection = modelsScalePlan.Collection
+	}
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications(collection, "*")); err != nil {
+		return replication.NewApplyReplicationScalePlanForbidden().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(err),
+		)
+	}
+
 	// Validate input non nil body and not nil scale plan
 	if modelsScalePlan == nil || modelsScalePlan.PlanID == "" || modelsScalePlan.Collection == "" {
 		return replication.NewApplyReplicationScalePlanBadRequest().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("a valid scale plan with plan ID and collection name must be provided")),
-		)
-	}
-
-	// Authorize
-	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications(modelsScalePlan.Collection, "*")); err != nil {
-		return replication.NewApplyReplicationScalePlanForbidden().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(err),
 		)
 	}
 
