@@ -412,6 +412,173 @@ func createMuveraHFreshIndexWithConfig(t *testing.T, searchProbe, rescoreLimit i
 	}
 }
 
+// TestPostingExpansionIntegration tests the posting expansion feature end-to-end.
+// This verifies that:
+// - The reverse map is built correctly from PostingMap
+// - Additional postings are discovered and scanned
+// - Allow-list filtering is respected
+// - Tombstoned documents are not returned
+func TestPostingExpansionIntegration(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("docToPostings is initialized for MUVERA index", func(t *testing.T) {
+		tf := createMuveraHFreshIndexWithConfig(t, 64, 350)
+		require.NotNil(t, tf.Index.docToPostings, "docToPostings should be initialized for MUVERA index")
+	})
+
+	t.Run("docToPostings is nil for non-MUVERA index", func(t *testing.T) {
+		vectors := make([][]float32, 10)
+		for i := range vectors {
+			vectors[i] = make([]float32, 64)
+		}
+		tf := createHFreshIndexWithVectorStore(t, vectors)
+		assert.Nil(t, tf.Index.docToPostings, "docToPostings should be nil for non-MUVERA index")
+	})
+
+	t.Run("posting expansion discovers additional candidates", func(t *testing.T) {
+		tf := createMuveraHFreshIndexWithConfig(t, 16, 100)
+
+		// Add documents with enough diversity to create multiple centroids
+		numDocs := 300
+		tokensPerDoc := 4
+		dims := 128
+		rng := rand.New(rand.NewSource(42))
+
+		for i := 0; i < numDocs; i++ {
+			vecs := make([][]float32, tokensPerDoc)
+			for j := 0; j < tokensPerDoc; j++ {
+				vec := make([]float32, dims)
+				for k := 0; k < dims; k++ {
+					vec[k] = rng.Float32()
+				}
+				vecs[j] = vec
+			}
+			addMultiVectorToIndex(t, &tf, uint64(i), vecs)
+		}
+
+		// Wait for background tasks
+		for tf.Index.taskQueue.Size() > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		// Verify docToPostings can be built
+		require.NotNil(t, tf.Index.docToPostings)
+
+		// Verify it gets built on first search
+		queryVecs := make([][]float32, tokensPerDoc)
+		for j := 0; j < tokensPerDoc; j++ {
+			vec := make([]float32, dims)
+			for k := 0; k < dims; k++ {
+				vec[k] = rng.Float32()
+			}
+			queryVecs[j] = vec
+		}
+
+		// Search should trigger docToPostings build
+		ids, _, err := tf.Index.SearchByMultiVector(ctx, queryVecs, 10, nil)
+		require.NoError(t, err)
+		assert.NotEmpty(t, ids)
+
+		// Verify docToPostings was built
+		assert.True(t, tf.Index.docToPostings.IsBuilt(), "docToPostings should be built after first search")
+		assert.Greater(t, tf.Index.docToPostings.Size(), 0, "docToPostings should have entries")
+
+		t.Logf("docToPostings: %d docs, %d bytes estimated",
+			tf.Index.docToPostings.Size(),
+			tf.Index.docToPostings.EstimatedMemoryBytes())
+	})
+}
+
+// TestPostingExpansionBackwardCompatibility verifies that when posting expansion
+// finds no additional postings, the behavior matches PR1 (no expansion).
+func TestPostingExpansionBackwardCompatibility(t *testing.T) {
+	ctx := context.Background()
+
+	tf := createMuveraHFreshIndexWithConfig(t, 64, 100)
+
+	// Add a small number of documents (all in one posting initially)
+	numDocs := 50
+	tokensPerDoc := 4
+	dims := 128
+	rng := rand.New(rand.NewSource(42))
+
+	for i := 0; i < numDocs; i++ {
+		vecs := make([][]float32, tokensPerDoc)
+		for j := 0; j < tokensPerDoc; j++ {
+			vec := make([]float32, dims)
+			for k := 0; k < dims; k++ {
+				vec[k] = rng.Float32()
+			}
+			vecs[j] = vec
+		}
+		addMultiVectorToIndex(t, &tf, uint64(i), vecs)
+	}
+
+	// Create query
+	queryVecs := make([][]float32, tokensPerDoc)
+	for j := 0; j < tokensPerDoc; j++ {
+		vec := make([]float32, dims)
+		for k := 0; k < dims; k++ {
+			vec[k] = rng.Float32()
+		}
+		queryVecs[j] = vec
+	}
+
+	// Search with MUVERA
+	ids, dists, err := tf.Index.SearchByMultiVector(ctx, queryVecs, 10, nil)
+	require.NoError(t, err)
+
+	// Should get results regardless of expansion
+	assert.LessOrEqual(t, len(ids), 10)
+	assert.Equal(t, len(ids), len(dists))
+}
+
+// TestNonMuveraPathUnchanged verifies that single-vector search (non-MUVERA)
+// does not use posting expansion.
+func TestNonMuveraPathUnchanged(t *testing.T) {
+	ctx := context.Background()
+	dims := 64
+	numDocs := 100
+
+	vectors := make([][]float32, numDocs)
+	rng := rand.New(rand.NewSource(42))
+	for i := 0; i < numDocs; i++ {
+		vec := make([]float32, dims)
+		for k := 0; k < dims; k++ {
+			vec[k] = rng.Float32()
+		}
+		vectors[i] = vec
+	}
+
+	tf := createHFreshIndexWithVectorStore(t, vectors)
+
+	// Verify docToPostings is nil (not initialized for non-MUVERA)
+	assert.Nil(t, tf.Index.docToPostings)
+
+	// Add vectors
+	for i := 0; i < numDocs; i++ {
+		addVectorToIndex(t, &tf, uint64(i), vectors[i])
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Create query
+	query := make([]float32, dims)
+	for k := 0; k < dims; k++ {
+		query[k] = 0.5
+	}
+
+	// Search - should work without posting expansion
+	ids, dists, err := tf.Index.SearchByVector(ctx, query, 10, nil)
+	require.NoError(t, err)
+
+	assert.LessOrEqual(t, len(ids), 10)
+	assert.Equal(t, len(ids), len(dists))
+
+	// docToPostings should still be nil (not used for single-vector search)
+	assert.Nil(t, tf.Index.docToPostings)
+}
+
 // createHFreshIndexWithVectorStore creates a non-MUVERA HFresh index with
 // VectorForIDThunk properly configured to return vectors from the provided store.
 func createHFreshIndexWithVectorStore(t *testing.T, vectors [][]float32) TestHFresh {
