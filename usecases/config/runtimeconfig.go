@@ -102,12 +102,6 @@ type WeaviateRuntimeConfig struct {
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_certificate" json:"authentication_oidc_certificate"`
 	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
 	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
-
-	// skippedFields holds the YAML keys that failed to decode in this parse. Such
-	// a field is left untouched on update (neither applied nor reset), so a
-	// malformed value keeps whatever was already in effect instead of reverting
-	// to the default. Unexported so it is not (un)marshaled.
-	skippedFields map[string]struct{}
 }
 
 // FieldError reports a single runtime-config key that failed to decode into its
@@ -161,10 +155,6 @@ func ParseRuntimeConfigPartial(buf []byte) (*WeaviateRuntimeConfig, []FieldError
 		fp := reflect.New(t.Field(i).Type.Elem())
 		if err := node.Decode(fp.Interface()); err != nil {
 			fieldErrs = append(fieldErrs, FieldError{Field: key, Err: err})
-			if conf.skippedFields == nil {
-				conf.skippedFields = make(map[string]struct{})
-			}
-			conf.skippedFields[key] = struct{}{}
 			continue
 		}
 		v.Field(i).Set(fp)
@@ -184,12 +174,12 @@ func yamlKey(sf reflect.StructField) string {
 
 // UpdateConfig does in-place update of `source` config based on values available in
 // `parsed` config.
-func UpdateRuntimeConfig(log logrus.FieldLogger, source, parsed *WeaviateRuntimeConfig, hooks map[string]func() error) error {
+func UpdateRuntimeConfig(log logrus.FieldLogger, source, parsed *WeaviateRuntimeConfig, skipped map[string]struct{}, hooks map[string]func() error) error {
 	if source == nil || parsed == nil {
 		return fmt.Errorf("source and parsed cannot be nil")
 	}
 
-	updateRuntimeConfig(log, reflect.ValueOf(*source), reflect.ValueOf(*parsed), parsed.skippedFields, hooks)
+	updateRuntimeConfig(log, reflect.ValueOf(*source), reflect.ValueOf(*parsed), skipped, hooks)
 	return nil
 }
 
@@ -242,10 +232,6 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, s
 
 	for i := range source.NumField() {
 		sfType := source.Type().Field(i)
-		// Unexported bookkeeping fields (e.g. skippedFields) are not config values.
-		if !sfType.IsExported() {
-			continue
-		}
 		// A field whose value failed to decode is left as-is: don't apply the bad
 		// value, but don't reset it to the default either.
 		if _, skip := skipped[yamlKey(sfType)]; skip {

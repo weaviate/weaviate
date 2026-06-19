@@ -2315,11 +2315,12 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		}
 
 		// parser decodes the overrides file field-by-field. A value that fails to
-		// decode is logged and skipped so the remaining valid fields still apply;
-		// only a malformed document aborts the whole load.
-		parser := func(b []byte) (*config.WeaviateRuntimeConfig, error) {
+		// decode is logged and recorded in skipped so the remaining valid fields
+		// still apply; only a malformed document aborts the whole load.
+		parser := func(b []byte, skipped map[string]struct{}) (*config.WeaviateRuntimeConfig, error) {
 			cfg, fieldErrs, err := config.ParseRuntimeConfigPartial(b)
 			for _, fe := range fieldErrs {
+				skipped[fe.Field] = struct{}{}
 				appState.Logger.WithFields(logrus.Fields{
 					"action": "runtime_overrides_parse",
 					"field":  fe.Field,

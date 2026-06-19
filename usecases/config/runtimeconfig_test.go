@@ -188,7 +188,7 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -209,7 +209,7 @@ replica_movement_minimum_async_wait: 10s`)
 		// 1. apply a valid override (13 differs from the default 0)
 		parsed, err := ParseRuntimeConfig([]byte(`maximum_allowed_collections_count: 13`))
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 13, colCount.Get())
 
 		// 2. reload where that same field is malformed, alongside a valid sibling
@@ -219,7 +219,8 @@ autoschema_enabled: true`))
 		require.Len(t, fieldErrs, 1)
 		assert.Equal(t, "maximum_allowed_collections_count", fieldErrs[0].Field)
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		skipped := map[string]struct{}{fieldErrs[0].Field: {}}
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, skipped, nil))
 
 		// malformed field keeps the previously-applied 13: not reset to the
 		// default 0, and not the bad value
@@ -261,7 +262,7 @@ autoschema_enabled: true`))
 		assert.Nil(t, parsed.TenantActivityWriteLogLevel)
 		assert.Nil(t, parsed.RevectorizeCheckDisabled)
 
-		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, 10, source.MaximumAllowedCollectionsCount.Get())
 		assert.Equal(t, true, source.AutoschemaEnabled.Get())
 		assert.Equal(t, true, source.AsyncReplicationDisabled.Get())
@@ -275,7 +276,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, 13, source.MaximumAllowedCollectionsCount.Get()) // changed
 		assert.Equal(t, false, source.AutoschemaEnabled.Get())           // changed
 		assert.Equal(t, true, source.AsyncReplicationDisabled.Get())
@@ -288,7 +289,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, 10, source.MaximumAllowedCollectionsCount.Get())
 		assert.Equal(t, true, source.AutoschemaEnabled.Get())
 		assert.Equal(t, true, source.AsyncReplicationDisabled.Get())
@@ -320,7 +321,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 
-		require.NotPanics(t, func() { UpdateRuntimeConfig(log, reg, parsed, nil) })
+		require.NotPanics(t, func() { UpdateRuntimeConfig(log, reg, parsed, nil, nil) })
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -352,7 +353,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 7, colCount.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '7' to '13'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=13 old_value=7`)
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'AutoschemaEnabled' changed from 'false' to 'true'" action=runtime_overrides_changed field=AutoschemaEnabled new_value=true old_value=false`)
 		logs.Reset()
@@ -363,7 +364,7 @@ maximum_allowed_collections_count: 10`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '13' to '10'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=10 old_value=13`)
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'AutoschemaEnabled' changed from 'true' to 'false'" action=runtime_overrides_changed field=AutoschemaEnabled new_value=false old_value=true`)
 		logs.Reset()
@@ -373,7 +374,7 @@ maximum_allowed_collections_count: 10`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '10' to '7'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=7 old_value=10`)
 	})
 
@@ -415,7 +416,7 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
 		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -433,7 +434,7 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 
 		// after update.
 		assert.Equal(t, false, autoSchema.Get())
@@ -455,21 +456,21 @@ replica_movement_minimum_async_wait: 10s`)
 		buf := []byte(`raft_drain_sleep: 5s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 5*time.Second, raftDrainSleep.Get())
 
 		// update to 10s
 		buf = []byte(`raft_drain_sleep: 10s`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 10*time.Second, raftDrainSleep.Get())
 
 		// remove -> back to default
 		buf = []byte(``)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 0*time.Second, raftDrainSleep.Get())
 	})
 
@@ -487,21 +488,21 @@ replica_movement_minimum_async_wait: 10s`)
 		buf := []byte(`raft_timeouts_multiplier: 2`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 2, raftTimeoutsMultiplier.Get())
 
 		// update to 3
 		buf = []byte(`raft_timeouts_multiplier: 3`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 3, raftTimeoutsMultiplier.Get())
 
 		// remove -> back to default
 		buf = []byte(``)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 0, raftTimeoutsMultiplier.Get())
 	})
 
@@ -532,25 +533,25 @@ replica_movement_minimum_async_wait: 10s`)
 			// set to 2h (without seconds)
 			parsed, err := ParseRuntimeConfig(buf("0 */2 * * *"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "0 */2 * * *", deleteSchedule.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf("* * * *"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "0 */2 * * *", deleteSchedule.Get())
 
 			// update to 3h (with seconds)
 			parsed, err = ParseRuntimeConfig(buf("0 0 */3 * * *"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "0 0 */3 * * *", deleteSchedule.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, "@every 1h", deleteSchedule.Get())
 		})
 
@@ -565,25 +566,25 @@ replica_movement_minimum_async_wait: 10s`)
 			// set to 20k
 			parsed, err := ParseRuntimeConfig(buf(20_000))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20_000, batchSize.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf(-10_000))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20_000, batchSize.Get())
 
 			// update to 30k
 			parsed, err = ParseRuntimeConfig(buf(30_000))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 30_000, batchSize.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, DefaultObjectsTTLBatchSize, batchSize.Get())
 		})
 
@@ -598,25 +599,25 @@ replica_movement_minimum_async_wait: 10s`)
 			// set to 20
 			parsed, err := ParseRuntimeConfig(buf(20))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20, pauseEveryNoBatches.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf(-10))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 20, pauseEveryNoBatches.Get())
 
 			// update to 30
 			parsed, err = ParseRuntimeConfig(buf(30))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 30, pauseEveryNoBatches.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, DefaultObjectsTTLPauseEveryNoBatches, pauseEveryNoBatches.Get())
 		})
 
@@ -631,25 +632,25 @@ replica_movement_minimum_async_wait: 10s`)
 			// set to 2 mins
 			parsed, err := ParseRuntimeConfig(buf("2m"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2*time.Minute, pauseDuration.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf("-1h"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2*time.Minute, pauseDuration.Get())
 
 			// update to 3 hours
 			parsed, err = ParseRuntimeConfig(buf("3h"))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 3*time.Hour, pauseDuration.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, DefaultObjectsTTLPauseDuration, pauseDuration.Get())
 		})
 
@@ -664,25 +665,25 @@ replica_movement_minimum_async_wait: 10s`)
 			// set to 2
 			parsed, err := ParseRuntimeConfig(buf(2))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2., concurrencyFactor.Get())
 
 			// try set invalid value
 			parsed, err = ParseRuntimeConfig(buf(-1))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 2., concurrencyFactor.Get())
 
 			// update to 3
 			parsed, err = ParseRuntimeConfig(buf(3))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, 3., concurrencyFactor.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
 		})
 	})
@@ -729,7 +730,7 @@ func TestExportDefaultPathRuntimeOverride(t *testing.T) {
 
 			parsed, err := ParseRuntimeConfig([]byte(tt.runtimeConfig))
 			require.NoError(t, err)
-			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 
 			assert.Equal(t, tt.expectedPath, defaultPath.Get())
 		})
