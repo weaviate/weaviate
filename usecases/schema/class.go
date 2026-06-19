@@ -528,7 +528,17 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	initial := h.schemaReader.ReadOnlyClass(className)
 
 	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
-		return err
+		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
+		if qErr != nil {
+			return err
+		}
+		consistent, ok := vclasses[className]
+		if !ok || consistent.Class == nil {
+			return err
+		}
+		if err := rejectVectorIndexTypeNone(consistent.Class, updated); err != nil {
+			return err
+		}
 	}
 
 	if err := h.validateVectorSettingsAgainst(updated, initial); err != nil {

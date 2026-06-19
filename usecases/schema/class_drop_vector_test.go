@@ -15,10 +15,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/entities/versioned"
 )
 
 func TestDropVectorIndex_RejectVectorIndexTypeNone(t *testing.T) {
@@ -118,6 +120,9 @@ func TestDropVectorIndex_UpdateClassRejectsNoneIntroduction(t *testing.T) {
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("ReadOnlyClass", prev.Class).Return(prev)
+	// Leader-consistent view agrees the index is live, so the rejection stands.
+	fakeSchemaManager.On("QueryReadOnlyClasses", []string{prev.Class}).
+		Return(map[string]versioned.Class{prev.Class: {Class: prev}}, nil)
 
 	updated := &models.Class{
 		Class: "DropSentinelClass",
@@ -130,4 +135,52 @@ func TestDropVectorIndex_UpdateClassRejectsNoneIntroduction(t *testing.T) {
 	err := handler.UpdateClass(ctx, nil, updated.Class, updated)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "internal sentinel for dropped indexes")
+}
+
+func TestDropVectorIndex_UpdateClassAllowsExistingNoneOnStaleNode(t *testing.T) {
+	ctx := context.Background()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+	className := "DropSentinelClass"
+	// Stale local read: still shows foo as a live hnsw index.
+	stale := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"foo": {
+				VectorIndexType: hnswT,
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+	// Leader-consistent read: foo already dropped.
+	dropped := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"foo": {
+				VectorIndexType: modelsext.VectorIndexTypeNone,
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+	fakeSchemaManager.On("ReadOnlyClass", className).Return(stale)
+	fakeSchemaManager.On("QueryReadOnlyClasses", []string{className}).
+		Return(map[string]versioned.Class{className: {Class: dropped}}, nil)
+	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+	updated := &models.Class{
+		Class:       className,
+		Description: "updated after drop",
+		VectorConfig: map[string]models.VectorConfig{
+			"foo": {
+				VectorIndexType: modelsext.VectorIndexTypeNone,
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+
+	err := handler.UpdateClass(ctx, nil, className, updated)
+	require.NoError(t, err)
 }
