@@ -124,6 +124,14 @@ func (s *status) Upgrading() {
 	(*atomic.Pointer[string])(s).Store(&upgrading)
 }
 
+// Reset sets the status to nil. This is used to indicate that the index is neither upgraded nor upgrading.
+func (s *status) Reset() {
+	if s == nil {
+		return
+	}
+	(*atomic.Pointer[string])(s).Store(nil)
+}
+
 // Upgraded sets the status to upgraded. This is used to indicate that the index has been upgraded from flat to HNSW.
 func (s *status) Upgraded() {
 	if s == nil {
@@ -558,8 +566,6 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	}
 
 	dynamic.upgradeOnce.Do(func() {
-		// Set before GoWrapper so a movement landing in the goroutine-scheduling
-		// window cannot slip past HaltForTransfer.
 		dynamic.status.Upgrading()
 		enterrors.GoWrapper(func() {
 			defer callback()
@@ -568,6 +574,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 			err := dynamic.doUpgrade()
 			if err != nil {
 				dynamic.logger.WithError(err).Error("failed to upgrade index")
+				dynamic.status.Reset()
 				return
 			}
 			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
