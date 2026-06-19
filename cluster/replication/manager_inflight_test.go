@@ -180,3 +180,45 @@ func TestManager_RetriesDrainBeforeReportingIntegrating(t *testing.T) {
 	require.True(t, m.GetReplicationFSM().AllPeersAtLeast(opID, cmd.INTEGRATING, []string{"node1"}),
 		"node1 should have reached INTEGRATING in the FSM after the drain succeeded")
 }
+
+// Close cancels the (otherwise unbounded) drain retry loop so a stuck shard
+// can't keep the broadcast goroutine alive past shutdown — and the report stays
+// withheld, since the drain never completed.
+func TestManager_CloseCancelsDrainRetry(t *testing.T) {
+	const opID = uint64(4)
+	m := newDrainTestManager(t, opID, "TestClass", "shard1")
+
+	submitted := make(chan cmd.ShardReplicationState, 1)
+	m.SetNodeReachedStateSubmitter("node1", func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error {
+		submitted <- req.State
+		return nil
+	})
+
+	// The drain blocks until cancelled — a shard that never drains.
+	drainEntered := make(chan struct{}, 1)
+	m.SetInflightDrainer(func(ctx context.Context, class, shard string) error {
+		select {
+		case drainEntered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	})
+
+	m.broadcastNodeReachedState(opID, cmd.INTEGRATING)
+
+	select {
+	case <-drainEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain was never attempted")
+	}
+
+	m.Close()
+
+	select {
+	case s := <-submitted:
+		t.Fatalf("must not report %v after Close cancelled the drain", s)
+	case <-time.After(time.Second):
+		// Correct: the drain was cancelled, so the report is withheld.
+	}
+}
