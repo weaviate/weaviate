@@ -401,6 +401,27 @@ func TestSnapshotReader_TruncatedAtBlockBoundaryFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "snapshot body ended")
 }
 
+func TestSnapshotReader_TrailingStandaloneTombstoneLoads(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewSnapshotWriterWithBlockSize(&buf, 256)
+	sw.SetEntrypoint(0, 0)
+	sw.AddNode(0, 0, nil, false)
+	sw.AddTombstone(10)
+	require.NoError(t, sw.Flush())
+
+	sr := NewSnapshotReaderWithBlockSize(logrus.New(), 256)
+	result, err := sr.Read(bytes.NewReader(buf.Bytes()))
+	require.NoError(t, err)
+
+	require.Len(t, result.Graph.Nodes, 11)
+	require.NotNil(t, result.Graph.Nodes[0])
+	for id := 1; id <= 10; id++ {
+		assert.Nil(t, result.Graph.Nodes[id], "standalone tombstone slot %d should load as absent", id)
+		_, ok := result.Graph.Tombstones[uint64(id)]
+		assert.False(t, ok, "standalone tombstone slot %d should not persist a tombstone marker", id)
+	}
+}
+
 // verifySnapshotMetadata checks the snapshot header values
 func verifySnapshotMetadata(t *testing.T, data []byte, expectedEntrypoint uint64, expectedLevel uint16, expectedNodeCount uint32) {
 	t.Helper()

@@ -224,13 +224,13 @@ func (s *SnapshotWriter) addNodeStreaming(nodeID uint64, level uint16, connectio
 
 // AddTombstone marks a standalone tombstone for a nil slot.
 //
-// This does NOT emit a tombstone to the body: the V3 format has only three
-// existence bytes (0=absent, 1=alive-with-tombstone, 2=alive-without-tombstone)
-// and no encoding for a "deleted-with-tombstone" slot, so tombstones on nil
-// slots are dropped on purpose (see the absent-slot handling in bodyStreamer
-// for why that is safe under the runtime's cleanup ordering). Its only visible
-// effect is on sizing: it extends the node count so the metadata covers nodeID.
-// Use AddNode with hasTombstone=true to persist a tombstone for an alive node.
+// This does NOT emit a tombstone entry to the body: the V3 format has only
+// three existence bytes (0=absent, 1=alive-with-tombstone,
+// 2=alive-without-tombstone) and no encoding for a "deleted-with-tombstone"
+// slot. Its visible effect is sizing: it extends the node count so the
+// metadata covers nodeID, and bodyStreamer.finish emits absent markers through
+// that reserved range. Use AddNode with hasTombstone=true to persist a
+// tombstone for an alive node.
 func (s *SnapshotWriter) AddTombstone(nodeID uint64) {
 	if s.firstErr != nil {
 		return
