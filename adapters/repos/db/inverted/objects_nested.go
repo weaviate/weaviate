@@ -133,7 +133,8 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedP
 	// Only reachable for DataTypeObjectArray with an empty array value: AssignPositions
 	// returns early before appending the root _exists entry, leaving all slices empty.
 	// DataTypeObject always wraps the value in a 1-element slice so this cannot fire.
-	if len(assignResult.Values) == 0 && len(assignResult.Idx) == 0 && len(assignResult.Exists) == 0 {
+	if len(assignResult.Values) == 0 && len(assignResult.Idx) == 0 &&
+		len(assignResult.Exists) == 0 && len(assignResult.Anchors) == 0 {
 		return nil, nil
 	}
 
@@ -190,11 +191,29 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedP
 		})
 	}
 
+	// _anchor entries follow the same per-leaf gating as _exists: leaf
+	// paths with no inverted index are dropped; root and intermediate
+	// object-array paths stay.
+	anchors := make([]NestedMeta, 0, len(assignResult.Anchors))
+	for _, entry := range assignResult.Anchors {
+		if entry.Path != "" {
+			if cfg, isLeaf := indexConfigs[entry.Path]; isLeaf && !cfg.hasAny() {
+				continue
+			}
+		}
+		anchors = append(anchors, NestedMeta{
+			Path:      entry.Path,
+			Index:     -1,
+			Positions: entry.Positions,
+		})
+	}
+
 	return &NestedProperty{
 		Name:               prop.Name,
 		Values:             values,
 		Idx:                idx,
 		Exists:             exists,
+		Anchors:            anchors,
 		HasFilterableIndex: hasFilterable,
 		HasSearchableIndex: hasSearchable,
 		HasRangeableIndex:  hasRangeable,

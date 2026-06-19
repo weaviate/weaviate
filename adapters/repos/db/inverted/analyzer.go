@@ -63,15 +63,17 @@ type NestedProperty struct {
 	Values             []NestedValue // analyzed values for the value bucket
 	Idx                []NestedMeta  // _idx metadata entries
 	Exists             []NestedMeta  // _exists metadata entries
+	Anchors            []NestedMeta  // _anchor metadata entries (per-element self markers)
 	HasFilterableIndex bool          // any value needs the filterable bucket
 	HasSearchableIndex bool          // any value needs the searchable bucket
 	HasRangeableIndex  bool          // any value needs the rangeable bucket
 }
 
-// NestedMeta is an _idx or _exists metadata entry from position assignment.
+// NestedMeta is an _idx, _exists, or _anchor metadata entry from position
+// assignment.
 type NestedMeta struct {
 	Path      string   // e.g. "addresses" for _idx, "owner.firstname" for _exists
-	Index     int      // 0-based element index (only used for _idx; -1 for _exists)
+	Index     int      // 0-based element index (only used for _idx; -1 for _exists / _anchor)
 	Positions []uint64 // positions with docID=0
 }
 

@@ -107,3 +107,14 @@ func ExistsKey(path string) []byte {
 	}
 	return hashKey("_exists."+path, nil)
 }
+
+// AnchorKey builds the key for an _anchor metadata entry:
+// hash12("_anchor." + path) for named paths, or hash12("_anchor") for root.
+// The value bucket holds per-element self markers — one bit per element
+// instance at that path, with no chain or descendant bits.
+func AnchorKey(path string) []byte {
+	if path == "" {
+		return hashKey("_anchor", nil)
+	}
+	return hashKey("_anchor."+path, nil)
+}
