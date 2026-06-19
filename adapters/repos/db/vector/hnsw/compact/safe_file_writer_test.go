@@ -262,6 +262,12 @@ func TestCleanupCorruptCondensedFiles(t *testing.T) {
 	err = os.WriteFile(validCondensed, []byte("valid condensed"), 0o666)
 	require.NoError(t, err)
 
+	// Create a .sorted file with the same timestamp as a .condensed source
+	// (simulates interrupted condensed-to-sorted conversion).
+	sortedFromCondensed := filepath.Join(dir, "9999999999.sorted")
+	err = os.WriteFile(sortedFromCondensed, []byte("corrupt sorted"), 0o666)
+	require.NoError(t, err)
+
 	// Run cleanup
 	err = CleanupCorruptCondensedFiles(dir)
 	require.NoError(t, err)
@@ -279,6 +285,10 @@ func TestCleanupCorruptCondensedFiles(t *testing.T) {
 	// Valid .condensed should still exist
 	_, err = os.Stat(validCondensed)
 	require.NoError(t, err, "valid .condensed should still exist")
+
+	// Duplicate .sorted from an unfinished condensed-to-sorted conversion should be removed
+	_, err = os.Stat(sortedFromCondensed)
+	assert.True(t, os.IsNotExist(err), "corrupt .sorted should be removed when .condensed source exists")
 }
 
 func TestCleanupCorruptCondensedFiles_NonExistentDir(t *testing.T) {

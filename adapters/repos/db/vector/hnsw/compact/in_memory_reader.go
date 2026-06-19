@@ -45,8 +45,14 @@ const (
 // is compatible with the v2 WALCommitReader instead of parsing a raw file like
 // the old condensor did.
 type InMemoryReader struct {
-	logger logrus.FieldLogger
-	reader *WALCommitReader
+	logger   logrus.FieldLogger
+	reader   *WALCommitReader
+	hasReset bool
+}
+
+// HasReset reports whether a ResetIndexCommit was applied during the last Do call.
+func (r *InMemoryReader) HasReset() bool {
+	return r.hasReset
 }
 
 // NewInMemoryReader creates a new reader that deserializes commits into memory.
@@ -61,6 +67,8 @@ func NewInMemoryReader(reader *WALCommitReader, logger logrus.FieldLogger) *InMe
 // If initialState is provided, commits are applied on top of it.
 // keepLinkReplaceInformation controls whether LinksReplaced tracking is maintained.
 func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkReplaceInformation bool) (*ent.DeserializationResult, error) {
+	r.hasReset = false
+
 	out := initialState
 	commitTypeMetrics := make(map[HnswCommitType]int)
 
@@ -126,6 +134,7 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 		case *DeleteNodeCommit:
 			err = r.readDeleteNode(commit, out)
 		case *ResetIndexCommit:
+			r.hasReset = true
 			out.Graph.Entrypoint = 0
 			out.Graph.Level = 0
 			out.Graph.Nodes = make([]*ent.Vertex, cache.InitialSize)
