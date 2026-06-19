@@ -20,6 +20,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -372,6 +374,11 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 // This separation allows independent tuning of routing breadth vs reranking depth.
 // The routing stage (centroid selection, posting scan) is controlled only by routingBudget.
 // The ranking stage (RQ1 top-N, candidates for late interaction) is controlled only by rerankBudget.
+//
+// Posting Expansion:
+// After the initial RQ1 ranking, the top candidates' associated postings are identified
+// using a reverse map (docID -> postingIDs). Additional postings are scanned to discover
+// more candidates that may have been missed by the initial centroid selection.
 func (h *HFresh) searchByFDE(
 	ctx context.Context,
 	queryFDE []float32,
@@ -418,6 +425,12 @@ func (h *HFresh) searchByFDE(
 			continue
 		}
 		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
+	}
+
+	// Track which centroids have been scanned (for posting expansion)
+	scannedCentroids := make(map[uint64]struct{}, len(selectedCentroids))
+	for _, c := range selectedCentroids {
+		scannedCentroids[c] = struct{}{}
 	}
 
 	// Step 3: Scan postings from selected centroids
@@ -477,13 +490,122 @@ func (h *HFresh) searchByFDE(
 		}
 	}
 
-	// Step 5: Return top rerankBudget candidates for late interaction
+	// Step 5: Posting expansion for MUVERA
+	// Build the reverse map lazily and expand into additional postings
+	if h.docToPostings != nil {
+		err = h.expandPostings(ctx, q, queryDistancer, visited, allowList, scannedCentroids, &decompressBuf)
+		if err != nil {
+			return nil, errors.Wrap(err, "posting expansion")
+		}
+	}
+
+	// Step 6: Return top rerankBudget candidates for late interaction
 	ids := make([]uint64, 0, q.Len())
 	for id := range q.Iter() {
 		ids = append(ids, id)
 	}
 
 	return ids, nil
+}
+
+// expandPostings performs posting expansion by scanning additional postings
+// associated with the top approximate candidates.
+//
+// This improves recall by discovering candidates that may have been missed
+// by the initial centroid selection, especially when documents have vectors
+// in multiple clusters.
+func (h *HFresh) expandPostings(
+	ctx context.Context,
+	q *ResultSet,
+	queryDistancer *compressionhelpers.BinaryRQDistancer,
+	visited *visited.SparseSet,
+	allowList helpers.AllowList,
+	scannedCentroids map[uint64]struct{},
+	decompressBuf *[]uint64,
+) error {
+	// Build the reverse map lazily on first call
+	if err := h.docToPostings.Build(ctx, h.PostingMap); err != nil {
+		return err
+	}
+
+	// Find additional postings from the top N candidates
+	additionalPostings := make([]uint64, 0, maxAdditionalPostings)
+	candidateCount := 0
+
+	for id := range q.Iter() {
+		if candidateCount >= topKDocsForExpansion {
+			break
+		}
+		candidateCount++
+
+		postings := h.docToPostings.GetPostings(id)
+		for _, postingID := range postings {
+			// Skip postings we've already scanned
+			if _, already := scannedCentroids[postingID]; already {
+				continue
+			}
+			scannedCentroids[postingID] = struct{}{}
+			additionalPostings = append(additionalPostings, postingID)
+
+			if len(additionalPostings) >= maxAdditionalPostings {
+				break
+			}
+		}
+
+		if len(additionalPostings) >= maxAdditionalPostings {
+			break
+		}
+	}
+
+	if len(additionalPostings) == 0 {
+		return nil
+	}
+
+	// Scan the additional postings
+	expandedPostings, err := h.PostingStore.MultiGet(ctx, additionalPostings)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range expandedPostings {
+		if p == nil {
+			continue
+		}
+
+		for _, v := range p {
+			id := v.ID()
+
+			// Skip already visited documents
+			if visited.CheckAndVisit(id) {
+				continue
+			}
+
+			// Check deletion status
+			deleted, err := h.VersionMap.IsDeleted(ctx, id)
+			if err != nil {
+				return errors.Wrapf(err, "failed to check if vector %d is deleted", id)
+			}
+			if deleted {
+				continue
+			}
+
+			// Respect allow-list
+			if allowList != nil && !allowList.Contains(id) {
+				continue
+			}
+
+			// Score and insert into result set
+			*decompressBuf = h.quantizer.FromCompressedBytesInto(v.Data(), *decompressBuf)
+			dist, err := queryDistancer.Distance(*decompressBuf)
+			if err != nil {
+				return errors.Wrapf(err, "failed to compute distance for vector %d", id)
+			}
+
+			q.Insert(id, dist)
+		}
+	}
+
+	return nil
 }
 
 func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
