@@ -161,9 +161,8 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	eg := enterrors.NewErrorGroupWrapper(ob.shard.Index().logger)
 	eg.SetLimit(_NUMCPU)
 
-	// Read the class once: it is invariant across the batch, and getClass()
-	// clones the class on every call. Passed into the per-item dropped-vector
-	// guard below.
+	// Read once and reuse: the class is invariant across the batch and
+	// getClass() clones on every call.
 	class := ob.shard.Index().getClass()
 
 	for j, object := range batch {

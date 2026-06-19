@@ -34,11 +34,10 @@ import (
 
 const dropVecClassName = "DropVectorWriteRejectClass"
 
-// setupDropVectorShard builds a shard with a named vector "foo" (hnsw) and a
-// "label" property. The returned *models.Class is the live schema object the
-// shard reads via getClass(); flipping class.VectorConfig["foo"] to
-// VectorIndexType="none" simulates the drop marker applying without the queue
-// teardown having happened yet.
+// setupDropVectorShard builds a shard with named vectors "foo" (hnsw) and "mv"
+// (multivector) plus a "label" property. The returned *models.Class is the live
+// schema object the shard reads via getClass(), so markDropped simulates the
+// drop marker applying before queue teardown has happened.
 func setupDropVectorShard(t *testing.T, ctx context.Context) (*Shard, *models.Class) {
 	t.Helper()
 	class := &models.Class{
@@ -165,10 +164,9 @@ func TestDropVectorIndex_MergeRejected(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 
 		markDropped(class, "foo")
-		// Tear the queue down for the real post-drop state: the stored object
-		// still carries the foo vector but GetVectorIndexQueue returns !ok. The
-		// merge omits vectors, so mergeProps copies foo forward; the re-index
-		// loop must skip it instead of erroring on the missing queue.
+		// Tear the queue down too, for the real post-drop state: the stored
+		// object still carries foo, but mergeProps copies it forward and the
+		// re-index loop must skip it rather than error on the missing queue.
 		require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 
 		require.NoError(t, shard.MergeObject(ctx, objects.MergeDocument{
@@ -178,7 +176,6 @@ func TestDropVectorIndex_MergeRejected(t *testing.T) {
 			UpdateTime:      2_000,
 		}))
 
-		// The property update must have been persisted.
 		retrieved, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
 		require.NoError(t, err)
 		require.NotNil(t, retrieved)
