@@ -85,6 +85,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		if errors.As(err, &e3) {
 			return fmt.Errorf("delete object from vector repo: %w", err)
 		}
+		var e4 ErrNotFound
+		if errors.As(err, &e4) {
+			return err
+		}
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
 
