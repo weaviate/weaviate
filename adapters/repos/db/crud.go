@@ -32,6 +32,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
+// EnsureReplicaCaughtUp waits for the local RAFT replica to catch up to the
+// leader's applied index for the shard that owns the given object. This is
+// called before local reads in update/merge paths to avoid stale reads.
+func (db *DB) EnsureReplicaCaughtUp(ctx context.Context, class string, id strfmt.UUID, tenant string) error {
+	idx := db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return nil
+	}
+	return idx.ensureReplicaCaughtUp(ctx, id, tenant)
+}
+
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32, vectors map[string][]float32, multivectors map[string][][]float32,
 	repl *additional.ReplicationProperties,

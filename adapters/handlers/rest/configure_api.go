@@ -71,6 +71,8 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/cluster/shard"
+	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -391,6 +393,54 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Metrics = promMetrics
 	}
 
+	rpcClientMaker := func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
+		addr, ok := appState.Cluster.NodeHostname(nodeID)
+		if !ok {
+			return nil, fmt.Errorf("could not resolve hostname for node %s", nodeID)
+		}
+		clientConn, err := appState.GRPCConnManager.GetConn(addr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get gRPC connection to %s: %w", addr, err)
+		}
+		return shardproto.NewShardReplicationServiceClient(clientConn), nil
+	}
+
+	nodeName := appState.Cluster.LocalName()
+	raftCfg := appState.ServerConfig.Config.Raft
+
+	// Compute shard RAFT port map for local cluster mode where each node has a different port.
+	// Each node's shard RAFT port is offset from its schema RAFT port by the same delta.
+	shardRaftPortOffset := raftCfg.ShardRaftPort - raftCfg.Port
+	shardServer2port, err := parseNode2Port(appState)
+	if err != nil {
+		appState.Logger.WithError(err).Warn("could not parse shard raft port map, using defaults")
+		shardServer2port = nil
+	}
+	for name, port := range shardServer2port {
+		shardServer2port[name] = port + shardRaftPortOffset
+	}
+
+	sConfig := shard.RegistryConfig{
+		NodeID:          nodeName,
+		Logger:          appState.Logger,
+		RaftPort:        raftCfg.ShardRaftPort,
+		AddressResolver: appState.Cluster,
+		RpcClientMaker:  rpcClientMaker,
+		DataPath:        appState.ServerConfig.Config.Persistence.DataPath,
+
+		HeartbeatTimeout:  raftCfg.HeartbeatTimeout,
+		ElectionTimeout:   raftCfg.ElectionTimeout,
+		SnapshotThreshold: raftCfg.ShardSnapshotThreshold,
+
+		MaxConcurrentSnapshots: raftCfg.ShardMaxConcurrentSnapshots,
+
+		IsLocalCluster:    appState.ServerConfig.Config.Cluster.Localhost,
+		NodeNameToPortMap: shardServer2port,
+	}
+
+	// Initialize shard RAFT registry (lifecycle managed by Server in clusterapi/serve.go)
+	appState.ShardRegistry = shard.NewRegistry(sConfig)
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
@@ -564,6 +614,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		ShardRegistry:                                appState.ShardRegistry,
 		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
@@ -573,6 +624,19 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+
+	// Wire out-of-band state transfer for shard RAFT snapshot restore.
+	// This must happen after DB is created (needs repo for reinit) but before
+	// any shards are loaded (which triggers RAFT and potential Restore calls).
+	stateTransfer := &shard.StateTransfer{
+		RpcClientMaker: rpcClientMaker,
+		Reinitializer:  &shardReinitAdapter{db: repo},
+		LeaderFunc:     appState.ShardRegistry.Leader,
+		RootDataPath:   appState.ServerConfig.Config.Persistence.DataPath,
+		Log:            appState.Logger,
+	}
+	appState.ShardRegistry.SetStateTransferer(stateTransfer)
+
 	// Seed the REST asyncEnabled shim; the runtime-config hook below keeps it live.
 	restcompat.SetAsyncReplicationGloballyDisabled(appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.Get())
 	// Construct the usage-limits Manager now that its ObjectCounter (the
@@ -635,7 +699,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		os.Exit(1)
 	}
 
-	nodeName := appState.Cluster.LocalName()
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
@@ -2718,4 +2781,18 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 			}
 		}, appState.Logger)
 	}
+}
+
+// shardReinitAdapter adapts *db.DB to the shard.ShardReinitializer interface
+// for reinitializing a shard after out-of-band state transfer.
+type shardReinitAdapter struct {
+	db *db.DB
+}
+
+func (a *shardReinitAdapter) ReinitShard(ctx context.Context, className, shardName string) error {
+	idx := a.db.GetIndex(entschema.ClassName(className))
+	if idx == nil {
+		return fmt.Errorf("index for class %s not found", className)
+	}
+	return idx.IncomingReinitShard(ctx, shardName)
 }

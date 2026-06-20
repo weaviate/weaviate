@@ -8,6 +8,7 @@ package protocol
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -199,30 +200,39 @@ type UnimplementedFileReplicationServiceServer struct{}
 func (UnimplementedFileReplicationServiceServer) PauseFileActivity(context.Context, *PauseFileActivityRequest) (*PauseFileActivityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PauseFileActivity not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) ResumeFileActivity(context.Context, *ResumeFileActivityRequest) (*ResumeFileActivityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResumeFileActivity not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListFiles not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) GetFileMetadata(context.Context, *GetFileMetadataRequest) (*FileMetadata, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetFileMetadata not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) GetFile(*GetFileRequest, grpc.ServerStreamingServer[FileChunk]) error {
 	return status.Error(codes.Unimplemented, "method GetFile not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) StartChangeCapture(context.Context, *StartChangeCaptureRequest) (*StartChangeCaptureResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StartChangeCapture not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) GetChangeLog(*GetChangeLogRequest, grpc.ServerStreamingServer[ChangeLogStreamEntry]) error {
 	return status.Error(codes.Unimplemented, "method GetChangeLog not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) SnapshotChangeLogLSN(context.Context, *SnapshotChangeLogLSNRequest) (*SnapshotChangeLogLSNResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SnapshotChangeLogLSN not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) FinalizeChangeLog(context.Context, *FinalizeChangeLogRequest) (*FinalizeChangeLogResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FinalizeChangeLog not implemented")
 }
+
 func (UnimplementedFileReplicationServiceServer) StopChangeCapture(context.Context, *StopChangeCaptureRequest) (*StopChangeCaptureResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopChangeCapture not implemented")
 }

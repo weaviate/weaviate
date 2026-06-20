@@ -79,6 +79,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
+	if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, cls, id, updates.Tenant); err != nil {
+		return &Error{"ensure replica caught up", StatusInternalServerError, err}
+	}
+
 	// Ensure tenant is active before read when AutoTenantActivation is enabled.
 	// Otherwise replicas with loading shards can fail QUORUM reads.
 	maxSchemaVersion := fetchedClass[cls].Version

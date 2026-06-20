@@ -206,6 +206,8 @@ func (db *DB) init(ctx context.Context) error {
 				LazyPropertyLengthsEnabled: db.config.LazyPropertyLengthsEnabled,
 				MaintenanceModeEnabled:     db.config.MaintenanceModeEnabled,
 				HFreshEnabled:              db.config.HFreshEnabled,
+				RaftReplicationEnabled:     class.ReplicationConfig.RaftEnabled,
+				ShardRegistry:              db.config.ShardRegistry,
 				AutoTenantActivation:       schema.AutoTenantActivationEnabled(class),
 				DisableDimensionMetrics:    db.config.DisableDimensionMetrics,
 			},

@@ -491,6 +491,12 @@ func (f *Finder) LocalNodeName() string {
 	return f.nodeName
 }
 
+// EnsureReadConsistency is a no-op for the 2PC replicator. RAFT-aware logic
+// is implemented in the shard RAFT replicator which wraps this one.
+func (f *Finder) EnsureReadConsistency(_ context.Context, _ string, _ types.ConsistencyLevel) (bool, error) {
+	return true, nil
+}
+
 // CountObjects returns an aggregated object count from all replicas the shard exists on.
 func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)

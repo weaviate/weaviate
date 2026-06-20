@@ -309,6 +309,16 @@ func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Contex
 	}
 }
 
+// WithWALDisabled disables the Write-Ahead Log for this bucket. When WAL is
+// disabled, durability must be provided externally (e.g. by a RAFT log).
+// The bucket will use a no-op commit logger instead of writing .wal files.
+func WithWALDisabled() BucketOption {
+	return func(b *Bucket) error {
+		b.walDisabled = true
+		return nil
+	}
+}
+
 func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 	return func(b *Bucket) error {
 		b.skipSecondaryKeyCheck = skip

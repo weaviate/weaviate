@@ -1103,6 +1103,11 @@ type Raft struct {
 	SnapshotThreshold uint64
 	TrailingLogs      uint64
 
+	// Shard-level RAFT parameters with tuned defaults for per-shard RAFT clusters.
+	ShardRaftPort               int
+	ShardSnapshotThreshold      uint64
+	ShardMaxConcurrentSnapshots int
+
 	HeartbeatTimeout   time.Duration
 	ElectionTimeout    time.Duration
 	LeaderLeaseTimeout time.Duration
