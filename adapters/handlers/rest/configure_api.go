@@ -34,7 +34,6 @@ import (
 	armonprometheus "github.com/armon/go-metrics/prometheus"
 	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/pbnjay/memory"
@@ -1323,7 +1322,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.ServeError = openapierrors.ServeError
 
-	api.JSONConsumer = runtime.JSONConsumer()
+	api.JSONConsumer = restcompat.NewStrictJSONConsumer()
 	// REST-only asyncEnabled shim — see adapters/handlers/rest/restcompat.
 	api.JSONProducer = restcompat.NewJSONProducer()
 
