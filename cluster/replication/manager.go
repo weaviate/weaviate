@@ -19,9 +19,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -32,7 +29,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -49,22 +48,35 @@ type Manager struct {
 	submitNodeReached            func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
 	inflightDrainer              func(ctx context.Context, class, shard string) error
 	inflightDrainFailuresCounter prometheus.Counter
+
+	// ctx is cancelled by Close to stop in-flight broadcast/drain retry loops on
+	// shutdown (the drain otherwise retries until the op is drained or terminal).
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 const inflightDrainBackstop = 60 * time.Second
 
 func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
 		nodeSelector:   nodeSelector,
+		ctx:            ctx,
+		cancel:         cancel,
 		inflightDrainFailuresCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
 			Name:      "inflight_drain_failures_total",
 			Help:      "Total number of failures to drain in-flight writes before transitioning to INTEGRATING or DEHYDRATING state",
 		}),
 	}
+}
+
+// Close cancels any in-flight node-reached-state broadcast and drain retry loops.
+func (m *Manager) Close() {
+	m.cancel()
 }
 
 func (m *Manager) SetLogger(logger logrus.FieldLogger) {
@@ -93,7 +105,15 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 
 	enterrors.GoWrapper(func() {
 		if state == cmd.INTEGRATING || state == cmd.DEHYDRATING {
-			m.drainInflight(opID)
+			if err := m.drainInflight(opID); err != nil {
+				// Op gone or terminal — nothing left to seal over, so skip the report.
+				m.logger.WithFields(logrus.Fields{
+					"op_id":   opID,
+					"node_id": m.localNodeID,
+					"state":   state,
+				}).Warnf("not reporting %s: %v", state, err)
+				return
+			}
 		}
 
 		req := &cmd.ReplicationNodeReachedStateRequest{
@@ -105,8 +125,8 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 		bo := backoff.NewExponentialBackOff()
 		bo.MaxElapsedTime = 30 * time.Second
 		err := backoff.Retry(func() error {
-			return m.submitNodeReached(context.Background(), req)
-		}, bo)
+			return m.submitNodeReached(m.ctx, req)
+		}, backoff.WithContext(bo, m.ctx))
 		if err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"op_id":   opID,
@@ -117,28 +137,46 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 	}, m.logger)
 }
 
-func (m *Manager) drainInflight(opID uint64) {
+// drainInflight blocks until this node's in-flight coordinated writes to the op's
+// shard drain. It retries rather than proceeding on a backstop timeout: reporting
+// INTEGRATING with writes still in flight lets the consumer seal the source log
+// over them. Returns non-nil only once the op is gone or terminal (no report owed).
+func (m *Manager) drainInflight(opID uint64) error {
 	if m.inflightDrainer == nil {
-		return
+		return nil
 	}
 	op, ok := m.replicationFSM.GetOpById(opID)
 	if !ok {
-		return
+		return fmt.Errorf("op %d not found; skipping drain", opID)
 	}
 	class := op.Op.SourceShard.CollectionId
 	shard := op.Op.SourceShard.ShardId
 
-	ctx, cancel := context.WithTimeout(context.Background(), inflightDrainBackstop)
-	defer cancel()
-	if err := m.inflightDrainer(ctx, class, shard); err != nil {
-		m.inflightDrainFailuresCounter.Inc()
-		m.logger.WithFields(logrus.Fields{
-			"op_id":   opID,
-			"node_id": m.localNodeID,
-			"class":   class,
-			"shard":   shard,
-		}).Warnf("in-flight write drain before INTEGRATING did not complete, proceeding: %v", err)
-	}
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxElapsedTime = 0 // retry until drained; bounded by op state below and Close (ctx)
+	return backoff.Retry(func() error {
+		cur, ok := m.replicationFSM.GetOpById(opID)
+		if !ok {
+			return backoff.Permanent(fmt.Errorf("op %d gone; abandoning drain", opID))
+		}
+		if s := cur.Status.GetCurrentState(); s == cmd.READY || s == cmd.CANCELLED {
+			return backoff.Permanent(fmt.Errorf("op %d terminal (%s); abandoning drain", opID, s))
+		}
+
+		ctx, cancel := context.WithTimeout(m.ctx, inflightDrainBackstop)
+		err := m.inflightDrainer(ctx, class, shard)
+		cancel()
+		if err != nil {
+			m.inflightDrainFailuresCounter.Inc()
+			m.logger.WithFields(logrus.Fields{
+				"op_id":   opID,
+				"node_id": m.localNodeID,
+				"class":   class,
+				"shard":   shard,
+			}).Warnf("in-flight write drain not complete, retrying before reporting: %v", err)
+		}
+		return err
+	}, backoff.WithContext(bo, m.ctx))
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
@@ -150,7 +188,25 @@ func (m *Manager) Snapshot() ([]byte, error) {
 }
 
 func (m *Manager) Restore(bytes []byte) error {
-	return m.replicationFSM.Restore(bytes)
+	if err := m.replicationFSM.Restore(bytes); err != nil {
+		return err
+	}
+	m.reannounceReachedStatesAfterRestore()
+	return nil
+}
+
+// reannounceReachedStatesAfterRestore re-broadcasts this node's reached state for
+// every in-progress op after a snapshot restore. The case that matters is a
+// runtime InstallSnapshot — a far-behind follower, or a node joining mid-op —
+// where the node learns an op's state without applying its UPDATE_STATE, so it
+// never broadcasts NodeReachedState. That leaves it absent from peers'
+// PerNodeState and stalls the all-nodes AllPeersAtLeast cutover barrier forever.
+// Re-announcing closes the gap and is idempotent on receipt, so redundant
+// announcements are harmless.
+func (m *Manager) reannounceReachedStatesAfterRestore() {
+	for opID, state := range m.replicationFSM.NonTerminalOpStates() {
+		m.broadcastNodeReachedState(opID, state)
+	}
 }
 
 func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {

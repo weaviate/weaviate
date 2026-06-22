@@ -217,6 +217,9 @@ func (iq *VectorIndexQueue) DequeueBatch() (*queue.Batch, error) {
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 	if !iq.asyncEnabled {
+		if iq.vectorIndex.Multivector() {
+			return iq.vectorIndex.(VectorIndexMulti).DeleteMulti(ids...)
+		}
 		return iq.vectorIndex.Delete(ids...)
 	}
 
@@ -432,8 +435,10 @@ func (t *Task[T]) Execute(ctx context.Context) error {
 		return t.idx.Add(ctx, t.id, any(t.vector).([]float32))
 	case vectorIndexQueueMultiInsertOp:
 		return t.idx.(VectorIndexMulti).AddMulti(ctx, t.id, any(t.vector).([][]float32))
-	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
+	case vectorIndexQueueDeleteOp:
 		return t.idx.Delete(t.id)
+	case vectorIndexQueueMultiDeleteOp:
+		return t.idx.(VectorIndexMulti).DeleteMulti(t.id)
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())
@@ -482,8 +487,10 @@ func (t *TaskGroup[T]) Execute(ctx context.Context) error {
 		return t.idx.AddBatch(ctx, t.ids, any(t.vectors).([][]float32))
 	case vectorIndexQueueMultiInsertOp:
 		return t.idx.(VectorIndexMulti).AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
-	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
+	case vectorIndexQueueDeleteOp:
 		return t.idx.Delete(t.ids...)
+	case vectorIndexQueueMultiDeleteOp:
+		return t.idx.(VectorIndexMulti).DeleteMulti(t.ids...)
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())
