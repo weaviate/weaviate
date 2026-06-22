@@ -705,7 +705,19 @@ LOOP:
 		return err
 	}
 
-	return validateSnapshotBlockRanges(ranges, int(nodeCount))
+	missing, err := validateSnapshotBlockRanges(ranges, int(nodeCount))
+	if err != nil {
+		return err
+	}
+	if missing > 0 && r.logger != nil {
+		r.logger.WithFields(logrus.Fields{
+			"action":     "hnsw_snapshot_load",
+			"missing":    missing,
+			"node_count": nodeCount,
+		}).Warnf("snapshot is missing %d node(s) dropped by an older writer at block boundaries "+
+			"(weaviate/0-weaviate-issues#268); loading without them — they will be absent from the index", missing)
+	}
+	return nil
 }
 
 // readBlockConcurrent parses a single block and populates nodes in the result.
@@ -786,39 +798,57 @@ func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.Deserializatio
 	return snapshotBlockRange{start: startNodeID, end: currNodeID}, nil
 }
 
-// validateSnapshotBlockRanges catches missing snapshot body blocks. The format
-// has per-block checksums, but no whole-file checksum or block count, so a file
-// truncated at a block boundary can otherwise look valid.
-func validateSnapshotBlockRanges(ranges []snapshotBlockRange, nodeCount int) error {
+// validateSnapshotBlockRanges checks the body's block coverage against the
+// metadata node count and returns the number of nodes missing from interior
+// gaps.
+//
+// An interior gap (a block whose start is greater than the previous block's
+// end) is the signature of the legacy classic-writer block-boundary bug
+// (weaviate/0-weaviate-issues#268): it dropped one node at each block boundary.
+// Such gaps are tolerated — the missing slots load as nil — because the
+// fixed-offset reader cannot produce an interior gap from truncation: a
+// truncated tail ends the body short (caught below) and a mid-block cut fails
+// the per-block checksum. So an interior gap is unambiguously the old writer,
+// not corruption.
+//
+// Overlap, a trailing shortfall (truncation), and a node count beyond the
+// metadata still fail closed.
+func validateSnapshotBlockRanges(ranges []snapshotBlockRange, nodeCount int) (int, error) {
 	if nodeCount == 0 {
-		return nil
+		return 0, nil
 	}
 	if len(ranges) == 0 {
-		return fmt.Errorf("snapshot body missing for %d nodes", nodeCount)
+		return 0, fmt.Errorf("snapshot body missing for %d nodes", nodeCount)
 	}
 
 	sort.Slice(ranges, func(i, j int) bool {
 		return ranges[i].start < ranges[j].start
 	})
 
+	var missing int
 	expected := uint64(0)
 	for _, blockRange := range ranges {
 		if blockRange.end < blockRange.start {
-			return fmt.Errorf("snapshot block range [%d,%d) is invalid", blockRange.start, blockRange.end)
+			return 0, fmt.Errorf("snapshot block range [%d,%d) is invalid", blockRange.start, blockRange.end)
 		}
-		if blockRange.start != expected {
-			return fmt.Errorf("snapshot body has range gap or overlap: expected node %d, got range [%d,%d)",
+		if blockRange.start < expected {
+			return 0, fmt.Errorf("snapshot body has overlapping ranges: expected node %d, got range [%d,%d)",
 				expected, blockRange.start, blockRange.end)
+		}
+		if blockRange.start > expected {
+			// Interior gap: nodes [expected, start) were dropped by an old
+			// writer. Tolerate them — those slots load as nil.
+			missing += int(blockRange.start - expected)
 		}
 		expected = blockRange.end
 		if expected > uint64(nodeCount) {
-			return fmt.Errorf("snapshot body covers node %d beyond metadata node count %d", expected, nodeCount)
+			return 0, fmt.Errorf("snapshot body covers node %d beyond metadata node count %d", expected, nodeCount)
 		}
 	}
 
 	if expected != uint64(nodeCount) {
-		return fmt.Errorf("snapshot body ended at node %d, expected %d", expected, nodeCount)
+		return 0, fmt.Errorf("snapshot body ended at node %d, expected %d", expected, nodeCount)
 	}
 
-	return nil
+	return missing, nil
 }
