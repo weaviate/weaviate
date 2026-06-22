@@ -269,7 +269,8 @@ func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 	offset int, key, value []byte, secondaryKeys [][]byte, tombstone bool,
 ) (segmentindex.Key, error) {
 	// Rewrite live values through the active edit transformer before they hit
-	// the merged segment. Tombstones carry no payload, so they are skipped.
+	// the merged segment. Tombstones and empty payloads carry nothing to
+	// transform, so they are skipped.
 	if c.valueTransformer != nil && !tombstone && len(value) > 0 {
 		transformed, err := c.valueTransformer(value)
 		if err != nil {

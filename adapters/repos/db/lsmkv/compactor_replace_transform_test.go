@@ -105,3 +105,34 @@ func TestCompactorReplaceValueTransformerNil(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, bytes.Equal([]byte("v1"), v1))
 }
+
+// TestCompactorReplaceValueTransformerError confirms a failing transformer
+// aborts the compaction without data loss: the original segments stay in place
+// (no half-written merged segment is swapped in) and their values are readable
+// and untransformed.
+func TestCompactorReplaceValueTransformerError(t *testing.T) {
+	transformer := func(value []byte) ([]byte, error) {
+		return nil, errors.New("boom")
+	}
+	bucket := newReplaceBucketForCompaction(t, transformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.Len(t, bucket.disk.segments, 2)
+
+	compacted, err := bucket.disk.compactOnce(context.Background())
+	require.Error(t, err)
+	require.False(t, compacted)
+
+	// Both original segments survive; nothing was swapped in.
+	require.Len(t, bucket.disk.segments, 2)
+
+	v1, err := bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v1)
+	v2, err := bucket.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v2"), v2)
+}
