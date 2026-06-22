@@ -421,6 +421,17 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		return false, nil
 	}
 
+	// While any edit operation has pending segments, cleanup is driven by the
+	// pending set (every pending segment must be rewritten through the
+	// transformer), bypassing the time/size heuristic and the cleanupInterval.
+	// Normal cleanup resumes once there are no pending segments.
+	if c.sg.editOps != nil {
+		cleaned, handled, err := c.cleanupOnceEditOps(shouldAbort)
+		if handled || err != nil {
+			return cleaned, err
+		}
+	}
+
 	var candidateIdx, startIdx, lastIdx int
 	var onCompleted onCompletedFunc
 	var tmpSegmentPath string
@@ -561,6 +572,174 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	}
 
 	return true, nil
+}
+
+// maxCleanupAttempts caps per-segment rewrite retries before quarantine (C6), so
+// a permanently-failing segment can't retry forever.
+const maxCleanupAttempts = 5
+
+// cleanupOnceEditOps drives cleanup from the edit-ops pending set. It rewrites
+// every pending segment through the per-pass transformer, marking each done on
+// success and bumping/quarantining on failure. handled is false (so the caller
+// falls back to the default heuristic) only when there are no pending segments.
+//
+// Marking an op done is sound: every op in the pending snapshot was registered
+// before BuildCurrentTransformer read the live ops, so the transformer strips its
+// target — we never clear a row whose data wasn't actually stripped. The
+// rewrite -> replaceSegment -> markRowsDone sequence is not one transaction, but
+// it is crash-safe: cleanup keeps the segment ID, so a crash after replaceSegment
+// leaves a stripped segment under the same ID with stale pending rows that the
+// next pass re-cleans idempotently (no S8-style orphaning onto a renamed output).
+func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.ShouldAbortCallback,
+) (cleaned bool, handled bool, err error) {
+	pending, err := c.sg.editOps.AllPending()
+	if err != nil {
+		return false, true, fmt.Errorf("load pending edit-op segments: %w", err)
+	}
+	if len(pending) == 0 {
+		return false, false, nil
+	}
+
+	transformer, _, err := c.sg.editOps.BuildCurrentTransformer()
+	if err != nil {
+		return false, true, err
+	}
+	if transformer == nil {
+		// Pending rows but nothing to strip (no live ops / no builder). Rewriting
+		// would be a passthrough and markRowsDone would then silently complete a
+		// drop without stripping. Leave the rows for Reconcile / a later pass.
+		return false, true, nil
+	}
+
+	// Group by segment so each is rewritten once even when several ops have it
+	// pending — the transformer already covers all active ops.
+	bySegment := map[string][]PendingSegment{}
+	order := make([]string, 0, len(pending))
+	for _, p := range pending {
+		if _, ok := bySegment[p.SegmentID]; !ok {
+			order = append(order, p.SegmentID)
+		}
+		bySegment[p.SegmentID] = append(bySegment[p.SegmentID], p)
+	}
+
+	for _, segID := range order {
+		if shouldAbort() {
+			break
+		}
+		rows := bySegment[segID]
+
+		idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
+		if cerr != nil {
+			if e := c.bumpOrQuarantine(rows, cerr); e != nil {
+				return cleaned, true, e
+			}
+			continue
+		}
+		if !found {
+			// Merged/cleaned away by a concurrent compaction; drop the stale
+			// rows (ENOENT-tolerant).
+			if e := c.markRowsDone(rows); e != nil {
+				return cleaned, true, e
+			}
+			cleaned = true
+			continue
+		}
+		if _, e := c.sg.replaceSegment(idx, tmpPath); e != nil {
+			return cleaned, true, fmt.Errorf("replace cleaned segment: %w", e)
+		}
+		if e := c.markRowsDone(rows); e != nil {
+			return cleaned, true, e
+		}
+		cleaned = true
+	}
+
+	return cleaned, true, nil
+}
+
+// cleanPendingSegmentToTmp locates the segment by id and rewrites it (minus keys
+// shadowed by newer segments, transformer applied) into a .tmp file. found is
+// false when the segment is no longer on disk; idx is consumed by replaceSegment.
+func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
+	transformer valueTransformer, shouldAbort cyclemanager.ShouldAbortCallback,
+) (idx int, tmpPath string, found bool, err error) {
+	segments, release := c.sg.getConsistentViewOfSegments()
+	defer release()
+
+	idx = emptyIdx
+	for i, seg := range segments {
+		if segmentID(seg.getPath()) == segID {
+			idx = i
+			break
+		}
+	}
+	if idx == emptyIdx {
+		return emptyIdx, "", false, nil
+	}
+
+	oldSegment := segments[idx]
+	var filename string
+	if c.sg.writeSegmentInfoIntoFileName {
+		filename = "segment-" + segID + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy()) + ".db.tmp"
+	} else {
+		filename = "segment-" + segID + ".db.tmp"
+	}
+	tmpPath = filepath.Join(c.sg.dir, filename)
+
+	file, err := os.Create(tmpPath)
+	if err != nil {
+		return emptyIdx, "", false, err
+	}
+
+	// The last segment has no newer segments to shadow it; it is rewritten
+	// purely to apply the transformer.
+	var keyExists keyExistsOnUpperSegmentsFunc
+	if idx >= len(segments)-1 {
+		keyExists = func([]byte) (bool, error) { return false, nil }
+	} else {
+		keyExists = c.sg.makeKeyExistsOnUpperSegments(segments, idx+1, len(segments)-1)
+	}
+
+	cleaner := newSegmentCleanerReplace(file, oldSegment.newCursor(), keyExists,
+		oldSegment.getLevel(), oldSegment.getSecondaryIndexCount(),
+		c.sg.enableChecksumValidation, transformer)
+	if err := cleaner.do(shouldAbort); err != nil {
+		file.Close()
+		return emptyIdx, "", false, err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return emptyIdx, "", false, fmt.Errorf("fsync cleaned segment file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return emptyIdx, "", false, fmt.Errorf("close cleaned segment file: %w", err)
+	}
+
+	return idx, tmpPath, true, nil
+}
+
+func (c *segmentCleanerCommon) markRowsDone(rows []PendingSegment) error {
+	for _, p := range rows {
+		if err := c.sg.editOps.MarkSegmentDone(p.OpID, p.SegmentID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// bumpOrQuarantine records a failed rewrite for each op that had the segment
+// pending, quarantining it once it has failed maxCleanupAttempts times (C6).
+func (c *segmentCleanerCommon) bumpOrQuarantine(rows []PendingSegment, cause error) error {
+	for _, p := range rows {
+		if err := c.sg.editOps.BumpAttempt(p.OpID, p.SegmentID, cause); err != nil {
+			return err
+		}
+		if p.Attempts+1 >= maxCleanupAttempts {
+			if err := c.sg.editOps.Quarantine(p.OpID, p.SegmentID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 type onCompletedFunc func(size int64) error
