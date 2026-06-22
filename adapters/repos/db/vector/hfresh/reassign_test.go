@@ -146,6 +146,33 @@ func TestReassignConcurrentVersionChange(t *testing.T) {
 	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
 }
 
+func TestReassignReenqueuesWhenSelectedPostingDisappears(t *testing.T) {
+	tf := createHFreshIndex(t)
+
+	vector := []float32{1.0, 0.0, 0.0, 0.0}
+	vectorID := uint64(1000)
+	addVectorToIndex(t, &tf, vectorID, vector)
+
+	version, err := tf.Index.VersionMap.Get(t.Context(), vectorID)
+	require.NoError(t, err)
+
+	missingPostingID := uint64(4242)
+	replicas := NewResultSet(1)
+	replicas.data = append(replicas.data, Result{ID: missingPostingID})
+
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+
+	requeued, err := tf.Index.appendReassignReplicas(
+		t.Context(),
+		NewVector(vectorID, version, nil),
+		replicas,
+	)
+	require.NoError(t, err)
+	require.True(t, requeued)
+	require.Equal(t, int64(1), tf.Index.taskQueue.reassignQueue.Size())
+	require.False(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+}
+
 // Reassign properly manages task queue
 func TestReassignTaskQueueOperations(t *testing.T) {
 	tf := createHFreshIndex(t)

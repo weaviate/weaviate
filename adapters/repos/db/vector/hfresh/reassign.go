@@ -74,35 +74,46 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	newVector := NewVector(op.VectorID, version, h.quantizer.CompressedBytes(h.quantizer.Encode(q)))
 
 	// append the vector to each replica
+	requeued, err := h.appendReassignReplicas(ctx, newVector, replicas)
+	if err != nil {
+		return err
+	}
+	if requeued {
+		markedAsDone = true
+	}
+
+	return nil
+}
+
+func (h *HFresh) appendReassignReplicas(ctx context.Context, newVector Vector, replicas *ResultSet) (bool, error) {
 	for id := range replicas.Iter() {
-		version, err = h.VersionMap.Get(ctx, newVector.ID())
+		version, err := h.VersionMap.Get(ctx, newVector.ID())
 		if err != nil {
-			return errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
+			return false, errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
 		}
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
-			h.logger.WithField("vectorID", op.VectorID).
+			h.logger.WithField("vectorID", newVector.ID()).
 				Debug("vector is deleted or has a newer version, skipping reassign operation")
-			return nil
+			return false, nil
 		}
 
 		added, err := h.append(ctx, newVector, id, true)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if !added {
 			// the posting has been deleted concurrently,
 			// re-enqueue the vector so it can be reassigned against
 			// the current centroid set.
-			h.taskQueue.ReassignDone(op.VectorID)
-			markedAsDone = true
-			err = h.taskQueue.EnqueueReassign(id, op.VectorID)
+			h.taskQueue.ReassignDone(newVector.ID())
+			err = h.taskQueue.EnqueueReassign(id, newVector.ID())
 			if err != nil {
-				h.taskQueue.ReassignDone(op.VectorID)
-				return err
+				h.taskQueue.ReassignDone(newVector.ID())
+				return true, err
 			}
-			return nil
+			return true, nil
 		}
 	}
 
-	return nil
+	return false, nil
 }

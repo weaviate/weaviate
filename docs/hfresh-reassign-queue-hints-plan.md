@@ -271,6 +271,8 @@ Tests:
     disappeared.
   - Added regression coverage that `append` does not enqueue reassign tasks by
     itself and that terminal reassign paths clear the in-memory dedup marker.
+  - Added direct coverage that a missing selected posting requeues the vector
+    and keeps the in-memory dedup marker in flight.
   - Verified with `go test ./adapters/repos/db/vector/hfresh` and
     `go test ./adapters/repos/db/queue`.
 - Implemented the legacy shared-bucket cleanup:
