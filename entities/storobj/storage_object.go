@@ -773,6 +773,18 @@ func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dim
 	return nil
 }
 
+func (ko *Object) RemoveTargetVector(targetVector string) bool {
+	if _, ok := ko.Vectors[targetVector]; ok {
+		delete(ko.Vectors, targetVector)
+		return true
+	}
+	if _, ok := ko.MultiVectors[targetVector]; ok {
+		delete(ko.MultiVectors, targetVector)
+		return true
+	}
+	return false
+}
+
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
