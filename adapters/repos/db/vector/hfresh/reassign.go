@@ -26,7 +26,13 @@ type reassignOperation struct {
 func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	start := time.Now()
 	defer h.metrics.ReassignDuration(start)
-	defer h.taskQueue.ReassignDone(op.VectorID)
+
+	var markedAsDone bool
+	defer func() {
+		if !markedAsDone {
+			h.taskQueue.ReassignDone(op.VectorID)
+		}
+	}()
 
 	// check if the vector is still valid
 	version, err := h.VersionMap.Get(ctx, op.VectorID)
@@ -85,9 +91,16 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		}
 		if !added {
 			// the posting has been deleted concurrently,
-			// append has enqueued a new reassign operation
-			// we can stop here
-			break
+			// re-enqueue the vector so it can be reassigned against
+			// the current centroid set.
+			h.taskQueue.ReassignDone(op.VectorID)
+			markedAsDone = true
+			err = h.taskQueue.EnqueueReassign(id, op.VectorID, newVector.Version())
+			if err != nil {
+				h.taskQueue.ReassignDone(op.VectorID)
+				return err
+			}
+			return nil
 		}
 	}
 

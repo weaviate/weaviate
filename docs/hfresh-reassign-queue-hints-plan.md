@@ -259,3 +259,17 @@ Tests:
   - Kept `reassignBucketKey` reserved in code with a legacy warning comment.
   - Added a regression test that closing the task queue does not persist the
     legacy reassign dedup blob.
+
+### 2026-06-22
+
+- Implemented the agreed Slice 3 direction:
+  - `append` no longer owns the missing-posting re-enqueue decision; it returns
+    `false, nil` when the target posting disappeared.
+  - `Add` now re-enqueues after `append` reports a missing posting.
+  - `doReassign` uses a split-style deferred `ReassignDone`, but clears the
+    in-flight marker before re-enqueueing a vector whose selected posting
+    disappeared.
+  - Added regression coverage that `append` does not enqueue reassign tasks by
+    itself and that terminal reassign paths clear the in-memory dedup marker.
+  - Verified with `go test ./adapters/repos/db/vector/hfresh` and
+    `go test ./adapters/repos/db/queue`.

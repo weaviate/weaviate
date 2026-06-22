@@ -29,6 +29,7 @@ func TestReassignDeletedVector(t *testing.T) {
 
 	_, err := tf.Index.VersionMap.MarkDeleted(t.Context(), vectorID)
 	require.NoError(t, err)
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
 
 	op := reassignOperation{
 		PostingID: 1,
@@ -41,6 +42,7 @@ func TestReassignDeletedVector(t *testing.T) {
 	deleted, err := tf.Index.VersionMap.IsDeleted(t.Context(), vectorID)
 	require.NoError(t, err)
 	require.True(t, deleted)
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
 }
 
 // Reassign a vector that doesn't exist
@@ -59,9 +61,11 @@ func TestReassignVectorNotFound(t *testing.T) {
 		VectorID:  9999,
 	}
 
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(op.VectorID))
 	err := tf.Index.doReassign(t.Context(), op)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to get vector by index ID")
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(op.VectorID))
 }
 
 // Basic in-memory deduplicator functionality
@@ -136,8 +140,10 @@ func TestReassignConcurrentVersionChange(t *testing.T) {
 		VectorID:  vectorID,
 	}
 
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
 	err := tf.Index.doReassign(t.Context(), op)
 	require.NoError(t, err)
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
 }
 
 // Reassign properly manages task queue

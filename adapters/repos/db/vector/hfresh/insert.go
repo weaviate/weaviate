@@ -78,10 +78,16 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		}
 	}
 
-	for id := range targets.Iter() {
-		_, err = h.append(ctx, v, id, false)
+	for postingID := range targets.Iter() {
+		added, err := h.append(ctx, v, postingID, false)
 		if err != nil {
-			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, id)
+			return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), postingID)
+		}
+		if !added {
+			err = h.taskQueue.EnqueueReassign(postingID, v.ID(), v.Version())
+			if err != nil {
+				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), postingID)
+			}
 		}
 	}
 
@@ -177,19 +183,8 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	// check if the posting still exists
 	if !h.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
-		// might happen if we are reassigning
-		version, err := h.VersionMap.Get(h.ctx, vector.ID())
-		if err != nil {
-			return false, err
-		}
-		if version == vector.Version() {
-			err := h.taskQueue.EnqueueReassign(centroidID, vector.ID(), vector.Version())
-			if err != nil {
-				h.postingLocks.Unlock(centroidID)
-				return false, err
-			}
-		}
-
+		// might happen if we are reassigning or inserting while
+		// background maintenance deletes a posting.
 		h.postingLocks.Unlock(centroidID)
 		return false, nil
 	}
