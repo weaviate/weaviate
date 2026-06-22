@@ -50,13 +50,22 @@ func TestValidateSnapshotBlockRanges(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			missing, err := validateSnapshotBlockRanges(tt.ranges, tt.nodeCount)
+			logger, hook := logtest.NewNullLogger()
+			err := validateSnapshotBlockRanges(tt.ranges, tt.nodeCount, logger)
 			if tt.wantErr {
 				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
+				require.Empty(t, hook.AllEntries(), "no warning expected on error")
+				return
 			}
-			require.Equal(t, tt.wantMissing, missing)
+			require.NoError(t, err)
+			if tt.wantMissing > 0 {
+				entries := hook.AllEntries()
+				require.Len(t, entries, 1)
+				require.Equal(t, logrus.WarnLevel, entries[0].Level)
+				require.Equal(t, tt.wantMissing, entries[0].Data["missing"])
+			} else {
+				require.Empty(t, hook.AllEntries(), "no warning when nothing is missing")
+			}
 		})
 	}
 }
