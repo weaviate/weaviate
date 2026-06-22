@@ -166,3 +166,44 @@ func keysOf(m map[uint64]float32) []uint64 {
 	}
 	return ids
 }
+
+// Covers the regimes the WAND hot path feeds sortByID: already-sorted,
+// nearly-sorted, reverse, all-equal, and short inputs.
+func TestTermsSortByID(t *testing.T) {
+	mk := func(ids ...uint64) Terms {
+		out := make(Terms, len(ids))
+		for i, id := range ids {
+			out[i] = &SegmentBlockMax{idPointer: id}
+		}
+		return out
+	}
+	idsOf := func(in Terms) []uint64 {
+		out := make([]uint64, len(in))
+		for i, x := range in {
+			out[i] = x.idPointer
+		}
+		return out
+	}
+
+	cases := []struct {
+		name string
+		in   Terms
+		want []uint64
+	}{
+		{"empty", mk(), []uint64{}},
+		{"single", mk(7), []uint64{7}},
+		{"already sorted", mk(1, 2, 3, 4), []uint64{1, 2, 3, 4}},
+		{"reverse", mk(4, 3, 2, 1), []uint64{1, 2, 3, 4}},
+		{"all equal", mk(5, 5, 5), []uint64{5, 5, 5}},
+		{"nearly sorted (hot-path regime)", mk(1, 2, 4, 3, 5), []uint64{1, 2, 3, 4, 5}},
+		{"with duplicates", mk(3, 1, 2, 1, 3), []uint64{1, 1, 2, 3, 3}},
+		{"smallest at end", mk(2, 3, 4, 5, 1), []uint64{1, 2, 3, 4, 5}},
+		{"largest at start", mk(9, 1, 2, 3, 4), []uint64{1, 2, 3, 4, 9}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.in.sortByID()
+			require.Equal(t, tc.want, idsOf(tc.in))
+		})
+	}
+}
