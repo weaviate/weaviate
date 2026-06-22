@@ -102,7 +102,7 @@ func TestReassignDeduplicatorDone(t *testing.T) {
 func TestReassignDeduplicatorDoesNotPersistOnClose(t *testing.T) {
 	tf := createHFreshIndex(t)
 
-	err := tf.Index.taskQueue.EnqueueReassign(1, 300, VectorVersion(1))
+	err := tf.Index.taskQueue.EnqueueReassign(1, 300)
 	require.NoError(t, err)
 
 	err = tf.Index.taskQueue.Close(t.Context())
@@ -152,16 +152,15 @@ func TestReassignTaskQueueOperations(t *testing.T) {
 
 	vectorID := uint64(600)
 	postingID := uint64(1)
-	version := VectorVersion(1)
 
-	err := tf.Index.taskQueue.EnqueueReassign(postingID, vectorID, version)
+	err := tf.Index.taskQueue.EnqueueReassign(postingID, vectorID)
 	require.NoError(t, err)
 
-	err = tf.Index.taskQueue.EnqueueReassign(postingID, vectorID, version)
+	err = tf.Index.taskQueue.EnqueueReassign(postingID, vectorID)
 	require.NoError(t, err)
 
 	tf.Index.taskQueue.ReassignDone(vectorID)
 
-	err = tf.Index.taskQueue.EnqueueReassign(postingID, vectorID, version)
+	err = tf.Index.taskQueue.EnqueueReassign(postingID, vectorID)
 	require.NoError(t, err)
 }

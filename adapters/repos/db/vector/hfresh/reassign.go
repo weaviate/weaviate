@@ -95,7 +95,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 			// the current centroid set.
 			h.taskQueue.ReassignDone(op.VectorID)
 			markedAsDone = true
-			err = h.taskQueue.EnqueueReassign(id, op.VectorID, newVector.Version())
+			err = h.taskQueue.EnqueueReassign(id, op.VectorID)
 			if err != nil {
 				h.taskQueue.ReassignDone(op.VectorID)
 				return err

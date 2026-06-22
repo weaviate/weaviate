@@ -278,7 +278,7 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 	return nil
 }
 
-func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version VectorVersion) error {
+func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64) error {
 	// Check if the operation is already enqueued
 	if !tq.reassignList.tryAdd(vecID) {
 		return nil

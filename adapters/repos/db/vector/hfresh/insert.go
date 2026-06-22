@@ -84,7 +84,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), postingID)
 		}
 		if !added {
-			err = h.taskQueue.EnqueueReassign(postingID, v.ID(), v.Version())
+			err = h.taskQueue.EnqueueReassign(postingID, v.ID())
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), postingID)
 			}
