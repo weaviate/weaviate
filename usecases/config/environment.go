@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -416,6 +415,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to false (debug surface closed) only when nothing set it.
+	if v, ok := os.LookupEnv("DEBUG_ENDPOINTS_ENABLED"); ok {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.Profiling.DebugEndpointsEnabled == nil {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(false)
+	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -1712,22 +1718,6 @@ func parseClusterConfig() (cluster.Config, error) {
 			}
 		}
 	}
-
-	requestQueueIsEnabled := entcfg.Enabled(os.Getenv("REPLICATED_INDICES_REQUEST_QUEUE_ENABLED"))
-	cfg.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(requestQueueIsEnabled)
-	// choosing runtime.GOMAXPROCS(0)*2 for the number of workers as a reasonable default, but can be overridden
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS",
-		func(val int) { cfg.RequestQueueConfig.NumWorkers = val },
-		runtime.GOMAXPROCS(0)*2)
-	parseNonNegativeInt("REPLICATED_INDICES_REQUEST_QUEUE_SIZE",
-		func(val int) { cfg.RequestQueueConfig.QueueSize = val },
-		cluster.DefaultRequestQueueSize)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
-		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
-		cluster.DefaultRequestQueueFullHttpStatus)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
-		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
-		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }

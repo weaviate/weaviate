@@ -39,7 +39,7 @@ func TestDeleteSuccess(t *testing.T) {
 	dynUser.On("GetRolesForUserOrGroup", "user", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", authentication.AuthType(models.UserTypeInputDb)), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{"user": {}}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -75,7 +75,7 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,

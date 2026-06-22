@@ -430,6 +430,12 @@ type Profiling struct {
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
 	Port                 int  `json:"port" yaml:"port"`
+	// DebugEndpointsEnabled gates the debug HTTP listener (pprof, fgprof,
+	// /debug/*). The listener always binds: while this is false the port is
+	// open but every request returns 404, checked per-request so runtime
+	// flips need no restart. GO_PROFILING_DISABLE (Disabled) is a separate
+	// switch that stops the listener binding at all.
+	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debugEndpointsEnabled" yaml:"debugEndpointsEnabled"`
 }
 
 type DistributedTasksConfig struct {
@@ -577,7 +583,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -721,8 +727,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	// Load config from config file if present
 	if len(file) > 0 {
-		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
-			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
 			return configErr(err)

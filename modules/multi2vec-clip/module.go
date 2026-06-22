@@ -36,6 +36,7 @@ func New() *ClipModule {
 
 type ClipModule struct {
 	imageVectorizer          imageVectorizer
+	batchSimple              *batch.BatchSimple[[]float32]
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
 	nearImageSearcher        modulecapabilities.Searcher[[]float32]
 	textVectorizer           textVectorizer
@@ -124,6 +125,7 @@ func (m *ClipModule) initVectorizer(ctx context.Context, timeout time.Duration,
 
 	m.imageVectorizer = vectorizer.New(client)
 	m.textVectorizer = vectorizer.New(client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, 0)
 	m.metaClient = client
 
 	return nil
@@ -136,7 +138,7 @@ func (m *ClipModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *ClipModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.imageVectorizer.Object)
+	return m.batchSimple.VectorizeBatch(ctx, objs, skipObject, cfg, m.imageVectorizer.Object)
 }
 
 func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {

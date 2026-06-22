@@ -132,6 +132,57 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	return nil
 }
 
+// weaviateNodeIndex resolves the containers-slice position of weaviate node n
+// (1-based) by name, so callers are unaffected by sidecar containers (e.g.
+// MinIO) that may precede the cluster nodes in the slice.
+func (d *DockerCompose) weaviateNodeIndex(n int) (int, error) {
+	name := Weaviate1
+	if n > 1 {
+		name = fmt.Sprintf("%s%d", Weaviate, n)
+	}
+	for i, c := range d.containers {
+		if c.name == name {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("weaviate node %d (%q) not found", n, name)
+}
+
+// StopNode stops weaviate node n (1-based).
+func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Duration) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StopAt(ctx, idx, timeout)
+}
+
+// StartNode starts weaviate node n (1-based), re-mapping its endpoints.
+func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StartAt(ctx, idx)
+}
+
+// EnsureRunning starts weaviate node n (1-based) if it is not currently
+// running; a no-op when the node is already up.
+func (d *DockerCompose) EnsureRunning(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	state, err := d.containers[idx].container.State(ctx)
+	if err != nil {
+		return err
+	}
+	if state.Running {
+		return nil
+	}
+	return d.StartAt(ctx, idx)
+}
+
 func (d *DockerCompose) ContainerURI(index int) string {
 	return d.containers[index].URI()
 }

@@ -26,6 +26,8 @@ import (
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
 	databricksClients "github.com/weaviate/weaviate/modules/generative-databricks/clients"
 	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
+	deepseekClients "github.com/weaviate/weaviate/modules/generative-deepseek/clients"
+	deepseekParams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
 	friendliClients "github.com/weaviate/weaviate/modules/generative-friendliai/clients"
 	friendliParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleClients "github.com/weaviate/weaviate/modules/generative-google/clients"
@@ -315,6 +317,20 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Xai{Xai: xai}
+	case deepseekParams.Name:
+		params := deepseekClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		deepseek := &pb.GenerativeDeepseekMetadata{}
+		if params.Usage != nil {
+			deepseek.Usage = &pb.GenerativeDeepseekMetadata_Usage{
+				PromptTokens:     convertIntToInt64Ptr(params.Usage.InputTokens),
+				CompletionTokens: convertIntToInt64Ptr(params.Usage.OutputTokens),
+				TotalTokens:      convertIntToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Deepseek{Deepseek: deepseek}
 	default:
 		return nil, fmt.Errorf("provider: %s, not supported", providerName)
 	}
