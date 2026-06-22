@@ -13,6 +13,8 @@ package replication
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,5 +136,89 @@ func TestManager_DoesNotDrainForNonIntegratingStates(t *testing.T) {
 	case <-drained:
 		t.Fatal("the drainer must not be called for non-INTEGRATING states")
 	default:
+	}
+}
+
+// A drain that fails or times out must not be papered over by reporting
+// INTEGRATING: with writes still in flight, the consumer would seal the source
+// change-capture log over them and lose them on the target. The drain is retried
+// and the report withheld until it succeeds.
+func TestManager_RetriesDrainBeforeReportingIntegrating(t *testing.T) {
+	const opID = uint64(3)
+	m := newDrainTestManager(t, opID, "TestClass", "shard1")
+
+	// Mirror the real path: a successful submit applies NodeReachedState, so we
+	// can assert the op actually reaches the state, not just that it was reported.
+	submitted := make(chan cmd.ShardReplicationState, 4)
+	m.SetNodeReachedStateSubmitter("node1", func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error {
+		if err := m.GetReplicationFSM().NodeReachedState(req); err != nil {
+			return err
+		}
+		submitted <- req.State
+		return nil
+	})
+
+	// Fail the drain twice (backstop firing under load), then succeed.
+	var attempts atomic.Int32
+	m.SetInflightDrainer(func(ctx context.Context, class, shard string) error {
+		if attempts.Add(1) < 3 {
+			return errors.New("in-flight drain not complete yet")
+		}
+		return nil
+	})
+
+	m.broadcastNodeReachedState(opID, cmd.INTEGRATING)
+
+	select {
+	case s := <-submitted:
+		require.Equal(t, cmd.INTEGRATING, s)
+	case <-time.After(10 * time.Second):
+		t.Fatal("INTEGRATING was never reported even though the drain eventually succeeded")
+	}
+	require.GreaterOrEqual(t, attempts.Load(), int32(3),
+		"drain must be retried until it succeeds, not proceeded after the first failure")
+	require.True(t, m.GetReplicationFSM().AllPeersAtLeast(opID, cmd.INTEGRATING, []string{"node1"}),
+		"node1 should have reached INTEGRATING in the FSM after the drain succeeded")
+}
+
+// Close cancels the (otherwise unbounded) drain retry loop so a stuck shard
+// can't keep the broadcast goroutine alive past shutdown — and the report stays
+// withheld, since the drain never completed.
+func TestManager_CloseCancelsDrainRetry(t *testing.T) {
+	const opID = uint64(4)
+	m := newDrainTestManager(t, opID, "TestClass", "shard1")
+
+	submitted := make(chan cmd.ShardReplicationState, 1)
+	m.SetNodeReachedStateSubmitter("node1", func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error {
+		submitted <- req.State
+		return nil
+	})
+
+	// The drain blocks until cancelled — a shard that never drains.
+	drainEntered := make(chan struct{}, 1)
+	m.SetInflightDrainer(func(ctx context.Context, class, shard string) error {
+		select {
+		case drainEntered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	})
+
+	m.broadcastNodeReachedState(opID, cmd.INTEGRATING)
+
+	select {
+	case <-drainEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain was never attempted")
+	}
+
+	m.Close()
+
+	select {
+	case s := <-submitted:
+		t.Fatalf("must not report %v after Close cancelled the drain", s)
+	case <-time.After(time.Second):
+		// Correct: the drain was cancelled, so the report is withheld.
 	}
 }
