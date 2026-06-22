@@ -69,7 +69,7 @@ func TestReassignVectorNotFound(t *testing.T) {
 }
 
 // Basic in-memory deduplicator functionality
-func TestReassignDeduplicatorBasic(t *testing.T) {
+func TestReassignTaskQueueDedupBasic(t *testing.T) {
 	tf := createHFreshIndex(t)
 
 	dedup := tf.Index.taskQueue.reassignList
@@ -85,7 +85,7 @@ func TestReassignDeduplicatorBasic(t *testing.T) {
 }
 
 // Done removes entry
-func TestReassignDeduplicatorDone(t *testing.T) {
+func TestReassignTaskQueueDedupDone(t *testing.T) {
 	tf := createHFreshIndex(t)
 
 	dedup := tf.Index.taskQueue.reassignList
@@ -99,7 +99,7 @@ func TestReassignDeduplicatorDone(t *testing.T) {
 	require.True(t, added, "should be able to add again after done")
 }
 
-func TestReassignDeduplicatorDoesNotPersistOnClose(t *testing.T) {
+func TestReassignTaskQueueDedupDoesNotPersistOnClose(t *testing.T) {
 	tf := createHFreshIndex(t)
 
 	err := tf.Index.taskQueue.EnqueueReassign(1, 300)
