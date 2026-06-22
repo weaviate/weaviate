@@ -202,3 +202,98 @@ func TestVarIntDecodeBnu59To63MatchesLegacy(t *testing.T) {
 		})
 	}
 }
+
+// widthCases pick one bit width per decode strategy and tail boundary.
+var widthCases = []struct {
+	name string
+	bnu  int
+}{
+	{"reservoir_min", 1},
+	{"reservoir_mid", 16},
+	{"reservoir_max", 32},
+	{"uint64_first", 33},
+	{"uint64_max", 57},
+	{"tail_only", 58},
+}
+
+func encodeWidthValues(values []uint64, deltaDiff bool, n int) []byte {
+	if deltaDiff {
+		e := &VarIntDeltaEncoder{}
+		e.Init(n)
+		return e.Encode(values)
+	}
+	e := &VarIntEncoder{}
+	e.Init(n)
+	return e.Encode(values)
+}
+
+// TestVarIntDecodeTruncatedBodyMatchesLegacy pins the body-exhaustion guards: a
+// valid header with a short body must decode without panic and stay byte-
+// identical to the reference decoder for the surviving prefix.
+func TestVarIntDecodeTruncatedBodyMatchesLegacy(t *testing.T) {
+	rng := rand.New(rand.NewPCG(0xabcd, 0xef01))
+	const n = 40
+	for _, wc := range widthCases {
+		t.Run(wc.name, func(t *testing.T) {
+			for _, deltaDiff := range []bool{false, true} {
+				maxVal := uint64(1)<<uint(wc.bnu) - 1
+				if deltaDiff && maxVal != 0 && uint64(n) > ^uint64(0)/maxVal {
+					continue
+				}
+				values := makeWidthValues(rng, n, wc.bnu, maxVal, deltaDiff)
+				packed := encodeWidthValues(values, deltaDiff, n)
+				// Step by one byte to hit every truncation alignment.
+				for cut := len(packed); cut >= 9; cut-- {
+					trunc := packed[:cut]
+					gotNew := make([]uint64, n)
+					gotOld := make([]uint64, n)
+					require.NotPanicsf(t, func() { decodeReusable(gotNew, trunc, deltaDiff) },
+						"delta=%v cut=%d", deltaDiff, cut)
+					decodeReusableLegacy(gotOld, trunc, deltaDiff)
+					require.Equalf(t, gotOld, gotNew, "delta=%v cut=%d", deltaDiff, cut)
+				}
+			}
+		})
+	}
+}
+
+// TestVarIntDecodeOutputLengthMismatchMatchesLegacy pins the fastEnd clamp (output
+// shorter than the encoded count) and the exhaustion guards (output longer). Both
+// must match the reference decoder, with the overlapping prefix equal to the input.
+func TestVarIntDecodeOutputLengthMismatchMatchesLegacy(t *testing.T) {
+	rng := rand.New(rand.NewPCG(0x2233, 0x4455))
+	for _, wc := range widthCases {
+		t.Run(wc.name, func(t *testing.T) {
+			for _, deltaDiff := range []bool{false, true} {
+				maxVal := uint64(1)<<uint(wc.bnu) - 1
+				for _, m := range []int{2, 8, 64, 200} {
+					if deltaDiff && maxVal != 0 && uint64(m) > ^uint64(0)/maxVal {
+						continue
+					}
+					values := makeWidthValues(rng, m, wc.bnu, maxVal, deltaDiff)
+					packed := encodeWidthValues(values, deltaDiff, m)
+
+					// Output lengths around the encoded count; >= 4 keeps the
+					// bnu>32 fast path live so the fastEnd clamp is hit.
+					seen := map[int]bool{}
+					for _, outN := range []int{4, m - 1, m, m + 1, m + 50} {
+						if outN < 2 || seen[outN] {
+							continue
+						}
+						seen[outN] = true
+						gotNew := make([]uint64, outN)
+						gotOld := make([]uint64, outN)
+						require.NotPanicsf(t, func() { decodeReusable(gotNew, packed, deltaDiff) },
+							"delta=%v m=%d out=%d", deltaDiff, m, outN)
+						decodeReusableLegacy(gotOld, packed, deltaDiff)
+						require.Equalf(t, gotOld, gotNew, "delta=%v m=%d out=%d", deltaDiff, m, outN)
+
+						limit := min(outN, m)
+						require.Equalf(t, values[:limit], gotNew[:limit],
+							"delta=%v m=%d out=%d", deltaDiff, m, outN)
+					}
+				}
+			}
+		})
+	}
+}
