@@ -218,10 +218,9 @@ func CasbinNamespaces(name string) string {
 }
 
 // ContainsNamespaceSeparator reports whether a casbin resource path contains
-// the namespace separator. The separator never appears in any other valid
-// resource path segment (collection, shard, tenant, role, and user names all
-// forbid it), so a plain byte scan unambiguously detects namespace
-// qualification regardless of the path shape.
+// the namespace separator. A hit means qualification only for the collection
+// shapes (schema/data/aliases); for users/<id> and groups/<...>, whose ids may
+// contain ':' (e.g. OIDC usernames), callers must shape-check first.
 func ContainsNamespaceSeparator(resource string) bool {
 	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
 }

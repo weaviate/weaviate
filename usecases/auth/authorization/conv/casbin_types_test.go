@@ -1241,3 +1241,28 @@ func TestGetUserAndPrefix(t *testing.T) {
 		})
 	}
 }
+
+// TestUserKeyRoundTripColonBearingID: a global user id containing ':' survives
+// the casbin-key encode/decode round trip verbatim — only the auth-type prefix
+// is split off the first ':', no namespace re-attribution.
+func TestUserKeyRoundTripColonBearingID(t *testing.T) {
+	ids := []string{
+		"alice",
+		"urn:foo",
+		"urn:keycloak:alice",
+		"customer1:alice",
+		":leading",
+		"trailing:",
+	}
+	for _, authType := range []authentication.AuthType{authentication.AuthTypeOIDC, authentication.AuthTypeDb} {
+		for _, id := range ids {
+			t.Run(string(authType)+"/"+id, func(t *testing.T) {
+				key := UserNameWithTypeFromId(id, authType)
+				user, prefix, err := GetUserAndPrefix(key)
+				require.NoError(t, err)
+				require.Equal(t, string(authType), prefix)
+				require.Equal(t, id, user, "id must round-trip verbatim, no namespace re-attribution")
+			})
+		}
+	}
+}
