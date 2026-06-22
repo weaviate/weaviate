@@ -18,6 +18,10 @@ import (
 )
 
 const (
+	pagedBitsetPagesPerGroup     = 128
+	pagedBitsetPagesPerGroupBits = 7
+	pagedBitsetPagesPerGroupMask = pagedBitsetPagesPerGroup - 1
+
 	pagedBitsetPageBits     = 16
 	pagedBitsetPageSize     = 1 << pagedBitsetPageBits
 	pagedBitsetPageMask     = pagedBitsetPageSize - 1
@@ -34,12 +38,17 @@ const (
 // Pages are allocated lazily and released when the last bit in a page is
 // deleted. Each page covers 64K IDs and costs 8KiB while live.
 type PagedBitset struct {
-	pages []atomic.Pointer[pagedBitsetPage]
-	live  atomic.Uint64
+	maxPages uint64
+	groups   []atomic.Pointer[pagedBitsetGroup]
+	live     atomic.Uint64
 
-	// mu protects page allocation. Reads, bit operations, and page deletion use
-	// atomics and do not take this lock.
+	// mu protects group and page allocation. Reads, bit operations, and page
+	// deletion use atomics and do not take this lock.
 	mu sync.Mutex
+}
+
+type pagedBitsetGroup struct {
+	pages [pagedBitsetPagesPerGroup]atomic.Pointer[pagedBitsetPage]
 }
 
 type pagedBitsetPage struct {
@@ -49,8 +58,10 @@ type pagedBitsetPage struct {
 
 // NewPagedBitset creates a PagedBitset that can address maxPages*64K IDs.
 func NewPagedBitset(maxPages uint64) *PagedBitset {
+	groupCount := (maxPages + pagedBitsetPagesPerGroup - 1) >> pagedBitsetPagesPerGroupBits
 	return &PagedBitset{
-		pages: make([]atomic.Pointer[pagedBitsetPage], maxPages),
+		maxPages: maxPages,
+		groups:   make([]atomic.Pointer[pagedBitsetGroup], groupCount),
 	}
 }
 
@@ -127,11 +138,12 @@ func (b *PagedBitset) ensureReservedPage(pageID uint64) *pagedBitsetPage {
 		}
 
 		b.mu.Lock()
-		page = b.page(pageID)
+		cell := b.ensurePageCell(pageID)
+		page = cell.Load()
 		if page == nil {
 			page = &pagedBitsetPage{}
 			page.count.Store(1)
-			b.pageCell(pageID).Store(page)
+			cell.Store(page)
 			b.live.Add(1)
 			b.mu.Unlock()
 			return page
@@ -186,7 +198,8 @@ func (b *PagedBitset) cleanupPage(pageID uint64, page *pagedBitsetPage) {
 		return
 	}
 
-	if b.pageCell(pageID).CompareAndSwap(page, nil) {
+	cell := b.pageCell(pageID)
+	if cell != nil && cell.CompareAndSwap(page, nil) {
 		b.live.Add(^uint64(0))
 		return
 	}
@@ -195,14 +208,40 @@ func (b *PagedBitset) cleanupPage(pageID uint64, page *pagedBitsetPage) {
 }
 
 func (b *PagedBitset) page(pageID uint64) *pagedBitsetPage {
-	return b.pageCell(pageID).Load()
+	cell := b.pageCell(pageID)
+	if cell == nil {
+		return nil
+	}
+	return cell.Load()
 }
 
 func (b *PagedBitset) pageCell(pageID uint64) *atomic.Pointer[pagedBitsetPage] {
-	if pageID >= uint64(len(b.pages)) {
+	if pageID >= b.maxPages {
 		panic("paged bitset capacity exceeded")
 	}
-	return &b.pages[pageID]
+
+	groupID := pageID >> pagedBitsetPagesPerGroupBits
+	group := b.groups[groupID].Load()
+	if group == nil {
+		return nil
+	}
+
+	return &group.pages[pageID&pagedBitsetPagesPerGroupMask]
+}
+
+func (b *PagedBitset) ensurePageCell(pageID uint64) *atomic.Pointer[pagedBitsetPage] {
+	if pageID >= b.maxPages {
+		panic("paged bitset capacity exceeded")
+	}
+
+	groupID := pageID >> pagedBitsetPagesPerGroupBits
+	group := b.groups[groupID].Load()
+	if group == nil {
+		group = &pagedBitsetGroup{}
+		b.groups[groupID].Store(group)
+	}
+
+	return &group.pages[pageID&pagedBitsetPagesPerGroupMask]
 }
 
 func pagedBitsetLocation(id uint64) (pageID uint64, wordID uint64, mask uint64) {

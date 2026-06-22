@@ -86,6 +86,24 @@ func TestPagedBitsetReleasesOnlyEmptyPage(t *testing.T) {
 	}
 }
 
+func TestPagedBitsetSupportsHighIDs(t *testing.T) {
+	bs := NewPagedBitset(1 << 16)
+	id := uint64(1 << 30)
+
+	if !bs.TryAdd(id) {
+		t.Fatal("expected high ID add to return true")
+	}
+	if !bs.Contains(id) {
+		t.Fatal("expected high ID to be present")
+	}
+	if !bs.Delete(id) {
+		t.Fatal("expected high ID delete to return true")
+	}
+	if bs.LivePages() != 0 {
+		t.Fatalf("expected high ID page to be released, got %d live pages", bs.LivePages())
+	}
+}
+
 func TestPagedBitsetConcurrentDenseAddDelete(t *testing.T) {
 	bs := NewPagedBitset(64)
 

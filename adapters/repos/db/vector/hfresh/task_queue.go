@@ -39,7 +39,7 @@ const (
 	splitTaskQueueChunkSize    = 16 * 1024 // 16KB
 	reassignTaskQueueChunkSize = 16 * 1024 // 16KB
 	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
-	taskDeduplicatorMaxPages   = 16 * 1024 // 1 billion IDs with 64K IDs per page
+	taskDeduplicatorMaxPages   = 1 << 16   // Supports IDs < 1<<32 with 64K IDs per page
 )
 
 type TaskQueue struct {
