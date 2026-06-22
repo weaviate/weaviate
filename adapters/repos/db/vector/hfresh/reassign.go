@@ -105,10 +105,11 @@ func (h *HFresh) appendReassignReplicas(ctx context.Context, newVector Vector, r
 			// the posting has been deleted concurrently,
 			// re-enqueue the vector so it can be reassigned against
 			// the current centroid set.
+			// Clear the current task's in-flight marker before enqueueing the
+			// replacement task; otherwise duplicate suppression would drop it.
 			h.taskQueue.ReassignDone(newVector.ID())
 			err = h.taskQueue.EnqueueReassign(id, newVector.ID())
 			if err != nil {
-				h.taskQueue.ReassignDone(newVector.ID())
 				return true, err
 			}
 			return true, nil

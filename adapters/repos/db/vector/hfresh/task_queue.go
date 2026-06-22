@@ -285,6 +285,7 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64) error {
 	}
 
 	if err := tq.reassignQueue.Push(encodeReassignTask(vecID, postingID)); err != nil {
+		tq.reassignList.done(vecID)
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 

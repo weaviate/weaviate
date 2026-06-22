@@ -113,6 +113,19 @@ func TestReassignDeduplicatorDoesNotPersistOnClose(t *testing.T) {
 	require.Nil(t, data)
 }
 
+func TestReassignEnqueuePushFailureClearsDedup(t *testing.T) {
+	tf := createHFreshIndex(t)
+
+	vectorID := uint64(400)
+	err := tf.Index.taskQueue.reassignQueue.Close(t.Context())
+	require.NoError(t, err)
+
+	err = tf.Index.taskQueue.EnqueueReassign(1, vectorID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to push reassign operation to queue")
+	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+}
+
 // Reassign a vector whose version was concurrently changed should be skipped
 func TestReassignConcurrentVersionChange(t *testing.T) {
 	tf := createHFreshIndex(t)
