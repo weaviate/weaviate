@@ -2550,6 +2550,10 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 
 		err := b.existsWithConsistentView(key, view)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
+
+		exists, err := b.Exists(key)
+		require.NoError(t, err)
+		require.False(t, exists)
 	})
 
 	t.Run("key exists after put", func(t *testing.T) {
@@ -2561,6 +2565,10 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 
 		err = b.existsWithConsistentView(key, view)
 		require.NoError(t, err)
+
+		exists, err := b.Exists(key)
+		require.NoError(t, err)
+		require.True(t, exists)
 	})
 
 	t.Run("exists returns same result as get", func(t *testing.T) {
@@ -2606,6 +2614,10 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 
 		err := b.existsWithConsistentView(key, view)
 		require.NoError(t, err)
+
+		exists, err := b.Exists(key)
+		require.NoError(t, err)
+		require.True(t, exists)
 	})
 
 	t.Run("nonexistent key returns NotFound", func(t *testing.T) {
@@ -2614,6 +2626,10 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 
 		err := b.existsWithConsistentView([]byte("nonexistent"), view)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
+
+		exists, err := b.Exists([]byte("nonexistent"))
+		require.NoError(t, err)
+		require.False(t, exists)
 	})
 
 	t.Run("exists returns same result as get for segment data", func(t *testing.T) {
@@ -2668,6 +2684,10 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 
 		err := b.existsWithConsistentView(key, view)
 		assert.True(t, errors.Is(err, lsmkv.Deleted))
+
+		exists, err := b.Exists(key)
+		require.NoError(t, err)
+		require.False(t, exists)
 	})
 
 	t.Run("exists and get return consistent Deleted error", func(t *testing.T) {

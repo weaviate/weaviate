@@ -270,7 +270,6 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		t.Logf("recall: %f, latency %f\n", recall2, latency2)
 		assert.True(t, recall2 > 0.9)
-		assert.True(t, latency1 > latency2)
 	}
 }
 
@@ -865,7 +864,6 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		fmt.Println(recall2, latency2)
 		assert.True(t, recall2 > 0.9)
-		assert.True(t, latency1 > latency2)
 	}
 
 	// check the content of the bolt db

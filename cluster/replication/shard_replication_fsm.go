@@ -431,7 +431,7 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 
 // AllPeersAtLeast reports whether every peer has PerNodeState[peer] >= target.
 // Missing peers count as not satisfied.
-func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState) bool {
+func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState, peers []string) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	st, ok := s.statusById[opID]
@@ -439,10 +439,33 @@ func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardRepli
 		return false
 	}
 	floor := api.StateRank(target)
-	for _, st := range st.PerNodeState {
-		if api.StateRank(st) < floor {
+	for _, peer := range peers {
+		state, ok := st.PerNodeState[peer]
+		if !ok {
+			return false
+		}
+		if api.StateRank(state) < floor {
 			return false
 		}
 	}
 	return true
+}
+
+// NonTerminalOpStates returns the current state of every op that has not reached
+// a terminal state (READY/CANCELLED), keyed by op id. It is used after a
+// snapshot restore to re-announce this node's reached state for in-progress ops;
+// see Manager.Restore.
+func (s *ShardReplicationFSM) NonTerminalOpStates() map[uint64]api.ShardReplicationState {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	out := make(map[uint64]api.ShardReplicationState, len(s.statusById))
+	for id, status := range s.statusById {
+		switch status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			continue
+		default:
+			out[id] = status.GetCurrentState()
+		}
+	}
+	return out
 }
