@@ -30,7 +30,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -187,6 +189,16 @@ func flushShard(t *testing.T, ctx context.Context, shard ShardLike) {
 	require.NoError(t, s.store.FlushMemtables(ctx))
 }
 
+func (s *Shard) propagateWithinRangeForTest(t *testing.T, ctx context.Context,
+	cfg AsyncReplicationConfig, addr, node string, initialLeaf, finalLeaf uint64,
+	limit int, overrides additional.AsyncReplicationTargetNodeOverrides,
+) (int, []objectToPropagate, error) {
+	t.Helper()
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	defer cursor.Close()
+	return s.objectsToPropagateWithinRange(ctx, cfg, cursor, addr, node, initialLeaf, finalLeaf, limit, overrides)
+}
+
 // ─── objectsToPropagateWithinRange ───────────────────────────────────────────
 
 // TestObjectsToPropagateWithinRange covers the scanning and filtering logic
@@ -202,8 +214,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		s := concreteShard(t, sl)
 		cfg := fullRangeConfig(100)
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local)
@@ -222,8 +234,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		s := concreteShard(t, sl)
 		cfg := fullRangeConfig(100)
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local, "memtable objects must be visible to the merged bucket cursor")
@@ -247,8 +259,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local)
@@ -273,8 +285,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		_, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, limit, nil,
+		_, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, limit, nil,
 		)
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(objs), limit,
@@ -307,8 +319,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 			propagationDelay: 30 * time.Second,
 		}
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local,
@@ -339,8 +351,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 			propagationDelay: 30 * time.Second,
 		}
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 1, local,
@@ -365,8 +377,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		_, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+		_, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "comparing digests with remote",
