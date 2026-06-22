@@ -86,6 +86,21 @@ func TestDecodeReassignTaskWithPostingHint(t *testing.T) {
 	require.Equal(t, postingID, reassignTask.postingID)
 }
 
+func TestDecodeMixedLegacyAndHintReassignTasks(t *testing.T) {
+	tq := &TaskQueue{}
+
+	records := [][]byte{
+		encodeTask(1234, taskQueueReassignOp),
+		encodeReassignTask(5678, 9012),
+	}
+
+	for _, record := range records {
+		task, err := tq.DecodeTask(record)
+		require.NoError(t, err)
+		require.IsType(t, &ReassignTask{}, task)
+	}
+}
+
 func TestDecodeReassignTaskIgnoresFutureTrailingFields(t *testing.T) {
 	tq := &TaskQueue{}
 	vecID := uint64(1234)

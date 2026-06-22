@@ -68,11 +68,33 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmk
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
-	return store.Bucket(bName), nil
+	bucket := store.Bucket(bName)
+	err = cleanupLegacyReassignBucket(bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	return bucket, nil
 }
 
 func sharedBucketName(id string) string {
 	return fmt.Sprintf("hfresh_shared_%s", id)
+}
+
+func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
+	exists, err := bucket.Exists(reassignBucketKey)
+	if err != nil {
+		return errors.Wrap(err, "check legacy reassign bucket key")
+	}
+	if !exists {
+		return nil
+	}
+
+	err = bucket.Delete(reassignBucketKey)
+	if err != nil {
+		return errors.Wrap(err, "delete legacy reassign bucket key")
+	}
+	return nil
 }
 
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.

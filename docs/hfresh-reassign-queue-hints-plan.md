@@ -273,3 +273,12 @@ Tests:
     itself and that terminal reassign paths clear the in-memory dedup marker.
   - Verified with `go test ./adapters/repos/db/vector/hfresh` and
     `go test ./adapters/repos/db/queue`.
+- Implemented the legacy shared-bucket cleanup:
+  - Startup checks the old `reassignBucketKey` with `Bucket.Exists` so the
+    legacy blob is not loaded into memory, then deletes it only when present.
+  - The reserved key remains documented in code and is still not reused.
+  - Added startup coverage that the legacy blob is removed while unrelated
+    shared-bucket data is preserved.
+  - Added explicit mixed legacy/new reassign queue record decode coverage.
+  - Verified with `go test ./adapters/repos/db/vector/hfresh` and
+    `go test ./adapters/repos/db/queue`.
