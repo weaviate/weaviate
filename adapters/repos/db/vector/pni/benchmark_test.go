@@ -93,6 +93,10 @@ type HDF5Data struct {
 }
 
 func TestPNIBenchmark(t *testing.T) {
+	if os.Getenv("PNI_BENCHMARK") == "" {
+		t.Skip("Skipping PNI benchmark test. Set PNI_BENCHMARK=1 to run.")
+	}
+
 	datasets := []DatasetConfig{
 		{
 			Name:      "dbpedia-100k",

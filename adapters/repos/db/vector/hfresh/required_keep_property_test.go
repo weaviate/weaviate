@@ -131,6 +131,10 @@ type HDF5Data struct {
 
 // TestRequiredKeepProperty runs the main experiment
 func TestRequiredKeepProperty(t *testing.T) {
+	if os.Getenv("HFRESH_BENCHMARK") == "" {
+		t.Skip("Skipping required keep property benchmark test. Set HFRESH_BENCHMARK=1 to run.")
+	}
+
 	// Define datasets
 	datasets := []DatasetConfig{
 		// DBPedia/OpenAI series

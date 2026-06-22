@@ -118,6 +118,10 @@ type ThreeStageQueryResult struct {
 }
 
 func TestThreeStage(t *testing.T) {
+	if os.Getenv("PNI_BENCHMARK") == "" {
+		t.Skip("Skipping PNI benchmark test. Set PNI_BENCHMARK=1 to run.")
+	}
+
 	flag.Parse()
 
 	datasets := []string{

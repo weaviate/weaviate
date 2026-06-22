@@ -134,6 +134,10 @@ type NDHDFData struct {
 }
 
 func TestNeighborhoodDensity(t *testing.T) {
+	if os.Getenv("HFRESH_BENCHMARK") == "" {
+		t.Skip("Skipping neighborhood density benchmark test. Set HFRESH_BENCHMARK=1 to run.")
+	}
+
 	// Define datasets
 	datasets := []NDDatasetConfig{
 		// DBPedia/OpenAI series

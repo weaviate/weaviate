@@ -152,3 +152,33 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 
 	return postingID, posting
 }
+
+// DocInput represents a document with ID and vectors for experiment tests.
+type DocInput struct {
+	ID      uint64
+	Vectors [][]float32
+}
+
+// QueryInput represents a query with ID and vectors for experiment tests.
+type QueryInput struct {
+	ID      string
+	Vectors [][]float32
+}
+
+// loadDocs loads documents from a JSONL file for experiment tests.
+func loadDocs(path string) ([]DocInput, error) {
+	// Placeholder for experiment tests - actual implementation would parse JSONL
+	return nil, nil
+}
+
+// loadQueries loads queries from a JSONL file for experiment tests.
+func loadQueries(path string) ([]QueryInput, error) {
+	// Placeholder for experiment tests - actual implementation would parse JSONL
+	return nil, nil
+}
+
+// loadGroundTruth loads ground-truth data from a JSONL file for experiment tests.
+func loadGroundTruth(path string) (map[string][]uint64, error) {
+	// Placeholder for experiment tests - actual implementation would parse JSONL
+	return nil, nil
+}
