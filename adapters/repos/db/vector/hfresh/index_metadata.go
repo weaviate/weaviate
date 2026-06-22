@@ -45,7 +45,11 @@ var (
 	// postingMapBucketPrefixV1 is migrated to postingMapBucketPrefixV2 by migratePostingMapV1ToV2.
 	postingMapBucketPrefixV1   = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
-	reassignBucketKey          = []byte{sharedBucketVersionV1, 4, 0}
+	// reassignBucketKey is a legacy shared-bucket key used by the old persisted
+	// reassign deduplicator. It is intentionally reserved forever so no future
+	// metadata can accidentally read stale reassign blobs as a different format.
+	// New code must not write to this key.
+	reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
 	// postingMapBucketPrefixV2 stores posting IDs without vector version bytes.
 	postingMapBucketPrefixV2 = []byte{sharedBucketVersionV1, 5}
 	// postingSizesBucketPrefix was added with postingMapBucketPrefixV2.

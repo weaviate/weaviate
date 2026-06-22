@@ -53,19 +53,14 @@ type TaskQueue struct {
 	scheduler *queue.Scheduler
 
 	index        *HFresh
-	analyzeList  *deduplicator         // Prevents duplicate analyze operations
-	splitList    *deduplicator         // Prevents duplicate split operations
-	mergeList    *deduplicator         // Prevents duplicate merge operations
-	reassignList *reassignDeduplicator // Prevents duplicate reassign operations
+	analyzeList  *deduplicator // Prevents duplicate analyze operations
+	splitList    *deduplicator // Prevents duplicate split operations
+	mergeList    *deduplicator // Prevents duplicate merge operations
+	reassignList *deduplicator // Prevents duplicate reassign operations
 }
 
-func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
+func NewTaskQueue(index *HFresh, _ *lsmkv.Bucket) (*TaskQueue, error) {
 	var err error
-
-	reassignList, err := newReassignDeduplicator(bucket)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create reassign deduplicator")
-	}
 
 	tq := TaskQueue{
 		index:        index,
@@ -73,7 +68,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 		analyzeList:  newDeduplicator(),
 		splitList:    newDeduplicator(),
 		mergeList:    newDeduplicator(),
-		reassignList: reassignList,
+		reassignList: newDeduplicator(),
 	}
 
 	// create queue for analyze operations
@@ -172,10 +167,6 @@ func (tq *TaskQueue) Close(ctx context.Context) error {
 	var errs []error
 	if err := tq.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
-	}
-
-	if err := tq.reassignList.flush(); err != nil {
-		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
 	}
 
 	if err := tq.analyzeQueue.Close(ctx); err != nil {
@@ -289,7 +280,7 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 
 func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version VectorVersion) error {
 	// Check if the operation is already enqueued
-	if !tq.reassignList.tryAdd(vecID, postingID) {
+	if !tq.reassignList.tryAdd(vecID) {
 		return nil
 	}
 

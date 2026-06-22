@@ -252,3 +252,10 @@ Tests:
   - Added focused task queue format tests.
   - Verified with `go test ./adapters/repos/db/vector/hfresh` and
     `go test ./adapters/repos/db/queue`.
+- Implemented Slice 2:
+  - Replaced the persisted reassign deduplicator with the existing in-memory
+    vector-ID deduplicator.
+  - Removed shutdown flushing of pending reassign hints to the shared bucket.
+  - Kept `reassignBucketKey` reserved in code with a legacy warning comment.
+  - Added a regression test that closing the task queue does not persist the
+    legacy reassign dedup blob.
