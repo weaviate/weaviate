@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -174,24 +175,40 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot create role with the same name as built-in role %s", *params.Body.Name)))
 	}
 
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies[*params.Body.Name]); err != nil {
+	// A namespaced caller's role name is auto-prefixed with its namespace.
+	roleName, err := namespacing.QualifyRoleNameForCreate(principal, h.namespacesEnabled, *params.Body.Name)
+	if err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
+	// Reject namespace-qualified resource paths up front (callers submit bare
+	// names; a namespaced caller's are auto-prefixed below).
+	rolePolicies := policies[*params.Body.Name]
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies); err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	// A namespaced caller's permission segments are auto-prefixed in place.
+	if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, rolePolicies); err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	if err := h.authorizeRoleScopes(ctx, principal, authorization.CREATE, rolePolicies, roleName); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	roles, err := h.controller.GetRoles(*params.Body.Name)
+	// A global name reserves its short name across every namespace, so the
+	// conflict scan spans all roles, not just the candidate name.
+	allRoles, err := h.controller.GetRoles()
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
-
-	if len(roles) > 0 {
-		return authz.NewCreateRoleConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role with name %s already exists", *params.Body.Name)))
+	if namespacing.FindShortNameConflict(maps.Keys(allRoles), roleName) != namespacing.NoRoleConflict {
+		short := namespacing.StripOwnNamespace(principal, roleName)
+		return authz.NewCreateRoleConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role with name %s already exists", short)))
 	}
 
-	if err = h.controller.CreateRolesPermissions(policies); err != nil {
+	if err = h.controller.CreateRolesPermissions(map[string][]authorization.Policy{roleName: rolePolicies}); err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -199,7 +216,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		"action":      "create_role",
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
-		"roleName":    params.Body.Name,
+		"roleName":    roleName,
 		"permissions": params.Body.Permissions,
 	}).Info("role created")
 
