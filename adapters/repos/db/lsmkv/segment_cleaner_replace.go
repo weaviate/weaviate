@@ -31,11 +31,16 @@ type segmentCleanerReplace struct {
 	level                    uint16
 	secondaryIndexCount      uint16
 	enableChecksumValidation bool
+
+	// valueTransformer mirrors the compactor hook: when set, each non-tombstone
+	// value is rewritten before being written to the cleaned segment. nil means
+	// no active edit operation (values pass through untouched).
+	valueTransformer valueTransformer
 }
 
 func newSegmentCleanerReplace(w io.WriteSeeker, cursor innerCursorReplaceAllKeys,
 	keyExistsFn keyExistsOnUpperSegmentsFunc, level, secondaryIndexCount uint16,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, valueTransformer valueTransformer,
 ) *segmentCleanerReplace {
 	return &segmentCleanerReplace{
 		w:                        w,
@@ -46,6 +51,7 @@ func newSegmentCleanerReplace(w io.WriteSeeker, cursor innerCursorReplaceAllKeys
 		level:                    level,
 		secondaryIndexCount:      secondaryIndexCount,
 		enableChecksumValidation: enableChecksumValidation,
+		valueTransformer:         valueTransformer,
 	}
 }
 
@@ -128,6 +134,13 @@ func (p *segmentCleanerReplace) writeKeys(f *segmentindex.SegmentFile,
 		}
 		nodeCopy := node
 		nodeCopy.offset = offset
+		if p.valueTransformer != nil && !nodeCopy.tombstone && len(nodeCopy.value) > 0 {
+			transformed, terr := p.valueTransformer(nodeCopy.value)
+			if terr != nil {
+				return nil, fmt.Errorf("transform value: %w", terr)
+			}
+			nodeCopy.value = transformed
+		}
 		indexKey, err = nodeCopy.KeyIndexAndWriteTo(f.BodyWriter())
 		if err != nil {
 			break
