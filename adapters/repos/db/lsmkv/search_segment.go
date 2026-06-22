@@ -206,13 +206,24 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 			results[nextList].AdvanceAtLeast(next)
 
-			// AdvanceAtLeast only ever increases results[nextList].idPointer (or
-			// exhausts it to MaxUint64), so the slice is sorted everywhere except
-			// that one element, which must move right. Re-insert it and stop the
-			// instant it settles — the old loop had no early break and rescanned the
-			// whole tail every iteration (its exhausted-swap branch only ever
-			// reordered MaxUint64 sentinels, which no reader observes).
-			results.reinsertRight(nextList)
+			// Full-tail repair pass (no early break). Unlike the other branches,
+			// this one must fix more than the single advanced element: the
+			// upper-bound loop above calls AdvanceAtLeastShallow on every term in
+			// [0, pivotPoint] whose block trailed the pivot, and that mutates their
+			// idPointer to an approximate (previous-block-max) value — leaving the
+			// prefix unsorted and stranding exhausted terms mid-slice. A single
+			// re-insertion of results[nextList] does NOT repair that; the disorder
+			// then accumulates across iterations until the pivot scan can no longer
+			// advance and DoBlockMaxWand spins forever on a long (many-term) query.
+			// The per-iteration bubble pass keeps the slice converging toward sorted
+			// (and pushes exhausted MaxUint64 sentinels rightward) the way base did.
+			for i := nextList + 1; i < len(results); i++ {
+				if results[i].idPointer < results[i-1].idPointer {
+					results[i], results[i-1] = results[i-1], results[i]
+				} else if results[i].exhausted && i < len(results)-1 {
+					results[i], results[i+1] = results[i+1], results[i]
+				}
+			}
 
 		}
 
