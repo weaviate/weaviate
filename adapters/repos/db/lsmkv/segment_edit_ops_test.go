@@ -259,3 +259,30 @@ func TestSegmentEditOps_PersistsAcrossReopen(t *testing.T) {
 		}
 	}
 }
+
+func TestSegmentEditOps_BumpAttemptDoesNotResurrectDoneSegment(t *testing.T) {
+	s := newTestEditOps(t)
+	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"seg1", "seg2"}))
+	require.NoError(t, s.MarkSegmentDone("op1", "seg1"))
+
+	// A late/duplicate error for an already-completed segment must not revive it.
+	require.NoError(t, s.BumpAttempt("op1", "seg1", errors.New("late error")))
+
+	p, err := s.Pending("op1")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"seg2"}, p)
+}
+
+func TestSegmentEditOps_SnapshotSegmentsRequiresRegisteredOp(t *testing.T) {
+	s := newTestEditOps(t)
+
+	err := s.SnapshotSegments("unregistered", []string{"seg1"})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "not registered")
+
+	// No orphan pending rows were created.
+	p, err := s.Pending("unregistered")
+	require.NoError(t, err)
+	assert.Empty(t, p)
+}

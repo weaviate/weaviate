@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -81,7 +82,11 @@ type PendingSegment struct {
 // OpenSegmentEditOps opens (creating if necessary) the edit-ops store for the
 // segment group rooted at dir.
 func OpenSegmentEditOps(dir string) (*SegmentEditOps, error) {
-	db, err := bolt.Open(filepath.Join(dir, segmentEditOpsFileName), 0o600, nil)
+	// One handle per segment group is the invariant. A non-zero Timeout turns a
+	// would-be-forever hang on an accidental second open into a fast, debuggable
+	// error; it never affects the single-open path (the file lock is uncontended).
+	db, err := bolt.Open(filepath.Join(dir, segmentEditOpsFileName), 0o600,
+		&bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return nil, fmt.Errorf("open segment edit ops db: %w", err)
 	}
@@ -148,11 +153,20 @@ func (s *SegmentEditOps) LoadOps() ([]ActiveOp, error) {
 	return ops, nil
 }
 
-// SnapshotSegments records segIDs as pending for opID. It is idempotent: a
-// segment already pending (possibly with accrued retries) is left untouched, so
-// re-running a snapshot after a crash neither duplicates nor resets progress.
+// SnapshotSegments records segIDs as pending for opID, which must already be
+// registered. It is idempotent for segments that are still pending: an existing
+// pending row (with its accrued retries) is left untouched, so re-running a
+// snapshot after a crash neither duplicates rows nor resets progress.
+//
+// Progress is encoded as absence from the pending set, so callers must pass the
+// segments currently on disk: re-snapshotting an ID that has already been
+// completed (and whose segment was merged/cleaned away) re-queues it. Reconcile
+// is the safety net — it drops pending rows for segments no longer on disk.
 func (s *SegmentEditOps) SnapshotSegments(opID string, segIDs []string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
+		if tx.Bucket(editOpsBucketOperations).Get([]byte(opID)) == nil {
+			return fmt.Errorf("snapshot segments: operation %q is not registered", opID)
+		}
 		sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
 		if err != nil {
 			return err
@@ -233,7 +247,12 @@ func (s *SegmentEditOps) BumpAttempt(opID, segID string, opErr error) error {
 		if sub == nil {
 			return nil
 		}
-		ps, err := decodePending(opID, segID, sub.Get([]byte(segID)))
+		raw := sub.Get([]byte(segID))
+		if raw == nil {
+			// Already done or quarantined; do not resurrect a completed segment.
+			return nil
+		}
+		ps, err := decodePending(opID, segID, raw)
 		if err != nil {
 			return err
 		}
