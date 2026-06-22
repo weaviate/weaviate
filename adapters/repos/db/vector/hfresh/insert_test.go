@@ -280,6 +280,17 @@ func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
 	require.Equal(t, uint32(0), size)
 }
 
+func TestAppendMissingPostingDoesNotEnqueueReassign(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	vector := NewVector(777, VectorVersion(1), nil)
+	added, err := tf.Index.append(t.Context(), vector, 4242, true)
+	require.NoError(t, err)
+	require.False(t, added)
+	require.Equal(t, int64(0), tf.Index.taskQueue.reassignQueue.Size())
+}
+
 func TestAddBatch(t *testing.T) {
 	t.Run("add batch of vectors", func(t *testing.T) {
 		tf := createHFreshIndex(t)
