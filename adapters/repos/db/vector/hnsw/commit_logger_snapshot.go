@@ -918,11 +918,15 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		hasher.Reset()
 		hw = io.MultiWriter(&block, hasher)
 
-		// write next node index at the start of the new block
-		if i+1 < len(state.Nodes) {
-			if err := writeUint64(hw, uint64(i+1)); err != nil {
-				return err
-			}
+		// the current node did not fit the previous block, so it begins the new
+		// one: write its id as the block's start index, then the node entry
+		// itself. (Previously the start index was written as i+1 and the entry
+		// was never written, silently dropping one node per block boundary.)
+		if err := writeUint64(hw, uint64(i)); err != nil {
+			return err
+		}
+		if _, err := hw.Write(buf.Bytes()); err != nil {
+			return err
 		}
 	}
 
