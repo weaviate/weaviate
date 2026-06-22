@@ -1407,6 +1407,56 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 	})
 }
 
+// TestSnapshotMultiBlockNodeLossRepro proves, directly against main's classic
+// writer/reader, that writeStateTo silently drops one node at every body-block
+// boundary (it labels the new block as starting at i+1 and never writes node i).
+// The existing "v3 - multi block" test masks this because it round-trips through
+// the same consistently-mislabeled reader and only asserts NotEqual. Here we
+// assert node-by-node survival, which fails at each block boundary.
+func TestSnapshotMultiBlockNodeLossRepro(t *testing.T) {
+	const size = 2000
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 1,
+		Level:      6,
+		Compressed: false,
+		Nodes:      make([]*vertex, size),
+		Tombstones: make(map[uint64]struct{}),
+	}
+	// every slot is a live node — no nil slots, no tombstones — so the ONLY
+	// way a node can go missing on round-trip is the block-boundary bug.
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{
+			id:          uint64(i),
+			level:       i % 6,
+			connections: c,
+		}
+	}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id) // snapshotBlockSize = 4096
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	require.NoError(t, cl.writeSnapshot(state, snapshotPath))
+
+	restoredState, err := cl.readSnapshot(snapshotPath)
+	require.NoError(t, err)
+
+	var missing []int
+	for i := 0; i < size; i++ {
+		if restoredState.Nodes[i] == nil {
+			missing = append(missing, i)
+		}
+	}
+	require.Emptyf(t, missing, "nodes silently dropped on snapshot round-trip "+
+		"(one per 4KB block boundary): %v", missing)
+}
+
 var connsSlice1 = []uint64{
 	4477, 83, 6777, 13118, 12903, 12873, 14397, 15034, 15127, 15162, 15219, 15599, 17627,
 	18624, 18844, 19359, 22981, 23099, 36188, 37400, 39724, 39810, 47254, 58047, 59647, 61746,
