@@ -262,10 +262,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 }
 
 // filterBackupableClasses returns the subset of classes the caller may act on
-// with the given verb, used on the empty-Include path to narrow the operation
-// rather than 403-ing the whole request. An empty result returns Forbidden,
-// consistent with the explicit-Include path; any other authorizer failure is
-// wrapped Unprocessable so callers can return it directly.
+// with verb, narrowing the empty-Include operation instead of failing it whole.
+// An empty result is Forbidden; any other authorizer error is Unprocessable.
 func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
 	allowed := make([]string, 0, len(classes))
 	for _, c := range classes {
@@ -283,17 +281,16 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 	return allowed, nil
 }
 
-// authorizeBackupByID reads the backup meta and authorizes the caller against
-// the classes it records. A not-found meta is a deliberate no-op (the 404 may
-// leak the id's existence); any other backend error fails closed.
+// authorizeBackupByID authorizes the caller against the classes recorded in the
+// backup meta. A missing meta is a no-op (the 404 may leak the id); any other
+// backend error fails closed.
 func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
 	store coordStore, filename, overrideBucket, overridePath string,
 ) error {
 	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
 	if err != nil {
-		// A meta read concurrent with an in-progress write returns a partial or
-		// empty file that fails to unmarshal; treat that like not-found so a
-		// status poll mid-write retries instead of erroring.
+		// A read concurrent with a write yields a partial file that fails to
+		// unmarshal; treat it as not-found so a mid-write status poll retries.
 		var syntaxErr *json.SyntaxError
 		if errors.As(err, &backup.ErrNotFound{}) || errors.As(err, &syntaxErr) {
 			return nil
@@ -305,10 +302,9 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 
 const metaReadAttempts = 3
 
-// metaWithRetry reads the backup meta, retrying briefly when the read observes a
-// partial file mid-write (a json.SyntaxError). Resolving the real classes lets a
-// caller scoped to specific collections pass a class-aware authz check instead of
-// falling back to a wildcard one. ErrNotFound and other errors return immediately.
+// metaWithRetry reads the backup meta, retrying briefly on a partial file mid-write
+// (json.SyntaxError) so a class-scoped caller can resolve the real classes for a
+// class-aware authz check. ErrNotFound and other errors return immediately.
 func metaWithRetry(ctx context.Context, store coordStore, filename, overrideBucket, overridePath string,
 ) (*backup.DistributedBackupDescriptor, error) {
 	var (
@@ -393,9 +389,8 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 	idErr := validateID(backupID)
 
-	// Authorize before validating the id so a caller without permission gets 403,
-	// not a hint about the id. Scope to the backup's classes when the meta is
-	// readable; otherwise require wildcard DELETE.
+	// Authorize before validating the id so an unpermitted caller gets 403, not a
+	// hint about the id. Scope to the backup's classes when readable, else wildcard.
 	var meta *backup.DistributedBackupDescriptor
 	var classes []string
 	if idErr == nil {
@@ -455,9 +450,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 
 	idErr := validateID(backupID)
 
-	// Authorize before validating the id so a caller without permission gets 403,
-	// not a hint about the id. Prefer the restore descriptor, falling back to the
-	// backup descriptor; if neither is readable, require wildcard DELETE.
+	// Authorize before validating the id so an unpermitted caller gets 403, not a
+	// hint about the id. Prefer the restore descriptor, else the backup descriptor;
+	// if neither is readable, require wildcard DELETE.
 	var meta *backup.DistributedBackupDescriptor
 	var metaErr error
 	var classes []string
@@ -562,9 +557,8 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
-	// Return only backups the caller has READ on. A backup spans multiple classes,
-	// so include it only if the caller has READ on every one — otherwise listing
-	// leaks the existence of collections the caller cannot see.
+	// Include a backup only if the caller has READ on every class it spans —
+	// otherwise listing leaks the existence of collections it cannot see.
 	response := make(models.BackupListResponse, 0, len(backups))
 	for _, b := range backups {
 		classes := b.Classes()
