@@ -880,6 +880,14 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 			}
 		}
 
+		// a single node entry must fit within an otherwise-empty block (which
+		// already carries an 8-byte start-index header); otherwise no valid
+		// fixed-size block can hold it. Fail loudly rather than emit a malformed
+		// (oversized) block or panic on negative padding.
+		if buf.Len()+8 > maxBlockSize {
+			return fmt.Errorf("node %d entry of %d bytes exceeds block capacity %d", i, buf.Len(), maxBlockSize-8)
+		}
+
 		// add node data to block if there's enough space, otherwise create a new block
 		if buf.Len()+block.Len() < maxBlockSize {
 			_, err := hw.Write(buf.Bytes())

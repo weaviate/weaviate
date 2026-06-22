@@ -1460,6 +1460,31 @@ func TestSnapshotMultiBlockNodeLossRepro(t *testing.T) {
 		"(one per 4KB block boundary): %v", missing)
 }
 
+// TestSnapshotOversizedNodeReturnsError ensures a single node entry that cannot
+// fit in one block fails loudly instead of panicking (negative pad math) or
+// being silently dropped. Uses a tiny block size to make one node oversized.
+func TestSnapshotOversizedNodeReturnsError(t *testing.T) {
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 0,
+		Level:      0,
+		Nodes:      []*vertex{{id: 0, level: 0, connections: c}},
+		Tombstones: make(map[uint64]struct{}),
+	}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+	cl.snapshotBlockSize = 64 // force the single node to exceed one block
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	err = cl.writeSnapshot(state, snapshotPath)
+	require.Error(t, err, "a node larger than a block must be rejected, not dropped/panic")
+}
+
 // TestSnapshotCleanedTombstoneKeepsSlotAlignment covers the sibling drop: a node
 // that was deleted with its tombstone already cleaned up must be persisted as a
 // nil slot. The buggy code wrote a nil byte to the scratch buffer then
