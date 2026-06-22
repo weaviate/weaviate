@@ -1403,7 +1403,10 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		restoredState, err := cl.readSnapshot(snapshotPath)
 		require.NoError(t, err)
 
-		require.NotEqual(t, state.Nodes, restoredState.Nodes)
+		// A multi-block snapshot must round-trip every slot faithfully. (This
+		// previously asserted NotEqual, which only held because the writer
+		// silently dropped a node at each block boundary.)
+		require.Equal(t, state.Nodes, restoredState.Nodes)
 	})
 }
 
@@ -1455,6 +1458,53 @@ func TestSnapshotMultiBlockNodeLossRepro(t *testing.T) {
 	}
 	require.Emptyf(t, missing, "nodes silently dropped on snapshot round-trip "+
 		"(one per 4KB block boundary): %v", missing)
+}
+
+// TestSnapshotCleanedTombstoneKeepsSlotAlignment covers the sibling drop: a node
+// that was deleted with its tombstone already cleaned up must be persisted as a
+// nil slot. The buggy code wrote a nil byte to the scratch buffer then
+// `continue`d, never appending it to the block, so every later node in the same
+// block was read back one id too low.
+func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
+	const size = 10
+	const cleaned = 5
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint:        0,
+		Level:             6,
+		Nodes:             make([]*vertex, size),
+		Tombstones:        make(map[uint64]struct{}),
+		TombstonesDeleted: make(map[uint64]struct{}),
+	}
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{id: uint64(i), level: i, connections: c}
+	}
+	// node `cleaned` was deleted and its tombstone already cleaned up
+	state.Tombstones[cleaned] = struct{}{}
+	state.TombstonesDeleted[cleaned] = struct{}{}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	require.NoError(t, cl.writeSnapshot(state, snapshotPath))
+
+	restored, err := cl.readSnapshot(snapshotPath)
+	require.NoError(t, err)
+
+	require.Nil(t, restored.Nodes[cleaned], "cleaned-tombstone node should be a nil slot")
+	for i := 0; i < size; i++ {
+		if i == cleaned {
+			continue
+		}
+		require.NotNilf(t, restored.Nodes[i], "node %d must survive", i)
+		require.Equalf(t, i, restored.Nodes[i].level, "node %d shifted id/level", i)
+	}
 }
 
 var connsSlice1 = []uint64{

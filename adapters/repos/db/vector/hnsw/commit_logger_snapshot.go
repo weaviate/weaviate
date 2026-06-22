@@ -849,28 +849,29 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 			_, tombstoneIsCleaned := state.TombstonesDeleted[n.id]
 
 			if hasATombstone && tombstoneIsCleaned {
-				// if the node has been deleted but its tombstone has been cleaned up
-				// we can write a nil node
+				// the node has been deleted and its tombstone already cleaned up:
+				// persist it as a nil slot so the on-disk slot index stays aligned
+				// with node ids. (Previously this `continue`d without appending the
+				// byte to the block, shifting every later node in the block.)
 				if err := writeByte(&buf, 0); err != nil {
 					return err
 				}
-				continue
-			}
-
-			if hasATombstone {
-				_ = writeByte(&buf, 1)
 			} else {
-				_ = writeByte(&buf, 2)
-			}
+				if hasATombstone {
+					_ = writeByte(&buf, 1)
+				} else {
+					_ = writeByte(&buf, 2)
+				}
 
-			_ = writeUint32(&buf, uint32(n.level))
+				_ = writeUint32(&buf, uint32(n.level))
 
-			connData := n.connections.Data()
-			_ = writeUint32(&buf, uint32(len(connData)))
+				connData := n.connections.Data()
+				_ = writeUint32(&buf, uint32(len(connData)))
 
-			_, err = buf.Write(connData)
-			if err != nil {
-				return errors.Wrapf(err, "write connections data for node %d", n.id)
+				_, err = buf.Write(connData)
+				if err != nil {
+					return errors.Wrapf(err, "write connections data for node %d", n.id)
+				}
 			}
 		} else {
 			// nil node
