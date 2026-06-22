@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -308,6 +309,20 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
+			// A role can't be created in a namespace that's gone or being deleted.
+			req := &api.CreateRolesRequest{}
+			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
+				return
+			}
+			if req.RoleCreation {
+				for name := range req.Roles {
+					if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+						ret.Error = err
+						return
+					}
+				}
+			}
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ROLES:

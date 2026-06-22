@@ -22,13 +22,14 @@ import (
 	clusternamespaces "github.com/weaviate/weaviate/cluster/namespaces"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // This file tests the namespace check at the top of store.Apply. The
-// check rejects any command that would create a class, alias, or user
-// inside a namespace that does not exist or is being deleted.
+// check rejects any command that would create a class, alias, user, or
+// role inside a namespace that does not exist or is being deleted.
 //
 // The two maps below split every ApplyRequest type into the commands the
 // check must reject and the commands it must let through (including the
@@ -38,11 +39,12 @@ import (
 
 // Commands the namespace check rejects when the namespace is gone or deleting.
 var namespaceTouchingCreateLikeApplyTypes = map[api.ApplyRequest_Type]struct{}{
-	api.ApplyRequest_TYPE_ADD_CLASS:     {},
-	api.ApplyRequest_TYPE_RESTORE_CLASS: {},
-	api.ApplyRequest_TYPE_CREATE_ALIAS:  {},
-	api.ApplyRequest_TYPE_REPLACE_ALIAS: {},
-	api.ApplyRequest_TYPE_UPSERT_USER:   {},
+	api.ApplyRequest_TYPE_ADD_CLASS:                {},
+	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
+	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
+	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
+	api.ApplyRequest_TYPE_UPSERT_USER:              {},
+	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 }
 
 // Commands the namespace check always lets through.
@@ -59,7 +61,6 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DELETE_TENANT:                                              {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
 	api.ApplyRequest_TYPE_DELETE_ALIAS:                                               {},
-	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:                                   {},
 	api.ApplyRequest_TYPE_DELETE_ROLES:                                               {},
 	api.ApplyRequest_TYPE_REMOVE_PERMISSIONS:                                         {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:                                         {},
@@ -254,6 +255,87 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 	require.True(t, ok)
 	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
 	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+}
+
+// TestApplyGate_RejectsRoleCreationIntoInactiveNamespace drives the role-
+// creation gate through the live apply switch: a namespaced role can't be
+// minted into a deleting or missing namespace. Non-creation upserts and
+// global (unqualified) roles are not gated.
+func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
+	roleCmd := func(name string, creation bool) []byte {
+		return cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
+			api.CreateRolesRequest{
+				Roles:        map[string][]authorization.Policy{name: nil},
+				RoleCreation: creation,
+			}, nil)
+	}
+
+	tests := []struct {
+		name     string
+		seed     func(*namespaces.Controller)
+		role     string
+		creation bool
+		wantErr  error
+	}{
+		{
+			name: "create into deleting namespace rejected",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
+			},
+			role:     "alpha:editor",
+			creation: true,
+			wantErr:  namespaces.ErrNamespaceDeleting,
+		},
+		{
+			name:     "create into missing namespace rejected",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "alpha:editor",
+			creation: true,
+			wantErr:  namespaces.ErrNamespaceGone,
+		},
+		{
+			name: "create into active namespace passes gate",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+			},
+			role:     "alpha:editor",
+			creation: true,
+		},
+		{
+			name:     "global role create passes gate",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "editor",
+			creation: true,
+		},
+		{
+			name: "non-creation upsert into deleting namespace not gated",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
+			},
+			role:     "alpha:editor",
+			creation: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ms, log := setupApplyTest(t)
+			tc.seed(ms.cfg.NamespacesController)
+			log.Data = roleCmd(tc.role, tc.creation)
+
+			result := ms.store.Apply(log)
+			resp, ok := result.(Response)
+			require.True(t, ok)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, resp.Error, tc.wantErr)
+				return
+			}
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+		})
+	}
 }
 
 type emptySchemaLister struct{}
