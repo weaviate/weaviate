@@ -505,9 +505,14 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		switch c.sg.strategy {
 		case StrategyReplace:
+			transformer, terr := c.sg.buildValueTransformer()
+			if terr != nil {
+				err = terr
+				return false, err
+			}
 			c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 				c.sg.makeKeyExistsOnUpperSegments(segments, startIdx, lastIdx), oldSegment.getLevel(),
-				oldSegment.getSecondaryIndexCount(), c.sg.enableChecksumValidation, c.sg.valueTransformer)
+				oldSegment.getSecondaryIndexCount(), c.sg.enableChecksumValidation, transformer)
 			if err = c.do(shouldAbort); err != nil {
 				return false, err
 			}

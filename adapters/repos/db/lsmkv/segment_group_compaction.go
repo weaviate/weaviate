@@ -278,7 +278,7 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 // valueTransformer (used by tests).
 func (sg *SegmentGroup) buildValueTransformer() (valueTransformer, error) {
 	if sg.editOps == nil {
-		return sg.valueTransformer, nil
+		return nil, nil
 	}
 	ops, err := sg.editOps.LoadOps()
 	if err != nil {

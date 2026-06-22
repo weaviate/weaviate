@@ -97,17 +97,13 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
-	// valueTransformer, when set, rewrites each non-tombstone value during
-	// replace-strategy compaction (e.g. to strip a dropped vector). It is used
-	// directly only when editOps is nil (tests); otherwise the transformer is
-	// built per pass from the active edit operations via transformerBuilder.
-	valueTransformer valueTransformer
-
 	// editOps tracks in-place segment edit operations and the segments still
 	// pending rewrite. nil unless edit ops are enabled for this segment group.
 	editOps *SegmentEditOps
 	// transformerBuilder builds the per-pass valueTransformer from the active
-	// edit ops. Set together with editOps.
+	// edit ops. Set together with editOps. Building the transformer per pass
+	// (rather than holding one with segment-group lifetime) lets it reflect the
+	// ops live at that moment and compose multiple concurrent drops.
 	transformerBuilder transformerBuilder
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory

@@ -33,8 +33,19 @@ func newReplaceBucketForCleanup(t *testing.T, transformer valueTransformer) *Buc
 		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Second))
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
-	bucket.disk.valueTransformer = transformer
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+
+	// Inject the transformer via the edit-ops path: a registered op makes
+	// buildValueTransformer return the builder's transformer per pass.
+	if transformer != nil {
+		editOps, err := OpenSegmentEditOps(bucket.disk.dir)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, editOps.Close()) })
+		bucket.disk.editOps = editOps
+		bucket.disk.transformerBuilder = func(ops []ActiveOp) valueTransformer { return transformer }
+		require.NoError(t, editOps.RegisterOp("test-op",
+			OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	}
 	return bucket
 }
 
