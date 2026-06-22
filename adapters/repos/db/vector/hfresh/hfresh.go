@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -34,6 +33,8 @@ import (
 const (
 	DefaultRNGFactor = 10.0
 )
+
+const deduplicatorMaxPages = 16 * 1024 // 1 billion IDs with 64K IDs per page
 
 var (
 	ErrPostingNotFound = errors.New("posting not found")
@@ -400,29 +401,27 @@ func (h *HFresh) Preload(id uint64, vector []float32) {
 
 // deduplicator is a simple thread-safe structure to prevent duplicate values.
 type deduplicator struct {
-	m *xsync.Map[uint64, struct{}]
+	bitset *common.PagedBitset
 }
 
 func newDeduplicator() *deduplicator {
 	return &deduplicator{
-		m: xsync.NewMap[uint64, struct{}](),
+		bitset: common.NewPagedBitset(deduplicatorMaxPages),
 	}
 }
 
 // tryAdd attempts to add an ID to the deduplicator.
 // Returns true if the ID was added, false if it already exists.
 func (d *deduplicator) tryAdd(id uint64) bool {
-	_, loaded := d.m.LoadOrStore(id, struct{}{})
-	return !loaded
+	return d.bitset.TryAdd(id)
 }
 
 // done marks an ID as processed, removing it from the deduplicator.
 func (d *deduplicator) done(id uint64) {
-	d.m.Delete(id)
+	d.bitset.Delete(id)
 }
 
 // contains checks if an ID is already in the deduplicator.
 func (d *deduplicator) contains(id uint64) bool {
-	_, exists := d.m.Load(id)
-	return exists
+	return d.bitset.Contains(id)
 }
