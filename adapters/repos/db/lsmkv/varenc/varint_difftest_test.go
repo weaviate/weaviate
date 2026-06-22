@@ -21,11 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// decodeReusableLegacy is the pre-PR (stable/v1.37) varint decoder, preserved
-// verbatim as a reference oracle. The reservoir / 64-bit-read rewrite claims to
-// be "bit-identical to stable/v1.37"; the differential tests below pin that
-// claim by requiring byte-identical output from the new decoder for every
-// validly-encoded buffer. If the new decoder ever diverges, these fail.
+// decodeReusableLegacy is a straightforward byte-by-byte varint decoder kept as
+// a reference oracle. The reservoir / 64-bit-read decoder must stay bit-identical
+// to it: the differential tests below require byte-identical output from both for
+// every validly-encoded buffer, and fail if the two ever diverge.
 func decodeReusableLegacy(deltas []uint64, packed []byte, deltaDiff bool) {
 	if len(packed) < 8 {
 		return
@@ -69,10 +68,10 @@ func decodeReusableLegacy(deltas []uint64, packed []byte, deltaDiff bool) {
 // 8/9-byte guard boundary and several non-block-aligned counts.
 var diffSizes = []int{1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 127, 128, 129, 255, 256, 511, 512}
 
-// TestVarIntDecodeMatchesLegacyDecoder is the differential test backing the
-// PR's "bit-identical to stable/v1.37" claim: for both codecs, every supported
-// bit width, and a wide range of counts, the new decoder must produce exactly
-// the same values as the legacy decoder AND round-trip the original input.
+// TestVarIntDecodeMatchesLegacyDecoder is the differential test pinning decoder
+// bit-identity: for both codecs, every supported bit width, and a wide range of
+// counts, the reservoir decoder must produce exactly the same values as the
+// reference decoder AND round-trip the original input.
 func TestVarIntDecodeMatchesLegacyDecoder(t *testing.T) {
 	rng := rand.New(rand.NewPCG(0x5eed, 0x1337))
 
@@ -148,11 +147,11 @@ func makeWidthValues(rng *rand.Rand, n, bnu int, maxVal uint64, deltaDiff bool) 
 	return values
 }
 
-// TestVarIntDecodeShortBufferNoPanic pins the headline guard fix: the legacy
-// decoder read packed[8] after only checking len<8, so an exactly-8-byte buffer
-// panicked. The new len<9 guard must turn every sub-9-byte buffer into a safe
-// no-op for both codecs. (A valid encoding is always >= 9 bytes, so nothing
-// legitimate is rejected — see TestVarIntBitsNeededHeaderHasExpectedValue.)
+// TestVarIntDecodeShortBufferNoPanic pins the short-buffer guard: reading
+// packed[8] requires len >= 9, so the len<9 guard must turn every sub-9-byte
+// buffer into a safe no-op for both codecs. (A valid encoding is always >= 9
+// bytes, so nothing legitimate is rejected — see
+// TestVarIntBitsNeededHeaderHasExpectedValue.)
 func TestVarIntDecodeShortBufferNoPanic(t *testing.T) {
 	out := make([]uint64, 4)
 	for l := 0; l <= 9; l++ {
@@ -175,13 +174,12 @@ func TestVarIntDecodeEmptyOutputNoPanic(t *testing.T) {
 }
 
 // TestVarIntDecodeBnu59To63MatchesLegacy pins behavior in the unsupported width
-// range [59,63]. Both the new and legacy decoders lose high bits there because
-// the byte-refill tail overflows the 64-bit buffer (see the maxSupportedBnu
-// comment). This PR does not change that — it predates this code and never
-// occurs for BM25 doc-id/TF deltas — but the new decoder must stay byte-
-// identical to the legacy one across the full 6-bit header range. The NotEqual
-// assertion documents that the range is genuinely lossy today; if a future
-// change makes it round-trip, this test will flag that the format/decoder moved.
+// range [59,63]. Both decoders lose high bits there because the byte-refill tail
+// overflows the 64-bit buffer (see the maxSupportedBnu comment); this range never
+// occurs for BM25 doc-id/TF deltas. The reservoir decoder must stay byte-
+// identical to the reference one across the full 6-bit header range. The NotEqual
+// assertion documents that the range is genuinely lossy; if a future change makes
+// it round-trip, this test will flag that the format/decoder moved.
 func TestVarIntDecodeBnu59To63MatchesLegacy(t *testing.T) {
 	for bnu := 59; bnu <= 63; bnu++ {
 		t.Run(fmt.Sprintf("bnu=%d", bnu), func(t *testing.T) {
