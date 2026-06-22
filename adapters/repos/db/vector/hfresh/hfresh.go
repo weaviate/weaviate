@@ -34,8 +34,6 @@ const (
 	DefaultRNGFactor = 10.0
 )
 
-const deduplicatorMaxPages = 16 * 1024 // 1 billion IDs with 64K IDs per page
-
 var (
 	ErrPostingNotFound = errors.New("posting not found")
 	ErrVectorNotFound  = errors.New("vector not found")
@@ -397,31 +395,4 @@ func (h *HFresh) CompressionStats() compressionhelpers.CompressionStats {
 
 func (h *HFresh) Preload(id uint64, vector []float32) {
 	// for now, nothing to do here
-}
-
-// deduplicator is a simple thread-safe structure to prevent duplicate values.
-type deduplicator struct {
-	bitset *common.PagedBitset
-}
-
-func newDeduplicator() *deduplicator {
-	return &deduplicator{
-		bitset: common.NewPagedBitset(deduplicatorMaxPages),
-	}
-}
-
-// tryAdd attempts to add an ID to the deduplicator.
-// Returns true if the ID was added, false if it already exists.
-func (d *deduplicator) tryAdd(id uint64) bool {
-	return d.bitset.TryAdd(id)
-}
-
-// done marks an ID as processed, removing it from the deduplicator.
-func (d *deduplicator) done(id uint64) {
-	d.bitset.Delete(id)
-}
-
-// contains checks if an ID is already in the deduplicator.
-func (d *deduplicator) contains(id uint64) bool {
-	return d.bitset.Contains(id)
 }
