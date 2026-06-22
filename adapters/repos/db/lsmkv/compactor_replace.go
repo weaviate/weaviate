@@ -72,6 +72,11 @@ type compactorReplace struct {
 // It must be a pure, idempotent function of the value bytes.
 type valueTransformer func(value []byte) ([]byte, error)
 
+// transformerBuilder produces the per-pass valueTransformer for the currently
+// active edit operations. It is invoked once at the start of each compaction or
+// cleanup pass so the transformer reflects the ops live at that moment.
+type transformerBuilder func(ops []ActiveOp) valueTransformer
+
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplaceReusable, level, secondaryIndexCount uint16,
 	cleanupTombstones bool,

@@ -132,14 +132,26 @@ func (s *SegmentEditOps) RegisterOp(opID string, op OpDescriptor) error {
 func (s *SegmentEditOps) LoadOps() ([]ActiveOp, error) {
 	var ops []ActiveOp
 	if err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(editOpsBucketOperations).ForEach(func(k, v []byte) error {
-			var desc OpDescriptor
-			if err := json.Unmarshal(v, &desc); err != nil {
-				return fmt.Errorf("decode op %q: %w", k, err)
-			}
-			ops = append(ops, ActiveOp{ID: string(k), Descriptor: desc})
-			return nil
-		})
+		var err error
+		ops, err = s.loadOpsTx(tx)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return ops, nil
+}
+
+// loadOpsTx is LoadOps within an existing transaction, used by the compaction
+// completion bookkeeping which already holds a write tx.
+func (s *SegmentEditOps) loadOpsTx(tx *bolt.Tx) ([]ActiveOp, error) {
+	var ops []ActiveOp
+	if err := tx.Bucket(editOpsBucketOperations).ForEach(func(k, v []byte) error {
+		var desc OpDescriptor
+		if err := json.Unmarshal(v, &desc); err != nil {
+			return fmt.Errorf("decode op %q: %w", k, err)
+		}
+		ops = append(ops, ActiveOp{ID: string(k), Descriptor: desc})
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -230,12 +242,50 @@ func (s *SegmentEditOps) AllPending() ([]PendingSegment, error) {
 // the rewrite for that (op, segment) pair is complete.
 func (s *SegmentEditOps) MarkSegmentDone(opID, segID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		sub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
-		if sub == nil {
-			return nil
-		}
-		return sub.Delete([]byte(segID))
+		return s.markSegmentDoneTx(tx, opID, segID)
 	})
+}
+
+// WithTx runs fn inside a single write transaction. Compaction completion uses
+// it to mark inputs done and re-queue the merged output atomically.
+func (s *SegmentEditOps) WithTx(fn func(tx *bolt.Tx) error) error {
+	return s.db.Update(fn)
+}
+
+func (s *SegmentEditOps) markSegmentDoneTx(tx *bolt.Tx, opID, segID string) error {
+	sub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
+	if sub == nil {
+		return nil
+	}
+	return sub.Delete([]byte(segID))
+}
+
+// pendingContainsTx reports whether segID is currently pending for opID, read
+// within the caller's transaction.
+func (s *SegmentEditOps) pendingContainsTx(tx *bolt.Tx, opID, segID string) bool {
+	sub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
+	if sub == nil {
+		return false
+	}
+	return sub.Get([]byte(segID)) != nil
+}
+
+// addPendingTx records segID as newly pending for opID within the caller's
+// transaction. It is idempotent: an already-pending row (with its retry state)
+// is left untouched.
+func (s *SegmentEditOps) addPendingTx(tx *bolt.Tx, opID, segID string) error {
+	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+	if err != nil {
+		return err
+	}
+	if sub.Get([]byte(segID)) != nil {
+		return nil
+	}
+	enc, err := json.Marshal(PendingSegment{})
+	if err != nil {
+		return err
+	}
+	return sub.Put([]byte(segID), enc)
 }
 
 // BumpAttempt records a failed rewrite attempt for a pending segment. The

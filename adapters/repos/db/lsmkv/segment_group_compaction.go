@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	bolt "go.etcd.io/bbolt"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -271,6 +272,62 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 
 // compactOnce performs one compaction iteration. Cancelling ctx aborts
 // the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
+// buildValueTransformer produces the transformer for a single compaction or
+// cleanup pass. With edit ops enabled it is built from the ops live right now
+// (nil when there are none); without, it falls back to the directly-set
+// valueTransformer (used by tests).
+func (sg *SegmentGroup) buildValueTransformer() (valueTransformer, error) {
+	if sg.editOps == nil {
+		return sg.valueTransformer, nil
+	}
+	ops, err := sg.editOps.LoadOps()
+	if err != nil {
+		return nil, fmt.Errorf("load edit ops: %w", err)
+	}
+	if len(ops) == 0 {
+		return nil, nil
+	}
+	return sg.transformerBuilder(ops), nil
+}
+
+// recordCompactionInEditOps runs the post-compaction edit-ops bookkeeping in a
+// single bolt transaction. It is the sequenced step after the on-disk rename
+// and the in-memory swap; a crash before it commits is repaired by Reconcile at
+// the next Open. For every active op it marks the merged inputs done. An op
+// registered after the pass began (CreatedAt > startedAt) did not influence the
+// transformer the compactor ran with, so if either input was pending for it the
+// merged output still carries that op's target and is re-queued for cleanup.
+func (sg *SegmentGroup) recordCompactionInEditOps(leftPath, rightPath string, startedAt int64) error {
+	leftID := segmentID(leftPath)
+	rightID := segmentID(rightPath)
+	mergedID := leftID + "_" + rightID
+
+	return sg.editOps.WithTx(func(tx *bolt.Tx) error {
+		ops, err := sg.editOps.loadOpsTx(tx)
+		if err != nil {
+			return err
+		}
+		for _, op := range ops {
+			leftWasPending := sg.editOps.pendingContainsTx(tx, op.ID, leftID)
+			rightWasPending := sg.editOps.pendingContainsTx(tx, op.ID, rightID)
+
+			if err := sg.editOps.markSegmentDoneTx(tx, op.ID, leftID); err != nil {
+				return err
+			}
+			if err := sg.editOps.markSegmentDoneTx(tx, op.ID, rightID); err != nil {
+				return err
+			}
+
+			if op.Descriptor.CreatedAt > startedAt && (leftWasPending || rightWasPending) {
+				if err := sg.editOps.addPendingTx(tx, op.ID, mergedID); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
@@ -355,6 +412,15 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
+	// Capture the pass start before building the transformer: any edit op
+	// registered after this point is not reflected in the transformer the
+	// compactor runs with, which the completion bookkeeping accounts for.
+	compactionStartedAt := time.Now().UnixNano()
+	transformer, err := sg.buildValueTransformer()
+	if err != nil {
+		return false, err
+	}
+
 	// aborted=true tells the caller to close the partial .tmp and bail
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
@@ -381,7 +447,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, sg.valueTransformer)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, transformer)
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {
@@ -499,6 +565,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
+
+	if strategy == segmentindex.StrategyReplace && sg.editOps != nil {
+		if err := sg.recordCompactionInEditOps(leftPath, rightPath, compactionStartedAt); err != nil {
+			return false, fmt.Errorf("segment edit ops compaction bookkeeping: %w", err)
+		}
+	}
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
