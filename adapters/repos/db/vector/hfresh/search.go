@@ -33,12 +33,14 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	// Normalize before any search path to ensure consistent distance calculations
+	vector = h.normalizeVec(vector)
+
 	if !h.muvera.Load() && allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
 
 	rescoreLimit := int(h.rescoreLimit)
-	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
 		if atomic.LoadUint32(&h.dims) == 0 {
 			return nil, nil, nil
@@ -338,6 +340,11 @@ func (ks *ResultSet) Reset(k int) {
 func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
 		return nil, nil, ErrMuveraNotEnabled
+	}
+
+	// Guard: encoder must be initialized (has dimensions set) before encoding
+	if h.muveraEncoder == nil || h.muveraEncoder.Dimensions() == 0 {
+		return nil, nil, errors.New("muvera encoder not initialized: no vectors have been indexed yet")
 	}
 
 	// Encode query vectors into FDE (Fast Dense Encoding) representation

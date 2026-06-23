@@ -121,6 +121,10 @@ func (u *UserConfig) validate() error {
 		if u.Multivector.MuveraConfig.KSim <= 0 {
 			errs = append(errs, fmt.Errorf("muvera ksim must be greater than 0"))
 		}
+		// Cap ksim at 10 to prevent huge allocations (NumClusters = 2^ksim)
+		if u.Multivector.MuveraConfig.KSim > 10 {
+			errs = append(errs, fmt.Errorf("muvera ksim must be at most 10"))
+		}
 		if u.Multivector.MuveraConfig.DProjections <= 0 {
 			errs = append(errs, fmt.Errorf("muvera dprojections must be greater than 0"))
 		}
