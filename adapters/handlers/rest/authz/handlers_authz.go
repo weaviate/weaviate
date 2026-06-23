@@ -160,6 +160,18 @@ func (h *authZHandlers) rolePoliciesVisibleToPrincipal(ctx context.Context, prin
 	return true
 }
 
+// roleHiddenFromCaller reports whether storedRoleName belongs to a namespace
+// other than the caller's, so its very existence must not be revealed.
+// Own-namespace and global roles are visible; only foreign-namespace roles are
+// hidden. Global operators (and NS-disabled clusters) hide nothing.
+func (h *authZHandlers) roleHiddenFromCaller(principal *models.Principal, storedRoleName string) bool {
+	if !h.namespacesEnabled || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+		return false
+	}
+	ns := namespacing.NamespaceFromQualified(storedRoleName)
+	return ns != "" && ns != principal.Namespace
+}
+
 // roleExists backs ResolveRoleName's local-then-global lookup.
 func (h *authZHandlers) roleExists(name string) (bool, error) {
 	roles, err := h.controller.GetRoles(name)
@@ -167,6 +179,57 @@ func (h *authZHandlers) roleExists(name string) (bool, error) {
 		return false, err
 	}
 	return len(roles) > 0, nil
+}
+
+// authorizeRoleRead reports whether the caller may read a role's full body.
+// NS-disabled gates on the role-name matcher; NS-enabled gates on content scope.
+func (h *authZHandlers) authorizeRoleRead(ctx context.Context, principal *models.Principal, roleName string, policies []authorization.Policy) error {
+	if !h.namespacesEnabled {
+		return h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, roleName)
+	}
+	if !h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
+		return fmt.Errorf("insufficient permissions to view role %q", namespacing.StripOwnNamespace(principal, roleName))
+	}
+	return nil
+}
+
+type roleReadOutcome int
+
+const (
+	roleReadOK roleReadOutcome = iota
+	roleReadNotFound
+	roleReadBadRequest
+	roleReadForbidden
+	roleReadInternalErr
+)
+
+// resolveRoleForRead resolves a caller-supplied role name to its stored form
+// and gates a role-target read: NS-disabled on the role-name matcher,
+// NS-enabled on content scope (resolve local-then-global, then verify the
+// caller holds every permission the role grants). The outcome maps to the
+// caller's own responder; err carries the message for the non-OK outcomes.
+func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *models.Principal, rawID string) (roleID string, outcome roleReadOutcome, err error) {
+	if !h.namespacesEnabled {
+		if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, rawID); err != nil {
+			return "", roleReadForbidden, err
+		}
+		return rawID, roleReadOK, nil
+	}
+	stored, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, rawID, h.roleExists)
+	if errors.Is(err, namespacing.ErrRoleNotFound) {
+		return "", roleReadNotFound, nil
+	}
+	if err != nil {
+		return "", roleReadBadRequest, err
+	}
+	roles, err := h.controller.GetRoles(stored)
+	if err != nil {
+		return "", roleReadInternalErr, fmt.Errorf("GetRoles: %w", err)
+	}
+	if !h.rolePoliciesVisibleToPrincipal(ctx, principal, roles[stored]) {
+		return "", roleReadForbidden, errors.New("insufficient permissions to view role")
+	}
+	return stored, roleReadOK, nil
 }
 
 // authorizeAssignRolePermissions blocks privilege escalation via role
@@ -482,10 +545,8 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		if h.namespacesEnabled {
 			// Hide other namespaces' roles and any whose permissions the caller
 			// does not already hold; strip the caller's own namespace prefix.
-			if principal != nil && principal.Namespace != "" {
-				if ns := namespacing.NamespaceFromQualified(roleName); ns != "" && ns != principal.Namespace {
-					continue
-				}
+			if h.roleHiddenFromCaller(principal, roleName) {
+				continue
 			}
 			if !h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
 				continue
@@ -879,20 +940,30 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	var roles []*models.Role
 	var authErrs []error
 	for roleName, policies := range existingRoles {
+		if h.roleHiddenFromCaller(principal, roleName) {
+			continue
+		}
+
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
 
-		role := &models.Role{Name: &roleName}
+		name := namespacing.StripOwnNamespace(principal, roleName)
+		role := &models.Role{Name: &name}
 		if includeFullRoles {
 			if !ownUser {
-				if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, roleName); err != nil {
+				if err := h.authorizeRoleRead(ctx, principal, roleName, policies); err != nil {
 					authErrs = append(authErrs, err)
 					continue
 				}
 			}
 			role.Permissions = perms
+		} else if h.namespacesEnabled && principal != nil && principal.Namespace != "" && !ownUser &&
+			!h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
+			// Name-only: still hide a role whose permissions the caller does not
+			// hold, so a global role's name doesn't leak to a namespaced caller.
+			continue
 		}
 		roles = append(roles, role)
 	}
@@ -901,6 +972,8 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.Join(authErrs...)))
 	}
 
+	// Strip the caller's own namespace prefix from each included permission body.
+	roles = namespacing.StripRolesForCaller(principal, roles)
 	sortByName(roles)
 
 	h.logger.WithFields(logrus.Fields{
@@ -920,13 +993,23 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, params.ID); err != nil {
+	roleID, outcome, err := h.resolveRoleForRead(ctx, principal, params.ID)
+	switch outcome {
+	case roleReadOK:
+		// proceed
+	case roleReadNotFound:
+		return authz.NewGetUsersForRoleNotFound()
+	case roleReadBadRequest:
+		return authz.NewGetUsersForRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	case roleReadForbidden:
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	case roleReadInternalErr:
+		return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	var response []*authz.GetUsersForRoleOKBodyItems0
 	for _, userType := range []authentication.AuthType{authentication.AuthTypeOIDC, authentication.AuthTypeDb} {
-		users, err := h.controller.GetUsersOrGroupForRole(params.ID, userType, false)
+		users, err := h.controller.GetUsersOrGroupForRole(roleID, userType, false)
 		if err != nil {
 			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 		}
@@ -943,9 +1026,11 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 			}
 		}
 		slices.Sort(filteredUsers)
+		// The stored id is used for lookups; the response carries the caller's
+		// own namespace stripped from the returned user id.
 		if userType == authentication.AuthTypeOIDC {
 			for _, userId := range filteredUsers {
-				response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputOidc)})
+				response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: namespacing.StripOwnNamespace(principal, userId), UserType: models.NewUserTypeOutput(models.UserTypeOutputOidc)})
 			}
 		} else {
 			dynamicUsers, err := h.controller.GetUsers(filteredUsers...)
@@ -954,9 +1039,9 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 			}
 			for _, userId := range filteredUsers {
 				if _, ok := dynamicUsers[userId]; ok {
-					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputDbUser)})
+					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: namespacing.StripOwnNamespace(principal, userId), UserType: models.NewUserTypeOutput(models.UserTypeOutputDbUser)})
 				} else {
-					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)})
+					response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: namespacing.StripOwnNamespace(principal, userId), UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)})
 				}
 			}
 
@@ -981,11 +1066,21 @@ func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, pr
 		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, params.ID); err != nil {
+	roleID, outcome, err := h.resolveRoleForRead(ctx, principal, params.ID)
+	switch outcome {
+	case roleReadOK:
+		// proceed
+	case roleReadNotFound:
+		return authz.NewGetGroupsForRoleNotFound()
+	case roleReadBadRequest:
+		return authz.NewGetGroupsForRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	case roleReadForbidden:
 		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	case roleReadInternalErr:
+		return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	groups, err := h.controller.GetUsersOrGroupForRole(params.ID, authentication.AuthTypeOIDC, true)
+	groups, err := h.controller.GetUsersOrGroupForRole(roleID, authentication.AuthTypeOIDC, true)
 	if err != nil {
 		return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 	}
@@ -1246,20 +1341,30 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	var roles []*models.Role
 	var authErrs []error
 	for roleName, policies := range existingRoles {
+		if h.roleHiddenFromCaller(principal, roleName) {
+			continue
+		}
+
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
 
-		role := &models.Role{Name: &roleName}
+		name := namespacing.StripOwnNamespace(principal, roleName)
+		role := &models.Role{Name: &name}
 		if includeFullRoles {
 			if !ownGroup {
-				if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, roleName); err != nil {
+				if err := h.authorizeRoleRead(ctx, principal, roleName, policies); err != nil {
 					authErrs = append(authErrs, err)
 					continue
 				}
 			}
 			role.Permissions = perms
+		} else if h.namespacesEnabled && principal != nil && principal.Namespace != "" && !ownGroup &&
+			!h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
+			// Name-only: still hide a role whose permissions the caller does not
+			// hold, so a global role's name doesn't leak to a namespaced caller.
+			continue
 		}
 		roles = append(roles, role)
 	}
@@ -1268,6 +1373,8 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 		return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.Join(authErrs...)))
 	}
 
+	// Strip the caller's own namespace prefix from each included permission body.
+	roles = namespacing.StripRolesForCaller(principal, roles)
 	sortByName(roles)
 
 	h.logger.WithFields(logrus.Fields{
