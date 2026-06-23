@@ -129,6 +129,46 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
 }
 
+// rolePoliciesVisibleToPrincipal reports whether the caller may see a role with
+// the given policies: an operator with read-all on roles sees every role; any
+// other caller sees a role only when it already holds every permission the role
+// grants. For a namespaced caller each permission is projected into its
+// namespace first, mirroring assignment, so a global template role is evaluated
+// as it applies to the caller (and a role bound to another namespace is hidden).
+func (h *authZHandlers) rolePoliciesVisibleToPrincipal(ctx context.Context, principal *models.Principal, policies []authorization.Policy) bool {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles()...); err == nil {
+		return true
+	}
+	namespaced := h.namespacesEnabled && principal != nil && principal.Namespace != ""
+	for _, policy := range policies {
+		// Permission-less roles carry this placeholder; it grants nothing.
+		if policy.Resource == conv.InternalPlaceHolder {
+			continue
+		}
+		resource := policy.Resource
+		if namespaced {
+			projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, principal.Namespace)
+			if err != nil {
+				return false
+			}
+			resource = projected
+		}
+		if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, resource); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// roleExists backs ResolveRoleName's local-then-global lookup.
+func (h *authZHandlers) roleExists(name string) (bool, error) {
+	roles, err := h.controller.GetRoles(name)
+	if err != nil {
+		return false, err
+	}
+	return len(roles) > 0, nil
+}
+
 // authorizeAssignRolePermissions blocks privilege escalation via role
 // assignment: the caller must already hold every permission the assigned roles
 // grant, else assign_and_revoke_users alone could be used to grant admin.
@@ -339,10 +379,6 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, params.ID); err != nil {
-		return authz.NewHasPermissionForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-	}
-
 	policy, err := conv.PermissionToPolicies(params.Body)
 	if err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
@@ -351,16 +387,53 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("unknown error occurred passing permission to policy")))
 	}
 
-	hasPermission, err := h.controller.HasPermission(params.ID, policy[0])
+	if !h.namespacesEnabled {
+		if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, params.ID); err != nil {
+			return authz.NewHasPermissionForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+
+		hasPermission, err := h.controller.HasPermission(params.ID, policy[0])
+		if err != nil {
+			return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("HasPermission: %w", err)))
+		}
+
+		return authz.NewHasPermissionOK().WithPayload(hasPermission)
+	}
+
+	// NS-enabled: treat as a content read. Qualify the inbound permission into
+	// the caller's namespace, gate role visibility on content scope, and return
+	// 403 for an out-of-envelope role.
+	qualified := []authorization.Policy{*policy[0]}
+	if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, qualified); err != nil {
+		return authz.NewHasPermissionUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	stored, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	if errors.Is(err, namespacing.ErrRoleNotFound) {
+		return authz.NewHasPermissionForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("insufficient permissions to view role")))
+	}
+	if err != nil {
+		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	roles, err := h.controller.GetRoles(stored)
+	if err != nil {
+		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
+	}
+	if !h.rolePoliciesVisibleToPrincipal(ctx, principal, roles[stored]) {
+		return authz.NewHasPermissionForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("insufficient permissions to view role")))
+	}
+
+	hasPermission, err := h.controller.HasPermission(stored, &qualified[0])
 	if err != nil {
 		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("HasPermission: %w", err)))
 	}
-
 	return authz.NewHasPermissionOK().WithPayload(hasPermission)
 }
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
 	roles, err := h.controller.GetRoles()
 	if err != nil {
 		return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
@@ -372,64 +445,84 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			continue
 		}
 
+		name := roleName
+		if h.namespacesEnabled {
+			// Hide other namespaces' roles and any whose permissions the caller
+			// does not already hold; strip the caller's own namespace prefix.
+			if principal != nil && principal.Namespace != "" {
+				if ns := namespacing.NamespaceFromQualified(roleName); ns != "" && ns != principal.Namespace {
+					continue
+				}
+			}
+			if !h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
+				continue
+			}
+			name = namespacing.StripOwnNamespace(principal, roleName)
+		}
+
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
-		response = append(response, &models.Role{
-			Name:        &roleName,
-			Permissions: perms,
-		})
+		response = append(response, &models.Role{Name: &name, Permissions: perms})
 	}
 
-	// Filter roles based on authorization
-	resourceFilter := filter.New[*models.Role](h.authorizer, h.rbacconfig)
-	filteredRoles := resourceFilter.Filter(
-		ctx,
-		principal,
-		response,
-		authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
-		func(role *models.Role) string {
+	// On NS-disabled clusters visibility stays on the role-name matcher
+	// (READ_ALL, then READ_MATCH on the same set); NS-enabled was already
+	// content-filtered in the loop above.
+	if !h.namespacesEnabled {
+		resourceFilter := filter.New[*models.Role](h.authorizer, h.rbacconfig)
+		roleResource := func(role *models.Role) string {
 			return authorization.Roles(*role.Name)[0]
-		},
-	)
-	if len(filteredRoles) == 0 {
-		// try match if all was none
-		filteredRoles = resourceFilter.Filter(
-			ctx,
-			principal,
-			response,
-			authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
-			func(role *models.Role) string {
-				return authorization.Roles(*role.Name)[0]
-			},
-		)
+		}
+		filtered := resourceFilter.Filter(ctx, principal, response,
+			authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), roleResource)
+		if len(filtered) == 0 {
+			// try match if all was none
+			filtered = resourceFilter.Filter(ctx, principal, response,
+				authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), roleResource)
+		}
+		response = filtered
 	}
 
-	sortByName(filteredRoles)
+	sortByName(response)
 
 	logFields := logrus.Fields{
 		"action":    "read_all_roles",
 		"component": authorization.ComponentName,
 	}
-
 	if principal != nil {
 		logFields["user"] = principal.Username
 	}
-
 	h.logger.WithFields(logFields).Info("roles requested")
 
-	return authz.NewGetRolesOK().WithPayload(filteredRoles)
+	return authz.NewGetRolesOK().WithPayload(response)
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, params.ID); err != nil {
-		return authz.NewGetRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	// Resolve the stored role name and authorize the read. NS-disabled gates on
+	// the role-name matcher; NS-enabled resolves the caller's short name to a
+	// local-then-global role and gates on content scope below, returning 403
+	// (not 404) for an out-of-envelope role so existence is not leaked.
+	roleID := params.ID
+	if !h.namespacesEnabled {
+		if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, params.ID); err != nil {
+			return authz.NewGetRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+	} else {
+		stored, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+		if errors.Is(err, namespacing.ErrRoleNotFound) {
+			return authz.NewGetRoleNotFound()
+		}
+		if err != nil {
+			return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		roleID = stored
 	}
 
-	roles, err := h.controller.GetRoles(params.ID)
+	roles, err := h.controller.GetRoles(roleID)
 	if err != nil {
 		return authz.NewGetRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
@@ -437,11 +530,14 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		return authz.NewGetRoleNotFound()
 	}
 	if len(roles) != 1 {
-		err := fmt.Errorf("expected one role but got %d", len(roles))
-		return authz.NewGetRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
+		return authz.NewGetRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: expected one role but got %d", len(roles))))
 	}
 
-	perms, err := conv.PoliciesToPermission(roles[params.ID]...)
+	if h.namespacesEnabled && !h.rolePoliciesVisibleToPrincipal(ctx, principal, roles[roleID]) {
+		return authz.NewGetRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("insufficient permissions to view role")))
+	}
+
+	perms, err := conv.PoliciesToPermission(roles[roleID]...)
 	if err != nil {
 		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 	}
@@ -450,11 +546,12 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		"action":    "read_role",
 		"component": authorization.ComponentName,
 		"user":      principal.Username,
-		"role_id":   params.ID,
+		"role_id":   roleID,
 	}).Info("role requested")
 
+	name := namespacing.StripOwnNamespace(principal, roleID)
 	return authz.NewGetRoleOK().WithPayload(&models.Role{
-		Name:        &params.ID,
+		Name:        &name,
 		Permissions: perms,
 	})
 }
