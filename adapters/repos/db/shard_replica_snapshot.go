@@ -26,13 +26,17 @@ import (
 // support hardlinks; the Index probes both before calling. Returned paths are
 // shard-relative so the wire protocol doesn't carry the redundant <class>/<shard>/
 // prefix and resolution on the source can be naturally shard-scoped.
-func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
+func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (files []string, err error) {
 	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
 		return nil, fmt.Errorf("halt for replica snapshot: %w", err)
 	}
-	defer s.resumeMaintenanceCycles(ctx)
+	defer func() {
+		if rerr := s.resumeMaintenanceCycles(context.Background()); rerr != nil && err == nil {
+			err = fmt.Errorf("resume maintenance after replica snapshot: %w", rerr)
+		}
+	}()
 
-	files, err := s.collectShardRelativeFiles(ctx, stagingRoot, true)
+	files, err = s.collectShardRelativeFiles(ctx, stagingRoot, true)
 	if err != nil {
 		return nil, err
 	}
