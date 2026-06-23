@@ -270,12 +270,9 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-// compactOnce performs one compaction iteration. Cancelling ctx aborts
-// the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
 // buildValueTransformer produces the transformer for a single compaction or
 // cleanup pass. With edit ops enabled it is built from the ops live right now
-// (nil when there are none); without, it falls back to the directly-set
-// valueTransformer (used by tests).
+// (nil when there are none); it returns nil when edit ops are disabled.
 func (sg *SegmentGroup) buildValueTransformer() (valueTransformer, error) {
 	if sg.editOps == nil {
 		return nil, nil
@@ -318,6 +315,10 @@ func (sg *SegmentGroup) recordCompactionInEditOps(leftPath, rightPath string, st
 				return err
 			}
 
+			// An op registered between startedAt capture and the transformer build
+			// is both stripped by the transformer and re-queued here; re-cleaning
+			// an already-clean merged output is a no-op, so the conservative
+			// re-queue is safe by the transformer's idempotency contract.
 			if op.Descriptor.CreatedAt > startedAt && (leftWasPending || rightWasPending) {
 				if err := sg.editOps.addPendingTx(tx, op.ID, mergedID); err != nil {
 					return err
@@ -328,6 +329,8 @@ func (sg *SegmentGroup) recordCompactionInEditOps(leftPath, rightPath string, st
 	})
 }
 
+// compactOnce performs one compaction iteration. Cancelling ctx aborts
+// the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
 func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
