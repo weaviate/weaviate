@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -232,11 +233,12 @@ func TestPrefillCacheParallelEndToEnd(t *testing.T) {
 	c.Grow(uint64(n)) // mimic the restore-time pre-grow
 
 	h := &hnsw{
-		store:  store,
-		cache:  c,
-		nodes:  make([]*vertex, n),
-		id:     "main", // no "vectors_" prefix => legacy default target vector
-		logger: logger,
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, n),
+		id:                "main", // no "vectors_" prefix => legacy default target vector
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(), // non-cosine: no normalization
 	}
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
@@ -272,7 +274,14 @@ func TestPrefillCacheParallelGrowsBeyondPreGrown(t *testing.T) {
 	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
 
 	// Not pre-grown: preGrown == 0, so every id takes the defensive Grow path.
-	h := &hnsw{store: store, cache: c, nodes: nil, id: "main", logger: logger}
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             nil,
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+	}
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 	require.Equal(t, int64(n), c.CountVectors())
@@ -349,4 +358,49 @@ func TestScanObjectVectorsParallelNamedVectorIsolation(t *testing.T) {
 		2: {2, 2},
 		4: {2, 4},
 	}, collectScan(t, bucket, "body"))
+}
+
+// TestPrefillCacheParallelNormalizesForCosine guards the normalization invariant:
+// for a cosine-dot index the cache must hold normalized vectors (so the dot product
+// equals cosine similarity). The objects bucket stores raw vectors, and the serial
+// prefiller normalizes them via the cache's normalizeOnRead wrapper — the parallel
+// path must match, or cosine search silently returns wrong distances.
+func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
+	const n = 50
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+	raw := make(map[uint64][]float32, n)
+	for i := uint64(0); i < n; i++ {
+		vec := []float32{float32(i) + 1, float32(i) + 2, float32(i) + 3} // non-unit on purpose
+		putTestObject(t, bucket, i, vec, nil)
+		raw[i] = vec
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
+		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+	}
+	// normalizeOnRead=true mirrors how index.New builds the cache for cosine-dot.
+	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, true, 0, nil)
+	c.Grow(uint64(n))
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, n),
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewCosineDistanceProvider(),
+	}
+
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	require.Equal(t, int64(n), c.CountVectors())
+	for i := uint64(0); i < n; i++ {
+		got, err := c.Get(context.Background(), i)
+		require.NoError(t, err)
+		require.Equalf(t, distancer.Normalize(raw[i]), got,
+			"cosine-dot cache must hold normalized vectors for doc %d", i)
+	}
 }
