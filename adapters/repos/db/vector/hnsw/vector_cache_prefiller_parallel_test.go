@@ -316,3 +316,37 @@ func TestScanObjectVectorsParallelSkipsDeleted(t *testing.T) {
 		3: {3},
 	}, collectScan(t, bucket, ""))
 }
+
+// TestScanObjectVectorsParallelNamedVectorIsolation puts objects carrying several
+// named vectors (plus a legacy vector) in one bucket and scans each target
+// separately. Each named index shares the objects bucket with its siblings, so a
+// scan for one target must yield only that target's vectors and skip objects that
+// lack it — never bleed a sibling's vector or a legacy vector into the wrong cache.
+func TestScanObjectVectorsParallelNamedVectorIsolation(t *testing.T) {
+	bucket := newTestObjectsBucket(t)
+
+	// Deliberately sparse: not every object has every target.
+	putTestObject(t, bucket, 0, []float32{0, 0}, map[string][]float32{"title": {1, 0}, "body": {2, 0}})
+	putTestObject(t, bucket, 1, nil, map[string][]float32{"title": {1, 1}})
+	putTestObject(t, bucket, 2, nil, map[string][]float32{"body": {2, 2}})
+	putTestObject(t, bucket, 3, []float32{3, 3}, nil)
+	putTestObject(t, bucket, 4, nil, map[string][]float32{"title": {1, 4}, "body": {2, 4}})
+
+	// legacy target: only objects with a legacy vector.
+	assertVectorsEqual(t, map[uint64][]float32{
+		0: {0, 0},
+		3: {3, 3},
+	}, collectScan(t, bucket, ""))
+
+	assertVectorsEqual(t, map[uint64][]float32{
+		0: {1, 0},
+		1: {1, 1},
+		4: {1, 4},
+	}, collectScan(t, bucket, "title"))
+
+	assertVectorsEqual(t, map[uint64][]float32{
+		0: {2, 0},
+		2: {2, 2},
+		4: {2, 4},
+	}, collectScan(t, bucket, "body"))
+}
