@@ -263,3 +263,39 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 		require.True(t, ok, "got %T", res)
 	})
 }
+
+func TestGetRolePermissionStripping(t *testing.T) {
+	principal := &models.Principal{Username: "u", Namespace: "customer1"}
+
+	t.Run("getRole strips own-namespace permission resources", func(t *testing.T) {
+		h, _ := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
+		res := h.getRole(authz.GetRoleParams{HTTPRequest: req, ID: "editor"}, principal)
+		parsed, ok := res.(*authz.GetRoleOK)
+		require.True(t, ok, "got %T", res)
+		require.Equal(t, "editor", *parsed.Payload.Name)
+		require.Equal(t, "Films", *parsed.Payload.Permissions[0].Tenants.Collection)
+	})
+
+	t.Run("operator getRole keeps foreign-namespace resources raw", func(t *testing.T) {
+		h, _ := nsReadHandler(t, true, nsRoles(), nil, nil)
+		res := h.getRole(authz.GetRoleParams{HTTPRequest: req, ID: "customer2:editor"}, &models.Principal{Username: "op"})
+		parsed, ok := res.(*authz.GetRoleOK)
+		require.True(t, ok, "got %T", res)
+		require.Equal(t, "customer2:Films", *parsed.Payload.Permissions[0].Tenants.Collection)
+	})
+
+	t.Run("getRoles strips own-namespace permission resources", func(t *testing.T) {
+		h, _ := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
+		res := h.getRoles(authz.GetRolesParams{HTTPRequest: req}, principal)
+		parsed, ok := res.(*authz.GetRolesOK)
+		require.True(t, ok, "got %T", res)
+		var editor *models.Role
+		for _, r := range parsed.Payload {
+			if *r.Name == "editor" {
+				editor = r
+			}
+		}
+		require.NotNil(t, editor)
+		require.Equal(t, "Films", *editor.Permissions[0].Tenants.Collection)
+	})
+}

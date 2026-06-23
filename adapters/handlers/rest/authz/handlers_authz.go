@@ -518,6 +518,10 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		response = filtered
 	}
 
+	// Strip the caller's own namespace prefix from each permission's resource
+	// names; role names were already stripped in the loop above.
+	response = namespacing.StripRolesForCaller(principal, response)
+
 	sortByName(response)
 
 	logFields := logrus.Fields{
@@ -583,10 +587,9 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 	}).Info("role requested")
 
 	name := namespacing.StripOwnNamespace(principal, roleID)
-	return authz.NewGetRoleOK().WithPayload(&models.Role{
-		Name:        &name,
-		Permissions: perms,
-	})
+	// Strip the caller's own namespace prefix from each permission's resource names.
+	role := namespacing.StripRolesForCaller(principal, []*models.Role{{Name: &name, Permissions: perms}})[0]
+	return authz.NewGetRoleOK().WithPayload(role)
 }
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
