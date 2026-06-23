@@ -351,6 +351,68 @@ func Test_UserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "invalid hfresh config: maxPostingSizeKB is '1025' but must be less than 1024",
 		},
+		{
+			name: "with valid muvera ksim",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("4"),
+					},
+				},
+			},
+			expected: UserConfig{
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
+				Multivector: hnsw.MultivectorConfig{
+					Enabled: true,
+					MuveraConfig: hnsw.MuveraConfig{
+						Enabled:      true,
+						KSim:         4,
+						DProjections: DefaultMuveraDProjections,
+						Repetitions:  DefaultMuveraRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "with muvera ksim zero",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("0"),
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "muvera ksim must be greater than 0",
+		},
+		{
+			name: "with muvera ksim negative",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("-1"),
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "muvera ksim must be greater than 0",
+		},
+		// NOTE: upper bounds (e.g. ksim > 10) are intentionally NOT rejected
+		// by ParseAndValidateConfig — parsing also runs on startup/restore,
+		// where persisted out-of-range classes must still load. See
+		// TestParseAcceptsOutOfBoundsMuvera and TestValidateMuveraUpperBounds
+		// (issue #281).
 	}
 
 	for _, test := range tests {
