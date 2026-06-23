@@ -38,6 +38,8 @@ var (
 )
 
 type replicationFSM interface {
+	HasActiveReplicationForShard(collection, shard string) bool
+	HasActiveReplicationForCollection(collection string) bool
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
 	SetUnCancellable(id uint64) error
@@ -406,6 +408,14 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
 		}
 
+		// A structural vector change can't be reconciled by an in-flight movement's snapshot+CCL.
+		if s.replicationFSM != nil && s.replicationFSM.HasActiveReplicationForCollection(meta.Class.Class) {
+			if reason := dangerousVectorConfigChange(&meta.Class, u); reason != "" {
+				return fmt.Errorf("%w: %w: %s on collection %q; retry after it completes",
+					ErrBadRequest, ErrReplicaMovementInProgress, reason, meta.Class.Class)
+			}
+		}
+
 		// Capture previous and updated replication factors
 		var initialRF int64
 		if meta.Class.ReplicationConfig != nil {
@@ -575,6 +585,18 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 	if s.mutationGuard != nil && !req.FromInFlightMigration {
 		if err := s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name); err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+	}
+
+	// Disabling an index deletes the property's LSM buckets, which an in-flight movement's
+	// snapshot+CCL can't reconcile. FromInFlightMigration bypasses, as with the reindex guard.
+	if s.replicationFSM != nil && !req.FromInFlightMigration &&
+		s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
+		if cls, _ := s.schema.ReadOnlyClass(cmd.Class); cls != nil {
+			if old := findProp(cls, req.Property.Name); old != nil && disablesAnyIndex(old, req.Property) {
+				return fmt.Errorf("%w: %w: property %q index removal blocked on collection %q; retry after it completes",
+					ErrBadRequest, ErrReplicaMovementInProgress, req.Property.Name, cmd.Class)
+			}
 		}
 	}
 

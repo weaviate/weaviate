@@ -348,7 +348,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	err = dynamic.Shutdown(context.Background())
 	require.NoError(t, err)
 
-	require.False(t, dynamic.upgraded.Load())
+	require.False(t, dynamic.status.IsUpgraded())
 
 	select {
 	case <-called:
@@ -924,7 +924,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	for _, v := range indexes {
 		shouldUpgrade, _ := v.ShouldUpgrade()
 		require.False(t, shouldUpgrade)
-		require.True(t, v.upgraded.Load())
+		require.True(t, v.IsUpgraded())
 	}
 
 	// check the content of the bolt db
@@ -1002,7 +1002,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	for _, v := range indexes {
 		shouldUpgrade, _ := v.ShouldUpgrade()
 		require.False(t, shouldUpgrade)
-		require.True(t, v.upgraded.Load())
+		require.True(t, v.IsUpgraded())
 	}
 
 	// check the content of the bolt db
