@@ -32,9 +32,9 @@ type segmentCleanerReplace struct {
 	secondaryIndexCount      uint16
 	enableChecksumValidation bool
 
-	// valueTransformer mirrors the compactor hook: when set, each non-tombstone
-	// value is rewritten before being written to the cleaned segment. nil means
-	// no active edit operation (values pass through untouched).
+	// valueTransformer, when set, rewrites each non-tombstone value before it is
+	// written to the cleaned segment (e.g. to strip a dropped vector). nil means
+	// no active edit operation, in which case values pass through untouched.
 	valueTransformer valueTransformer
 }
 
