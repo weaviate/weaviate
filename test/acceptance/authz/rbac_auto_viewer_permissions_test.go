@@ -69,6 +69,10 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	// authz runs, so a viewer mutating them gets 404/501 instead of 403.
 	// Fix by moving authz to the top of each handler, then drop these entries.
 	ignoreEndpoints := []string{
+		// MCP's HTTP methods are protocol operations (GET=SSE session, DELETE=session
+		// close, POST=JSON-RPC envelope), not RBAC-gated resources. Authz runs per
+		// tool-call inside the JSON-RPC handler. RBAC is covered in mcp_test.go.
+		"/mcp",
 		"/aliases/{aliasName}",
 		"/replication/replicate",
 		"/replication/replicate/force-delete",

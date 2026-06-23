@@ -72,6 +72,10 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 		"/tokenize",             // stateless compute, no authz; POST only because it needs a body
+		// MCP's HTTP methods are protocol operations (GET=SSE session, DELETE=session
+		// close, POST=JSON-RPC envelope), not RBAC-gated resources. Authz runs per
+		// tool-call inside the JSON-RPC handler. RBAC is covered in mcp_test.go.
+		"/mcp",
 		// TODO: these leak status (404 for aliases, 501 for replication) before
 		// authz runs, so a caller without permission learns the resource exists.
 		// Fix by moving authz to the top of each handler, then drop these entries.
