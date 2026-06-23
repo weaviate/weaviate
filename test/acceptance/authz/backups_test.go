@@ -401,8 +401,10 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	incrementalBackupID := "incremental-backup"
 
 	// Reset clsA.Class: preceding subtests may leave it absent (a cancelled
-	// restore does not recreate it).
+	// restore does not recreate it). clsP must exist first, as clsA references it.
 	deleteObjectClass(t, clsA.Class, helper.CreateAuth(adminKey))
+	deleteObjectClass(t, clsP.Class, helper.CreateAuth(adminKey))
+	helper.CreateClassAuth(t, clsP, adminKey)
 	helper.CreateClassAuth(t, clsA, adminKey)
 	helper.CreateObjectsBatchAuth(t, []*models.Object{objA.Object()}, adminKey)
 
