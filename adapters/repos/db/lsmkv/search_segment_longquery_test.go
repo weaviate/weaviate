@@ -27,16 +27,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// A long (many-term) BM25 query — e.g. a user pasting a multi-page document for
-// near-duplicate search — must not hang the WAND loop. Regression for a
-// DoBlockMaxWand non-termination: the upper-bound loop's AdvanceAtLeastShallow
-// mutates idPointer on the [0,pivotPoint] prefix, and when the prune branch
-// repaired only the single advanced element that disorder accumulated until the
-// pivot could no longer advance and the query spun forever.
-//
-// A done-channel + watchdog is used deliberately (not a query ctx deadline) so a
-// non-terminating loop fails the test instead of being masked as a timeout.
-// (Repro authored by QA Claude.)
+// Regression: a long (many-term) BM25 query must not hang the WAND loop.
+// Watchdog (not a ctx deadline) so non-termination fails instead of masking as a
+// timeout. (Repro authored by QA Claude.)
 func TestBlockMaxWandLongQueryTerminates(t *testing.T) {
 	ctx := context.Background()
 	logger := logrus.New()

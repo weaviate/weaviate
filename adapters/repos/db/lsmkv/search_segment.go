@@ -37,9 +37,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	var pivotPoint int
 	upperBound := float32(0)
 
-	// done is nil for a nil ctx or a non-cancellable one (Background/TODO); the
-	// guard below then skips the select entirely. Matches the ctx != nil tolerance
-	// in DoBlockMaxAnd/DoWand.
+	// nil for a non-cancellable ctx; guard below then skips the select.
 	var done <-chan struct{}
 	if ctx != nil {
 		done = ctx.Done()
@@ -48,8 +46,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	for {
 		iterations++
 
-		// periodic cancellation check; a countdown avoids a 64-bit modulo on the
-		// hottest loop in BMW (the modulo was ~1.5% of self time).
+		// counter, not iterations%N: avoids a modulo on the hottest loop.
 		ctxCheck++
 		if ctxCheck == 100000 {
 			ctxCheck = 0
@@ -120,11 +117,8 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 
 		upperBound = float32(0)
 		for i := 0; i <= pivotPoint; i++ {
-			// No exhausted guard needed: AdvanceAtLeastShallow is a no-op on
-			// exhausted terms (it early-returns) and every exhausted term has
-			// currentBlockImpact==0, so the add contributes nothing. Don't rely on
-			// currentBlockMaxId as an exhausted sentinel — terms exhausted at
-			// construction (NewSegmentBlockMaxDecoded) leave it 0, not MaxUint64.
+			// No exhausted guard: shallow-advance no-ops and impact is 0 when
+			// exhausted; and currentBlockMaxId isn't an exhausted sentinel (can be 0).
 			t := results[i]
 			if t.currentBlockMaxId < pivotID {
 				t.AdvanceAtLeastShallow(pivotID)
@@ -171,16 +165,11 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 				}
 				results[nextList].AdvanceAtLeast(pivotID)
 
-				// only results[nextList] moved (rightward), so a single re-insertion
-				// restores order — same permutation as the old swap bubble, one move
-				// per step instead of a two-write swap.
+				// only nextList moved; one re-insertion restores order.
 				results.reinsertRight(nextList)
 
 			}
 		} else {
-			// single pass over [0, pivotPoint]: pick the heaviest term to advance
-			// (over [0, pivotPoint)) and the smallest block-max id (over
-			// [0, pivotPoint]).
 			nextList := pivotPoint
 			maxWeight := results[nextList].idf
 			next := uint64(math.MaxUint64) // max uint
@@ -206,11 +195,8 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 			results[nextList].AdvanceAtLeast(next)
 
-			// Full tail pass, not reinsertRight: the upper-bound loop's
-			// AdvanceAtLeastShallow rewrites idPointer across the whole
-			// [0, pivotPoint] prefix, so more than results[nextList] is out of
-			// order. Repairing one element lets the rest accumulate until the pivot
-			// can't advance and long queries hang. Also drains exhausted sentinels.
+			// Full pass, not reinsertRight: AdvanceAtLeastShallow above de-sorts the
+			// whole prefix, not just nextList; repairing one element hangs long queries.
 			for i := nextList + 1; i < len(results); i++ {
 				if results[i].idPointer < results[i-1].idPointer {
 					results[i], results[i-1] = results[i-1], results[i]
@@ -386,10 +372,8 @@ func (t Terms) Swap(i, j int) {
 	t[i], t[j] = t[j], t[i]
 }
 
-// reinsertRight restores ascending-by-idPointer order when exactly one element
-// (at index i) has had its idPointer increased and everything else is already
-// sorted. It shifts the element rightward to its slot and stops as soon as it
-// settles — O(displacement), with one move per step instead of a two-write swap.
+// reinsertRight re-sorts when only t[i]'s idPointer increased; the rest stays
+// sorted. Caller must guarantee that single-element precondition.
 func (t Terms) reinsertRight(i int) {
 	cur := t[i]
 	id := cur.idPointer
