@@ -301,6 +301,10 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
+func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	return nil, nil
+}
+
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
 	if err != nil {
