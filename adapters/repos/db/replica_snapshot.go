@@ -216,7 +216,7 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	shard, release, err := i.GetShard(ctx, st.shardName)
 	if err != nil {
 		if removeErr != nil {
-			return fmt.Errorf("%v; get shard for replica snapshot release: %w", removeErr, err)
+			return fmt.Errorf("%w; get shard for replica snapshot release: %w", removeErr, err)
 		}
 		return fmt.Errorf("get shard for replica snapshot release: %w", err)
 	}
@@ -224,7 +224,7 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	if shard != nil {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			if removeErr != nil {
-				return fmt.Errorf("%v; resume maintenance after replica transfer: %w", removeErr, err)
+				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
 			}
 			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
 		}
