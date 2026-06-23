@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
@@ -38,6 +39,7 @@ const (
 	splitTaskQueueChunkSize    = 16 * 1024 // 16KB
 	reassignTaskQueueChunkSize = 16 * 1024 // 16KB
 	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
+	taskDeduplicatorMaxPages   = 1 << 16   // Supports IDs < 1<<32 with 64K IDs per page
 )
 
 type TaskQueue struct {
@@ -53,10 +55,10 @@ type TaskQueue struct {
 	scheduler *queue.Scheduler
 
 	index        *HFresh
-	analyzeList  *deduplicator // Prevents duplicate analyze operations
-	splitList    *deduplicator // Prevents duplicate split operations
-	mergeList    *deduplicator // Prevents duplicate merge operations
-	reassignList *deduplicator // Prevents duplicate reassign operations
+	analyzeList  *common.PagedBitset // Prevents duplicate analyze operations
+	splitList    *common.PagedBitset // Prevents duplicate split operations
+	mergeList    *common.PagedBitset // Prevents duplicate merge operations
+	reassignList *common.PagedBitset // Prevents duplicate reassign operations
 }
 
 func NewTaskQueue(index *HFresh, _ *lsmkv.Bucket) (*TaskQueue, error) {
@@ -65,10 +67,10 @@ func NewTaskQueue(index *HFresh, _ *lsmkv.Bucket) (*TaskQueue, error) {
 	tq := TaskQueue{
 		index:        index,
 		scheduler:    index.scheduler,
-		analyzeList:  newDeduplicator(),
-		splitList:    newDeduplicator(),
-		mergeList:    newDeduplicator(),
-		reassignList: newDeduplicator(),
+		analyzeList:  common.NewPagedBitset(taskDeduplicatorMaxPages),
+		splitList:    common.NewPagedBitset(taskDeduplicatorMaxPages),
+		mergeList:    common.NewPagedBitset(taskDeduplicatorMaxPages),
+		reassignList: common.NewPagedBitset(taskDeduplicatorMaxPages),
 	}
 
 	// create queue for analyze operations
@@ -215,28 +217,28 @@ func (tq *TaskQueue) Size() int64 {
 }
 
 func (tq *TaskQueue) AnalyzeDone(postingID uint64) {
-	tq.analyzeList.done(postingID)
+	tq.analyzeList.Delete(postingID)
 }
 
 func (tq *TaskQueue) SplitDone(postingID uint64) {
-	tq.splitList.done(postingID)
+	tq.splitList.Delete(postingID)
 }
 
 func (tq *TaskQueue) MergeDone(postingID uint64) {
-	tq.mergeList.done(postingID)
+	tq.mergeList.Delete(postingID)
 }
 
 func (tq *TaskQueue) ReassignDone(vectorID uint64) {
-	tq.reassignList.done(vectorID)
+	tq.reassignList.Delete(vectorID)
 }
 
 func (tq *TaskQueue) MergeContains(postingID uint64) bool {
-	return tq.mergeList.contains(postingID)
+	return tq.mergeList.Contains(postingID)
 }
 
 func (tq *TaskQueue) EnqueueAnalyze(postingID uint64) error {
 	// Check if the operation is already enqueued
-	if !tq.analyzeList.tryAdd(postingID) {
+	if !tq.analyzeList.TryAdd(postingID) {
 		return nil
 	}
 
@@ -250,7 +252,7 @@ func (tq *TaskQueue) EnqueueAnalyze(postingID uint64) error {
 
 func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 	// Check if the operation is already enqueued
-	if !tq.splitList.tryAdd(postingID) {
+	if !tq.splitList.TryAdd(postingID) {
 		return nil
 	}
 
@@ -265,7 +267,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 
 func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 	// Check if the operation is already enqueued
-	if !tq.mergeList.tryAdd(postingID) {
+	if !tq.mergeList.TryAdd(postingID) {
 		return nil
 	}
 
@@ -280,12 +282,12 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 
 func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64) error {
 	// Check if the operation is already enqueued
-	if !tq.reassignList.tryAdd(vecID) {
+	if !tq.reassignList.TryAdd(vecID) {
 		return nil
 	}
 
 	if err := tq.reassignQueue.Push(encodeReassignTask(vecID, postingID)); err != nil {
-		tq.reassignList.done(vecID)
+		tq.reassignList.Delete(vecID)
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
