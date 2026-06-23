@@ -567,8 +567,8 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
-	response := make(models.BackupListResponse, len(backups))
-	for i, b := range backups {
+	response := make(models.BackupListResponse, 0, len(backups))
+	for _, b := range backups {
 		classes := b.Classes()
 		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
 			if errors.As(err, &authzerrors.Forbidden{}) {
@@ -589,7 +589,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		if includeBaseBackupID {
 			item.IncrementalBaseBackupID = b.BaseBackupID
 		}
-		response[i] = item
+		response = append(response, item)
 	}
 
 	return &response, nil
