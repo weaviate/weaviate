@@ -137,18 +137,24 @@ func (b *PagedBitset) ensureReservedPage(pageID uint64) *pagedBitsetPage {
 			continue
 		}
 
-		b.mu.Lock()
-		cell := b.ensurePageCell(pageID)
-		page = cell.Load()
-		if page == nil {
-			page = &pagedBitsetPage{}
-			page.count.Store(1)
-			cell.Store(page)
-			b.live.Add(1)
-			b.mu.Unlock()
+		page, reserved := func() (*pagedBitsetPage, bool) {
+			b.mu.Lock()
+			defer b.mu.Unlock()
+
+			cell := b.ensurePageCell(pageID)
+			page := cell.Load()
+			if page == nil {
+				var page pagedBitsetPage
+				page.count.Store(1)
+				cell.Store(&page)
+				b.live.Add(1)
+				return &page, true
+			}
+			return page, false
+		}()
+		if reserved || b.reserve(page) {
 			return page
 		}
-		b.mu.Unlock()
 	}
 }
 
