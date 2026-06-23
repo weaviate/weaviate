@@ -341,6 +341,91 @@ func Test_FlatUserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "cannot enable multiple quantization methods at the same time",
 		},
+		{
+			name: "bq with negative rescoreLimit is rejected",
+			input: map[string]interface{}{
+				"distance": "cosine",
+				"bq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(-1),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "bq.rescoreLimit must be non-negative, got -1",
+		},
+		{
+			name: "pq with negative rescoreLimit is rejected",
+			input: map[string]interface{}{
+				"distance": "cosine",
+				"pq": map[string]interface{}{
+					"enabled":      false,
+					"rescoreLimit": float64(-5),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "pq.rescoreLimit must be non-negative, got -5",
+		},
+		{
+			name: "sq with negative rescoreLimit is rejected",
+			input: map[string]interface{}{
+				"distance": "cosine",
+				"sq": map[string]interface{}{
+					"enabled":      false,
+					"rescoreLimit": float64(-100),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "sq.rescoreLimit must be non-negative, got -100",
+		},
+		{
+			name: "rq with negative rescoreLimit is rejected",
+			input: map[string]interface{}{
+				"distance": "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"bits":         8,
+					"rescoreLimit": float64(-1),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "rq.rescoreLimit must be non-negative, got -1",
+		},
+		{
+			name: "bq with zero rescoreLimit is allowed",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"bq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(0),
+				},
+			},
+			expected: UserConfig{
+				VectorCacheMaxObjects: 100,
+				Distance:              common.DefaultDistanceMetric,
+				PQ: CompressionUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				BQ: CompressionUserConfig{
+					Enabled:      true,
+					RescoreLimit: 0,
+					Cache:        DefaultVectorCache,
+				},
+				SQ: CompressionUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				RQ: RQUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+					Bits:         DefaultRQBits,
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
