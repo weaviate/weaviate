@@ -29,7 +29,7 @@ import (
 // an op registered after the pass began also has the inputs marked done but the
 // merged output re-queued (the transformer the compactor ran with predated it).
 func TestSegmentGroup_RecordCompactionInEditOps(t *testing.T) {
-	editOps, err := OpenSegmentEditOps(t.TempDir())
+	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
@@ -61,7 +61,7 @@ func TestSegmentGroup_RecordCompactionInEditOps(t *testing.T) {
 // the mid-pass op is only re-queued when one of the merged inputs was actually
 // pending for it.
 func TestSegmentGroup_RecordCompactionInEditOps_NoReQueueWhenInputNotPending(t *testing.T) {
-	editOps, err := OpenSegmentEditOps(t.TempDir())
+	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
@@ -101,14 +101,13 @@ func TestSegmentGroup_CompactionAppliesEditOpsTransformer(t *testing.T) {
 	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
 	require.NoError(t, bucket.FlushAndSwitch())
 
-	editOps, err := OpenSegmentEditOps(bucket.disk.dir)
+	editOps, err := OpenSegmentEditOps(bucket.disk.dir, func(ops []ActiveOp) valueTransformer {
+		require.NotEmpty(t, ops)
+		return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 	bucket.disk.editOps = editOps
-	bucket.disk.transformerBuilder = func(ops []ActiveOp) valueTransformer {
-		require.NotEmpty(t, ops)
-		return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
-	}
 
 	var segIDs []string
 	for _, s := range bucket.disk.segments {

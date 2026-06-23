@@ -98,13 +98,10 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	// editOps tracks in-place segment edit operations and the segments still
-	// pending rewrite. nil unless edit ops are enabled for this segment group.
+	// pending rewrite. It also builds the per-pass value transformer (see
+	// BuildCurrentTransformer). nil unless edit ops are enabled for this segment
+	// group.
 	editOps *SegmentEditOps
-	// transformerBuilder builds the per-pass valueTransformer from the active
-	// edit ops. Set together with editOps. Building the transformer per pass
-	// (rather than holding one with segment-group lifetime) lets it reflect the
-	// ops live at that moment and compose multiple concurrent drops.
-	transformerBuilder transformerBuilder
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool

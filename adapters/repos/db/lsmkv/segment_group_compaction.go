@@ -270,23 +270,6 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-// buildValueTransformer produces the transformer for a single compaction or
-// cleanup pass. With edit ops enabled it is built from the ops live right now
-// (nil when there are none); it returns nil when edit ops are disabled.
-func (sg *SegmentGroup) buildValueTransformer() (valueTransformer, error) {
-	if sg.editOps == nil {
-		return nil, nil
-	}
-	ops, err := sg.editOps.LoadOps()
-	if err != nil {
-		return nil, fmt.Errorf("load edit ops: %w", err)
-	}
-	if len(ops) == 0 {
-		return nil, nil
-	}
-	return sg.transformerBuilder(ops), nil
-}
-
 // recordCompactionInEditOps runs the post-compaction edit-ops bookkeeping in a
 // single bolt transaction. It is the sequenced step after the on-disk rename
 // and the in-memory swap; a crash before it commits is repaired by Reconcile at
@@ -419,9 +402,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	// registered after this point is not reflected in the transformer the
 	// compactor runs with, which the completion bookkeeping accounts for.
 	compactionStartedAt := time.Now().UnixNano()
-	transformer, err := sg.buildValueTransformer()
-	if err != nil {
-		return false, err
+	var transformer valueTransformer
+	if sg.editOps != nil {
+		transformer, err = sg.editOps.BuildCurrentTransformer()
+		if err != nil {
+			return false, err
+		}
 	}
 
 	// aborted=true tells the caller to close the partial .tmp and bail

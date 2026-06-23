@@ -505,10 +505,12 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		switch c.sg.strategy {
 		case StrategyReplace:
-			transformer, terr := c.sg.buildValueTransformer()
-			if terr != nil {
-				err = terr
-				return false, err
+			var transformer valueTransformer
+			if c.sg.editOps != nil {
+				transformer, err = c.sg.editOps.BuildCurrentTransformer()
+				if err != nil {
+					return false, err
+				}
 			}
 			c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 				c.sg.makeKeyExistsOnUpperSegments(segments, startIdx, lastIdx), oldSegment.getLevel(),

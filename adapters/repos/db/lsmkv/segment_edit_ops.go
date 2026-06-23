@@ -41,6 +41,12 @@ import (
 // op and segment IDs never need an in-key separator.
 type SegmentEditOps struct {
 	db *bolt.DB
+	// buildTransformer composes the live ops into a single per-pass value
+	// transformer. It is injected as an opaque func([]ActiveOp) valueTransformer
+	// so the facility stays agnostic to what the transformer does to a value
+	// (e.g. the storobj bridge that strips dropped vectors). nil disables
+	// transformation for this segment group.
+	buildTransformer transformerBuilder
 }
 
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
@@ -80,8 +86,10 @@ type PendingSegment struct {
 }
 
 // OpenSegmentEditOps opens (creating if necessary) the edit-ops store for the
-// segment group rooted at dir.
-func OpenSegmentEditOps(dir string) (*SegmentEditOps, error) {
+// segment group rooted at dir. buildTransformer is the injected, storobj-opaque
+// builder used by BuildCurrentTransformer; pass nil when no transformation is
+// needed (the store is then used only for op bookkeeping).
+func OpenSegmentEditOps(dir string, buildTransformer transformerBuilder) (*SegmentEditOps, error) {
 	// One handle per segment group is the invariant. A non-zero Timeout turns a
 	// would-be-forever hang on an accidental second open into a fast, debuggable
 	// error; it never affects the single-open path (the file lock is uncontended).
@@ -103,11 +111,31 @@ func OpenSegmentEditOps(dir string) (*SegmentEditOps, error) {
 		return nil, fmt.Errorf("init segment edit ops buckets: %w", err)
 	}
 
-	return &SegmentEditOps{db: db}, nil
+	return &SegmentEditOps{db: db, buildTransformer: buildTransformer}, nil
 }
 
 func (s *SegmentEditOps) Close() error {
 	return s.db.Close()
+}
+
+// BuildCurrentTransformer composes the ops live right now into a single value
+// transformer for one compaction or cleanup pass. It returns nil when no
+// builder is configured or no ops are active, signalling the pass to run
+// without transformation. Building per pass (rather than holding one transformer
+// for the segment group's lifetime) lets it reflect the live ops and compose
+// multiple concurrent drops.
+func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, error) {
+	if s.buildTransformer == nil {
+		return nil, nil
+	}
+	ops, err := s.LoadOps()
+	if err != nil {
+		return nil, fmt.Errorf("load edit ops: %w", err)
+	}
+	if len(ops) == 0 {
+		return nil, nil
+	}
+	return s.buildTransformer(ops), nil
 }
 
 // RegisterOp persists an operation descriptor. It is idempotent: re-registering
