@@ -251,11 +251,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		resultsCount = 2
 	}
 
-	// Coordinate the legs under an errgroup-derived cancellable context so that
-	// (A) a single leg's error cancels egCtx, which the sibling leg observes via
-	// its internal ctx.Err() checks and returns promptly instead of leaking, and
-	// (B) a client cancel (egCtx derives from ctx) tears down both legs' work.
-	// Only this call site changes; the shared NewErrorGroupWrapper is untouched.
+	// Run the legs under an errgroup-derived cancellable ctx: a leg error (or a
+	// client cancel, since egCtx derives from ctx) cancels egCtx, so the sibling
+	// leg's ctx.Err() checks trip and it returns promptly instead of leaking.
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	eg.SetLimit(resultsCount)
 
