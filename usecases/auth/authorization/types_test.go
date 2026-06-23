@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -315,11 +316,15 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		// MCP tools self-scope to principal.Namespace, so they are namespace-safe.
 		CreateMcp: {}, ReadMcp: {}, UpdateMcp: {},
 		CreateUsers: {}, ReadUsers: {}, UpdateUsers: {}, DeleteUsers: {},
+		// Role management at MATCH scope, plus role assignment to users.
+		CreateRoles: {}, ReadRoles: {}, UpdateRoles: {}, DeleteRoles: {},
+		AssignAndRevokeUsers: {},
 	}
 	allowedViewerActions := map[string]struct{}{
 		ReadCollections: {}, ReadData: {}, ReadTenants: {}, ReadAliases: {},
 		ReadMcp:   {},
 		ReadUsers: {},
+		ReadRoles: {},
 	}
 
 	collectActions := func(perms []*models.Permission) map[string]struct{} {
@@ -341,21 +346,32 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	assert.Equal(t, allowedAdminActions, gotAdmin, "Admin (NS-enabled) must contain only CRUD over namespace-bearing domains")
 	assert.Equal(t, allowedViewerActions, gotViewer, "Viewer (NS-enabled) must contain only READ over namespace-bearing domains")
 
-	// Disallowed domains for narrowed admin/viewer. MCP and user CRUD are
-	// intentionally absent — they are namespace-safe and covered by the
-	// allowed maps above. AssignAndRevokeUsers remains excluded.
+	// Cluster-only domains excluded from both narrowed roles.
 	for _, action := range []string{
 		ManageBackups, ManageNamespaces,
 		ReadNodes, ReadCluster,
-		AssignAndRevokeUsers,
 		AssignAndRevokeGroups, ReadGroups,
-		ReadRoles, CreateRoles, UpdateRoles, DeleteRoles,
 		CreateReplicate, ReadReplicate, UpdateReplicate, DeleteReplicate,
 	} {
 		_, hasAdmin := gotAdmin[action]
 		_, hasViewer := gotViewer[action]
 		assert.False(t, hasAdmin, "Admin (NS-enabled) must not include %s", action)
 		assert.False(t, hasViewer, "Viewer (NS-enabled) must not include %s", action)
+	}
+
+	// Role writes and assignment are admin-only — the viewer is read-only.
+	for _, action := range []string{CreateRoles, UpdateRoles, DeleteRoles, AssignAndRevokeUsers} {
+		_, hasViewer := gotViewer[action]
+		assert.False(t, hasViewer, "Viewer (NS-enabled) must not include %s", action)
+	}
+
+	// Admin's role permissions are MATCH-scoped (reads route through the
+	// content-scope path, not the role-name gate).
+	for _, p := range admin {
+		if p.Roles != nil {
+			require.NotNil(t, p.Roles.Scope)
+			assert.Equal(t, models.PermissionRolesScopeMatch, *p.Roles.Scope, "admin role perm %s must be MATCH-scoped", *p.Action)
+		}
 	}
 
 	// Operator roles keep wildcard shape regardless of NAMESPACES_ENABLED.
