@@ -278,14 +278,16 @@ func (s *segmentCursorReplace) parse(in []byte) error {
 }
 
 // segmentCursorReplaceReusable is a sequential cursor for the replace strategy
-// that reuses internal buffers across iterations to minimise per-key allocations
-// during compaction. It is the replace-strategy analogue of
-// segmentCursorCollectionReusable.
+// that reuses internal buffers across iterations to minimise per-key
+// allocations. Used by compaction (compactorReplace) and, via
+// reusableInnerCursorReplace, by the bucket-level reusable merge cursor. It is
+// the replace-strategy analogue of segmentCursorCollectionReusable.
 //
-// Ownership contract: the *segmentReplaceNode returned by first()/next() is
-// valid only until the next call on the same cursor. Callers must not retain
-// the pointer across iterations. This is safe in compactorReplace because c1
-// and c2 are independent cursors with separate reusableNode fields.
+// Ownership contract: the *segmentReplaceNode returned by first()/next()/seek()
+// is valid only until the next call on the same cursor; callers must not retain
+// the pointer across iterations. Each consumer (compaction's c1/c2, the merge
+// cursor's per-segment adapter) owns its own cursor, so the aliased node is
+// never shared across cursors.
 type segmentCursorReplaceReusable struct {
 	segment      *segment
 	currOffset   uint64
