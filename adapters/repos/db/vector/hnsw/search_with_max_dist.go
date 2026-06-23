@@ -24,6 +24,10 @@ import (
 func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32,
 	dist float32, ef int, allowList helpers.AllowList,
 ) ([]uint64, error) {
+	if h.isEmpty() {
+		return nil, nil
+	}
+
 	h.RLock()
 	entryPointID := h.entryPointID
 	maxLayer := h.currentMaximumLayer
@@ -41,13 +45,12 @@ func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "KnnSearchByVectorMaxDist")
-			var found bool
-			entryPointID, maxLayer, entryPointDistance, found = h.findFallbackEntrypoint(compressorDistancer, searchVec)
-			if !found {
-				return nil, nil
-			}
-		} else {
-			return nil, errors.Wrap(err, "knn search max dist: distance to entrypoint")
+		}
+		// Entrypoint unusable (deleted, nil vector, or other error) - find fallback
+		var found bool
+		entryPointID, maxLayer, entryPointDistance, found = h.findFallbackEntrypoint(compressorDistancer, searchVec)
+		if !found {
+			return nil, nil
 		}
 	}
 

@@ -746,6 +746,10 @@ func (h *hnsw) findFallbackEntrypoint(
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	if h.isEmpty() {
+		return nil, nil, nil
+	}
+
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
 	}
@@ -767,14 +771,12 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "knnSearchByVector")
-			// Configured entry point missing - find fallback
-			var found bool
-			entryPointID, maxLayer, entryPointDistance, found = h.findFallbackEntrypoint(compressorDistancer, searchVec)
-			if !found {
-				return nil, nil, nil
-			}
-		} else {
-			return nil, nil, errors.Wrap(err, "knn search: distance to entrypoint")
+		}
+		// Entrypoint unusable (deleted, nil vector, or other error) - find fallback
+		var found bool
+		entryPointID, maxLayer, entryPointDistance, found = h.findFallbackEntrypoint(compressorDistancer, searchVec)
+		if !found {
+			return nil, nil, nil
 		}
 	}
 

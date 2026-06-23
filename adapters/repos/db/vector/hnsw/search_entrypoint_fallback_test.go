@@ -147,3 +147,53 @@ func TestSearchWithMissingEntrypoint(t *testing.T) {
 	assert.Equal(t, uint64(1), results[0])
 	assert.True(t, index.hasTombstone(0), "deleted entrypoint should be tombstoned")
 }
+
+// TestSearchWithNilVectorEntrypoint tests fallback when entrypoint has nil/zero-length vector.
+// This can happen during HFresh index construction where nodes exist but vectors aren't loaded yet.
+// In this scenario, if the entrypoint is unusable, search finds a fallback and proceeds.
+// The fallback node should not have connections to nodes with nil vectors to avoid errors during layer search.
+func TestSearchWithNilVectorEntrypoint(t *testing.T) {
+	ctx := context.Background()
+	// vectors[0] is nil/empty (unusable entrypoint), vectors[1] and [2] are valid
+	vectors := [][]float32{nil, {1, 1}, {2, 2}}
+
+	logger, _ := test.NewNullLogger()
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		Logger:                logger,
+		VectorForIDThunk: func(_ context.Context, id uint64) ([]float32, error) {
+			return vectors[id], nil
+		},
+		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	// Setup: node 0 is entry point (has nil vector), nodes 1 and 2 are valid fallbacks
+	// Node 1 only connects to node 2 (avoiding node 0's nil vector during layer search)
+	index.entryPointID = 0
+	index.currentMaximumLayer = 1
+	conns0, _ := packedconn.NewWithElements([][]uint64{{1}, {1}})
+	conns1, _ := packedconn.NewWithElements([][]uint64{{2}, {2}}) // Only connects to valid node 2
+	conns2, _ := packedconn.NewWithElements([][]uint64{{1}, {1}})
+	index.nodes = []*vertex{
+		{id: 0, level: 1, connections: conns0},
+		{id: 1, level: 1, connections: conns1},
+		{id: 2, level: 1, connections: conns2},
+	}
+
+	// Uncompressed mode - distToNode will return error for nil vector at entrypoint
+	// Fallback should find node 1 and proceed with search
+	results, dists, err := index.SearchByVector(ctx, []float32{1, 1}, 10, nil)
+
+	require.NoError(t, err, "search should not fail when entrypoint has nil vector")
+	require.NotEmpty(t, results, "should return results via fallback")
+	assert.Len(t, dists, len(results))
+}
