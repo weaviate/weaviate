@@ -291,39 +291,39 @@ func TestSearchByVectorUnchanged(t *testing.T) {
 // is calculated correctly as max(searchProbe, rescoreLimit) for backward compatibility.
 func TestEffectiveRoutingBudgetCalculation(t *testing.T) {
 	testCases := []struct {
-		name                   string
-		searchProbe            int
-		rescoreLimit           int
-		expectedRoutingBudget  int
-		expectedRerankBudget   int
+		name                  string
+		searchProbe           int
+		rescoreLimit          int
+		expectedRoutingBudget int
+		expectedRerankBudget  int
 	}{
 		{
-			name:                   "rescoreLimit dominates (default)",
-			searchProbe:            64,
-			rescoreLimit:           350,
-			expectedRoutingBudget:  350, // max(64, 350)
-			expectedRerankBudget:   350,
+			name:                  "rescoreLimit dominates (default)",
+			searchProbe:           64,
+			rescoreLimit:          350,
+			expectedRoutingBudget: 350, // max(64, 350)
+			expectedRerankBudget:  350,
 		},
 		{
-			name:                   "searchProbe dominates",
-			searchProbe:            512,
-			rescoreLimit:           128,
-			expectedRoutingBudget:  512, // max(512, 128)
-			expectedRerankBudget:   128,
+			name:                  "searchProbe dominates",
+			searchProbe:           512,
+			rescoreLimit:          128,
+			expectedRoutingBudget: 512, // max(512, 128)
+			expectedRerankBudget:  128,
 		},
 		{
-			name:                   "equal values",
-			searchProbe:            256,
-			rescoreLimit:           256,
-			expectedRoutingBudget:  256,
-			expectedRerankBudget:   256,
+			name:                  "equal values",
+			searchProbe:           256,
+			rescoreLimit:          256,
+			expectedRoutingBudget: 256,
+			expectedRerankBudget:  256,
 		},
 		{
-			name:                   "low searchProbe",
-			searchProbe:            16,
-			rescoreLimit:           1024,
-			expectedRoutingBudget:  1024, // max(16, 1024)
-			expectedRerankBudget:   1024,
+			name:                  "low searchProbe",
+			searchProbe:           16,
+			rescoreLimit:          1024,
+			expectedRoutingBudget: 1024, // max(16, 1024)
+			expectedRerankBudget:  1024,
 		},
 	}
 

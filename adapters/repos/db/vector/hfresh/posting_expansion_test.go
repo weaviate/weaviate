@@ -41,9 +41,9 @@ func TestDocToPostings_Build(t *testing.T) {
 
 		// Simulate what Build would do
 		d.mu.Lock()
-		d.data[1] = []uint64{10, 20}   // doc1 -> postings 10, 20
-		d.data[2] = []uint64{10}       // doc2 -> posting 10
-		d.data[3] = []uint64{20, 30}   // doc3 -> postings 20, 30
+		d.data[1] = []uint64{10, 20} // doc1 -> postings 10, 20
+		d.data[2] = []uint64{10}     // doc2 -> posting 10
+		d.data[3] = []uint64{20, 30} // doc3 -> postings 20, 30
 		d.built = true
 		d.mu.Unlock()
 
