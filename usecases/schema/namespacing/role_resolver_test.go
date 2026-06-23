@@ -237,3 +237,40 @@ func TestRoleResolverCollisionMatrix(t *testing.T) {
 	// Reverse direction: global editor first, then customer1 editor blocked.
 	assert.Equal(t, RoleConflictGlobal, FindShortNameConflict(slices.Values([]string{"editor"}), "customer1:editor"))
 }
+
+// TestProjectResourceForNamespace pins assignment-time specialization: a bare
+// namespace segment is prefixed with the target namespace, an already-qualified
+// segment must already name the target, non-namespaceable resources and the
+// empty namespace pass through.
+func TestProjectResourceForNamespace(t *testing.T) {
+	tests := []struct {
+		name      string
+		resource  string
+		namespace string
+		want      string
+		wantErr   bool
+	}{
+		{"bare data collection", "data/collections/Movies/shards/*/objects/*", "customer1", "data/collections/customer1:Movies/shards/*/objects/*", false},
+		{"bare schema collection", "schema/collections/Movies/shards/#", "customer1", "schema/collections/customer1:Movies/shards/#", false},
+		{"bare role", "roles/editor", "customer1", "roles/customer1:editor", false},
+		{"bare user", "users/bob", "customer1", "users/customer1:bob", false},
+		{"qualified matching user", "users/customer1:bob", "customer1", "users/customer1:bob", false},
+		{"foreign user", "users/customer2:bob", "customer1", "", true},
+		{"bare wildcard collection", "data/collections/*/shards/*/objects/*", "customer1", "data/collections/customer1:*/shards/*/objects/*", false},
+		{"bare alias both segments", "aliases/collections/Movies/aliases/Myalias", "customer1", "aliases/collections/customer1:Movies/aliases/customer1:Myalias", false},
+		{"qualified alias different namespace", "aliases/collections/customer2:Movies/aliases/customer2:Myalias", "customer1", "", true},
+		{"non-namespaceable cluster", "99", "customer1", "99", false},
+		{"empty namespace passthrough", "data/collections/Movies/shards/*/objects/*", "", "data/collections/Movies/shards/*/objects/*", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ProjectResourceForNamespace(tt.resource, tt.namespace)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
