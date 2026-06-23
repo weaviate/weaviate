@@ -808,14 +808,32 @@ func (index *flat) ResumeAfterBackup(context.Context) error {
 	return nil
 }
 
+func (index *flat) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	fullPath := filepath.Join(index.rootPath, index.getMetadataFile())
+	if _, err := os.Stat(fullPath); err != nil {
+		// no metadata file yet — nothing to snapshot (mirrors ListFiles)
+		return nil, nil
+	}
+
+	relPath, err := index.metadataRelPath(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("metadata relative path: %w", err)
+	}
+
+	if err := index.snapshotMetadata(filepath.Join(stagingDir, relPath)); err != nil {
+		return nil, err
+	}
+
+	return []string{relPath}, nil
+}
+
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	var files []string
 
-	metadataFile := index.getMetadataFile()
-	fullPath := filepath.Join(index.rootPath, metadataFile)
+	fullPath := filepath.Join(index.rootPath, index.getMetadataFile())
 
 	if _, err := os.Stat(fullPath); err == nil {
-		relPath, err := filepath.Rel(basePath, fullPath)
+		relPath, err := index.metadataRelPath(basePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get relative path: %w", err)
 		}
@@ -824,6 +842,11 @@ func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, er
 	}
 
 	return files, nil
+}
+
+func (index *flat) metadataRelPath(basePath string) (string, error) {
+	fullPath := filepath.Join(index.rootPath, index.getMetadataFile())
+	return filepath.Rel(basePath, fullPath)
 }
 
 func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
