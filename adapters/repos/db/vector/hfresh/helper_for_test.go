@@ -230,9 +230,9 @@ func createMuveraHFreshIndex(t *testing.T) TestHFresh {
 	index.multivectorForIdThunk = cfg.MultiVectorForIDThunk
 
 	return TestHFresh{
-		Index:    index,
-		Logs:     hook,
-		mvStore:  mvStore,
+		Index:   index,
+		Logs:    hook,
+		mvStore: mvStore,
 	}
 }
 
