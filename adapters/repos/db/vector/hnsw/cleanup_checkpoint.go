@@ -176,13 +176,23 @@ func decodeCheckpoint(data []byte) (*CleanupCheckpoint, error) {
 	tombstoneCount := binary.LittleEndian.Uint64(data[offset:])
 	offset += 8
 
-	expectedSize := offset + int(tombstoneCount)*8 + 8 + 8 + 8 + 8 + 4
-	if len(data) < expectedSize {
-		return nil, fmt.Errorf("checkpoint data truncated: expected %d bytes, got %d",
-			expectedSize, len(data))
+	// Prevent overflow/huge allocations on corrupt input
+	if tombstoneCount > uint64(^uint(0)>>1) {
+		return nil, fmt.Errorf("checkpoint tombstone count too large: %d", tombstoneCount)
 	}
 
-	cp.TombstoneIDs = make([]uint64, tombstoneCount)
+	const tailSize uint64 = 8 + 8 + 8 + 8 + 4
+	needed := uint64(offset) + tailSize
+	if uint64(len(data)) < needed {
+		return nil, fmt.Errorf("checkpoint data truncated: expected at least %d bytes, got %d", needed, len(data))
+	}
+	remaining := uint64(len(data)) - needed
+	if tombstoneCount > remaining/8 {
+		expectedSize := needed + tombstoneCount*8
+		return nil, fmt.Errorf("checkpoint data truncated: expected %d bytes, got %d", expectedSize, len(data))
+	}
+
+	cp.TombstoneIDs = make([]uint64, int(tombstoneCount))
 	for i := uint64(0); i < tombstoneCount; i++ {
 		cp.TombstoneIDs[i] = binary.LittleEndian.Uint64(data[offset:])
 		offset += 8
