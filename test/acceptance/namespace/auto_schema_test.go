@@ -31,11 +31,12 @@ import (
 // A global principal on the same cluster cannot trigger auto-schema and
 // must be rejected with 403.
 func TestNamespaces_AutoSchema(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	t.Parallel()
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	t.Run("auto-create class on first object insert", func(t *testing.T) {
 		const class = "AutoCreated"
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 		id := strfmt.UUID("11111111-aaaa-bbbb-cccc-111111111111")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -52,8 +53,8 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		assert.Equal(t, "Inception", got.Properties.(map[string]any)["title"])
 
 		// Admin's raw schema view confirms a single-qualified class exists.
-		gotClass := helper.GetClassAuth(t, "customer1:"+class, adminKey)
-		assert.Equal(t, "customer1:"+class, gotClass.Class)
+		gotClass := helper.GetClassAuth(t, ns1+":"+class, adminKey)
+		assert.Equal(t, ns1+":"+class, gotClass.Class)
 
 		// Same short name in a second namespace creates an independent class.
 		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -62,15 +63,15 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 			Properties: map[string]any{"title": "Memento"},
 		}, user2Key)
 		require.NoError(t, err)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer2:"+class, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns2+":"+class, adminKey) })
 
-		gotClass2 := helper.GetClassAuth(t, "customer2:"+class, adminKey)
-		assert.Equal(t, "customer2:"+class, gotClass2.Class)
+		gotClass2 := helper.GetClassAuth(t, ns2+":"+class, adminKey)
+		assert.Equal(t, ns2+":"+class, gotClass2.Class)
 	})
 
 	t.Run("auto-add property on object insert", func(t *testing.T) {
 		const class = "AutoProp"
-		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		id := strfmt.UUID("22222222-aaaa-bbbb-cccc-222222222222")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -90,20 +91,20 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		assert.Equal(t, "Tenet", props["title"])
 		assert.NotNil(t, props["runtime"])
 
-		gotNs1 := helper.GetClassAuth(t, "customer1:"+class, adminKey)
+		gotNs1 := helper.GetClassAuth(t, ns1+":"+class, adminKey)
 		assert.True(t, hasProperty(gotNs1, "runtime"),
-			"runtime property should have been auto-added to customer1:%s", class)
+			"runtime property should have been auto-added to %s:%s", ns1, class)
 
-		// The schema change is namespace-local: customer2's class with the
-		// same short name must not inherit "runtime".
-		gotNs2 := helper.GetClassAuth(t, "customer2:"+class, adminKey)
+		// The schema change is namespace-local: the second namespace's class with
+		// the same short name must not inherit "runtime".
+		gotNs2 := helper.GetClassAuth(t, ns2+":"+class, adminKey)
 		assert.False(t, hasProperty(gotNs2, "runtime"),
-			"runtime property must not appear on customer2:%s", class)
+			"runtime property must not appear on %s:%s", ns2, class)
 	})
 
 	t.Run("auto-add property via PUT", func(t *testing.T) {
 		const class = "AutoPropPut"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		id := strfmt.UUID("33333333-aaaa-bbbb-cccc-333333333333")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -125,14 +126,14 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		gotClass := helper.GetClassAuth(t, "customer1:"+class, adminKey)
+		gotClass := helper.GetClassAuth(t, ns1+":"+class, adminKey)
 		assert.True(t, hasProperty(gotClass, "rating"),
 			"rating property should have been auto-added via PUT")
 	})
 
 	t.Run("auto-add property via PATCH", func(t *testing.T) {
 		const class = "AutoPropPatch"
-		setupClassInNs1(t, class, user1Key)
+		setupClassInNs1(t, ns1, class, user1Key)
 
 		id := strfmt.UUID("44444444-aaaa-bbbb-cccc-444444444444")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -152,7 +153,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		gotClass := helper.GetClassAuth(t, "customer1:"+class, adminKey)
+		gotClass := helper.GetClassAuth(t, ns1+":"+class, adminKey)
 		assert.True(t, hasProperty(gotClass, "director"),
 			"director property should have been auto-added via PATCH")
 	})
@@ -160,7 +161,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 	t.Run("auto-create tenant on single-object insert", func(t *testing.T) {
 		const class = "AutoTenantSingle"
 		mustCreateMTClass(t, class, user1Key, mtAutoCreate)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 		id := strfmt.UUID("55555555-aaaa-bbbb-cccc-555555555555")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -180,7 +181,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 	t.Run("auto-create tenant on batch insert", func(t *testing.T) {
 		const class = "AutoTenantBatch"
 		mustCreateMTClass(t, class, user1Key, mtAutoCreate)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 		id1 := strfmt.UUID("66666666-aaaa-bbbb-cccc-666666666666")
 		id2 := strfmt.UUID("66666666-aaaa-bbbb-cccc-777777777777")
@@ -200,7 +201,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 	t.Run("auto-activate cold tenant on insert", func(t *testing.T) {
 		const class = "AutoTenantActivate"
 		mustCreateMTClass(t, class, user1Key, mtAutoActivate)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 		// Pre-create tenant HOT, then deactivate.
 		helper.CreateTenantsAuth(t, class,
@@ -230,14 +231,14 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		// Auto-schema detects a beacon-shaped value in the payload and adds a
 		// cross-ref property whose DataType is the SHORT target class. The
 		// schema handler then namespaces that DataType via
-		// QualifyPropertyDataTypes, so storage holds "customer1:Target".
+		// QualifyPropertyDataTypes, so storage holds the qualified target class.
 		// Pinned here because the path crosses three NS-aware seams:
 		//   1. The validator's QualifyRefTarget call on the beacon's class.
 		//   2. The schema handler qualifying the auto-added DataType.
 		//   3. The class-response stripping back to short on read.
 		const source, target = "AutoRefSource", "AutoRefTarget"
-		setupClassInNs1(t, source, user1Key)
-		setupClassInNs1(t, target, user1Key)
+		setupClassInNs1(t, ns1, source, user1Key)
+		setupClassInNs1(t, ns1, target, user1Key)
 
 		targetID := strfmt.UUID("88888888-aaaa-bbbb-cccc-111111111111")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -258,7 +259,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		require.NoError(t, err)
 
 		// Admin sees the qualified DataType in storage.
-		gotAdmin := helper.GetClassAuth(t, "customer1:"+source, adminKey)
+		gotAdmin := helper.GetClassAuth(t, ns1+":"+source, adminKey)
 		var foundDT []string
 		for _, p := range gotAdmin.Properties {
 			if p.Name == "linkedTo" {
@@ -266,7 +267,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 			}
 		}
 		require.Len(t, foundDT, 1, "linkedTo should have been auto-added with one DataType entry")
-		assert.Equal(t, "customer1:"+target, foundDT[0],
+		assert.Equal(t, ns1+":"+target, foundDT[0],
 			"auto-schema must qualify the cross-ref DataType under the caller's namespace")
 
 		// Namespaced caller reads it back as the short form (response stripping).
@@ -279,7 +280,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		}
 
 		// And the stored beacon is short (portability invariant).
-		got, err := helper.GetObjectAuth(t, "customer1:"+source, sourceID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":"+source, sourceID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["linkedTo"].([]interface{})
 		require.Len(t, refs, 1)

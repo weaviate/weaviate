@@ -381,7 +381,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, sg.valueTransformer)
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {
@@ -447,7 +447,20 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			k1 = sg.bm25config.K1
 		}
 
-		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
+		// open the (possibly lazy-loaded) segments via the cursors before reading
+		// isPropertyLengthsLoaded: an unloaded lazySegment reports false, which
+		// would wrongly free an eagerly-loaded map on an aborted compaction.
+		// After this, the flag is false only for a map this compaction will load.
+		leftCursor := left.newInvertedCursorReusable()
+		rightCursor := right.newInvertedCursorReusable()
+		if !left.isPropertyLengthsLoaded() {
+			defer left.freePropertyLengths()
+		}
+		if !right.isPropertyLengthsLoaded() {
+			defer right.freePropertyLengths()
+		}
+
+		c := newCompactorInverted(f, leftCursor, rightCursor,
 			level, secondaryIndices, cleanupTombstones,
 			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
 
@@ -529,6 +542,7 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
 			writeMetadata:                sg.writeMetadata,
 			deleteMarkerCounter:          sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:          sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("initialize new segment: %w", err)
@@ -669,6 +683,8 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 
 	ec := errorcompounder.New()
 	for _, seg := range toDrop {
+		// refCount is 0 here, so no reader can still hold the property lengths map
+		seg.freePropertyLengths()
 		if err := seg.close(); err != nil {
 			ec.Add(fmt.Errorf("close segment: %w", err))
 			continue

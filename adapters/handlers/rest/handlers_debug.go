@@ -37,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -971,9 +972,8 @@ func setupDebugHandlers(appState *state.State) {
 		w.Write(jsonBytes)
 	}))
 
-	// This endpoint dumps all server configuration from environment.go
-	// e.g. curl -X GET localhost:6060/debug/config
-	// Note: Authentication and Authorization sections are skipped for security
+	// Dumps all server config. e.g. curl localhost:6060/debug/config
+	// Secrets are redacted by redactDebugConfigSecrets before returning.
 	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -995,8 +995,11 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
+		cleaned := cleanEmptyValues(configMap)
+		redactDebugConfigSecrets(cleaned)
+
 		// for human readability
-		jsonBytes, err = json.MarshalIndent(cleanEmptyValues(configMap), "", "  ")
+		jsonBytes, err = json.MarshalIndent(cleaned, "", "  ")
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on cleaned config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1231,6 +1234,47 @@ func cleanValue(v any) any {
 	}
 }
 
+// redactDebugConfigSecrets replaces each known secret value with "<redacted>",
+// leaving the field present so an operator can see it's configured without
+// exposing the value. Add the JSON path of any new secret field here.
+func redactDebugConfigSecrets(m map[string]any) {
+	redactPath(m, "<redacted>", "authentication", "APIKey", "allowed_keys")
+	redactPath(m, "<redacted>", "cluster", "auth", "basic", "password")
+	// The DSN's userinfo segment is the project key, so the whole string is a secret.
+	redactPath(m, "<redacted>", "sentry", "dsn")
+}
+
+// redactPath replaces the value at the given key path with placeholder; for a
+// slice, each element is replaced so the element count is preserved. Missing
+// keys are a no-op.
+func redactPath(m map[string]any, placeholder string, path ...string) {
+	if len(path) == 0 {
+		return
+	}
+	for i := 0; i < len(path)-1; i++ {
+		sub, ok := m[path[i]].(map[string]any)
+		if !ok {
+			return
+		}
+		m = sub
+	}
+	last := path[len(path)-1]
+	v, ok := m[last]
+	if !ok {
+		return
+	}
+	switch x := v.(type) {
+	case []any:
+		out := make([]any, len(x))
+		for i := range x {
+			out[i] = placeholder
+		}
+		m[last] = out
+	default:
+		m[last] = placeholder
+	}
+}
+
 var (
 	debugConsistentViews     = map[string]lsmkv.BucketConsistentView{}
 	debugConsistentViewsLock sync.Mutex
@@ -1252,4 +1296,26 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	w.WriteHeader(status)
 	w.Write(jsonBytes)
+}
+
+// setupTelemetryDebugHandlers registers debug endpoints for inspecting live telemetry data.
+// It must be called after the telemeter has been created.
+func setupTelemetryDebugHandlers(telemeter *telemetry.Telemeter) {
+	http.HandleFunc("/debug/telemetry/clients", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		type clientsResponse struct {
+			ClientUsage            map[telemetry.ClientType]map[string]int64 `json:"clientUsage"`
+			ClientIntegrationUsage map[string]map[string]int64               `json:"clientIntegrationUsage"`
+		}
+
+		resp := clientsResponse{}
+		if ct := telemeter.GetClientTracker(); ct != nil {
+			resp.ClientUsage = ct.Get()
+		}
+		if it := telemeter.GetIntegrationTracker(); it != nil {
+			resp.ClientIntegrationUsage = it.Get()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, http.StatusOK, resp)
+	}))
 }

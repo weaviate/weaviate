@@ -13,7 +13,9 @@ package namespace
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +26,18 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
+
+// nsCounter backs uniqueNS. Tests must not hardcode namespace names: a shared
+// literal would collide once tests run in parallel against the shared cluster.
+var nsCounter atomic.Int64
+
+// uniqueNS returns a process-unique namespace name ("ns1", "ns2", ...) that
+// satisfies the name contract (lowercase alphanumeric, 3-36 chars). Each test
+// allocates its own so namespaced state (classes, users, objects) stays
+// isolated across concurrent tests.
+func uniqueNS() string {
+	return fmt.Sprintf("ns%d", nsCounter.Add(1))
+}
 
 // retryOnAliasLag retries op until it returns no error. Used after
 // CreateAliasAuth on the multi-node cluster: the create returns when the

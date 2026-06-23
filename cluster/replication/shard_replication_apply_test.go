@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package replication_test
 
 import (
 	"testing"
@@ -19,15 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-func seedOp(t *testing.T, fsm *ShardReplicationFSM, opID uint64) strfmt.UUID {
+func seedOp(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint64) strfmt.UUID {
 	t.Helper()
 	return seedOpOfType(t, fsm, opID, api.COPY)
 }
 
-func seedOpOfType(t *testing.T, fsm *ShardReplicationFSM, opID uint64, transferType api.ShardReplicationTransferType) strfmt.UUID {
+func seedOpOfType(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint64, transferType api.ShardReplicationTransferType) strfmt.UUID {
 	t.Helper()
 	uuid := strfmt.UUID("00000000-0000-0000-0000-00000000000" + string(rune('0'+opID%10)))
 	require.NoError(t, fsm.Replicate(opID, &api.ReplicationReplicateShardRequest{
@@ -44,7 +45,7 @@ func seedOpOfType(t *testing.T, fsm *ShardReplicationFSM, opID uint64, transferT
 
 // driveToState advances the op via UpdateReplicationOpStatus. CANCELLED
 // requires CancellationComplete (the FSM rejects it here) — see driveToCancelled.
-func driveToState(t *testing.T, fsm *ShardReplicationFSM, opID uint64, state api.ShardReplicationState) {
+func driveToState(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint64, state api.ShardReplicationState) {
 	t.Helper()
 	if state == api.REGISTERED {
 		return
@@ -57,7 +58,7 @@ func driveToState(t *testing.T, fsm *ShardReplicationFSM, opID uint64, state api
 	require.NoError(t, err)
 }
 
-func driveToCancelled(t *testing.T, fsm *ShardReplicationFSM, opID uint64) {
+func driveToCancelled(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint64) {
 	t.Helper()
 	require.NoError(t, fsm.CancellationComplete(&api.ReplicationCancellationCompleteRequest{
 		Version: api.ReplicationCommandVersionV0,
@@ -108,7 +109,7 @@ func TestShardReplicationFSM_CancelReplication(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+			fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 			const opID uint64 = 1
 			uuid := seedOp(t, fsm, opID)
 			driveToState(t, fsm, opID, tc.state)
@@ -130,15 +131,15 @@ func TestShardReplicationFSM_CancelReplication(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			status, ok := fsm.statusById[opID]
+			op, ok := fsm.GetOpById(opID)
 			require.True(t, ok)
-			require.Equal(t, tc.wantShouldCancel, status.ShouldCancel, "ShouldCancel")
-			require.Equal(t, tc.wantShouldDelete, status.ShouldDelete, "ShouldDelete")
+			require.Equal(t, tc.wantShouldCancel, op.Status.ShouldCancel, "ShouldCancel")
+			require.Equal(t, tc.wantShouldDelete, op.Status.ShouldDelete, "ShouldDelete")
 		})
 	}
 
 	t.Run("unknown UUID wraps ErrReplicationOperationNotFound", func(t *testing.T) {
-		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 		err := fsm.CancelReplication(&api.ReplicationCancelRequest{
 			Version: api.ReplicationCommandVersionV0,
 			Uuid:    strfmt.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
@@ -198,7 +199,7 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+			fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 			const opID uint64 = 1
 			uuid := seedOp(t, fsm, opID)
 			if !tc.driveCancelled {
@@ -221,15 +222,15 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			status, ok := fsm.statusById[opID]
+			op, ok := fsm.GetOpById(opID)
 			require.True(t, ok)
-			require.Equal(t, tc.wantShouldCancel, status.ShouldCancel, "ShouldCancel")
-			require.Equal(t, tc.wantShouldDelete, status.ShouldDelete, "ShouldDelete")
+			require.Equal(t, tc.wantShouldCancel, op.Status.ShouldCancel, "ShouldCancel")
+			require.Equal(t, tc.wantShouldDelete, op.Status.ShouldDelete, "ShouldDelete")
 		})
 	}
 
 	t.Run("unknown UUID wraps ErrReplicationOperationNotFound", func(t *testing.T) {
-		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 		err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
 			Version: api.ReplicationCommandVersionV0,
 			Uuid:    strfmt.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
@@ -242,17 +243,22 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 // the atomicity with addReplicaToShard lives in the SchemaManager test.
 func TestShardReplicationFSM_SetUnCancellable(t *testing.T) {
 	t.Run("flips UnCancellable on a known op", func(t *testing.T) {
-		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 		const opID uint64 = 7
 		seedOp(t, fsm, opID)
 
-		require.False(t, fsm.statusById[opID].UnCancellable, "should start cancellable")
+		op, ok := fsm.GetOpById(opID)
+		require.True(t, ok)
+		require.False(t, op.Status.UnCancellable, "should start cancellable")
 		require.NoError(t, fsm.SetUnCancellable(opID))
-		require.True(t, fsm.statusById[opID].UnCancellable)
+
+		op, ok = fsm.GetOpById(opID)
+		require.True(t, ok)
+		require.True(t, op.Status.UnCancellable)
 	})
 
 	t.Run("unknown id wraps ErrReplicationOperationNotFound", func(t *testing.T) {
-		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 		err := fsm.SetUnCancellable(999)
 		require.ErrorIs(t, err, types.ErrReplicationOperationNotFound)
 	})

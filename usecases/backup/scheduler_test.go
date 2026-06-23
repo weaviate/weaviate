@@ -220,7 +220,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
 		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
@@ -229,6 +229,17 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		if !errors.As(err, &nerr) {
 			t.Errorf("error want=%v got=%v", nerr, err)
 		}
+	})
+
+	t.Run("MetadataReadFails", func(t *testing.T) {
+		// A transient/operational read failure propagates raw so the handler
+		// default arm maps it to 500 instead of misclassifying as 404.
+		fs := newFakeScheduler(nil)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
+
+		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
+		assert.ErrorIs(t, err, ErrAny, "underlying backend error should propagate unwrapped")
 	})
 
 	t.Run("ReadFromMetadata", func(t *testing.T) {
@@ -241,7 +252,8 @@ func TestSchedulerBackupStatus(t *testing.T) {
 				Status: backup.Success,
 				// 2.5Gb
 				PreCompressionSizeBytes: 2684354560,
-			})
+			},
+		)
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
@@ -316,13 +328,22 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
 		if !errors.As(err, &nerr) {
 			t.Errorf("error want=%v got=%v", nerr, err)
 		}
+	})
+
+	t.Run("MetadataReadFails", func(t *testing.T) {
+		// A transient/operational read failure propagates raw so the handler
+		// default arm maps it to 500 instead of misclassifying as 404.
+		fs := newFakeScheduler(nil)
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
+		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
+		assert.ErrorIs(t, err, ErrAny, "underlying backend error should propagate unwrapped")
 	})
 
 	t.Run("ReadFromMetadata", func(t *testing.T) {
@@ -427,7 +448,8 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 
-		fs.backend.On("Initialize", ctx, backupID).Return(errors.New("init meta failed"))
+		initErr := errors.New("init meta failed")
+		fs.backend.On("Initialize", ctx, backupID).Return(initErr)
 		meta, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
 			Backend: backendName,
 			ID:      backupID,
@@ -436,8 +458,8 @@ func TestSchedulerCreateBackup(t *testing.T) {
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "init")
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.ErrorIs(t, err, initErr, "underlying init error should propagate unwrapped")
+		assert.Contains(t, err.Error(), "init uploader")
 	})
 
 	t.Run("Success", func(t *testing.T) {
@@ -928,6 +950,9 @@ func TestSchedulerList(t *testing.T) {
 		fs.backendErr = ErrAny
 		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.NotNil(t, err)
+		assert.ErrorAs(t, err, &backup.ErrUnprocessable{}, "missing backend module should map to 422 unprocessable")
+		assert.Contains(t, err.Error(), backendName)
+		assert.Contains(t, err.Error(), ErrAny.Error())
 	})
 
 	t.Run("AllBackupsFails", func(t *testing.T) {

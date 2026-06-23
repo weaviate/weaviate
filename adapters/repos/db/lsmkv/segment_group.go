@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -96,9 +97,16 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
+	// valueTransformer, when set, rewrites each non-tombstone value during
+	// replace-strategy compaction (e.g. to strip a dropped vector). Wiring it
+	// from active edit operations lands in a later step; for now it is nil
+	// unless set directly.
+	valueTransformer valueTransformer
+
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
+	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
 	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
@@ -128,6 +136,7 @@ type sgConfig struct {
 	keepSegmentsInMemory         bool
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
 	sequentialAccess             bool
@@ -164,6 +173,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
 		sequentialAccess:             cfg.sequentialAccess,
+		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
@@ -261,6 +271,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
 					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+					lazyPropertyLengths:      sg.lazyPropertyLengths,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -385,6 +396,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -575,6 +587,7 @@ func (sg *SegmentGroup) add(path string) error {
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
