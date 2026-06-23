@@ -209,19 +209,18 @@ func TestParallelPrefillEligible(t *testing.T) {
 	}
 }
 
-// TestPrefillCacheParallelEndToEnd runs the full prefill against a real bucket and
-// cache. VectorForID errors, so any vector the prefill missed surfaces as a Get error.
-func TestPrefillCacheParallelEndToEnd(t *testing.T) {
-	const n = 500
-
+// prefillParallelIntoCache fills an objects bucket with vecs (a legacy vector per id),
+// then runs prefillCacheParallel against a real cache wired so any miss errors. h.nodes
+// is sized to preGrown (and the cache grown to match when preGrown>0); preGrown==0
+// forces the defensive in-scan Grow path. Returns the populated cache.
+func prefillParallelIntoCache(t *testing.T, vecs map[uint64][]float32, preGrown int,
+	dp distancer.Provider, normalizeOnRead bool,
+) cache.Cache[float32] {
+	t.Helper()
 	store := newTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-
-	exp := make(map[uint64][]float32, n)
-	for i := uint64(0); i < n; i++ {
-		vec := []float32{float32(i), float32(i) * 0.5, float32(i) + 7}
-		putTestObject(t, bucket, i, vec, nil)
-		exp[i] = vec
+	for id, v := range vecs {
+		putTestObject(t, bucket, id, v, nil)
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -229,26 +228,42 @@ func TestPrefillCacheParallelEndToEnd(t *testing.T) {
 	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
 		return nil, fmt.Errorf("unexpected cache miss for id %d: prefill should have loaded it", id)
 	}
-	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
-	c.Grow(uint64(n)) // mimic the restore-time pre-grow
-
+	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, normalizeOnRead, 0, nil)
+	if preGrown > 0 {
+		c.Grow(uint64(preGrown)) // mimic the restore-time pre-grow
+	}
 	h := &hnsw{
 		store:             store,
 		cache:             c,
-		nodes:             make([]*vertex, n),
+		nodes:             make([]*vertex, preGrown),
 		id:                "main", // no "vectors_" prefix => legacy default target vector
 		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(), // non-cosine: no normalization
+		distancerProvider: dp,
 	}
-
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
-	require.Equal(t, int64(n), c.CountVectors())
+	return c
+}
 
-	for i := uint64(0); i < n; i++ {
-		got, err := h.cache.Get(context.Background(), i)
-		require.NoErrorf(t, err, "doc id %d should be a cache hit", i)
-		require.Equalf(t, exp[i], got, "vector mismatch for doc id %d", i)
+func requireCacheContains(t *testing.T, c cache.Cache[float32], want map[uint64][]float32) {
+	t.Helper()
+	require.Equal(t, int64(len(want)), c.CountVectors())
+	for id, w := range want {
+		got, err := c.Get(context.Background(), id)
+		require.NoErrorf(t, err, "doc id %d should be a cache hit", id)
+		require.Equalf(t, w, got, "vector mismatch for doc id %d", id)
 	}
+}
+
+// TestPrefillCacheParallelEndToEnd runs the full prefill against a real bucket and
+// cache. VectorForID errors, so any vector the prefill missed surfaces as a Get error.
+func TestPrefillCacheParallelEndToEnd(t *testing.T) {
+	const n = 500
+	exp := make(map[uint64][]float32, n)
+	for i := uint64(0); i < n; i++ {
+		exp[i] = []float32{float32(i), float32(i) * 0.5, float32(i) + 7}
+	}
+	c := prefillParallelIntoCache(t, exp, n, distancer.NewDotProductProvider(), false)
+	requireCacheContains(t, c, exp)
 }
 
 // TestPrefillCacheParallelGrowsBeyondPreGrown exercises the defensive Grow path: with
@@ -256,40 +271,12 @@ func TestPrefillCacheParallelEndToEnd(t *testing.T) {
 // cache slice under load. Run with -race to catch a missing lock on the grow.
 func TestPrefillCacheParallelGrowsBeyondPreGrown(t *testing.T) {
 	const n = 2000
-
-	store := newTestObjectsStore(t)
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	exp := make(map[uint64][]float32, n)
 	for i := uint64(0); i < n; i++ {
-		vec := []float32{float32(i), float32(i) + 1}
-		putTestObject(t, bucket, i, vec, nil)
-		exp[i] = vec
+		exp[i] = []float32{float32(i), float32(i) + 1}
 	}
-	require.NoError(t, bucket.FlushAndSwitch())
-
-	logger, _ := test.NewNullLogger()
-	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
-		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
-	}
-	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
-
-	// Not pre-grown: preGrown == 0, so every id takes the defensive Grow path.
-	h := &hnsw{
-		store:             store,
-		cache:             c,
-		nodes:             nil,
-		id:                "main",
-		logger:            logger,
-		distancerProvider: distancer.NewDotProductProvider(),
-	}
-
-	require.NoError(t, h.prefillCacheParallel(context.Background()))
-	require.Equal(t, int64(n), c.CountVectors())
-	for i := uint64(0); i < n; i++ {
-		got, err := h.cache.Get(context.Background(), i)
-		require.NoErrorf(t, err, "doc id %d", i)
-		require.Equalf(t, exp[i], got, "doc id %d", i)
-	}
+	c := prefillParallelIntoCache(t, exp, 0, distancer.NewDotProductProvider(), false)
+	requireCacheContains(t, c, exp)
 }
 
 // TestScanObjectVectorsParallelLatestWinsAcrossSegments verifies that when the same
