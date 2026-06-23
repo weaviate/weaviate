@@ -197,8 +197,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
-	// Return immediately if the request is already cancelled, before launching
-	// any leg. Avoids spinning up goroutines for work the client no longer wants.
+	// Return immediately if ctx is cancelled before launching any leg.
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -251,9 +250,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		resultsCount = 2
 	}
 
-	// Run the legs under an errgroup-derived cancellable ctx: a leg error (or a
-	// client cancel, since egCtx derives from ctx) cancels egCtx, so the sibling
-	// leg's ctx.Err() checks trip and it returns promptly instead of leaking.
+	// Run both legs under a cancellable context so a failing or cancelled leg stops the sibling instead of leaking.
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	eg.SetLimit(resultsCount)
 
@@ -380,11 +377,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	if err := eg.Wait(); err != nil {
-		// If the client cancelled, surface the canonical context error so callers
-		// can detect cancellation via errors.Is(err, context.Canceled). The leg
-		// that lost the errgroup race may wrap context.Canceled with a formatter
-		// that flattens the error chain (e.g. searchForTargets uses %v), so the
-		// raw eg.Wait() error is not guaranteed to satisfy errors.Is on cancel.
+		// On client cancel, return the canonical context error: a losing leg may wrap it with %v and break errors.Is.
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, cerr
 		}
