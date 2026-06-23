@@ -97,6 +97,12 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
+	// valueTransformer, when set, rewrites each non-tombstone value during
+	// replace-strategy compaction (e.g. to strip a dropped vector). Wiring it
+	// from active edit operations lands in a later step; for now it is nil
+	// unless set directly.
+	valueTransformer valueTransformer
+
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
