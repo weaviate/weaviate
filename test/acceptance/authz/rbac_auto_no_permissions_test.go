@@ -89,6 +89,10 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		// of 403. RBAC for export is covered in export_test.go.
 		"/export/{backend}",
 		"/export/{backend}/{id}",
+		// Namespaces are disabled on this compose, so every method on the
+		// per-namespace endpoint returns 404 before authz runs. RBAC for
+		// namespaces is covered in the namespaces suite.
+		"/namespaces/{namespace_id}",
 	}
 
 	// These leak 404 on a non-existent backup ID because the meta is read
@@ -108,6 +112,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/schema/{className}/tenants/{tenantName}",
 		"/users/db",
 		"/aliases",
+		"/namespaces", // returns 200 with an empty, per-caller filtered list (same pattern as /authz/roles)
 	}
 
 	for _, endpoint := range endpoints {
@@ -132,6 +137,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{userType}", "db")
 		url = strings.ReplaceAll(url, "{aliasName}", "alias")
 		url = strings.ReplaceAll(url, "{groupType}", "oidc")
+		url = strings.ReplaceAll(url, "{namespace_id}", "someNamespace")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")
