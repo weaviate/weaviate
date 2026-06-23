@@ -67,12 +67,17 @@ func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec [
 	data, err := obj.MarshalBinary()
 	require.NoError(t, err)
 
-	// The scan reads docID + vector from the value, not the key, so the key only
-	// needs to be unique and sortable; a 16-byte big-endian docID mirrors the real
-	// objects bucket's fixed-width key without needing a real UUID encoder.
+	require.NoError(t, bucket.Put(keyForDocID(docID), data))
+}
+
+// keyForDocID builds the bucket key for a doc id. The scan reads docID + vector
+// from the value, not the key, so the key only needs to be unique and sortable; a
+// 16-byte big-endian docID mirrors the real objects bucket's fixed-width key
+// without needing a real UUID encoder.
+func keyForDocID(docID uint64) []byte {
 	key := make([]byte, 16)
 	binary.BigEndian.PutUint64(key[8:], docID)
-	require.NoError(t, bucket.Put(key, data))
+	return key
 }
 
 func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][]float32 {
@@ -246,4 +251,75 @@ func TestPrefillCacheParallelEndToEnd(t *testing.T) {
 		require.NoErrorf(t, err, "doc id %d should be a cache hit", i)
 		require.Equalf(t, exp[i], got, "vector mismatch for doc id %d", i)
 	}
+}
+
+// TestPrefillCacheParallelGrowsBeyondPreGrown exercises the defensive Grow path:
+// with an empty node list (preGrown == 0) every doc id triggers cache.Grow from the
+// concurrent scan goroutines, swapping the cache slice under load. Run with -race to
+// catch a missing lock on the grow. (The end-to-end test pre-grows to n, so it does
+// not hit this path.)
+func TestPrefillCacheParallelGrowsBeyondPreGrown(t *testing.T) {
+	const n = 2000
+
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	exp := make(map[uint64][]float32, n)
+	for i := uint64(0); i < n; i++ {
+		vec := []float32{float32(i), float32(i) + 1}
+		putTestObject(t, bucket, i, vec, nil)
+		exp[i] = vec
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
+		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+	}
+	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+
+	// Deliberately NOT pre-grown: nodes is empty => preGrown == 0 => every id takes
+	// the defensive Grow path.
+	h := &hnsw{store: store, cache: c, nodes: nil, id: "main", logger: logger}
+
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	require.Equal(t, int64(n), c.CountVectors())
+	for i := uint64(0); i < n; i++ {
+		got, err := h.cache.Get(context.Background(), i)
+		require.NoErrorf(t, err, "doc id %d", i)
+		require.Equalf(t, exp[i], got, "doc id %d", i)
+	}
+}
+
+// TestScanObjectVectorsParallelLatestWinsAcrossSegments verifies that when the same
+// key is written in two segments, the cursor yields the latest value exactly once.
+func TestScanObjectVectorsParallelLatestWinsAcrossSegments(t *testing.T) {
+	bucket := newTestObjectsBucket(t)
+
+	putTestObject(t, bucket, 7, []float32{1, 1}, nil)
+	require.NoError(t, bucket.FlushAndSwitch())
+	putTestObject(t, bucket, 7, []float32{2, 2}, nil) // same key, newer segment
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	got := collectScan(t, bucket, "")
+	require.Len(t, got, 1)
+	require.Equal(t, []float32{2, 2}, got[7])
+}
+
+// TestScanObjectVectorsParallelSkipsDeleted verifies tombstoned objects are skipped,
+// matching the serial path (which never sees a deleted doc id).
+func TestScanObjectVectorsParallelSkipsDeleted(t *testing.T) {
+	bucket := newTestObjectsBucket(t)
+
+	putTestObject(t, bucket, 1, []float32{1}, nil)
+	putTestObject(t, bucket, 2, []float32{2}, nil)
+	putTestObject(t, bucket, 3, []float32{3}, nil)
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	require.NoError(t, bucket.Delete(keyForDocID(2)))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	assertVectorsEqual(t, map[uint64][]float32{
+		1: {1},
+		3: {3},
+	}, collectScan(t, bucket, ""))
 }

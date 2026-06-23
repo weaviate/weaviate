@@ -181,6 +181,12 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 		ranges = append(ranges, keyRange{start: seeds[len(seeds)-1], end: nil})
 	}
 
+	// Derived context so the first range to error short-circuits its siblings
+	// (they observe the cancellation on their next ctx check) instead of scanning
+	// to completion.
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var (
 		wg       sync.WaitGroup
 		firstErr atomic.Pointer[error]
@@ -190,9 +196,11 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 		wg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			if err := scanObjectVectorsRange(ctx, bucket, r.start, r.end, targetVector, onVector, logger); err != nil {
+			if err := scanObjectVectorsRange(scanCtx, bucket, r.start, r.end, targetVector, onVector, logger); err != nil {
 				e := err
-				firstErr.CompareAndSwap(nil, &e)
+				if firstErr.CompareAndSwap(nil, &e) {
+					cancel()
+				}
 			}
 		}, logger)
 	}
