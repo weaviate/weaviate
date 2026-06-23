@@ -145,6 +145,11 @@ func (u *UserConfig) validate() error {
 		if u.Multivector.MuveraConfig.KSim <= 0 {
 			errs = append(errs, fmt.Errorf("muvera ksim must be greater than 0"))
 		}
+		// NOTE: upper bounds (including ksim <= 10) are deliberately NOT
+		// enforced here — validate() also runs when parsing schemas restored
+		// at startup or replayed from the RAFT log, where an out-of-range
+		// persisted class must not prevent the node from starting. They are
+		// enforced on create/update by ValidateMuveraUpperBounds (issue #281).
 		if u.Multivector.MuveraConfig.DProjections <= 0 {
 			errs = append(errs, fmt.Errorf("muvera dprojections must be greater than 0"))
 		}
