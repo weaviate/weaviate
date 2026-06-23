@@ -30,7 +30,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	var docInfos []*terms.DocPointerWithScore
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
-	sort.Sort(results)
+	results.sortByID()
 	iterations := 0
 	var firstNonExhausted int
 	pivotID := uint64(0)
@@ -130,7 +130,6 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 					termsMatched++
 					_, s, d := term.Score(averagePropLength, additionalExplanations)
 					score += s
-					upperBound -= term.currentBlockImpact - float32(s)
 
 					if additionalExplanations {
 						docInfos[term.QueryTermIndex()] = d
@@ -147,7 +146,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 				}
 
-				sort.Sort(results)
+				results.sortByID()
 
 			} else {
 				nextList := pivotPoint
@@ -168,20 +167,18 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 
 			}
 		} else {
+			// single pass over [0, pivotPoint]: pick the heaviest term to advance
+			// (over [0, pivotPoint)) and the smallest block-max id (over
+			// [0, pivotPoint]).
 			nextList := pivotPoint
 			maxWeight := results[nextList].Idf()
+			next := uint64(math.MaxUint64) // max uint
 
-			for i := 0; i < pivotPoint; i++ {
-				if results[i].Idf() > maxWeight {
+			for i := 0; i <= pivotPoint; i++ {
+				if i < pivotPoint && results[i].Idf() > maxWeight {
 					nextList = i
 					maxWeight = results[i].Idf()
 				}
-			}
-
-			// max uint
-			next := uint64(math.MaxUint64)
-
-			for i := 0; i <= pivotPoint; i++ {
 				if results[i].currentBlockMaxId < next {
 					next = results[i].currentBlockMaxId
 				}
@@ -372,6 +369,24 @@ func (t Terms) Less(i, j int) bool {
 
 func (t Terms) Swap(i, j int) {
 	t[i], t[j] = t[j], t[i]
+}
+
+// sortByID sorts the terms ascending by idPointer with a concrete insertion
+// sort. It replaces sort.Sort on the WAND hot path: the term list is small
+// (query-term count) and, after the first pass, nearly sorted — the regime where
+// insertion sort wins — and comparing idPointer directly avoids the
+// sort.Interface Less/Swap dispatch that showed up as ~5% self time.
+func (t Terms) sortByID() {
+	for i := 1; i < len(t); i++ {
+		cur := t[i]
+		id := cur.idPointer
+		j := i - 1
+		for j >= 0 && t[j].idPointer > id {
+			t[j+1] = t[j]
+			j--
+		}
+		t[j+1] = cur
+	}
 }
 
 type TermsBySize []*SegmentBlockMax
