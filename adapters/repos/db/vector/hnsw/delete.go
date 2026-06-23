@@ -344,6 +344,26 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		checkpoint = nil
 	}
 
+	// Validate checkpoint against current index state
+	if checkpoint != nil {
+		h.tombstoneLock.Lock()
+		valid := h.isCheckpointValid(checkpoint)
+		h.tombstoneLock.Unlock()
+
+		if !valid {
+			h.logger.WithFields(logrus.Fields{
+				"action":                "tombstone_cleanup_checkpoint_stale",
+				"class":                 h.className,
+				"shard":                 h.shardName,
+				"generation_id":         checkpoint.GenerationID,
+				"checkpoint_tombstones": len(checkpoint.TombstoneIDs),
+			}).Info("checkpoint is stale, starting fresh generation")
+			// Delete the stale checkpoint
+			deleteCleanupCheckpoint(h.cleanupCheckpointPath, h.fs)
+			checkpoint = nil
+		}
+	}
+
 	if checkpoint != nil {
 		// Resume from checkpoint
 		resumed = true
@@ -467,14 +487,14 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	h.metrics.SetCleanupGenerationID(generationID)
 
 	h.logger.WithFields(logrus.Fields{
-		"action":               "tombstone_cleanup_begin",
-		"class":                h.className,
-		"shard":                h.shardName,
-		"generation_id":        generationID,
-		"tombstones_in_cycle":  deleteList.Len(),
-		"tombstones_total":     totalTombstones,
-		"tombstones_deferred":  deferredTombstones,
-		"resumed":              resumed,
+		"action":              "tombstone_cleanup_begin",
+		"class":               h.className,
+		"shard":               h.shardName,
+		"generation_id":       generationID,
+		"tombstones_in_cycle": deleteList.Len(),
+		"tombstones_total":    totalTombstones,
+		"tombstones_deferred": deferredTombstones,
+		"resumed":             resumed,
 	}).Infof("class %s: shard %s: starting tombstone cleanup", h.className, h.shardName)
 
 	h.metrics.StartTombstoneCycle()
@@ -816,9 +836,16 @@ func (h *hnsw) reassignNeighborsOfWithCheckpoint(
 
 				h.resetLock.RLock()
 				if h.getEntrypoint() != id {
-					if _, err := h.reassignNeighbor(ctx, id, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
+					ok, err := h.reassignNeighbor(ctx, id, deleteList, breakCleanUpTombstonedNodes, processedIDs)
+					if err != nil {
 						h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
 							Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+					}
+					if !ok {
+						// reassignNeighbor was interrupted, don't mark as complete
+						// so it will be reprocessed on resume
+						h.resetLock.RUnlock()
+						continue
 					}
 				}
 				h.resetLock.RUnlock()
@@ -861,6 +888,29 @@ func (h *hnsw) reassignNeighborsOfWithCheckpoint(
 // was already done (watermark > 0 or explicitly marked as started).
 func containsCompletedWork(cp *CleanupCheckpoint) bool {
 	return cp.Watermark > 0
+}
+
+// isCheckpointValid checks if a loaded checkpoint is still valid for the current
+// index state. A checkpoint is invalid (stale) if:
+// - It has tombstones but none of them exist in the current tombstone map
+// - The index structure has changed significantly
+//
+// Must be called with h.tombstoneLock held.
+func (h *hnsw) isCheckpointValid(cp *CleanupCheckpoint) bool {
+	if len(cp.TombstoneIDs) == 0 {
+		// Empty checkpoint - only valid if we have no tombstones
+		return len(h.tombstones) == 0
+	}
+
+	// Check if at least one checkpoint tombstone still exists in the live map
+	for _, id := range cp.TombstoneIDs {
+		if _, exists := h.tombstones[id]; exists {
+			return true
+		}
+	}
+
+	// None of the checkpoint tombstones exist anymore - checkpoint is stale
+	return false
 }
 
 func (h *hnsw) reassignNeighbor(
