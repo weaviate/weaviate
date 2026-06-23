@@ -30,7 +30,7 @@ const (
 	DefaultMaxPostingSizeKB     = 48
 	MaxPostingSizeKBFloor       = 8
 	DefaultReplicas             = 4
-	DefaultSearchProbe          = 64
+	DefaultSearchProbe          = 256
 	DefaultHFreshRescoreLimit   = 350
 	MaximumAllowedReplicas      = 10
 	MaximumAllowedPostingSizeKB = 1024

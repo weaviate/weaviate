@@ -364,6 +364,22 @@ func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 	return s.segment.getPropertyLengths()
 }
 
+func (s *lazySegment) isPropertyLengthsLoaded() bool {
+	// an unloaded segment cannot have a cached map, and checking must not load it
+	if !s.isLoaded() {
+		return false
+	}
+	return s.segment.isPropertyLengthsLoaded()
+}
+
+func (s *lazySegment) freePropertyLengths() {
+	// freeing must not trigger a load: an unloaded segment has nothing cached
+	if !s.isLoaded() {
+		return
+	}
+	s.segment.freePropertyLengths()
+}
+
 func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	s.mustLoad()
 	return s.segment.newInvertedCursorReusable()

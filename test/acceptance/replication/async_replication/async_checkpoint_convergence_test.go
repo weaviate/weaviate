@@ -43,10 +43,37 @@ import (
 // (CLUSTER_DATA_BIND_PORT) — there is no public REST surface today.
 type AsyncCheckpointConvergenceTestSuite struct {
 	suite.Suite
+	compose *docker.DockerCompose
+	cancel  context.CancelFunc
 }
 
-func (suite *AsyncCheckpointConvergenceTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+func (suite *AsyncCheckpointConvergenceTestSuite) SetupSuite() {
+	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	suite.cancel = cancel
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithText2VecContextionary().
+		Start(ctx)
+	require.NoError(t, err)
+	suite.compose = compose
+}
+
+func (suite *AsyncCheckpointConvergenceTestSuite) TearDownSuite() {
+	if suite.compose != nil {
+		require.NoError(suite.T(), suite.compose.Terminate(context.Background()))
+	}
+	if suite.cancel != nil {
+		suite.cancel()
+	}
+}
+
+func (suite *AsyncCheckpointConvergenceTestSuite) TearDownTest() {
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
 }
 
 func TestAsyncCheckpointConvergenceTestSuite(t *testing.T) {
@@ -157,21 +184,7 @@ func discoverShards(t *testing.T, restURI, className string) []string {
 // (frozen-clone invariant), and delete clears every node.
 func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_ConvergenceAcrossReplicas() {
 	t := suite.T()
-	mainCtx := context.Background()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	nodeRESTs := []string{
 		compose.GetWeaviate().URI(),
@@ -337,20 +350,10 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 // recreate is the operator's responsibility.
 func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDropsLocalCheckpoint() {
 	t := suite.T()
-	mainCtx := context.Background()
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose := suite.compose
 
 	node1REST := compose.GetWeaviate().URI()
 	node1Cluster := compose.GetWeaviate().ClusterURI()

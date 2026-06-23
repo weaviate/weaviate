@@ -14,7 +14,9 @@ package replication
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +55,17 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 	defer func() {
 		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+	// On failure (e.g. the lost/stale-write content mismatch), dump every node's
+	// server logs so a CI run carries the server-side timeline — op-state
+	// transitions, change-capture-log seals, in-flight-drain warnings,
+	// InstallSnapshot / leader-election events. Registered after the Terminate
+	// defer so it runs BEFORE termination (containers must still be alive), and
+	// it sees stopWrites()'s effect since that defer is registered later.
+	defer func() {
+		if t.Failed() {
+			dumpClusterLogs(t, compose)
 		}
 	}()
 	require.Nil(t, err)
@@ -262,4 +275,35 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 			}
 		}
 	})
+}
+
+// dumpClusterLogs writes each Weaviate node's full container logs to the test
+// output, one delimited block per node. It is invoked on failure, before the
+// containers are terminated, so a CI run captures the server-side timeline
+// (op-state transitions, change-capture-log seals, in-flight-drain warnings,
+// InstallSnapshot / leader-election events) around a lost or stale write.
+func dumpClusterLogs(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+	if compose == nil {
+		return
+	}
+	ctx := context.Background()
+	for _, c := range compose.Containers() {
+		// Only the weaviate-N nodes; skip the contextionary vectorizer etc.
+		if !strings.HasPrefix(c.Name(), "weaviate") {
+			continue
+		}
+		rc, err := c.Container().Logs(ctx)
+		if err != nil {
+			t.Logf("dump-logs: could not fetch logs for %s: %v", c.Name(), err)
+			continue
+		}
+		logs, readErr := io.ReadAll(rc)
+		_ = rc.Close()
+		if readErr != nil {
+			t.Logf("dump-logs: could not read logs for %s: %v", c.Name(), readErr)
+			continue
+		}
+		t.Logf("\n===== BEGIN %s LOGS =====\n%s\n===== END %s LOGS =====", c.Name(), logs, c.Name())
+	}
 }

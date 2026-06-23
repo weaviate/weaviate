@@ -63,7 +63,10 @@ func (v *ollama) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options, imageProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	ollamaUrl := v.getOllamaUrl(ctx, params.ApiEndpoint)
+	ollamaUrl, err := v.getOllamaUrl(ctx, params.ApiEndpoint)
+	if err != nil {
+		return nil, err
+	}
 	input := generateInput{
 		Model:  params.Model,
 		Prompt: prompt,
@@ -148,12 +151,12 @@ func (v *ollama) getDebugInformation(debug bool, prompt string) *modulecapabilit
 	return nil
 }
 
-func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Ollama-BaseURL"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Ollama-BaseURL", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("%s/api/generate", passedBaseURL)
+	return fmt.Sprintf("%s/api/generate", passedBaseURL), nil
 }
 
 type generateInput struct {

@@ -300,6 +300,11 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
+	// length map until first use and frees it after a compaction drops the
+	// segment, trading a one-time load on the first cold BM25 query for memory.
+	LazyPropertyLengthsEnabled *runtime.DynamicValue[bool] `json:"lazy_property_lengths_enabled" yaml:"lazy_property_lengths_enabled"`
+
 	// Export configures the data export feature and its storage destination.
 	Export Export `json:"export" yaml:"export"`
 
@@ -403,6 +408,10 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateReplicationFactorBounds(); err != nil {
+		return configErr(err)
+	}
+
 	if err := c.validateRestrictions(); err != nil {
 		return configErr(err)
 	}
@@ -469,6 +478,28 @@ func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
 	return dv != nil && dv.Get() >= 0
 }
 
+// validateReplicationFactorBounds rejects configurations where the floor
+// exceeds the ceiling, which would make every class creation unsatisfiable.
+// A MaximumFactor <= 0 means "no cap" by convention (see GlobalConfig), so
+// the comparison is skipped in that case. MinimumFactor < 1 is also rejected
+// since a factor of zero is meaningless and the in-code default is 1.
+func (c *Config) validateReplicationFactorBounds() error {
+	if c.Replication.MinimumFactor < 1 {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR must be >= 1; got %d",
+			c.Replication.MinimumFactor,
+		)
+	}
+	if c.Replication.MaximumFactor > 0 &&
+		c.Replication.MinimumFactor > c.Replication.MaximumFactor {
+		return fmt.Errorf(
+			"REPLICATION_MINIMUM_FACTOR (%d) cannot exceed REPLICATION_MAXIMUM_FACTOR (%d)",
+			c.Replication.MinimumFactor, c.Replication.MaximumFactor,
+		)
+	}
+	return nil
+}
+
 // Mirrors entities/vectorindex/config.go; duplicated as plain strings to
 // avoid an import cycle. VectorIndexTypeNone is an internal sentinel.
 var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh"}
@@ -512,6 +543,30 @@ func NewRestrictionVectorIndexTypeListValidator() func([]string) error {
 
 func NewRestrictionCompressionTypeListValidator() func([]string) error {
 	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+}
+
+// NewDefaultVectorIndexValidator returns the per-value validator attached to
+// DefaultVectorIndexType. Empty means "unset", which the defaults path falls
+// back from. The "none" sentinel is reserved for indexes dropped via
+// DeleteClassVectorIndex and must never appear as a class-creation default —
+// both env-time and runtime-override paths share this rule.
+//
+// The check is strict (exact match, no lowercase/trim) because
+// DynamicValue.SetValue stores the value verbatim and downstream parsers
+// (e.g. usecases/schema/parser.parseGivenVectorIndexConfig) compare
+// case-sensitively. Callers that need to accept mixed-case input — like the
+// env path — normalize before calling SetValue.
+func NewDefaultVectorIndexValidator() func(string) error {
+	return func(val string) error {
+		if val == "" {
+			return nil
+		}
+		if !slices.Contains(validRestrictionVectorIndexTypes, val) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v",
+				val, validRestrictionVectorIndexTypes)
+		}
+		return nil
+	}
 }
 
 // ValidateRestrictionsRuntime is the cross-field layer of validation
@@ -793,6 +848,12 @@ type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
+
+	// SkipAccessCheck disables the write+delete probe the backup client runs on
+	// initialize, deferring write/permission errors to backup time. Use it for
+	// least-privilege credentials that can write but lack DeleteObject.
+	// Env: BACKUP_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
@@ -826,6 +887,12 @@ type Profiling struct {
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
 	Port                 int  `json:"port" yaml:"port"`
+	// DebugEndpointsEnabled gates the debug HTTP listener (pprof, fgprof,
+	// /debug/*). The listener always binds: while this is false the port is
+	// open but every request returns 404, checked per-request so runtime
+	// flips need no restart. GO_PROFILING_DISABLE (Disabled) is a separate
+	// switch that stops the listener binding at all.
+	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debugEndpointsEnabled" yaml:"debugEndpointsEnabled"`
 }
 
 type DistributedTasksConfig struct {
@@ -986,6 +1053,12 @@ type Export struct {
 	// so this value is used directly.
 	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
 	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+
+	// SkipAccessCheck disables the write+delete probe the export client runs on
+	// initialize, deferring write/permission errors to export time. Use it for
+	// least-privilege credentials that can write but lack DeleteObject.
+	// Env: EXPORT_SKIP_ACCESS_CHECK.
+	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
 // Namespaces configures cluster-level namespace support.
@@ -1005,7 +1078,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -1149,8 +1222,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	// Load config from config file if present
 	if len(file) > 0 {
-		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
-			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
 			return configErr(err)
