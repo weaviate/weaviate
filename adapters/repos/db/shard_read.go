@@ -121,6 +121,10 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
+	// Decode props via jsonparser (no reflection). Only schema properties are
+	// decoded; a stored property absent from the schema (i.e. deleted) is dropped.
+	propExtraction := storobj.AllPropertiesExtraction(s.index.getSchema.ReadOnlyClass(className))
+
 	for i, id := range ids {
 		bytes, err := bucket.Get(id)
 		if err != nil {
@@ -131,7 +135,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinaryDisk(bytes, className)
+		obj, err := storobj.FromBinaryDiskWithProps(bytes, className, propExtraction)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}

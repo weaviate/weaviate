@@ -62,6 +62,8 @@ func (h *Handler) AddTenants(ctx context.Context,
 	// in class.go — count current tenants, compare against the cap, return
 	// a typed *usagelimits.LimitExceededError on miss. Tenants are checked
 	// at create time only (not on subsequent MT config changes).
+	// Only truly-new tenants count toward the cap so re-asserting an existing
+	// name (e.g. auto-tenant creation on object ingest) doesn't trip it.
 	if dv := h.config.UsageLimits.MaxTenantsPerCollection; dv != nil {
 		cap := dv.Get()
 		if cap >= 0 {
@@ -69,9 +71,22 @@ func (h *Handler) AddTenants(ctx context.Context,
 			if err != nil {
 				return 0, fmt.Errorf("count tenants for limit check: %w", err)
 			}
+			// Skip the dedup pass when the upper-bound sum already fits.
 			if len(existing)+len(validated) > cap {
-				return 0, usagelimits.NewLimitExceededError(
-					h.errorMessageTemplate(), usagelimits.LimitTenants, int64(cap))
+				existingNames := make(map[string]struct{}, len(existing))
+				for _, t := range existing {
+					existingNames[t.Name] = struct{}{}
+				}
+				incoming := 0
+				for _, t := range validated {
+					if _, ok := existingNames[t.Name]; !ok {
+						incoming++
+					}
+				}
+				if len(existing)+incoming > cap {
+					return 0, usagelimits.NewLimitExceededError(
+						h.errorMessageTemplate(), usagelimits.LimitTenants, int64(cap))
+				}
 			}
 		}
 	}

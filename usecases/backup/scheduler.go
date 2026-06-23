@@ -73,12 +73,14 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends,
+		),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends,
+		),
 	}
 	return m
 }
@@ -143,7 +145,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+		return nil, fmt.Errorf("init uploader: %w", err)
 	}
 	breq := Request{
 		Method:       OpCreate,
@@ -156,7 +158,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, err
 	} else {
 		st := s.backupper.lastOp.get()
 		status := string(st.Status)
@@ -199,7 +201,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, err
 	}
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
@@ -226,7 +228,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, err
 	}
 
 	data.Status = &status
@@ -248,7 +250,10 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
-		return nil, backup.NewErrNotFound(err)
+		if errors.Is(err, errMetaNotFound) {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, err
 	}
 	return st, nil
 }
@@ -266,7 +271,10 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
-		return nil, backup.NewErrNotFound(err)
+		if errors.Is(err, errMetaNotFound) {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, err
 	}
 	return st, nil
 }
@@ -289,7 +297,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
-		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+		return fmt.Errorf("init uploader: %w", err)
 	}
 
 	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
@@ -340,7 +348,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	}
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
-		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+		return fmt.Errorf("init uploader: %w", err)
 	}
 
 	meta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
@@ -428,7 +436,8 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	backupBackend, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
-		return nil, err
+		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", backend, err)
+		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	backups, err := backupBackend.AllBackups(ctx)

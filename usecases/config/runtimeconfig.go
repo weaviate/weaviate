@@ -57,6 +57,7 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogEnabled                       *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold                     *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled                    *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	LazyPropertyLengthsEnabled                *runtime.DynamicValue[bool]          `json:"lazy_property_lengths_enabled" yaml:"lazy_property_lengths_enabled"`
 	UsageGCSBucket                            *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
 	UsageGCSPrefix                            *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
 	UsageS3Bucket                             *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
@@ -66,7 +67,6 @@ type WeaviateRuntimeConfig struct {
 	UsagePolicyVersion                        *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 	UsageVerifyPermissions                    *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 	ReplicationGRPCEnabled                    *runtime.DynamicValue[bool]          `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
-	ReplicatedIndicesRequestQueueEnabled      *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
 	OperationalMode                           *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
 	DefaultQuantization                       *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 	DefaultVectorIndexType                    *runtime.DynamicValue[string]        `yaml:"default_vector_index" json:"default_vector_index"`
@@ -74,6 +74,7 @@ type WeaviateRuntimeConfig struct {
 	AllowedVectorIndexTypes                   *runtime.DynamicValue[[]string]      `yaml:"allowed_vector_index_types" json:"allowed_vector_index_types"`
 	AllowedCompressionTypes                   *runtime.DynamicValue[[]string]      `yaml:"allowed_compression_types" json:"allowed_compression_types"`
 	RestrictionsErrorMessage                  *runtime.DynamicValue[string]        `yaml:"restrictions_error_message" json:"restrictions_error_message"`
+	DebugEndpointsEnabled                     *runtime.DynamicValue[bool]          `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
 
 	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
@@ -103,28 +104,100 @@ type WeaviateRuntimeConfig struct {
 	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
 }
 
-// ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
+// FieldError reports a single runtime-config key that failed to decode into its
+// target type. The remaining keys in the document are still applied.
+type FieldError struct {
+	Field string
+	Err   error
+}
+
+func (e FieldError) Error() string { return fmt.Sprintf("%s: %v", e.Field, e.Err) }
+
+// ParseRuntimeConfig decodes WeaviateRuntimeConfig from raw YAML bytes. Per-field
+// decode failures are dropped here; use ParseRuntimeConfigPartial to observe them.
 func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
-	var conf WeaviateRuntimeConfig
+	conf, _, err := ParseRuntimeConfigPartial(buf)
+	return conf, err
+}
+
+// ParseRuntimeConfigPartial decodes WeaviateRuntimeConfig key-by-key so a single
+// malformed value (wrong type, out of the type's range, overflow) is skipped and
+// reported instead of rejecting the whole file. A document-level YAML error (one
+// not attributable to a single key, e.g. malformed syntax) is still returned as a
+// fatal error so the manager keeps the previous config.
+func ParseRuntimeConfigPartial(buf []byte) (*WeaviateRuntimeConfig, []FieldError, error) {
+	var raw map[string]yaml.Node
 
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
 
-	// Am empty runtime yaml file is still a valid file. So treating io.EOF as
+	// An empty runtime yaml file is still a valid file. So treating io.EOF as
 	// non-error case returns default values of config.
-	if err := dec.Decode(&conf); err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
+	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
+		return nil, nil, err
 	}
-	return &conf, nil
+
+	conf := &WeaviateRuntimeConfig{}
+	v := reflect.ValueOf(conf).Elem()
+	t := v.Type()
+
+	var fieldErrs []FieldError
+	for i := range t.NumField() {
+		key := yamlKey(t.Field(i))
+		if key == "" || key == "-" {
+			continue
+		}
+		node, ok := raw[key]
+		if !ok {
+			continue // absent key keeps the registered default
+		}
+		// Each field is a *runtime.DynamicValue[T]; decode the node into a fresh
+		// one so DynamicValue.UnmarshalYAML still runs (comma-split coercion etc.).
+		fp := reflect.New(t.Field(i).Type.Elem())
+		if err := node.Decode(fp.Interface()); err != nil {
+			fieldErrs = append(fieldErrs, FieldError{Field: key, Err: err})
+			continue
+		}
+		v.Field(i).Set(fp)
+	}
+
+	return conf, fieldErrs, nil
+}
+
+// NewRuntimeConfigParser returns a Parser that decodes the overrides file
+// field-by-field. A value that fails to decode is logged and recorded in skipped
+// so the remaining valid fields still apply; only a malformed document aborts the
+// whole load.
+func NewRuntimeConfigParser(log logrus.FieldLogger) runtime.Parser[WeaviateRuntimeConfig] {
+	return func(b []byte, skipped map[string]struct{}) (*WeaviateRuntimeConfig, error) {
+		cfg, fieldErrs, err := ParseRuntimeConfigPartial(b)
+		for _, fe := range fieldErrs {
+			skipped[fe.Field] = struct{}{}
+			log.WithFields(logrus.Fields{
+				"action": "runtime_overrides_parse",
+				"field":  fe.Field,
+			}).Error(fe.Err)
+		}
+		return cfg, err
+	}
+}
+
+// yamlKey returns the YAML name of a struct field (tag value minus options).
+func yamlKey(sf reflect.StructField) string {
+	tag := sf.Tag.Get("yaml")
+	if tag == "" {
+		return ""
+	}
+	return strings.SplitN(tag, ",", 2)[0]
 }
 
 // UpdateConfig does in-place update of `source` config based on values available in
 // `parsed` config.
-func UpdateRuntimeConfig(log logrus.FieldLogger, source, parsed *WeaviateRuntimeConfig, hooks map[string]func() error) error {
+func UpdateRuntimeConfig(log logrus.FieldLogger, source, parsed *WeaviateRuntimeConfig, skipped map[string]struct{}, hooks map[string]func() error) error {
 	if source == nil || parsed == nil {
 		return fmt.Errorf("source and parsed cannot be nil")
 	}
 
-	updateRuntimeConfig(log, reflect.ValueOf(*source), reflect.ValueOf(*parsed), hooks)
+	updateRuntimeConfig(log, reflect.ValueOf(*source), reflect.ValueOf(*parsed), skipped, hooks)
 	return nil
 }
 
@@ -164,7 +237,7 @@ With this reflection method, we avoided that extra step from the consumer. This 
 See "runtimeconfig_test.go" for more examples.
 */
 
-func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, hooks map[string]func() error) {
+func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, skipped map[string]struct{}, hooks map[string]func() error) {
 	// Basically we do following
 	//
 	// 1. Loop through all the `source` fields
@@ -176,11 +249,18 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 	logRecords := make([]updateLogRecord, 0)
 
 	for i := range source.NumField() {
+		sfType := source.Type().Field(i)
+		// A field whose value failed to decode is left as-is: don't apply the bad
+		// value, but don't reset it to the default either.
+		if _, skip := skipped[yamlKey(sfType)]; skip {
+			continue
+		}
+
 		sf := source.Field(i)
 		pf := parsed.Field(i)
 
 		r := updateLogRecord{
-			field: source.Type().Field(i).Name,
+			field: sfType.Name,
 		}
 
 		si := sf.Interface()
