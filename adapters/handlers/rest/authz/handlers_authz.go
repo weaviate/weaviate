@@ -234,8 +234,12 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 
 // authorizeAssignRolePermissions blocks privilege escalation via role
 // assignment: the caller must already hold every permission the assigned roles
-// grant, else assign_and_revoke_users alone could be used to grant admin.
-func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, roles map[string][]authorization.Policy) error {
+// grant, else assign_and_revoke_users alone could be used to grant admin. For a
+// namespaced caller each permission is projected into the assignee's namespace
+// before the check, so a global template role is evaluated as it applies to the
+// assignee rather than against its raw unqualified resource strings.
+func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
+	namespaced := h.namespacesEnabled && principal != nil && principal.Namespace != ""
 	var errs error
 	for _, policies := range roles {
 		for _, policy := range policies {
@@ -243,7 +247,18 @@ func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, prin
 			if policy.Resource == conv.InternalPlaceHolder {
 				continue
 			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, policy.Resource); err != nil {
+			resource := policy.Resource
+			if namespaced {
+				projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
+				if err != nil {
+					// A role bound elsewhere can't be granted here; deny without
+					// echoing the foreign resource back to the caller.
+					errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
+					continue
+				}
+				resource = projected
+			}
+			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, resource); err != nil {
 				errs = errors.Join(errs, err)
 			}
 		}
@@ -716,6 +731,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	if err := h.validateUserTypeForNamespaces(params.Body.UserType); err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	if len(params.Body.Roles) == 0 {
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("roles can not be empty")))
 	}
@@ -724,16 +743,24 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
+	roleNames, notFound, err := h.resolveAssignableRoles(principal, params.Body.Roles)
+	if notFound {
+		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles requested doesn't exist")))
+	}
+	if err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	existedRoles, err := h.controller.GetRoles(roleNames...)
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
 
-	if len(existedRoles) != len(params.Body.Roles) {
+	if len(existedRoles) != len(roleNames) {
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	if err := h.authorizeAssignRolePermissions(ctx, principal, existedRoles); err != nil {
+	if err := h.authorizeAssignRolePermissions(ctx, principal, namespacing.NamespaceFromQualified(internalID), existedRoles); err != nil {
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -746,7 +773,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	for _, userType := range userTypes {
-		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), params.Body.Roles); err != nil {
+		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), roleNames); err != nil {
 			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("AddRolesForUser: %w", err)))
 		}
 	}
@@ -755,8 +782,8 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		"action":                  "assign_roles",
 		"component":               authorization.ComponentName,
 		"user":                    principal.Username,
-		"user_to_assign_roles_to": params.ID,
-		"roles":                   params.Body.Roles,
+		"user_to_assign_roles_to": internalID,
+		"roles":                   roleNames,
 	}).Info("roles assigned to user")
 
 	return authz.NewAssignRoleToUserOK()
@@ -764,6 +791,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 
 func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
+	if h.namespacesEnabled && principal != nil && principal.Namespace != "" {
+		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning roles to groups is not allowed")))
+	}
 
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
@@ -801,7 +832,9 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupNotFound()
 	}
 
-	if err := h.authorizeAssignRolePermissions(ctx, principal, existedRoles); err != nil {
+	// Group assignment is global-only (a namespaced caller is denied above), so
+	// no namespace projection applies.
+	if err := h.authorizeAssignRolePermissions(ctx, principal, "", existedRoles); err != nil {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -1189,6 +1222,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	if err := h.validateUserTypeForNamespaces(params.Body.UserType); err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	if len(params.Body.Roles) == 0 {
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("roles can not be empty")))
 	}
@@ -1197,12 +1234,20 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
+	roleNames, notFound, err := h.resolveAssignableRoles(principal, params.Body.Roles)
+	if notFound {
+		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the request roles doesn't exist")))
+	}
+	if err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	existedRoles, err := h.controller.GetRoles(roleNames...)
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
 
-	if len(existedRoles) != len(params.Body.Roles) {
+	if len(existedRoles) != len(roleNames) {
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
@@ -1214,8 +1259,8 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("username to revoke role from doesn't exist")))
 	}
 	for _, userType := range userTypes {
-		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), params.Body.Roles...); err != nil {
-			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("AddRolesForUser: %w", err)))
+		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), roleNames...); err != nil {
+			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("RevokeRolesForUser: %w", err)))
 		}
 	}
 
@@ -1223,8 +1268,8 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		"action":                  "revoke_roles",
 		"component":               authorization.ComponentName,
 		"user":                    principal.Username,
-		"user_to_assign_roles_to": params.ID,
-		"roles":                   params.Body.Roles,
+		"user_to_assign_roles_to": internalID,
+		"roles":                   roleNames,
 	}).Info("roles revoked from user")
 
 	return authz.NewRevokeRoleFromUserOK()
@@ -1232,6 +1277,11 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 
 func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
+	if h.namespacesEnabled && principal != nil && principal.Namespace != "" {
+		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("revoking roles from groups is not allowed")))
+	}
+
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles you want to revoke is empty")))
@@ -1498,6 +1548,39 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
 		return fmt.Errorf("user IDs on namespace-enabled clusters must be namespace-prefixed (e.g. \"customer1:alice\"); bare-form IDs are only accepted for static API-key users")
 	}
 	return nil
+}
+
+// validateUserTypeForNamespaces requires an explicit userType on
+// namespace-enabled clusters: the empty-userType fan-out over {db,oidc} could
+// resolve an ambiguous short id to the wrong subject or merge identities.
+// No-op when namespaces are disabled.
+func (h *authZHandlers) validateUserTypeForNamespaces(userType models.UserTypeInput) error {
+	if !h.namespacesEnabled {
+		return nil
+	}
+	if userType == "" {
+		return fmt.Errorf("userType is required")
+	}
+	return nil
+}
+
+// resolveAssignableRoles maps caller-supplied role names to their stored form
+// for assign/revoke. notFound reports that a namespaced caller named a role
+// resolving to neither a local nor a global role; err carries a malformed-name
+// rejection.
+func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, roles []string) (names []string, notFound bool, err error) {
+	names = make([]string, 0, len(roles))
+	for _, role := range roles {
+		stored, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, role, h.roleExists)
+		if errors.Is(err, namespacing.ErrRoleNotFound) {
+			return nil, true, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		names = append(names, stored)
+	}
+	return names, false, nil
 }
 
 // validateNoQualifiedNamespaceInPolicies rejects role-definition policies that

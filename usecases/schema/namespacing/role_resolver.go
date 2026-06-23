@@ -133,6 +133,56 @@ func writeQualifiedSegment(b *strings.Builder, prefix, resource string, start, e
 	return nil
 }
 
+// ProjectResourceForNamespace specializes a role policy resource to a target
+// namespace for an assignment ≤-effective check, e.g. for namespace "customer1":
+//
+//	data/collections/Movies/...            -> data/collections/customer1:Movies/...  (bare segment prefixed)
+//	data/collections/customer1:Movies/...  -> unchanged                              (already names the target)
+//	data/collections/customer2:Movies/...  -> error                                  (bound to another namespace)
+//	cluster/*                              -> unchanged                              (not namespaceable)
+//
+// An empty namespace passes through.
+func ProjectResourceForNamespace(resource, namespace string) (string, error) {
+	if namespace == "" {
+		return resource, nil
+	}
+	start, end, hasAlias := FindNamespaceSegments(resource)
+	if end == 0 {
+		return resource, nil
+	}
+	prefix := namespace + schema.NamespaceSeparator
+	var b strings.Builder
+	b.Grow(len(resource) + 2*len(prefix))
+	b.WriteString(resource[:start])
+	if err := writeProjectedSegment(&b, prefix, namespace, resource, start, end); err != nil {
+		return "", err
+	}
+	if !hasAlias {
+		b.WriteString(resource[end:])
+		return b.String(), nil
+	}
+	aliasStart := end + len(AliasesMidSeg)
+	aliasEnd := len(resource)
+	b.WriteString(resource[end:aliasStart])
+	if err := writeProjectedSegment(&b, prefix, namespace, resource, aliasStart, aliasEnd); err != nil {
+		return "", err
+	}
+	return b.String(), nil
+}
+
+func writeProjectedSegment(b *strings.Builder, prefix, namespace, resource string, start, end int) error {
+	if SegmentHasSeparator(resource, start, end) {
+		if NamespaceFromQualified(resource[start:end]) != namespace {
+			return fmt.Errorf("role permission %q targets a different namespace", resource)
+		}
+		b.WriteString(resource[start:end])
+		return nil
+	}
+	b.WriteString(prefix)
+	b.WriteString(resource[start:end])
+	return nil
+}
+
 // RoleShortNameConflict describes why a candidate role name collides with an
 // existing role under the rule that role short names are unique per namespace
 // and a global name reserves its short name across every namespace.
