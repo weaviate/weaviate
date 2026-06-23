@@ -74,6 +74,9 @@ type fakeVectorSearcher struct {
 	calledWithLimit  int
 	calledWithOffset int
 	results          []search.Result
+
+	diversifyFn        func(selection *searchparams.Selection, className, targetVector string, results []search.Result) ([]search.Result, error)
+	diversifyCalledSel *searchparams.Selection
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -132,7 +135,17 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
-	return nil, nil
+	return objs, nil
+}
+
+func (f *fakeVectorSearcher) DiversifyResults(ctx context.Context, selection *searchparams.Selection,
+	className, targetVector string, results []search.Result,
+) ([]search.Result, error) {
+	f.diversifyCalledSel = selection
+	if f.diversifyFn != nil {
+		return f.diversifyFn(selection, className, targetVector, results)
+	}
+	return results, nil
 }
 
 type fakeVectorRepo struct {

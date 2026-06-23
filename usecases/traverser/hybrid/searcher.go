@@ -37,6 +37,13 @@ type Params struct {
 	Autocut              int
 	ModuleParams         map[string]interface{}
 	AdditionalProperties additional.Properties
+
+	// SelectionFn, when set, runs a post-fusion re-ranking pass (e.g. MMR
+	// diversity selection) over the full fused candidate pool before it is
+	// truncated to the user's limit. It is the only place diversity selection
+	// can take effect for hybrid search, since the per-leg ANN pass is
+	// discarded by fusion.
+	SelectionFn func(ctx context.Context, fused []search.Result) ([]search.Result, error)
 }
 
 // sparseSearchFunc is the signature of a closure which performs sparse search.
@@ -179,6 +186,12 @@ func HybridCombiner(ctx context.Context,
 	fused, err := performFusion(params.FusionAlgorithm, weights, resultSet, names)
 	if err != nil {
 		return nil, fmt.Errorf("hybrid search perform fusion: %w", err)
+	}
+	if params.SelectionFn != nil {
+		fused, err = params.SelectionFn(ctx, fused)
+		if err != nil {
+			return nil, fmt.Errorf("hybrid search selection: %w", err)
+		}
 	}
 	if postProc != nil {
 		sr, err := postProc(fused)

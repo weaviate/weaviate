@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -44,6 +45,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 	params.Group = nil
 	params.GroupBy = nil
 	params.Boost = nil
+	params.Selection = nil
 
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
@@ -92,6 +94,9 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	params.Group = nil
 	params.GroupBy = nil
 	params.Boost = nil
+	// Selection (MMR) is applied once post-fusion, never per-leg: a per-leg ANN
+	// MMR pass picks diverse-but-far candidates that fusion then discards.
+	params.Selection = nil
 
 	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
 	if err != nil {
@@ -166,6 +171,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Boost = nil
+	subsearchWrap.Selection = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
@@ -243,6 +249,37 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, params.HybridSearch.TargetVectors)
 	if err != nil {
 		return nil, err
+	}
+
+	// MMR diversity selection must run once on the fused candidate pool — the
+	// per-leg ANN pass is discarded by fusion (see denseSearch). That requires
+	// the target vector resident on every fused candidate, including BM25-only
+	// hits from the keyword leg, so force-load it on both legs and strip it
+	// again afterwards if the user did not request vectors.
+	var selectionFn func(ctx context.Context, fused []search.Result) ([]search.Result, error)
+	var stripVector string
+	var stripDefaultVector bool
+	if origParams.Selection != nil && origParams.Selection.MMR != nil {
+		targetVector := ""
+		if len(targetVectors) > 0 {
+			targetVector = targetVectors[0]
+		}
+		if targetVector == "" {
+			stripDefaultVector = !origParams.AdditionalProperties.Vector
+			vectorParams.AdditionalProperties.Vector = true
+			keywordParams.AdditionalProperties.Vector = true
+		} else {
+			if !slices.Contains(origParams.AdditionalProperties.Vectors, targetVector) {
+				stripVector = targetVector
+			}
+			vectorParams.AdditionalProperties.Vectors = withVectorTarget(vectorParams.AdditionalProperties.Vectors, targetVector)
+			keywordParams.AdditionalProperties.Vectors = withVectorTarget(keywordParams.AdditionalProperties.Vectors, targetVector)
+		}
+
+		selTargetVector := targetVector
+		selectionFn = func(ctx context.Context, fused []search.Result) ([]search.Result, error) {
+			return e.searcher.DiversifyResults(ctx, origParams.Selection, origParams.ClassName, selTargetVector, fused)
+		}
 	}
 
 	// If the user has given any weight to the vector search, choose 1 of three possible vector searches
@@ -423,9 +460,22 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut:              origParams.Pagination.Autocut,
 		ModuleParams:         origParams.ModuleParams,
 		AdditionalProperties: origParams.AdditionalProperties,
+		SelectionFn:          selectionFn,
 	}, results, weights, names, e.logger, e.modulesProvider, postProcess)
 	if err != nil {
 		return nil, err
+	}
+
+	// Strip the target vector we force-loaded solely for the MMR computation.
+	if stripDefaultVector || stripVector != "" {
+		for i := range res {
+			if stripDefaultVector {
+				res[i].Vector = nil
+			}
+			if stripVector != "" {
+				delete(res[i].Vectors, stripVector)
+			}
+		}
 	}
 
 	var out []search.Result
@@ -460,4 +510,17 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return groupedResults, nil
 	}
 	return out, nil
+}
+
+// withVectorTarget returns src with target appended if not already present.
+// When an append is needed it allocates a fresh slice so the caller's copy
+// never mutates a backing array shared with the original params.
+func withVectorTarget(src []string, target string) []string {
+	if slices.Contains(src, target) {
+		return src
+	}
+	out := make([]string, len(src)+1)
+	copy(out, src)
+	out[len(src)] = target
+	return out
 }

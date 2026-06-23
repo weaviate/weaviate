@@ -85,6 +85,44 @@ func TestMMR_KEqualsN(t *testing.T) {
 	assert.Equal(t, float32(0.1), dists[0])
 }
 
+// TestMMR_NilVectorsExcluded guards against handing a nil vector to the
+// distancer: candidates whose vecForID yields an empty vector (e.g. a missing
+// object from ObjectsByDocIDWithEmpty) must be excluded rather than crash.
+func TestMMR_NilVectorsExcluded(t *testing.T) {
+	provider := distancer.NewL2SquaredProvider()
+
+	t.Run("some candidates have no vector", func(t *testing.T) {
+		vecs := map[uint64][]float32{
+			1: {1, 0},
+			2: nil, // missing object
+			3: {0, 1},
+			4: {}, // empty vector
+		}
+		ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2, 3, 4}, []float32{0.1, 0.2, 0.3, 0.4}, 4, 0)
+		require.NoError(t, err)
+		// Only the two vectored candidates survive.
+		assert.ElementsMatch(t, []uint64{1, 3}, ids)
+		assert.Len(t, dists, 2)
+	})
+
+	t.Run("all candidates have no vector", func(t *testing.T) {
+		vecs := map[uint64][]float32{1: nil, 2: {}}
+		ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2}, []float32{0.1, 0.2}, 2, 0.5)
+		require.NoError(t, err)
+		assert.Nil(t, ids)
+		assert.Nil(t, dists)
+	})
+
+	t.Run("most relevant candidate has no vector", func(t *testing.T) {
+		// id 1 is most relevant but has no vector — must not become the seed.
+		vecs := map[uint64][]float32{1: nil, 2: {1, 0}, 3: {0, 1}}
+		ids, _, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, []float32{0.1, 0.2, 0.3}, 3, 0.5)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []uint64{2, 3}, ids)
+		assert.NotContains(t, ids, uint64(1))
+	})
+}
+
 func TestMMR_KGreaterThanN(t *testing.T) {
 	provider := distancer.NewL2SquaredProvider()
 	vecs := map[uint64][]float32{

@@ -1077,6 +1077,10 @@ func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.
 	return out, nil
 }
 
+func (f *fakeObjectSearcher) DiversifyResults(ctx context.Context, selection *searchparams.Selection, className, targetVector string, results []search.Result) ([]search.Result, error) {
+	return results, nil
+}
+
 func TestHybridOverSearch(t *testing.T) {
 	dirName := t.TempDir()
 
