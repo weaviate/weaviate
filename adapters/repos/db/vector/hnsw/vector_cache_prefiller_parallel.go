@@ -131,7 +131,10 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, targetVector string,
 	onVector func(id uint64, vec []float32), logger logrus.FieldLogger,
 ) error {
-	parallel := 2 * runtime.GOMAXPROCS(0)
+	// 2x oversubscription: while one cursor blocks on a disk read another keeps a
+	// core busy decoding — the IO-bound default used across the vector package.
+	const cursorsPerProc = 2
+	parallel := cursorsPerProc * runtime.GOMAXPROCS(0)
 	if parallel < 1 {
 		parallel = 1
 	}
