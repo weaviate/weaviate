@@ -365,7 +365,7 @@ func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 }
 
 func (s *lazySegment) isPropertyLengthsLoaded() bool {
-	// an unloaded segment cannot have a cached map, and checking must not load it
+	// an unloaded segment cannot have cached arrays, and checking must not load it
 	if !s.isLoaded() {
 		return false
 	}
@@ -380,22 +380,34 @@ func (s *lazySegment) freePropertyLengths() {
 	s.segment.freePropertyLengths()
 }
 
+func (s *lazySegment) propLengthsView() (propLengthsView, error) {
+	if err := s.load(); err != nil {
+		return propLengthsView{}, fmt.Errorf("lazySegment::propLengthsView: %w", err)
+	}
+	return s.segment.propLengthsView()
+}
+
 func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	s.mustLoad()
 	return s.segment.newInvertedCursorReusable()
 }
 
-func (s *lazySegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64,
+func (s *lazySegment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64,
 	propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
 	averagePropLength float64, config schema.BM25Config,
 ) *SegmentBlockMax {
 	s.mustLoad()
-	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
+	return s.segment.newSegmentBlockMax(node, key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
 }
 
 func (s *lazySegment) getDocCount(key []byte) uint64 {
 	s.mustLoad()
 	return s.segment.getDocCount(key)
+}
+
+func (s *lazySegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
+	s.mustLoad()
+	return s.segment.getInvertedNodeAndDocCount(key)
 }
 
 func (s *lazySegment) getCountNetAdditions() int {
