@@ -68,9 +68,12 @@ type LoadResult struct {
 	// State is the accumulated HNSW graph state, or nil if directory was empty.
 	State *ent.DeserializationResult
 
-	// RecoveredFromCrash is true if a truncated/corrupt WAL file was detected
-	// and truncated during loading. When true, the caller should start a new
-	// commit log file instead of appending to the existing one.
+	// RecoveredFromCrash is true if a corrupt WAL file was detected during
+	// loading: a raw file with a torn tail (truncated back to its last valid
+	// commit) or a compacted .sorted/.condensed segment that could not be fully
+	// read and was dropped in favour of the snapshot + clean segments. When
+	// true, the caller should start a new commit log file instead of appending
+	// to the existing one.
 	RecoveredFromCrash bool
 }
 
@@ -253,7 +256,8 @@ func (l *Loader) filterFilesAlreadyInSnapshot(files []FileInfo, snapshotEndTS in
 }
 
 // loadWALFile reads a single WAL file and applies it to the current state.
-// Returns the result, whether crash recovery occurred (truncation), and any error.
+// Returns the result, whether crash recovery occurred (a torn raw tail was
+// truncated, or a corrupt compacted segment was dropped), and any error.
 func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent.DeserializationResult, bool, error) {
 	file, err := l.fs.Open(f.Path)
 	if err != nil {
@@ -267,36 +271,67 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	// keepLinkReplaceInfo=false at startup since we're building final state
 	result, err := inMemReader.Do(state, false)
 	if err != nil {
-		// Raw/live WAL files may be interrupted mid-write by a crash. Immutable
-		// compacted files (.condensed/.sorted) are created through SafeFileWriter,
-		// so truncation there indicates committed-file corruption and must fail
-		// closed instead of preserving a partial prefix.
-		if f.Type == FileTypeRaw && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
+		switch f.Type {
+		case FileTypeRaw:
+			// Raw/live WAL files may be interrupted mid-write by a crash,
+			// leaving a partial record at the tail. Keep the complete records
+			// and truncate the file to the last valid commit so the next write
+			// starts from a clean boundary. Only torn-tail errors are
+			// recoverable here; anything else is a genuine read failure.
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				l.config.Logger.WithFields(logrus.Fields{
+					"action": "hnsw_loader",
+					"file":   f.Path,
+				}).Warnf("WAL file truncated - recovering from crash: %v", err)
+
+				// Truncate raw files to remove partial entries.
+				// This prevents the partial entry from becoming corrupted on next write
+				// and ensures clean compaction later.
+				validBytes := walReader.BytesRead()
+				if truncErr := l.fs.Truncate(f.Path, validBytes); truncErr != nil {
+					l.config.Logger.
+						WithField("file", f.Path).
+						WithField("valid_bytes", validBytes).
+						Errorf("failed to truncate corrupt WAL file: %v", truncErr)
+				} else {
+					l.config.Logger.WithFields(logrus.Fields{
+						"action":      "hnsw_loader",
+						"file":        f.Path,
+						"valid_bytes": validBytes,
+					}).Info("truncated corrupt WAL file")
+				}
+
+				return result, true, nil // true = recovered from crash
+			}
+			return result, false, err
+
+		case FileTypeSorted, FileTypeCondensed:
+			// Compacted segments are immutable and written atomically via
+			// SafeFileWriter (temp file + fsync + rename), so the committed
+			// bytes are never torn by a crash. A read error here therefore
+			// means the on-disk file is corrupt from disk-level damage (a
+			// truncated or garbage-appended tail). Failing the whole index
+			// load over one bad segment would take the entire collection
+			// offline, so instead we drop the unreadable segment and recover
+			// from the snapshot plus the segments already applied. `result`
+			// keeps the records read before the corruption, and replay
+			// continues with the remaining files.
+			//
+			// This only relaxes the *load* path. Compaction still fails closed
+			// when it reads a corrupt merge input (see Compactor / the merge
+			// iterators), so a corrupt segment can never be silently merged
+			// away and have its still-valid sources deleted.
 			l.config.Logger.WithFields(logrus.Fields{
 				"action": "hnsw_loader",
 				"file":   f.Path,
-			}).Warnf("WAL file truncated - recovering from crash: %v", err)
-
-			// Truncate raw files to remove partial entries.
-			// This prevents the partial entry from becoming corrupted on next write
-			// and ensures clean compaction later.
-			validBytes := walReader.BytesRead()
-			if truncErr := l.fs.Truncate(f.Path, validBytes); truncErr != nil {
-				l.config.Logger.
-					WithField("file", f.Path).
-					WithField("valid_bytes", validBytes).
-					Errorf("failed to truncate corrupt WAL file: %v", truncErr)
-			} else {
-				l.config.Logger.WithFields(logrus.Fields{
-					"action":      "hnsw_loader",
-					"file":        f.Path,
-					"valid_bytes": validBytes,
-				}).Info("truncated corrupt WAL file")
-			}
+				"type":   f.Type.String(),
+			}).Warnf("corrupt compacted commit log segment - dropping it and recovering from snapshot: %v", err)
 
 			return result, true, nil // true = recovered from crash
+
+		default:
+			return result, false, err
 		}
-		return result, false, err
 	}
 
 	l.config.Logger.WithFields(logrus.Fields{
