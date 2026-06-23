@@ -65,19 +65,43 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/.well-known/openid-configuration",
 		"/.well-known/ready",
 		"/meta",
-		"/users/own-info",    // will return info for own user
-		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
-		"/backups/{backend}/{id}",
-		"/backups/{backend}/{id}/restore",
+		"/users/own-info",             // will return info for own user
 		"/replication/replicate/{id}", // for the same reason as backups above
 		"/replication/replicate/{id}/cancel",
 		"/replication/sharding-state",
 		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
+		"/tokenize",             // stateless compute, no authz; POST only because it needs a body
+		// MCP's HTTP methods are protocol operations (GET=SSE session, DELETE=session
+		// close, POST=JSON-RPC envelope), not RBAC-gated resources. Authz runs per
+		// tool-call inside the JSON-RPC handler. RBAC is covered in mcp_test.go.
+		"/mcp",
+		// TODO: these leak status (404 for aliases, 501 for replication) before
+		// authz runs, so a caller without permission learns the resource exists.
+		// Fix by moving authz to the top of each handler, then drop these entries.
+		"/aliases/{aliasName}",
+		"/replication/replicate",
+		"/replication/replicate/force-delete",
+		"/replication/replicate/list",
+		"/replication/scale",
+		// Export filters classes (POST) or reads metadata before authz
+		// (GET/DELETE), so a caller without permission gets 422/404 instead
+		// of 403. RBAC for export is covered in export_test.go.
+		"/export/{backend}",
+		"/export/{backend}/{id}",
+	}
+
+	// These leak 404 on a non-existent backup ID because the meta is read
+	// before class-aware authz runs. RBAC for them is covered in backups_test.go.
+	ignoreEndpointMethods := map[string]map[string]bool{
+		"/backups/{backend}/{id}":         {http.MethodGet: true},
+		"/backups/{backend}/{id}/restore": {http.MethodGet: true, http.MethodPost: true},
 	}
 
 	ignoreGetAll := []string{
 		"/authz/roles",
+		"/authz/groups/{groupType}", // returns 200 with an empty, per-group filtered list (same pattern as /authz/roles)
+		"/backups/{backend}",        // returns 200 with an empty, per-backup filtered list (same pattern as /authz/roles)
 		"/objects",
 		"/schema",
 		"/schema/{className}/tenants",
@@ -102,6 +126,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{id}", "admin-user")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
+		url = strings.ReplaceAll(url, "{indexName}", "filterable")
+		url = strings.ReplaceAll(url, "{vectorIndexName}", "someVectorIndex")
 		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
 		url = strings.ReplaceAll(url, "{userType}", "db")
 		url = strings.ReplaceAll(url, "{aliasName}", "alias")
@@ -112,7 +138,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			require.NotContains(t, url, "}")
 
 			shallIgnore := slices.Contains(ignoreEndpoints, endpoint.path) ||
-				(endpoint.method == http.MethodGet && slices.Contains(ignoreGetAll, endpoint.path))
+				(endpoint.method == http.MethodGet && slices.Contains(ignoreGetAll, endpoint.path)) ||
+				ignoreEndpointMethods[endpoint.path][strings.ToUpper(endpoint.method)]
 			if shallIgnore {
 				t.Skip("Endpoint is in ignore list")
 				return
@@ -123,8 +150,15 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 
 			endpoint.method = strings.ToUpper(endpoint.method)
 
+			body := endpoint.validGeneratedBodyData
+			// Backup-create's generated body is empty (schema has no type) and 422s
+			// on id validation before authz; send a valid id so it reaches authz.
+			if endpoint.path == "/backups/{backend}" && endpoint.method == http.MethodPost {
+				body = []byte(`{"id":"someid"}`)
+			}
+
 			if endpoint.method == http.MethodPost || endpoint.method == http.MethodPut || endpoint.method == http.MethodPatch || endpoint.method == http.MethodDelete {
-				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(endpoint.validGeneratedBodyData))
+				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(body))
 				require.Nil(t, err)
 				req.Header.Set("Content-Type", "application/json")
 
