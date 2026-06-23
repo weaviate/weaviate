@@ -144,8 +144,10 @@ func TestHFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, ucfg := makeHFreshConfig(t)
 
-	vectors_size := 10_000
-	queries_size := 100
+	// Reduced from 10,000 to 1,500 for faster CI execution.
+	// 1,500 vectors is sufficient to create multiple postings and verify recall.
+	vectors_size := 1_500
+	queries_size := 50
 	dimensions := 64
 	k := 10
 
