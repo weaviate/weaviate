@@ -50,7 +50,7 @@ func TestComputeCurrentBlockImpact_UsesBlockEntry_NotResidentMap(t *testing.T) {
 	require.NotEqual(t, expected, wrong, "test setup: pick constants that make the two impacts differ")
 
 	s := &SegmentBlockMax{
-		blockEntries: []*terms.BlockEntry{{
+		blockEntries: []terms.BlockEntry{{
 			MaxId:               10,
 			Offset:              0,
 			MaxImpactTf:         blockMaxImpactTf,
