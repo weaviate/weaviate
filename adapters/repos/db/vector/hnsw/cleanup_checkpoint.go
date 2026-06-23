@@ -233,14 +233,18 @@ func saveCleanupCheckpoint(path string, cp *CleanupCheckpoint, fs common.FS) err
 	if err != nil {
 		return fmt.Errorf("create temp checkpoint: %w", err)
 	}
-	_, writeErr := f.Write(data)
-	closeErr := f.Close()
-	if writeErr != nil {
-		fs.Remove(tempPath)
+	if _, writeErr := f.Write(data); writeErr != nil {
+		_ = f.Close()
+		_ = fs.Remove(tempPath)
 		return fmt.Errorf("write temp checkpoint: %w", writeErr)
 	}
-	if closeErr != nil {
-		fs.Remove(tempPath)
+	if syncErr := f.Sync(); syncErr != nil {
+		_ = f.Close()
+		_ = fs.Remove(tempPath)
+		return fmt.Errorf("fsync temp checkpoint: %w", syncErr)
+	}
+	if closeErr := f.Close(); closeErr != nil {
+		_ = fs.Remove(tempPath)
 		return fmt.Errorf("close temp checkpoint: %w", closeErr)
 	}
 
