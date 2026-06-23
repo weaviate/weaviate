@@ -61,6 +61,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/replication/replicate/{id}", // for the same reason as backups above
 		"/replication/replicate/{id}/cancel",
 		"/authz/roles/{id}/has-permission", // must be a POST rather than GET or HEAD due to need of body. but viewer can access it due to its permissions
+		"/tokenize",                        // stateless compute, no authz; POST only because it needs a body
+		"/schema/{className}/properties/{propertyName}/tokenize", // authorizes READ, which a viewer holds
 	}
 
 	// TODO: these leak status (404 for aliases, 501 for replication) before
@@ -71,6 +73,11 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/replication/replicate",
 		"/replication/replicate/force-delete",
 		"/replication/scale",
+		// Export filters classes (POST) or reads metadata before authz
+		// (GET/DELETE), so a viewer gets 422/404 instead of 403. RBAC for
+		// export is covered in export_test.go.
+		"/export/{backend}",
+		"/export/{backend}/{id}",
 	}
 
 	// Restore leaks 404 on a non-existent backup ID because the meta is read

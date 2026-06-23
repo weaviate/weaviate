@@ -71,6 +71,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/sharding-state",
 		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
+		"/tokenize",             // stateless compute, no authz; POST only because it needs a body
 		// TODO: these leak status (404 for aliases, 501 for replication) before
 		// authz runs, so a caller without permission learns the resource exists.
 		// Fix by moving authz to the top of each handler, then drop these entries.
@@ -79,6 +80,11 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/replicate/force-delete",
 		"/replication/replicate/list",
 		"/replication/scale",
+		// Export filters classes (POST) or reads metadata before authz
+		// (GET/DELETE), so a caller without permission gets 422/404 instead
+		// of 403. RBAC for export is covered in export_test.go.
+		"/export/{backend}",
+		"/export/{backend}/{id}",
 	}
 
 	// These leak 404 on a non-existent backup ID because the meta is read
