@@ -16,7 +16,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -28,12 +27,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
-
-// disableParallelPrefillEnvVar is a kill switch that forces the serial,
-// by-id prefiller even when the parallel cursor path would otherwise be
-// eligible. It exists so an operator can fall back without a redeploy if the
-// parallel path ever misbehaves in production.
-const disableParallelPrefillEnvVar = "DISABLE_PARALLEL_VECTOR_CACHE_PREFILL"
 
 // useParallelPrefill reports whether the uncompressed vector cache can be
 // prefilled by scanning the objects bucket with a parallel cursor instead of the
@@ -62,7 +55,6 @@ func (h *hnsw) useParallelPrefill() bool {
 
 	return parallelPrefillEligible(parallelPrefillInputs{
 		waitForPrefill: h.waitForCachePrefill,
-		killSwitch:     os.Getenv(disableParallelPrefillEnvVar) == "true",
 		multivector:    h.multivector.Load(),
 		muvera:         h.muvera.Load(),
 		cacheMaxSize:   h.cache.CopyMaxSize(),
@@ -72,7 +64,6 @@ func (h *hnsw) useParallelPrefill() bool {
 
 type parallelPrefillInputs struct {
 	waitForPrefill bool
-	killSwitch     bool
 	multivector    bool
 	muvera         bool
 	cacheMaxSize   int64
@@ -84,9 +75,6 @@ type parallelPrefillInputs struct {
 // the rationale behind each condition.
 func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	if !in.waitForPrefill {
-		return false
-	}
-	if in.killSwitch {
 		return false
 	}
 	if in.multivector && !in.muvera {
