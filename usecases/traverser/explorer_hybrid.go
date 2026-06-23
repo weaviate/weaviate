@@ -259,7 +259,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	names = make([]string, resultsCount)
 	var belowCutoffSet map[strfmt.UUID]struct{}
 
-	if (params.HybridSearch.Alpha) > 0 {
+	if params.HybridSearch.Alpha > 0 {
 		eg.Go(func() error {
 			params := vectorParams
 			var err error

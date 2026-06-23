@@ -35,8 +35,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
-var errSparseLegFailed = errors.New("sparse leg failed fast")
-var errDenseLegFailed = errors.New("dense leg failed fast")
+var (
+	errSparseLegFailed = errors.New("sparse leg failed fast")
+	errDenseLegFailed  = errors.New("dense leg failed fast")
+)
 
 // leakFakeSearcher drives hybrid legs into the leak repro shape: SparseObjectSearch
 // fails quickly while VectorSearch blocks until ctx cancels.
