@@ -15,7 +15,6 @@ package hnsw
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -66,30 +65,37 @@ func newPrefillRoutingIndex(t *testing.T, id string, uc ent.UserConfig, store *l
 // each index type to the right prefill path: only a plain single-vector index takes
 // the parallel objects-bucket scan; multivector and muvera stay on the serial path
 // because their caches are not sourced from the objects bucket.
-func TestUseParallelPrefillRoutingRealIndex(t *testing.T) {
-	base := func() ent.UserConfig {
-		return ent.UserConfig{VectorCacheMaxObjects: 1e12, MaxConnections: 8, EFConstruction: 64, EF: 64}
-	}
+// prefillRoutingUserConfig is the baseline single-vector config that satisfies the
+// parallel-prefill gate (unbounded cache); tests layer Multivector/Muvera on top to
+// flip the expected routing.
+func prefillRoutingUserConfig() ent.UserConfig {
+	return ent.UserConfig{VectorCacheMaxObjects: 1e12, MaxConnections: 8, EFConstruction: 64, EF: 64}
+}
 
+func muveraUserConfig() ent.UserConfig {
+	uc := prefillRoutingUserConfig()
+	uc.Multivector = ent.MultivectorConfig{
+		Enabled:      true,
+		MuveraConfig: ent.MuveraConfig{Enabled: true, KSim: 2, DProjections: 3, Repetitions: 5},
+	}
+	return uc
+}
+
+func TestUseParallelPrefillRoutingRealIndex(t *testing.T) {
 	t.Run("single-vector uncompressed is eligible", func(t *testing.T) {
-		idx := newPrefillRoutingIndex(t, "single", base(), storeWithObjectsBucket(t))
+		idx := newPrefillRoutingIndex(t, "single", prefillRoutingUserConfig(), storeWithObjectsBucket(t))
 		require.True(t, idx.useParallelPrefill())
 	})
 
 	t.Run("true multivector keeps serial path", func(t *testing.T) {
-		uc := base()
+		uc := prefillRoutingUserConfig()
 		uc.Multivector = ent.MultivectorConfig{Enabled: true}
 		idx := newPrefillRoutingIndex(t, "multivector", uc, storeWithObjectsBucket(t))
 		require.False(t, idx.useParallelPrefill())
 	})
 
 	t.Run("muvera keeps serial path", func(t *testing.T) {
-		uc := base()
-		uc.Multivector = ent.MultivectorConfig{
-			Enabled:      true,
-			MuveraConfig: ent.MuveraConfig{Enabled: true, KSim: 2, DProjections: 3, Repetitions: 5},
-		}
-		idx := newPrefillRoutingIndex(t, "muvera", uc, storeWithObjectsBucket(t))
+		idx := newPrefillRoutingIndex(t, "muvera", muveraUserConfig(), storeWithObjectsBucket(t))
 		require.False(t, idx.useParallelPrefill())
 	})
 }
@@ -105,32 +111,7 @@ func TestMuveraSerialPrefillPopulatesCacheRealIndex(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	store := storeWithObjectsBucket(t)
 
-	idx, err := New(Config{
-		RootPath:              t.TempDir(),
-		ID:                    "muvera-prefill",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewDotProductProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
-		},
-		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
-			return multiVectors[id], nil
-		},
-		MakeBucketOptions:   lsmkv.MakeNoopBucketOptions,
-		AllocChecker:        memwatch.NewDummyMonitor(),
-		GetViewThunk:        func() common.BucketView { return &multivectorNoopBucketView{} },
-		WaitForCachePrefill: true,
-	}, ent.UserConfig{
-		VectorCacheMaxObjects: 1e12,
-		MaxConnections:        8,
-		EFConstruction:        64,
-		EF:                    64,
-		Multivector: ent.MultivectorConfig{
-			Enabled:      true,
-			MuveraConfig: ent.MuveraConfig{Enabled: true, KSim: 2, DProjections: 3, Repetitions: 5},
-		},
-	}, cyclemanager.NewCallbackGroupNoop(), store)
-	require.NoError(t, err)
+	idx := newPrefillRoutingIndex(t, "muvera-prefill", muveraUserConfig(), store)
 
 	for i, vec := range multiVectors {
 		require.NoError(t, idx.AddMulti(ctx, uint64(i), vec))
