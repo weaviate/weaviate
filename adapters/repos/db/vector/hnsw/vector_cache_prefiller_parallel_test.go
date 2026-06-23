@@ -180,7 +180,6 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 func TestParallelPrefillEligible(t *testing.T) {
 	base := parallelPrefillInputs{
 		waitForPrefill: true,
-		killSwitch:     false,
 		multivector:    false,
 		muvera:         false,
 		cacheMaxSize:   1e12,
@@ -194,7 +193,6 @@ func TestParallelPrefillEligible(t *testing.T) {
 	}{
 		{"sync + unbounded + single-vector", func(*parallelPrefillInputs) {}, true},
 		{"async prefill keeps serial path", func(in *parallelPrefillInputs) { in.waitForPrefill = false }, false},
-		{"kill switch keeps serial path", func(in *parallelPrefillInputs) { in.killSwitch = true }, false},
 		{"true multivector keeps serial path", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = false }, false},
 		{"muvera multivector is eligible", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, true},
 		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
