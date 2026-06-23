@@ -282,15 +282,29 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies[params.ID]); err != nil {
+	rolePolicies := policies[params.ID]
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
+	// A namespaced caller's permission segments are auto-prefixed in place.
+	if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, rolePolicies); err != nil {
+		return authz.NewAddPermissionsUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	roleName, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	if errors.Is(err, namespacing.ErrRoleNotFound) {
+		return authz.NewAddPermissionsNotFound()
+	}
+	if err != nil {
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, rolePolicies, roleName); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	roles, err := h.controller.GetRoles(params.ID)
+	roles, err := h.controller.GetRoles(roleName)
 	if err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
@@ -299,7 +313,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsNotFound()
 	}
 
-	if err := h.controller.UpdateRolesPermissions(policies); err != nil {
+	if err := h.controller.UpdateRolesPermissions(map[string][]authorization.Policy{roleName: rolePolicies}); err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -307,7 +321,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		"action":      "add_permissions",
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
-		"roleName":    params.ID,
+		"roleName":    roleName,
 		"permissions": params.Body.Permissions,
 	}).Info("permissions added")
 
@@ -324,27 +338,46 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, params.ID) {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot update built-in role %s", params.ID)))
-	}
-
 	permissions, err := conv.PermissionToPolicies(params.Body.Permissions...)
 	if err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 	// TODO-RBAC PermissionToPolicies has to be []Policy{} not slice of pointers
-	policies := map[string][]authorization.Policy{
-		params.ID: {},
-	}
-	for _, p := range permissions {
-		policies[params.ID] = append(policies[params.ID], *p)
+	policies := make([]authorization.Policy, len(permissions))
+	for i, p := range permissions {
+		policies[i] = *p
 	}
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies); err != nil {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	// A namespaced caller's permission segments are auto-prefixed in place so the
+	// stored qualified rows are the ones removed.
+	if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, policies); err != nil {
+		return authz.NewRemovePermissionsUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	for i := range permissions {
+		permissions[i] = &policies[i]
+	}
+
+	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot update built-in role %s", params.ID)))
+	}
+
+	roleName, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	if errors.Is(err, namespacing.ErrRoleNotFound) {
+		return authz.NewRemovePermissionsNotFound()
+	}
+	if err != nil {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, policies, roleName); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	role, err := h.controller.GetRoles(params.ID)
+	role, err := h.controller.GetRoles(roleName)
 	if err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
@@ -353,7 +386,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsNotFound()
 	}
 
-	if err := h.controller.RemovePermissions(params.ID, permissions); err != nil {
+	if err := h.controller.RemovePermissions(roleName, permissions); err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("RemovePermissions: %w", err)))
 	}
 
@@ -361,7 +394,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		"action":      "remove_permissions",
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
-		"roleName":    params.ID,
+		"roleName":    roleName,
 		"permissions": params.Body.Permissions,
 	}).Info("permissions removed")
 
@@ -563,22 +596,31 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not delete built-in role %s", params.ID)))
 	}
 
-	roles, err := h.controller.GetRoles(params.ID)
+	roleName, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	if errors.Is(err, namespacing.ErrRoleNotFound) {
+		// Idempotent delete: a role the caller cannot resolve is already gone.
+		return authz.NewDeleteRoleNoContent()
+	}
+	if err != nil {
+		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	roles, err := h.controller.GetRoles(roleName)
 	if err != nil {
 		h.logger.WithFields(logrus.Fields{
 			"action":    "delete_role",
 			"component": authorization.ComponentName,
 			"user":      principal.Username,
-			"roleName":  params.ID,
+			"roleName":  roleName,
 		}).Info("role was already deleted")
 		return authz.NewDeleteRoleNoContent()
 	}
 
-	if err := h.authorizeRoleScopes(ctx, principal, authorization.DELETE, roles[params.ID], params.ID); err != nil {
+	if err := h.authorizeRoleScopes(ctx, principal, authorization.DELETE, roles[roleName], roleName); err != nil {
 		return authz.NewDeleteRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.controller.DeleteRoles(params.ID); err != nil {
+	if err := h.controller.DeleteRoles(roleName); err != nil {
 		return authz.NewDeleteRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("DeleteRoles: %w", err)))
 	}
 
@@ -586,7 +628,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		"action":    "delete_role",
 		"component": authorization.ComponentName,
 		"user":      principal.Username,
-		"roleName":  params.ID,
+		"roleName":  roleName,
 	}).Info("role deleted")
 
 	return authz.NewDeleteRoleNoContent()
