@@ -34,14 +34,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// TestSnapshotMutableFiles_Dynamic covers the two consistency guarantees the
-// dynamic index participates in during an active-shard backup:
-//
-//  1. SnapshotMutableFiles delegates to the underlying index, so while the index
-//     is still flat its meta.db is snapshotted as an independent copy.
-//  2. The shard-level index.db, snapshotted via a bbolt read tx (the same
-//     primitive Shard.CreateBackupSnapshot uses), is unaffected by the in-place
-//     write the flat->hnsw upgrade performs after the snapshot.
+// TestSnapshotMutableFiles_Dynamic covers the dynamic index's two roles in an active-shard
+// backup: (1) SnapshotMutableFiles delegates to the underlying flat index, copying its meta.db;
+// (2) the shard-level index.db, snapshotted via a bbolt read tx, is unaffected by an in-place
+// write after the snapshot.
 func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 	ctx := context.Background()
 	const dims = 8
@@ -107,10 +103,8 @@ func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 	require.NotEqual(t, ino(t, filepath.Join(rootPath, "meta.db")), ino(t, stagedMeta),
 		"delegated flat meta.db must be an independent copy")
 
-	// (2) Snapshot index.db the way Shard.CreateBackupSnapshot does (a bbolt read tx
-	// over the live, shared handle), then mutate index.db in place exactly as the
-	// flat->hnsw upgrade does (Put "upgraded=true" into the dynamic bucket). The
-	// staged copy must reflect the pre-snapshot state, never the post-snapshot write.
+	// (2) Snapshot index.db as Shard.CreateBackupSnapshot does (bbolt read tx), then mutate
+	// it in place as the flat->hnsw upgrade would; the staged copy must keep the pre-snapshot state.
 	stagedIndexDB := filepath.Join(staging, "index.db")
 	require.NoError(t, db.View(func(tx *bbolt.Tx) error {
 		return tx.CopyFile(stagedIndexDB, 0o600)
@@ -130,9 +124,7 @@ func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 		"staged index.db must be unchanged by the post-snapshot in-place write")
 }
 
-// readUpgradedFlag opens a staged index.db copy read-only and reports the dynamic
-// upgraded flag for the given key, proving the staged file is a valid database and
-// reflects the expected point-in-time state.
+// readUpgradedFlag reports the dynamic upgraded flag for key in a staged index.db copy.
 func readUpgradedFlag(t *testing.T, path string, key []byte) bool {
 	t.Helper()
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: 5 * time.Second})

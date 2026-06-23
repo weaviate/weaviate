@@ -36,13 +36,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// TestRestoreUpgradedLegacyDynamic pins the second bug the snapshot change closes:
-// an upgraded LEGACY (TargetVector == "") dynamic index records upgraded=true only
-// in the shard-level index.db, and its init legacy branch does NOT infer the
-// upgraded state from the HNSW dir on disk (unlike the target-vector branch). So if
-// index.db is restored (now that the active path backs it up) the index loads as
-// HNSW; if index.db is missing it silently reverts to flat while only HNSW data
-// exists — a broken index.
+// TestRestoreUpgradedLegacyDynamic pins the second bug the snapshot change closes.
+// An upgraded LEGACY (TargetVector == "") dynamic index records upgraded=true only in
+// the shard-level index.db; its init legacy branch never infers that state from the HNSW
+// dir (unlike the target-vector branch). So restoring index.db loads as HNSW, but a missing
+// index.db silently reverts to flat while only HNSW data exists.
 func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -99,8 +97,8 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 
 	store := testinghelpers.NewDummyStore(t)
 
-	// Build a legacy dynamic index, populate it, and upgrade it to HNSW. This writes
-	// upgraded=true into index.db and creates the HNSW commitlog dir on disk.
+	// Build a legacy dynamic index, populate it, and upgrade to HNSW: this writes
+	// upgraded=true into index.db and creates the HNSW commitlog dir.
 	srcDBPath := filepath.Join(rootPath, "index.db")
 	srcDB, err := bbolt.Open(srcDBPath, 0o666, nil)
 	require.NoError(t, err)
@@ -128,10 +126,6 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 	require.NoError(t, idx.Shutdown(ctx))
 	require.NoError(t, srcDB.Close())
 
-	// For the legacy (TargetVector == "") branch, init reads the upgraded state
-	// solely from index.db and never inspects the HNSW dir, so a restore loads as
-	// HNSW iff the backed-up index.db carries upgraded=true. (The commitlog dir is
-	// irrelevant to the legacy branch — that is exactly the gap this test pins.)
 	t.Run("with restored index.db: loads as HNSW (fix)", func(t *testing.T) {
 		restoreRoot := t.TempDir()
 		require.NoError(t, copyFile(filepath.Join(restoreRoot, "index.db"), backupDBPath))
