@@ -1678,8 +1678,8 @@ func TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget(t *testing.T) {
 
 	copyCalled := make(chan struct{}, 1)
 	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
-		Run(func(ctx context.Context, sourceNode, sourceCollection, sourceShard string, schemaVersion uint64) {
+		CopyReplicaFiles(mock.Anything, mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
+		Run(func(ctx context.Context, opID strfmt.UUID, sourceNode, sourceCollection, sourceShard string, schemaVersion uint64) {
 			select {
 			case copyCalled <- struct{}{}:
 			default:
