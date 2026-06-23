@@ -227,6 +227,10 @@ func (c *Service) Close(ctx context.Context) error {
 			c.cancelReplicationEngine()
 		}
 		c.replicationEngine.Stop()
+		// Cancel any in-flight node-reached-state broadcast/drain retry loops.
+		if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {
+			c.Raft.store.replicationManager.Close()
+		}
 	}
 
 	c.logger.Info("closing raft FSM store ...")

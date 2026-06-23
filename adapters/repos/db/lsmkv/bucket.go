@@ -668,6 +668,24 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	return b.get(key)
 }
 
+// Exists checks whether the given key exists and is not deleted without reading
+// the full value.
+//
+// Exists is specific to ReplaceStrategy.
+func (b *Bucket) Exists(key []byte) (bool, error) {
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	err := b.existsWithConsistentView(key, view)
+	if err != nil {
+		if lsmkv.IsDeletedOrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 func (b *Bucket) get(key []byte) ([]byte, error) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()

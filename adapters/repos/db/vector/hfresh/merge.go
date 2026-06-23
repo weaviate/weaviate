@@ -255,7 +255,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 				if prevDist < newDist {
 					// the vector is closer to the old centroid, we need to reassign it
-					err = h.taskQueue.EnqueueReassign(largeID, v.ID(), v.Version())
+					err = h.taskQueue.EnqueueReassign(largeID, v.ID())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after merge", v.ID())
 					}

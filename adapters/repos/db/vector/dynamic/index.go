@@ -88,6 +88,56 @@ type upgradableIndexer interface {
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
 	AlreadyIndexed() uint64
+	UpgradeInProgress() bool
+}
+
+var (
+	upgrading = "upgrading"
+	upgraded  = "upgraded"
+)
+
+type status atomic.Pointer[string]
+
+// IsUpgraded returns true if the index has been upgraded from flat to HNSW.
+func (s *status) IsUpgraded() bool {
+	if s == nil {
+		return false
+	}
+	v := (*atomic.Pointer[string])(s).Load()
+	return v != nil && *v == upgraded
+}
+
+// IsUpgrading returns true if the index is currently being upgraded from flat to HNSW.
+func (s *status) IsUpgrading() bool {
+	if s == nil {
+		return false
+	}
+	v := (*atomic.Pointer[string])(s).Load()
+	return v != nil && *v == upgrading
+}
+
+// Upgrading sets the status to upgrading. This is used to indicate that the index is currently being upgraded from flat to HNSW.
+func (s *status) Upgrading() {
+	if s == nil {
+		return
+	}
+	(*atomic.Pointer[string])(s).Store(&upgrading)
+}
+
+// Reset sets the status to nil. This is used to indicate that the index is neither upgraded nor upgrading.
+func (s *status) Reset() {
+	if s == nil {
+		return
+	}
+	(*atomic.Pointer[string])(s).Store(nil)
+}
+
+// Upgraded sets the status to upgraded. This is used to indicate that the index has been upgraded from flat to HNSW.
+func (s *status) Upgraded() {
+	if s == nil {
+		return
+	}
+	(*atomic.Pointer[string])(s).Store(&upgraded)
 }
 
 type dynamic struct {
@@ -107,7 +157,7 @@ type dynamic struct {
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
 	index                        VectorIndex
-	upgraded                     atomic.Bool
+	status                       status
 	upgradeOnce                  sync.Once
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
 	uc                           ent.UserConfig
@@ -180,7 +230,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	if upgraded {
-		index.upgraded.Store(true)
+		index.status.Upgraded()
 		hnsw, err := hnsw.New(
 			hnsw.Config{
 				Logger:                       index.logger,
@@ -363,7 +413,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	// and route the wrong sub-config into the swapped index.
 	dynamic.Lock()
 	defer dynamic.Unlock()
-	if dynamic.upgraded.Load() {
+	if dynamic.status.IsUpgraded() {
 		return dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	}
 	dynamic.uc = parsed
@@ -469,7 +519,7 @@ func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.Query
 }
 
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
-	if !dynamic.upgraded.Load() {
+	if !dynamic.status.IsUpgraded() {
 		return true, int(dynamic.threshold)
 	}
 	dynamic.RLock()
@@ -480,7 +530,24 @@ func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 func (dynamic *dynamic) Upgraded() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.upgraded.Load() && dynamic.index.(upgradableIndexer).Upgraded()
+	return dynamic.status.IsUpgraded() && dynamic.index.(upgradableIndexer).Upgraded()
+}
+
+// UpgradeInProgress reports a flat→HNSW restructure in flight, or (post-upgrade)
+// an in-flight compression on the inner HNSW.
+func (dynamic *dynamic) UpgradeInProgress() bool {
+	if dynamic.status.IsUpgrading() {
+		return true
+	}
+	if !dynamic.status.IsUpgraded() {
+		return false
+	}
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if u, ok := dynamic.index.(upgradableIndexer); ok {
+		return u.UpgradeInProgress()
+	}
+	return false
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
@@ -494,11 +561,12 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return dynamic.ctx.Err()
 	}
 
-	if dynamic.upgraded.Load() {
+	if dynamic.status.IsUpgraded() {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
 
 	dynamic.upgradeOnce.Do(func() {
+		dynamic.status.Upgrading()
 		enterrors.GoWrapper(func() {
 			defer callback()
 			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
@@ -506,6 +574,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 			err := dynamic.doUpgrade()
 			if err != nil {
 				dynamic.logger.WithError(err).Error("failed to upgrade index")
+				dynamic.status.Reset()
 				return
 			}
 			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
@@ -585,7 +654,7 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	dynamic.index.Drop(dynamic.ctx, false)
 	dynamic.index = index
-	dynamic.upgraded.Store(true)
+	dynamic.status.Upgraded()
 
 	var errs []error
 	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
@@ -726,7 +795,7 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 func (dynamic *dynamic) IsUpgraded() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.upgraded.Load()
+	return dynamic.status.IsUpgraded()
 }
 
 type DynamicStats struct{}

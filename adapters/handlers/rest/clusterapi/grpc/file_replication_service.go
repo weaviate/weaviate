@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/grpc/codes"
@@ -54,6 +55,9 @@ func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, re
 
 	files, err := index.IncomingCreateReplicaSnapshot(ctx, shardName, opID)
 	if err != nil {
+		if errors.Is(err, enterrors.ErrShardBusyStructuralOp) {
+			return nil, status.Errorf(codes.FailedPrecondition, "failed to pause file activity for index %q, shard %q: %v", indexName, shardName, err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to create replica snapshot for index %q, shard %q, op %q: %v", indexName, shardName, opID, err)
 	}
 

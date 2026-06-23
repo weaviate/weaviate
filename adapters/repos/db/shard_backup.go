@@ -45,6 +45,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
 			return blockedErr
 		}
+		if busy, reason := s.structuralVectorOpInFlight(); busy {
+			return fmt.Errorf("%w: shard %q: %s; transfer deferred until it completes",
+				enterrors.ErrShardBusyStructuralOp, s.name, reason)
+		}
 	}
 
 	s.haltForTransferCount++
@@ -138,6 +142,20 @@ func (s *Shard) MayResetTransferInactivityTimer() {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 	s.mayResetInactivityTimer()
+}
+
+// structuralVectorOpInFlight reports whether any vector index is mid-restructure
+// (HNSW compression or dynamic flat→HNSW upgrade) — a snapshot taken now would
+// be structurally inconsistent. reason names the first offending index.
+func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
+	_ = s.ForEachVectorIndex(func(name string, vi VectorIndex) error {
+		if u, ok := vi.(upgradableIndexer); ok && u.UpgradeInProgress() {
+			busy = true
+			reason = fmt.Sprintf("vector %q: compression or flat→HNSW upgrade in progress", name)
+		}
+		return nil
+	})
+	return
 }
 
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {

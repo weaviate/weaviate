@@ -306,6 +306,13 @@ func (s *Scheduler) updateQueueCountMetric() {
 	s.Metrics.QueueCount.Set(float64(len(s.queues.m)))
 }
 
+func (s *Scheduler) QueueCount() int {
+	s.queues.Lock()
+	defer s.queues.Unlock()
+
+	return len(s.queues.m)
+}
+
 func (s *Scheduler) Wait(ctx context.Context, id string) error {
 	if s.ctx == nil {
 		// scheduler not started

@@ -32,13 +32,14 @@ import (
 )
 
 var (
-	ErrClassExists             = errors.New("class already exists")
-	ErrClassNotFound           = errors.New("class not found")
-	ErrShardNotFound           = errors.New("shard not found")
-	ErrAliasExists             = errors.New("alias already exists")
-	ErrAliasNotFound           = errors.New("alias not found")
-	ErrMTDisabled              = errors.New("multi-tenancy is not enabled")
-	ErrTenantTransitionalState = errors.New("tenant is in a transitional state")
+	ErrClassExists               = errors.New("class already exists")
+	ErrClassNotFound             = errors.New("class not found")
+	ErrShardNotFound             = errors.New("shard not found")
+	ErrAliasExists               = errors.New("alias already exists")
+	ErrAliasNotFound             = errors.New("alias not found")
+	ErrMTDisabled                = errors.New("multi-tenancy is not enabled")
+	ErrTenantTransitionalState   = errors.New("tenant is in a transitional state")
+	ErrReplicaMovementInProgress = errors.New("replica movement in progress")
 )
 
 // PartialUpdateError wraps one or more schema errors that represent a partial

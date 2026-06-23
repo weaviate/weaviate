@@ -26,6 +26,7 @@ const (
 	presencePenaltyProperty  = "presencePenalty"
 	topPProperty             = "topP"
 	baseURLProperty          = "baseURL"
+	stopProperty             = "stop"
 )
 
 var (
@@ -56,6 +57,7 @@ type ClassSettings interface {
 	PresencePenalty() float64
 	TopP() float64
 	BaseURL() string
+	Stop() []string
 	Validate(class *models.Class) error
 }
 
@@ -143,4 +145,8 @@ func (ic *classSettings) PresencePenalty() float64 {
 
 func (ic *classSettings) TopP() float64 {
 	return *ic.getFloatProperty(topPProperty, &DefaultDeepSeekTopP)
+}
+
+func (ic *classSettings) Stop() []string {
+	return ic.propertyValuesHelper.GetPropertyAsListOfStrings(ic.cfg, stopProperty, nil)
 }

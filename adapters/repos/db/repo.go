@@ -405,7 +405,7 @@ func (db *DB) WaitForLocalInflightWrites(ctx context.Context, class, shard strin
 		index.dropIndex.RLock()
 		return true
 	}(); !ok {
-		return nil
+		return fmt.Errorf("index for class %v not found locally or has no replicator", class)
 	}
 	defer index.dropIndex.RUnlock()
 	return index.replicator.WaitForDrain(ctx, shard)
