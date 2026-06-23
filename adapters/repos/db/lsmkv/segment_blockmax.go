@@ -53,7 +53,8 @@ func decodeFuncsFromCodecs(codecs []varenc.VarEncDataType) (docIds, tfs func(dat
 	return docIds, tfs
 }
 
-func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint64]uint32) ([]terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
+// AB merge: A's value-slice return ([]terms.BlockEntry, alloc cut) + B's plView param (memory win).
+func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsView) ([]terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
 	if s.readFromMemory {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
@@ -77,7 +78,9 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint6
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]terms.BlockEntry, 1)
-		propLength := propLengths[data.DocIds[0]]
+		// reuse the snapshot reset already took under lock (propLengthsView), so
+		// this never reads the segment's arrays unlocked
+		propLength := plView.get(data.DocIds[0])
 		tf := data.Tfs[0]
 		entries[0] = terms.BlockEntry{
 			Offset:              0,
@@ -192,6 +195,10 @@ type SegmentBlockMax struct {
 	decodeDocIds func(data []byte, values []uint64)
 	decodeTfs    func(data []byte, values []uint64)
 
+	// disk terms read property lengths through the cursor view over the
+	// segment's sorted pairs; the map remains only for memtable-decoded terms
+	// (addDataToTerm) and the in-memory test constructor.
+	plView         propLengthsView
 	propLengths    map[uint64]uint32
 	blockDatasTest []*terms.BlockData
 
@@ -398,12 +405,14 @@ func (s *SegmentBlockMax) tombstoned(docID uint64) bool {
 func (s *SegmentBlockMax) reset() error {
 	var err error
 
-	s.propLengths, err = s.segment.getPropertyLengths()
+	// the view is a no-IO cursor over the segment's sorted pairs —
+	// getPropertyLengths would reconstruct the whole map per query.
+	s.plView, err = s.segment.propLengthsView()
 	if err != nil {
 		return err
 	}
 
-	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node, s.propLengths)
+	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node, &s.plView)
 	if err != nil {
 		return err
 	}
@@ -590,6 +599,17 @@ func (s *SegmentBlockMax) QueryTerm() string {
 	return string(s.node.Key)
 }
 
+// propLengthOf returns the property length for a docID: the segment view for
+// disk terms (dense indexed load, or the pairs cursor — scoring visits docIDs
+// in ascending order, so the cursor is amortized O(1)), the map for
+// memtable-decoded terms. A docID without an entry yields 0 in all paths.
+func (s *SegmentBlockMax) propLengthOf(docID uint64) uint32 {
+	if s.plView.dense != nil || s.plView.ids != nil {
+		return s.plView.get(docID)
+	}
+	return s.propLengths[docID]
+}
+
 func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation bool) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
 		return 0, 0, nil
@@ -603,7 +623,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	}
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
-	propLength := s.propLengths[s.idPointer]
+	propLength := s.propLengthOf(s.idPointer)
 	tf := freq / (freq + s.k1*((1-s.b)+s.b*(float64(propLength)/s.averagePropLength)))
 	if collectBlockMetrics {
 		s.Metrics.DocCountScored++
