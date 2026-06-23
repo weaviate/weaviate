@@ -238,10 +238,10 @@ func (h *HFresh) DeleteMulti(ids ...uint64) error {
 		h.logger.Error(ErrMuveraNotEnabled)
 		return ErrMuveraNotEnabled
 	}
+	var idBytes [8]byte
 	for _, id := range ids {
-		idBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(idBytes, id)
-		if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes); err != nil {
+		binary.BigEndian.PutUint64(idBytes[:], id)
+		if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes[:]); err != nil {
 			h.logger.WithFields(logrus.Fields{
 				"action": "muvera_delete",
 				"id":     id,

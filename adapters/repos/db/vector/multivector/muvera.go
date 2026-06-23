@@ -226,9 +226,9 @@ func MuveraFromBytes(bytes []byte) []float32 {
 }
 
 func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucket string) ([]float32, error) {
-	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
-	muveraBytes, err := e.muveraStore.Bucket(bucket).Get(idBytes)
+	var idBytes [8]byte
+	binary.BigEndian.PutUint64(idBytes[:], id)
+	muveraBytes, err := e.muveraStore.Bucket(bucket).Get(idBytes[:])
 	if err != nil {
 		return nil, fmt.Errorf("getting vector for id: %w", err)
 	}

@@ -34,6 +34,9 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	// Normalize before any search path to ensure consistent distance calculations
+	vector = h.normalizeVec(vector)
+
 	if !h.muvera.Load() && allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
@@ -45,7 +48,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// this path (e.g. decoupled routing/rerank budgets) must preserve
 	// max(k, rescoreLimit) semantics for the candidate depth.
 	rescoreLimit := max(k, int(h.rescoreLimit))
-	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
 		if atomic.LoadUint32(&h.dims) == 0 {
 			return nil, nil, nil
@@ -354,8 +356,9 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	// The muvera encoder is initialized by the first AddMulti (or restored
 	// from persisted metadata at startup). Until then its projection
 	// matrices are nil and EncodeQuery would panic (issue #275). dims is
-	// only set after the encoder is initialized and persisted, so a
-	// non-zero value guarantees the encoder is ready.
+	// only set after the encoder is initialized and persisted — atomically,
+	// unlike muveraEncoder.Dimensions() — so a non-zero value guarantees the
+	// encoder is ready without racing a concurrent first insert.
 	if atomic.LoadUint32(&h.dims) == 0 {
 		return nil, nil, ErrMuveraNotInitialized
 	}
