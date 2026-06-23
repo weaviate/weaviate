@@ -400,6 +400,12 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	baseBackupID := "base-backup"
 	incrementalBackupID := "incremental-backup"
 
+	// Reset clsA.Class: preceding subtests may leave it absent (a cancelled
+	// restore does not recreate it).
+	deleteObjectClass(t, clsA.Class, helper.CreateAuth(adminKey))
+	helper.CreateClassAuth(t, clsA, adminKey)
+	helper.CreateObjectsBatchAuth(t, []*models.Object{objA.Object()}, adminKey)
+
 	_, err = helper.CreateBackupWithBaseAndAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, baseBackupID, "", helper.CreateAuth(adminKey))
 	require.NoError(t, err)
 	helper.ExpectBackupEventuallyCreated(t, baseBackupID, backend, helper.CreateAuth(adminKey))
