@@ -51,12 +51,10 @@ func newTestObjectsBucket(t *testing.T) *lsmkv.Bucket {
 	return newTestObjectsStore(t).Bucket(helpers.ObjectsBucketLSM)
 }
 
-// putTestObject marshals a storobj.Object (with a legacy vector and/or named target
-// vectors) exactly as the write path does and stores it under its UUID, so the
-// parallel cursor sees real on-disk data.
+// putTestObject stores an object marshalled exactly as the write path does, so the
+// scan reads real on-disk data rather than a hand-rolled encoding.
 func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec []float32, named map[string][]float32) {
 	t.Helper()
-	// deterministic, valid v4-shaped UUID derived from docID
 	id := strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID))
 	obj := storobj.New(docID)
 	obj.Object = models.Object{ID: id, Class: "Test"}
@@ -70,10 +68,8 @@ func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec [
 	require.NoError(t, bucket.Put(keyForDocID(docID), data))
 }
 
-// keyForDocID builds the bucket key for a doc id. The scan reads docID + vector
-// from the value, not the key, so the key only needs to be unique and sortable; a
-// 16-byte big-endian docID mirrors the real objects bucket's fixed-width key
-// without needing a real UUID encoder.
+// keyForDocID builds a unique, sortable bucket key. The scan reads docID + vector from
+// the value, not the key, so a 16-byte big-endian docID stands in for the real UUID key.
 func keyForDocID(docID uint64) []byte {
 	key := make([]byte, 16)
 	binary.BigEndian.PutUint64(key[8:], docID)
@@ -208,10 +204,8 @@ func TestParallelPrefillEligible(t *testing.T) {
 	}
 }
 
-// TestPrefillCacheParallelEndToEnd drives the whole parallel prefill against a real
-// objects bucket and a real cache, then verifies every vector is resident with the
-// correct value. The cache is constructed with a VectorForID that errors, so any
-// vector the prefill failed to load would surface as a cache-miss error on Get.
+// TestPrefillCacheParallelEndToEnd runs the full prefill against a real bucket and
+// cache. VectorForID errors, so any vector the prefill missed surfaces as a Get error.
 func TestPrefillCacheParallelEndToEnd(t *testing.T) {
 	const n = 500
 
@@ -251,11 +245,9 @@ func TestPrefillCacheParallelEndToEnd(t *testing.T) {
 	}
 }
 
-// TestPrefillCacheParallelGrowsBeyondPreGrown exercises the defensive Grow path:
-// with an empty node list (preGrown == 0) every doc id triggers cache.Grow from the
-// concurrent scan goroutines, swapping the cache slice under load. Run with -race to
-// catch a missing lock on the grow. (The end-to-end test pre-grows to n, so it does
-// not hit this path.)
+// TestPrefillCacheParallelGrowsBeyondPreGrown exercises the defensive Grow path: with
+// preGrown == 0 every id triggers cache.Grow from concurrent scanners, swapping the
+// cache slice under load. Run with -race to catch a missing lock on the grow.
 func TestPrefillCacheParallelGrowsBeyondPreGrown(t *testing.T) {
 	const n = 2000
 
@@ -275,8 +267,7 @@ func TestPrefillCacheParallelGrowsBeyondPreGrown(t *testing.T) {
 	}
 	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
 
-	// Deliberately NOT pre-grown: nodes is empty => preGrown == 0 => every id takes
-	// the defensive Grow path.
+	// Not pre-grown: preGrown == 0, so every id takes the defensive Grow path.
 	h := &hnsw{store: store, cache: c, nodes: nil, id: "main", logger: logger}
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))

@@ -28,23 +28,16 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// useParallelPrefill reports whether the uncompressed vector cache can be
-// prefilled by scanning the objects bucket with a parallel cursor instead of the
-// serial, by-id vectorCachePrefiller. It is eligible only when:
-//
-//   - the prefill is synchronous (waitForCachePrefill). In async mode the prefill
-//     runs alongside live writes; the serial path's load-if-absent cache.Get is
-//     race-safe there, whereas an overwriting Preload from a snapshot cursor is not.
-//   - the cache is effectively unbounded, i.e. it can hold every vector. When the
-//     cache is smaller than the node count the serial prefiller is required because
-//     it honors the size limit (it stops at `limit`); a full bucket scan would not.
-//   - the index is single-vector or muvera. True multivector stores vectors per
-//     passage with a different cache keying and keeps the serial path (mirrors the
-//     compressed split in prefillCache).
+// useParallelPrefill reports whether the uncompressed cache can be prefilled by a
+// parallel cursor scan of the objects bucket rather than the serial by-id
+// vectorCachePrefiller. Gated to cases where that scan is both safe and complete:
+//   - sync only: an overwriting Preload from a snapshot cursor races live writes;
+//     the serial path's load-if-absent Get does not.
+//   - unbounded cache only: a full scan ignores the size limit the serial path honors.
+//   - single-vector or muvera only: true multivector keys the cache per passage.
 func (h *hnsw) useParallelPrefill() bool {
-	// The parallel path cursor-scans the objects bucket directly. Without it — e.g.
-	// indexes wired only through a VectorForID thunk (tests) or before the store is
-	// attached — fall back to the serial, thunk-based prefiller.
+	// No real objects bucket (tests wiring only a VectorForID thunk, or pre-attach):
+	// fall back to the serial prefiller.
 	if h.store == nil || h.store.Bucket(helpers.ObjectsBucketLSM) == nil {
 		return false
 	}
@@ -70,9 +63,8 @@ type parallelPrefillInputs struct {
 	nodeCount      int64
 }
 
-// parallelPrefillEligible holds the decision logic for useParallelPrefill in a
-// pure form so it can be exercised directly in tests. See useParallelPrefill for
-// the rationale behind each condition.
+// parallelPrefillEligible is the pure decision core of useParallelPrefill, split out
+// for direct testing.
 func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	if !in.waitForPrefill {
 		return false
@@ -83,25 +75,13 @@ func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	return in.cacheMaxSize >= in.nodeCount
 }
 
-// prefillCacheParallel populates the (uncompressed) vector cache by scanning the
-// objects bucket with a parallel, per-segment cursor rather than looking up every
-// vector by id through the HNSW graph.
-//
-// The by-id prefiller (vectorCachePrefiller) issues one random read per vector.
-// The objects bucket is keyed by UUID, so a lookup by doc id is a random seek;
-// doing that serially for millions of vectors is latency-bound and can take hours
-// on network-attached storage, with the CPU idle. When the cache is unbounded the
-// index lookup is pure overhead: a cursor scan reads in storage order (sequential)
-// and parallelizes the decode across cores. This mirrors
-// compressionhelpers.(*quantizedVectorsCompressor).PrefillCache, which does the
-// same over the dedicated compressed-vector bucket.
-//
-// Unlike the compressed variant, it preloads into the cache as it scans instead of
-// first collecting every vector into a temporary slice: full float32 vectors are
-// large and a second full copy would roughly double peak memory during startup.
-// The cache is already grown to len(h.nodes) at restore, so a direct Preload is
-// in-bounds for every live doc id; the rare id beyond that grows the cache
-// defensively.
+// prefillCacheParallel populates the uncompressed vector cache via a parallel cursor
+// scan of the objects bucket. The by-id vectorCachePrefiller issues one random seek
+// per vector (the bucket is UUID-keyed), which is latency-bound and can take hours on
+// network storage with the CPU idle; a cursor reads in storage order and decodes
+// across cores. Mirrors the compressed PrefillCache, but preloads as it scans rather
+// than collecting into a slice first; a second copy of full float32 vectors would
+// roughly double startup memory.
 func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	before := time.Now()
 
@@ -118,9 +98,8 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	var loaded atomic.Int64
 	onVector := func(id uint64, vec []float32) {
 		if id >= preGrown {
-			// The cache is grown to len(h.nodes) at restore, so every live doc id is
-			// already in-bounds. Grow only for the unexpected larger id (e.g. a write
-			// landed after we snapshotted the node count).
+			// Cache is pre-grown to len(h.nodes) at restore, so live ids are in-bounds;
+			// grow only for an id from a write that landed after we snapshotted the count.
 			h.cache.Grow(id)
 		}
 		h.cache.Preload(id, vec)
@@ -141,9 +120,8 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	return nil
 }
 
-// scanObjectVectorsParallel splits the objects keyspace into ranges using quantile
-// seed keys and scans each range with its own cursor concurrently, invoking
-// onVector for every (docID, vector) pair. onVector must be safe for concurrent use.
+// scanObjectVectorsParallel scans the objects bucket across GOMAXPROCS cursors over
+// disjoint key ranges. onVector must be safe for concurrent use.
 func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, targetVector string,
 	onVector func(id uint64, vec []float32), logger logrus.FieldLogger,
 ) error {
@@ -152,15 +130,13 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 		parallel = 1
 	}
 
-	// One fewer seed than the desired parallelism: the first routine reads from the
-	// start to seeds[0], the last reads from the final seed to the end.
+	// n-1 seeds yield n ranges: [first,seeds[0]), interiors, [seeds[last],end).
 	seeds := bucket.QuantileKeys(parallel - 1)
 
-	type keyRange struct{ start, end []byte } // nil start = from first; nil end = to the end
+	type keyRange struct{ start, end []byte } // nil = open-ended (first / end)
 	var ranges []keyRange
 	if len(seeds) == 0 {
-		// Empty or very small bucket: a single full scan.
-		ranges = []keyRange{{start: nil, end: nil}}
+		ranges = []keyRange{{start: nil, end: nil}} // no seeds: single full scan
 	} else {
 		ranges = append(ranges, keyRange{start: nil, end: seeds[0]})
 		for i := 0; i < len(seeds)-1; i++ {
@@ -169,9 +145,7 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 		ranges = append(ranges, keyRange{start: seeds[len(seeds)-1], end: nil})
 	}
 
-	// Derived context so the first range to error short-circuits its siblings
-	// (they observe the cancellation on their next ctx check) instead of scanning
-	// to completion.
+	// Cancel siblings as soon as one range errors, instead of scanning to completion.
 	scanCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -240,14 +214,12 @@ func scanObjectVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 			continue
 		}
 
-		// nil buffer: VectorFromBinary returns a view into the supplied buffer when
-		// it is large enough, which would alias across iterations. A fresh allocation
-		// per vector keeps every cached slice independent.
+		// nil buffer forces a fresh allocation; a reused buffer would be aliased by
+		// VectorFromBinary across iterations and corrupt previously cached vectors.
 		vec, err := storobj.VectorFromBinary(v, nil, targetVector)
 		if err != nil {
 			var notFound storobj.ErrTargetVectorNotFound
 			if errors.As(err, &notFound) {
-				// object simply has no vector for this target vector; nothing to cache
 				continue
 			}
 			logger.WithField("action", "hnsw_vector_cache_prefill").
