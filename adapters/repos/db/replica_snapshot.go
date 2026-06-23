@@ -204,24 +204,30 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	i.replicaSnapshotsMu.Unlock()
 
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
+	var removeErr error
 	if rerr := os.RemoveAll(stagingRoot); rerr != nil {
-		return fmt.Errorf("remove replica staging dir: %w", rerr)
+		removeErr = fmt.Errorf("remove replica staging dir: %w", rerr)
 	}
-	// Return early if the snapshot isn't local anymore or if it was a halt-for-duration snapshot, which doesn't require cleanup beyond staging dir removal.
+	// Return early if the snapshot isn't local anymore or if it was a hardlink snapshot (already resumed at create time).
 	if !ok || st.isSnapshot {
-		return nil
+		return removeErr
 	}
 
 	shard, release, err := i.GetShard(ctx, st.shardName)
 	if err != nil {
+		if removeErr != nil {
+			return fmt.Errorf("%v; get shard for replica snapshot release: %w", removeErr, err)
+		}
 		return fmt.Errorf("get shard for replica snapshot release: %w", err)
 	}
 	defer release()
-	if shard == nil {
-		return nil
+	if shard != nil {
+		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+			if removeErr != nil {
+				return fmt.Errorf("%v; resume maintenance after replica transfer: %w", removeErr, err)
+			}
+			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
+		}
 	}
-	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
-		return fmt.Errorf("resume maintenance after replica transfer: %w", err)
-	}
-	return nil
+	return removeErr
 }

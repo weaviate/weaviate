@@ -494,8 +494,12 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 
 	// Covers the case where CopyReplicaFiles' defer never registered — a
 	// leaked staging dir would otherwise pin compaction.
+	opUUID := string(op.Op.UUID)
+	if opUUID == "" {
+		opUUID = strconv.FormatUint(op.Op.ID, 10)
+	}
 	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
-		op.Op.SourceShard.CollectionId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
+		op.Op.SourceShard.CollectionId, opUUID); err != nil {
 		logger.WithError(err).Warn("ReleaseReplicaSnapshot failed during cancel (non-fatal)")
 	}
 
@@ -837,8 +841,12 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 	}
 
 	// Same cleanup as cancelOp, for the FSM-dispatched cancel path.
+	opUUID := string(op.Op.UUID)
+	if opUUID == "" {
+		opUUID = strconv.FormatUint(op.Op.ID, 10)
+	}
 	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
-		op.Op.SourceShard.CollectionId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
+		op.Op.SourceShard.CollectionId, opUUID); err != nil {
 		logger.WithError(err).Warn("ReleaseReplicaSnapshot failed during cancelled-op cleanup (non-fatal)")
 	}
 

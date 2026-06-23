@@ -48,7 +48,7 @@ func cleanupRootPathOnStartup(rootPath string, logger logrus.FieldLogger) error 
 				"directory":  name,
 				"index_path": filepath.Join(rootPath, name),
 				"index":      name[len(backup.DeleteMarker):],
-			}).Info("removed partially deleted index directory: " + name + "Did Weaviate crash?")
+			}).Info("removed partially deleted index directory: " + name + " Did Weaviate crash?")
 
 		case strings.HasPrefix(name, backup.BackupStagingPrefix):
 			if err := os.RemoveAll(filepath.Join(rootPath, name)); err != nil {

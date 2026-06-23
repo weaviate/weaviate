@@ -43,11 +43,11 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 	return files, nil
 }
 
-// ListReplicaSnapshotFiles halts the shard, copies mutable bookkeeping files
-// into stagingRoot, and returns the shard-relative file list. Unlike
-// CreateReplicaSnapshot it does NOT hardlink segments and does NOT resume
-// maintenance — the shard stays halted until the caller releases it. Used as
-// the halt-for-duration fallback when hardlinks are unsupported.
+// ListReplicaSnapshotFiles copies mutable bookkeeping files into stagingRoot and
+// returns the shard-relative file list. It does NOT hardlink segments.
+//
+// In halt-for-duration fallback mode the shard is halted by the caller and stays
+// halted until the caller releases it.
 func (s *Shard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
 	return s.collectShardRelativeFiles(ctx, stagingRoot, false)
 }
