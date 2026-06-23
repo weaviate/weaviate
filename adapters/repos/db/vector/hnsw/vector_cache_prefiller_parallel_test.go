@@ -190,7 +190,11 @@ func TestParallelPrefillEligible(t *testing.T) {
 		{"sync + unbounded + single-vector", func(*parallelPrefillInputs) {}, true},
 		{"async prefill keeps serial path", func(in *parallelPrefillInputs) { in.waitForPrefill = false }, false},
 		{"true multivector keeps serial path", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = false }, false},
-		{"muvera multivector is eligible", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, true},
+		// muvera's float32 cache is sourced from the _muvera_vectors bucket, not the
+		// objects bucket the parallel scan reads, so it must stay on the serial path —
+		// regardless of whether the multivector flag happens to be set alongside it.
+		{"muvera keeps serial path", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
+		{"muvera without multivector flag keeps serial path", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
 		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
 		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
 		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},

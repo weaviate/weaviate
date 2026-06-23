@@ -34,7 +34,9 @@ import (
 //   - sync only: an overwriting Preload from a snapshot cursor races live writes;
 //     the serial path's load-if-absent Get does not.
 //   - unbounded cache only: a full scan ignores the size limit the serial path honors.
-//   - single-vector or muvera only: true multivector keys the cache per passage.
+//   - single-vector only: a multivector cache holds per-passage vectors, and a muvera
+//     cache holds encoded vectors from the dedicated _muvera_vectors bucket — neither
+//     lives in the objects bucket this scan reads, so both stay on the serial path.
 func (h *hnsw) useParallelPrefill() bool {
 	// No real objects bucket (tests wiring only a VectorForID thunk, or pre-attach):
 	// fall back to the serial prefiller.
@@ -69,7 +71,7 @@ func parallelPrefillEligible(in parallelPrefillInputs) bool {
 	if !in.waitForPrefill {
 		return false
 	}
-	if in.multivector && !in.muvera {
+	if in.multivector || in.muvera {
 		return false
 	}
 	return in.cacheMaxSize >= in.nodeCount
