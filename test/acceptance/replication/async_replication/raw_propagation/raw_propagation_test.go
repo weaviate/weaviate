@@ -9,7 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+// Package rawpropagation holds the async-replication raw-propagation e2e in its
+// own package so it runs as a separate go-test invocation (its own timeout
+// budget) rather than competing with the main async_replication suite.
+package rawpropagation
 
 import (
 	"context"
@@ -17,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -28,6 +32,19 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
+
+var paragraphIDs = []strfmt.UUID{
+	strfmt.UUID("3bf331ac-8c86-4f95-b127-2f8f96bbc093"),
+	strfmt.UUID("47b26ba1-6bc9-41f8-a655-8b9a5b60e1a3"),
+	strfmt.UUID("5fef6289-28d2-4ea2-82a9-48eb501200cd"),
+	strfmt.UUID("34a673b4-8859-4cb4-bb30-27f5622b47e9"),
+	strfmt.UUID("9fa362f5-c2dc-4fb8-b5b2-11701adc5f75"),
+	strfmt.UUID("63735238-6723-4caf-9eaa-113120968ff4"),
+	strfmt.UUID("2236744d-b2d2-40e5-95d8-2574f20a7126"),
+	strfmt.UUID("1a54e25d-aaf9-48d2-bc3c-bef00b556297"),
+	strfmt.UUID("0b8a0e70-a240-44b2-ac6d-26dda97523b9"),
+	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
+}
 
 // TestAsyncRepairRawPropagation exercises the raw-bytes propagation path
 // (ASYNC_REPLICATION_RAW_PROPAGATION=true): a node misses a batch while down,
