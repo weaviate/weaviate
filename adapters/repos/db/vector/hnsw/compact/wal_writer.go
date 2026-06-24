@@ -16,9 +16,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -36,38 +34,42 @@ func NewWALWriter(w io.Writer) *WALWriter {
 
 // WriteAddNode writes an AddNode commit.
 func (w *WALWriter) WriteAddNode(id uint64, level uint16) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, AddNode))
-	ec.Add(writeUint64(w.w, id))
-	ec.Add(writeUint16(w.w, level))
-	return ec.ToError()
+	buf := make([]byte, 11)
+	buf[0] = byte(AddNode)
+	binary.LittleEndian.PutUint64(buf[1:9], id)
+	binary.LittleEndian.PutUint16(buf[9:11], level)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteDeleteNode writes a DeleteNode commit.
 func (w *WALWriter) WriteDeleteNode(id uint64) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, DeleteNode))
-	ec.Add(writeUint64(w.w, id))
-	return ec.ToError()
+	buf := make([]byte, 9)
+	buf[0] = byte(DeleteNode)
+	binary.LittleEndian.PutUint64(buf[1:9], id)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteSetEntryPointMaxLevel writes a SetEntryPointMaxLevel commit.
 func (w *WALWriter) WriteSetEntryPointMaxLevel(entrypoint uint64, level uint16) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, SetEntryPointMaxLevel))
-	ec.Add(writeUint64(w.w, entrypoint))
-	ec.Add(writeUint16(w.w, level))
-	return ec.ToError()
+	buf := make([]byte, 11)
+	buf[0] = byte(SetEntryPointMaxLevel)
+	binary.LittleEndian.PutUint64(buf[1:9], entrypoint)
+	binary.LittleEndian.PutUint16(buf[9:11], level)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteAddLinkAtLevel writes an AddLinkAtLevel commit.
 func (w *WALWriter) WriteAddLinkAtLevel(source uint64, level uint16, target uint64) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, AddLinkAtLevel))
-	ec.Add(writeUint64(w.w, source))
-	ec.Add(writeUint16(w.w, level))
-	ec.Add(writeUint64(w.w, target))
-	return ec.ToError()
+	buf := make([]byte, 19)
+	buf[0] = byte(AddLinkAtLevel)
+	binary.LittleEndian.PutUint64(buf[1:9], source)
+	binary.LittleEndian.PutUint16(buf[9:11], level)
+	binary.LittleEndian.PutUint64(buf[11:19], target)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteAddLinksAtLevel writes an AddLinksAtLevel commit.
@@ -88,52 +90,57 @@ func (w *WALWriter) WriteAddLinksAtLevel(source uint64, level uint16, targets []
 
 // WriteReplaceLinksAtLevel writes a ReplaceLinksAtLevel commit.
 func (w *WALWriter) WriteReplaceLinksAtLevel(source uint64, level uint16, targets []uint64) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, ReplaceLinksAtLevel))
-	ec.Add(writeUint64(w.w, source))
-	ec.Add(writeUint16(w.w, level))
+	targetLength := min(len(targets), math.MaxUint16)
 
-	targetLength := len(targets)
-	if targetLength > math.MaxUint16 {
-		targetLength = math.MaxUint16
+	toWrite := make([]byte, 13+targetLength*8)
+	toWrite[0] = byte(ReplaceLinksAtLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], source)
+	binary.LittleEndian.PutUint16(toWrite[9:11], level)
+	binary.LittleEndian.PutUint16(toWrite[11:13], uint16(targetLength))
+	for i, target := range targets[:targetLength] {
+		offsetStart := 13 + i*8
+		offsetEnd := offsetStart + 8
+		binary.LittleEndian.PutUint64(toWrite[offsetStart:offsetEnd], target)
 	}
-	ec.Add(writeUint16(w.w, uint16(targetLength)))
-	ec.Add(writeUint64Slice(w.w, targets[:targetLength]))
-
-	return ec.ToError()
+	_, err := w.w.Write(toWrite)
+	return err
 }
 
 // WriteClearLinks writes a ClearLinks commit.
 func (w *WALWriter) WriteClearLinks(id uint64) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, ClearLinks))
-	ec.Add(writeUint64(w.w, id))
-	return ec.ToError()
+	buf := make([]byte, 9)
+	buf[0] = byte(ClearLinks)
+	binary.LittleEndian.PutUint64(buf[1:9], id)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteClearLinksAtLevel writes a ClearLinksAtLevel commit.
 func (w *WALWriter) WriteClearLinksAtLevel(id uint64, level uint16) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, ClearLinksAtLevel))
-	ec.Add(writeUint64(w.w, id))
-	ec.Add(writeUint16(w.w, level))
-	return ec.ToError()
+	buf := make([]byte, 11)
+	buf[0] = byte(ClearLinksAtLevel)
+	binary.LittleEndian.PutUint64(buf[1:9], id)
+	binary.LittleEndian.PutUint16(buf[9:11], level)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteAddTombstone writes an AddTombstone commit.
 func (w *WALWriter) WriteAddTombstone(id uint64) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, AddTombstone))
-	ec.Add(writeUint64(w.w, id))
-	return ec.ToError()
+	buf := make([]byte, 9)
+	buf[0] = byte(AddTombstone)
+	binary.LittleEndian.PutUint64(buf[1:9], id)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteRemoveTombstone writes a RemoveTombstone commit.
 func (w *WALWriter) WriteRemoveTombstone(id uint64) error {
-	ec := errorcompounder.New()
-	ec.Add(writeCommitType(w.w, RemoveTombstone))
-	ec.Add(writeUint64(w.w, id))
-	return ec.ToError()
+	buf := make([]byte, 9)
+	buf[0] = byte(RemoveTombstone)
+	binary.LittleEndian.PutUint64(buf[1:9], id)
+	_, err := w.w.Write(buf)
+	return err
 }
 
 // WriteResetIndex writes a ResetIndex commit.
@@ -329,13 +336,4 @@ func writeBool(w io.Writer, v bool) error {
 	}
 	_, err := w.Write(b[:])
 	return err
-}
-
-func writeUint64Slice(w io.Writer, slice []uint64) error {
-	for _, v := range slice {
-		if err := writeUint64(w, v); err != nil {
-			return errors.Wrap(err, "write uint64 slice element")
-		}
-	}
-	return nil
 }
