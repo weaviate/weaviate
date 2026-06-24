@@ -219,7 +219,10 @@ func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.Overw
 	)
 	switch req.GetEncoding() {
 	case shared.OverwriteEncodingRaw:
-		vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalRaw(req.GetVobjectsData())
+		var raw []byte
+		if raw, err = shared.DecompressOverwriteRaw(req.GetVobjectsData()); err == nil {
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalRaw(raw)
+		}
 	default:
 		vobjs, err = shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
 	}

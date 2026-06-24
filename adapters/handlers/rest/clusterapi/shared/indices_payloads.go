@@ -44,8 +44,9 @@ const (
 	MethodPut string = "PUT"
 )
 
-// OverwriteObjects vobjects_data encodings. Receivers always support decoding
-// both; senders emit Raw only when the raw-propagation runtime flag is enabled.
+// OverwriteObjects vobjects_data encodings for the gRPC transport. Senders emit
+// Raw only when the raw-propagation runtime flag is enabled. Raw is always
+// zstd-compressed (gRPC, unlike REST, does not compress the body itself).
 const (
 	OverwriteEncodingJSON uint32 = 0
 	OverwriteEncodingRaw  uint32 = 1
