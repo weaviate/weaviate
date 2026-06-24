@@ -1435,7 +1435,7 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 		for shardName := range state.Physical {
 			// Short-circuit on first match: map iteration is randomized, so
 			// without this we'd non-deterministically miss other in-flight shards.
-			if i.replicationFSMReader.HasOngoingReplication(className, shardName) {
+			if i.replicationFSMReader.HasActiveReplicationForShard(className, shardName) {
 				midMovement = true
 				return nil
 			}

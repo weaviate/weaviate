@@ -601,7 +601,7 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 		// Cycle must consult the FSM, see the in-flight op, and return without
 		// calling the replicator (asserted implicitly via NewMockReplicationFSMReader's
 		// Cleanup: any unexpected call would fail the mock).
-		call := fsmMock.EXPECT().HasOngoingTargetReplication(class, shardName, localNode).Return(true).Once()
+		call := fsmMock.EXPECT().HasActiveTargetReplicationForShard(class, shardName, localNode).Return(true).Once()
 		defer call.Unset()
 		propagated, err := concrete.runHashbeatCycle(ctx, cfg)
 		require.NoError(t, err)

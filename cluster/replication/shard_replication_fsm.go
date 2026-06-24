@@ -224,23 +224,37 @@ func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, sha
 	return s.getOpsWithStatus(ops), true
 }
 
-func (s *ShardReplicationFSM) HasOngoingReplication(collection, shard string) bool {
-	ops, ok := s.GetOpsForCollectionAndShard(collection, shard)
-	if !ok {
-		return false
-	}
-	for _, o := range ops {
-		switch o.Status.GetCurrentState() {
-		case api.READY, api.CANCELLED:
-			// terminal — does not block async-repl gating
-		default:
+// HasActiveReplicationForShard reports whether a non-terminal replication op exists for
+// collection/shard. The result is independent of which node hosts the source or target
+// replica — both share the collection/shard key — and reads only RAFT-replicated state, so
+// every node in the cluster returns the same answer.
+func (s *ShardReplicationFSM) HasActiveReplicationForShard(collection, shard string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollectionAndShard[collection][shard] {
+		if status, ok := s.statusById[op.ID]; ok && status.ShouldConsumeOps() {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *ShardReplicationFSM) HasOngoingTargetReplication(collection, shard, replica string) bool {
+// HasActiveReplicationForCollection is HasActiveReplicationForShard across every shard of the
+// collection, for gating class-wide schema mutations.
+func (s *ShardReplicationFSM) HasActiveReplicationForCollection(collection string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollection[collection] {
+		if status, ok := s.statusById[op.ID]; ok && status.ShouldConsumeOps() {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, shard, replica string) bool {
 	ops, ok := s.GetOpsForTargetNode(replica)
 	if !ok {
 		return false
