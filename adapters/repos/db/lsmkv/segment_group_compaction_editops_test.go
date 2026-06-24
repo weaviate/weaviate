@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,61 +22,81 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestSegmentGroup_RecordCompactionInEditOps pins the completion bookkeeping
-// with controlled timestamps: an op that predates the pass has its merged inputs
-// marked done and nothing re-queued (the compactor already stripped for it);
-// an op registered after the pass began also has the inputs marked done but the
-// merged output re-queued (the transformer the compactor ran with predated it).
-func TestSegmentGroup_RecordCompactionInEditOps(t *testing.T) {
+// TestSegmentEditOps_RecordCompaction pins the completion bookkeeping by op-set
+// membership: an op the pass's transformer was built from (in builtOps) has its
+// merged inputs marked done and nothing re-queued (the merge already stripped
+// it); an op absent from builtOps — registered after the transformer was built —
+// has its inputs marked done but the merged output re-queued (the merge ran with
+// a transformer that never saw it).
+func TestSegmentEditOps_RecordCompaction(t *testing.T) {
 	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
-	require.NoError(t, editOps.RegisterOp("old", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 100}))
-	require.NoError(t, editOps.RegisterOp("new", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 300}))
-	require.NoError(t, editOps.SnapshotSegments("old", []string{"100", "200"}))
-	require.NoError(t, editOps.SnapshotSegments("new", []string{"100", "200"}))
+	built := OpDescriptor{Type: "remove_target_vectors", CreatedAt: 100}
+	require.NoError(t, editOps.RegisterOp("built", built))
+	require.NoError(t, editOps.RegisterOp("late", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 300}))
+	require.NoError(t, editOps.SnapshotSegments("built", []string{"100", "200"}))
+	require.NoError(t, editOps.SnapshotSegments("late", []string{"100", "200"}))
 
-	sg := &SegmentGroup{editOps: editOps}
-	startedAt := int64(200) // between the two ops' CreatedAt
+	// The transformer was built from "built" only; "late" landed afterwards.
+	builtOps := []ActiveOp{{ID: "built", Descriptor: built}}
 
-	require.NoError(t, sg.recordCompactionInEditOps(
-		filepath.Join("dir", "segment-100.db"),
-		filepath.Join("dir", "segment-200.db"),
-		startedAt))
+	require.NoError(t, editOps.RecordCompaction("100", "200", builtOps))
 
-	// old op (registered before the pass): inputs done, merged NOT re-queued.
-	pOld, err := editOps.Pending("old")
+	// built op (in the transformer set): inputs done, merged NOT re-queued.
+	pBuilt, err := editOps.Pending("built")
 	require.NoError(t, err)
-	assert.Empty(t, pOld)
+	assert.Empty(t, pBuilt)
 
-	// new op (registered mid-pass): inputs done, merged re-queued for re-clean.
-	pNew, err := editOps.Pending("new")
+	// late op (absent from the transformer set): inputs done, merged re-queued.
+	pLate, err := editOps.Pending("late")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"100_200"}, pNew)
+	assert.ElementsMatch(t, []string{"100_200"}, pLate)
 }
 
-// TestSegmentGroup_RecordCompactionInEditOps_NoReQueueWhenInputNotPending checks
-// the mid-pass op is only re-queued when one of the merged inputs was actually
-// pending for it.
-func TestSegmentGroup_RecordCompactionInEditOps_NoReQueueWhenInputNotPending(t *testing.T) {
+// TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending checks an op
+// absent from builtOps is only re-queued when one of the merged inputs was
+// actually pending for it.
+func TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending(t *testing.T) {
 	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
-	require.NoError(t, editOps.RegisterOp("new", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 300}))
+	require.NoError(t, editOps.RegisterOp("late", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 300}))
 	// Pending for some unrelated segment, not the ones being merged.
-	require.NoError(t, editOps.SnapshotSegments("new", []string{"999"}))
+	require.NoError(t, editOps.SnapshotSegments("late", []string{"999"}))
 
-	sg := &SegmentGroup{editOps: editOps}
-	require.NoError(t, sg.recordCompactionInEditOps(
-		filepath.Join("dir", "segment-100.db"),
-		filepath.Join("dir", "segment-200.db"),
-		int64(200)))
+	require.NoError(t, editOps.RecordCompaction("100", "200", nil))
 
-	pNew, err := editOps.Pending("new")
+	pLate, err := editOps.Pending("late")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"999"}, pNew) // unchanged; merged not added
+	assert.ElementsMatch(t, []string{"999"}, pLate) // unchanged; merged not added
+}
+
+// TestSegmentEditOps_RecordCompaction_ReQueuesLateOpWithEarlyCreatedAt pins the
+// fix for the clock-mismatch race: an op that registered after the transformer
+// was built (so it is absent from builtOps) must be re-queued even when its
+// caller-supplied CreatedAt predates the merge. The merged output was never
+// stripped for it, so dropping the re-queue would silently retain its target.
+// The earlier, timestamp-based gate (CreatedAt > startedAt) would wrongly skip
+// this op; membership-based bookkeeping does not.
+func TestSegmentEditOps_RecordCompaction_ReQueuesLateOpWithEarlyCreatedAt(t *testing.T) {
+	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
+
+	// CreatedAt=1 is far in the past (e.g. clock skew, or a logical timestamp
+	// stamped at op creation while RegisterOp committed only later), yet the op
+	// is absent from builtOps because the transformer was already built.
+	require.NoError(t, editOps.RegisterOp("late", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("late", []string{"100", "200"}))
+
+	require.NoError(t, editOps.RecordCompaction("100", "200", nil /* not in build set */))
+
+	pLate, err := editOps.Pending("late")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"100_200"}, pLate)
 }
 
 // TestSegmentGroup_CompactionAppliesEditOpsTransformer exercises the full

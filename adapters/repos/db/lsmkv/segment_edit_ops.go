@@ -85,6 +85,15 @@ type PendingSegment struct {
 	LastAttemptAt int64  `json:"lastAttemptAt,omitempty"`
 }
 
+// valueTransformer rewrites a stored value in place during a segment rewrite.
+// It must be a pure, idempotent function of the value bytes.
+type valueTransformer func(value []byte) ([]byte, error)
+
+// transformerBuilder produces the per-pass valueTransformer for the currently
+// active edit operations. It is invoked once at the start of each compaction or
+// cleanup pass so the transformer reflects the ops live at that moment.
+type transformerBuilder func(ops []ActiveOp) valueTransformer
+
 // OpenSegmentEditOps opens (creating if necessary) the edit-ops store for the
 // segment group rooted at dir. buildTransformer is the injected, storobj-opaque
 // builder used by BuildCurrentTransformer; pass nil when no transformation is
@@ -119,23 +128,78 @@ func (s *SegmentEditOps) Close() error {
 }
 
 // BuildCurrentTransformer composes the ops live right now into a single value
-// transformer for one compaction or cleanup pass. It returns nil when no
-// builder is configured or no ops are active, signalling the pass to run
+// transformer for one compaction or cleanup pass. It returns a nil transformer
+// when no builder is configured or no ops are active, signalling the pass to run
 // without transformation. Building per pass (rather than holding one transformer
 // for the segment group's lifetime) lets it reflect the live ops and compose
 // multiple concurrent drops.
-func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, error) {
+//
+// It also returns the exact ops the transformer was built from. Compaction
+// bookkeeping (RecordCompaction) needs this set to decide which ops the pass
+// actually stripped, by membership rather than by timestamp — an op registered
+// after this read is absent from the set and so was not stripped. The set is
+// nil whenever the transformer is nil (nothing was stripped this pass).
+func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp, error) {
 	if s.buildTransformer == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	ops, err := s.LoadOps()
 	if err != nil {
-		return nil, fmt.Errorf("load edit ops: %w", err)
+		return nil, nil, fmt.Errorf("load edit ops: %w", err)
 	}
 	if len(ops) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return s.buildTransformer(ops), nil
+	return s.buildTransformer(ops), ops, nil
+}
+
+// RecordCompaction runs the post-compaction edit-ops bookkeeping for a merge of
+// leftID and rightID into mergedID (leftID_rightID), in a single bolt
+// transaction. It is the sequenced step after the on-disk rename and the
+// in-memory swap; a crash before it commits is repaired by Reconcile at the next
+// Open.
+//
+// For every active op it marks the merged inputs done. builtOps is the set the
+// pass's transformer was built from (from BuildCurrentTransformer): an op absent
+// from it was registered after the transformer was built, so the merged output
+// still carries that op's target and is re-queued for cleanup if either input
+// was pending for it. Membership — not a timestamp — drives the decision, so the
+// compactor's local clock is never compared against the caller-supplied op
+// CreatedAt (those are different clocks once ops originate from a cluster
+// leader). Re-cleaning an already-clean output would be a no-op anyway by the
+// transformer's idempotency contract, so the gate only needs to be conservative.
+func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
+	mergedID := leftID + "_" + rightID
+
+	built := make(map[string]struct{}, len(builtOps))
+	for _, op := range builtOps {
+		built[op.ID] = struct{}{}
+	}
+
+	return s.WithTx(func(tx *bolt.Tx) error {
+		ops, err := s.loadOpsTx(tx)
+		if err != nil {
+			return err
+		}
+		for _, op := range ops {
+			leftWasPending := s.pendingContainsTx(tx, op.ID, leftID)
+			rightWasPending := s.pendingContainsTx(tx, op.ID, rightID)
+
+			if err := s.markSegmentDoneTx(tx, op.ID, leftID); err != nil {
+				return err
+			}
+			if err := s.markSegmentDoneTx(tx, op.ID, rightID); err != nil {
+				return err
+			}
+
+			if _, wasBuilt := built[op.ID]; !wasBuilt && (leftWasPending || rightWasPending) {
+				if err := s.addPendingTx(tx, op.ID, mergedID); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 // RegisterOp persists an operation descriptor. It is idempotent: re-registering

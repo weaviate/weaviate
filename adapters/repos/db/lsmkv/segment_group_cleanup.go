@@ -507,7 +507,9 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		case StrategyReplace:
 			var transformer valueTransformer
 			if c.sg.editOps != nil {
-				transformer, err = c.sg.editOps.BuildCurrentTransformer()
+				// builtOps is unused here: a cleanup pass rewrites a single segment
+				// in place (keeping its ID), so there is no merge to re-queue.
+				transformer, _, err = c.sg.editOps.BuildCurrentTransformer()
 				if err != nil {
 					return false, err
 				}
