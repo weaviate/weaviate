@@ -692,9 +692,11 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 		// raw-propagation path: the object travels as its on-disk binary; decode
 		// it once here for indexing and persist the bytes verbatim on write.
+		// Decode with the canonical class (like every other disk read path): the
+		// on-disk class-name field may be empty, which FromBinaryNetwork rejects.
 		var rawObj *storobj.Object
 		if u.RawBytes != nil {
-			rawObj, err = storobj.FromBinaryNetwork(u.RawBytes)
+			rawObj, err = storobj.FromBinaryDisk(u.RawBytes, idx.Config.ClassName.String())
 			if err != nil {
 				result = append(result, types.RepairResponse{
 					Err: fmt.Sprintf("decode raw object at position %d: %v", i, err),
