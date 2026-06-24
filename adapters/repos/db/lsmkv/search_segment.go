@@ -37,43 +37,53 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	var pivotPoint int
 	upperBound := float32(0)
 
-	done := ctx.Done()
+	// nil for a non-cancellable ctx; guard below then skips the select.
+	var done <-chan struct{}
+	if ctx != nil {
+		done = ctx.Done()
+	}
+	ctxCheck := 0
 	for {
 		iterations++
 
-		if iterations%100000 == 0 {
-			select {
-			case <-done:
-				segmentPath := ""
-				terms := ""
-				filterCardinality := -1
-				for _, r := range results {
-					if r == nil {
-						continue
-					}
-					if r.segment != nil {
-						segmentPath = r.segment.path
-						if r.filterDocIds != nil {
-							filterCardinality = r.filterDocIds.Len()
+		// counter, not iterations%N: avoids a modulo on the hottest loop.
+		ctxCheck++
+		if ctxCheck == 100000 {
+			ctxCheck = 0
+			if done != nil {
+				select {
+				case <-done:
+					segmentPath := ""
+					terms := ""
+					filterCardinality := -1
+					for _, r := range results {
+						if r == nil {
+							continue
 						}
+						if r.segment != nil {
+							segmentPath = r.segment.path
+							if r.filterDocIds != nil {
+								filterCardinality = r.filterDocIds.Len()
+							}
+						}
+						terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
 					}
-					terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
+					logger.WithFields(logrus.Fields{
+						"segment":           segmentPath,
+						"iterations":        iterations,
+						"pivotID":           pivotID,
+						"firstNonExhausted": firstNonExhausted,
+						"lenResults":        len(results),
+						"pivotPoint":        pivotPoint,
+						"upperBound":        upperBound,
+						"terms":             terms,
+						"filterCardinality": filterCardinality,
+						"limit":             limit,
+					}).Warnf("doBlockMaxWand: search timed out, returning partial results")
+					helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
+					return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
+				default:
 				}
-				logger.WithFields(logrus.Fields{
-					"segment":           segmentPath,
-					"iterations":        iterations,
-					"pivotID":           pivotID,
-					"firstNonExhausted": firstNonExhausted,
-					"lenResults":        len(results),
-					"pivotPoint":        pivotPoint,
-					"upperBound":        upperBound,
-					"terms":             terms,
-					"filterCardinality": filterCardinality,
-					"limit":             limit,
-				}).Warnf("doBlockMaxWand: search timed out, returning partial results")
-				helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
-				return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
-			default:
 			}
 		}
 
@@ -88,7 +98,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			if firstNonExhausted == -1 {
 				firstNonExhausted = pivotPoint
 			}
-			cumScore += float64(results[pivotPoint].Idf())
+			cumScore += results[pivotPoint].idf
 			if cumScore >= worstDist {
 				pivotID = results[pivotPoint].idPointer
 				for i := pivotPoint + 1; i < len(results); i++ {
@@ -107,13 +117,13 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 
 		upperBound = float32(0)
 		for i := 0; i <= pivotPoint; i++ {
-			if results[i].exhausted {
-				continue
+			// No exhausted guard: shallow-advance no-ops and impact is 0 when
+			// exhausted; and currentBlockMaxId isn't an exhausted sentinel (can be 0).
+			t := results[i]
+			if t.currentBlockMaxId < pivotID {
+				t.AdvanceAtLeastShallow(pivotID)
 			}
-			if results[i].currentBlockMaxId < pivotID {
-				results[i].AdvanceAtLeastShallow(pivotID)
-			}
-			upperBound += results[i].currentBlockImpact
+			upperBound += t.currentBlockImpact
 		}
 
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
@@ -155,29 +165,19 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 				}
 				results[nextList].AdvanceAtLeast(pivotID)
 
-				// sort partial
-				for i := nextList + 1; i < len(results); i++ {
-					if results[i].idPointer < results[i-1].idPointer {
-						// swap
-						results[i], results[i-1] = results[i-1], results[i]
-					} else {
-						break
-					}
-				}
+				// only nextList moved; one re-insertion restores order.
+				results.reinsertRight(nextList)
 
 			}
 		} else {
-			// single pass over [0, pivotPoint]: pick the heaviest term to advance
-			// (over [0, pivotPoint)) and the smallest block-max id (over
-			// [0, pivotPoint]).
 			nextList := pivotPoint
-			maxWeight := results[nextList].Idf()
+			maxWeight := results[nextList].idf
 			next := uint64(math.MaxUint64) // max uint
 
 			for i := 0; i <= pivotPoint; i++ {
-				if i < pivotPoint && results[i].Idf() > maxWeight {
+				if i < pivotPoint && results[i].idf > maxWeight {
 					nextList = i
-					maxWeight = results[i].Idf()
+					maxWeight = results[i].idf
 				}
 				if results[i].currentBlockMaxId < next {
 					next = results[i].currentBlockMaxId
@@ -195,9 +195,10 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 			results[nextList].AdvanceAtLeast(next)
 
+			// Full pass, not reinsertRight: AdvanceAtLeastShallow above de-sorts the
+			// whole prefix, not just nextList; repairing one element hangs long queries.
 			for i := nextList + 1; i < len(results); i++ {
 				if results[i].idPointer < results[i-1].idPointer {
-					// swap
 					results[i], results[i-1] = results[i-1], results[i]
 				} else if results[i].exhausted && i < len(results)-1 {
 					results[i], results[i+1] = results[i+1], results[i]
@@ -369,6 +370,19 @@ func (t Terms) Less(i, j int) bool {
 
 func (t Terms) Swap(i, j int) {
 	t[i], t[j] = t[j], t[i]
+}
+
+// reinsertRight re-sorts when only t[i]'s idPointer increased; the rest stays
+// sorted. Caller must guarantee that single-element precondition.
+func (t Terms) reinsertRight(i int) {
+	cur := t[i]
+	id := cur.idPointer
+	j := i
+	for j+1 < len(t) && t[j+1].idPointer < id {
+		t[j] = t[j+1]
+		j++
+	}
+	t[j] = cur
 }
 
 // sortByID sorts the terms ascending by idPointer with a concrete insertion
