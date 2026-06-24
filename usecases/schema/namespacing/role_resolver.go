@@ -170,10 +170,15 @@ func ProjectResourceForNamespace(resource, namespace string) (string, error) {
 	return b.String(), nil
 }
 
+// ErrForeignNamespace marks a resource bound to a namespace other than the
+// projection target; callers map it to a generic denial so no foreign
+// namespace surfaces in a response.
+var ErrForeignNamespace = errors.New("resource bound to a different namespace")
+
 func writeProjectedSegment(b *strings.Builder, prefix, namespace, resource string, start, end int) error {
 	if SegmentHasSeparator(resource, start, end) {
 		if NamespaceFromQualified(resource[start:end]) != namespace {
-			return fmt.Errorf("role permission %q targets a different namespace", resource)
+			return ErrForeignNamespace
 		}
 		b.WriteString(resource[start:end])
 		return nil

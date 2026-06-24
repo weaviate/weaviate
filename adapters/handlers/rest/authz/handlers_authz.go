@@ -110,8 +110,16 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 	// If not, we check for matching permissions and authorize each permission being added or removed from the role.
 	// NOTE: logic is inverted for error checks if err == nil
 	var err error
-	if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_ALL), authorization.Roles(roleName)...); err == nil {
-		return nil
+
+	// ALL scope is for unconfined (global) principals only; a principal confined
+	// to a namespace is always forced through the MATCH ≤-effective path, so an
+	// ALL-scoped grant it somehow holds can't escalate to cluster-wide role
+	// management.
+	confinedToNamespace := h.namespacesEnabled && principal != nil && principal.Namespace != ""
+	if !confinedToNamespace {
+		if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_ALL), authorization.Roles(roleName)...); err == nil {
+			return nil
+		}
 	}
 
 	// Check if user can manage roles with matching permissions
@@ -269,6 +277,20 @@ func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, prin
 	return nil
 }
 
+// hasAllScopedRolePermission reports whether any policy grants role management
+// at ALL scope (verb-suffix _ALL on a roles/ resource). On NS clusters such a
+// permission cannot be stored in any role — cluster-wide role management exists
+// only as root's wildcard, never as an assignable permission.
+func hasAllScopedRolePermission(policies []authorization.Policy) bool {
+	for _, p := range policies {
+		if strings.HasPrefix(p.Resource, authorization.RolesDomain+"/") &&
+			strings.HasSuffix(p.Verb, "_"+authorization.ROLE_SCOPE_ALL) {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -309,6 +331,12 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	// A namespaced caller's permission segments are auto-prefixed in place.
 	if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, rolePolicies); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	// On NS clusters no role may carry ALL-scoped role management; cluster-wide
+	// role management exists only as root's wildcard.
+	if h.namespacesEnabled && hasAllScopedRolePermission(rolePolicies) {
+		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot create a role granting cluster-wide role management")))
 	}
 
 	if err := h.authorizeRoleScopes(ctx, principal, authorization.CREATE, rolePolicies, roleName); err != nil {
@@ -368,6 +396,12 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	// A namespaced caller's permission segments are auto-prefixed in place.
 	if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, rolePolicies); err != nil {
 		return authz.NewAddPermissionsUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	// On NS clusters no role may carry ALL-scoped role management; cluster-wide
+	// role management exists only as root's wildcard.
+	if h.namespacesEnabled && hasAllScopedRolePermission(rolePolicies) {
+		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot add a permission granting cluster-wide role management")))
 	}
 
 	roleName, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)

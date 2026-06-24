@@ -557,6 +557,9 @@ func TestCreateRoleNamespaced(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			// A namespaced creator authorizes at MATCH scope, then each policy is
+			// checked ≤-effective; grant both so qualify/collision stay the focus.
+			authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			all := map[string][]authorization.Policy{}
 			for _, r := range tt.existingRoles {
 				all[r] = []authorization.Policy{}
