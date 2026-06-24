@@ -199,6 +199,11 @@ type hnsw struct {
 	tombstoneMemCheckInterval time.Duration
 	tombstoneCleanupRunning   atomic.Bool
 
+	// cleanupCheckpointPath is the file path for persisting cleanup progress.
+	cleanupCheckpointPath string
+	// cleanupGenerationCounter is a monotonic counter for cleanup generation IDs.
+	cleanupGenerationCounter atomic.Uint64
+
 	visitedListPoolMaxSize int
 
 	asyncIndexingEnabled bool
@@ -396,6 +401,8 @@ func New(cfg Config, uc ent.UserConfig,
 		muveraEncoder:     muveraEncoder,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
+
+		cleanupCheckpointPath: cleanupCheckpointPath(cfg.RootPath, cfg.ID),
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
 		"shard":        cfg.ShardName,
@@ -753,6 +760,19 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 	err := h.commitLog.Drop(ctx, keepFiles)
 	if err != nil {
 		return errors.Wrap(err, "commit log drop")
+	}
+
+	// Clean up checkpoint file if not keeping files
+	if !keepFiles {
+		if err := deleteCleanupCheckpoint(h.cleanupCheckpointPath, h.fs); err != nil {
+			// Log but don't fail - checkpoint cleanup is not critical
+			h.logger.WithFields(logrus.Fields{
+				"action": "hnsw_drop_cleanup_checkpoint",
+				"class":  h.className,
+				"shard":  h.shardName,
+				"error":  err.Error(),
+			}).Warn("failed to delete cleanup checkpoint during drop")
+		}
 	}
 
 	return nil

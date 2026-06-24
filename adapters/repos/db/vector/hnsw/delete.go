@@ -325,10 +325,96 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return resetCtx.Err() != nil || shouldAbort()
 	}
 
-	executed := false
-	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
-	if !ok {
-		return executed, nil
+	// Try to load existing checkpoint for resume
+	var checkpoint *CleanupCheckpoint
+	var deleteList helpers.AllowList
+	var resumed bool
+	var generationID uint64
+
+	checkpoint, err := loadCleanupCheckpoint(h.cleanupCheckpointPath, h.fs)
+	if err != nil {
+		// Checkpoint corrupt or unreadable - start fresh
+		h.logger.WithFields(logrus.Fields{
+			"action": "tombstone_cleanup_checkpoint_corrupt",
+			"class":  h.className,
+			"shard":  h.shardName,
+			"error":  err.Error(),
+		}).Warn("cleanup checkpoint corrupt, starting fresh generation")
+		h.metrics.CleanupCheckpointCorrupt()
+		checkpoint = nil
+	}
+
+	// Validate checkpoint against current index state
+	if checkpoint != nil {
+		h.tombstoneLock.Lock()
+		valid := h.isCheckpointValid(checkpoint)
+		h.tombstoneLock.Unlock()
+
+		if !valid {
+			h.logger.WithFields(logrus.Fields{
+				"action":                "tombstone_cleanup_checkpoint_stale",
+				"class":                 h.className,
+				"shard":                 h.shardName,
+				"generation_id":         checkpoint.GenerationID,
+				"checkpoint_tombstones": len(checkpoint.TombstoneIDs),
+			}).Info("checkpoint is stale, starting fresh generation")
+			// Delete the stale checkpoint
+			deleteCleanupCheckpoint(h.cleanupCheckpointPath, h.fs)
+			checkpoint = nil
+		}
+	}
+
+	if checkpoint != nil {
+		// Resume from checkpoint
+		resumed = true
+		generationID = checkpoint.GenerationID
+		deleteList = rebuildDeleteListFromCheckpoint(checkpoint)
+
+		h.logger.WithFields(logrus.Fields{
+			"action":        "tombstone_cleanup_resume",
+			"class":         h.className,
+			"shard":         h.shardName,
+			"generation_id": generationID,
+			"tombstones":    len(checkpoint.TombstoneIDs),
+			"watermark":     checkpoint.Watermark,
+			"total_nodes":   checkpoint.TotalNodes,
+		}).Info("resuming tombstone cleanup from checkpoint")
+		h.metrics.CleanupGenerationResumed()
+	} else {
+		// Fresh start - create new generation
+		ok, newDeleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
+		if !ok {
+			return false, nil
+		}
+		deleteList = newDeleteList
+
+		h.RLock()
+		totalNodes := uint64(len(h.nodes))
+		h.RUnlock()
+
+		generationID = h.cleanupGenerationCounter.Add(1)
+		checkpoint = createCheckpointFromDeleteList(generationID, deleteList, totalNodes)
+
+		// Persist checkpoint immediately so we can resume if interrupted
+		if err := saveCleanupCheckpoint(h.cleanupCheckpointPath, checkpoint, h.fs); err != nil {
+			h.logger.WithFields(logrus.Fields{
+				"action": "tombstone_cleanup_checkpoint_save_failed",
+				"class":  h.className,
+				"shard":  h.shardName,
+				"error":  err.Error(),
+			}).Error("failed to save initial cleanup checkpoint")
+			// Continue anyway - we just won't be able to resume if interrupted
+		}
+
+		h.logger.WithFields(logrus.Fields{
+			"action":        "tombstone_cleanup_start",
+			"class":         h.className,
+			"shard":         h.shardName,
+			"generation_id": generationID,
+			"tombstones":    deleteList.Len(),
+			"total_nodes":   totalNodes,
+		}).Info("starting fresh tombstone cleanup generation")
+		h.metrics.CleanupGenerationStarted()
 	}
 
 	// Start a background goroutine that periodically checks memory pressure.
@@ -388,37 +474,65 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
 
 	h.tombstoneLock.Lock()
-	total_tombstones := len(h.tombstones)
+	totalTombstones := len(h.tombstones)
 	h.tombstoneLock.Unlock()
+
+	// Calculate deferred tombstones (those not in current generation)
+	deferredTombstones := totalTombstones - deleteList.Len()
+	if deferredTombstones < 0 {
+		deferredTombstones = 0
+	}
+
+	h.metrics.SetTombstoneCounts(totalTombstones, deleteList.Len(), deferredTombstones)
+	h.metrics.SetCleanupGenerationID(generationID)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":              "tombstone_cleanup_begin",
 		"class":               h.className,
 		"shard":               h.shardName,
+		"generation_id":       generationID,
 		"tombstones_in_cycle": deleteList.Len(),
-		"tombstones_total":    total_tombstones,
+		"tombstones_total":    totalTombstones,
+		"tombstones_deferred": deferredTombstones,
+		"resumed":             resumed,
 	}).Infof("class %s: shard %s: starting tombstone cleanup", h.className, h.shardName)
 
 	h.metrics.StartTombstoneCycle()
 
-	executed = true
-	if ok, err := h.reassignNeighborsOf(h.shutdownCtx, deleteList, breakCleanUpTombstonedNodes); err != nil {
+	executed := true
+	if ok, err := h.reassignNeighborsOfWithCheckpoint(h.shutdownCtx, deleteList, breakCleanUpTombstonedNodes, checkpoint); err != nil {
+		h.metrics.CleanupGenerationInterrupted("error")
 		return executed, err
 	} else if !ok {
+		h.metrics.CleanupGenerationInterrupted("aborted")
 		return executed, nil
 	}
 	h.reassignNeighbor(h.shutdownCtx, h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes, nil)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
+		h.metrics.CleanupGenerationInterrupted("error")
 		return executed, err
 	} else if !ok {
+		h.metrics.CleanupGenerationInterrupted("aborted")
 		return executed, nil
 	}
 
 	if ok, err := h.removeTombstonesAndNodes(deleteList, breakCleanUpTombstonedNodes); err != nil {
+		h.metrics.CleanupGenerationInterrupted("error")
 		return executed, err
 	} else if !ok {
+		h.metrics.CleanupGenerationInterrupted("aborted")
 		return executed, nil
+	}
+
+	// Generation completed successfully - delete checkpoint
+	if err := deleteCleanupCheckpoint(h.cleanupCheckpointPath, h.fs); err != nil {
+		h.logger.WithFields(logrus.Fields{
+			"action": "tombstone_cleanup_checkpoint_delete_failed",
+			"class":  h.className,
+			"shard":  h.shardName,
+			"error":  err.Error(),
+		}).Warn("failed to delete cleanup checkpoint")
 	}
 
 	if _, err := h.resetIfEmpty(); err != nil {
@@ -431,10 +545,12 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 			"action":              "tombstone_cleanup_complete",
 			"class":               h.className,
 			"shard":               h.shardName,
+			"generation_id":       generationID,
 			"tombstones_in_cycle": deleteList.Len(),
-			"tombstones_total":    total_tombstones,
+			"tombstones_total":    totalTombstones,
 			"duration":            took,
 		}).Infof("class %s: shard %s: completed tombstone cleanup in %s", h.className, h.shardName, took)
+		h.metrics.CleanupGenerationCompleted()
 	}
 
 	h.metrics.EndTombstoneCycle()
@@ -507,6 +623,13 @@ func tombstoneDeletionConcurrency() int {
 	return concurrency
 }
 
+// reassignNeighborsOf is the legacy cleanup implementation without checkpoint support.
+//
+// Deprecated: This function is retained only for benchmarking the core cleanup
+// algorithm without checkpoint I/O overhead. Production code should use
+// CleanUpTombstonedNodes() which calls reassignNeighborsOfWithCheckpoint().
+//
+// Do not use this function in new code or tests that verify production behavior.
 func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.AllowList,
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
 ) (ok bool, err error) {
@@ -588,6 +711,206 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 		return false, nil
 	}
 	return !cancelled.Load(), err
+}
+
+// reassignNeighborsOfWithCheckpoint is like reassignNeighborsOf but with
+// checkpoint-based progress tracking for resumable cleanup.
+func (h *hnsw) reassignNeighborsOfWithCheckpoint(
+	ctx context.Context,
+	deleteList helpers.AllowList,
+	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
+	checkpoint *CleanupCheckpoint,
+) (ok bool, err error) {
+	size := checkpoint.TotalNodes
+
+	// Create progress tracker starting from checkpoint watermark
+	startFrom := checkpoint.Watermark + 1
+	if checkpoint.Watermark == 0 && !containsCompletedWork(checkpoint) {
+		startFrom = 0
+	}
+	tracker := newProgressTracker(startFrom, size)
+
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var cancelled atomic.Bool
+	processedIDs := &sync.Map{}
+
+	// Checkpoint persistence settings
+	const checkpointInterval = uint64(100000) // Persist every 100k nodes
+	const checkpointTimeInterval = 30 * time.Second
+	lastCheckpointTime := time.Now()
+	var checkpointMu sync.Mutex
+
+	// Checkpoint persistence function
+	persistCheckpoint := func() {
+		checkpointMu.Lock()
+		defer checkpointMu.Unlock()
+
+		watermark := tracker.getSafeWatermark()
+		if watermark <= checkpoint.Watermark {
+			return // No progress since last persist
+		}
+
+		checkpoint.Watermark = watermark
+		if err := saveCleanupCheckpoint(h.cleanupCheckpointPath, checkpoint, h.fs); err != nil {
+			h.logger.WithFields(logrus.Fields{
+				"action":    "tombstone_cleanup_checkpoint_save_failed",
+				"class":     h.className,
+				"shard":     h.shardName,
+				"watermark": watermark,
+				"error":     err.Error(),
+			}).Warn("failed to persist cleanup checkpoint")
+		} else {
+			tracker.markPersisted(watermark)
+			h.metrics.SetCleanupWatermark(watermark, size)
+			lastCheckpointTime = time.Now()
+		}
+	}
+
+	deletionConcurrency := tombstoneDeletionConcurrency()
+	for i := 0; i < deletionConcurrency; i++ {
+		g.Go(func() error {
+			for {
+				if breakCleanUpTombstonedNodes() {
+					cancelled.Store(true)
+					cancel()
+					return nil
+				}
+
+				if ctx.Err() != nil {
+					return nil
+				}
+
+				// Claim next work item using progress tracker (atomic)
+				id, hasWork := tracker.claim()
+				if !hasWork {
+					return nil // No more work
+				}
+
+				// Update progress periodically
+				claimed, total, _ := tracker.getProgress()
+				if claimed%1000 == 0 {
+					progress := float64(claimed) / float64(total)
+					h.metrics.TombstoneCycleProgress(progress)
+
+					// Check if we should persist checkpoint
+					shouldPersist := tracker.shouldPersist(checkpointInterval)
+					checkpointMu.Lock()
+					timeSinceLastCheckpoint := time.Since(lastCheckpointTime)
+					checkpointMu.Unlock()
+
+					if shouldPersist || timeSinceLastCheckpoint > checkpointTimeInterval {
+						persistCheckpoint()
+					}
+
+					if claimed%1_000_000 == 0 {
+						watermark := tracker.getSafeWatermark()
+						h.logger.WithFields(logrus.Fields{
+							"action":        "tombstone_cleanup_progress",
+							"class":         h.className,
+							"shard":         h.shardName,
+							"generation_id": checkpoint.GenerationID,
+							"total_nodes":   total,
+							"claimed_nodes": claimed,
+							"watermark":     watermark,
+							"progress":      fmt.Sprintf("%.2f%%", progress*100),
+						}).Debugf("class %s: shard %s: cleanup progress %.2f%%", h.className, h.shardName, progress*100)
+					}
+				}
+
+				// Check if already processed (can happen due to recursive processing)
+				if _, alreadyProcessed := processedIDs.Load(id); alreadyProcessed {
+					tracker.complete(id)
+					continue
+				}
+
+				h.shardedNodeLocks.RLock(id)
+				if id >= size || id >= uint64(len(h.nodes)) || h.nodes[id] == nil {
+					h.shardedNodeLocks.RUnlock(id)
+					tracker.complete(id)
+					continue
+				}
+				h.shardedNodeLocks.RUnlock(id)
+
+				h.resetLock.RLock()
+				if h.getEntrypoint() != id {
+					ok, err := h.reassignNeighbor(ctx, id, deleteList, breakCleanUpTombstonedNodes, processedIDs)
+					if err != nil {
+						h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
+							Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+					}
+					if !ok {
+						// reassignNeighbor was interrupted, don't mark as complete
+						// so it will be reprocessed on resume
+						h.resetLock.RUnlock()
+						continue
+					}
+				}
+				h.resetLock.RUnlock()
+				tracker.complete(id)
+			}
+		})
+	}
+
+	err = g.Wait()
+
+	// Final checkpoint persist before returning
+	persistCheckpoint()
+
+	if errors.Is(err, context.Canceled) {
+		h.logger.WithFields(logrus.Fields{
+			"action":        "tombstone_cleanup_interrupted",
+			"class":         h.className,
+			"shard":         h.shardName,
+			"generation_id": checkpoint.GenerationID,
+			"watermark":     tracker.getSafeWatermark(),
+		}).Info("tombstone cleanup interrupted, progress saved")
+		return false, nil
+	}
+
+	if cancelled.Load() {
+		h.logger.WithFields(logrus.Fields{
+			"action":        "tombstone_cleanup_cancelled",
+			"class":         h.className,
+			"shard":         h.shardName,
+			"generation_id": checkpoint.GenerationID,
+			"watermark":     tracker.getSafeWatermark(),
+		}).Info("tombstone cleanup cancelled, progress saved")
+		return false, nil
+	}
+
+	return true, err
+}
+
+// containsCompletedWork returns true if the checkpoint indicates some work
+// was already done (watermark > 0 or explicitly marked as started).
+func containsCompletedWork(cp *CleanupCheckpoint) bool {
+	return cp.Watermark > 0
+}
+
+// isCheckpointValid checks if a loaded checkpoint is still valid for the current
+// index state. A checkpoint is invalid (stale) if:
+// - It has tombstones but none of them exist in the current tombstone map
+// - The index structure has changed significantly
+//
+// Must be called with h.tombstoneLock held.
+func (h *hnsw) isCheckpointValid(cp *CleanupCheckpoint) bool {
+	if len(cp.TombstoneIDs) == 0 {
+		// Empty checkpoint - only valid if we have no tombstones
+		return len(h.tombstones) == 0
+	}
+
+	// Check if at least one checkpoint tombstone still exists in the live map
+	for _, id := range cp.TombstoneIDs {
+		if _, exists := h.tombstones[id]; exists {
+			return true
+		}
+	}
+
+	// None of the checkpoint tombstones exist anymore - checkpoint is stale
+	return false
 }
 
 func (h *hnsw) reassignNeighbor(
