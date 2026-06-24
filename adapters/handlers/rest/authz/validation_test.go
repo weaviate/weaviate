@@ -153,6 +153,38 @@ func TestValidatePermissions(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "backups permission cannot set both collection and user",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						Collection: String("*"),
+						User:       String("*"),
+					},
+				},
+			},
+			expectedErr: "cannot set both 'collection' and 'user'",
+		},
+		{
+			name: "valid backups collection only",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						Collection: String("ValidCollectionName"),
+					},
+				},
+			},
+		},
+		{
+			name: "valid backups user only",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("some-user"),
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
