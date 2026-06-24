@@ -241,7 +241,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 				if newDist >= oldDist {
 					// the vector is closer to the old centroid, which means it may be also closer to a neighboring centroid,
 					// we need to reassign it
-					err = h.taskQueue.EnqueueReassign(newPostingIDs[i], v.ID(), v.Version())
+					err = h.taskQueue.EnqueueReassign(newPostingIDs[i], v.ID())
 					if err != nil {
 						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 					}
@@ -333,7 +333,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 			}
 
 			// the vector is closer to one of the new centroids, it needs to be reassigned
-			err = h.taskQueue.EnqueueReassign(neighborID, v.ID(), v.Version())
+			err = h.taskQueue.EnqueueReassign(neighborID, v.ID())
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 			}

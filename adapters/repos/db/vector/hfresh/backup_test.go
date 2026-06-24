@@ -135,4 +135,10 @@ func TestHFreshBackupListFiles(t *testing.T) {
 		}
 		require.True(t, hasCentroidCommitLog)
 	})
+
+	t.Run("SnapshotMutableFiles returns nil (hfresh seals files in PrepareForBackup)", func(t *testing.T) {
+		relPaths, err := index.SnapshotMutableFiles(t.Context(), cfg.RootPath, t.TempDir())
+		require.NoError(t, err)
+		require.Nil(t, relPaths)
+	})
 }

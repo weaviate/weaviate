@@ -830,3 +830,30 @@ func TestSnapshotWriter_PackConnections_Overflow(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceed maximum")
 }
+
+// TestSnapshotWriter_OversizedNodeReturnsError ensures a single node entry that
+// cannot fit in one block fails loudly from Flush instead of panicking on the
+// negative padding math in flushBlock or being silently dropped. It uses a tiny
+// block size so one node with a handful of connections already overflows an
+// otherwise-empty block. This pins the writeSlot capacity guard; without it the
+// merge would carry the fix but not its regression test.
+func TestSnapshotWriter_OversizedNodeReturnsError(t *testing.T) {
+	const blockSize = 64 // maxBlockSize is 56; one populated node exceeds it
+
+	var buf bytes.Buffer
+	sw := NewSnapshotWriterWithBlockSize(&buf, blockSize)
+	sw.SetEntrypoint(0, 0)
+
+	// A single level-0 node whose packed connections push the entry past one
+	// block. The entry header alone is 9 bytes (existence + level + conn len);
+	// these connections pack well beyond the remaining capacity.
+	conns := make([]uint64, 64)
+	for i := range conns {
+		conns[i] = uint64(i * 1000)
+	}
+	sw.AddNode(0, 0, [][]uint64{conns}, false)
+
+	err := sw.Flush()
+	require.Error(t, err, "a node larger than a block must be rejected, not dropped or panic")
+	assert.Contains(t, err.Error(), "exceeds block capacity")
+}

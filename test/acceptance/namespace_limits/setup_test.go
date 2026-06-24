@@ -77,6 +77,11 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	// On failure, dump every node's logs so the leader side is visible.
+	if code != 0 {
+		sharedCompose.DumpWeaviateLogs(ctx, os.Stderr, 300)
+	}
+
 	if err := sharedCompose.Terminate(ctx); err != nil {
 		panic(errors.Wrap(err, "failed to terminate shared compose"))
 	}

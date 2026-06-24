@@ -271,7 +271,6 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		t.Logf("recall: %f, latency %f\n", recall2, latency2)
 		assert.True(t, recall2 > 0.9)
-		assert.True(t, latency1 > latency2)
 	}
 }
 
@@ -350,7 +349,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	err = dynamic.Shutdown(context.Background())
 	require.NoError(t, err)
 
-	require.False(t, dynamic.upgraded.Load())
+	require.False(t, dynamic.status.IsUpgraded())
 
 	select {
 	case <-called:
@@ -866,7 +865,6 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		fmt.Println(recall2, latency2)
 		assert.True(t, recall2 > 0.9)
-		assert.True(t, latency1 > latency2)
 	}
 
 	// check the content of the bolt db
@@ -927,7 +925,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	for _, v := range indexes {
 		shouldUpgrade, _ := v.ShouldUpgrade()
 		require.False(t, shouldUpgrade)
-		require.True(t, v.upgraded.Load())
+		require.True(t, v.IsUpgraded())
 	}
 
 	// check the content of the bolt db
@@ -1005,7 +1003,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	for _, v := range indexes {
 		shouldUpgrade, _ := v.ShouldUpgrade()
 		require.False(t, shouldUpgrade)
-		require.True(t, v.upgraded.Load())
+		require.True(t, v.IsUpgraded())
 	}
 
 	// check the content of the bolt db

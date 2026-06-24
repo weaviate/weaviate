@@ -168,7 +168,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed       atomic.Bool
+	compressed atomic.Bool
+	// compressing spans Upgrade() through compressThenCallback completion;
+	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
+	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
@@ -910,6 +913,10 @@ func (h *hnsw) Multivector() bool {
 
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
+}
+
+func (h *hnsw) UpgradeInProgress() bool {
+	return h.compressing.Load()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {

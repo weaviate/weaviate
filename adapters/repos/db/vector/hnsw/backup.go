@@ -43,6 +43,15 @@ func (h *hnsw) ResumeAfterBackup(ctx context.Context) error {
 	return nil
 }
 
+// SnapshotMutableFiles is a no-op for HNSW: the index only ever writes new
+// files and never mutates existing ones in place (see ResumeAfterBackup), so
+// there are no in-place-mutated files (e.g. bbolt meta.db) that need to be
+// frozen into the staging directory during an active-shard backup. ListFiles
+// already captures every immutable file that belongs in the backup.
+func (h *hnsw) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	return nil, nil
+}
+
 // ListFiles returns every commit-log file that is safe to copy as part of a
 // backup — i.e. every file in the commitlog directory except the writer's
 // active append target.

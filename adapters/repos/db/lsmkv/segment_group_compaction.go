@@ -381,7 +381,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, sg.valueTransformer)
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {

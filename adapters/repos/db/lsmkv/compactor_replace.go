@@ -61,12 +61,22 @@ type compactorReplace struct {
 	// that writeDirectly does not need a second O(N) scan over the keys.
 	primaryIndexSize int64
 	secIndexSizes    []int64
+
+	// valueTransformer, when set, rewrites each non-tombstone value before it is
+	// written to the merged segment (e.g. to strip a dropped vector). nil means
+	// no active edit operation, in which case values pass through untouched.
+	valueTransformer valueTransformer
 }
+
+// valueTransformer rewrites a stored value in place during a segment rewrite.
+// It must be a pure, idempotent function of the value bytes.
+type valueTransformer func(value []byte) ([]byte, error)
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplaceReusable, level, secondaryIndexCount uint16,
 	cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	valueTransformer valueTransformer,
 ) *compactorReplace {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -96,6 +106,7 @@ func newCompactorReplace(w io.WriteSeeker,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,
 		secIndexSizes:            secIndexSizes,
+		valueTransformer:         valueTransformer,
 	}
 }
 
@@ -257,6 +268,17 @@ func (c *compactorReplace) accumulateIndexSizes(ki segmentindex.Key) {
 func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 	offset int, key, value []byte, secondaryKeys [][]byte, tombstone bool,
 ) (segmentindex.Key, error) {
+	// Rewrite live values through the active edit transformer before they hit
+	// the merged segment. Tombstones and empty payloads carry nothing to
+	// transform, so they are skipped.
+	if c.valueTransformer != nil && !tombstone && len(value) > 0 {
+		transformed, err := c.valueTransformer(value)
+		if err != nil {
+			return segmentindex.Key{}, fmt.Errorf("transform value: %w", err)
+		}
+		value = transformed
+	}
+
 	// Copy key bytes into stable arena memory. The reusable cursor reuses its
 	// internal buffers on every next() call, so ki.Key / ki.SecondaryKeys stored
 	// in the kis slice would otherwise be corrupted on the next iteration.

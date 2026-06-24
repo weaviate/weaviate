@@ -26,7 +26,26 @@ import (
 
 var blockMaxBufferSize = 4096
 
-func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint64]uint32) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
+// collectBlockMetrics gates the per-doc/per-block BlockMetrics bookkeeping in the
+// scoring hot path. No production code reads these counters; the profiling
+// harness sets this true to populate them. Default false keeps Score/decodeBlock
+// free of the counter writes.
+var collectBlockMetrics = false
+
+// decodeFuncsFromCodecs resolves the stateless doc-id and tf decode functions for
+// a segment's codecs once, so per-term iterators carry func values instead of
+// allocating decoder instances.
+func decodeFuncsFromCodecs(codecs []varenc.VarEncDataType) (docIds, tfs func(data []byte, values []uint64)) {
+	if len(codecs) > 0 {
+		docIds = varenc.GetDecodeFunc(codecs[0])
+	}
+	if len(codecs) > 1 {
+		tfs = varenc.GetDecodeFunc(codecs[1])
+	}
+	return docIds, tfs
+}
+
+func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint64]uint32) ([]terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
 	if s.readFromMemory {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
@@ -49,10 +68,10 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint6
 
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
-		entries := make([]*terms.BlockEntry, 1)
+		entries := make([]terms.BlockEntry, 1)
 		propLength := propLengths[data.DocIds[0]]
 		tf := data.Tfs[0]
-		entries[0] = &terms.BlockEntry{
+		entries[0] = terms.BlockEntry{
 			Offset:              0,
 			MaxId:               data.DocIds[len(data.DocIds)-1],
 			MaxImpactTf:         uint32(tf),
@@ -64,7 +83,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint6
 
 	blockCount := (docCount + uint64(terms.BLOCK_SIZE-1)) / uint64(terms.BLOCK_SIZE)
 
-	entries := make([]*terms.BlockEntry, blockCount)
+	entries := make([]terms.BlockEntry, blockCount)
 	if s.readFromMemory {
 		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
 	} else {
@@ -82,7 +101,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint6
 	}
 
 	for i := 0; i < int(blockCount); i++ {
-		entries[i] = terms.DecodeBlockEntry(buf[i*20 : (i+1)*20])
+		terms.DecodeBlockEntryInto(buf[i*20:(i+1)*20], &entries[i])
 	}
 
 	return entries, docCount, nil, nil
@@ -126,10 +145,20 @@ type BlockMetrics struct {
 }
 
 type SegmentBlockMax struct {
+	// Hot scalars read on every WAND scan iteration — kept together at the top so
+	// they share a cache line (the gated-off Metrics block sits at the tail).
+	idPointer          uint64
+	idf                float64
+	currentBlockMaxId  uint64
+	currentBlockImpact float32
+	exhausted          bool
+	decoded            bool
+	freqDecoded        bool
+
 	segment               *segment
 	node                  segmentindex.Node
 	docCount              uint64
-	blockEntries          []*terms.BlockEntry
+	blockEntries          []terms.BlockEntry
 	blockEntryIdx         int
 	blockDataBufferOffset uint64
 	blockDataBuffer       []byte
@@ -139,31 +168,30 @@ type SegmentBlockMax struct {
 	blockDataSize         int
 	blockDataStartOffset  uint64
 	blockDataEndOffset    uint64
-	idPointer             uint64
-	idf                   float64
-	exhausted             bool
-	decoded               bool
-	freqDecoded           bool
 	queryTermIndex        int
-	Metrics               BlockMetrics
 	averagePropLength     float64
 	b                     float64
 	k1                    float64
 	propertyBoost         float64
 
-	currentBlockImpact float32
-	currentBlockMaxId  uint64
-	tombstones         *sroar.Bitmap
-	memTombstones      *sroar.Bitmap
-	filterDocIds       helpers.AllowList
+	tombstones    *sroar.Bitmap
+	memTombstones *sroar.Bitmap
+	filterDocIds  helpers.AllowList
 
-	// at position 0 we have the doc ids decoder, at position 1 is the tfs decoder
-	decoders []varenc.VarEncEncoder[uint64]
+	// stateless reusable-decode functions, resolved once from the segment's
+	// codecs (doc ids and term frequencies). Func values, not an encoder
+	// interface slice, so the query path allocates no per-term decoder buffers.
+	decodeDocIds func(data []byte, values []uint64)
+	decodeTfs    func(data []byte, values []uint64)
 
 	propLengths    map[uint64]uint32
 	blockDatasTest []*terms.BlockData
 
 	sectionReader *io.SectionReader
+
+	// cold: only written under collectBlockMetrics (off in production); kept last
+	// so it never separates the hot scalars above.
+	Metrics BlockMetrics
 }
 
 func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
@@ -182,13 +210,18 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		return nil
 	}
 
-	codecs := s.invertedHeader.DataFields
-	decoders := make([]varenc.VarEncEncoder[uint64], len(codecs))
-
-	for i, codec := range codecs {
-		decoders[i] = varenc.GetVarEncEncoder64(codec)
-		decoders[i].Init(terms.BLOCK_SIZE)
+	// Normalize empty-but-non-nil tombstone bitmaps to nil so advanceOnTombstoneOrFilter
+	// short-circuits them instead of paying a sroar.Contains per advanced doc.
+	// memTombstones is built as a fresh sroar.NewBitmap() and is non-nil even with
+	// no in-memory deletes (the common case), which otherwise costs a probe per doc.
+	if tombstones != nil && tombstones.IsEmpty() {
+		tombstones = nil
 	}
+	if memTombstones != nil && memTombstones.IsEmpty() {
+		memTombstones = nil
+	}
+
+	decodeDocIds, decodeTfs := decodeFuncsFromCodecs(s.invertedHeader.DataFields)
 
 	var sectionReader *io.SectionReader
 
@@ -205,7 +238,8 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 
 		b:             config.B,
 		k1:            config.K1,
-		decoders:      decoders,
+		decodeDocIds:  decodeDocIds,
+		decodeTfs:     decodeTfs,
 		propertyBoost: float64(propertyBoost),
 		filterDocIds:  filterDocIds,
 		tombstones:    tombstones,
@@ -224,12 +258,8 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	return output
 }
 
-func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockData, propLengths map[uint64]uint32, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config, codecs []varenc.VarEncDataType) *SegmentBlockMax {
-	decoders := make([]varenc.VarEncEncoder[uint64], len(codecs))
-
-	for i, codec := range codecs {
-		decoders[i] = varenc.GetVarEncEncoder64(codec)
-	}
+func NewSegmentBlockMaxTest(docCount uint64, blockEntries []terms.BlockEntry, blockDatas []*terms.BlockData, propLengths map[uint64]uint32, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config, codecs []varenc.VarEncDataType) *SegmentBlockMax {
+	decodeDocIds, decodeTfs := decodeFuncsFromCodecs(codecs)
 
 	// if filter is empty after checking for tombstones,
 	// we can skip it and return nil for the segment
@@ -245,7 +275,8 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 		averagePropLength: averagePropLength,
 		b:                 config.B,
 		k1:                config.K1,
-		decoders:          decoders,
+		decodeDocIds:      decodeDocIds,
+		decodeTfs:         decodeTfs,
 		propertyBoost:     float64(propertyBoost),
 		filterDocIds:      filterDocIds,
 		tombstones:        tombstones,
@@ -307,9 +338,16 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 		return
 	}
 
-	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
-		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
-		(s.memTombstones != nil && s.memTombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
+	for {
+		// read the current doc id once instead of re-indexing the slice in each
+		// of the up-to-three membership checks below
+		docID := s.blockDataDecoded.DocIds[s.blockDataIdx]
+		passes := (s.filterDocIds == nil || s.filterDocIds.Contains(docID)) &&
+			(s.tombstones == nil || !s.tombstones.Contains(docID)) &&
+			(s.memTombstones == nil || !s.memTombstones.Contains(docID))
+		if passes {
+			break
+		}
 		s.blockDataIdx++
 		if s.blockDataIdx > s.blockDataSize-1 {
 			if s.blockEntryIdx >= len(s.blockEntries)-1 {
@@ -341,7 +379,12 @@ func (s *SegmentBlockMax) reset() error {
 	}
 
 	if s.blockDataDecoded == nil {
-		s.blockDataBuffer = make([]byte, blockMaxBufferSize)
+		// blockDataBuffer is only read in the non-mmap path of
+		// loadBlockDataReusable; when readFromMemory we decode straight from
+		// s.contents, so allocating it would be pure dead weight per term.
+		if !s.segment.readFromMemory {
+			s.blockDataBuffer = make([]byte, blockMaxBufferSize)
+		}
 		s.blockDataDecoded = &terms.BlockDataDecoded{
 			DocIds: make([]uint64, terms.BLOCK_SIZE),
 			Tfs:    make([]uint64, terms.BLOCK_SIZE),
@@ -383,8 +426,15 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.blockDataSize = int(s.docCount)
 		s.freqDecoded = true
 		s.decoded = true
-		s.Metrics.BlockCountDecodedDocIds++
-		s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
+		// seed the WAND upper-bound fields, same as the multi-doc path below:
+		// the scoring loop sums currentBlockImpact into the pruning bound, so
+		// leaving it at zero drops this term's document once the heap is full.
+		s.currentBlockImpact = s.computeCurrentBlockImpact()
+		s.currentBlockMaxId = s.blockEntries[s.blockEntryIdx].MaxId
+		if collectBlockMetrics {
+			s.Metrics.BlockCountDecodedDocIds++
+			s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
+		}
 		return nil
 	}
 	if s.segment != nil {
@@ -406,9 +456,11 @@ func (s *SegmentBlockMax) decodeBlock() error {
 	if s.blockEntryIdx == len(s.blockEntries)-1 {
 		s.blockDataSize = int(s.docCount) - terms.BLOCK_SIZE*s.blockEntryIdx
 	}
-	s.decoders[0].DecodeReusable(s.blockDataEncoded.DocIds, s.blockDataDecoded.DocIds[:s.blockDataSize])
-	s.Metrics.BlockCountDecodedDocIds++
-	s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
+	s.decodeDocIds(s.blockDataEncoded.DocIds, s.blockDataDecoded.DocIds[:s.blockDataSize])
+	if collectBlockMetrics {
+		s.Metrics.BlockCountDecodedDocIds++
+		s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
+	}
 	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	s.freqDecoded = false
 	s.decoded = true
@@ -428,7 +480,9 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.freqDecoded = false
 	}
 
-	if (s.blockEntryIdx == len(s.blockEntries)-1 && docId > s.blockEntries[s.blockEntryIdx].MaxId) || s.blockEntryIdx >= len(s.blockEntries) {
+	// the loop stops only at blockEntryIdx == len or docId <= this block's
+	// MaxId, so a bounds check is enough to detect exhaustion here.
+	if s.blockEntryIdx >= len(s.blockEntries) {
 		s.exhaust()
 		return
 	}
@@ -464,10 +518,8 @@ func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
 		}
 	}
 
-	if (s.blockEntryIdx == len(s.blockEntries)-1 && docId > s.blockEntries[s.blockEntryIdx].MaxId) || s.blockEntryIdx >= len(s.blockEntries) {
-		s.exhaust()
-		return
-	}
+	// reaching here means docId <= MaxId of the current block; exhaustion
+	// (blockEntryIdx == len) already returned inside the loop above.
 	s.idPointer = s.blockEntries[s.blockEntryIdx-1].MaxId
 	s.currentBlockMaxId = s.blockEntries[s.blockEntryIdx].MaxId
 	s.currentBlockImpact = s.computeCurrentBlockImpact()
@@ -505,18 +557,20 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	var doc *terms.DocPointerWithScore
 
 	if !s.freqDecoded {
-		s.decoders[1].DecodeReusable(s.blockDataEncoded.Tfs, s.blockDataDecoded.Tfs[:s.blockDataSize])
+		s.decodeTfs(s.blockDataEncoded.Tfs, s.blockDataDecoded.Tfs[:s.blockDataSize])
 		s.freqDecoded = true
 	}
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
 	propLength := s.propLengths[s.idPointer]
 	tf := freq / (freq + s.k1*((1-s.b)+s.b*(float64(propLength)/s.averagePropLength)))
-	s.Metrics.DocCountScored++
-	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
-		s.Metrics.BlockCountDecodedFreqs++
-		s.Metrics.DocCountDecodedFreqs += uint64(s.blockDataSize)
-		s.Metrics.LastAddedBlock = s.blockEntryIdx
+	if collectBlockMetrics {
+		s.Metrics.DocCountScored++
+		if s.blockEntryIdx != s.Metrics.LastAddedBlock {
+			s.Metrics.BlockCountDecodedFreqs++
+			s.Metrics.DocCountDecodedFreqs += uint64(s.blockDataSize)
+			s.Metrics.LastAddedBlock = s.blockEntryIdx
+		}
 	}
 
 	if additionalExplanation {
