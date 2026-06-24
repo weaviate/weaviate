@@ -353,8 +353,7 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 		docID := s.blockDataDecoded.DocIds[s.blockDataIdx]
 		passes := s.filterDocIds == nil || s.filterDocIds.Contains(docID)
 		if passes && checkTomb {
-			passes = (s.tombstones == nil || !s.tombstones.Contains(docID)) &&
-				(s.memTombstones == nil || !s.memTombstones.Contains(docID))
+			passes = !s.tombstoned(docID)
 		}
 		if passes {
 			break
