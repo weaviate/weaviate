@@ -54,7 +54,7 @@ func TestProplen270_BoundaryMaxUint32(t *testing.T) {
 		maxID      uint64
 		wantNarrow bool
 	}{
-		{"max_eq_maxuint32_is_narrow", math.MaxUint32, true},      // 2^32-1 fits uint32 (inclusive)
+		{"max_eq_maxuint32_is_narrow", math.MaxUint32, true},           // 2^32-1 fits uint32 (inclusive)
 		{"max_eq_maxuint32_plus_1_is_wide", math.MaxUint32 + 1, false}, // 2^32 must stay uint64
 	}
 	for _, tc := range cases {
@@ -97,7 +97,7 @@ func TestProplen270_BoundaryMaxUint32(t *testing.T) {
 func TestProplen270_ZeroLengthHighDocIDStaysWide(t *testing.T) {
 	const highID = uint64(1) << 33 // > MaxUint32
 	want := map[uint64]uint32{
-		3:      0,  // zero-length: forces pairs AND is where the dense gate early-stops
+		3:      0, // zero-length: forces pairs AND is where the dense gate early-stops
 		7:      5,
 		50:     9,
 		highID: 12, // true max, far beyond uint32
