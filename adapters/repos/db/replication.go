@@ -696,14 +696,15 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		// on-disk class-name field may be empty, which FromBinaryNetwork rejects.
 		var rawObj *storobj.Object
 		if u.RawBytes != nil {
-			rawObj, err = storobj.FromBinaryDisk(u.RawBytes, idx.Config.ClassName.String())
-			if err != nil {
+			decoded, decErr := storobj.FromBinaryDisk(u.RawBytes, idx.Config.ClassName.String())
+			if decErr != nil {
 				result = append(result, types.RepairResponse{
-					Err: fmt.Sprintf("decode raw object at position %d: %v", i, err),
+					Err: fmt.Sprintf("decode raw object at position %d: %v", i, decErr),
 				})
 				continue
 			}
-			rawObj.PrecomputedDiskBinary = u.RawBytes
+			decoded.PrecomputedDiskBinary = u.RawBytes
+			rawObj = decoded
 			lastUpdateTime = rawObj.LastUpdateTimeUnix()
 		}
 
