@@ -779,7 +779,8 @@ func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
 
 // TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed asserts
 // admin/viewer on NS-enabled clusters cover only collections/data/tenants/
-// aliases plus MCP and user CRUD.
+// aliases plus MCP, user CRUD + assign/revoke, and MATCH-scoped roles
+// management (admin CRUD, viewer READ).
 func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
@@ -794,9 +795,9 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	rootRows := rolePolicies(t, m, authorization.Root)
 	readOnlyRows := rolePolicies(t, m, authorization.ReadOnly)
 
-	// admin: must contain CRUD over schema/data/aliases plus MCP and user
-	// CRUD; tenant rows share the schema domain. No backups/replicate/
-	// cluster/nodes/roles/groups/namespaces.
+	// admin: must contain CRUD over schema/data/aliases plus MCP, user CRUD +
+	// assign/revoke, and roles CRUD at MATCH scope; tenant rows share the schema
+	// domain. No backups/replicate/cluster/nodes/groups/namespaces.
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.CREATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.UPDATE))
@@ -811,25 +812,35 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.UPDATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.DELETE))
 	for _, prohibited := range []string{
-		"backups/", "cluster/", "nodes/", "roles/", "groups/", "namespaces/", "replicate/",
+		"backups/", "cluster/", "nodes/", "groups/", "namespaces/", "replicate/",
 	} {
 		for _, row := range adminRows {
 			assert.NotContains(t, row[1], prohibited, "admin (NS-enabled) must not have policy on %s domain", prohibited)
 		}
 	}
-	// AssignAndRevokeUsers (verb "A" on users/) remains excluded.
-	assert.False(t, roleHasResourceVerb(adminRows, "users/", authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE),
-		"admin (NS-enabled) must not have assign_and_revoke_users")
+	// AssignAndRevokeUsers (verb "A" on users/) is included.
+	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE),
+		"admin (NS-enabled) must have assign_and_revoke_users")
+	// roles management is included, but only at MATCH scope — never ALL.
+	for _, verb := range []string{authorization.CREATE, authorization.READ, authorization.UPDATE, authorization.DELETE} {
+		assert.True(t, roleHasResourceVerb(adminRows, "roles/", authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)),
+			"admin (NS-enabled) must have roles %s at MATCH scope", verb)
+		assert.False(t, roleHasResourceVerb(adminRows, "roles/", authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_ALL)),
+			"admin (NS-enabled) must not have ALL-scoped roles %s", verb)
+	}
 
-	// viewer: read-only over the same domains, no other verbs, no other
-	// domains. MCP and users are included as READ only.
+	// viewer: read-only over the same domains, no write verbs. MCP, users and
+	// roles are included as READ only (roles READ is MATCH-scoped).
 	for _, row := range viewerRows {
-		assert.Equal(t, authorization.READ, row[2], "viewer (NS-enabled) must only have READ verb")
+		base, _, _ := strings.Cut(row[2], "_")
+		assert.Equal(t, authorization.READ, base, "viewer (NS-enabled) must only have READ verb (any scope)")
 	}
 	assert.True(t, roleHasResourceVerb(viewerRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "data/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, conv.CasbinMcp(), authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "users/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(viewerRows, "roles/", authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)),
+		"viewer (NS-enabled) must have roles READ at MATCH scope")
 
 	// root and read-only keep wildcard cluster-wide policies.
 	require.Len(t, rootRows, 1)
