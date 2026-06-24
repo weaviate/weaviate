@@ -122,6 +122,7 @@ func TestStore_Apply_CommandTypes(t *testing.T) {
 				ms.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(cls, nil)
 				ms.indexer.On("UpdateClass", mock.Anything).Return(nil)
 				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				ms.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false)
 			},
 			expectError: false,
 			cmdData:     api.UpdateClassRequest{Class: cls, State: ss},

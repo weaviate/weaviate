@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/grpc/codes"
@@ -53,6 +54,9 @@ func (fps *FileReplicationService) PauseFileActivity(ctx context.Context, req *p
 
 	err = index.IncomingPauseFileActivity(ctx, shardName)
 	if err != nil {
+		if errors.Is(err, enterrors.ErrShardBusyStructuralOp) {
+			return nil, status.Errorf(codes.FailedPrecondition, "failed to pause file activity for index %q, shard %q: %v", indexName, shardName, err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to pause file activity for index %q, shard %q: %v", indexName, shardName, err)
 	}
 
@@ -175,9 +179,9 @@ func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.Fil
 }
 
 func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *pb.StartChangeCaptureRequest) (*pb.StartChangeCaptureResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
-	if index == nil {
-		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	index, err := fps.indexForIncomingWrite(ctx, req.GetIndexName(), req.GetSchemaVersion())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "cannot start change capture for index %q: %v", req.GetIndexName(), err)
 	}
 
 	if err := index.IncomingStartChangeCapture(ctx, req.ShardName, req.OpId); err != nil {

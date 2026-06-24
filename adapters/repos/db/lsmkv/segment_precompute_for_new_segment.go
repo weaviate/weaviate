@@ -32,6 +32,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("init and pre-compute new segment %s: %w", path, err)

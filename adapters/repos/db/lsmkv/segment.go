@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -87,6 +88,8 @@ type Segment interface {
 	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
 	getPropertyLengths() (map[uint64]uint32, error)
+	isPropertyLengthsLoaded() bool
+	freePropertyLengths()
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
 	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
@@ -174,6 +177,7 @@ type segmentConfig struct {
 	precomputedCountNetAdditions *int
 	writeMetadata                bool
 	deleteMarkerCounter          int64
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -407,11 +411,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
 
-		_, err = seg.loadPropertyLengths()
-		if err != nil {
-			return nil, fmt.Errorf("load property lengths: %w", err)
+		if cfg.lazyPropertyLengths.Get() {
+			if err := seg.loadPropertyLengthsStats(); err != nil {
+				return nil, fmt.Errorf("load property length stats: %w", err)
+			}
+		} else {
+			if _, err := seg.loadPropertyLengths(); err != nil {
+				return nil, fmt.Errorf("load property lengths: %w", err)
+			}
 		}
-
 	}
 
 	return seg, nil

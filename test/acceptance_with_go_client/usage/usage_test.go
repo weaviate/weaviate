@@ -358,6 +358,7 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"
+	tenantName := "tenant"
 	vector1 := "vector1"
 	vector2 := "vector2"
 	dimensions := 128
@@ -391,16 +392,21 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 				VectorIndexType: "flat",
 			},
 		},
+		// enables the COLD/HOT flush below for a stable on-disk baseline
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName}).Do(ctx))
 
 	// Insert 100 objects with both named vectors
 	const numObjects = 100
 	objs := make([]*models.Object, numObjects)
 	for i := range numObjects {
 		objs[i] = &models.Object{
-			Class: className,
-			ID:    strfmt.UUID(uuid.NewString()),
+			Class:  className,
+			ID:     strfmt.UUID(uuid.NewString()),
+			Tenant: tenantName,
 			Properties: map[string]any{
 				"name":        fmt.Sprintf("name %d", i),
 				"description": fmt.Sprintf("description %d", i),
@@ -420,6 +426,12 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	}
 
 	testAllObjectsIndexed(t, c, className)
+
+	// COLD/HOT cycle flushes to disk so the baseline is comparable post-drop
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
 
 	// Verify both named vectors appear in usage
 	colUsageBefore, err := GetDebugUsageForCollection(className)

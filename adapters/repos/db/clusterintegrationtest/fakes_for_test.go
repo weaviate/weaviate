@@ -142,8 +142,8 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 			return replicas
 		}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(class string, shard string, replicas []string) ([]string, []string) {
-			return replicas, []string{}
+		func(class string, shard string, replicas []string) []string {
+			return replicas
 		}).Maybe()
 
 	n.repo, err = db.New(logger, n.name, db.Config{

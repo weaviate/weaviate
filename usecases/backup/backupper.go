@@ -128,7 +128,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		done := make(chan struct{})
 		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path, "routine_pool_size": provider.GoPoolSize}
 
 		baseBackupID := req.BaseBackupID
 		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, store.bucket, store.path, compressionType, store.MetaForBackupID)
@@ -148,6 +148,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			BaseBackupID:    baseBackupID,
 		}
 
+		b.logger.WithFields(logFields).Info("starting backup")
 		if err := provider.all(ctx, req.Classes, &result, baseDescrs, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err

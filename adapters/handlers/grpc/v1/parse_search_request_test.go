@@ -62,6 +62,7 @@ var (
 	singleNamedVecClass      = "SingleNamedVecClass"
 	regularWithColBERTClass  = "RegularWithColBERTClass"
 	mixedVectorsClass        = "MixedVectorsClass"
+	boostClass               = "BoostClass"
 
 	scheme = schema.Schema{
 		Objects: &models.Schema{
@@ -76,6 +77,17 @@ var (
 						{Name: "uuid", DataType: schema.DataTypeUUID.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
+					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
+				},
+				{
+					Class: boostClass,
+					Properties: []*models.Property{
+						{Name: "name", DataType: schema.DataTypeText.PropString()},
+						{Name: "int", DataType: schema.DataTypeInt.PropString()},
+						{Name: "number", DataType: schema.DataTypeNumber.PropString()},
+						{Name: "floats", DataType: schema.DataTypeNumberArray.PropString()},
+						{Name: "date", DataType: schema.DataTypeDate.PropString()},
 					},
 					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
 				},
@@ -2796,6 +2808,63 @@ func TestGRPCSearchRequest(t *testing.T) {
 				sortNamedVecs(out.AdditionalProperties.Vectors)
 				require.EqualValues(t, tt.out.Properties, out.Properties)
 				require.EqualValues(t, tt.out, out)
+			}
+		})
+	}
+}
+
+func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
+	propertyValue := func(prop string) *pb.Boost_Condition {
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_PropertyValue{
+			PropertyValue: &pb.Boost_PropertyValueFunction{Property: prop},
+		}}
+	}
+	timeDecay := func(prop string) *pb.Boost_Condition {
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_TimeDecay{
+			TimeDecay: &pb.Boost_TimeDecayFunction{Property: prop, Scale: "7d"},
+		}}
+	}
+	numericDecay := func(prop string) *pb.Boost_Condition {
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_NumericDecay{
+			NumericDecay: &pb.Boost_NumericDecayFunction{Property: prop, Scale: 10},
+		}}
+	}
+
+	tests := []struct {
+		name  string
+		cond  *pb.Boost_Condition
+		error bool
+	}{
+		{"property_value on number is valid", propertyValue("number"), false},
+		{"property_value on int is valid", propertyValue("int"), false},
+		{"property_value on text errors", propertyValue("name"), true},
+		{"property_value on number array errors", propertyValue("floats"), true},
+		{"property_value on nonexistent property errors", propertyValue("doesNotExist"), true},
+		{"property_value on nested path errors", propertyValue("number.foo"), true},
+		{"time_decay on date is valid", timeDecay("date"), false},
+		{"time_decay on number errors", timeDecay("number"), true},
+		{"time_decay on text errors", timeDecay("name"), true},
+		{"time_decay on nonexistent property errors", timeDecay("doesNotExist"), true},
+		{"time_decay on nested path errors", timeDecay("date.foo"), true},
+		{"numeric_decay on number is valid", numericDecay("number"), false},
+		{"numeric_decay on int is valid", numericDecay("int"), false},
+		{"numeric_decay on date errors", numericDecay("date"), true},
+		{"numeric_decay on nonexistent property errors", numericDecay("doesNotExist"), true},
+		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
+	}
+
+	parser := NewParser(false, getClass, nil, false)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &pb.SearchRequest{
+				Collection: boostClass,
+				Boost:      &pb.Boost{Conditions: []*pb.Boost_Condition{tt.cond}},
+			}
+			_, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			if tt.error {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
 			}
 		})
 	}

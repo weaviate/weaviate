@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -34,6 +35,29 @@ type DockerCompose struct {
 
 func (d *DockerCompose) Containers() []*DockerContainer {
 	return d.containers
+}
+
+// DumpWeaviateLogs writes the last `tail` log lines of every weaviate node to w.
+// Call from TestMain on failure to capture the leader side; the start-failure
+// dump only covers boot crashes, not mid-test misbehavior.
+func (d *DockerCompose) DumpWeaviateLogs(ctx context.Context, w io.Writer, tail int) {
+	for _, c := range d.containers {
+		if !strings.HasPrefix(c.name, "weaviate") {
+			continue
+		}
+		reader, err := c.container.Logs(ctx)
+		if err != nil {
+			fmt.Fprintf(w, "--- %s logs unavailable: %v ---\n", c.name, err)
+			continue
+		}
+		logs, _ := io.ReadAll(reader)
+		reader.Close()
+		lines := strings.Split(string(logs), "\n")
+		if len(lines) > tail {
+			lines = lines[len(lines)-tail:]
+		}
+		fmt.Fprintf(w, "--- %s logs (last %d lines) ---\n%s\n", c.name, tail, strings.Join(lines, "\n"))
+	}
 }
 
 func (d *DockerCompose) Terminate(ctx context.Context) error {
@@ -243,6 +267,54 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	}
 	c.endpoints = endPoints
 	return nil
+}
+
+// weaviateNodeIndex resolves the containers-slice position of weaviate node n
+// (1-based) by name, so callers are unaffected by sidecar containers (e.g.
+// MinIO) that may precede the cluster nodes in the slice.
+func (d *DockerCompose) weaviateNodeIndex(n int) (int, error) {
+	name := fmt.Sprintf("weaviate-%d", n)
+	for i, c := range d.containers {
+		if c.name == name {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("weaviate node %d (%q) not found", n, name)
+}
+
+// StopNode stops weaviate node n (1-based).
+func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Duration) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StopAt(ctx, idx, timeout)
+}
+
+// StartNode starts weaviate node n (1-based), re-mapping its endpoints.
+func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StartAt(ctx, idx)
+}
+
+// EnsureRunning starts weaviate node n (1-based) if it is not currently
+// running; a no-op when the node is already up.
+func (d *DockerCompose) EnsureRunning(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	state, err := d.containers[idx].container.State(ctx)
+	if err != nil {
+		return err
+	}
+	if state.Running {
+		return nil
+	}
+	return d.StartAt(ctx, idx)
 }
 
 func (d *DockerCompose) ContainerURI(index int) string {

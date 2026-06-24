@@ -58,7 +58,12 @@ const (
 	TempDirectory     = ".backup.tmp"
 )
 
-var _NUMCPU = runtime.NumCPU()
+// numCPU sizes worker pools. GOMAXPROCS (not NumCPU) may reflect the cgroup CPU
+// limit, and is read at the call site so a GOMAXPROCS change during startup
+// (see limitResources) is honored rather than captured at package init.
+func numCPU() int {
+	return runtime.GOMAXPROCS(0)
+}
 
 type objectStore struct {
 	backend modulecapabilities.BackupBackend
@@ -802,7 +807,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	// no compression processed as before
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
 	if !fw.compressed {
-		eg.SetLimit(2 * _NUMCPU)
+		eg.SetLimit(2 * numCPU())
 		for _, shard := range desc.Shards {
 			// Check for cancellation before processing each shard
 			if err := ctx.Err(); err != nil {
@@ -932,7 +937,7 @@ func routinePoolSize(percentage int) int {
 	} else if percentage > maxCPUPercentage {
 		percentage = maxCPUPercentage
 	}
-	if x := (_NUMCPU * percentage) / 100; x > 0 {
+	if x := (numCPU() * percentage) / 100; x > 0 {
 		return x
 	}
 	return 1

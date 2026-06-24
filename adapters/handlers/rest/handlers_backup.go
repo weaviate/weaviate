@@ -373,14 +373,13 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return backups.NewBackupsRestoreForbidden().
+			return backups.NewBackupsListForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-
 		case errors.As(err, &backup.ErrUnprocessable{}):
-			return backups.NewBackupsRestoreUnprocessableEntity().
+			return backups.NewBackupsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return backups.NewBackupsRestoreInternalServerError().
+			return backups.NewBackupsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}

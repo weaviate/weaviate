@@ -22,15 +22,16 @@ import (
 )
 
 // StartChangeCapture must be called before the source takes its file snapshot.
-func (c *Copier) StartChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error {
+func (c *Copier) StartChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string, schemaVersion uint64) error {
 	client, err := c.dialSource(ctx, srcNodeId)
 	if err != nil {
 		return err
 	}
 	_, err = client.StartChangeCapture(ctx, &protocol.StartChangeCaptureRequest{
-		IndexName: indexName,
-		ShardName: shardName,
-		OpId:      opID,
+		IndexName:     indexName,
+		ShardName:     shardName,
+		OpId:          opID,
+		SchemaVersion: schemaVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("start change capture on %s: %w", srcNodeId, err)

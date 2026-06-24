@@ -179,11 +179,11 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
-		return fmt.Errorf("backup %s already in progress", prevID)
+		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
-		return err
+		return backup.NewErrUnprocessable(err)
 	}
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
@@ -264,7 +264,7 @@ func (c *coordinator) Restore(
 
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
-		return fmt.Errorf("restoration %s already in progress", prevID)
+		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
 
 	for key := range c.Participants {
@@ -463,7 +463,10 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {
 		path := st.Path
-		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %w store: %v", errMetaNotFound, path, err, st)
+		if errors.As(err, &backup.ErrNotFound{}) {
+			return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %w store: %v", errMetaNotFound, path, err, st)
+		}
+		return nil, fmt.Errorf("coordinator cannot get status: %q: %w store: %v", path, err, st)
 	}
 
 	status := &Status{

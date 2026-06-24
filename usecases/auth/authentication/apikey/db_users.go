@@ -60,7 +60,7 @@ type DBUsers interface {
 	DeleteUser(ctx context.Context, userId string) error
 	ActivateUser(ctx context.Context, userId string) error
 	DeactivateUser(ctx context.Context, userId string, revokeKey bool) error
-	GetUsers(userIds ...string) (map[string]*User, error)
+	GetUsers(userIds ...string) (map[string]UserView, error)
 	RotateKey(ctx context.Context, userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
@@ -75,6 +75,36 @@ type User struct {
 	LastUsedAt         time.Time
 	ImportedWithKey    bool
 	Namespace          string
+}
+
+// UserView is an independent snapshot of [User] returned by [DBUser.GetUsers]
+// so callers can read fields without racing in-place mutators.
+type UserView struct {
+	Id                 string
+	Active             bool
+	InternalIdentifier string
+	ApiKeyFirstLetters string
+	CreatedAt          time.Time
+	LastUsedAt         time.Time
+	ImportedWithKey    bool
+	Namespace          string
+}
+
+// view returns a snapshot taken under the per-user RLock so it cannot
+// observe a torn write from UpdateLastUsedTimestamp.
+func (u *User) view() UserView {
+	u.RLock()
+	defer u.RUnlock()
+	return UserView{
+		Id:                 u.Id,
+		Active:             u.Active,
+		InternalIdentifier: u.InternalIdentifier,
+		ApiKeyFirstLetters: u.ApiKeyFirstLetters,
+		CreatedAt:          u.CreatedAt,
+		LastUsedAt:         u.LastUsedAt,
+		ImportedWithKey:    u.ImportedWithKey,
+		Namespace:          u.Namespace,
+	}
 }
 
 type DBUser struct {
@@ -361,19 +391,25 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	return c.storeToFile()
 }
 
-func (c *DBUser) GetUsers(userIds ...string) (map[string]*User, error) {
+func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
 	if len(userIds) == 0 {
-		return c.data.Users, nil
+		users := make(map[string]UserView, len(c.data.Users))
+		for id, user := range c.data.Users {
+			if user == nil {
+				continue
+			}
+			users[id] = user.view()
+		}
+		return users, nil
 	}
 
-	users := make(map[string]*User, len(userIds))
+	users := make(map[string]UserView, len(userIds))
 	for _, id := range userIds {
-		user, ok := c.data.Users[id]
-		if ok {
-			users[id] = user
+		if user, ok := c.data.Users[id]; ok && user != nil {
+			users[id] = user.view()
 		}
 	}
 	return users, nil

@@ -317,7 +317,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	if s.dynamicVectorIndexDB == nil {
-		path := filepath.Join(s.path(), "index.db")
+		path := filepath.Join(s.path(), dynamic.StateDBFileName)
 
 		db, err := bbolt.Open(path, 0o600, nil)
 		if err != nil {
@@ -359,6 +359,13 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 }
 
 func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
+	// Recreating an existing target would orphan the current index+queue (never
+	// Dropped). Returning early also makes concurrent UpdateVectorIndexConfigs
+	// calls that both saw the target absent safe.
+	if _, exists := s.vectorIndexes[targetVector]; exists {
+		return nil
+	}
+
 	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, lazyLoadSegments)
 	if err != nil {
 		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
