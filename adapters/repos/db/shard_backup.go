@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -233,7 +234,45 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
 
+	staged := make(map[string]struct{})
+
+	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		relPaths, err := idx.SnapshotMutableFiles(ctx, s.index.Config.RootPath, stagingRoot)
+		if err != nil {
+			return fmt.Errorf("snapshot mutable files of vector %q: %w", targetVector, err)
+		}
+		for _, relPath := range relPaths {
+			staged[relPath] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if s.dynamicVectorIndexDB != nil {
+		relPath, err := dynamic.SnapshotSharedStateDB(s.dynamicVectorIndexDB, s.path(), s.index.Config.RootPath, stagingRoot)
+		if err != nil {
+			return nil, err
+		}
+		staged[relPath] = struct{}{}
+	}
+
+	listed := make(map[string]struct{}, len(files))
 	for _, relPath := range files {
+		listed[relPath] = struct{}{}
+	}
+	for relPath := range staged {
+		if _, ok := listed[relPath]; !ok {
+			files = append(files, relPath)
+		}
+	}
+
+	for _, relPath := range files {
+		if _, ok := staged[relPath]; ok {
+			// already written as a consistent copy above; do not hardlink over it
+			continue
+		}
 		src := filepath.Join(s.index.Config.RootPath, relPath)
 		dst := filepath.Join(stagingRoot, relPath)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {

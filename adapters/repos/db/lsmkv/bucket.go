@@ -2411,8 +2411,8 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		return n, nil
 	}
 	term.exhausted = false
-	term.blockEntries = make([]*terms.BlockEntry, 1)
-	term.blockEntries[0] = &terms.BlockEntry{
+	term.blockEntries = make([]terms.BlockEntry, 1)
+	term.blockEntries[0] = terms.BlockEntry{
 		MaxId:               term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
 		Offset:              0,
 		MaxImpactTf:         maxImpactTf,
