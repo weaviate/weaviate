@@ -355,9 +355,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
-	// builtOps is the op set the replace-strategy transformer is built from
-	// (see the StrategyReplace case). It drives the completion bookkeeping by
-	// membership, so it must outlive the switch below.
+	// set by the StrategyReplace case; consumed by the bookkeeping after the switch.
 	var builtOps []ActiveOp
 
 	// aborted=true tells the caller to close the partial .tmp and bail
@@ -384,10 +382,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
-		// Build the per-pass transformer here so it (and the op set it is built
-		// from) is scoped to the only strategy that consumes one. builtOps feeds
-		// the completion bookkeeping; capturing it before the long merge lets the
-		// bookkeeping tell, by membership, which ops the merge actually stripped.
+		// Replace is the only strategy that consumes a transformer.
 		var transformer valueTransformer
 		if sg.editOps != nil {
 			transformer, builtOps, err = sg.editOps.BuildCurrentTransformer()

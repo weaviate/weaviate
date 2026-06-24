@@ -127,18 +127,11 @@ func (s *SegmentEditOps) Close() error {
 	return s.db.Close()
 }
 
-// BuildCurrentTransformer composes the ops live right now into a single value
-// transformer for one compaction or cleanup pass. It returns a nil transformer
-// when no builder is configured or no ops are active, signalling the pass to run
-// without transformation. Building per pass (rather than holding one transformer
-// for the segment group's lifetime) lets it reflect the live ops and compose
-// multiple concurrent drops.
-//
-// It also returns the exact ops the transformer was built from. Compaction
-// bookkeeping (RecordCompaction) needs this set to decide which ops the pass
-// actually stripped, by membership rather than by timestamp — an op registered
-// after this read is absent from the set and so was not stripped. The set is
-// nil whenever the transformer is nil (nothing was stripped this pass).
+// BuildCurrentTransformer composes the ops live right now into one value
+// transformer for a single compaction or cleanup pass, plus the exact ops it was
+// built from. Building per pass keeps it in step with the live ops; the op set
+// lets RecordCompaction decide what the pass stripped by membership. Transformer
+// and set are both nil when no builder is configured or no ops are active.
 func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp, error) {
 	if s.buildTransformer == nil {
 		return nil, nil, nil
@@ -153,21 +146,14 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 	return s.buildTransformer(ops), ops, nil
 }
 
-// RecordCompaction runs the post-compaction edit-ops bookkeeping for a merge of
-// leftID and rightID into mergedID (leftID_rightID), in a single bolt
-// transaction. It is the sequenced step after the on-disk rename and the
-// in-memory swap; a crash before it commits is repaired by Reconcile at the next
-// Open.
-//
-// For every active op it marks the merged inputs done. builtOps is the set the
-// pass's transformer was built from (from BuildCurrentTransformer): an op absent
-// from it was registered after the transformer was built, so the merged output
-// still carries that op's target and is re-queued for cleanup if either input
-// was pending for it. Membership — not a timestamp — drives the decision, so the
-// compactor's local clock is never compared against the caller-supplied op
-// CreatedAt (those are different clocks once ops originate from a cluster
-// leader). Re-cleaning an already-clean output would be a no-op anyway by the
-// transformer's idempotency contract, so the gate only needs to be conservative.
+// RecordCompaction does the post-merge bookkeeping for leftID+rightID ->
+// leftID_rightID in one bolt tx: the sequenced step after the rename and
+// in-memory swap, repaired by Reconcile if a crash precedes the commit. It marks
+// the merged inputs done for every op, and re-queues the merged output for any
+// op absent from builtOps (registered after the transformer was built, so its
+// target was not stripped) that had a pending input. Membership — not a
+// timestamp — gates the re-queue: the compactor's local clock and the
+// caller-supplied op CreatedAt are different clocks once ops come from a leader.
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	mergedID := leftID + "_" + rightID
 
