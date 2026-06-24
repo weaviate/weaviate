@@ -180,7 +180,7 @@ type BackupRequest struct {
 	UserRestoreOption string
 
 	// Restore-only. Strips the leading "<namespace>:" from materialized
-	// class, alias, and dynamic-user identifiers. Stage-1 graduation.
+	// class, alias, and dynamic-user identifiers.
 	ShouldStripNamespaces bool
 
 	BaseBackupID string

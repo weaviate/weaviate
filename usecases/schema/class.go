@@ -365,6 +365,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	// post-strip staging dir (see usecases/backup/restorer.restoreOne).
 	if stripNamespaces {
 		class.Class = namespacing.StripNamespacePrefix(class.Class)
+		namespacing.StripPropertyDataTypes(class.Properties)
 		for _, alias := range aliases {
 			alias.Alias = namespacing.StripNamespacePrefix(alias.Alias)
 		}

@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestNamespaceGraduationE2E pins the full Stage-1 graduation journey: back
+// TestNamespaceGraduationE2E pins the full graduation journey: back
 // up one of two namespaces, reset the cluster, restore the slice bare. A
 // single container suffices because the strip is gated by
 // ShouldStripNamespaces, not the target's NAMESPACES_ENABLED — bare names
@@ -49,10 +49,13 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
 	t.Cleanup(func() {
-		// Best-effort: bare survivors first, namespaced state second.
+		// Best-effort: bare survivors first, namespaced state second; ref
+		// source (Movies) before ref target (Directors).
 		helper.DeleteClassWithoutAssert(t, "Movies", adminKey)
+		helper.DeleteClassWithoutAssert(t, "Directors", adminKey)
 		helper.DeleteUser(t, "alice", adminKey)
 		helper.DeleteClassWithoutAssert(t, ns1+":Movies", adminKey)
+		helper.DeleteClassWithoutAssert(t, ns1+":Directors", adminKey)
 		helper.DeleteClassWithoutAssert(t, ns2+":Books", adminKey)
 		helper.DeleteUser(t, ns1+":alice", adminKey)
 		helper.DeleteUser(t, ns2+":bob", adminKey)
@@ -63,10 +66,28 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	aliceKey := createNamespacedUser(t, "alice", ns1, adminKey)
 	bobKey := createNamespacedUser(t, "bob", ns2, adminKey)
 
-	// ns1: Movies (3 objects) + alias MoviesByCity.
+	// ns1: Directors (1 object). Before Movies: live-cluster cross-ref
+	// validation needs the target to exist (the restore path relaxes this).
+	const nolanID = strfmt.UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
 	helper.CreateClassAuth(t, &models.Class{
-		Class:      "Movies",
-		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		Class:      "Directors",
+		Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+	}, aliceKey)
+	require.NoError(t, helper.CreateObjectAuth(t, &models.Object{
+		ID:         nolanID,
+		Class:      "Directors",
+		Properties: map[string]any{"name": "Christopher Nolan"},
+	}, aliceKey))
+
+	// ns1: Movies (3 objects) + alias MoviesByCity + a cross-ref to Directors.
+	// alice's short "Directors" DataType is stored qualified ("ns1:Directors") —
+	// the form graduation must strip.
+	helper.CreateClassAuth(t, &models.Class{
+		Class: "Movies",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "directedBy", DataType: []string{"Directors"}},
+		},
 	}, aliceKey)
 	movieUUIDs := []strfmt.UUID{
 		"11111111-1111-1111-1111-111111111111",
@@ -81,6 +102,12 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 			Properties: map[string]any{"title": title},
 		}, aliceKey))
 	}
+	// Link Inception -> Nolan. The stored beacon is namespace-free at rest, so
+	// it must survive graduation untouched.
+	_, err := helper.AddReferenceReturn(t,
+		&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Directors/" + nolanID.String())},
+		movieUUIDs[0], "Movies", "directedBy", "", helper.CreateAuth(aliceKey))
+	require.NoError(t, err)
 	helper.CreateAliasAuth(t, &models.Alias{Alias: "MoviesByCity", Class: "Movies"}, aliceKey)
 
 	// ns2: Books (2 objects) + alias BooksByAuthor.
@@ -107,7 +134,7 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 			WithBackend(backend).
 			WithBody(&models.BackupCreateRequest{
 				ID:           backupID,
-				Include:      []string{ns1 + ":Movies"},
+				Include:      []string{ns1 + ":Movies", ns1 + ":Directors"},
 				IncludeUsers: []string{ns1 + ":*"},
 				Config:       helper.DefaultBackupConfig(),
 			}),
@@ -118,7 +145,7 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	require.Equal(t, "", createResp.Payload.Error)
 	// The response reflects what the scheduler resolved, not the artefact's
 	// contents — those are exercised by the restore assertions below.
-	assert.ElementsMatch(t, []string{ns1 + ":Movies"}, createResp.Payload.Classes)
+	assert.ElementsMatch(t, []string{ns1 + ":Movies", ns1 + ":Directors"}, createResp.Payload.Classes)
 	assert.ElementsMatch(t, []string{ns1 + ":alice"}, createResp.Payload.Users)
 
 	helper.ExpectBackupEventuallyCreated(t, backupID, backend, adminAuth,
@@ -130,7 +157,9 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	// test/acceptance/aliases/aliases_api_backup_test.go cleanup.
 	helper.DeleteAliasWithAuthz(t, ns1+":MoviesByCity", adminAuth)
 	helper.DeleteAliasWithAuthz(t, ns2+":BooksByAuthor", adminAuth)
+	// Movies (the ref source) before Directors (the ref target).
 	helper.DeleteClassWithAuthz(t, ns1+":Movies", adminAuth)
+	helper.DeleteClassWithAuthz(t, ns1+":Directors", adminAuth)
 	helper.DeleteClassWithAuthz(t, ns2+":Books", adminAuth)
 	helper.DeleteUser(t, ns1+":alice", adminKey)
 	helper.DeleteUser(t, ns2+":bob", adminKey)
@@ -142,7 +171,8 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	require.Error(t, err, "ns2:Books should be deleted pre-restore")
 
 	// Phase 4 — restore with strip. usersOptions=all loads the user blob;
-	// rolesOptions=noRestore keeps the (deferred) RBAC slice out of scope.
+	// rolesOptions=noRestore: the strip leaves roles unchanged, so restoring
+	// them would reference the pre-strip names.
 	all := "all"
 	noRestore := "noRestore"
 	restoreConf := helper.DefaultRestoreConfig()
@@ -175,6 +205,22 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	assert.Equal(t, "Movies", gotMovies.Class)
 	_, err = helper.GetClassWithoutAssert(t, ns1+":Movies", adminKey)
 	require.Error(t, err, "ns1:Movies must not exist post-strip")
+
+	// Cross-ref DataType stripped to bare "Directors" — "ns1:Directors" would
+	// dangle (target class no longer exists). Target class restored bare.
+	var directedBy *models.Property
+	for _, p := range gotMovies.Properties {
+		if p.Name == "directedBy" {
+			directedBy = p
+		}
+	}
+	require.NotNil(t, directedBy, "directedBy property must survive restore")
+	assert.Equal(t, []string{"Directors"}, directedBy.DataType, "cross-ref DataType must be stripped")
+	gotDirectors := helper.GetClassAuth(t, "Directors", adminKey)
+	require.NotNil(t, gotDirectors)
+	assert.Equal(t, "Directors", gotDirectors.Class)
+	_, err = helper.GetClassWithoutAssert(t, ns1+":Directors", adminKey)
+	require.Error(t, err, "ns1:Directors must not exist post-strip")
 
 	// ns2 excluded: no Books, qualified or bare.
 	_, err = helper.GetClassWithoutAssert(t, "Books", adminKey)
@@ -211,6 +257,23 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 		require.True(t, ok, "object %d properties not a map", i)
 		assert.Equal(t, expectedTitle, props["title"])
 	}
+
+	// Cross-ref survives graduation. A plain GET returns the ref as a beacon
+	// (?include is for vectors, not ref expansion); the beacon is namespace-free
+	// at rest, so it still targets the bare Directors — schema strip suffices.
+	inception, err := helper.GetObjectAuth(t, "Movies", movieUUIDs[0], adminKey)
+	require.NoError(t, err)
+	inceptionProps, ok := inception.Properties.(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, inceptionProps, "directedBy", "directedBy ref must survive restore")
+	assert.Contains(t, fmt.Sprintf("%v", inceptionProps["directedBy"]), nolanID.String(),
+		"directedBy beacon must still target the Nolan director")
+	// And the target itself resolves at the bare class name.
+	nolan, err := helper.GetObjectAuth(t, "Directors", nolanID, adminKey)
+	require.NoError(t, err, "ref target must be retrievable at the bare class name")
+	nolanProps, ok := nolan.Properties.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Christopher Nolan", nolanProps["name"])
 }
 
 // assertUserNotFound is the negative counterpart of helper.GetUser, which

@@ -245,6 +245,26 @@ func StripNamespacePrefix(name string) string {
 	return after
 }
 
+// StripPropertyDataTypes removes the "<namespace>:" prefix from cross-ref
+// Property.DataTypes in place — the graduation-restore inverse of
+// [QualifyPropertyDataTypes].
+func StripPropertyDataTypes(properties []*models.Property) {
+	for _, p := range properties {
+		if p == nil || len(p.DataType) == 0 {
+			continue
+		}
+		if _, ok := schema.AsPrimitive(p.DataType); ok {
+			continue
+		}
+		if _, ok := schema.AsNested(p.DataType); ok {
+			continue
+		}
+		for i, dt := range p.DataType {
+			p.DataType[i] = StripNamespacePrefix(dt)
+		}
+	}
+}
+
 // StripClassResponse returns a shallow copy of src with the top-level Class
 // name and every property/nested-property DataType entry stripped of the
 // principal's own namespace prefix. Returns src unchanged when the principal

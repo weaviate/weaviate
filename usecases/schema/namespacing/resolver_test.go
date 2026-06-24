@@ -729,6 +729,82 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 	}
 }
 
+func TestStripPropertyDataTypes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []*models.Property
+		want []*models.Property
+	}{
+		{
+			name: "qualified cross-ref stripped",
+			in:   []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			want: []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+		},
+		{
+			name: "multi-target refs all stripped",
+			in:   []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer1:Books"}}},
+			want: []*models.Property{{Name: "related", DataType: []string{"Movies", "Books"}}},
+		},
+		{
+			name: "already-short cross-ref passes through",
+			in:   []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want: []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+		},
+		{
+			name: "foreign-namespace prefix also stripped (graduation flattens every namespace)",
+			in:   []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
+			want: []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+		},
+		{
+			name: "primitive DataType passes through",
+			in:   []*models.Property{{Name: "title", DataType: []string{"text"}}},
+			want: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		},
+		{
+			name: "nested object DataType passes through",
+			in: []*models.Property{
+				{Name: "meta", DataType: []string{"object"}},
+				{Name: "metas", DataType: []string{"object[]"}},
+			},
+			want: []*models.Property{
+				{Name: "meta", DataType: []string{"object"}},
+				{Name: "metas", DataType: []string{"object[]"}},
+			},
+		},
+		{
+			name: "empty DataType slice and nil property no-op",
+			in: []*models.Property{
+				nil,
+				{Name: "empty", DataType: []string{}},
+				{Name: "watched", DataType: []string{"customer1:Movies"}},
+			},
+			want: []*models.Property{
+				nil,
+				{Name: "empty", DataType: []string{}},
+				{Name: "watched", DataType: []string{"Movies"}},
+			},
+		},
+		{
+			name: "mixed primitive and ref in same call",
+			in: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{"customer1:Movies"}},
+			},
+			want: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{"Movies"}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			StripPropertyDataTypes(tc.in)
+			// Mutation in-place is intentional — assert via the input slice.
+			assert.Equal(t, tc.want, tc.in)
+		})
+	}
+}
+
 func TestStripPropertyResponse(t *testing.T) {
 	cases := []struct {
 		name      string

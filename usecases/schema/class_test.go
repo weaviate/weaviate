@@ -2623,6 +2623,57 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 	}
 }
 
+// TestRestoreClass_StripNamespaces asserts graduation restore strips cross-ref
+// DataTypes, not just the class name. The assertion captures the class handed
+// to schemaManager.RestoreClass, so the call wiring is pinned too.
+func TestRestoreClass_StripNamespaces(t *testing.T) {
+	t.Parallel()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+	classRaw := &models.Class{
+		Class: "ns1:Movies",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "directedBy", DataType: []string{"ns1:Directors"}},
+			{Name: "related", DataType: []string{"ns1:Directors", "ns1:Movies"}},
+		},
+		Vectorizer: "none",
+	}
+
+	schemaBytes, err := json.Marshal(classRaw)
+	require.Nil(t, err)
+
+	shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
+	require.Nil(t, err)
+	nodes := mocks.NewMockNodeSelector("node1", "node2")
+	shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+	require.Nil(t, err)
+	shardingBytes, err := shardingState.JSON()
+	require.Nil(t, err)
+
+	fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
+
+	var applied *models.Class
+	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { applied = args.Get(0).(*models.Class) }).
+		Return(nil)
+
+	descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
+	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, true)
+	require.NoError(t, err)
+	fakeSchemaManager.AssertExpectations(t)
+
+	require.NotNil(t, applied)
+	assert.Equal(t, "Movies", applied.Class, "class name must be stripped")
+	byName := map[string][]string{}
+	for _, p := range applied.Properties {
+		byName[p.Name] = p.DataType
+	}
+	assert.Equal(t, []string{"text"}, byName["title"], "primitive DataType untouched")
+	assert.Equal(t, []string{"Directors"}, byName["directedBy"], "cross-ref DataType stripped")
+	assert.Equal(t, []string{"Directors", "Movies"}, byName["related"], "every entry of a multi-target ref stripped")
+}
+
 func TestRestoreClass_WithNodeMapping(t *testing.T) {
 	classes := []*models.Class{{
 		Class:      "Class_A",
