@@ -736,6 +736,10 @@ function run_acceptance_replication_tests() {
 }
 
 function run_acceptance_async_replication_tests() {
+  # Build once up front and reuse via TEST_WEAVIATE_IMAGE; otherwise each package
+  # below rebuilds the image through testcontainers and the second package can
+  # exceed the container-start deadline in CI.
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/async_replication'); do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2

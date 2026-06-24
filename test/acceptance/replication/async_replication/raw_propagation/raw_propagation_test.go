@@ -9,14 +9,15 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package rawpropagation holds the async-replication raw-propagation e2e in its
-// own package so it runs as a separate go-test invocation (its own timeout
-// budget) rather than competing with the main async_replication suite.
+// Package rawpropagation holds the async-replication propagation e2e in its own
+// package so it runs as a separate go-test invocation (its own timeout budget)
+// rather than competing with the main async_replication suite.
 package rawpropagation
 
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -46,13 +47,21 @@ var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
 }
 
-// TestAsyncRepairRawPropagation exercises the raw-bytes propagation path
-// (ASYNC_REPLICATION_RAW_PROPAGATION=true): a node misses a batch while down,
-// then on restart must converge by receiving the raw on-disk object bytes. It
-// asserts not just convergence but that properties and vectors survive the
-// round-trip, proving the object store, inverted index and vector index were
-// rebuilt correctly from the raw payload.
-func TestAsyncRepairRawPropagation(t *testing.T) {
+// TestAsyncRepairObjectPropagation runs the same node-recovery convergence
+// scenario with raw propagation both disabled (the former JSON object path) and
+// enabled, asserting identical end state. This proves the raw path is a
+// drop-in: behaviour is unchanged when the flag is off, and properties and
+// vectors still survive when it is on.
+func TestAsyncRepairObjectPropagation(t *testing.T) {
+	t.Run("raw_disabled", func(t *testing.T) {
+		runAsyncRepairScenario(t, false)
+	})
+	t.Run("raw_enabled", func(t *testing.T) {
+		runAsyncRepairScenario(t, true)
+	})
+}
+
+func runAsyncRepairScenario(t *testing.T, rawEnabled bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
@@ -60,7 +69,7 @@ func TestAsyncRepairRawPropagation(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
-		WithWeaviateEnv("ASYNC_REPLICATION_RAW_PROPAGATION", "true").
+		WithWeaviateEnv("ASYNC_REPLICATION_RAW_PROPAGATION", strconv.FormatBool(rawEnabled)).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -142,6 +151,6 @@ func TestAsyncRepairRawPropagation(t *testing.T) {
 				require.NotEmpty(ct, vec)
 			}
 			require.Equal(ct, expectedContents, gotContents)
-		}, 120*time.Second, 5*time.Second, "objects not converged via raw propagation")
+		}, 120*time.Second, 5*time.Second, "objects not converged (rawEnabled=%v)", rawEnabled)
 	})
 }
