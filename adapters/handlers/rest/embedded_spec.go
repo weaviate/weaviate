@@ -7200,7 +7200,7 @@ func init() {
           }
         },
         "includeUsers": {
-          "description": "List of users to include in the backup restoration process. If not set, all users are included.",
+          "description": "List of users to include in the backup creation process. If not set, all users are included.",
           "type": "array",
           "items": {
             "type": "string"
@@ -18289,7 +18289,7 @@ func init() {
           }
         },
         "includeUsers": {
-          "description": "List of users to include in the backup restoration process. If not set, all users are included.",
+          "description": "List of users to include in the backup creation process. If not set, all users are included.",
           "type": "array",
           "items": {
             "type": "string"
