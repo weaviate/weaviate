@@ -155,6 +155,12 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
 // local config
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
+	if namespacesEnabled {
+		if err := rejectNamespacedRootSubjects(conf); err != nil {
+			return err
+		}
+	}
+
 	// Wipe all four built-in role policies before re-registering. The
 	// canonical shape lives in code; rebuilding from scratch on every boot
 	// keeps the on-disk policy CSV honest.
@@ -289,6 +295,19 @@ var (
 	clusterPrefix    = authorization.ClusterDomain + "/"
 	namespacesPrefix = authorization.NamespacesDomain + "/"
 )
+
+// rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
+// is configured for the root role: a namespaced principal must never inherit
+// cluster-wide root. read-only has no static user list (groups only, deferred
+// to namespaced groups), so root users are the only static subject to guard.
+func rejectNamespacedRootSubjects(conf rbacconf.Config) error {
+	for _, u := range conf.RootUsers {
+		if strings.Contains(u, schema.NamespaceSeparator) {
+			return fmt.Errorf("RBAC root user %q is namespace-qualified; a namespaced principal cannot inherit the root role", u)
+		}
+	}
+	return nil
+}
 
 // anyNamespacePattern matches exactly one `<ns>:` prefix.
 var anyNamespacePattern = "[^/" + schema.NamespaceSeparator + "]+" + schema.NamespaceSeparator

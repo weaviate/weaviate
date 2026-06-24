@@ -1119,3 +1119,32 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 	assert.Contains(t, roles, conv.PrefixRoleName(authorization.ReadOnly),
 		"env-var read-only group must still have read-only role after restart")
 }
+
+// TestApplyPredefinedRoles_RejectsNamespacedRootUser pins the static-bootstrap
+// reject: a namespace-qualified root user fails startup on NS clusters so a
+// namespaced principal can't inherit root. NS-disabled is unaffected.
+func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
+	tests := []struct {
+		name              string
+		rootUsers         []string
+		namespacesEnabled bool
+		wantErr           bool
+	}{
+		{"namespaced root user on NS cluster rejected", []string{"customer1:alice"}, true, true},
+		{"bare root user on NS cluster allowed", []string{"alice"}, true, false},
+		{"mixed list with one namespaced on NS cluster rejected", []string{"alice", "customer1:bob"}, true, true},
+		{"namespaced root user on NS-disabled allowed", []string{"customer1:alice"}, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			conf := rbacconf.Config{Enabled: true, RootUsers: tt.rootUsers}
+			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
