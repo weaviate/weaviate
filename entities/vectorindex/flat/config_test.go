@@ -19,6 +19,27 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
+func defaultExpectedUserConfig() UserConfig {
+	compression := CompressionUserConfig{
+		Enabled:      DefaultCompressionEnabled,
+		RescoreLimit: DefaultCompressionRescore,
+		Cache:        DefaultVectorCache,
+	}
+	return UserConfig{
+		VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
+		Distance:              common.DefaultDistanceMetric,
+		PQ:                    compression,
+		BQ:                    compression,
+		SQ:                    compression,
+		RQ: RQUserConfig{
+			Enabled:      DefaultCompressionEnabled,
+			RescoreLimit: DefaultCompressionRescore,
+			Cache:        DefaultVectorCache,
+			Bits:         DefaultRQBits,
+		},
+	}
+}
+
 func Test_FlatUserConfig(t *testing.T) {
 	type test struct {
 		name         string
@@ -400,31 +421,13 @@ func Test_FlatUserConfig(t *testing.T) {
 					"rescoreLimit": float64(0),
 				},
 			},
-			expected: UserConfig{
-				VectorCacheMaxObjects: 100,
-				Distance:              common.DefaultDistanceMetric,
-				PQ: CompressionUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
-				},
-				BQ: CompressionUserConfig{
-					Enabled:      true,
-					RescoreLimit: 0,
-					Cache:        DefaultVectorCache,
-				},
-				SQ: CompressionUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
-				},
-				RQ: RQUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
-					Bits:         DefaultRQBits,
-				},
-			},
+			expected: func() UserConfig {
+				e := defaultExpectedUserConfig()
+				e.VectorCacheMaxObjects = 100
+				e.BQ.Enabled = true
+				e.BQ.RescoreLimit = 0
+				return e
+			}(),
 		},
 	}
 
