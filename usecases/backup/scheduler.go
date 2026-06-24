@@ -653,7 +653,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 			return nil, nil, fmt.Errorf("base backup id: %w", err)
 		}
 		if req.ID == req.BaseBackupID {
-			return nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
+			return nil, nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
 		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
