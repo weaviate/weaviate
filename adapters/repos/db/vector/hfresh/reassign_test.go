@@ -29,7 +29,7 @@ func TestReassignDeletedVector(t *testing.T) {
 
 	_, err := tf.Index.VersionMap.MarkDeleted(t.Context(), vectorID)
 	require.NoError(t, err)
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
 
 	op := reassignOperation{
 		PostingID: 1,
@@ -42,7 +42,7 @@ func TestReassignDeletedVector(t *testing.T) {
 	deleted, err := tf.Index.VersionMap.IsDeleted(t.Context(), vectorID)
 	require.NoError(t, err)
 	require.True(t, deleted)
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
 }
 
 // Reassign a vector that doesn't exist
@@ -61,45 +61,45 @@ func TestReassignVectorNotFound(t *testing.T) {
 		VectorID:  9999,
 	}
 
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(op.VectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(op.VectorID))
 	err := tf.Index.doReassign(t.Context(), op)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to get vector by index ID")
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(op.VectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(op.VectorID))
 }
 
 // Basic in-memory deduplicator functionality
-func TestReassignDeduplicatorBasic(t *testing.T) {
+func TestReassignTaskQueueDedupBasic(t *testing.T) {
 	tf := createHFreshIndex(t)
 
 	dedup := tf.Index.taskQueue.reassignList
 
-	added := dedup.tryAdd(100)
+	added := dedup.TryAdd(100)
 	require.True(t, added, "first add should succeed")
 
-	added = dedup.tryAdd(100)
+	added = dedup.TryAdd(100)
 	require.False(t, added, "duplicate add should fail")
 
-	added = dedup.tryAdd(100)
+	added = dedup.TryAdd(100)
 	require.False(t, added, "update should fail (already exists)")
 }
 
 // Done removes entry
-func TestReassignDeduplicatorDone(t *testing.T) {
+func TestReassignTaskQueueDedupDone(t *testing.T) {
 	tf := createHFreshIndex(t)
 
 	dedup := tf.Index.taskQueue.reassignList
 
-	added := dedup.tryAdd(200)
+	added := dedup.TryAdd(200)
 	require.True(t, added)
 
-	dedup.done(200)
+	dedup.Delete(200)
 
-	added = dedup.tryAdd(200)
+	added = dedup.TryAdd(200)
 	require.True(t, added, "should be able to add again after done")
 }
 
-func TestReassignDeduplicatorDoesNotPersistOnClose(t *testing.T) {
+func TestReassignTaskQueueDedupDoesNotPersistOnClose(t *testing.T) {
 	tf := createHFreshIndex(t)
 
 	err := tf.Index.taskQueue.EnqueueReassign(1, 300)
@@ -123,7 +123,7 @@ func TestReassignEnqueuePushFailureClearsDedup(t *testing.T) {
 	err = tf.Index.taskQueue.EnqueueReassign(1, vectorID)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to push reassign operation to queue")
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
 }
 
 // Reassign a vector whose version was concurrently changed should be skipped
@@ -153,10 +153,10 @@ func TestReassignConcurrentVersionChange(t *testing.T) {
 		VectorID:  vectorID,
 	}
 
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
 	err := tf.Index.doReassign(t.Context(), op)
 	require.NoError(t, err)
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
 }
 
 func TestReassignReenqueuesWhenSelectedPostingDisappears(t *testing.T) {
@@ -173,7 +173,7 @@ func TestReassignReenqueuesWhenSelectedPostingDisappears(t *testing.T) {
 	replicas := NewResultSet(1)
 	replicas.data = append(replicas.data, Result{ID: missingPostingID})
 
-	require.True(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
 
 	requeued, err := tf.Index.appendReassignReplicas(
 		t.Context(),
@@ -183,7 +183,7 @@ func TestReassignReenqueuesWhenSelectedPostingDisappears(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, requeued)
 	require.Equal(t, int64(1), tf.Index.taskQueue.reassignQueue.Size())
-	require.False(t, tf.Index.taskQueue.reassignList.tryAdd(vectorID))
+	require.False(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
 }
 
 // Reassign properly manages task queue

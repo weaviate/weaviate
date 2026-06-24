@@ -1051,6 +1051,109 @@ func uuid4() strfmt.UUID {
 	return strfmt.UUID(id.String())
 }
 
+func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
+	// Node-independence: the op registered below is node1->node2, yet the queries (which
+	// take no node argument) must report it active for its collection/shard on every node.
+	type shardCheck struct {
+		collection string
+		shard      string
+		expected   bool
+	}
+	type collectionCheck struct {
+		collection string
+		expected   bool
+	}
+
+	activeShardChecks := []shardCheck{
+		{collection: "TestCollection", shard: "shard1", expected: true},
+		{collection: "non-existing-collection", shard: "shard1", expected: false},
+		{collection: "TestCollection", shard: "non-existing-shard", expected: false},
+	}
+	inactiveShardChecks := []shardCheck{
+		{collection: "TestCollection", shard: "shard1", expected: false},
+		{collection: "non-existing-collection", shard: "shard1", expected: false},
+		{collection: "TestCollection", shard: "non-existing-shard", expected: false},
+	}
+	activeCollectionChecks := []collectionCheck{
+		{collection: "TestCollection", expected: true},
+		{collection: "non-existing-collection", expected: false},
+	}
+	inactiveCollectionChecks := []collectionCheck{
+		{collection: "TestCollection", expected: false},
+		{collection: "non-existing-collection", expected: false},
+	}
+
+	tests := []struct {
+		name             string
+		status           api.ShardReplicationState
+		shardChecks      []shardCheck
+		collectionChecks []collectionCheck
+	}{
+		// Non-terminal: active.
+		{name: "op is REGISTERED", status: api.REGISTERED, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is HYDRATING", status: api.HYDRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is FINALIZING", status: api.FINALIZING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is INTEGRATING", status: api.INTEGRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is DEHYDRATING", status: api.DEHYDRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		// Terminal and not marked for deletion: inactive.
+		{name: "op is READY", status: api.READY, shardChecks: inactiveShardChecks, collectionChecks: inactiveCollectionChecks},
+		{name: "op is CANCELLED", status: api.CANCELLED, shardChecks: inactiveShardChecks, collectionChecks: inactiveCollectionChecks},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			schemaManager.AddClass(
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+					Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+					State: &sharding.State{
+						Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+					},
+				}), "node1", true, false)
+
+			// Create ApplyRequest
+			subCommand, _ := json.Marshal(&api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
+				SourceCollection: "TestCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node1",
+				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
+			})
+			applyRequest := &api.ApplyRequest{
+				SubCommand: subCommand,
+			}
+
+			// Execute
+			err := manager.Replicate(0, applyRequest)
+			assert.NoError(t, err)
+
+			manager.GetReplicationFSM().UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+				Id:      0,
+				Version: 0,
+				State:   tt.status,
+			})
+
+			fsm := manager.GetReplicationFSM()
+			for _, c := range tt.shardChecks {
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForShard(c.collection, c.shard),
+					"HasActiveReplicationForShard(%q, %q)", c.collection, c.shard)
+			}
+			for _, c := range tt.collectionChecks {
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForCollection(c.collection),
+					"HasActiveReplicationForCollection(%q)", c.collection)
+			}
+		})
+	}
+}
+
 func TestManager_QueryReplicationScalePlan(t *testing.T) {
 	t.Parallel()
 

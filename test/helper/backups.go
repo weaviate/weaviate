@@ -163,6 +163,14 @@ func RestoreBackupWithAuthz(t *testing.T, cfg *models.RestoreConfig, className, 
 	return Client(t).Backups.BackupsRestore(params, authInfo)
 }
 
+func RestoreCancelWithAuthz(t *testing.T, backend, backupID string, authInfo runtime.ClientAuthInfoWriter) error {
+	params := backups.NewBackupsRestoreCancelParams().
+		WithBackend(backend).
+		WithID(backupID)
+	_, err := Client(t).Backups.BackupsRestoreCancel(params, authInfo)
+	return err
+}
+
 func RestoreBackupStatus(t *testing.T, backend, backupID, overrideBucket, overridePath string) (*backups.BackupsRestoreStatusOK, error) {
 	params := backups.NewBackupsRestoreStatusParams().
 		WithBackend(backend).

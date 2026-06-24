@@ -253,7 +253,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 				fsm := replicationTypes.NewMockReplicationFSMReader(t)
 				// Maybe(): the gate short-circuits, so call count is non-deterministic.
 				fsm.EXPECT().
-					HasOngoingReplication(className, mock.Anything).
+					HasActiveReplicationForShard(className, mock.Anything).
 					RunAndReturn(func(_, shard string) bool {
 						return tt.shardsWithOps[shard]
 					}).
@@ -305,7 +305,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 		fsm := replicationTypes.NewMockReplicationFSMReader(t)
 		fsm.EXPECT().
-			HasOngoingReplication(className, mock.Anything).
+			HasActiveReplicationForShard(className, mock.Anything).
 			RunAndReturn(func(_, shard string) bool { return shardsWithOps[shard] }).
 			Maybe()
 
