@@ -96,11 +96,13 @@ func (h *hnsw) restoreFromDisk() error {
 		return nil
 	}
 
-	// A truncated/corrupt WAL was detected and truncated during load. Log
-	// for diagnostic visibility. The commit logger will start a fresh raw
-	// file regardless, so no further action is needed here.
+	// A corrupt WAL was detected during load: either a raw file's torn tail
+	// was truncated, or an unreadable compacted segment was dropped in favour
+	// of the snapshot + clean segments. Log for diagnostic visibility. The
+	// commit logger will start a fresh raw file regardless, so no further
+	// action is needed here.
 	if loadResult.RecoveredFromCrash {
-		h.logger.Info("recovered from crash - truncated corrupt WAL tail during restore")
+		h.logger.Info("recovered from crash during restore - corrupt WAL tail truncated or compacted segment dropped")
 	}
 
 	// Apply loaded state to index

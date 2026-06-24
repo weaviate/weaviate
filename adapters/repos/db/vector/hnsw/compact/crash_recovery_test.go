@@ -154,8 +154,22 @@ func TestCrashRecovery_CompleteCompactedWALFilesLoad(t *testing.T) {
 	}
 }
 
-func TestCrashRecovery_TruncatedCompactedWALFilesFailClosed(t *testing.T) {
-	for _, tt := range []struct {
+// TestCrashRecovery_TruncatedCompactedWALFilesRecover verifies that a corrupt
+// .sorted/.condensed segment no longer fails the whole index load. Compacted
+// files are written atomically, so an unreadable tail means on-disk corruption
+// rather than a normal crash. Instead of erroring out (and taking the whole
+// collection offline), the loader drops the bad segment, keeps the records read
+// before the corruption, reports RecoveredFromCrash, and lets the caller
+// recover from the snapshot + clean segments.
+//
+// Both corruption shapes are covered: a torn record (ErrUnexpectedEOF) and
+// appended garbage that decodes to an unrecognized commit type — a non-EOF read
+// error (see weaviate/0-weaviate-issues#195).
+//
+// Note: this only relaxes the *load* path. Compaction still fails closed on a
+// corrupt merge input — see TestCrashRecovery_TruncatedSortedMergeFailsClosedAndKeepsSources.
+func TestCrashRecovery_TruncatedCompactedWALFilesRecover(t *testing.T) {
+	fileTypes := []struct {
 		name  string
 		path  func(string) string
 		write func(*testing.T, string)
@@ -186,22 +200,42 @@ func TestCrashRecovery_TruncatedCompactedWALFilesFailClosed(t *testing.T) {
 				})
 			},
 		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			tt.write(t, dir)
+	}
 
-			f, err := os.OpenFile(tt.path(dir), os.O_WRONLY|os.O_APPEND, 0o666)
-			require.NoError(t, err)
-			_, err = f.Write([]byte{byte(AddNode), 0x01, 0x02, 0x03})
-			require.NoError(t, err)
-			require.NoError(t, f.Close())
+	corruptions := []struct {
+		name string
+		tail []byte
+	}{
+		// Type byte followed by a partial body → io.ReadFull → ErrUnexpectedEOF.
+		{name: "torn record", tail: []byte{byte(AddNode), 0x01, 0x02, 0x03}},
+		// Bytes that decode to an unrecognized commit type → non-EOF read error.
+		{name: "appended garbage", tail: []byte{0xFF, 0xFF, 0xFF, 0xFF}},
+	}
 
-			loader := NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()})
-			result, err := loader.Load()
-			require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-			assert.Nil(t, result)
-		})
+	for _, ft := range fileTypes {
+		for _, corrupt := range corruptions {
+			t.Run(ft.name+"/"+corrupt.name, func(t *testing.T) {
+				dir := t.TempDir()
+				ft.write(t, dir)
+
+				f, err := os.OpenFile(ft.path(dir), os.O_WRONLY|os.O_APPEND, 0o666)
+				require.NoError(t, err)
+				_, err = f.Write(corrupt.tail)
+				require.NoError(t, err)
+				require.NoError(t, f.Close())
+
+				loader := NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()})
+				result, err := loader.Load()
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				assert.True(t, result.RecoveredFromCrash, "corrupt compacted segment should trigger crash recovery")
+
+				// The complete records written before the corruption survive.
+				require.GreaterOrEqual(t, len(result.State.Graph.Nodes), 2)
+				require.NotNil(t, result.State.Graph.Nodes[0])
+				require.NotNil(t, result.State.Graph.Nodes[1])
+			})
+		}
 	}
 }
 
