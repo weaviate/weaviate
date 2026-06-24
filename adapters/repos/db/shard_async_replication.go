@@ -1853,6 +1853,83 @@ func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNo
 	return time.Now().Add(-config.propagationDelay).UnixMilli()
 }
 
+// rawPropagationEnabled reports whether this node should ship raw on-disk object
+// bytes during propagation. This is an emit-only gate; decoding raw is always
+// supported, so it is safe to enable independently across upgraded nodes.
+func (s *Shard) rawPropagationEnabled() bool {
+	if s.index == nil || s.index.globalreplicationConfig == nil {
+		return false
+	}
+	v := s.index.globalreplicationConfig.AsyncReplicationRawPropagation
+	return v != nil && v.Get()
+}
+
+// buildPropagationBatch fetches the local objects for a UUID batch and wraps them
+// as VObjects to overwrite on the target. With useRaw the objects travel as their
+// raw on-disk bytes; otherwise as the decoded object plus vectors. Objects deleted
+// locally in the meantime are skipped.
+func (s *Shard) buildPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
+	remoteStaleUpdateTime map[strfmt.UUID]int64, useRaw bool,
+) ([]*objects.VObject, error) {
+	if useRaw {
+		rawObjs, err := s.MultiObjectRawByID(ctx, uuidBatch)
+		if err != nil {
+			return nil, err
+		}
+
+		batch := make([]*objects.VObject, 0, len(rawObjs))
+		for j, raw := range rawObjs {
+			if raw == nil {
+				continue
+			}
+			batch = append(batch, &objects.VObject{
+				StaleUpdateTime: remoteStaleUpdateTime[uuidBatch[j]],
+				RawBytes:        raw,
+			})
+		}
+		return batch, nil
+	}
+
+	localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuidBatch))
+	if err != nil {
+		return nil, err
+	}
+
+	batch := make([]*objects.VObject, 0, len(localObjs))
+	for _, obj := range localObjs {
+		if obj == nil {
+			continue
+		}
+
+		var vectors map[string][]float32
+		var multiVectors map[string][][]float32
+
+		if obj.Vectors != nil {
+			vectors = make(map[string][]float32, len(obj.Vectors))
+			for targetVector, v := range obj.Vectors {
+				vectors[targetVector] = v
+			}
+		}
+		if obj.MultiVectors != nil {
+			multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
+			for targetVector, v := range obj.MultiVectors {
+				multiVectors[targetVector] = v
+			}
+		}
+
+		batch = append(batch, &objects.VObject{
+			ID:                      obj.ID(),
+			LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
+			LatestObject:            &obj.Object,
+			Vector:                  obj.Vector,
+			Vectors:                 vectors,
+			MultiVectors:            multiVectors,
+			StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
+		})
+	}
+	return batch, nil
+}
+
 func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationConfig, host string,
 	objectsToPropagate []strfmt.UUID, remoteStaleUpdateTime map[strfmt.UUID]int64,
 ) (res []types.RepairResponse, err error) {
@@ -1891,6 +1968,10 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 	// worker, ensuring the recovery defer never blocks before workerWg.Done fires.
 	resultCh := make(chan workerResponse, numBatches+config.propagationConcurrency)
 
+	// Encoding decision is fixed for the whole cycle so a runtime flip mid-cycle
+	// cannot produce a mixed (raw + JSON) batch.
+	useRaw := s.rawPropagationEnabled()
+
 	for range config.propagationConcurrency {
 		workerWg.Add(1)
 		enterrors.GoWrapper(func() {
@@ -1922,7 +2003,7 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 					continue
 				}
 
-				localObjs, err := s.MultiObjectByID(workerCtx, wrapIDsInMulti(uuidBatch))
+				batch, err := s.buildPropagationBatch(workerCtx, uuidBatch, remoteStaleUpdateTime, useRaw)
 				if err != nil {
 					// Skip ctx-cancellation errors: the parent surfaces the cancel
 					// cause via context.Cause(workerCtx) once workers drain.
@@ -1935,43 +2016,6 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 						err: fmt.Errorf("fetching local objects: %w", err),
 					}
 					continue
-				}
-
-				batch := make([]*objects.VObject, 0, len(localObjs))
-
-				for _, obj := range localObjs {
-					if obj == nil {
-						// local object was deleted meanwhile
-						continue
-					}
-
-					var vectors map[string][]float32
-					var multiVectors map[string][][]float32
-
-					if obj.Vectors != nil {
-						vectors = make(map[string][]float32, len(obj.Vectors))
-						for targetVector, v := range obj.Vectors {
-							vectors[targetVector] = v
-						}
-					}
-					if obj.MultiVectors != nil {
-						multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
-						for targetVector, v := range obj.MultiVectors {
-							multiVectors[targetVector] = v
-						}
-					}
-
-					obj := &objects.VObject{
-						ID:                      obj.ID(),
-						LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-						LatestObject:            &obj.Object,
-						Vector:                  obj.Vector,
-						Vectors:                 vectors,
-						MultiVectors:            multiVectors,
-						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
-					}
-
-					batch = append(batch, obj)
 				}
 
 				if len(batch) > 0 {

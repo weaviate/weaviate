@@ -145,6 +145,37 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
+// MultiObjectRawByID returns the raw on-disk (version 1) object binary for each
+// id, or nil where the object is absent/deleted, aligned with the input order.
+// The slices are copies: the bucket may hand back pooled/mmap-backed buffers
+// that are reused after the read, so they must not be retained directly.
+func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]byte, error) {
+	s.activityTrackerRead.Add(1)
+	out := make([][]byte, len(ids))
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	for i, id := range ids {
+		idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := bucket.Get(idBytes)
+		if err != nil {
+			return nil, err
+		}
+		if b == nil {
+			continue
+		}
+
+		cp := make([]byte, len(b))
+		copy(cp, b)
+		out[i] = cp
+	}
+
+	return out, nil
+}
+
 func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
 	// Replication-internal operation: do not count as user read activity.
 	objects := make([]types.RepairResponse, len(query))

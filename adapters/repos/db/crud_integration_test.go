@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -2555,6 +2556,54 @@ func TestOverwriteObjects(t *testing.T) {
 			stale.ID, nil, additional.Properties{}, nil, "")
 		assert.Nil(t, err)
 		assert.EqualValues(t, fresh, found.Object())
+	})
+
+	t.Run("overwrite with raw on-disk bytes", func(t *testing.T) {
+		id := strfmt.UUID("2c1e2c1e-0000-4000-8000-000000000001")
+		staleRaw := &models.Object{
+			ID:                 id,
+			Class:              class.Class,
+			CreationTimeUnix:   now.UnixMilli(),
+			LastUpdateTimeUnix: now.UnixMilli(),
+			Properties:         map[string]interface{}{"oldValue": "stale"},
+			Vector:             []float32{1, 2, 3},
+			VectorWeights:      (map[string]string)(nil),
+			Additional:         models.AdditionalProperties{},
+		}
+		require.Nil(t, repo.PutObject(context.Background(), staleRaw, staleRaw.Vector, nil, nil, nil, 0))
+
+		freshRaw := &models.Object{
+			ID:                 id,
+			Class:              class.Class,
+			CreationTimeUnix:   now.UnixMilli(),
+			LastUpdateTimeUnix: later.UnixMilli(),
+			Properties:         map[string]interface{}{"oldValue": "stale", "newValue": "now"},
+			Vector:             []float32{7, 8, 9},
+			VectorWeights:      (map[string]string)(nil),
+			Additional:         models.AdditionalProperties{},
+		}
+
+		src := storobj.FromObject(freshRaw, freshRaw.Vector, nil, nil)
+		src.DocID = 999
+		rawBytes, err := src.MarshalBinary()
+		require.Nil(t, err)
+
+		input := []*objects.VObject{{
+			StaleUpdateTime: staleRaw.LastUpdateTimeUnix,
+			RawBytes:        rawBytes,
+		}}
+
+		idx := repo.GetIndex(schema.ClassName(class.Class))
+		shd, err := idx.shardResolver.ResolveShardByObjectID(context.Background(), id, "")
+		require.Nil(t, err)
+
+		received, err := idx.OverwriteObjects(context.Background(), shd, input)
+		require.Nil(t, err)
+		assert.Empty(t, received)
+
+		found, err := repo.Object(context.Background(), class.Class, id, nil, additional.Properties{}, nil, "")
+		require.Nil(t, err)
+		assert.EqualValues(t, freshRaw, found.Object())
 	})
 }
 

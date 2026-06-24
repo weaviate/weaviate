@@ -44,6 +44,17 @@ const (
 	MethodPut string = "PUT"
 )
 
+// OverwriteObjects vobjects_data encodings. Receivers always support decoding
+// both; senders emit Raw only when the raw-propagation runtime flag is enabled.
+const (
+	OverwriteEncodingJSON uint32 = 0
+	OverwriteEncodingRaw  uint32 = 1
+)
+
+// OverwriteEncodingHeaderRaw is the X-Request-Encoding value used by the REST
+// transport to signal the raw-propagation encoding.
+const OverwriteEncodingHeaderRaw = "raw"
+
 type indicesPayloads struct {
 	ErrorList                  errorListPayload
 	SingleObject               singleObjectPayload
@@ -453,6 +464,70 @@ func (p versionedObjectListPayload) MarshalV2(in []*objects.VObject) ([]byte, er
 
 		out = append(out, reusableLengthBuf...)
 		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+// MarshalRaw encodes each VObject using the raw-propagation format
+// (MarshalBinaryRaw): stale-update time + the object's raw on-disk bytes. The
+// 8-byte length prefix framing matches Marshal/MarshalV2.
+func (p versionedObjectListPayload) MarshalRaw(in []*objects.VObject) ([]byte, error) {
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinaryRaw()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+// UnmarshalRaw decodes a payload produced by MarshalRaw. Each VObject's RawBytes
+// aliases a freshly-allocated per-object slice, so it is safe to retain.
+func (p versionedObjectListPayload) UnmarshalRaw(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	lenBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := io.ReadFull(r, lenBuf)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
+		}
+
+		ln := binary.LittleEndian.Uint64(lenBuf)
+		if ln > uint64(r.Len()) {
+			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
+		}
+		if ln > math.MaxInt {
+			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
+		}
+
+		payloadBytes := make([]byte, int(ln))
+		if _, err = io.ReadFull(r, payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
+		}
+
+		var vobj objects.VObject
+		if err = vobj.UnmarshalBinaryRaw(payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
+		}
+
+		out = append(out, &vobj)
 	}
 
 	return out, nil

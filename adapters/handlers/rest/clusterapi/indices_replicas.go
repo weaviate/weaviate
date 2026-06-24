@@ -627,9 +627,12 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 		}
 
 		var vobjs []*objects.VObject
-		if r.Header.Get("X-Request-Encoding") == "binary" {
+		switch r.Header.Get("X-Request-Encoding") {
+		case shared.OverwriteEncodingHeaderRaw:
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalRaw(reqPayload)
+		case "binary":
 			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalV2(reqPayload)
-		} else {
+		default:
 			vobjs, err = shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
 		}
 		if err != nil {

@@ -47,6 +47,12 @@ type VObject struct {
 
 	// Version is the most recent incremental version number of the object
 	Version uint64 `json:"version"`
+
+	// RawBytes, when set, is the raw on-disk storobj (version 1) binary of the
+	// object. Used by the async-replication raw-propagation path, which ships the
+	// stored bytes verbatim instead of going through LatestObject/vectors JSON.
+	// Mutually exclusive with LatestObject. Not part of the JSON wire format.
+	RawBytes []byte `json:"-"`
 }
 
 // vobjectMarshaler is a helper for the methods implementing encoding.BinaryMarshaler
@@ -329,6 +335,37 @@ func (vo *VObject) UnmarshalBinaryV2(data []byte) error {
 		vo.LatestObject = &obj
 	}
 
+	return nil
+}
+
+// MarshalBinaryRaw serializes a VObject for the raw-propagation path: the
+// stale-update time followed by the object's raw on-disk binary. The UUID and
+// last-update time are recovered on the target by decoding RawBytes, so they are
+// not duplicated here.
+//
+//	[8B StaleUpdateTime int64][raw storobj bytes ...]
+func (vo *VObject) MarshalBinaryRaw() ([]byte, error) {
+	if vo.RawBytes == nil {
+		return nil, fmt.Errorf("raw bytes not set")
+	}
+	buf := make([]byte, byteops.Uint64Len+len(vo.RawBytes))
+	binary.LittleEndian.PutUint64(buf[:byteops.Uint64Len], uint64(vo.StaleUpdateTime))
+	copy(buf[byteops.Uint64Len:], vo.RawBytes)
+	return buf, nil
+}
+
+// UnmarshalBinaryRaw decodes a VObject serialized by MarshalBinaryRaw. RawBytes
+// aliases the input; callers must own/retain it (the payload framing hands each
+// object a freshly-allocated slice).
+func (vo *VObject) UnmarshalBinaryRaw(data []byte) error {
+	if len(data) < byteops.Uint64Len {
+		return fmt.Errorf("vobject raw: data too short: got %d bytes", len(data))
+	}
+
+	*vo = VObject{
+		StaleUpdateTime: int64(binary.LittleEndian.Uint64(data[:byteops.Uint64Len])),
+		RawBytes:        data[byteops.Uint64Len:],
+	}
 	return nil
 }
 

@@ -567,6 +567,41 @@ func TestVersionedObjectListPayloadV2RoundTrip(t *testing.T) {
 	}
 }
 
+func TestVersionedObjectListPayloadRawRoundTrip(t *testing.T) {
+	mkRaw := func(id strfmt.UUID, docID uint64) []byte {
+		o := storobj.FromObject(
+			&models.Object{ID: id, Class: "C1", LastUpdateTimeUnix: 12345},
+			[]float32{0.1, 0.2, 0.3}, nil, nil,
+		)
+		o.DocID = docID
+		b, err := o.MarshalBinary()
+		require.NoError(t, err)
+		return b
+	}
+
+	input := []*objects.VObject{
+		{StaleUpdateTime: 111, RawBytes: mkRaw("73f2eb5f-5abf-447a-81ca-74b1dd168241", 1)},
+		{StaleUpdateTime: 222, RawBytes: mkRaw("73f2eb5f-5abf-447a-81ca-74b1dd168242", 2)},
+	}
+
+	data, err := IndicesPayloads.VersionedObjectList.MarshalRaw(input)
+	require.NoError(t, err)
+
+	got, err := IndicesPayloads.VersionedObjectList.UnmarshalRaw(data)
+	require.NoError(t, err)
+	require.Len(t, got, len(input))
+
+	for i, want := range input {
+		assert.Equal(t, want.StaleUpdateTime, got[i].StaleUpdateTime)
+		assert.Equal(t, want.RawBytes, got[i].RawBytes)
+		assert.Nil(t, got[i].LatestObject)
+
+		decoded, err := storobj.FromBinaryNetwork(got[i].RawBytes)
+		require.NoError(t, err)
+		assert.Equal(t, "C1", decoded.Object.Class)
+	}
+}
+
 func TestVersionedObjectListUnmarshalV2FramingErrors(t *testing.T) {
 	p := IndicesPayloads.VersionedObjectList
 
