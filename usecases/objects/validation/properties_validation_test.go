@@ -304,6 +304,45 @@ func extractBeacon(t *testing.T, props models.PropertySchema) strfmt.URI {
 }
 
 func TestValidator_ValuesCasting(t *testing.T) {
+	t.Run("string(s)", func(t *testing.T) {
+		type testCase struct {
+			value         interface{}
+			expectedValue string
+			expectedErr   bool
+		}
+
+		testCases := []testCase{
+			{
+				value:         "hello world",
+				expectedValue: "hello world",
+				expectedErr:   false,
+			},
+			{
+				value:         "hello\x00world",
+				expectedValue: "",
+				expectedErr:   true,
+			},
+			{
+				value:         123,
+				expectedValue: "",
+				expectedErr:   true,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("string #%d", i), func(t *testing.T) {
+				value, err := stringVal(tc.value)
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, tc.expectedValue, value)
+			})
+		}
+	})
+
 	t.Run("int(s)", func(t *testing.T) {
 		type testCase struct {
 			value         interface{}
