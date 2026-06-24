@@ -51,9 +51,14 @@ func TestSortPropLenPairs(t *testing.T) {
 				want[id] = lens[i]
 			}
 
-			sortPropLenPairs(ids, lens)
+			gotMax := sortPropLenPairs(ids, lens)
 
 			require.True(t, sort.SliceIsSorted(ids, func(i, j int) bool { return ids[i] < ids[j] }))
+			var wantMax uint64
+			if len(ids) > 0 {
+				wantMax = ids[len(ids)-1] // sorted ascending: max is last
+			}
+			assert.Equal(t, wantMax, gotMax, "returned max docID gates the uint32-ids layout")
 			for i, id := range ids {
 				assert.Equal(t, want[id], lens[i], "length must move together with id %d", id)
 			}
@@ -75,18 +80,27 @@ func TestSortPropLenPairs(t *testing.T) {
 			want[ids[i]] = lens[i]
 		}
 
-		sortPropLenPairs(ids, lens)
+		gotMax := sortPropLenPairs(ids, lens)
 
 		require.True(t, sort.SliceIsSorted(ids, func(i, j int) bool { return ids[i] < ids[j] }))
+		require.Equal(t, ids[n-1], gotMax, "returned max docID")
 		for i, id := range ids {
 			require.Equal(t, want[id], lens[i])
 		}
 	})
 }
 
+type plLayout int
+
+const (
+	plDense plLayout = iota
+	plPairs64
+	plPairs32 // ids stored as []uint32 (requires every id <= MaxUint32)
+)
+
 // buildView constructs a view over the given docID->length set in the requested
-// representation, mirroring loadPropertyLengths' two layouts.
-func buildView(t *testing.T, m map[uint64]uint32, dense bool) propLengthsView {
+// representation, mirroring loadPropertyLengths' layouts.
+func buildView(t *testing.T, m map[uint64]uint32, layout plLayout) propLengthsView {
 	t.Helper()
 	ids := make([]uint64, 0, len(m))
 	for id := range m {
@@ -94,7 +108,7 @@ func buildView(t *testing.T, m map[uint64]uint32, dense bool) propLengthsView {
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
-	if dense {
+	if layout == plDense {
 		require.NotEmpty(t, m, "dense layout needs at least one entry")
 		minID, maxID := ids[0], ids[len(ids)-1]
 		arr := make([]uint32, maxID-minID+1)
@@ -107,6 +121,14 @@ func buildView(t *testing.T, m map[uint64]uint32, dense bool) propLengthsView {
 	lens := make([]uint32, len(ids))
 	for i, id := range ids {
 		lens[i] = m[id]
+	}
+	if layout == plPairs32 {
+		ids32 := make([]uint32, len(ids))
+		for i, id := range ids {
+			require.LessOrEqual(t, id, uint64(math.MaxUint32), "plPairs32 needs all ids <= MaxUint32")
+			ids32[i] = uint32(id)
+		}
+		return propLengthsView{ids32: ids32, lens: lens}
 	}
 	return propLengthsView{ids: ids, lens: lens}
 }
@@ -124,14 +146,14 @@ func TestPropLengthsViewGet(t *testing.T) {
 	}
 
 	for _, layout := range []struct {
-		name  string
-		dense bool
-	}{{"pairs", false}, {"dense", true}} {
+		name   string
+		layout plLayout
+	}{{"pairs", plPairs64}, {"pairs32", plPairs32}, {"dense", plDense}} {
 		t.Run(layout.name, func(t *testing.T) {
 			t.Parallel()
 
 			t.Run("ascending_scan_hits_everything", func(t *testing.T) {
-				v := buildView(t, sparse, layout.dense)
+				v := buildView(t, sparse, layout.layout)
 				ids := make([]uint64, 0, len(sparse))
 				for id := range sparse {
 					ids = append(ids, id)
@@ -143,7 +165,7 @@ func TestPropLengthsViewGet(t *testing.T) {
 			})
 
 			t.Run("ascending_scan_with_misses", func(t *testing.T) {
-				v := buildView(t, sparse, layout.dense)
+				v := buildView(t, sparse, layout.layout)
 				ids := make([]uint64, 0, len(sparse))
 				for id := range sparse {
 					ids = append(ids, id)
@@ -158,7 +180,7 @@ func TestPropLengthsViewGet(t *testing.T) {
 			})
 
 			t.Run("random_access_restarts_cursor", func(t *testing.T) {
-				v := buildView(t, sparse, layout.dense)
+				v := buildView(t, sparse, layout.layout)
 				ids := make([]uint64, 0, len(sparse))
 				for id := range sparse {
 					ids = append(ids, id) // map order = random jumps incl. backward
@@ -169,7 +191,7 @@ func TestPropLengthsViewGet(t *testing.T) {
 			})
 
 			t.Run("out_of_range", func(t *testing.T) {
-				v := buildView(t, sparse, layout.dense)
+				v := buildView(t, sparse, layout.layout)
 				assert.Equal(t, uint32(0), v.get(0))
 				assert.Equal(t, uint32(0), v.get(99))
 				assert.Equal(t, uint32(0), v.get(math.MaxUint64))
@@ -181,7 +203,7 @@ func TestPropLengthsViewGet(t *testing.T) {
 			})
 
 			t.Run("repeated_lookup_same_doc", func(t *testing.T) {
-				v := buildView(t, sparse, layout.dense)
+				v := buildView(t, sparse, layout.layout)
 				for id, l := range sparse {
 					require.Equal(t, l, v.get(id))
 					require.Equal(t, l, v.get(id))
@@ -209,10 +231,20 @@ func TestPropLengthsViewGet(t *testing.T) {
 		for k := range m {
 			m[k] = uint32(k%97 + 1)
 		}
-		v := buildView(t, m, false)
+		v := buildView(t, m, plPairs64)
 		for i := uint64(1000); i < 2000; i++ {
 			require.Equal(t, m[i], v.get(i))
 		}
+	})
+
+	t.Run("pairs32_query_above_uint32_range_misses", func(t *testing.T) {
+		t.Parallel()
+		m := map[uint64]uint32{1: 5, 1000: 7, math.MaxUint32: 9}
+		v := buildView(t, m, plPairs32)
+		require.Equal(t, uint32(9), v.get(math.MaxUint32))   // largest in-range id hits
+		require.Equal(t, uint32(0), v.get(math.MaxUint32+1)) // one past the range short-circuits
+		require.Equal(t, uint32(0), v.get(math.MaxUint64))   // far past, no panic/scan
+		require.Equal(t, uint32(5), v.get(1))                // in-range still resolves afterwards
 	})
 }
 
