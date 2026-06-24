@@ -45,6 +45,7 @@ import (
 const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
+	StateDBFileName     = "index.db"
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -69,6 +70,7 @@ type VectorIndex interface {
 	PrepareForBackup(ctx context.Context) error
 	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
+	SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
@@ -436,7 +438,7 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 		return err
 	}
 	if !keepFiles {
-		os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
+		os.Remove(filepath.Join(dynamic.rootPath, StateDBFileName))
 	}
 
 	return dynamic.index.Drop(ctx, keepFiles)
@@ -480,6 +482,46 @@ func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]strin
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.ListFiles(ctx, basePath)
+}
+
+// SnapshotMutableFiles delegates to the underlying index. The shared, shard-level
+// StateDBFileName (index.db) is NOT snapshotted here — it is snapshotted once per
+// shard via SnapshotSharedStateDB rather than through this per-index method, which
+// the shard's ForEachVectorIndex would otherwise invoke once per named vector and
+// thus duplicate the copy and its sd.Files entry.
+func (dynamic *dynamic) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SnapshotMutableFiles(ctx, basePath, stagingDir)
+}
+
+// SnapshotSharedStateDB writes a consistent point-in-time copy of the shard-level
+// dynamic-index state DB (StateDBFileName) into stagingDir and returns its
+// backup-relative path. The state DB is shard-owned and shared by every target-vector
+// dynamic index, so Shard.CreateBackupSnapshot calls this ONCE per shard — NOT via the
+// per-index SnapshotMutableFiles, which ForEachVectorIndex would invoke once per named
+// vector and thus duplicate the snapshot.
+//
+// rootPath is the directory holding the live state DB (the shard path); basePath is the
+// backup root the returned relpath is relative to. The copy is taken inside a bbolt read
+// transaction (tx.CopyFile) so an in-place write during the long upload window cannot tear
+// the staged copy.
+func SnapshotSharedStateDB(db *bbolt.DB, rootPath, basePath, stagingDir string) (string, error) {
+	src := filepath.Join(rootPath, StateDBFileName)
+	relPath, err := filepath.Rel(basePath, src)
+	if err != nil {
+		return "", fmt.Errorf("index.db relative path: %w", err)
+	}
+	dst := filepath.Join(stagingDir, relPath)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", fmt.Errorf("create staging subdir for %s: %w", relPath, err)
+	}
+	if err := db.View(func(tx *bbolt.Tx) error {
+		return tx.CopyFile(dst, 0o600)
+	}); err != nil {
+		return "", fmt.Errorf("snapshot index.db to staging: %w", err)
+	}
+	return relPath, nil
 }
 
 func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {

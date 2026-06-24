@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -305,6 +304,10 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
+func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	return nil, nil
+}
+
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
 	if err != nil {
@@ -396,33 +399,4 @@ func (h *HFresh) CompressionStats() compressionhelpers.CompressionStats {
 
 func (h *HFresh) Preload(id uint64, vector []float32) {
 	// for now, nothing to do here
-}
-
-// deduplicator is a simple thread-safe structure to prevent duplicate values.
-type deduplicator struct {
-	m *xsync.Map[uint64, struct{}]
-}
-
-func newDeduplicator() *deduplicator {
-	return &deduplicator{
-		m: xsync.NewMap[uint64, struct{}](),
-	}
-}
-
-// tryAdd attempts to add an ID to the deduplicator.
-// Returns true if the ID was added, false if it already exists.
-func (d *deduplicator) tryAdd(id uint64) bool {
-	_, loaded := d.m.LoadOrStore(id, struct{}{})
-	return !loaded
-}
-
-// done marks an ID as processed, removing it from the deduplicator.
-func (d *deduplicator) done(id uint64) {
-	d.m.Delete(id)
-}
-
-// contains checks if an ID is already in the deduplicator.
-func (d *deduplicator) contains(id uint64) bool {
-	_, exists := d.m.Load(id)
-	return exists
 }
