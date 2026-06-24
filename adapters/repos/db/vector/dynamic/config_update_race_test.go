@@ -171,7 +171,7 @@ func TestUpdateUserConfig_RoutesToActiveIndexType(t *testing.T) {
 		updated.HnswUC.EF = int(newEF)
 		require.NoError(t, idx.UpdateUserConfig(updated, func() {}))
 
-		require.True(t, idx.upgraded.Load())
+		require.True(t, idx.status.IsUpgraded())
 		hnswIdx, ok := idx.index.(interface{ EF() int64 })
 		require.True(t, ok, "post-upgrade active index should be *hnsw")
 		assert.Equal(t, newEF, hnswIdx.EF(),
@@ -190,7 +190,7 @@ func TestUpdateUserConfig_RoutesToActiveIndexType(t *testing.T) {
 		require.NoError(t, idx.Upgrade(func() { close(upgradeDone) }))
 		<-upgradeDone
 
-		require.True(t, idx.upgraded.Load())
+		require.True(t, idx.status.IsUpgraded())
 		hnswIdx, ok := idx.index.(interface{ EF() int64 })
 		require.True(t, ok, "post-upgrade active index should be *hnsw")
 		assert.Equal(t, newEF, hnswIdx.EF(),

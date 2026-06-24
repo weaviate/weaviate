@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 var (
@@ -73,12 +75,14 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends,
+		),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends,
+		),
 	}
 	return m
 }
@@ -127,6 +131,16 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
+	explicitInclude := len(req.Include) > 0
+
+	if explicitInclude {
+		// Copy Include because authorization.Backups uppercases its input in place.
+		includeCopy := append([]string(nil), req.Include...)
+		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
+			return nil, err
+		}
+	}
+
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -138,12 +152,15 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
-		return nil, err
+	if !explicitInclude {
+		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+		return nil, fmt.Errorf("init uploader: %w", err)
 	}
 	breq := Request{
 		Method:       OpCreate,
@@ -156,7 +173,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, err
 	} else {
 		st := s.backupper.lastOp.get()
 		status := string(st.Status)
@@ -180,6 +197,16 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
+	explicitInclude := len(req.Include) > 0
+
+	if explicitInclude {
+		// Copy Include because authorization.Backups uppercases its input in place.
+		includeCopy := append([]string(nil), req.Include...)
+		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
+			return nil, err
+		}
+	}
+
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -193,13 +220,17 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
-		return nil, err
+	if !explicitInclude {
+		allowed, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, meta.Classes())
+		if err != nil {
+			return nil, err
+		}
+		meta.Include(allowed)
 	}
 
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, err
 	}
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
@@ -226,11 +257,79 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, err
 	}
 
 	data.Status = &status
 	return data, nil
+}
+
+// filterBackupableClasses returns the subset of classes the caller may act on
+// with verb, narrowing the empty-Include operation instead of failing it whole.
+// An empty result is Forbidden; any other authorizer error is Unprocessable.
+func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
+	allowed := make([]string, 0, len(classes))
+	for _, c := range classes {
+		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(c)...); err != nil {
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				continue
+			}
+			return nil, backup.NewErrUnprocessable(err)
+		}
+		allowed = append(allowed, c)
+	}
+	if len(allowed) == 0 {
+		return nil, authzerrors.NewForbidden(pr, verb, authorization.Backups(classes...)...)
+	}
+	return allowed, nil
+}
+
+// authorizeBackupByID authorizes the caller against the classes recorded in the
+// backup meta. A missing meta is a no-op (the 404 may leak the id); any other
+// backend error fails closed.
+func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
+	store coordStore, filename, overrideBucket, overridePath string,
+) error {
+	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
+	if err != nil {
+		// A read concurrent with a write yields a partial file that fails to
+		// unmarshal; treat it as not-found so a mid-write status poll retries.
+		var syntaxErr *json.SyntaxError
+		if errors.As(err, &backup.ErrNotFound{}) || errors.As(err, &syntaxErr) {
+			return nil
+		}
+		return err
+	}
+	return s.authorizer.Authorize(ctx, principal, verb, authorization.Backups(meta.Classes()...)...)
+}
+
+const metaReadAttempts = 3
+
+// metaWithRetry reads the backup meta, retrying briefly on a partial file mid-write
+// (json.SyntaxError) so a class-scoped caller can resolve the real classes for a
+// class-aware authz check. ErrNotFound and other errors return immediately.
+func metaWithRetry(ctx context.Context, store coordStore, filename, overrideBucket, overridePath string,
+) (*backup.DistributedBackupDescriptor, error) {
+	var (
+		meta *backup.DistributedBackupDescriptor
+		err  error
+	)
+	for attempt := range metaReadAttempts {
+		meta, err = store.Meta(ctx, filename, overrideBucket, overridePath)
+		if err == nil {
+			return meta, nil
+		}
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) || attempt == metaReadAttempts-1 {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return nil, err
 }
 
 func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
@@ -245,10 +344,17 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalBackupFile, overrideBucket, overridePath); err != nil {
+		return nil, err
+	}
+
 	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
-		return nil, backup.NewErrNotFound(err)
+		if errors.Is(err, errMetaNotFound) {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, err
 	}
 	return st, nil
 }
@@ -263,10 +369,16 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath); err != nil {
+		return nil, err
+	}
 	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
-		return nil, backup.NewErrNotFound(err)
+		if errors.Is(err, errMetaNotFound) {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, err
 	}
 	return st, nil
 }
@@ -284,20 +396,30 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return backup.NewErrUnprocessable(err)
 	}
 
-	if err := validateID(backupID); err != nil {
+	idErr := validateID(backupID)
+
+	// Authorize before validating the id so an unpermitted caller gets 403, not a
+	// hint about the id. Scope to the backup's classes when readable, else wildcard.
+	var meta *backup.DistributedBackupDescriptor
+	var classes []string
+	if idErr == nil {
+		if m, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+			meta = m
+			classes = m.Classes()
+		}
+	}
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
 		return err
+	}
+	if idErr != nil {
+		return backup.NewErrUnprocessable(idErr)
 	}
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
-		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+		return fmt.Errorf("init uploader: %w", err)
 	}
 
-	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
 	if meta != nil {
-		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
-			return err
-		}
-		// if existed meta and not in the next cases shall be cancellable
 		switch meta.Status {
 		case backup.Cancelled:
 			return nil
@@ -335,19 +457,33 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		return backup.NewErrUnprocessable(err)
 	}
 
-	if err := validateID(backupID); err != nil {
+	idErr := validateID(backupID)
+
+	// Authorize before validating the id so an unpermitted caller gets 403, not a
+	// hint about the id. Prefer the restore descriptor, else the backup descriptor;
+	// if neither is readable, require wildcard DELETE.
+	var meta *backup.DistributedBackupDescriptor
+	var metaErr error
+	var classes []string
+	if idErr == nil {
+		if meta, metaErr = metaWithRetry(ctx, store, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
+			classes = meta.Classes()
+		} else if backupMeta, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+			classes = backupMeta.Classes()
+		}
+	}
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
 		return err
+	}
+	if idErr != nil {
+		return backup.NewErrUnprocessable(idErr)
 	}
 
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
-		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+		return fmt.Errorf("init uploader: %w", err)
 	}
 
-	meta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
-	if meta != nil {
-		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
-			return err
-		}
+	if metaErr == nil {
 		switch meta.Status {
 		case backup.Cancelled, backup.Cancelling:
 			// Cancellation already in progress or complete
@@ -378,14 +514,6 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			return nil
 		}
 		s.restorer.lastOp.set(backup.Cancelling)
-	} else {
-		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
-		backupMeta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
-		if backupMeta != nil {
-			if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(backupMeta.Classes()...)...); err != nil {
-				return err
-			}
-		}
 	}
 
 	// We've claimed cancellation (or meta was nil) - proceed with abort
@@ -439,11 +567,18 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
-	response := make(models.BackupListResponse, len(backups))
-	for i, b := range backups {
+	response := make(models.BackupListResponse, 0, len(backups))
+	for _, b := range backups {
+		classes := b.Classes()
+		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				continue
+			}
+			return nil, err
+		}
 		item := &models.BackupListResponseItems0{
 			ID:          b.ID,
-			Classes:     b.Classes(),
+			Classes:     classes,
 			Status:      string(b.Status),
 			StartedAt:   strfmt.DateTime(b.StartedAt.UTC()),
 			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
@@ -454,7 +589,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		if includeBaseBackupID {
 			item.IncrementalBaseBackupID = b.BaseBackupID
 		}
-		response[i] = item
+		response = append(response, item)
 	}
 
 	return &response, nil
@@ -498,6 +633,9 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if req.BaseBackupID != "" {
 		if err := validateID(req.BaseBackupID); err != nil {
 			return nil, fmt.Errorf("base backup id: %w", err)
+		}
+		if req.ID == req.BaseBackupID {
+			return nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
 		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {

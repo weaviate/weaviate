@@ -280,6 +280,7 @@ type upgradableIndexer interface {
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
 	AlreadyIndexed() uint64
+	UpgradeInProgress() bool
 }
 
 // triggers compression if the index is ready to be upgraded
@@ -295,6 +296,10 @@ func (iq *VectorIndexQueue) checkCompressionSettings() (skip bool) {
 	}
 
 	if ci.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+		if iq.shard.AnyActiveMovement() {
+			return false
+		}
+
 		// Use the scheduler directly instead of DiskQueue.Pause/Resume to avoid
 		// deadlocking: this runs inside BeforeSchedule on the scheduler goroutine,
 		// and DiskQueue.Pause would call scheduler.Wait which blocks on itself.
