@@ -335,6 +335,34 @@ func (s *segment) getPropertyLengths() (map[uint64]uint32, error) {
 	return m, nil
 }
 
+// getPropertyLengthsPairs returns the property lengths as docID-sorted arrays
+// (no map): the loaded slices directly for pairs segments, or the dense array
+// walked into pairs (0 = absent skipped). Returned slices are read-only.
+func (s *segment) getPropertyLengthsPairs() ([]uint64, []uint32, error) {
+	dense, minID, ids, lens, err := s.propLengthArrays()
+	if err != nil {
+		return nil, nil, err
+	}
+	if dense != nil {
+		n := 0
+		for _, l := range dense {
+			if l != 0 {
+				n++
+			}
+		}
+		outIDs := make([]uint64, 0, n)
+		outLens := make([]uint32, 0, n)
+		for i, l := range dense {
+			if l != 0 {
+				outIDs = append(outIDs, minID+uint64(i))
+				outLens = append(outLens, l)
+			}
+		}
+		return outIDs, outLens, nil
+	}
+	return ids, lens, nil
+}
+
 // mergePropLenPairs merges two docID-sorted pair arrays into one, deduping
 // docIDs. On a tie the second array wins (c2 is the newer segment) — the
 // precedence the compactor's prior map overwrite relied on.
