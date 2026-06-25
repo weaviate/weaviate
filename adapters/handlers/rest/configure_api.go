@@ -910,11 +910,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
+	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
+	// interface so the cleanup's nil check holds.
+	var rbacLister namespacecleanup.RBACLister
+	if appState.RBAC != nil {
+		rbacLister = appState.RBAC
+	}
 	namespaceCleanupCoordinator := namespacecleanup.NewCoordinator(
 		appState.NamespacesController,
 		rCluster.NewSchemaNamespaceLister(appState.ClusterService.SchemaReader()),
 		appState.APIKey.Dynamic,
 		appState.ClusterService.Raft,
+		rbacLister,
 		appState.ClusterService.IsLeader,
 		appState.Logger,
 	)

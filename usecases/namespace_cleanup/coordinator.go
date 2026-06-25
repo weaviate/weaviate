@@ -46,7 +46,11 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // namespaceLister lists namespaces in the deleting state.
@@ -65,12 +69,24 @@ type userLister interface {
 	UsersInNamespace(namespace string) []string
 }
 
-// raftExecutor is the subset of cluster.Raft used here.
+// raftExecutor is the subset of cluster.Raft used here. The RBAC writes
+// replicate through RAFT like the rest, so a follower's store is cleaned too.
 type raftExecutor interface {
 	DeleteUsersInNamespace(ctx context.Context, name string) error
 	DeleteAlias(ctx context.Context, alias string) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error)
+	DeleteRoles(names ...string) error
+	RevokeRolesForUser(user string, roles ...string) error
+}
+
+// RBACLister reads the roles and role assignments that belong to a namespace.
+// Nil when RBAC is disabled (only possible on a non-namespace cluster, which has
+// nothing to clean). Reads run on the leader; the deletes go through raftExecutor.
+type RBACLister interface {
+	GetRoles(names ...string) (map[string][]authorization.Policy, error)
+	GetUsersOrGroupsWithRoles(isGroup bool, authMethod authentication.AuthType) ([]string, error)
+	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 }
 
 // Coordinator runs one cleanup pass per Tick on the leader. isLeader is
@@ -81,6 +97,7 @@ type Coordinator struct {
 	schema     schemaLister
 	users      userLister
 	raft       raftExecutor
+	rbac       RBACLister
 	isLeader   func() bool
 	logger     logrus.FieldLogger
 	ongoing    atomic.Bool
@@ -91,6 +108,7 @@ func NewCoordinator(
 	schema schemaLister,
 	users userLister,
 	raft raftExecutor,
+	rbac RBACLister,
 	isLeader func() bool,
 	logger logrus.FieldLogger,
 ) *Coordinator {
@@ -114,6 +132,7 @@ func NewCoordinator(
 		schema:     schema,
 		users:      users,
 		raft:       raft,
+		rbac:       rbac,
 		isLeader:   isLeader,
 		logger:     logger,
 	}
@@ -135,26 +154,26 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 	if !c.isLeader() {
 		return nil
 	}
-	for _, ns := range c.namespaces.ListDeleting() {
+	for _, namespace := range c.namespaces.ListDeleting() {
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err := c.cleanupSingleNamespace(ctx, ns); err != nil {
+		if err := c.cleanupSingleNamespace(ctx, namespace); err != nil {
 			if errors.Is(err, types.ErrNotLeader) || ctx.Err() != nil {
 				return nil
 			}
-			c.logger.WithField("namespace", ns).Error(err)
+			c.logger.WithField("namespace", namespace).Error(err)
 		}
 	}
 	return nil
 }
 
 // cleanupSingleNamespace deletes the users, aliases, and classes (in this order) that
-// belong to ns, then removes the namespace entry. If the entry is not
+// belong to namespace, then removes the namespace entry. If the entry is not
 // empty when RemoveNamespaceEntity reaches the apply path, the error is
 // ignored and the next tick retries. ctx is re-checked before every RAFT
 // write so a long cleanup stops on shutdown.
-func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) error {
+func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, namespace string) error {
 	if !c.isLeader() {
 		return types.ErrNotLeader
 	}
@@ -162,12 +181,12 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 		return err
 	}
 	// Skip the no-op RAFT entry when no users remain to redrain.
-	if len(c.users.UsersInNamespace(ns)) > 0 {
-		if err := c.raft.DeleteUsersInNamespace(ctx, ns); err != nil {
+	if len(c.users.UsersInNamespace(namespace)) > 0 {
+		if err := c.raft.DeleteUsersInNamespace(ctx, namespace); err != nil {
 			return err
 		}
 	}
-	for _, alias := range c.schema.AliasesInNamespace(ns) {
+	for _, alias := range c.schema.AliasesInNamespace(namespace) {
 		if !c.isLeader() {
 			return types.ErrNotLeader
 		}
@@ -178,9 +197,9 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 			return err
 		}
 	}
-	classes, err := c.schema.ClassesInNamespace(ns)
+	classes, err := c.schema.ClassesInNamespace(namespace)
 	if err != nil {
-		return fmt.Errorf("list classes in namespace %q: %w", ns, err)
+		return fmt.Errorf("list classes in namespace %q: %w", namespace, err)
 	}
 	for _, cls := range classes {
 		if !c.isLeader() {
@@ -193,19 +212,90 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 			return err
 		}
 	}
+	if err := c.cleanupNamespaceRBAC(ctx, namespace); err != nil {
+		return err
+	}
 	if !c.isLeader() {
 		return types.ErrNotLeader
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if _, err := c.raft.RemoveNamespaceEntity(ctx, ns); err != nil {
+	if _, err := c.raft.RemoveNamespaceEntity(ctx, namespace); err != nil {
 		// Apply re-checks emptiness against authoritative state; the
 		// next tick retries if anything still owns the namespace.
 		if errors.Is(err, namespaces.ErrNamespaceNotEmpty) {
 			return nil
 		}
 		return err
+	}
+	return nil
+}
+
+// cleanupNamespaceRBAC removes the namespace's RBAC state: first the role
+// assignments of its direct principals (which may also assign a global role),
+// then the local roles themselves. DeleteRoles also drops any remaining
+// assignment of a deleted local role, so a global principal assigned a local
+// role is covered too. Revocations run before role deletes so no assignment
+// outlives its role. No-op when RBAC is disabled (only a non-namespace cluster,
+// which has nothing here).
+func (c *Coordinator) cleanupNamespaceRBAC(ctx context.Context, namespace string) error {
+	if c.rbac == nil {
+		return nil
+	}
+	for _, authMethod := range []authentication.AuthType{authentication.AuthTypeDb, authentication.AuthTypeOIDC} {
+		// Direct users only; groups are global, so their assignments aren't namespace-bound.
+		subjects, err := c.rbac.GetUsersOrGroupsWithRoles(false, authMethod)
+		if err != nil {
+			return fmt.Errorf("list %s users with roles: %w", authMethod, err)
+		}
+		for _, subject := range subjects {
+			if namespacing.NamespaceFromQualified(subject) != namespace {
+				continue
+			}
+			if !c.isLeader() {
+				return types.ErrNotLeader
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			roles, err := c.rbac.GetRolesForUserOrGroup(subject, authMethod, false)
+			if err != nil {
+				return fmt.Errorf("list roles for %q: %w", subject, err)
+			}
+			if len(roles) == 0 {
+				continue
+			}
+			roleNames := make([]string, 0, len(roles))
+			for name := range roles {
+				roleNames = append(roleNames, name)
+			}
+			if err := c.raft.RevokeRolesForUser(conv.UserNameWithTypeFromId(subject, authMethod), roleNames...); err != nil {
+				return fmt.Errorf("revoke roles from %q: %w", subject, err)
+			}
+		}
+	}
+
+	allRoles, err := c.rbac.GetRoles()
+	if err != nil {
+		return fmt.Errorf("list roles: %w", err)
+	}
+	var localRoles []string
+	for name := range allRoles {
+		if namespacing.NamespaceFromQualified(name) == namespace {
+			localRoles = append(localRoles, name)
+		}
+	}
+	if len(localRoles) > 0 {
+		if !c.isLeader() {
+			return types.ErrNotLeader
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := c.raft.DeleteRoles(localRoles...); err != nil {
+			return fmt.Errorf("delete local roles: %w", err)
+		}
 	}
 	return nil
 }
