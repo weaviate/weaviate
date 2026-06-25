@@ -115,7 +115,7 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 	// to a namespace is always forced through the MATCH ≤-effective path, so an
 	// ALL-scoped grant it somehow holds can't escalate to cluster-wide role
 	// management.
-	confinedToNamespace := h.namespacesEnabled && principal != nil && principal.Namespace != ""
+	confinedToNamespace := h.callerConfined(principal)
 	if !confinedToNamespace {
 		if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_ALL), authorization.Roles(roleName)...); err == nil {
 			return nil
@@ -147,7 +147,7 @@ func (h *authZHandlers) rolePoliciesVisibleToPrincipal(ctx context.Context, prin
 	if err := h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles()...); err == nil {
 		return true
 	}
-	namespaced := h.namespacesEnabled && principal != nil && principal.Namespace != ""
+	namespaced := h.callerConfined(principal)
 	for _, policy := range policies {
 		// Permission-less roles carry this placeholder; it grants nothing.
 		if policy.Resource == conv.InternalPlaceHolder {
@@ -168,12 +168,19 @@ func (h *authZHandlers) rolePoliciesVisibleToPrincipal(ctx context.Context, prin
 	return true
 }
 
+// callerConfined reports whether the principal is a namespace-confined caller —
+// its RBAC reads and writes scope to its own namespace. False for global callers
+// and on NS-disabled clusters.
+func (h *authZHandlers) callerConfined(principal *models.Principal) bool {
+	return h.namespacesEnabled && principal != nil && principal.Namespace != ""
+}
+
 // roleHiddenFromCaller reports whether storedRoleName belongs to a namespace
 // other than the caller's, so its very existence must not be revealed.
 // Own-namespace and global roles are visible; only foreign-namespace roles are
 // hidden. Global operators (and NS-disabled clusters) hide nothing.
 func (h *authZHandlers) roleHiddenFromCaller(principal *models.Principal, storedRoleName string) bool {
-	if !h.namespacesEnabled || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if !h.callerConfined(principal) || principal.IsGlobalOperator {
 		return false
 	}
 	ns := namespacing.NamespaceFromQualified(storedRoleName)
@@ -247,7 +254,7 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 // before the check, so a global template role is evaluated as it applies to the
 // assignee rather than against its raw unqualified resource strings.
 func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
-	namespaced := h.namespacesEnabled && principal != nil && principal.Namespace != ""
+	namespaced := h.callerConfined(principal)
 	var errs error
 	for _, policies := range roles {
 		for _, policy := range policies {
@@ -826,7 +833,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if h.namespacesEnabled && principal != nil && principal.Namespace != "" {
+	if h.callerConfined(principal) {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning roles to groups is not allowed")))
 	}
 
@@ -1026,7 +1033,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 				}
 			}
 			role.Permissions = perms
-		} else if h.namespacesEnabled && principal != nil && principal.Namespace != "" && !ownUser &&
+		} else if h.callerConfined(principal) && !ownUser &&
 			!h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
 			// Name-only: still hide a role whose permissions the caller does not
 			// hold, so a global role's name doesn't leak to a namespaced caller.
@@ -1312,7 +1319,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if h.namespacesEnabled && principal != nil && principal.Namespace != "" {
+	if h.callerConfined(principal) {
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("revoking roles from groups is not allowed")))
 	}
 
@@ -1444,7 +1451,7 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 				}
 			}
 			role.Permissions = perms
-		} else if h.namespacesEnabled && principal != nil && principal.Namespace != "" && !ownGroup &&
+		} else if h.callerConfined(principal) && !ownGroup &&
 			!h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
 			// Name-only: still hide a role whose permissions the caller does not
 			// hold, so a global role's name doesn't leak to a namespaced caller.
