@@ -400,6 +400,42 @@ func (b *Bucket) GetRootDir() string {
 	return b.rootDir
 }
 
+// HasEditOps reports whether this bucket has an edit-ops sidecar (wired via
+// WithTransformerBuilder, i.e. the objects bucket).
+func (b *Bucket) HasEditOps() bool {
+	return b.disk != nil && b.disk.editOps != nil
+}
+
+// RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
+// current segments as pending for the compaction/cleanup transformer to rewrite.
+// It flushes the active memtable first so pre-existing in-memory data is captured.
+// Idempotent: an already-registered op (resume) is a no-op and skips the flush.
+func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
+	if !b.HasEditOps() {
+		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	registered, err := b.disk.editOps.IsRegistered(opID)
+	if err != nil {
+		return err
+	}
+	if registered {
+		return nil
+	}
+	if err := b.FlushAndSwitch(); err != nil {
+		return fmt.Errorf("flush before edit-op snapshot: %w", err)
+	}
+	return b.disk.registerEditOpAndSnapshot(opID, desc)
+}
+
+// EditOpPending returns the segment IDs still awaiting rewrite for opID. An empty
+// result means the operation has been fully applied on this bucket.
+func (b *Bucket) EditOpPending(opID string) ([]string, error) {
+	if !b.HasEditOps() {
+		return nil, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.Pending(opID)
+}
+
 func (b *Bucket) GetStrategy() string {
 	return b.strategy
 }
