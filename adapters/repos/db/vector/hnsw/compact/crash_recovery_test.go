@@ -234,6 +234,18 @@ func TestCrashRecovery_TruncatedCompactedWALFilesRecover(t *testing.T) {
 				require.GreaterOrEqual(t, len(result.State.Graph.Nodes), 2)
 				require.NotNil(t, result.State.Graph.Nodes[0])
 				require.NotNil(t, result.State.Graph.Nodes[1])
+
+				// Recovery truncates the segment back to its last valid record,
+				// so the file is now clean: a second load reads it without any
+				// further recovery, and still sees the same surviving records.
+				// This is what keeps the next compaction from tripping on it.
+				result2, err := NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()}).Load()
+				require.NoError(t, err)
+				require.NotNil(t, result2)
+				assert.False(t, result2.RecoveredFromCrash, "second load should be clean after truncation")
+				require.GreaterOrEqual(t, len(result2.State.Graph.Nodes), 2)
+				require.NotNil(t, result2.State.Graph.Nodes[0])
+				require.NotNil(t, result2.State.Graph.Nodes[1])
 			})
 		}
 	}

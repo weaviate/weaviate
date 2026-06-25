@@ -195,6 +195,12 @@ type WALCommitReader struct {
 	countingR *countingReader // tracks bytes read from underlying reader
 	logger    logrus.FieldLogger
 
+	// lastValidOffset is the byte offset at the end of the last fully decoded
+	// commit. Unlike BytesRead, it never includes the partially-consumed bytes
+	// of a failed read, so it is the correct point to truncate a corrupt file
+	// back to its last valid record.
+	lastValidOffset int64
+
 	reusableBuf     []byte
 	reusableUint64s []uint64
 }
@@ -217,11 +223,30 @@ func (w *WALCommitReader) BytesRead() int64 {
 	return w.countingR.count - int64(w.r.Buffered())
 }
 
+// LastValidOffset returns the byte offset at the end of the last commit that
+// was decoded successfully. Use this (not BytesRead) to truncate a file back to
+// its last valid record after a read error: BytesRead includes the type byte
+// and any partial body consumed by the failed read, so truncating to it would
+// leave a stray fragment that re-triggers the error on the next read.
+func (w *WALCommitReader) LastValidOffset() int64 {
+	return w.lastValidOffset
+}
+
 // ReadNextCommit returns the next commit in the WAL.
 //   - (Commit, nil) on success
 //   - (nil, io.EOF) when no more commits are available
 //   - (nil, err) on other errors
+//
+// On success it advances LastValidOffset to the end of the returned commit.
 func (w *WALCommitReader) ReadNextCommit() (Commit, error) {
+	c, err := w.decodeNextCommit()
+	if err == nil {
+		w.lastValidOffset = w.BytesRead()
+	}
+	return c, err
+}
+
+func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
 	ct, err := readCommitType(w.r)
 	if err != nil {
 		return nil, err
