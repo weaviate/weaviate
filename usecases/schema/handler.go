@@ -162,6 +162,10 @@ type Handler struct {
 	schemaManager SchemaManager
 	schemaReader  SchemaReader
 
+	// dropVectorEnqueuer submits the Phase-2 cleanup task when a named vector is
+	// dropped. nil when the distributed-task machinery is not wired.
+	dropVectorEnqueuer DropVectorIndexEnqueuer
+
 	cloud modulecapabilities.OffloadCloud
 
 	validator validator
@@ -404,4 +408,51 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]any {
 	return h.schemaManager.Stats()
+}
+
+// DropVectorIndexEnqueuer submits the Phase-2 cleanup distributed task for a
+// dropped named vector and reports whether one is already in flight, so
+// DeleteClassVectorIndex can apply the §3.4 re-trigger matrix. It is implemented
+// in the cluster wiring layer (which owns the DTM client and sharding state) and
+// injected via SetDropVectorIndexEnqueuer. When nil — the distributed-task
+// machinery is not wired — a drop only sets the schema marker.
+type DropVectorIndexEnqueuer interface {
+	// HasActiveDrop reports whether a non-terminal cleanup task already covers
+	// targetVector on collection.
+	HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error)
+	// EnqueueDropVectorIndex submits a fresh cleanup task (fresh task ID, C4) for
+	// the given targets on collection.
+	EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error
+}
+
+// SetDropVectorIndexEnqueuer installs the cleanup-task enqueuer. Called once at
+// startup from the wiring layer, after the DTM client exists.
+func (h *Handler) SetDropVectorIndexEnqueuer(e DropVectorIndexEnqueuer) {
+	h.dropVectorEnqueuer = e
+}
+
+// enqueueDropVectorIndexCleanup submits the cleanup task for a freshly dropped
+// vector. A nil enqueuer (DTM not wired) leaves the drop marker-only.
+func (h *Handler) enqueueDropVectorIndexCleanup(ctx context.Context, collection, targetVector string) error {
+	if h.dropVectorEnqueuer == nil {
+		return nil
+	}
+	return h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector})
+}
+
+// retriggerDropVectorIndexCleanup applies the §3.4 re-trigger matrix when a drop
+// is re-issued on a vector whose marker is already set: a still-running cleanup
+// is a no-op; a failed/absent one is re-enqueued with a fresh task ID (C4).
+func (h *Handler) retriggerDropVectorIndexCleanup(ctx context.Context, collection, targetVector string) error {
+	if h.dropVectorEnqueuer == nil {
+		return nil
+	}
+	active, err := h.dropVectorEnqueuer.HasActiveDrop(ctx, collection, targetVector)
+	if err != nil {
+		return err
+	}
+	if active {
+		return nil
+	}
+	return h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector})
 }
