@@ -57,9 +57,4 @@ type GlobalConfig struct {
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
 
 	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
-
-	// AsyncReplicationRawPropagation ships raw on-disk object bytes instead of the
-	// JSON round-trip. Emit-only gate. Enable only once the whole cluster is
-	// upgraded — an older node cannot decode the raw encoding.
-	AsyncReplicationRawPropagation *runtime.DynamicValue[bool] `json:"async_replication_raw_propagation" yaml:"async_replication_raw_propagation"`
 }

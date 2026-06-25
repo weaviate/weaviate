@@ -16,7 +16,6 @@ package rawpropagation
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
@@ -46,19 +45,10 @@ var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
 }
 
-// TestAsyncRepairObjectPropagation runs the same node-recovery convergence
-// scenario with raw propagation off (former JSON path) and on, asserting
-// identical end state — proving the raw path is a drop-in.
+// TestAsyncRepairObjectPropagation exercises the node-recovery convergence path,
+// which always ships raw on-disk object bytes, and asserts properties and
+// vectors survive the round-trip on the recovered node.
 func TestAsyncRepairObjectPropagation(t *testing.T) {
-	t.Run("raw_disabled", func(t *testing.T) {
-		runAsyncRepairScenario(t, false)
-	})
-	t.Run("raw_enabled", func(t *testing.T) {
-		runAsyncRepairScenario(t, true)
-	})
-}
-
-func runAsyncRepairScenario(t *testing.T, rawEnabled bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
@@ -66,7 +56,6 @@ func runAsyncRepairScenario(t *testing.T, rawEnabled bool) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
-		WithWeaviateEnv("ASYNC_REPLICATION_RAW_PROPAGATION", strconv.FormatBool(rawEnabled)).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -148,6 +137,6 @@ func runAsyncRepairScenario(t *testing.T, rawEnabled bool) {
 				require.NotEmpty(ct, vec)
 			}
 			require.Equal(ct, expectedContents, gotContents)
-		}, 120*time.Second, 5*time.Second, "objects not converged (rawEnabled=%v)", rawEnabled)
+		}, 120*time.Second, 5*time.Second, "objects not converged via raw propagation")
 	})
 }

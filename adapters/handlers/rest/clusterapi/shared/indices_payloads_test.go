@@ -602,6 +602,32 @@ func TestVersionedObjectListPayloadRawRoundTrip(t *testing.T) {
 	}
 }
 
+// TestVersionedObjectListJSONUnmarshalRejectsRaw locks the graceful-degradation
+// contract: an older node, which only has the JSON Unmarshal, must return an
+// error (never panic) when handed a raw (or compressed-raw) payload.
+func TestVersionedObjectListJSONUnmarshalRejectsRaw(t *testing.T) {
+	o := storobj.FromObject(
+		&models.Object{ID: "73f2eb5f-5abf-447a-81ca-74b1dd168241", Class: "C1", LastUpdateTimeUnix: 1},
+		[]float32{0.1, 0.2}, nil, nil,
+	)
+	rawBytes, err := o.MarshalBinary()
+	require.NoError(t, err)
+
+	rawPayload, err := IndicesPayloads.VersionedObjectList.MarshalRaw(
+		[]*objects.VObject{{StaleUpdateTime: 1, RawBytes: rawBytes}})
+	require.NoError(t, err)
+
+	t.Run("raw payload", func(t *testing.T) {
+		_, err := IndicesPayloads.VersionedObjectList.Unmarshal(rawPayload)
+		require.Error(t, err)
+	})
+
+	t.Run("compressed raw payload", func(t *testing.T) {
+		_, err := IndicesPayloads.VersionedObjectList.Unmarshal(CompressOverwriteRaw(rawPayload))
+		require.Error(t, err)
+	})
+}
+
 func TestVersionedObjectListUnmarshalV2FramingErrors(t *testing.T) {
 	p := IndicesPayloads.VersionedObjectList
 

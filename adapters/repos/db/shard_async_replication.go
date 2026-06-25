@@ -1853,30 +1853,11 @@ func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNo
 	return time.Now().Add(-config.propagationDelay).UnixMilli()
 }
 
-// rawPropagationEnabled reports whether to ship raw on-disk bytes. Emit-only
-// gate; decoding raw is always supported, so it is safe to flip per node.
-func (s *Shard) rawPropagationEnabled() bool {
-	if s.index == nil || s.index.globalreplicationConfig == nil {
-		return false
-	}
-	v := s.index.globalreplicationConfig.AsyncReplicationRawPropagation
-	return v != nil && v.Get()
-}
-
-// buildPropagationBatch wraps a UUID batch as VObjects to overwrite on the
-// target, as raw on-disk bytes (useRaw) or decoded objects plus vectors.
+// buildPropagationBatch wraps each local object's raw on-disk bytes as a VObject
+// to overwrite on the target. Objects deleted locally in the meantime are
+// skipped. An older target that cannot decode raw fails gracefully and converges
+// once upgraded (see VObject.MarshalBinaryRaw).
 func (s *Shard) buildPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
-	remoteStaleUpdateTime map[strfmt.UUID]int64, useRaw bool,
-) ([]*objects.VObject, error) {
-	if useRaw {
-		return s.buildRawPropagationBatch(ctx, uuidBatch, remoteStaleUpdateTime)
-	}
-	return s.buildObjectPropagationBatch(ctx, uuidBatch, remoteStaleUpdateTime)
-}
-
-// buildRawPropagationBatch wraps each local object's raw on-disk bytes. Objects
-// deleted locally in the meantime are skipped.
-func (s *Shard) buildRawPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
 	remoteStaleUpdateTime map[strfmt.UUID]int64,
 ) ([]*objects.VObject, error) {
 	rawObjs, err := s.MultiObjectRawByID(ctx, uuidBatch)
@@ -1895,57 +1876,6 @@ func (s *Shard) buildRawPropagationBatch(ctx context.Context, uuidBatch []strfmt
 		})
 	}
 	return batch, nil
-}
-
-// buildObjectPropagationBatch wraps each local object as a decoded VObject plus
-// its vectors. Objects deleted locally in the meantime are skipped.
-func (s *Shard) buildObjectPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
-	remoteStaleUpdateTime map[strfmt.UUID]int64,
-) ([]*objects.VObject, error) {
-	localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuidBatch))
-	if err != nil {
-		return nil, err
-	}
-
-	batch := make([]*objects.VObject, 0, len(localObjs))
-	for _, obj := range localObjs {
-		if obj == nil {
-			continue
-		}
-
-		batch = append(batch, &objects.VObject{
-			ID:                      obj.ID(),
-			LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-			LatestObject:            &obj.Object,
-			Vector:                  obj.Vector,
-			Vectors:                 copyVectorMap(obj.Vectors),
-			MultiVectors:            copyMultiVectorMap(obj.MultiVectors),
-			StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
-		})
-	}
-	return batch, nil
-}
-
-func copyVectorMap(in map[string][]float32) map[string][]float32 {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string][]float32, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
-func copyMultiVectorMap(in map[string][][]float32) map[string][][]float32 {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string][][]float32, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationConfig, host string,
@@ -1986,9 +1916,6 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 	// worker, ensuring the recovery defer never blocks before workerWg.Done fires.
 	resultCh := make(chan workerResponse, numBatches+config.propagationConcurrency)
 
-	// Fixed per cycle so a mid-cycle flag flip cannot produce a mixed batch.
-	useRaw := s.rawPropagationEnabled()
-
 	for range config.propagationConcurrency {
 		workerWg.Add(1)
 		enterrors.GoWrapper(func() {
@@ -2020,7 +1947,7 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 					continue
 				}
 
-				batch, err := s.buildPropagationBatch(workerCtx, uuidBatch, remoteStaleUpdateTime, useRaw)
+				batch, err := s.buildPropagationBatch(workerCtx, uuidBatch, remoteStaleUpdateTime)
 				if err != nil {
 					// Skip ctx-cancellation errors: the parent surfaces the cancel
 					// cause via context.Cause(workerCtx) once workers drain.
