@@ -280,8 +280,10 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	}
 
 	if modelsext.IsVectorIndexDropped(cfg) {
-		// Already dropped, nothing to do.
-		return nil
+		// Marker already set: apply the §3.4 re-trigger matrix (no-op while the
+		// cleanup is in flight, re-enqueue if it failed) rather than a blanket
+		// no-op, so a stuck/failed Phase-2 cleanup can be retried.
+		return h.retriggerDropVectorIndexCleanup(ctx, className, vectorIndexName)
 	}
 
 	// Keep the vector entry in the schema but set VectorIndexType to "none".
@@ -293,8 +295,13 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
 
-	_, err = h.schemaManager.UpdateClass(ctx, class, nil)
-	return err
+	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {
+		return err
+	}
+
+	// Phase 2: enqueue the distributed cleanup task that strips the dropped
+	// vector from stored objects and finalizes the schema removal.
+	return h.enqueueDropVectorIndexCleanup(ctx, className, vectorIndexName)
 }
 
 // DeleteClassProperty from existing Schema
