@@ -13,6 +13,7 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/entities/modelsext"
 
@@ -146,6 +148,26 @@ func CreateClassAuth(t *testing.T, class *models.Class, key string) {
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
+	WaitForClassLocal(t, class.Class, key)
+}
+
+// WaitForClassLocal blocks until className is visible in the local schema of the
+// contacted node. The create returns on leader apply, but a lagging follower
+// would 404/422 the next op that resolves the class locally. Consistency=false
+// forces a local read; a 403 means the key can't read the class, so there's
+// nothing to probe and the wait returns.
+func WaitForClassLocal(t *testing.T, className, key string) {
+	t.Helper()
+	local := false
+	getParams := schema.NewSchemaObjectsGetParams().WithClassName(className).WithConsistency(&local)
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Schema.SchemaObjectsGet(getParams, CreateAuth(key))
+		var forbidden *schema.SchemaObjectsGetForbidden
+		if errors.As(err, &forbidden) {
+			return
+		}
+		assert.NoError(c, err)
+	}, 10*time.Second, 50*time.Millisecond, "class %q not visible in local schema after create", className)
 }
 
 // CreateClassAuthWithReturn issues an authenticated class-create and returns
@@ -736,8 +758,13 @@ func CreateAliasWithReturn(t *testing.T, alias *models.Alias) (*schema.AliasesCr
 func CreateAliasWithAuthz(t *testing.T, alias *models.Alias, authInfo runtime.ClientAuthInfoWriter) {
 	t.Helper()
 	params := schema.NewAliasesCreateParams().WithBody(alias)
-	resp, err := Client(t).Schema.AliasesCreate(params, authInfo)
-	AssertRequestOk(t, resp, err, nil)
+	// Retry while the target class replicates to the contacted node: the
+	// alias-create's "target class exists" check reads local schema and can
+	// briefly 422. Nothing is created on that failure, so retrying is safe.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Schema.AliasesCreate(params, authInfo)
+		assert.NoError(c, err)
+	}, 10*time.Second, 50*time.Millisecond, "alias %q create kept failing while target class replicated", alias.Alias)
 }
 
 func CreateAliasAuth(t *testing.T, alias *models.Alias, key string) {
