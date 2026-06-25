@@ -122,6 +122,7 @@ package db
 import (
 	"bytes"
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1204,6 +1205,36 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	return nil
 }
 
+// newReindexTrackerGuarded builds a reindex tracker for the WORKER drain path
+// whose init()-time os.MkdirAll is serialized against the owning Index's
+// drop() via Index.closeLock.
+//
+// The plain t.newReindexTracker factory creates the tracker dir with an
+// unguarded MkdirAll. That is correct for setup/recovery callers that run
+// before the worker loop, but it is UNSAFE for the per-iteration call inside
+// the worker loop (OnAfterLsmInitAsync): a cancelled reindex worker keeps
+// draining and re-enters this function with NO ctx check before the MkdirAll.
+// If a concurrent DELETE (Index.drop) has renamed the shard's LSM path away,
+// the unguarded MkdirAll re-materializes the original directory AFTER the
+// rename, leaving an orphaned class dir that the DELETE was supposed to remove.
+//
+// Routing the MkdirAll through index.withCloseRLockGuard makes it mutually
+// exclusive with drop()'s rename: it either completes before drop() takes the
+// write lock (rename then carries it into the .deleteme dir) or observes
+// i.closed and bails with context.Canceled (no MkdirAll). The caller treats
+// context.Canceled as a clean stop of the drain loop.
+//
+// shard.Index() is valid for both *Shard and *LazyLoadShard, so no unwrap is
+// needed to reach the owning Index.
+func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (reindexTracker, error) {
+	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
+	rt.mkdirGuard = shard.Index().withCloseRLockGuard
+	if err := rt.init(); err != nil {
+		return nil, err
+	}
+	return rt, nil
+}
+
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
@@ -1230,8 +1261,18 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
-	rt, err := t.newReindexTracker(shard.pathLSM())
+	// Guarded tracker: this is the per-iteration WORKER drain path. A
+	// cancelled-but-draining worker re-enters here with no ctx check before the
+	// tracker's MkdirAll; the guard serializes that MkdirAll against a
+	// concurrent DELETE (Index.drop) so it cannot re-materialize a renamed-away
+	// shard path. A closing index yields context.Canceled, which the worker
+	// loop treats as a clean stop.
+	rt, err := t.newReindexTrackerGuarded(shard)
 	if err != nil {
+		if stderrors.Is(err, context.Canceled) {
+			logger.Debug("index is closing, stopping reindex drain")
+			return zerotime, false, err
+		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return zerotime, false, err
 	}
