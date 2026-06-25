@@ -551,74 +551,6 @@ func TestNamespaceAwareMatcherGate(t *testing.T) {
 		"NS-enabled: cross-namespace role access denied")
 }
 
-// TestRewriteSegment locks the contract of the per-segment rewriter directly,
-// so a regression in segment handling (e.g. double-prefixing, wrong cross-NS
-// behavior) shows up here rather than being masked by KeyMatch5 still
-// matching a malformed pattern.
-func TestRewriteSegment(t *testing.T) {
-	tests := []struct {
-		name     string
-		seg      string
-		prefix   string
-		fixedNs  bool
-		wantOK   bool
-		wantText string // builder contents on ok=true
-	}{
-		{
-			name:     "unqualified seg, fixed-ns: prefix is prepended",
-			seg:      "Movies.*",
-			prefix:   "customer1:",
-			fixedNs:  true,
-			wantOK:   true,
-			wantText: "customer1:Movies.*",
-		},
-		{
-			name:     "unqualified seg, any-ns: regex prefix is prepended",
-			seg:      "Movies.*",
-			prefix:   "[^/:]+:",
-			fixedNs:  false,
-			wantOK:   true,
-			wantText: "[^/:]+:Movies.*",
-		},
-		{
-			name:     "qualified seg matching prefix, fixed-ns: seg verbatim",
-			seg:      "customer1:Movies",
-			prefix:   "customer1:",
-			fixedNs:  true,
-			wantOK:   true,
-			wantText: "customer1:Movies",
-		},
-		{
-			name:    "qualified seg with different namespace, fixed-ns: ok=false (cross-NS deny)",
-			seg:     "customer2:Movies",
-			prefix:  "customer1:",
-			fixedNs: true,
-			wantOK:  false,
-		},
-		{
-			name:     "qualified seg, any-ns: seg verbatim (qualified stays fixed)",
-			seg:      "customer1:Movies",
-			prefix:   "[^/:]+:",
-			fixedNs:  false,
-			wantOK:   true,
-			wantText: "customer1:Movies",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var b strings.Builder
-			ok := rewriteSegment(&b, tt.seg, 0, len(tt.seg), tt.prefix, tt.fixedNs)
-			if ok != tt.wantOK {
-				t.Fatalf("rewriteSegment ok = %v; want %v", ok, tt.wantOK)
-			}
-			if ok && b.String() != tt.wantText {
-				t.Errorf("rewriteSegment wrote %q; want %q", b.String(), tt.wantText)
-			}
-		})
-	}
-}
-
 // TestRewritePolicy asserts the exact rewritten string for representative
 // schema/data/aliases shapes and the cross-namespace deny path on both the
 // collection and alias segment.
@@ -728,11 +660,10 @@ func TestRewritePolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			colStart, colEnd, hasAlias := namespacing.FindNamespaceSegments(tt.policy)
-			if colEnd == 0 {
+			if _, colEnd, _ := namespacing.FindNamespaceSegments(tt.policy); colEnd == 0 {
 				t.Fatalf("test setup: %q is not namespaceable", tt.policy)
 			}
-			got, ok := rewritePolicy(tt.policy, colStart, colEnd, hasAlias, tt.prefix, tt.fixedNs)
+			got, ok := rewritePolicy(tt.policy, tt.prefix, tt.fixedNs)
 			if ok != tt.wantOK {
 				t.Fatalf("rewritePolicy ok = %v; want %v (got=%q)", ok, tt.wantOK, got)
 			}

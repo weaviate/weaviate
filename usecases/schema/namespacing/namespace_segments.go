@@ -79,3 +79,42 @@ func FindNamespaceSegments(path string) (start, end int, hasAlias bool) {
 func SegmentHasSeparator(path string, start, end int) bool {
 	return strings.IndexByte(path[start:end], schema.NamespaceSeparator[0]) >= 0
 }
+
+// RewriteNamespaceSegments walks the namespace-bearing segment(s) of an
+// authorization resource path — the collection name, plus the alias name on
+// aliases paths — and replaces each via fn, leaving the rest of path
+// untouched. fn receives one segment substring and returns its replacement;
+// a non-nil error from fn aborts the whole rewrite (e.g. a segment bound to a
+// foreign namespace) and is returned verbatim. A non-namespaceable path is
+// returned unchanged.
+//
+// It is the single structural walk shared by qualify-on-create, project-for-
+// assignment, and the enforce-time policy rewrite; only their per-segment fn
+// differs. Keeping the alias-offset arithmetic here, in one place, prevents the
+// three from drifting.
+func RewriteNamespaceSegments(path string, fn func(segment string) (string, error)) (string, error) {
+	start, end, hasAlias := FindNamespaceSegments(path)
+	if end == 0 {
+		return path, nil
+	}
+	var b strings.Builder
+	b.Grow(len(path) + 2*len(schema.NamespaceSeparator) + 32)
+	b.WriteString(path[:start])
+	seg, err := fn(path[start:end])
+	if err != nil {
+		return "", err
+	}
+	b.WriteString(seg)
+	if !hasAlias {
+		b.WriteString(path[end:])
+		return b.String(), nil
+	}
+	aliasStart := end + len(AliasesMidSeg)
+	b.WriteString(path[end:aliasStart])
+	seg, err = fn(path[aliasStart:])
+	if err != nil {
+		return "", err
+	}
+	b.WriteString(seg)
+	return b.String(), nil
+}

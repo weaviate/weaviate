@@ -312,50 +312,28 @@ func rejectNamespacedRootSubjects(conf rbacconf.Config) error {
 // anyNamespacePattern matches exactly one `<ns>:` prefix.
 var anyNamespacePattern = "[^/" + schema.NamespaceSeparator + "]+" + schema.NamespaceSeparator
 
-// rewriteSegment appends prefix+seg to b (unqualified policy segment) or seg
-// verbatim (already-qualified). In fixedNs mode an already-qualified segment
-// must start with prefix exactly, otherwise ok=false.
-func rewriteSegment(b *strings.Builder, policy string, start, end int, prefix string, fixedNs bool) (ok bool) {
-	if namespacing.SegmentHasSeparator(policy, start, end) {
-		if fixedNs && !strings.HasPrefix(policy[start:end], prefix) {
-			return false
-		}
-		b.WriteString(policy[start:end])
-		return true
-	}
-	b.WriteString(prefix)
-	b.WriteString(policy[start:end])
-	return true
-}
+// errForeignSegment aborts a fixed-ns rewrite when an already-qualified policy
+// segment names a different namespace; it maps to a cross-namespace deny.
+var errForeignSegment = errors.New("policy segment names a different namespace")
 
 // rewritePolicy specializes (fixedNs=true, prefix=`<ns>:`) or widens
 // (fixedNs=false, prefix=anyNamespacePattern) the namespace-bearing segments
 // of policy. Returns ok=false in fixedNs mode if any already-qualified
 // segment names a different namespace.
-func rewritePolicy(policy string, colStart, colEnd int, hasAlias bool, prefix string, fixedNs bool) (string, bool) {
-	segCount := 1
-	if hasAlias {
-		segCount = 2
-	}
-	var b strings.Builder
-	b.Grow(len(policy) + segCount*len(prefix))
-
-	b.WriteString(policy[:colStart])
-	if !rewriteSegment(&b, policy, colStart, colEnd, prefix, fixedNs) {
+func rewritePolicy(policy, prefix string, fixedNs bool) (string, bool) {
+	rewritten, err := namespacing.RewriteNamespaceSegments(policy, func(segment string) (string, error) {
+		if strings.Contains(segment, schema.NamespaceSeparator) {
+			if fixedNs && !strings.HasPrefix(segment, prefix) {
+				return "", errForeignSegment
+			}
+			return segment, nil
+		}
+		return prefix + segment, nil
+	})
+	if err != nil {
 		return "", false
 	}
-	if !hasAlias {
-		b.WriteString(policy[colEnd:])
-		return b.String(), true
-	}
-
-	aliasStart := colEnd + len(namespacing.AliasesMidSeg)
-	aliasEnd := len(policy)
-	b.WriteString(policy[colEnd:aliasStart])
-	if !rewriteSegment(&b, policy, aliasStart, aliasEnd, prefix, fixedNs) {
-		return "", false
-	}
-	return b.String(), true
+	return rewritten, true
 }
 
 // globalCallerNeedsNoWidening reports whether a global caller's (ns == "")
@@ -446,7 +424,7 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	//    which carry a *second* namespace-bearing segment after "/aliases/".
 	//    The request side only needs end+hasAlias (for the shape check
 	//    below); we don't rewrite the request, so its start is discarded.
-	polColStart, polColEnd, polHasAlias := namespacing.FindNamespaceSegments(polObj)
+	_, polColEnd, polHasAlias := namespacing.FindNamespaceSegments(polObj)
 	_, reqColEnd, reqHasAlias := namespacing.FindNamespaceSegments(reqObj)
 
 	// 2. Shape check. If either path isn't a namespaceable shape (end==0),
@@ -463,7 +441,7 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	//     namespace and rewritePolicy returns ok=false → cross-namespace
 	//     deny.
 	if ns != "" {
-		rewritten, ok := rewritePolicy(polObj, polColStart, polColEnd, polHasAlias, ns+schema.NamespaceSeparator, true)
+		rewritten, ok := rewritePolicy(polObj, ns+schema.NamespaceSeparator, true)
 		if !ok {
 			return false
 		}
@@ -476,7 +454,7 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	//
 	// 4.  Final KeyMatch5, with the /shards/# carve-out so a
 	//     collection-level request doesn't satisfy a per-tenant policy.
-	rewritten, _ := rewritePolicy(polObj, polColStart, polColEnd, polHasAlias, anyNamespacePattern, false)
+	rewritten, _ := rewritePolicy(polObj, anyNamespacePattern, false)
 	return weaviateKeyMatch(reqObj, rewritten)
 }
 
