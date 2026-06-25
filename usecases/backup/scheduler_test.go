@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -1770,4 +1771,258 @@ func TestSchedulerCreateBackupIncludeUsers(t *testing.T) {
 		assert.Contains(t, err.Error(), "no dynamic users match")
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
+}
+
+// denyUserAuthorizer denies one exact resource and defers everything else to the
+// embedded blanket fake, so Calls() still records the allowed authorizations.
+type denyUserAuthorizer struct {
+	*mocks.FakeAuthorizer
+	denyResource string
+}
+
+func (d *denyUserAuthorizer) Authorize(ctx context.Context, pr *models.Principal, verb string, resources ...string) error {
+	for _, r := range resources {
+		if r == d.denyResource {
+			return authzerrors.NewForbidden(pr, verb, resources...)
+		}
+	}
+	return d.FakeAuthorizer.Authorize(ctx, pr, verb, resources...)
+}
+
+// Scheduler.Backup must record the resolved dynamic-user IDs on the global
+// descriptor so the restore side can authorize them later. Ordinary backups (no
+// includeUsers) must record no users, keeping the on-disk shape unchanged.
+func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
+	t.Parallel()
+
+	var (
+		cls         = "Class-A"
+		node        = "Node-A"
+		backendName = "gcs"
+		backupID    = "1"
+		any         = mock.Anything
+		ctx         = context.Background()
+		path        = "dst/path"
+		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		sReq        = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
+	)
+
+	setup := func(fs *fakeScheduler, req *BackupRequest) {
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
+		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
+		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.client.On("CanCommit", any, node, any).Return(cresp, nil)
+		fs.client.On("Commit", any, node, sReq).Return(nil)
+		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
+		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
+	}
+
+	t.Run("includeUsers are recorded on the global descriptor", func(t *testing.T) {
+		req := BackupRequest{
+			ID:           backupID,
+			Include:      []string{cls},
+			Backend:      backendName,
+			IncludeUsers: []string{"ns1:*"},
+		}
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.userLister.users = []string{"ns1:alice", "ns1:bob", "ns2:carol"}
+		setup(fs, &req)
+
+		resp, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+		require.Nil(t, err)
+		assert.ElementsMatch(t, []string{"ns1:alice", "ns1:bob"}, resp.Users)
+		// ns2:carol must not leak in: only ns1:* was requested.
+		assert.ElementsMatch(t, []string{"ns1:alice", "ns1:bob"}, fs.backend.glMeta.UserList())
+	})
+
+	t.Run("ordinary backup records no users", func(t *testing.T) {
+		req := BackupRequest{
+			ID:      backupID,
+			Include: []string{cls},
+			Backend: backendName,
+		}
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		setup(fs, &req)
+
+		resp, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+		require.Nil(t, err)
+		assert.Empty(t, resp.Users)
+		assert.Nil(t, fs.backend.glMeta.Users)
+	})
+}
+
+// Scheduler.Restore must authorize each dynamic user recorded in the artefact with
+// a backup-create permission before any participant work, stripping the namespace
+// prefix when the restore strips it, and failing the whole restore if any user is
+// denied. Artefacts that enumerate no users, and restores with users disabled, must
+// not gate at all (preserving disaster-recovery and collection-only restores).
+func TestSchedulerRestoreAuthorizesUsers(t *testing.T) {
+	t.Parallel()
+
+	var (
+		cls         = "MyClass-A"
+		node        = "Node-A"
+		any         = mock.Anything
+		backendName = "gcs"
+		backupID    = "1"
+		timePt      = time.Now().UTC()
+		ctx         = context.Background()
+		path        = "bucket/backups/" + backupID
+		keyNode     = backupID + "/" + node
+		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+		sResp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
+	)
+
+	shardingStateBytes, _ := json.Marshal(&sharding.State{
+		IndexID:  cls,
+		Physical: map[string]sharding.Physical{"S1": {Name: "S1"}},
+	})
+	rawClassBytes, _ := json.Marshal(&models.Class{Class: cls})
+	nodeMeta := backup.BackupDescriptor{
+		ID:     backupID,
+		Status: backup.Success,
+		Classes: []backup.ClassDescriptor{{
+			Name:          cls,
+			Schema:        rawClassBytes,
+			ShardingState: shardingStateBytes,
+		}},
+	}
+	nodeMetaBytes, _ := json.Marshal(nodeMeta)
+
+	userBackupCall := func(fa *mocks.FakeAuthorizer) (mocks.AuthZReq, bool) {
+		for _, c := range fa.Calls() {
+			if len(c.Resources) > 0 && strings.HasPrefix(c.Resources[0], authorization.BackupsDomain+"/users/") {
+				return c, true
+			}
+		}
+		return mocks.AuthZReq{}, false
+	}
+
+	tests := []struct {
+		name         string
+		users        []string
+		option       string
+		strip        bool
+		denyResource string
+		// wantAuthz lists the user resources expected on the recorded authz call,
+		// empty when no user authz must be evoked.
+		wantAuthz    []string
+		wantDenied   bool
+		wantDispatch bool
+	}{
+		{
+			name:         "allowed users are authorized and restore proceeds",
+			users:        []string{"ns1:alice", "ns1:bob"},
+			option:       models.RestoreConfigUsersOptionsAll,
+			wantAuthz:    authorization.BackupUsers("ns1:alice", "ns1:bob"),
+			wantDispatch: true,
+		},
+		{
+			name:         "one denied user fails the whole restore before dispatch",
+			users:        []string{"ns1:alice", "ns1:bob"},
+			option:       models.RestoreConfigUsersOptionsAll,
+			denyResource: authorization.BackupsDomain + "/users/ns1:bob",
+			wantDenied:   true,
+		},
+		{
+			name:         "namespace is stripped before authorizing",
+			users:        []string{"ns1:alice"},
+			option:       models.RestoreConfigUsersOptionsAll,
+			strip:        true,
+			wantAuthz:    authorization.BackupUsers("alice"),
+			wantDispatch: true,
+		},
+		{
+			name:         "old/empty artefact is not gated and proceeds",
+			users:        nil,
+			option:       models.RestoreConfigUsersOptionsAll,
+			wantDispatch: true,
+		},
+		{
+			name:         "user restore disabled does not gate and proceeds",
+			users:        []string{"ns1:alice"},
+			option:       models.RestoreConfigUsersOptionsNoRestore,
+			wantDispatch: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			meta := backup.DistributedBackupDescriptor{
+				ID:            backupID,
+				StartedAt:     timePt,
+				Version:       "1",
+				ServerVersion: "1",
+				Status:        backup.Success,
+				Nodes:         map[string]*backup.NodeDescriptor{node: {Classes: []string{cls}}},
+				Users:         tc.users,
+			}
+			metaBytes := marshalCoordinatorMeta(meta)
+
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fa := mocks.NewMockAuthorizer()
+			fs.auth = &denyUserAuthorizer{FakeAuthorizer: fa, denyResource: tc.denyResource}
+
+			fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(metaBytes, nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(metaBytes, nil)
+			fs.backend.On("GetObject", ctx, keyNode, BackupFile).Return(nodeMetaBytes, nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
+			fs.client.On("CanCommit", any, node, any).Return(cResp, nil)
+			fs.client.On("Commit", any, node, sReq).Return(nil)
+			fs.client.On("Status", any, node, sReq).Return(sResp, nil)
+
+			req := BackupRequest{
+				ID:                    backupID,
+				Include:               []string{cls},
+				Backend:               backendName,
+				UserRestoreOption:     tc.option,
+				ShouldStripNamespaces: tc.strip,
+			}
+			s := fs.scheduler()
+			resp, err := s.Restore(ctx, &models.Principal{}, &req, false)
+
+			if tc.wantDenied {
+				require.Error(t, err)
+				assert.Nil(t, resp)
+				assert.True(t, errors.As(err, &authzerrors.Forbidden{}), "expected forbidden, got %v", err)
+				// No participant work may have started for a denied user.
+				fs.client.AssertNotCalled(t, "CanCommit", any, node, any)
+				_, ok := userBackupCall(fa)
+				assert.False(t, ok, "denied user authz must not be recorded")
+				return
+			}
+
+			require.Nil(t, err)
+			require.NotNil(t, resp)
+			// Drain the async restore so AssertExpectations is stable.
+			for i := 0; i < 10; i++ {
+				time.Sleep(time.Millisecond * 60)
+				if i > 0 && s.restorer.lastOp.get().Status == "" {
+					break
+				}
+			}
+
+			call, ok := userBackupCall(fa)
+			if len(tc.wantAuthz) == 0 {
+				assert.False(t, ok, "no user authz expected; got %+v", call)
+			} else {
+				require.True(t, ok, "expected a user-backup authz call")
+				assert.Equal(t, authorization.CREATE, call.Verb)
+				assert.ElementsMatch(t, tc.wantAuthz, call.Resources)
+			}
+			if tc.wantDispatch {
+				fs.client.AssertCalled(t, "CanCommit", any, node, any)
+			}
+		})
+	}
 }

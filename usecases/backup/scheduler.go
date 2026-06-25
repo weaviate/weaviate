@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 var (
@@ -222,12 +223,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 	}
 
-	if req.UserRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.BackupUsers(req.IncludeUsers...)...); err != nil {
-			return nil, err
-		}
-	}
-
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -247,6 +242,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			return nil, err
 		}
 		meta.Include(allowed)
+	}
+
+	if err := s.authorizeRestoreUsers(ctx, pr, req, meta); err != nil {
+		return nil, err
 	}
 
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
@@ -284,6 +283,30 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	data.Status = &status
 	return data, nil
+}
+
+func (s *Scheduler) authorizeRestoreUsers(
+	ctx context.Context, pr *models.Principal,
+	req *BackupRequest, meta *backup.DistributedBackupDescriptor,
+) error {
+	if req.UserRestoreOption == models.RestoreConfigUsersOptionsNoRestore {
+		return nil
+	}
+	users := meta.UserList()
+	if len(users) == 0 {
+		// The artefact records no users (old artefact, or none included).
+		// Preserve pre-change restore behaviour: do not gate.
+		return nil
+	}
+	if req.ShouldStripNamespaces {
+		stripped := make([]string, len(users))
+		for i, u := range users {
+			stripped[i] = namespacing.StripNamespacePrefix(u)
+		}
+		users = stripped
+	}
+	return s.authorizer.Authorize(ctx, pr, authorization.CREATE,
+		authorization.BackupUsers(users...)...)
 }
 
 // filterBackupableClasses returns the subset of classes the caller may act on
