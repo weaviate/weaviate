@@ -14,6 +14,7 @@ package tokenizer
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -121,12 +122,35 @@ func InitOptionalTokenizers() {
 	}
 }
 
+func getGseDictPaths(lang string) []string {
+	if lang == "ja" && os.Getenv("GSE_DICT_JA") != "" {
+		return []string{os.Getenv("GSE_DICT_JA")}
+	}
+	if lang == "zh" && os.Getenv("GSE_DICT_ZH") != "" {
+		return []string{os.Getenv("GSE_DICT_ZH")}
+	}
+
+	if lang == "ja" {
+		matches, _ := filepath.Glob("/go/pkg/mod/github.com/go-ego/gse@*/data/dict/jp/dict.txt")
+		if len(matches) > 0 {
+			return []string{matches[0]}
+		}
+	} else if lang == "zh" {
+		matches, _ := filepath.Glob("/go/pkg/mod/github.com/go-ego/gse@*/data/dict/zh/s_1.txt")
+		if len(matches) > 0 {
+			dir := filepath.Dir(matches[0])
+			return []string{filepath.Join(dir, "s_1.txt"), filepath.Join(dir, "t_1.txt")}
+		}
+	}
+	return []string{lang}
+}
+
 func init_gse() error {
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	if gseTokenizer == nil {
 		startTime := time.Now()
-		seg, err := gse.New("ja")
+		seg, err := gse.New(getGseDictPaths("ja")...)
 		if err != nil {
 			return fmt.Errorf("load ja dictionary: %w", err)
 		}
@@ -143,7 +167,7 @@ func init_gse_ch() error {
 	defer gseLock.Unlock()
 	if gseTokenizerCh == nil {
 		startTime := time.Now()
-		seg, err := gse.New("zh")
+		seg, err := gse.New(getGseDictPaths("zh")...)
 		if err != nil {
 			return fmt.Errorf("load zh dictionary: %w", err)
 		}
