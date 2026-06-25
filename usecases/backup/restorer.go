@@ -247,7 +247,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	// Object-storage chunk paths keep desc.Name — see fileWriter.Write.
 	materializedName := desc.Name
 	if stripNamespaces {
-		materializedName = namespacing.StripNamespacePrefix(desc.Name)
+		materializedName = namespacing.StripQualification(desc.Name)
 	}
 
 	if err := fw.Write(ctx, desc, materializedName, overrideBucket, overridePath, compressionType); err != nil {

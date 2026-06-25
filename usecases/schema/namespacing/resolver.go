@@ -198,7 +198,22 @@ func QualifyPropertyDataTypes(
 	if !namespacesEnabled || principal == nil || principal.Namespace == "" {
 		return nil
 	}
-	for _, p := range properties {
+	return walkCrossRefDataTypes(properties, func(p *models.Property) error {
+		for i, dt := range p.DataType {
+			if dt == "" {
+				continue
+			}
+			if err := ValidateNamespacePrefix(principal, namespacesEnabled, dt, "class"); err != nil {
+				return err
+			}
+			p.DataType[i] = QualifiedName(principal.Namespace, dt)
+		}
+		return nil
+	})
+}
+
+func walkCrossRefDataTypes(props []*models.Property, mutate func(p *models.Property) error) error {
+	for _, p := range props {
 		if p == nil || len(p.DataType) == 0 {
 			continue
 		}
@@ -208,14 +223,8 @@ func QualifyPropertyDataTypes(
 		if _, ok := schema.AsNested(p.DataType); ok {
 			continue
 		}
-		for i, dt := range p.DataType {
-			if dt == "" {
-				continue
-			}
-			if err := ValidateNamespacePrefix(principal, namespacesEnabled, dt, "class"); err != nil {
-				return err
-			}
-			p.DataType[i] = QualifiedName(principal.Namespace, dt)
+		if err := mutate(p); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -234,35 +243,16 @@ func StripOwnNamespace(principal *models.Principal, name string) string {
 	return strings.TrimPrefix(name, principal.Namespace+schema.NamespaceSeparator)
 }
 
-// StripNamespacePrefix drops the leading "<namespace>:" from name, cutting on
-// the first separator only; bare names pass through. Unlike [StripOwnNamespace]
-// it is not principal-bound — graduation restore strips each id by itself.
-func StripNamespacePrefix(name string) string {
-	_, after, found := strings.Cut(name, schema.NamespaceSeparator)
-	if !found {
-		return name
-	}
-	return after
-}
-
 // StripPropertyDataTypes removes the "<namespace>:" prefix from cross-ref
 // Property.DataTypes in place — the graduation-restore inverse of
 // [QualifyPropertyDataTypes].
 func StripPropertyDataTypes(properties []*models.Property) {
-	for _, p := range properties {
-		if p == nil || len(p.DataType) == 0 {
-			continue
-		}
-		if _, ok := schema.AsPrimitive(p.DataType); ok {
-			continue
-		}
-		if _, ok := schema.AsNested(p.DataType); ok {
-			continue
-		}
+	walkCrossRefDataTypes(properties, func(p *models.Property) error {
 		for i, dt := range p.DataType {
-			p.DataType[i] = StripNamespacePrefix(dt)
+			p.DataType[i] = StripQualification(dt)
 		}
-	}
+		return nil
+	})
 }
 
 // StripClassResponse returns a shallow copy of src with the top-level Class

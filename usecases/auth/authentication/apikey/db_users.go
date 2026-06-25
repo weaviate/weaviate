@@ -704,7 +704,7 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	}
 
 	for id, user := range src.Users {
-		newID := namespacing.StripNamespacePrefix(id)
+		newID := namespacing.StripQualification(id)
 		if _, exists := out.Users[newID]; exists {
 			return dbUserdata{}, fmt.Errorf("namespace strip would alias dynamic users under %q", newID)
 		}
@@ -727,21 +727,21 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	}
 
 	for id, v := range src.SecureKeyStorageById {
-		newID := namespacing.StripNamespacePrefix(id)
+		newID := namespacing.StripQualification(id)
 		if _, exists := out.SecureKeyStorageById[newID]; exists {
 			return dbUserdata{}, fmt.Errorf("namespace strip would alias SecureKeyStorageById under %q", newID)
 		}
 		out.SecureKeyStorageById[newID] = v
 	}
 	for id, v := range src.IdToIdentifier {
-		newID := namespacing.StripNamespacePrefix(id)
+		newID := namespacing.StripQualification(id)
 		if _, exists := out.IdToIdentifier[newID]; exists {
 			return dbUserdata{}, fmt.Errorf("namespace strip would alias IdToIdentifier under %q", newID)
 		}
 		out.IdToIdentifier[newID] = v
 	}
 	for id := range src.UserKeyRevoked {
-		newID := namespacing.StripNamespacePrefix(id)
+		newID := namespacing.StripQualification(id)
 		if _, exists := out.UserKeyRevoked[newID]; exists {
 			return dbUserdata{}, fmt.Errorf("namespace strip would alias UserKeyRevoked under %q", newID)
 		}
@@ -749,7 +749,7 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	}
 	// IdentifierToId is value-keyed by user id; rewrite the value.
 	for identifier, id := range src.IdentifierToId {
-		out.IdentifierToId[identifier] = namespacing.StripNamespacePrefix(id)
+		out.IdentifierToId[identifier] = namespacing.StripQualification(id)
 	}
 
 	return out, nil

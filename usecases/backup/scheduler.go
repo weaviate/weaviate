@@ -301,7 +301,7 @@ func (s *Scheduler) authorizeRestoreUsers(
 	if req.ShouldStripNamespaces {
 		stripped := make([]string, len(users))
 		for i, u := range users {
-			stripped[i] = namespacing.StripNamespacePrefix(u)
+			stripped[i] = namespacing.StripQualification(u)
 		}
 		users = stripped
 	}
