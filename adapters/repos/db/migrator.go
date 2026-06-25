@@ -197,22 +197,17 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
-			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
-			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
-			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
-			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
-			ReplicationFactor:                            class.ReplicationConfig.Factor,
-			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
-			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
-			ShardLoadLimiter:                             m.db.shardLoadLimiter,
-			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
-			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
-			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
-			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,
-			HNSWSnapshotOnStartup:                        m.db.config.HNSWSnapshotOnStartup,
-			HNSWSnapshotMinDeltaCommitlogsNumber:         m.db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
-			HNSWSnapshotMinDeltaCommitlogsSizePercentage: m.db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
+			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
+			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
+			SkipWriteClassNameOnDisk:            m.db.config.LSMSkipWriteClassNameEnabled,
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
+			AsyncReplicationConfig:              asyncConfig,
+			AsyncReplicationScheduler:           m.db.asyncReplicationScheduler,
+			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+			ShardLoadLimiter:                    m.db.shardLoadLimiter,
+			BucketLoadLimiter:                   m.db.bucketLoadLimiter,
+			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled
 				if lazyLoadShardEnabled {

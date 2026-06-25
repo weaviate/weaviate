@@ -1063,17 +1063,12 @@ type IndexConfig struct {
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 
-	HNSWMaxLogSize                               int64
-	HNSWDisableSnapshots                         bool
-	HNSWSnapshotIntervalSeconds                  int
-	HNSWSnapshotOnStartup                        bool
-	HNSWSnapshotMinDeltaCommitlogsNumber         int
-	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
-	HNSWWaitForCachePrefill                      bool
-	HNSWFlatSearchConcurrency                    int
-	HNSWAcornFilterRatio                         float64
-	HNSWGeoIndexEF                               int
-	VisitedListPoolMaxSize                       int
+	HNSWMaxLogSize            int64
+	HNSWWaitForCachePrefill   bool
+	HNSWFlatSearchConcurrency int
+	HNSWAcornFilterRatio      float64
+	HNSWGeoIndexEF            int
+	VisitedListPoolMaxSize    int
 
 	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]

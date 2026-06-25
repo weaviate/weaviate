@@ -91,7 +91,7 @@ func validConfig() Config {
 	return Config{
 		RootPath:              "some path",
 		ID:                    "someid",
-		MakeCommitLoggerThunk: func() (CommitLogger, error) { return nil, nil },
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) { return nil, nil },
 		VectorForIDThunk:      func(context.Context, uint64) ([]float32, error) { return nil, nil },
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		GetViewThunk:          func() common.BucketView { return configTestBucketView{} },
