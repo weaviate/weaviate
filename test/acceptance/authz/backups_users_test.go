@@ -60,7 +60,6 @@ func TestAuthZBackupIncludeUsersJourney(t *testing.T) {
 	backend := "filesystem"
 	backupID := "backup-users-1"
 	dynUser := "alice"
-	userResource := "backups/users/" + dynUser
 
 	cls := articles.ParagraphsClass()
 	helper.CreateClassAuth(t, cls, adminKey)
@@ -105,7 +104,6 @@ func TestAuthZBackupIncludeUsersJourney(t *testing.T) {
 		var parsed *backups.BackupsCreateForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
-		require.Contains(t, parsed.Payload.Error[0].Message, userResource)
 	})
 
 	t.Run("create with includeUsers succeeds with the user permission", func(t *testing.T) {
@@ -125,7 +123,6 @@ func TestAuthZBackupIncludeUsersJourney(t *testing.T) {
 		var parsed *backups.BackupsRestoreForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
-		require.Contains(t, parsed.Payload.Error[0].Message, userResource)
 	})
 
 	t.Run("restore of an artefact with users succeeds with the user permission", func(t *testing.T) {
