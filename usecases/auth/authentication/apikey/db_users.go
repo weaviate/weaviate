@@ -643,7 +643,7 @@ func filterDBUserData(src dbUserdata, ids []string) (dbUserdata, error) {
 		}
 	}
 
-	// IdentifierToId is value-keyed by user id; filter by value.
+	// IdentifierToId is keyed by user id; filter by value.
 	for identifier, id := range src.IdentifierToId {
 		if _, ok := keep[id]; ok {
 			out.IdentifierToId[identifier] = id
@@ -689,9 +689,9 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	return nil
 }
 
-// stripDBUserNamespace drops the "<namespace>:" prefix from every id-bearing
-// field; foreign-prefix or bare ids pass through. A post-strip collision
-// errors with an empty result — silent overwrite would corrupt credentials.
+// stripDBUserNamespace drops the "<namespace>:" prefix from every field containing an ID;
+// non-namespace prefix or bare ids pass through. A collision between IDs after stripping
+// returns a clear error.
 func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	out := dbUserdata{
 		SecureKeyStorageById: make(map[string]string, len(src.SecureKeyStorageById)),
@@ -729,25 +729,25 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	for id, v := range src.SecureKeyStorageById {
 		newID := namespacing.StripQualification(id)
 		if _, exists := out.SecureKeyStorageById[newID]; exists {
-			return dbUserdata{}, fmt.Errorf("namespace strip would alias SecureKeyStorageById under %q", newID)
+			return dbUserdata{}, fmt.Errorf("SecureKeyStorageById %q already exists in a different namespace", id)
 		}
 		out.SecureKeyStorageById[newID] = v
 	}
 	for id, v := range src.IdToIdentifier {
 		newID := namespacing.StripQualification(id)
 		if _, exists := out.IdToIdentifier[newID]; exists {
-			return dbUserdata{}, fmt.Errorf("namespace strip would alias IdToIdentifier under %q", newID)
+			return dbUserdata{}, fmt.Errorf("IdToIdentifier %q already exists in a different namespace", id)
 		}
 		out.IdToIdentifier[newID] = v
 	}
 	for id := range src.UserKeyRevoked {
 		newID := namespacing.StripQualification(id)
 		if _, exists := out.UserKeyRevoked[newID]; exists {
-			return dbUserdata{}, fmt.Errorf("namespace strip would alias UserKeyRevoked under %q", newID)
+			return dbUserdata{}, fmt.Errorf("UserKeyRevoked %q already exists in a different namespace", id)
 		}
 		out.UserKeyRevoked[newID] = struct{}{}
 	}
-	// IdentifierToId is value-keyed by user id; rewrite the value.
+	// IdentifierToId is keyed by user id; rewrite the value.
 	for identifier, id := range src.IdentifierToId {
 		out.IdentifierToId[identifier] = namespacing.StripQualification(id)
 	}

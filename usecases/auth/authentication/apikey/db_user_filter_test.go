@@ -210,13 +210,11 @@ func TestStripDBUserNamespace_AllMapsHonoured(t *testing.T) {
 	require.ElementsMatch(t, []string{"alice", "bob", "global"}, mapKeys(out.IdToIdentifier))
 	require.ElementsMatch(t, []string{"alice"}, mapKeys(out.UserKeyRevoked))
 
-	// IdentifierToId: keys unchanged, values stripped.
 	require.ElementsMatch(t, []string{"ident-alice", "ident-bob", "ident-global"}, mapKeys(out.IdentifierToId))
 	require.Equal(t, "alice", out.IdentifierToId["ident-alice"])
 	require.Equal(t, "bob", out.IdentifierToId["ident-bob"])
 	require.Equal(t, "global", out.IdentifierToId["ident-global"])
 
-	// Stripped entries: Id rewritten, Namespace cleared.
 	require.Equal(t, "alice", out.Users["alice"].Id)
 	require.Empty(t, out.Users["alice"].Namespace)
 	require.Equal(t, "bob", out.Users["bob"].Id)

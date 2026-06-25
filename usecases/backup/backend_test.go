@@ -837,8 +837,8 @@ func TestReadAndUnzipChunk_TrailingBytes(t *testing.T) {
 	assert.Equal(t, fileContent, got)
 }
 
-// TestFileWriter_Write_MaterializedNameAlignment pins the load-bearing
-// asymmetry: staging dir uses the post-strip name (so RAFT's RestoreClassDir
+// TestFileWriter_Write_MaterializedNameAlignment pins the asymmetry:
+// staging dir uses the post-strip name (so RAFT's RestoreClassDir
 // finds it), chunk-key uses the source name (immutable object-storage path).
 // Crossing them makes RestoreClassDir silently no-op — schema applies, no data.
 func TestFileWriter_Write_MaterializedNameAlignment(t *testing.T) {

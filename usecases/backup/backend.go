@@ -343,8 +343,8 @@ Loop:
 		}
 		desc.UserBackups = descrp
 	} else if len(u.users) > 0 {
-		// includeUsers was set but no sourcer is wired on this participant —
-		// fail loudly rather than ship a missing UserBackups blob.
+		// includeUsers was set but no sourcer is wired on this participant,
+		// fail rather than ship a missing UserBackups blob
 		return fmt.Errorf("includeUsers requested but no dynamic-user sourcer is configured on this node")
 	}
 

@@ -793,7 +793,6 @@ func TestSnapshotRestore_IncludeUsers_NonNamespaced(t *testing.T) {
 	loginExcluded, identExcluded := seedUser(t, src, "u2", "")
 	login3, ident3 := seedUser(t, src, "u3", "")
 
-	// includeUsers backs up u1 and u3 only.
 	snap, err := src.Snapshot("u1", "u3")
 	require.NoError(t, err)
 
@@ -807,11 +806,9 @@ func TestSnapshotRestore_IncludeUsers_NonNamespaced(t *testing.T) {
 	require.Contains(t, users, "u1")
 	require.Contains(t, users, "u3")
 
-	// The two included users authenticate with their original key.
 	requireLogin(t, dst, login1, ident1, "u1", "")
 	requireLogin(t, dst, login3, ident3, "u3", "")
 
-	// The excluded user did not ship: absent, and cannot authenticate.
 	require.NotContains(t, users, "u2")
 	requireNoLogin(t, dst, loginExcluded, identExcluded)
 }
@@ -833,7 +830,6 @@ func TestSnapshotRestore_IncludeUsers_Namespaced(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// id of a selected ns1 user as it should appear after restore.
 			wantID := func(short string) string {
 				if tc.stripNamespaces {
 					return short
@@ -848,7 +844,6 @@ func TestSnapshotRestore_IncludeUsers_Namespaced(t *testing.T) {
 			login2, ident2 := seedUser(t, src, MakeUserKey("u2", "ns1"), "ns1")
 			loginOther, identOther := seedUser(t, src, MakeUserKey("u3", "ns2"), "ns2")
 
-			// includeUsers selects only ns1's users.
 			snap, err := src.Snapshot(MakeUserKey("u1", "ns1"), MakeUserKey("u2", "ns1"))
 			require.NoError(t, err)
 
@@ -863,13 +858,9 @@ func TestSnapshotRestore_IncludeUsers_Namespaced(t *testing.T) {
 			require.Contains(t, users, wantID("u2"))
 			require.Equal(t, tc.wantNamespace, users[wantID("u1")].Namespace)
 
-			// Both included users authenticate with their original key, under
-			// the restored id and namespace.
 			requireLogin(t, dst, login1, ident1, wantID("u1"), tc.wantNamespace)
 			requireLogin(t, dst, login2, ident2, wantID("u2"), tc.wantNamespace)
 
-			// The ns2 user was never selected: absent under either id shape,
-			// and cannot authenticate.
 			require.NotContains(t, users, MakeUserKey("u3", "ns2"))
 			require.NotContains(t, users, "u3")
 			requireNoLogin(t, dst, loginOther, identOther)
@@ -912,7 +903,6 @@ func TestSnapshotRestore_IncludeUsers_GraduationAliasCollision(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "alias")
 
-	// The failed restore left the target untouched.
 	users, err := dst.GetUsers()
 	require.NoError(t, err)
 	require.Contains(t, users, "incumbent")
@@ -986,7 +976,6 @@ func TestSnapshotRestore_IncludeUsers_ImportedKey(t *testing.T) {
 	importedKey := "imported-static-key"
 	require.NoError(t, src.CreateUserWithKey("svc", importedKey[:3], sha256.Sum256([]byte(importedKey)), time.Now()))
 
-	// includeUsers selects the ns1 dynamic user and the cluster-level imported user.
 	snap, err := src.Snapshot(MakeUserKey("u1", "ns1"), "svc")
 	require.NoError(t, err)
 
@@ -994,7 +983,6 @@ func TestSnapshotRestore_IncludeUsers_ImportedKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, dst.Restore(snap, true)) // graduation strip
 
-	// The imported key still validates post-graduation, under its bare id.
 	p, err := dst.ValidateImportedKey(importedKey)
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -1002,8 +990,8 @@ func TestSnapshotRestore_IncludeUsers_ImportedKey(t *testing.T) {
 
 	users, err := dst.GetUsers()
 	require.NoError(t, err)
-	require.Contains(t, users, "u1")  // ns1 stripped
-	require.Contains(t, users, "svc") // bare, unchanged
+	require.Contains(t, users, "u1")
+	require.Contains(t, users, "svc")
 }
 
 func TestRestoreIncompleteData(t *testing.T) {
