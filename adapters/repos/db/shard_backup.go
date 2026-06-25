@@ -293,15 +293,15 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 	}
 
 	pairs := make([]file.HardlinkPair, 0, len(files))
-	for idx, relPath := range files {
+	for _, relPath := range files {
 		if _, ok := staged[relPath]; ok {
 			// already written as a consistent copy above; do not hardlink over it
 			continue
 		}
-		pairs[idx] = file.HardlinkPair{
+		pairs = append(pairs, file.HardlinkPair{
 			Src: filepath.Join(s.index.Config.RootPath, relPath),
 			Dst: filepath.Join(stagingRoot, relPath),
-		}
+		})
 	}
 	if err := file.HardlinkFiles(pairs); err != nil {
 		return nil, fmt.Errorf("hardlink backup files to staging: %w", err)
