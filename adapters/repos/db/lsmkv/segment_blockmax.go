@@ -32,6 +32,14 @@ var blockMaxBufferSize = 4096
 // free of the counter writes.
 var collectBlockMetrics = false
 
+// deferTombstoneToScore rejects tombstoned (deleted) docs in the DoBlockMax*
+// scoring branch rather than skipping them per advance. Filters stay at advance
+// time because they prune the WAND candidate space; a tombstone does not (the
+// deleted doc still occupies its posting slot and is still visited), so probing it
+// per advanced doc is pure overhead. Bit-identical either way — a doc dropped at
+// scoring affects neither other scores nor the heap threshold.
+var deferTombstoneToScore = true
+
 // decodeFuncsFromCodecs resolves the stateless doc-id and tf decode functions for
 // a segment's codecs once, so per-term iterators carry func values instead of
 // allocating decoder instances.
@@ -331,7 +339,8 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 }
 
 func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
-	if (s.filterDocIds == nil && s.tombstones == nil && s.memTombstones == nil) || s.exhausted {
+	checkTomb := !deferTombstoneToScore && (s.tombstones != nil || s.memTombstones != nil)
+	if (s.filterDocIds == nil && !checkTomb) || s.exhausted {
 		if !s.exhausted {
 			s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 		}
@@ -342,9 +351,10 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 		// read the current doc id once instead of re-indexing the slice in each
 		// of the up-to-three membership checks below
 		docID := s.blockDataDecoded.DocIds[s.blockDataIdx]
-		passes := (s.filterDocIds == nil || s.filterDocIds.Contains(docID)) &&
-			(s.tombstones == nil || !s.tombstones.Contains(docID)) &&
-			(s.memTombstones == nil || !s.memTombstones.Contains(docID))
+		passes := s.filterDocIds == nil || s.filterDocIds.Contains(docID)
+		if passes && checkTomb {
+			passes = !s.tombstoned(docID)
+		}
 		if passes {
 			break
 		}
@@ -363,6 +373,14 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	if !s.exhausted {
 		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	}
+}
+
+// tombstoned reports whether docID is deleted in this iterator's view. All terms
+// in a segment share the same tombstone bitmaps, so any one of them can report
+// tombstone status for a pivot they all align on.
+func (s *SegmentBlockMax) tombstoned(docID uint64) bool {
+	return (s.tombstones != nil && s.tombstones.Contains(docID)) ||
+		(s.memTombstones != nil && s.memTombstones.Contains(docID))
 }
 
 func (s *SegmentBlockMax) reset() error {
