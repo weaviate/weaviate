@@ -9,3 +9,8 @@ var (
 	_ distributedtask.SchemaMutationDetector = (*DropVectorIndexProvider)(nil)
 	_ distributedtask.RecoveryAwareProvider  = (*DropVectorIndexProvider)(nil)
 )
+
+var (
+	_ dropVectorShards          = (*DB)(nil)
+	_ dropVectorSchemaFinalizer = (*schemaVectorConfigFinalizer)(nil)
+)
