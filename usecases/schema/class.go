@@ -743,6 +743,9 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	}
 
 	if class.ReplicationConfig.Factor < 1 {
+		if class.ReplicationConfig.Factor < 0 {
+			return fmt.Errorf("replication factor must not be negative, got %d", class.ReplicationConfig.Factor)
+		}
 		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
 	}
 
