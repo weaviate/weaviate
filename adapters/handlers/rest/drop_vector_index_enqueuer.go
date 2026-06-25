@@ -16,20 +16,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // dropVectorIndexEnqueuer implements schema.DropVectorIndexEnqueuer. It submits
 // the Phase-2 cleanup distributed task and reports whether one is in flight,
 // using the cluster DTM client + sharding state. Lives in the REST wiring layer
-// so it can reuse buildUnitMaps/buildUnitSpecs and ShardReplicaOwnership.
+// so it can reuse buildUnitMaps/buildUnitSpecs.
 type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
-	db             *db.DB
+	ownership      shardOwnershipLister
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -39,8 +44,14 @@ type clusterDropTaskClient interface {
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
 
-func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, database *db.DB) *dropVectorIndexEnqueuer {
-	return &dropVectorIndexEnqueuer{clusterService: clusterService, db: database}
+// shardOwnershipLister returns shard -> owning nodes for a collection; *db.DB
+// satisfies it via ShardReplicaOwnership. Narrowed so the enqueuer is testable.
+type shardOwnershipLister interface {
+	ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error)
+}
+
+func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, ownership shardOwnershipLister) *dropVectorIndexEnqueuer {
+	return &dropVectorIndexEnqueuer{clusterService: clusterService, ownership: ownership}
 }
 
 // HasActiveDrop reports whether a non-terminal drop task already covers
@@ -74,7 +85,7 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 // one unit per (shard, replica) grouped by shard, so each replica node strips
 // its own objects bucket.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
-	shardOwnership, err := e.db.ShardReplicaOwnership(ctx, collection)
+	shardOwnership, err := e.ownership.ShardReplicaOwnership(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: shard ownership for %q: %w", collection, err)
 	}
@@ -85,16 +96,15 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	_, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
 	specs := buildUnitSpecs(shardOwnership)
 
-	opID := uuid.NewString()
-	payload, err := json.Marshal(&db.DropVectorIndexTaskPayload{
+	// Pass the payload struct, not pre-marshaled bytes: the cluster layer
+	// json.Marshals taskPayload itself (bytes would be double-encoded into a JSON
+	// string and fail to decode in CheckConflict / the provider).
+	payload := db.DropVectorIndexTaskPayload{
 		Collection:  collection,
 		Targets:     targets,
-		OpID:        opID,
+		OpID:        uuid.NewString(),
 		UnitToNode:  unitToNode,
 		UnitToShard: unitToShard,
-	})
-	if err != nil {
-		return fmt.Errorf("drop-vector enqueue: marshal payload: %w", err)
 	}
 
 	// Fresh task ID per submission so a re-trigger after a FAILED run is a new
@@ -105,3 +115,70 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 }
 
 var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)
+
+// reconcileDroppedVectorIndexes enqueues cleanup for every "none" marker with no
+// in-flight task — recovery for a crash between marker apply and enqueue, an
+// upgrade with pre-existing markers, or a restore. Idempotent: HasActiveDrop +
+// the ConflictDetector dedupe across nodes running it at startup.
+func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
+	enq schema.DropVectorIndexEnqueuer, logger logrus.FieldLogger,
+) {
+	for _, class := range classes {
+		if class == nil {
+			continue
+		}
+		for name, cfg := range class.VectorConfig {
+			if !modelsext.IsVectorIndexDropped(cfg) {
+				continue
+			}
+			active, err := enq.HasActiveDrop(ctx, class.Class, name)
+			if err != nil {
+				logger.WithField("collection", class.Class).WithField("vector", name).
+					Warnf("drop-vector reconcile: HasActiveDrop failed: %v", err)
+				continue
+			}
+			if active {
+				continue
+			}
+			if err := enq.EnqueueDropVectorIndex(ctx, class.Class, []string{name}); err != nil {
+				logger.WithField("collection", class.Class).WithField("vector", name).
+					Warnf("drop-vector reconcile: enqueue failed: %v", err)
+			}
+		}
+	}
+}
+
+// schemaLister returns the local schema snapshot (eventually-consistent is fine
+// for an idempotent safety net); *schema.Manager satisfies it.
+type schemaLister interface {
+	GetSchemaSkipAuth() entschema.Schema
+}
+
+// runDropVectorIndexReconciliationAtStartup waits (bounded) for the cluster task
+// store to be readable — so submits don't hit an unelected leader — then runs
+// reconcileDroppedVectorIndexes once. Launch in a goroutine; cancellable via ctx.
+func runDropVectorIndexReconciliationAtStartup(ctx context.Context, lister schemaLister,
+	enq schema.DropVectorIndexEnqueuer, logger logrus.FieldLogger,
+) {
+	sch := lister.GetSchemaSkipAuth()
+	if sch.Objects == nil || len(sch.Objects.Classes) == 0 {
+		return
+	}
+
+	const attempts = 30
+	for i := 0; i < attempts; i++ {
+		if ctx.Err() != nil {
+			return
+		}
+		// Probe the DTM read path; success means the leader is reachable.
+		if _, err := enq.HasActiveDrop(ctx, "", ""); err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+	reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
+}
