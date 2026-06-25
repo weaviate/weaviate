@@ -1,0 +1,512 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package namespace
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/client/authz"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+)
+
+// readCollectionsRole is a role with a single collection-read permission on the
+// given collection (defaults to the own-namespace wildcard).
+func readCollectionsRole(name, collection string) *models.Role {
+	return &models.Role{
+		Name: authorization.String(name),
+		Permissions: []*models.Permission{
+			helper.NewCollectionsPermission().
+				WithAction(authorization.ReadCollections).
+				WithCollection(collection).
+				Permission(),
+		},
+	}
+}
+
+// findDataCollection returns the collection of the role's data permission, or
+// "" when the role has none.
+func findDataCollection(role *models.Role) string {
+	for _, p := range role.Permissions {
+		if p.Data != nil && p.Data.Collection != nil {
+			return *p.Data.Collection
+		}
+	}
+	return ""
+}
+
+// TestNamespaceLocalRoles exercises the user-facing contract for
+// namespace-local roles against a real multi-namespace cluster: names and
+// permissions auto-prefix on write and strip on read, short names are unique
+// per namespace with a global reservation, cross-namespace references are
+// rejected, and content-scope visibility hides out-of-envelope roles.
+func TestNamespaceLocalRoles(t *testing.T) {
+	t.Parallel()
+	ns1, ns2, u1Key, u2Key := twoNamespaces(t)
+
+	t.Run("local role auto-prefixes; caller sees short form, operator sees qualified", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("editor", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":editor") })
+
+		// The namespaced caller sees the short name and an unqualified wildcard.
+		own := helper.GetRoleByName(t, u1Key, "editor")
+		require.Equal(t, "editor", *own.Name)
+		require.Equal(t, "*", *own.Permissions[0].Collections.Collection)
+
+		// The operator sees the stored, namespace-qualified form.
+		stored := helper.GetRoleByName(t, adminKey, ns1+":editor")
+		require.Equal(t, ns1+":editor", *stored.Name)
+		require.Equal(t, ns1+":*", *stored.Permissions[0].Collections.Collection)
+	})
+
+	t.Run("a namespaced admin deletes its own local role", func(t *testing.T) {
+		// The caller's own matcher-scoped delete is the assertion, so no operator
+		// cleanup is registered.
+		helper.CreateRole(t, u1Key, readCollectionsRole("disposable", "*"))
+		_, err := helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID("disposable"), helper.CreateAuth(u1Key))
+		require.NoError(t, err)
+
+		// It is gone in the operator's qualified view too.
+		_, getErr := helper.Client(t).Authz.GetRole(
+			authz.NewGetRoleParams().WithID(ns1+":disposable"), helper.CreateAuth(adminKey))
+		var notFound *authz.GetRoleNotFound
+		require.True(t, errors.As(getErr, &notFound), "expected GetRoleNotFound, got %T: %v", getErr, getErr)
+	})
+
+	t.Run("same short name in two namespaces stores separate permissions", func(t *testing.T) {
+		// ns1's "dup" is a schema-read role; ns2's "dup" is a data-read role on a
+		// specific collection. Same short name, different content per namespace.
+		helper.CreateRole(t, u1Key, readCollectionsRole("dup", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":dup") })
+		helper.CreateRole(t, u2Key, &models.Role{
+			Name: authorization.String("dup"),
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().
+					WithAction(authorization.ReadData).
+					WithCollection("Widgets").
+					Permission(),
+			},
+		})
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns2+":dup") })
+
+		// Each caller reads back its own "dup" with its own permission, stripped.
+		own1 := helper.GetRoleByName(t, u1Key, "dup")
+		require.Equal(t, authorization.ReadCollections, *own1.Permissions[0].Action)
+		require.NotNil(t, own1.Permissions[0].Collections)
+		require.Equal(t, "*", *own1.Permissions[0].Collections.Collection)
+		require.Nil(t, own1.Permissions[0].Data)
+
+		own2 := helper.GetRoleByName(t, u2Key, "dup")
+		require.Equal(t, authorization.ReadData, *own2.Permissions[0].Action)
+		require.NotNil(t, own2.Permissions[0].Data)
+		require.Equal(t, "Widgets", *own2.Permissions[0].Data.Collection)
+		require.Nil(t, own2.Permissions[0].Collections)
+	})
+
+	t.Run("a global short name is reserved by an existing local role", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("reserved", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":reserved") })
+
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(readCollectionsRole("reserved", "*")),
+			helper.CreateAuth(adminKey))
+		var conflict *authz.CreateRoleConflict
+		require.True(t, errors.As(err, &conflict), "expected CreateRoleConflict, got %T: %v", err, err)
+	})
+
+	t.Run("a cross-namespace reference is rejected", func(t *testing.T) {
+		// A namespaced caller may not name another namespace; its own segments
+		// are auto-prefixed, so an explicit prefix is invalid.
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(readCollectionsRole("crossref", ns2+":Foo")),
+			helper.CreateAuth(u1Key))
+		var unproc *authz.CreateRoleUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateRoleUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("content-scope visibility hides root, read-only, and other namespaces", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("visible", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":visible") })
+		helper.CreateRole(t, u2Key, readCollectionsRole("hidden", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns2+":hidden") })
+
+		names := map[string]bool{}
+		for _, r := range helper.GetRoles(t, u1Key) {
+			names[*r.Name] = true
+		}
+		assert.True(t, names[authorization.Admin], "namespaced admin should see admin")
+		assert.True(t, names[authorization.Viewer], "namespaced admin should see viewer")
+		assert.True(t, names["visible"], "namespaced admin should see its own role (stripped)")
+		assert.False(t, names[authorization.Root], "root must stay hidden")
+		assert.False(t, names[authorization.ReadOnly], "read-only must stay hidden")
+		assert.False(t, names["hidden"], "another namespace's role must stay hidden")
+		assert.False(t, names[ns2+":hidden"], "another namespace's role must stay hidden (qualified)")
+	})
+
+	t.Run("roles-for-user hides another namespace's role while keeping own and global", func(t *testing.T) {
+		// A ns2-local role whose permission projects into a ns1 admin's envelope
+		// (read collections on ns2:* -> ns1:*), so the content-scope check alone
+		// would let it leak through getRolesForUser; only a namespace pre-filter
+		// hides it. Plus an own-namespace role and the global viewer, both of
+		// which must stay visible.
+		helper.CreateRole(t, u2Key, readCollectionsRole("probe", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns2+":probe") })
+		helper.CreateRole(t, u1Key, readCollectionsRole("mine", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":mine") })
+
+		// A fresh ns1 target user (not the caller, so the read path authorizes).
+		createNamespacedUser(t, "bob", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":bob", adminKey) })
+
+		helper.AssignRoleToUser(t, u1Key, "mine", "bob")                       // own-namespace role
+		helper.AssignRoleToUser(t, adminKey, ns2+":probe", ns1+":bob")         // foreign role, operator-assigned
+		helper.AssignRoleToUser(t, adminKey, authorization.Viewer, ns1+":bob") // global role
+
+		// The ns1 admin lists bob's roles. The foreign role must be absent in both
+		// the names-only and full-roles projections; own + global stay visible.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			for _, includeFull := range []bool{false, true} {
+				full := includeFull
+				resp, err := helper.Client(t).Authz.GetRolesForUser(
+					authz.NewGetRolesForUserParams().WithID("bob").
+						WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&full),
+					helper.CreateAuth(u1Key))
+				if !assert.NoError(c, err) {
+					return
+				}
+				names := map[string]bool{}
+				for _, r := range resp.Payload {
+					names[*r.Name] = true
+				}
+				assert.False(c, names[ns2+":probe"], "foreign-namespace role leaked (includeFull=%v)", full)
+				assert.False(c, names["probe"], "foreign-namespace role leaked under its short name (includeFull=%v)", full)
+				assert.True(c, names["mine"], "own-namespace role missing (includeFull=%v)", full)
+				assert.True(c, names[authorization.Viewer], "global role missing (includeFull=%v)", full)
+			}
+		}, 15*time.Second, 100*time.Millisecond, "roles-for-user visibility did not converge")
+	})
+
+	t.Run("assign requires an explicit userType", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("asg", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":asg") })
+
+		// No userType in the body is rejected before the {db,oidc} fan-out.
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("u1").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{"asg"}}),
+			helper.CreateAuth(u1Key))
+		var badReq *authz.AssignRoleToUserBadRequest
+		require.True(t, errors.As(err, &badReq), "expected AssignRoleToUserBadRequest, got %T: %v", err, err)
+
+		// With userType it succeeds.
+		helper.AssignRoleToUser(t, u1Key, "asg", "u1")
+	})
+
+	t.Run("assigning a role beyond the caller's permissions is denied", func(t *testing.T) {
+		// A global role the narrowed namespaced admin does not hold.
+		broad := uniqueRole()
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: authorization.String(broad),
+			Permissions: []*models.Permission{
+				helper.NewBackupPermission().
+					WithAction(authorization.ManageBackups).
+					WithCollection("*").
+					Permission(),
+			},
+		})
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, broad) })
+
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("u1").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{broad}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(u1Key))
+		var forbidden *authz.AssignRoleToUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("a namespaced viewer cannot see the admin role", func(t *testing.T) {
+		viewerKey := helper.CreateUserWithNamespace(t, "vw", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":vw", adminKey) })
+		helper.AssignRoleToUser(t, adminKey, authorization.Viewer, ns1+":vw")
+		helper.WaitForOwnRole(t, viewerKey, authorization.Viewer)
+
+		// admin's write permissions are not ≤ viewer's, so it is out of envelope.
+		_, err := helper.Client(t).Authz.GetRole(
+			authz.NewGetRoleParams().WithID(authorization.Admin), helper.CreateAuth(viewerKey))
+		var forbidden *authz.GetRoleForbidden
+		require.True(t, errors.As(err, &forbidden), "expected GetRoleForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("creating an ALL-scoped roles permission is denied", func(t *testing.T) {
+		scope := models.PermissionRolesScopeAll
+		role := &models.Role{
+			Name: authorization.String("superroles"),
+			Permissions: []*models.Permission{{
+				Action: authorization.String(authorization.ReadRoles),
+				Roles:  &models.PermissionRoles{Role: authorization.All, Scope: &scope},
+			}},
+		}
+		// Cluster-wide role management can't be stored in a role on an NS
+		// cluster, not even by the operator.
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(role), helper.CreateAuth(adminKey))
+		var forbidden *authz.CreateRoleForbidden
+		require.True(t, errors.As(err, &forbidden), "expected CreateRoleForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("the root role cannot be assigned to a namespaced target", func(t *testing.T) {
+		// root is the only role carrying ALL-scoped role management; assigning it
+		// to a namespaced user would escalate them to cluster-wide root. The
+		// operator itself is denied — the closed end of the create-side guard.
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{authorization.Root}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.AssignRoleToUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("a namespaced role's permission is enforced", func(t *testing.T) {
+		setupClassInNs1(t, ns1, "Docs", u1Key)
+		helper.CreateRole(t, u1Key, &models.Role{
+			Name: authorization.String("docreader"),
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().
+					WithAction(authorization.ReadData).
+					WithCollection("Docs").
+					Permission(),
+			},
+		})
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":docreader") })
+
+		// A fresh user holding only the read-data role.
+		readerKey := helper.CreateUserWithNamespace(t, "reader1", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":reader1", adminKey) })
+		helper.AssignRoleToUser(t, u1Key, "docreader", "reader1")
+
+		// Poll the positive capability: once reads succeed the role is applied
+		// and the new key recognized (past apikey + binding replication lag).
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, err := helper.ListObjectsAuth(t, "Docs", readerKey)
+			assert.NoError(c, err)
+		}, 15*time.Second, 100*time.Millisecond, "read_data role never became effective for the new user")
+
+		// read_data grants reads, so a write (create object) is denied.
+		err := helper.CreateObjectAuth(t, &models.Object{
+			Class:      "Docs",
+			Properties: map[string]any{"title": "nope"},
+		}, readerKey)
+		require.Error(t, err)
+		var forbidden *objects.ObjectsCreateForbidden
+		require.True(t, errors.As(err, &forbidden), "expected ObjectsCreateForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("revoke requires an explicit userType and removes the binding", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("rev", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":rev") })
+		helper.AssignRoleToUser(t, u1Key, "rev", "u1")
+
+		// No userType in the body is rejected before the {db,oidc} fan-out.
+		_, err := helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID("u1").
+				WithBody(authz.RevokeRoleFromUserBody{Roles: []string{"rev"}}),
+			helper.CreateAuth(u1Key))
+		var badReq *authz.RevokeRoleFromUserBadRequest
+		require.True(t, errors.As(err, &badReq), "expected RevokeRoleFromUserBadRequest, got %T: %v", err, err)
+
+		// With userType the binding is removed.
+		helper.RevokeRoleFromUser(t, u1Key, "rev", "u1")
+		includeFull := false
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			resp, err := helper.Client(t).Authz.GetRolesForUser(
+				authz.NewGetRolesForUserParams().WithID("u1").
+					WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&includeFull),
+				helper.CreateAuth(u1Key))
+			if !assert.NoError(c, err) {
+				return
+			}
+			for _, r := range resp.Payload {
+				assert.NotEqual(c, "rev", *r.Name, "revoked role still bound")
+			}
+		}, 10*time.Second, 100*time.Millisecond, "revoke did not remove the binding")
+	})
+
+	t.Run("a namespaced admin cannot modify a role outside its namespace", func(t *testing.T) {
+		// An operator-created global custom role; the matcher confines the
+		// namespaced admin to its own namespace's roles.
+		globalRole := uniqueRole()
+		helper.CreateRole(t, adminKey, readCollectionsRole(globalRole, "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, globalRole) })
+
+		_, delErr := helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID(globalRole), helper.CreateAuth(u1Key))
+		var delForbidden *authz.DeleteRoleForbidden
+		require.True(t, errors.As(delErr, &delForbidden), "expected DeleteRoleForbidden, got %T: %v", delErr, delErr)
+
+		extra := []*models.Permission{
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+		}
+		_, addErr := helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID(globalRole).WithBody(authz.AddPermissionsBody{Permissions: extra}),
+			helper.CreateAuth(u1Key))
+		var addForbidden *authz.AddPermissionsForbidden
+		require.True(t, errors.As(addErr, &addForbidden), "expected AddPermissionsForbidden, got %T: %v", addErr, addErr)
+
+		_, remErr := helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID(globalRole).WithBody(authz.RemovePermissionsBody{Permissions: extra}),
+			helper.CreateAuth(u1Key))
+		var remForbidden *authz.RemovePermissionsForbidden
+		require.True(t, errors.As(remErr, &remForbidden), "expected RemovePermissionsForbidden, got %T: %v", remErr, remErr)
+	})
+
+	t.Run("a namespaced admin cannot assign roles to groups", func(t *testing.T) {
+		// Group assignment is hard-denied for namespaced principals.
+		_, err := helper.Client(t).Authz.AssignRoleToGroup(
+			authz.NewAssignRoleToGroupParams().WithID("engineers").
+				WithBody(authz.AssignRoleToGroupBody{Roles: []string{authorization.Viewer}, GroupType: models.GroupTypeOidc}),
+			helper.CreateAuth(u1Key))
+		var forbidden *authz.AssignRoleToGroupForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToGroupForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("creating a role beyond the caller's permissions is denied", func(t *testing.T) {
+		// A narrowed namespaced admin lacks manage_backups, so it cannot author
+		// it into a role (≤-effective check on create).
+		role := &models.Role{
+			Name: authorization.String("toobroad"),
+			Permissions: []*models.Permission{
+				helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection("*").Permission(),
+			},
+		}
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(role), helper.CreateAuth(u1Key))
+		var forbidden *authz.CreateRoleForbidden
+		require.True(t, errors.As(err, &forbidden), "expected CreateRoleForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("addPermissions on a local role auto-prefixes and strips on read", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("upd", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":upd") })
+
+		dataPerm := []*models.Permission{
+			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection("Notes").Permission(),
+		}
+		_, err := helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID("upd").WithBody(authz.AddPermissionsBody{Permissions: dataPerm}),
+			helper.CreateAuth(u1Key))
+		require.NoError(t, err)
+
+		// Caller sees the added permission stripped; operator sees it qualified.
+		require.Equal(t, "Notes", findDataCollection(helper.GetRoleByName(t, u1Key, "upd")))
+		require.Equal(t, ns1+":Notes", findDataCollection(helper.GetRoleByName(t, adminKey, ns1+":upd")))
+
+		// removePermissions drops it again.
+		_, err = helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID("upd").WithBody(authz.RemovePermissionsBody{Permissions: dataPerm}),
+			helper.CreateAuth(u1Key))
+		require.NoError(t, err)
+		require.Equal(t, "", findDataCollection(helper.GetRoleByName(t, u1Key, "upd")))
+	})
+
+	t.Run("a global short name blocks a local create (reverse reservation)", func(t *testing.T) {
+		globalOnly := uniqueRole()
+		helper.CreateRole(t, adminKey, readCollectionsRole(globalOnly, "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, globalOnly) })
+
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(readCollectionsRole(globalOnly, "*")),
+			helper.CreateAuth(u1Key))
+		var conflict *authz.CreateRoleConflict
+		require.True(t, errors.As(err, &conflict), "expected CreateRoleConflict, got %T: %v", err, err)
+	})
+
+	t.Run("a namespaced caller's error strips its prefix while the operator stays raw", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("duperr", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":duperr") })
+
+		// The namespaced caller's conflict names the short role, not ns1:duperr.
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(readCollectionsRole("duperr", "*")),
+			helper.CreateAuth(u1Key))
+		var conflict *authz.CreateRoleConflict
+		require.True(t, errors.As(err, &conflict), "got %T: %v", err, err)
+		require.NotEmpty(t, conflict.Payload.Error)
+		msg := conflict.Payload.Error[0].Message
+		assert.NotContains(t, msg, ns1+":", "namespaced error must not leak the caller's prefix")
+		assert.Contains(t, msg, "duperr")
+
+		// The operator sees the same role's qualified name raw (never stripped).
+		require.Equal(t, ns1+":duperr", *helper.GetRoleByName(t, adminKey, ns1+":duperr").Name)
+	})
+
+	t.Run("GET /users/me strips the namespace prefix from a bound local role", func(t *testing.T) {
+		// Bind a local role (stored as ns1:selfrole) so the strip is actually
+		// exercised; the built-in admin u1 already holds is unprefixed regardless.
+		helper.CreateRole(t, u1Key, readCollectionsRole("selfrole", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":selfrole") })
+		helper.AssignRoleToUser(t, u1Key, "selfrole", "u1")
+		helper.WaitForOwnRole(t, u1Key, "selfrole")
+
+		info := helper.GetInfoForOwnUser(t, u1Key)
+		require.NotEmpty(t, info.Roles)
+		var found bool
+		for _, r := range info.Roles {
+			assert.NotContains(t, *r.Name, ":", "own-info role names must not carry a namespace prefix")
+			if *r.Name == "selfrole" {
+				found = true
+			}
+		}
+		assert.True(t, found, "me must list the bound local role under its stripped short name")
+	})
+}
+
+// TestNamespaceDeleteCascadesRBAC proves the namespace-delete cascade and the
+// apply-time emptiness gate work together: a namespace holding a local role and
+// a user with both a local and a global role assignment can still be deleted —
+// the removal succeeds only because every RBAC row was cascaded away first (the
+// gate would otherwise block it forever) — and the local role is gone after.
+func TestNamespaceDeleteCascadesRBAC(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS()
+	helper.CreateNamespace(t, ns, adminKey)
+	uKey := createNamespacedUser(t, "casc", ns, adminKey)
+
+	helper.CreateRole(t, uKey, readCollectionsRole("temp", "*"))
+	helper.AssignRoleToUser(t, uKey, "temp", "casc")                       // local-role assignment
+	helper.AssignRoleToUser(t, adminKey, authorization.Viewer, ns+":casc") // global-role assignment
+
+	// Deleting waits for the namespace to 404; it can only reach that state if
+	// the cascade removed the local role and every assignment first.
+	helper.DeleteNamespace(t, ns, adminKey)
+
+	for _, r := range helper.GetRoles(t, adminKey) {
+		require.NotEqual(t, ns+":temp", *r.Name, "local role must be cascaded away on namespace delete")
+	}
+
+	// The global viewer assignment — whose subject is the deleted namespace's
+	// user — must be cascaded too; assert the grouping row directly rather than
+	// inferring it from the delete succeeding.
+	resp, err := helper.Client(t).Authz.GetUsersForRole(
+		authz.NewGetUsersForRoleParams().WithID(authorization.Viewer), helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	for _, u := range resp.Payload {
+		require.NotEqual(t, ns+":casc", u.UserID, "global-role assignment row must be cascaded on namespace delete")
+	}
+}
