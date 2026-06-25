@@ -145,10 +145,9 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
-// MultiObjectRawByID returns the raw on-disk (version 1) object binary for each
-// id, or nil where the object is absent/deleted, aligned with the input order.
-// The slices are copies: the bucket may hand back pooled/mmap-backed buffers
-// that are reused after the read, so they must not be retained directly.
+// MultiObjectRawByID returns the raw on-disk binary for each id (nil where
+// absent/deleted), aligned with input order. Slices are copies: the bucket may
+// reuse pooled/mmap buffers after the read.
 func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]byte, error) {
 	s.activityTrackerRead.Add(1)
 	out := make([][]byte, len(ids))

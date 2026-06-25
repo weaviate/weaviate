@@ -284,8 +284,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 		var objBinary []byte
 		if obj.PrecomputedDiskBinary != nil {
-			// raw-propagation path: persist the source bytes verbatim, only
-			// rewriting the docID this node assigned.
+			// raw path: persist source bytes verbatim, only patching our docID.
 			objBinary = obj.PrecomputedDiskBinary
 			if err := storobj.PatchDocID(objBinary, status.docID); err != nil {
 				return errors.Wrapf(err, "patch docID for object %s", obj.ID())

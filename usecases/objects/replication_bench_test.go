@@ -19,9 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// benchPropagationObject builds a representative object plus its on-disk binary,
-// mirroring what async replication propagates: several properties and a
-// 768-dim vector.
+// benchPropagationObject builds a representative object + its on-disk binary.
 func benchPropagationObject(tb testing.TB) (*models.Object, []float32, []byte) {
 	tb.Helper()
 
@@ -55,8 +53,7 @@ func benchPropagationObject(tb testing.TB) (*models.Object, []float32, []byte) {
 	return obj, vector, diskBytes
 }
 
-// BenchmarkPropagationSourceJSON measures the current source cost: decode the
-// on-disk object, wrap it as a VObject, and JSON-marshal it for the wire.
+// BenchmarkPropagationSourceJSON: decode on-disk object, wrap, JSON-marshal.
 func BenchmarkPropagationSourceJSON(b *testing.B) {
 	_, _, diskBytes := benchPropagationObject(b)
 
@@ -80,8 +77,7 @@ func BenchmarkPropagationSourceJSON(b *testing.B) {
 	}
 }
 
-// BenchmarkPropagationSourceRaw measures the raw source cost: copy the on-disk
-// bytes (as MultiObjectRawByID does) and frame them — no decode, no marshal.
+// BenchmarkPropagationSourceRaw: copy the on-disk bytes and frame them.
 func BenchmarkPropagationSourceRaw(b *testing.B) {
 	_, _, diskBytes := benchPropagationObject(b)
 
@@ -97,8 +93,7 @@ func BenchmarkPropagationSourceRaw(b *testing.B) {
 	}
 }
 
-// BenchmarkPropagationTargetJSON measures the current target cost: JSON-decode
-// the VObject and re-marshal it to the on-disk format for the LSM write.
+// BenchmarkPropagationTargetJSON: JSON-decode the VObject, re-marshal to disk.
 func BenchmarkPropagationTargetJSON(b *testing.B) {
 	obj, vector, _ := benchPropagationObject(b)
 	vo := &VObject{
@@ -127,9 +122,7 @@ func BenchmarkPropagationTargetJSON(b *testing.B) {
 	}
 }
 
-// BenchmarkPropagationTargetRaw measures the raw target cost: decode the framed
-// payload and parse the object once for indexing — the on-disk bytes are
-// written verbatim, so there is no re-marshal.
+// BenchmarkPropagationTargetRaw: parse once for indexing; bytes written verbatim.
 func BenchmarkPropagationTargetRaw(b *testing.B) {
 	_, _, diskBytes := benchPropagationObject(b)
 	vo := &VObject{StaleUpdateTime: 1700000000000, RawBytes: diskBytes}

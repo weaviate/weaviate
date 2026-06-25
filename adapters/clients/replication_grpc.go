@@ -416,8 +416,7 @@ func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, inde
 	if isRawVObjectBatch(vobjects) {
 		vData, err = clusterapi.IndicesPayloads.VersionedObjectList.MarshalRaw(vobjects)
 		if err == nil {
-			// gRPC does not compress the body itself; zstd the raw payload (its
-			// JSON properties compress well) to cut network bytes.
+			// gRPC does not compress the body itself; zstd the raw payload.
 			vData = clusterapi.CompressOverwriteRaw(vData)
 			encoding = clusterapi.OverwriteEncodingRaw
 		}

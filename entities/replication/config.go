@@ -58,9 +58,8 @@ type GlobalConfig struct {
 
 	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 
-	// AsyncReplicationRawPropagation gates shipping raw on-disk object bytes during
-	// async-replication propagation (instead of the JSON object round-trip). Emit
-	// is gated; decode is always supported. Enable only once the whole cluster is
+	// AsyncReplicationRawPropagation ships raw on-disk object bytes instead of the
+	// JSON round-trip. Emit-only gate. Enable only once the whole cluster is
 	// upgraded — an older node cannot decode the raw encoding.
 	AsyncReplicationRawPropagation *runtime.DynamicValue[bool] `json:"async_replication_raw_propagation" yaml:"async_replication_raw_propagation"`
 }

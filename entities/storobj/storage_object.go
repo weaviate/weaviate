@@ -57,9 +57,8 @@ type Object struct {
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
 
-	// PrecomputedDiskBinary, when set, is the already-marshalled version 1 binary
-	// to persist verbatim (after a docID patch) instead of re-marshalling. Set on
-	// the async-replication raw-propagation write path; nil otherwise.
+	// PrecomputedDiskBinary, when set, is persisted verbatim (after a docID patch)
+	// instead of re-marshalling. Set on the raw-propagation write path.
 	PrecomputedDiskBinary []byte `json:"-"`
 }
 
@@ -822,9 +821,8 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	return binary.LittleEndian.Uint64(in[1:9]), nil
 }
 
-// PatchDocID overwrites the docID embedded in an already-marshalled (version 1)
-// object binary in place, without re-marshalling. Used when propagating raw
-// on-disk bytes to a target node that must store them under its own docID.
+// PatchDocID overwrites the docID in a marshalled (version 1) object binary in
+// place, so a target can store propagated raw bytes under its own docID.
 func PatchDocID(in []byte, docID uint64) error {
 	if len(in) < 9 {
 		return errors.Errorf("binary data too short")

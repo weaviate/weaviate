@@ -9,9 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package rawpropagation holds the async-replication propagation e2e in its own
-// package so it runs as a separate go-test invocation (its own timeout budget)
-// rather than competing with the main async_replication suite.
+// Package rawpropagation isolates the propagation e2e in its own go-test
+// invocation (separate timeout budget) from the main async suite.
 package rawpropagation
 
 import (
@@ -48,10 +47,8 @@ var paragraphIDs = []strfmt.UUID{
 }
 
 // TestAsyncRepairObjectPropagation runs the same node-recovery convergence
-// scenario with raw propagation both disabled (the former JSON object path) and
-// enabled, asserting identical end state. This proves the raw path is a
-// drop-in: behaviour is unchanged when the flag is off, and properties and
-// vectors still survive when it is on.
+// scenario with raw propagation off (former JSON path) and on, asserting
+// identical end state — proving the raw path is a drop-in.
 func TestAsyncRepairObjectPropagation(t *testing.T) {
 	t.Run("raw_disabled", func(t *testing.T) {
 		runAsyncRepairScenario(t, false)

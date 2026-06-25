@@ -17,19 +17,15 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// Raw overwrite payloads are zstd-compressed for the gRPC transport (which,
-// unlike REST, does not compress the request body itself). EncodeAll/DecodeAll
-// are safe for concurrent use, so a single encoder/decoder is shared.
+// Shared because EncodeAll/DecodeAll are safe for concurrent use.
 var (
 	overwriteRawZstdEncoder *zstd.Encoder
 	overwriteRawZstdDecoder *zstd.Decoder
 )
 
-// maxDecodedOverwriteRaw bounds the decompressed size of a raw overwrite payload
-// as a decompression-bomb backstop (klauspost defaults to 64GiB). It is ~20x the
-// default gRPC max message size — far above any legitimate propagation batch,
-// which must already fit the gRPC message size once serialized — so it cannot
-// reject real traffic, only refuse a pathological peer payload.
+// maxDecodedOverwriteRaw is a decompression-bomb backstop (klauspost defaults to
+// 64GiB). ~20x the default gRPC max message size, so it never rejects real
+// batches (which must fit that size serialized), only pathological payloads.
 const maxDecodedOverwriteRaw = 2 << 30 // 2 GiB
 
 func init() {

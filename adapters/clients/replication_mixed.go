@@ -27,8 +27,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-// isRawVObjectBatch reports whether a propagation batch uses the raw-bytes
-// encoding. The source builds homogeneous batches, so the first element decides.
+// isRawVObjectBatch reports whether a batch is raw-encoded; batches are
+// homogeneous, so the first element decides.
 func isRawVObjectBatch(vobjects []*objects.VObject) bool {
 	return len(vobjects) > 0 && vobjects[0].RawBytes != nil
 }

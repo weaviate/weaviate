@@ -1853,9 +1853,8 @@ func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNo
 	return time.Now().Add(-config.propagationDelay).UnixMilli()
 }
 
-// rawPropagationEnabled reports whether this node should ship raw on-disk object
-// bytes during propagation. This is an emit-only gate; decoding raw is always
-// supported, so it is safe to enable independently across upgraded nodes.
+// rawPropagationEnabled reports whether to ship raw on-disk bytes. Emit-only
+// gate; decoding raw is always supported, so it is safe to flip per node.
 func (s *Shard) rawPropagationEnabled() bool {
 	if s.index == nil || s.index.globalreplicationConfig == nil {
 		return false
@@ -1864,9 +1863,8 @@ func (s *Shard) rawPropagationEnabled() bool {
 	return v != nil && v.Get()
 }
 
-// buildPropagationBatch fetches the local objects for a UUID batch and wraps them
-// as VObjects to overwrite on the target. With useRaw the objects travel as their
-// raw on-disk bytes; otherwise as the decoded object plus vectors.
+// buildPropagationBatch wraps a UUID batch as VObjects to overwrite on the
+// target, as raw on-disk bytes (useRaw) or decoded objects plus vectors.
 func (s *Shard) buildPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
 	remoteStaleUpdateTime map[strfmt.UUID]int64, useRaw bool,
 ) ([]*objects.VObject, error) {
@@ -1988,8 +1986,7 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 	// worker, ensuring the recovery defer never blocks before workerWg.Done fires.
 	resultCh := make(chan workerResponse, numBatches+config.propagationConcurrency)
 
-	// Encoding decision is fixed for the whole cycle so a runtime flip mid-cycle
-	// cannot produce a mixed (raw + JSON) batch.
+	// Fixed per cycle so a mid-cycle flag flip cannot produce a mixed batch.
 	useRaw := s.rawPropagationEnabled()
 
 	for range config.propagationConcurrency {

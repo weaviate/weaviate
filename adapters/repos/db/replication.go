@@ -690,10 +690,9 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		incomingObj := u.LatestObject
 		lastUpdateTime := u.LastUpdateTimeUnixMilli
 
-		// raw-propagation path: the object travels as its on-disk binary; decode
-		// it once here for indexing and persist the bytes verbatim on write.
-		// Decode with the canonical class (like every other disk read path): the
-		// on-disk class-name field may be empty, which FromBinaryNetwork rejects.
+		// raw path: decode once for indexing, persist the bytes verbatim on write.
+		// FromBinaryDisk (canonical class) because the on-disk class-name may be
+		// empty, which FromBinaryNetwork rejects.
 		var rawObj *storobj.Object
 		if u.RawBytes != nil {
 			decoded, decErr := storobj.FromBinaryDisk(u.RawBytes, idx.Config.ClassName.String())

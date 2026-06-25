@@ -2583,10 +2583,8 @@ func TestOverwriteObjects(t *testing.T) {
 			Additional:         models.AdditionalProperties{},
 		}
 
-		// empty on-disk class-name is a supported shape; the raw apply must stamp
-		// the canonical class rather than reject it.
 		srcModel := *freshRaw
-		srcModel.Class = ""
+		srcModel.Class = "" // empty on-disk class-name: target must stamp the canonical class
 		src := storobj.FromObject(&srcModel, freshRaw.Vector, nil, nil)
 		src.DocID = 999
 		rawBytes, err := src.MarshalBinary()

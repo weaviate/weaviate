@@ -48,10 +48,9 @@ type VObject struct {
 	// Version is the most recent incremental version number of the object
 	Version uint64 `json:"version"`
 
-	// RawBytes, when set, is the raw on-disk storobj (version 1) binary of the
-	// object. Used by the async-replication raw-propagation path, which ships the
-	// stored bytes verbatim instead of going through LatestObject/vectors JSON.
-	// Mutually exclusive with LatestObject. Not part of the JSON wire format.
+	// RawBytes, when set, is the object's raw on-disk storobj binary, shipped
+	// verbatim by raw propagation. Mutually exclusive with LatestObject; not part
+	// of the JSON wire format.
 	RawBytes []byte `json:"-"`
 }
 
@@ -338,10 +337,9 @@ func (vo *VObject) UnmarshalBinaryV2(data []byte) error {
 	return nil
 }
 
-// MarshalBinaryRaw serializes a VObject for the raw-propagation path: the
-// stale-update time followed by the object's raw on-disk binary. The UUID and
-// last-update time are recovered on the target by decoding RawBytes, so they are
-// not duplicated here.
+// MarshalBinaryRaw serializes a VObject for raw propagation. UUID and
+// last-update time are recovered on the target from RawBytes, so only the stale
+// time is added here.
 //
 //	[8B StaleUpdateTime int64][raw storobj bytes ...]
 func (vo *VObject) MarshalBinaryRaw() ([]byte, error) {
