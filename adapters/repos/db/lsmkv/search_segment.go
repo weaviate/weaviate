@@ -28,7 +28,9 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	termCount, minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) (*priorityqueue.Queue[[]*terms.DocPointerWithScore], error) {
 	var docInfos []*terms.DocPointerWithScore
-	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
+	// limit+1: InsertAndPop holds limit+1 items between insert and pop, so an
+	// exact-limit capacity forces one slice regrow per query.
+	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit + 1)
 	worstDist := float64(-10000) // tf score can be negative
 	results.sortByID()
 	iterations := 0
@@ -228,7 +230,9 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	results := TermsBySize(resultsByTerm)
 	var docInfos []*terms.DocPointerWithScore
-	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
+	// limit+1: InsertAndPop holds limit+1 items between insert and pop, so an
+	// exact-limit capacity forces one slice regrow per query.
+	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit + 1)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	iterations := 0
@@ -358,7 +362,9 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 func DoWand(ctx context.Context, limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
 	minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
-	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
+	// limit+1: InsertAndPop holds limit+1 items between insert and pop, so an
+	// exact-limit capacity forces one slice regrow per query.
+	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit + 1)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	iterations := 0

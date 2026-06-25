@@ -283,3 +283,29 @@ func (s *segment) getDocCount(key []byte) uint64 {
 
 	return binary.LittleEndian.Uint64(buffer)
 }
+
+// getInvertedNodeAndDocCount returns a term's index node and posting doc count
+// from a single index descent, letting the caller reuse the node for term
+// construction. The doc count is read from the inverted posting layout, so it
+// returns false for any non-inverted strategy.
+func (s *segment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return segmentindex.Node{}, 0, false
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return segmentindex.Node{}, 0, false
+	}
+
+	node, err := s.index.Get(key)
+	if err != nil {
+		return segmentindex.Node{}, 0, false
+	}
+
+	var buf [8]byte
+	if err = s.copyNode(buf[:], nodeOffset{node.Start, node.Start + 8}); err != nil {
+		return segmentindex.Node{}, 0, false
+	}
+
+	return node, binary.LittleEndian.Uint64(buf[:]), true
+}
