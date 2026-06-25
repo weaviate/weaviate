@@ -326,6 +326,10 @@ func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
 }
 
+func (f *fakeSchemaManager) NamespacesEnabled() bool {
+	return false
+}
+
 type nodeResolver struct {
 	cluster.NodeSelector
 	nodes *[]*node
