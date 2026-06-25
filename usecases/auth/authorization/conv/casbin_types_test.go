@@ -1266,3 +1266,23 @@ func TestUserKeyRoundTripColonBearingID(t *testing.T) {
 		}
 	}
 }
+
+func TestIsOpaqueIDResource(t *testing.T) {
+	tests := []struct {
+		resource string
+		want     bool
+	}{
+		{"users/alice", true},
+		{"users/urn:foo", true},
+		{"groups/oidc/team:eng", true},
+		{"schema/collections/Movies/shards/#", false},
+		{"data/collections/Movies/shards/T/objects/*", false},
+		{"roles/editor", false},
+		{"cluster/*", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.resource, func(t *testing.T) {
+			require.Equal(t, tt.want, IsOpaqueIDResource(tt.resource))
+		})
+	}
+}

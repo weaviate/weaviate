@@ -174,7 +174,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot create role with the same name as built-in role %s", *params.Body.Name)))
 	}
 
-	if err := h.validateNoQualifiedNamespaceInPolicies(policies[*params.Body.Name]); err != nil {
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies[*params.Body.Name]); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -225,7 +225,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
-	if err := h.validateNoQualifiedNamespaceInPolicies(policies[params.ID]); err != nil {
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies[params.ID]); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -1234,18 +1234,28 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
 	return nil
 }
 
-// validateNoQualifiedNamespaceInPolicies rejects role-definition policies
-// whose resource paths contain the namespace separator. On namespace-enabled
-// clusters role definitions must remain namespace-relative templates; the
-// matcher specializes them at enforce time. No-op when namespaces are disabled.
-func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(policies []authorization.Policy) error {
+// validateNoQualifiedNamespaceInPolicies rejects role-definition policies that
+// carry an explicit namespace qualification. On namespace-enabled clusters role
+// definitions must stay namespace-relative templates; the matcher specializes
+// them at enforce time. No-op when namespaces are disabled.
+//
+// A ':' in a users/<id> or groups/<...> id is part of the opaque id (e.g. an
+// OIDC username), not a qualifier, so a global caller may use it. Namespaced
+// callers must still submit short, unqualified forms — symmetric with the
+// class-name rule that forbids them typing any "<namespace>:" prefix.
+func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models.Principal, policies []authorization.Policy) error {
 	if !h.namespacesEnabled {
 		return nil
 	}
+	global := principal == nil || principal.Namespace == ""
 	for _, p := range policies {
-		if conv.ContainsNamespaceSeparator(p.Resource) {
-			return fmt.Errorf("role permissions must not contain namespace-qualified resource paths; got %q", p.Resource)
+		if !conv.ContainsNamespaceSeparator(p.Resource) {
+			continue
 		}
+		if global && conv.IsOpaqueIDResource(p.Resource) {
+			continue
+		}
+		return fmt.Errorf("role permissions must not contain namespace-qualified resource paths; got %q", p.Resource)
 	}
 	return nil
 }

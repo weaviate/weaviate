@@ -225,6 +225,14 @@ func ContainsNamespaceSeparator(resource string) bool {
 	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
 }
 
+// IsOpaqueIDResource reports whether resource addresses a users/<id> or
+// groups/<type>/<name> shape, whose id may legitimately contain ':' (e.g. an
+// OIDC username) as part of the id rather than a namespace qualifier.
+func IsOpaqueIDResource(resource string) bool {
+	return strings.HasPrefix(resource, authorization.UsersDomain+"/") ||
+		strings.HasPrefix(resource, authorization.GroupsDomain+"/")
+}
+
 func extractFromExtAction(inputAction string) (string, string, error) {
 	splits := strings.Split(inputAction, "_")
 	if len(splits) < 2 {
