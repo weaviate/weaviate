@@ -163,6 +163,66 @@ func equalPolicies(a, b []string) bool {
 	return true
 }
 
+// TestManager_CountNamespaceLocalRBAC pins the filtering: a namespace-local
+// role and assignments to its direct principals count (even when the assigned
+// role is global), while global roles and out-of-namespace subjects do not.
+func TestManager_CountNamespaceLocalRBAC(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		"customer1:editor": {{Resource: "data/collections/customer1:Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
+		"auditor":          {{Resource: "data/collections/Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
+	}))
+	// Namespaced db user with a local role, namespaced oidc user with a global
+	// role, and a global db user with the global role.
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb), []string{"customer1:editor"}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:carol", authentication.AuthTypeOIDC), []string{"auditor"}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("bob", authentication.AuthTypeDb), []string{"auditor"}))
+	// A namespace-named group is still a global assignment: it must not count,
+	// else the namespace could never be removed (the cascade leaves it).
+	require.NoError(t, m.AddRolesForUser(conv.PrefixGroupName("customer1:team"), []string{"auditor"}))
+
+	// 1 local role + 2 namespaced assignments (alice, carol); auditor + bob + group excluded.
+	got, err := m.CountNamespaceLocalRBAC("customer1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, got)
+
+	other, err := m.CountNamespaceLocalRBAC("customer2")
+	require.NoError(t, err)
+	assert.Equal(t, 0, other)
+
+	// Revoking a namespaced subject's global-role assignment — what the delete
+	// cascade does — drives the gate down: carol holds only the global auditor
+	// role, so revoking it drops the count by one.
+	require.NoError(t, m.RevokeRolesForUser(conv.UserNameWithTypeFromId("customer1:carol", authentication.AuthTypeOIDC), "auditor"))
+	got, err = m.CountNamespaceLocalRBAC("customer1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, got)
+}
+
+// TestManager_NamespaceLocalRBAC_FailsClosedOnUnparseableRow pins the gate's
+// fail-closed contract: an unparseable grouping subject must surface as an
+// error, not be skipped — a silent undercount would let the removal-block gate
+// read zero and remove a namespace while an assignment survives.
+func TestManager_NamespaceLocalRBAC_FailsClosedOnUnparseableRow(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	// Inject a grouping row whose subject has no auth-type prefix, so
+	// GetUserAndPrefix can't parse it.
+	_, err = m.casbin.AddRoleForUser("malformed-no-prefix", conv.PrefixRoleName("auditor"))
+	require.NoError(t, err)
+
+	_, _, err = m.NamespaceLocalRBAC("customer1")
+	require.Error(t, err)
+
+	_, err = m.CountNamespaceLocalRBAC("customer1")
+	require.Error(t, err)
+}
+
 func TestSnapshotNilCasbin(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	m := &Manager{

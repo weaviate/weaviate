@@ -127,7 +127,7 @@ func TestRequireNamespaceActive(t *testing.T) {
 	require.NoError(t, controller.Create(api.Namespace{Name: "active1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, controller.Create(api.Namespace{Name: "deleting1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, controller.ChangeState("deleting1", api.NamespaceStateDeleting))
-	exister := clusternamespaces.NewManager(controller, emptySchemaLister{}, nil, logger)
+	exister := clusternamespaces.NewManager(controller, emptySchemaLister{}, nil, nil, logger)
 
 	tests := []struct {
 		name      string

@@ -368,6 +368,11 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		dynusersLister = cfg.DynamicUserController
 	}
 
+	var rbacLister namespaces.RBACNamespaceLister
+	if cfg.RBAC != nil {
+		rbacLister = cfg.RBAC
+	}
+
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
@@ -387,7 +392,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
-		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
+		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
 		replicationManager:      replicationManager,
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),
