@@ -530,6 +530,12 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	if index.compressionType == CompressionBQ &&
+		index.distancerProvider.Type() == "dot" &&
+		atomic.LoadInt64(&index.rescore) == 0 {
+		return index.searchByVector(ctx, vector, k, allow)
+	}
+
 	// defensive: callers only reach this path once Compressed() is true, and
 	// the quantizer is always assigned before the compressed flag is set
 	if index.quantizer == nil {
