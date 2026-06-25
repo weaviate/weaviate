@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -132,7 +133,7 @@ type segment struct {
 	invertedData   *segmentInvertedData
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
-	refCount         int
+	refCount         atomic.Int64
 
 	deleteMarkerSuffix string
 }
@@ -774,32 +775,22 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 	return observer
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
+// refCount is an atomic, so incRef/decRef/getRefs are individually thread-safe
+// and need no external lock. Acquiring a consistent view of refs across ALL
+// segments in a group is still serialized against compaction via the
+// SegmentGroup.maintenanceLock: incRef happens under its RLock, segment swaps
+// under its write lock, and segments awaiting drop only ever see refs decrease.
 func (s *segment) incRef() {
-	s.refCount++
+	s.refCount.Add(1)
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
 func (s *segment) decRef() {
-	if s.refCount <= 0 {
+	if s.refCount.Add(-1) < 0 {
+		s.refCount.Add(1) // restore: a recovered panic must not pin the counter negative
 		panic("refCount already zero")
 	}
-	s.refCount--
 }
 
-// WARNING: This method is NOT thread-safe on its own. The caller must ensure
-// that it is safe to read and manipulate the refs. In practice, this is done
-// using a SegmentGroup.segmentRefCounterLock which both protects against racy
-// access, as well as guarantees a consistent view across refs of ALL segments
-// in the group.
 func (s *segment) getRefs() int {
-	return s.refCount
+	return int(s.refCount.Load())
 }

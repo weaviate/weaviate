@@ -41,8 +41,7 @@ import (
 )
 
 type SegmentGroup struct {
-	segments              []Segment
-	segmentRefCounterLock sync.Mutex
+	segments []Segment
 
 	// Holds compacted / cleaned up segments meant to be closed and removed from disk
 	// after their's refs counter drops to 0.
@@ -599,19 +598,18 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
-	sg.segmentRefCounterLock.Lock()
+	// incRef under the RLock so the refs are taken before any compaction (which
+	// holds the write lock) can swap these segments out. refCount is atomic, so no
+	// separate refcount lock is needed.
 	for _, seg := range segments {
 		seg.incRef()
 	}
-	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
 		}
-		sg.segmentRefCounterLock.Unlock()
 	}
 }
 
