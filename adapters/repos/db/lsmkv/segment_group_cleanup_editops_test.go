@@ -81,9 +81,8 @@ func TestSegmentCleanerEditOps_PicksPendingRegardlessOfInterval(t *testing.T) {
 	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
 	require.NoError(t, editOps.SnapshotSegments("op1", segIDsOf(bucket)))
 
-	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
-	require.NoError(t, err)
-	require.True(t, cleaned)
+	// Cleanup processes one segment per pass; drain.
+	drainEditOpsCleanup(t, bucket)
 
 	v1, err := bucket.Get([]byte("k1"))
 	require.NoError(t, err)
@@ -95,6 +94,24 @@ func TestSegmentCleanerEditOps_PicksPendingRegardlessOfInterval(t *testing.T) {
 	pending, err := editOps.Pending("op1")
 	require.NoError(t, err)
 	require.Empty(t, pending)
+}
+
+// drainEditOpsCleanup runs the cleanup cycle until the edit-ops pending set is
+// empty (one segment is rewritten per pass). It stops on empty rather than on a
+// no-work return so it doesn't fall through to the heuristic cleanup path (which
+// would re-apply the non-idempotent test transformer).
+func drainEditOpsCleanup(t *testing.T, bucket *Bucket) {
+	t.Helper()
+	for range 20 {
+		pending, err := bucket.disk.editOps.AllPending()
+		require.NoError(t, err)
+		if len(pending) == 0 {
+			return
+		}
+		_, err = bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+		require.NoError(t, err)
+	}
+	t.Fatal("edit-ops cleanup did not drain within 20 passes")
 }
 
 // TestSegmentCleanerEditOps_MultiOpSameSegment pins the grouping contract: when
