@@ -68,8 +68,9 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	t.Logf("first migration FINISHED: task=%s", task1)
 
 	// Spot-check pre-delete: task record is present on this node's view.
-	require.True(t, taskExists(t, uri, task1),
-		"pre-delete: reindex task %s must be in /v1/tasks", task1)
+	existsPre, okPre := taskExists(t, uri, task1)
+	require.Truef(t, okPre && existsPre,
+		"pre-delete: reindex task %s must be in /v1/tasks (fetch ok=%v)", task1, okPre)
 
 	deleteCollection(t, uri, className)
 	t.Logf("deleted class %s", className)
@@ -131,25 +132,31 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 // taskExists returns true if the reindex namespace contains a task with
 // the given ID on the queried node. Per-node scope (no /v1/tasks fan-out)
 // so callers can pin per-replica behaviour.
-func taskExists(t *testing.T, restURI, taskID string) bool {
+func taskExists(t *testing.T, restURI, taskID string) (exists, ok bool) {
 	t.Helper()
-	tasks := fetchTasks(t, restURI)
+	tasks, ok := tryFetchTasks(restURI)
+	if !ok {
+		return false, false
+	}
 	for _, task := range tasks["reindex"] {
 		if task.ID == taskID {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
 
 func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 	t.Helper()
-	// /v1/tasks is served from the coordinator's FSM-replicated view —
-	// the cascade applies inside the same FSM, so the absence is visible
-	// immediately. Eventually wrap absorbs the (rare) raft-leader catch-up
-	// race after a rolling restart but not behavioural divergence.
+	// /v1/tasks is served from the coordinator's FSM-replicated view — the
+	// cascade applies inside the same FSM, so absence is visible immediately.
+	// The Eventually + tolerant read absorb the post-rolling-restart window
+	// where the queried node's ListDistributedTasks gRPC connection is still
+	// reconnecting and /v1/tasks transiently returns non-200: a read that did
+	// not succeed is retried, never read as "task still present".
 	require.Eventuallyf(t, func() bool {
-		return !taskExists(t, restURI, taskID)
+		exists, ok := taskExists(t, restURI, taskID)
+		return ok && !exists
 	}, 20*time.Second, 50*time.Millisecond,
 		"%s: reindex task %s must NOT be in /v1/tasks (cascade deleted on DELETE_CLASS)",
 		label, taskID)
@@ -158,7 +165,10 @@ func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 func assertIndexesReady(t *testing.T, restURI, className, label string) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {
-		indexes := reindexhelpers.GetIndexes(t, restURI, className)
+		indexes, ok := tryGetIndexes(restURI, className)
+		if !ok {
+			return false // transient post-restart read (gRPC reconnect) — retry
+		}
 		for _, p := range indexes.Properties {
 			for _, idx := range p.Indexes {
 				// Anything other than "ready" on a freshly-recreated class
@@ -188,15 +198,47 @@ func assertIndexesReady(t *testing.T, restURI, className, label string) {
 	}
 }
 
-func fetchTasks(t *testing.T, restURI string) models.DistributedTasks {
-	t.Helper()
+// tryFetchTasks does one tolerant GET /v1/tasks, returning ok=false on any
+// transport / non-200 / decode error so a caller polling inside
+// require.Eventually retries instead of hard-failing. Right after a rolling
+// restart the queried node's internal gRPC connection for ListDistributedTasks
+// can still be reconnecting, so /v1/tasks transiently returns a non-200
+// ("client connection is closing") that must be ridden out. Takes no
+// *testing.T: it runs inside an Eventually condition goroutine, where
+// require/t.Fatal would runtime.Goexit the wrong goroutine.
+func tryFetchTasks(restURI string) (models.DistributedTasks, bool) {
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-	require.NoError(t, err)
+	if err != nil {
+		return nil, false
+	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /v1/tasks failed: %s", string(body))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
 	var tasks models.DistributedTasks
-	require.NoError(t, json.Unmarshal(body, &tasks))
-	return tasks
+	if json.Unmarshal(body, &tasks) != nil {
+		return nil, false
+	}
+	return tasks, true
+}
+
+// tryGetIndexes is the GET /v1/schema/{class}/indexes counterpart of
+// tryFetchTasks: tolerant and goroutine-safe, for Eventually polls that must
+// ride out the same post-restart reconnect window.
+func tryGetIndexes(restURI, className string) (*reindexhelpers.IndexesResponse, bool) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, className))
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var out reindexhelpers.IndexesResponse
+	if json.Unmarshal(body, &out) != nil {
+		return nil, false
+	}
+	return &out, true
 }
