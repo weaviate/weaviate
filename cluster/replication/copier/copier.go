@@ -128,7 +128,11 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNode
 	enterrors.GoWrapper(func() {
 		defer close(fileNameChan)
 		for _, name := range snapResp.FileNames {
-			fileNameChan <- name
+			select {
+			case <-ctx.Done():
+				return
+			case fileNameChan <- name:
+			}
 		}
 	}, c.logger)
 
@@ -174,6 +178,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNode
 
 	// wait for all metadata workers to finish
 	if err := mWg.Wait(); err != nil {
+		close(metadataChan)
 		return fmt.Errorf("failed to get files metadata: %w", err)
 	}
 	close(metadataChan)
