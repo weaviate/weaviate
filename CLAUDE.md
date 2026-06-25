@@ -112,6 +112,18 @@ golangci-lint run ./...
 
 The goroutine linter enforces that all goroutines use `entities/errors/go_wrapper.go` instead of bare `go` statements.
 
+### Mutation Testing
+Mutation testing measures how *effective* the existing tests are (not just coverage): it mutates source code one change at a time and checks whether the tests fail. A mutant the tests still pass is a "survivor" — a gap where a behaviour change goes undetected. Uses [mutest](https://github.com/fchimpan/mutest), a standalone CLI, via a thin wrapper. Run it against a single package:
+```bash
+tools/mutest.sh usecases/byteops
+tools/mutest.sh usecases/cluster -v                  # extra flags pass through to mutest
+tools/mutest.sh usecases/cluster/...                 # include sub-packages
+MUTEST_THRESHOLD=80 tools/mutest.sh entities/schema  # gate CI: exit 1 if kill rate < 80%
+```
+The wrapper installs the pinned `mutest` binary on demand (`go install`, not a module dependency — Weaviate's vendored `go.mod` is untouched) and runs it from the repo root. Env overrides: `MUTEST_VERSION`, `MUTEST_TIMEOUT` (per-mutant, default 60s), `MUTEST_WORKERS`, `MUTEST_THRESHOLD` (0-100). Results print as `--- KILLED/SURVIVED: file:line:col  > to >=` plus a summary mutation score; the wrapper propagates mutest's exit code.
+
+How it differs from a library runner: mutest rewrites source in place, runs `go test`, then restores it — no build tags, no in-repo harness, no `-mod=mod`. Scope: it mutates only the named package (a bare dir, no `/...`), so generated sub-packages like `mocks/` are skipped automatically. Operators: relational-operator replacement only (`> >= < <= == !=`), which keeps mutant counts low. Note the per-mutant test run uses the package's own suite, so packages whose tests need external services or long timeouts may need a larger `MUTEST_TIMEOUT`.
+
 ## Architecture
 
 The codebase follows a **hexagonal (ports-and-adapters) architecture**:

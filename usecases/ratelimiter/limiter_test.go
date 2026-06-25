@@ -90,6 +90,21 @@ func TestLimiterUnlimited(t *testing.T) {
 	assert.True(t, l.TryInc())
 }
 
+// TestLimiterZeroMaxIsUnlimited pins the max==0 boundary: a zero (or negative)
+// max disables limiting, so TryInc must always succeed. This distinguishes the
+// `l.max <= 0` guard from `l.max < 0`.
+func TestLimiterZeroMaxIsUnlimited(t *testing.T) {
+	l := New(0)
+
+	for i := 0; i < 1000; i++ {
+		assert.True(t, l.TryInc())
+	}
+	for i := 0; i < 1000; i++ {
+		l.Dec()
+	}
+	assert.True(t, l.TryInc())
+}
+
 func TestLimiterCantGoNegative(t *testing.T) {
 	l := New(3)
 
