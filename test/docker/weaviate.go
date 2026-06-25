@@ -101,6 +101,14 @@ func startWeaviate(ctx context.Context,
 	if len(defaultVectorizerModule) > 0 {
 		env["DEFAULT_VECTORIZER_MODULE"] = defaultVectorizerModule
 	}
+	// Enable the metrics endpoint for the job-level Prometheus. GROUP bounds label
+	// cardinality across the suite's many classes/shards. Set before
+	// extraEnvSettings so a per-test override still wins.
+	if metricsEnabled() {
+		env["PROMETHEUS_MONITORING_ENABLED"] = "true"
+		env["PROMETHEUS_MONITORING_PORT"] = metricsPort
+		env["PROMETHEUS_MONITORING_GROUP"] = "true"
+	}
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
@@ -110,6 +118,13 @@ func startWeaviate(ctx context.Context,
 	waitStrategies := []wait.Strategy{
 		wait.ForListeningPort(httpPort),
 		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
+	}
+
+	// Expose the metrics port so the job-level Prometheus can scrape this node.
+	metricsNatPort := nat.Port(metricsPort + "/tcp")
+	if metricsEnabled() {
+		exposedPorts = append(exposedPorts, string(metricsNatPort))
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(metricsNatPort))
 	}
 
 	// Expose the cluster API port (CLUSTER_DATA_BIND_PORT) if configured.
@@ -166,6 +181,10 @@ func startWeaviate(ctx context.Context,
 							}(); err != nil {
 								return fmt.Errorf("startWeaviate(%s): PostStart wait failed: %w", containerName, err)
 							}
+						}
+						// Re-register on every start so a remapped host port stays current.
+						if err := registerMetricsTarget(ctx, container, netOctet, containerName); err != nil {
+							fmt.Printf("startWeaviate(%s): register metrics target: %v\n", containerName, err)
 						}
 						return nil
 					},
@@ -236,6 +255,13 @@ func startWeaviate(ctx context.Context,
 			return nil, fmt.Errorf("startWeaviate(%s): get debug endpoint: %w", containerName, err)
 		}
 		endpoints[DEBUG] = endpoint{debugPort, debugUri}
+	}
+	if metricsEnabled() {
+		metricsUri, err := c.PortEndpoint(ctx, metricsNatPort, "")
+		if err != nil {
+			return nil, fmt.Errorf("startWeaviate(%s): get metrics endpoint: %w", containerName, err)
+		}
+		endpoints[METRICS] = endpoint{metricsNatPort, metricsUri}
 	}
 	return &DockerContainer{
 		name:        containerName,
