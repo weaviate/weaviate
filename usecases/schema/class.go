@@ -495,36 +495,85 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 // bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
 ) error {
-	// make sure unset optionals on 'updated' don't lead to an error, as all
-	// optionals would have been set with defaults on the initial already
+	if err := prepareClassForUpdate(h, updated); err != nil {
+		return err
+	}
+	if err := validateClassUpdateAgainstInitial(h, className, updated); err != nil {
+		return err
+	}
+	// A nil sharding state means that the sharding state will not be updated.
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
+	return err
+}
+
+// UpdateClassInternalMasked is the migration-completion variant of
+// [UpdateClassInternal]. It routes the update through
+// [SchemaManager.UpdateClassMasked] with the supplied field tags so
+// the schema FSM merge AND the executor's downstream migrator
+// dispatch only touch the listed class-level sub-configs.
+//
+// Used by migration callers that flip a single class-level field
+// (e.g. [adapters/repos/db.updateToBlockMaxInvertedIndexConfig]
+// flipping InvertedIndexConfig.UsingBlockMaxWAND). Public REST / gRPC
+// schema update handlers must continue to call UpdateClassInternal /
+// Handler.UpdateClass (no mask) so external behaviour is unchanged.
+//
+// Returns only after the local FSM has applied the update.
+//
+// Empty/nil `fields` falls back to the legacy unmasked behaviour and
+// is identical to UpdateClassInternal — callers that intend a
+// targeted update should always pass an explicit non-empty mask.
+func UpdateClassInternalMasked(h *Handler, ctx context.Context, className string, updated *models.Class,
+	fields ...string,
+) error {
+	if err := prepareClassForUpdate(h, updated); err != nil {
+		return err
+	}
+	if err := validateClassUpdateAgainstInitial(h, className, updated); err != nil {
+		return err
+	}
+	version, err := h.schemaManager.UpdateClassMasked(ctx, updated, fields)
+	if err != nil {
+		return err
+	}
+	return h.schemaReader.WaitForUpdate(ctx, version)
+}
+
+// prepareClassForUpdate runs the parse / default-fill / validate
+// pipeline shared by UpdateClassInternal and its masked variant. Kept
+// as a separate helper so the two entry points cannot drift.
+func prepareClassForUpdate(h *Handler, updated *models.Class) error {
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
 	}
-
 	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		updated.ObjectTTLConfig = ttlConfig
 	}
-
 	if err := h.parser.ParseClass(updated); err != nil {
 		return err
 	}
-
-	// ideally, these calls would be encapsulated in ParseClass but ParseClass is
-	// used in many different areas of the codebase that may cause BC issues with the
-	// new validation logic. Issue ref: gh-5860
-	// As our testing becomes more comprehensive, we can move these calls into ParseClass
 	if err := h.parser.parseModuleConfig(updated); err != nil {
 		return fmt.Errorf("parse module config: %w", err)
 	}
-
 	if err := h.parser.parseVectorConfig(updated); err != nil {
 		return fmt.Errorf("parse vector config: %w", err)
 	}
+	// vectorSettings validation lives in validateClassUpdateAgainstInitial
+	// since it needs `initial` to honor the grandfather-on-tighten skip.
+	return nil
+}
 
-	// Initial class is read up-front for the grandfather-on-tighten skip
-	// in validateVectorSettingsAgainst.
+// validateClassUpdateAgainstInitial runs the cross-state validators
+// (vector settings grandfathered against `initial`, MT toggle,
+// replication factor, immutable fields) shared by UpdateClassInternal
+// and its masked variant. When the class is not yet persisted
+// (initial == nil) only the vector-settings validation runs (with a
+// nil `initial`, matching the AddClass path).
+func validateClassUpdateAgainstInitial(h *Handler, className string, updated *models.Class) error {
+	// Initial class is read up-front for the grandfather-on-tighten
+	// skip in validateVectorSettingsAgainst.
 	initial := h.schemaReader.ReadOnlyClass(className)
 
 	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
@@ -544,47 +593,34 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	if err := h.validateVectorSettingsAgainst(updated, initial); err != nil {
 		return err
 	}
-
-	if initial != nil {
-		_, err := validateUpdatingMT(initial, updated)
-		if err != nil {
-			return err
+	if initial == nil {
+		return nil
+	}
+	if _, err := validateUpdatingMT(initial, updated); err != nil {
+		return err
+	}
+	initialRF := initial.ReplicationConfig.Factor
+	updatedRF := updated.ReplicationConfig.Factor
+	if updatedRF <= 0 {
+		return fmt.Errorf("replication factor must be at least 1, got %d", updatedRF)
+	}
+	if initialRF < updatedRF {
+		var shardingState *sharding.State
+		h.schemaReader.Read(className, true, func(c *models.Class, s *sharding.State) error {
+			stateCopy := s.DeepCopy()
+			shardingState = &stateCopy
+			return nil
+		})
+		if shardingState == nil {
+			return fmt.Errorf("sharding state not found for class %q", className)
 		}
-
-		initialRF := initial.ReplicationConfig.Factor
-		updatedRF := updated.ReplicationConfig.Factor
-
-		if updatedRF <= 0 {
-			return fmt.Errorf("replication factor must be at least 1, got %d", updatedRF)
-		}
-
-		if initialRF < updatedRF {
-			var shardingState *sharding.State
-			h.schemaReader.Read(className, true, func(c *models.Class, s *sharding.State) error {
-				stateCopy := s.DeepCopy()
-				shardingState = &stateCopy
-				return nil
-			})
-
-			if shardingState == nil {
-				return fmt.Errorf("sharding state not found for class %q", className)
+		for _, physical := range shardingState.Physical {
+			if int64(len(physical.BelongsToNodes)) < updatedRF {
+				return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, className)
 			}
-
-			for _, physical := range shardingState.Physical {
-				if int64(len(physical.BelongsToNodes)) < updatedRF {
-					return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, className)
-				}
-			}
-		}
-
-		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
-			return err
 		}
 	}
-	// A nil sharding state means that the sharding state will not be updated.
-
-	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
-	return err
+	return validateImmutableFields(initial, updated, h.parser.modules)
 }
 
 // UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
