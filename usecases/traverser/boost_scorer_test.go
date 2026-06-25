@@ -473,7 +473,7 @@ func TestCompareValues_Boolean(t *testing.T) {
 
 // --- compareValues with array-typed properties (text[], number[], boolean[]) ---
 
-func TestCompareValues_ArrayString(t *testing.T) {
+func TestBoostCompareValues_ArrayString(t *testing.T) {
 	tests := []struct {
 		name     string
 		op       filters.Operator
@@ -499,7 +499,7 @@ func TestCompareValues_ArrayString(t *testing.T) {
 	}
 }
 
-func TestCompareValues_ArrayFloat64(t *testing.T) {
+func TestBoostCompareValues_ArrayFloat64(t *testing.T) {
 	tests := []struct {
 		name     string
 		op       filters.Operator
@@ -525,7 +525,36 @@ func TestCompareValues_ArrayFloat64(t *testing.T) {
 	}
 }
 
-func TestCompareValues_ArrayBool(t *testing.T) {
+func TestBoostCompareValues_ArrayInt(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       filters.Operator
+		propVal  any
+		filterV  any
+		expected bool
+	}{
+		{"equal int match", filters.OperatorEqual, []int{10, 20}, float64(10), true},
+		{"equal int no match", filters.OperatorEqual, []int{10, 20}, float64(30), false},
+		{"not equal int no match", filters.OperatorNotEqual, []int{10, 20}, float64(30), true},
+		{"not equal int match", filters.OperatorNotEqual, []int{10, 20}, float64(10), false},
+		{"greater than int match", filters.OperatorGreaterThan, []int{5, 20}, float64(10), true},
+		{"greater than int no match", filters.OperatorGreaterThan, []int{5, 8}, float64(10), false},
+		{"less than int match", filters.OperatorLessThan, []int{5, 20}, float64(10), true},
+		{"less than int no match", filters.OperatorLessThan, []int{15, 20}, float64(10), false},
+		{"equal int64 match", filters.OperatorEqual, []int64{10, 20}, float64(20), true},
+		{"greater or equal int64", filters.OperatorGreaterThanEqual, []int64{10, 20}, float64(20), true},
+		{"less or equal int64", filters.OperatorLessThanEqual, []int64{10, 20}, float64(10), true},
+		{"empty int slice equal", filters.OperatorEqual, []int{}, float64(10), false},
+		{"empty int slice not equal", filters.OperatorNotEqual, []int{}, float64(10), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, compareValues(tt.op, tt.propVal, tt.filterV))
+		})
+	}
+}
+
+func TestBoostCompareValues_ArrayBool(t *testing.T) {
 	// []bool array with Equal
 	assert.True(t, compareValues(filters.OperatorEqual, []bool{false, true}, true))
 	assert.False(t, compareValues(filters.OperatorEqual, []bool{false, false}, true))
@@ -534,15 +563,22 @@ func TestCompareValues_ArrayBool(t *testing.T) {
 	assert.False(t, compareValues(filters.OperatorNotEqual, []bool{false, true}, true))
 }
 
-func TestCompareValues_AnySlice(t *testing.T) {
+func TestBoostCompareValues_AnySlice(t *testing.T) {
 	// []any containing mixed types
 	assert.True(t, compareValues(filters.OperatorEqual, []any{"a", "b"}, "b"))
 	assert.False(t, compareValues(filters.OperatorEqual, []any{"a", "b"}, "c"))
 	assert.True(t, compareValues(filters.OperatorNotEqual, []any{"a", "b"}, "c"))
 	assert.False(t, compareValues(filters.OperatorNotEqual, []any{"a", "b"}, "a"))
+	assert.True(t, compareValues(filters.OperatorEqual, []any{"a", int(10), nil, true}, float64(10)))
+	assert.True(t, compareValues(filters.OperatorEqual, []any{"a", int(10), nil, true}, true))
+	assert.False(t, compareValues(filters.OperatorEqual, []any{"a", int(10), nil, true}, nil))
+	assert.True(t, compareValues(filters.OperatorNotEqual, []any{"a", int(10), nil, true}, nil))
+	assert.False(t, compareValues(filters.OperatorGreaterThan, []any{"a", nil, true}, float64(10)))
+	assert.False(t, compareValues(filters.OperatorEqual, nil, nil))
+	assert.False(t, compareValues(filters.OperatorNotEqual, nil, "a"))
 }
 
-func TestCompareValues_NonSliceUnchanged(t *testing.T) {
+func TestBoostCompareValues_NonSliceUnchanged(t *testing.T) {
 	// Scalar values should still work as before (not affected by asSlice logic)
 	assert.True(t, compareValues(filters.OperatorEqual, "red", "red"))
 	assert.False(t, compareValues(filters.OperatorEqual, "red", "blue"))
@@ -947,7 +983,7 @@ func TestAsBool(t *testing.T) {
 
 // --- asSlice ---
 
-func TestAsSlice(t *testing.T) {
+func TestBoostAsSlice(t *testing.T) {
 	t.Run("[]string", func(t *testing.T) {
 		out, ok := asSlice([]string{"a", "b"})
 		assert.True(t, ok)
@@ -1001,6 +1037,13 @@ func TestAsSlice(t *testing.T) {
 
 	t.Run("empty slice", func(t *testing.T) {
 		out, ok := asSlice([]string{})
+		assert.True(t, ok)
+		assert.Empty(t, out)
+	})
+
+	t.Run("typed nil slice", func(t *testing.T) {
+		var in []int
+		out, ok := asSlice(in)
 		assert.True(t, ok)
 		assert.Empty(t, out)
 	})
