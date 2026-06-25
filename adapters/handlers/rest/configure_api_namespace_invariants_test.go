@@ -32,6 +32,9 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 		maxReplicationFac            int
 		classNames                   []string
 		nsCount                      int
+		roleNames                    []string
+		policyResources              []string
+		groupingSubjects             []string
 		wantErr                      bool
 		errSubstr                    string
 	}{
@@ -127,11 +130,67 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			wantErr:    true,
 			errSubstr:  "namespace-qualified collection",
 		},
+		{
+			name:             "disabled, clean RBAC rows",
+			enabled:          false,
+			roleNames:        []string{"admin", "viewer", "editor"},
+			policyResources:  []string{"data/collections/Movies/shards/*/objects/*", "roles/editor"},
+			groupingSubjects: []string{"db:alice", "oidc:bob", "group:engineers"},
+		},
+		{
+			name:      "disabled, namespace-qualified role exists",
+			enabled:   false,
+			roleNames: []string{"admin", qualified("tenant1", "editor")},
+			wantErr:   true,
+			errSubstr: "namespace-qualified role",
+		},
+		{
+			name:            "disabled, namespace-qualified policy resource exists",
+			enabled:         false,
+			policyResources: []string{"data/collections/tenant1:Movies/shards/*/objects/*"},
+			wantErr:         true,
+			errSubstr:       "namespace-qualified role permission",
+		},
+		{
+			name:             "disabled, grouping subject for a namespaced principal",
+			enabled:          false,
+			groupingSubjects: []string{"db:alice", "db:tenant1:bob"},
+			wantErr:          true,
+			errSubstr:        "namespace-qualified principal",
+		},
+		{
+			name:             "disabled, bare and group subjects are fine",
+			enabled:          false,
+			groupingSubjects: []string{"db:alice", "oidc:bob", "group:tenant1"},
+		},
+		{
+			// A group is global even when its name carries a colon, so it must
+			// not be read as a namespaced principal.
+			name:             "disabled, namespace-named group is fine",
+			enabled:          false,
+			groupingSubjects: []string{"group:tenant1:team"},
+		},
+		{
+			name:       "disabled, multiple violation kinds still fails",
+			enabled:    false,
+			roleNames:  []string{qualified("tenant1", "editor")},
+			classNames: []string{qualified("tenant1", "Movie")},
+			wantErr:    true,
+		},
+		{
+			name:                         "enabled, qualified RBAC rows are normal",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			roleNames:                    []string{qualified("tenant1", "editor")},
+			policyResources:              []string{"data/collections/tenant1:Movies/shards/*/objects/*"},
+			groupingSubjects:             []string{"db:tenant1:bob"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount)
+			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount, tt.roleNames, tt.policyResources, tt.groupingSubjects)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)

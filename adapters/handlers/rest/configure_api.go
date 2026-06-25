@@ -148,8 +148,10 @@ import (
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	modusages3 "github.com/weaviate/weaviate/modules/usage-s3"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -938,7 +940,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
-			l.WithError(err).Fatal("meta store failed to become ready; cannot verify namespace startup invariants")
+			l.Fatalf("meta store failed to become ready; cannot verify namespace startup invariants: %v", err)
 		}
 		schemaSnapshot := appState.SchemaManager.GetSchemaSkipAuth()
 		var classNames []string
@@ -947,12 +949,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				classNames = append(classNames, c.Class)
 			}
 		}
+		// RBAC rows feed only the NS-disabled checks, so fetch them solely on
+		// that path — a read error then means we can't verify the invariant and
+		// must fail closed, rather than crashing an NS-enabled node that never
+		// inspects this data.
+		var roleNames, policyResources, groupingSubjects []string
+		if !appState.ServerConfig.Config.Namespaces.Enabled && appState.RBAC != nil {
+			roles, err := appState.RBAC.GetRoles()
+			if err != nil {
+				l.Fatalf("namespace startup invariants: GetRoles: %v", err)
+			}
+			for name, policies := range roles {
+				roleNames = append(roleNames, name)
+				for _, p := range policies {
+					policyResources = append(policyResources, p.Resource)
+				}
+			}
+			groupingSubjects, err = appState.RBAC.ListGroupingSubjects()
+			if err != nil {
+				l.Fatalf("namespace startup invariants: ListGroupingSubjects: %v", err)
+			}
+		}
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 			appState.ServerConfig.Config.Replication.MaximumFactor,
 			classNames,
 			appState.ClusterService.NamespaceCount(),
+			roleNames,
+			policyResources,
+			groupingSubjects,
 		); err != nil {
 			l.Fatal(err)
 		}
@@ -1221,7 +1247,7 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 // A class name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
 // by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int) error {
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1253,7 +1279,47 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		// Guards against disabling namespaces on a namespaced cluster.
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
+
+	// A qualified role, policy resource or grouping subject is normal on an NS
+	// cluster but inconsistent state with namespaces disabled, where it would be
+	// misinterpreted, so the RBAC rows are only inspected when disabling.
+	if !enabled {
+		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+		if n, ex := countQualified(policyResources, conv.ContainsNamespaceSeparator); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role permission(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+		// Subjects are `<prefix>:<user>`; only a namespace-qualified direct user
+		// (e.g. db:customer1:alice) counts. db:alice is unqualified, and a group
+		// is global even when its name carries a colon.
+		if n, ex := countQualified(groupingSubjects, func(s string) bool {
+			user, prefix, err := conv.GetUserAndPrefix(s)
+			if err != nil || (prefix != string(authentication.AuthTypeDb) && prefix != string(authentication.AuthTypeOIDC)) {
+				return false
+			}
+			return conv.ContainsNamespaceSeparator(user)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d role assignment(s) to a namespace-qualified principal (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+	}
 	return nil
+}
+
+// countQualified returns how many values satisfy isQualified and the first such
+// value, for a count + example diagnostic.
+func countQualified(values []string, isQualified func(string) bool) (int, string) {
+	var count int
+	var example string
+	for _, v := range values {
+		if isQualified(v) {
+			if count == 0 {
+				example = v
+			}
+			count++
+		}
+	}
+	return count, example
 }
 
 type metaStoreReady struct {
