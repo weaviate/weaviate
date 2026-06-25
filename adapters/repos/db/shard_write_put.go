@@ -439,6 +439,14 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// any update of geo property needs new docID for updating geo index.
 	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
 		out.docID = prevObj.DocID
+		// Content unchanged, but if the update time advanced, take the docID-preserved
+		// path instead of skipping: it refreshes the object row, hashtree leaf and
+		// inverted index (incl. timestamp postings) while leaving the unchanged vector
+		// index alone. Skipping would persist a stale update time and break
+		// timestamp-based reconciliation (async replication, read-repair).
+		if skip && nextObj.LastUpdateTimeUnix() > prevObj.LastUpdateTimeUnix() {
+			preserve, skip = true, false
+		}
 		out.docIDPreserved = preserve
 		out.skipUpsert = skip
 		return out, nil
