@@ -196,6 +196,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		Leader:          leader,
 		CompressionType: compressionType,
 		BaseBackupID:    req.BaseBackupID,
+		Users:           req.Users,
 	}
 
 	for key := range c.Participants {
