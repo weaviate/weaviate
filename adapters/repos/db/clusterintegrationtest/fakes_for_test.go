@@ -137,6 +137,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return shardState.Physical[shard].BelongsToNodes[0], nil
 	}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(class string, shard string, replicas []string) []string {
 			return replicas
