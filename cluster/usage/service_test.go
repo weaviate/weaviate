@@ -601,6 +601,7 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 	mockNodeSelector.EXPECT().LocalName().Return(nodeName).Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(nodeName, true).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{nodeName}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{nodeName}).Maybe()
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
