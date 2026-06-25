@@ -550,6 +550,9 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	if cfg.className != "" && cfg.strategy == StrategyReplace {
 		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
 		sg.editOps.logger = sg.logger
+		if err := sg.recoverEditOps(); err != nil {
+			return nil, fmt.Errorf("recover segment edit ops: %w", err)
+		}
 	}
 
 	id := "segmentgroup/compaction/" + sg.dir
@@ -634,6 +637,47 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 // maintenanceLock — the SnapshotSegments invariant (a coherent in-memory segment
 // set, never a raw directory listing), which also prevents a switchInMemory from
 // straddling the read and the snapshot.
+// recoverEditOps runs startup recovery for the edit-ops sidecar: prune rows for
+// segments gone from disk (Reconcile; nil liveOpIDs — op lifecycle is the DTM
+// provider's concern), then re-snapshot every live op over the current segments.
+// The re-snapshot is the only recovery for the RecordCompaction crash window — a
+// merged output never re-queued for an op absent from that pass's builtOps;
+// re-cleaning already-clean segments is a no-op by the transformer's idempotency.
+// Runs before the cycle registers, so no pass races the segment-set read.
+func (sg *SegmentGroup) recoverEditOps() error {
+	if sg.editOps == nil {
+		return nil
+	}
+	ops, err := sg.editOps.LoadOps()
+	if err != nil {
+		return err
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+
+	sg.maintenanceLock.RLock()
+	ids := make([]string, len(sg.segments))
+	for i, seg := range sg.segments {
+		ids[i] = segmentID(seg.getPath())
+	}
+	sg.maintenanceLock.RUnlock()
+
+	existing := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		existing[id] = struct{}{}
+	}
+	if err := sg.editOps.Reconcile(existing, nil); err != nil {
+		return err
+	}
+	for _, op := range ops {
+		if err := sg.editOps.SnapshotSegments(op.ID, ids); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor) error {
 	if sg.editOps == nil {
 		return fmt.Errorf("edit ops not enabled for this segment group")
