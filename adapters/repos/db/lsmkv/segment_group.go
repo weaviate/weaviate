@@ -141,6 +141,7 @@ type sgConfig struct {
 	writeMetadata                bool
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
+	transformerBuilder           TransformerBuilder
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -539,6 +540,16 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 	}
 
+	// Open the sidecar before registering the cycle below, so sg.editOps is
+	// published before any pass can read it (happens-before). Closed in shutdown.
+	if cfg.transformerBuilder != nil {
+		editOps, err := openSegmentEditOps(cfg.dir, cfg.transformerBuilder)
+		if err != nil {
+			return nil, fmt.Errorf("open segment edit ops: %w", err)
+		}
+		sg.editOps = editOps
+	}
+
 	id := "segmentgroup/compaction/" + sg.dir
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
@@ -893,6 +904,11 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
+	}
+	if sg.editOps != nil {
+		if err := sg.editOps.Close(); err != nil {
+			return err
+		}
 	}
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point

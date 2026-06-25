@@ -238,6 +238,9 @@ type Bucket struct {
 	// during compaction for the SetCollection strategy
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
+	// builder for the edit-ops transformer; set via WithTransformerBuilder.
+	transformerBuilder TransformerBuilder
+
 	skipSecondaryKeyCheck bool
 
 	// immutable prevents all write operations. Set via WithImmutable, used by
@@ -359,6 +362,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			writeMetadata:                b.writeMetadata,
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
+			transformerBuilder:           b.transformerBuilder,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
