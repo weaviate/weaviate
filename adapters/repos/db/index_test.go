@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	routertypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
@@ -312,15 +311,15 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 		t.Run(tt.name, func(t *testing.T) {
 			fsm := &fakeFSMReader{active: tt.movementActive}
 
-			mockRouter := routertypes.NewMockRouter(t)
+			mockRouter := types.NewMockRouter(t)
 			if tt.writeReplicas != nil {
-				replicas := make([]routertypes.Replica, 0, len(tt.writeReplicas))
+				replicas := make([]types.Replica, 0, len(tt.writeReplicas))
 				for _, n := range tt.writeReplicas {
-					replicas = append(replicas, routertypes.Replica{NodeName: n, ShardName: shardName})
+					replicas = append(replicas, types.Replica{NodeName: n, ShardName: shardName})
 				}
 				mockRouter.EXPECT().
 					GetWriteReplicasLocation(className, tenant, shardName).
-					Return(routertypes.WriteReplicaSet{Replicas: replicas}, nil).
+					Return(types.WriteReplicaSet{Replicas: replicas}, nil).
 					Once()
 			}
 			// When writeReplicas is nil we set no expectation, so any router call fails the
