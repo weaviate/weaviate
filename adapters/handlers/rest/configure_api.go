@@ -1166,8 +1166,14 @@ func initReindexAndDistributedTasks(
 		serverShutdownCtx,
 	)
 	// Enqueue Phase-2 cleanup tasks from the schema drop path (S13).
-	appState.SchemaManager.SetDropVectorIndexEnqueuer(
-		newDropVectorIndexEnqueuer(appState.ClusterService, repo))
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, repo)
+	appState.SchemaManager.SetDropVectorIndexEnqueuer(dropVectorEnqueuer)
+	// S14 startup reconciliation: enqueue cleanup for any "none" marker whose task
+	// is missing (crash, upgrade, or restore).
+	enterrors.GoWrapper(func() {
+		runDropVectorIndexReconciliationAtStartup(
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger)
+	}, appState.Logger)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,

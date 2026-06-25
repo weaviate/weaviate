@@ -128,3 +128,45 @@ func TestBucket_RegisterEditOp_SnapshotsAndResumes(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, first, pending2)
 }
+
+// TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment pins the startup
+// crash-window recovery: a live op that is missing a segment (the merged output
+// from a crash between switchOnDisk and RecordCompaction) gets it re-queued, and
+// a stale pending row for a now-absent segment is pruned.
+func TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	builder := func(ops []ActiveOp) func([]byte) ([]byte, error) {
+		return func(v []byte) ([]byte, error) { return v, nil }
+	}
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithTransformerBuilder(builder))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+	bucket.SetMemtableThreshold(1e9)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 2)
+
+	editOps := bucket.disk.editOps
+	require.NoError(t, editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+	// Crash-window state: op knows only the first segment; the second is a merged
+	// output it was never told about. Plus a stale row for an absent segment.
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{segs[0], "9999999999999999999"}))
+
+	require.NoError(t, bucket.disk.recoverEditOps())
+
+	pending, err := editOps.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, segs, pending,
+		"recovery re-queues every current segment and prunes the stale row")
+}
