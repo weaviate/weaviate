@@ -1242,7 +1242,9 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
 // A ':' in a users/<id> or groups/<...> id is part of the opaque id (e.g. an
 // OIDC username), not a qualifier, so a global caller may use it. Namespaced
 // callers must still submit short, unqualified forms — symmetric with the
-// class-name rule that forbids them typing any "<namespace>:" prefix.
+// class-name rule that forbids them typing any "<namespace>:" prefix. So a
+// namespaced caller cannot express a colon-bearing group id; acceptable while
+// group grants are global-only. Revisit if namespaced callers gain them.
 func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models.Principal, policies []authorization.Policy) error {
 	if !h.namespacesEnabled {
 		return nil

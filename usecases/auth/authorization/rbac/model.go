@@ -330,6 +330,9 @@ func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
 		return len(usersPrefix), len(path), false
 	}
+	// groups/ is intentionally not registered: a colon-bearing group id is
+	// matched literally. Don't add it without also short-circuiting groups/
+	// in globalCallerNeedsNoWidening, or such ids would wrongly widen.
 	return 0, 0, false
 }
 
