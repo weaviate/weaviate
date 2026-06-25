@@ -96,6 +96,44 @@ func (s *Store) bucketNoLock(name string) *Bucket {
 	return s.bucketsByName[name]
 }
 
+// AcquireBucketForRead returns the bucket registered under name together
+// with a release function, having pinned it via lifetimeLock.RLock so a
+// concurrent SwapBucketPointer+Shutdown cannot free it mid-query. The
+// RLock is taken UNDER bucketAccessLock so it cannot interleave with
+// SwapBucketPointer (which holds bucketAccessLock.Lock): the caller pins
+// either the pre-swap bucket (then Shutdown blocks on this RLock) or, if
+// the swap already committed, the post-swap bucket. Returns (nil, no-op)
+// if no bucket is registered under name. The caller MUST call release
+// exactly once (defer it).
+//
+// TEARDOWN INVARIANT (read before adding a bucket-teardown path): because a
+// pinned query may hold this lifetimeLock.RLock AND still need
+// bucketAccessLock to finish (e.g. Store.Bucket(objects) in getTopKObjects),
+// no code may hold bucketAccessLock across a draining bucket.Shutdown for a
+// bucket a live query can pin — that inverts (query: lifetimeLock→
+// bucketAccessLock vs teardown: bucketAccessLock→lifetimeLock-drain) and
+// deadlocks. Online teardown removes the bucket from bucketsByName FIRST so
+// the in-flight query's later Store.Bucket fails fast and releases its pin:
+// SwapBucketPointer does this under bucketAccessLock.Lock before Phase-2b's
+// Shutdown, and Store.Shutdown snapshots+clears the map before draining. The
+// remaining callers that DO hold bucketAccessLock across Shutdown
+// (ShutdownBucket, ReplaceBuckets) are safe only because they run offline —
+// boot-time bulk migrations (Migrator.InvertedReindex, filterable→searchable)
+// and shard init — where no live query can have pinned the bucket. A new
+// ONLINE teardown of a query-pinnable (searchable) bucket must follow the
+// remove-from-map-first pattern, not hold bucketAccessLock across the drain.
+func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
+	s.bucketAccessLock.RLock()
+	b := s.bucketsByName[name]
+	if b == nil {
+		s.bucketAccessLock.RUnlock()
+		return nil, func() {}
+	}
+	b.lifetimeLock.RLock()
+	s.bucketAccessLock.RUnlock()
+	return b, b.lifetimeLock.RUnlock
+}
+
 func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -229,14 +267,32 @@ func (s *Store) Shutdown(ctx context.Context) error {
 
 	s.closed = true
 
+	// Snapshot the buckets and drop them from the registry under
+	// bucketAccessLock, then RELEASE the lock BEFORE shutting them down.
+	//
+	// Why not hold bucketAccessLock across the Shutdowns: Bucket.Shutdown now
+	// takes lifetimeLock.Lock to DRAIN in-flight read pins (see
+	// AcquireBucketForRead). An in-flight BM25 query holds a searchable
+	// bucket's lifetimeLock.RLock and, to finish (getTopKObjects), still
+	// needs Store.Bucket(objects) — i.e. bucketAccessLock.RLock. Holding
+	// bucketAccessLock.Lock here while a bucket's Shutdown blocks on that
+	// query's pin would deadlock (query: lifetimeLock→bucketAccessLock vs
+	// Shutdown: bucketAccessLock→lifetimeLock). Clearing the map first means
+	// such a query's Store.Bucket(objects) returns nil and the query exits
+	// (releasing its pins) instead of blocking; the drain then completes.
 	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
+	buckets := make(map[string]*Bucket, len(s.bucketsByName))
+	for name, bucket := range s.bucketsByName {
+		buckets[name] = bucket
+	}
+	s.bucketsByName = map[string]*Bucket{}
+	s.bucketAccessLock.Unlock()
 
 	// shutdown must be called on every bucket
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
 
-	for name, bucket := range s.bucketsByName {
+	for name, bucket := range buckets {
 		name := name
 		bucket := bucket
 
