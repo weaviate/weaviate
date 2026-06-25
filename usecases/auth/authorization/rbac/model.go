@@ -285,6 +285,8 @@ var (
 	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
 	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
 	usersPrefix              = authorization.UsersDomain + "/"
+	// minimal nodes resource has no collection segment; only verbose is namespaceable.
+	nodesVerboseCollectionsPrefix = authorization.NodesDomain + "/verbosity/verbose/collections/"
 )
 
 const (
@@ -329,6 +331,10 @@ func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	// /aliases/ delimiter like the collection shapes above).
 	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
 		return len(usersPrefix), len(path), false
+	}
+	// verbose nodes: class runs to end of string (terminal, like users/<id>).
+	if _, ok := strings.CutPrefix(path, nodesVerboseCollectionsPrefix); ok {
+		return len(nodesVerboseCollectionsPrefix), len(path), false
 	}
 	return 0, 0, false
 }

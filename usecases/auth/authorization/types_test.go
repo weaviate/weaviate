@@ -315,6 +315,10 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		// MCP tools self-scope to principal.Namespace, so they are namespace-safe.
 		CreateMcp: {}, ReadMcp: {}, UpdateMcp: {},
 		CreateUsers: {}, ReadUsers: {}, UpdateUsers: {}, DeleteUsers: {},
+		// Verbose read_nodes is namespace-safe: the matcher scopes the
+		// nodes/verbosity/verbose/collections/<class> resource to the caller's
+		// namespace. The node-wide minimal view stays operator-only.
+		ReadNodes: {},
 	}
 	allowedViewerActions := map[string]struct{}{
 		ReadCollections: {}, ReadData: {}, ReadTenants: {}, ReadAliases: {},
@@ -346,7 +350,7 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	// allowed maps above. AssignAndRevokeUsers remains excluded.
 	for _, action := range []string{
 		ManageBackups, ManageNamespaces,
-		ReadNodes, ReadCluster,
+		ReadCluster,
 		AssignAndRevokeUsers,
 		AssignAndRevokeGroups, ReadGroups,
 		ReadRoles, CreateRoles, UpdateRoles, DeleteRoles,
@@ -357,6 +361,14 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		assert.False(t, hasAdmin, "Admin (NS-enabled) must not include %s", action)
 		assert.False(t, hasViewer, "Viewer (NS-enabled) must not include %s", action)
 	}
+
+	// Verbose read_nodes is the only nodes grant for narrowed admin; the
+	// node-wide minimal view and read_cluster stay operator-only, and viewer
+	// gets no nodes access at all.
+	_, adminHasNodes := gotAdmin[ReadNodes]
+	assert.True(t, adminHasNodes, "Admin (NS-enabled) must include read_nodes (verbose, scoped)")
+	_, viewerHasNodes := gotViewer[ReadNodes]
+	assert.False(t, viewerHasNodes, "Viewer (NS-enabled) must not include read_nodes")
 
 	// Operator roles keep wildcard shape regardless of NAMESPACES_ENABLED.
 	_, ok := gotRoot[ManageNamespaces]

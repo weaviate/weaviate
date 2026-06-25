@@ -67,21 +67,19 @@ Moved to Go (don't need the python-client surface):
   doesn't poison the next.
 """
 
-import json as _json
 import time
-import urllib.error
-import urllib.request
 import uuid
-from typing import Callable, Dict, Generator, Iterator, List, Optional, Tuple
+from typing import Callable, Generator, Iterator, List, Tuple
 
 import pytest
-import weaviate
 import weaviate.classes as wvc
 from weaviate import WeaviateClient
 from weaviate.collections.classes.data import DataObject, DataReference
 from weaviate.collections.classes.filters import Filter
 from weaviate.collections.classes.grpc import QueryReference
 from weaviate.collections.classes.internal import ReferenceToMulti
+
+from . import namespace_helpers as nsh
 
 # Ports must match docker-compose-namespaces-test.yml. Three nodes so we can
 # distribute writes/reads across the cluster within a single test.
@@ -96,218 +94,35 @@ NS1 = "customer1"
 NS2 = "customer2"
 
 # Pin every test in this file to a single pytest-xdist worker. The module-scoped
-# `namespaces` fixture creates one DB user per namespace via REST; without
-# this marker, every parallel worker races to create the same users, and the
-# 409→DELETE→recreate fallback in _create_namespaced_user kills the prior
-# worker's apikey, leaving _wait_for_key polling 401 forever. Same pattern as
+# `namespaces` fixture creates one DB user per namespace; without this marker,
+# every parallel worker races to create the same users, and the 409→delete→
+# recreate fallback in namespace_helpers.create_user kills the prior worker's
+# apikey, leaving wait_for_key polling 401 forever. Same pattern as
 # test_readonly_recovery.py.
 pytestmark = pytest.mark.xdist_group(name="namespace_refs")
 
 
-def _rest_base(http_port: int) -> str:
-    return f"http://localhost:{http_port}/v1"
-
-
-def _admin_headers() -> Dict[str, str]:
-    return {"Authorization": f"Bearer {ADMIN_KEY}", "Content-Type": "application/json"}
-
-
-class _RestResponse:
-    """Tiny stand-in for the bits of requests.Response we use at call sites.
-    Decouples the rest of the file from the underlying HTTP transport so the
-    raw-REST helpers can stay stdlib-only."""
-
-    def __init__(self, status_code: int, body: bytes):
-        self.status_code = status_code
-        self._body = body
-
-    @property
-    def text(self) -> str:
-        try:
-            return self._body.decode("utf-8")
-        except UnicodeDecodeError:
-            return repr(self._body)
-
-    def json(self) -> dict:
-        return _json.loads(self._body)
-
-    def raise_for_status(self) -> None:
-        if not (200 <= self.status_code < 300):
-            raise AssertionError(f"HTTP {self.status_code}: {self.text}")
-
-
-def _http(
-    method: str,
-    url: str,
-    headers: Optional[Dict[str, str]] = None,
-    json_body: Optional[dict] = None,
-) -> _RestResponse:
-    """Single-call HTTP wrapper using only stdlib urllib. urllib raises
-    HTTPError on non-2xx — catch it so the caller can inspect status_code
-    uniformly (mirrors requests.Response semantics)."""
-    data = None
-    req_headers = dict(headers or {})
-    if json_body is not None:
-        data = _json.dumps(json_body).encode("utf-8")
-        req_headers.setdefault("Content-Type", "application/json")
-    req = urllib.request.Request(url, data=data, method=method, headers=req_headers)
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return _RestResponse(resp.status, resp.read())
-    except urllib.error.HTTPError as e:
-        return _RestResponse(e.code, e.read() or b"")
-
-
-def _create_namespace(http_port: int, name: str) -> None:
-    """POST /namespaces/{name}, then poll until it's visible locally.
-
-    409 (already exists) is success, so re-runs are idempotent. The POST is
-    RAFT-forwarded and may not be applied on this node when it returns.
-    """
-    r = _http("POST", f"{_rest_base(http_port)}/namespaces/{name}", headers=_admin_headers())
-    if r.status_code not in (201, 409):
-        r.raise_for_status()
-    _wait_for_namespace(http_port, name)
-
-
-def _wait_for_namespace(http_port: int, name: str) -> None:
-    """Poll GET /namespaces/{name} until 200 — i.e. applied on this node."""
-    deadline = time.time() + 10.0
-    last = None
-    while time.time() < deadline:
-        r = _http("GET", f"{_rest_base(http_port)}/namespaces/{name}", headers=_admin_headers())
-        if r.status_code == 200:
-            return
-        last = r
-        time.sleep(0.05)
-    raise AssertionError(
-        f"namespace {name!r} not visible within 10s: {last.status_code if last else 'no response'}"
-    )
-
-
-def _assign_admin_role(http_port: int, qualified_user: str) -> None:
-    """Grant the built-in admin role to a namespaced DB user.
-
-    RBAC is mandatory on NS clusters, so without a role the user is denied on
-    every data/schema/ref op. Mirrors helper.AssignRoleToUser in
-    createNamespacedUser (test/acceptance/namespace/collection_alias_test.go).
-    """
-    r = _http(
-        "POST",
-        f"{_rest_base(http_port)}/authz/users/{qualified_user}/assign",
-        headers=_admin_headers(),
-        json_body={"roles": ["admin"], "userType": "db"},
-    )
-    if r.status_code not in (200, 201):
-        r.raise_for_status()
-
-
-def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str:
-    """POST /users/db/{namespace:user}, grant admin, return apikey.
-
-    Absorbs two transients:
-      - 409 (stale user from prior run): delete once + retry.
-      - 422 "namespace does not exist": local FSM hasn't applied the
-        create-namespace entry yet even though _wait_for_namespace got 200
-        from the RAFT-served GET; poll until local apply catches up.
-    """
-    qualified = f"{namespace}:{user_id}"
-    deleted = False
-    deadline = time.time() + 10.0
-    last: Optional[_RestResponse] = None
-    while time.time() < deadline:
-        r = _http(
-            "POST",
-            f"{_rest_base(http_port)}/users/db/{qualified}",
-            headers=_admin_headers(),
-            json_body={},
-        )
-        if r.status_code == 201:
-            apikey = r.json().get("apikey")
-            assert apikey, f"createUser returned no apikey: {r.text}"
-            _assign_admin_role(http_port, qualified)
-            return apikey
-        if r.status_code == 409 and not deleted:
-            d = _http(
-                "DELETE",
-                f"{_rest_base(http_port)}/users/db/{qualified}",
-                headers=_admin_headers(),
-            )
-            if d.status_code not in (200, 204, 404):
-                d.raise_for_status()
-            _wait_for_user_gone(http_port, qualified)
-            deleted = True
-            deadline = time.time() + 10.0
-            continue
-        if r.status_code == 422 and "does not exist" in r.text:
-            last = r
-            time.sleep(0.05)
-            continue
-        r.raise_for_status()
-    raise AssertionError(
-        f"could not create user {qualified} within 10s: "
-        f"{last.status_code if last else 'no response'}: {last.text if last else ''}"
-    )
-
-
-def _wait_for_user_gone(http_port: int, qualified: str) -> None:
-    """Poll GET /users/db/{qualified} until 404 — i.e. delete applied here."""
-    deadline = time.time() + 10.0
-    last = None
-    while time.time() < deadline:
-        r = _http("GET", f"{_rest_base(http_port)}/users/db/{qualified}", headers=_admin_headers())
-        if r.status_code == 404:
-            return
-        last = r
-        time.sleep(0.05)
-    raise AssertionError(
-        f"user {qualified!r} still present 10s after delete: "
-        f"{last.status_code if last else 'no response'}"
-    )
-
-
-def _wait_for_key(key: str) -> None:
-    """Poll /users/own-info on every node until the key is accepted.
-
-    Each node applies the RAFT-forwarded createUser independently, so a key
-    that works on one node can still 401 on another; tests read on all three.
-    """
-    for http_port, _ in NODES:
-        deadline = time.time() + 10.0
-        last = None
-        while time.time() < deadline:
-            r = _http(
-                "GET",
-                f"{_rest_base(http_port)}/users/own-info",
-                headers={"Authorization": f"Bearer {key}"},
-            )
-            if r.status_code == 200:
-                break
-            last = r
-            time.sleep(0.1)
-        else:
-            raise AssertionError(
-                f"apikey not recognized on node {http_port} within 10s: "
-                f"{last.status_code if last else 'no response'}"
-            )
-
-
 @pytest.fixture(scope="module")
 def namespaces() -> Iterator[Tuple[str, str]]:
-    """Create customer1 + customer2 with one DB user each, yielding their keys.
+    """Create customer1 + customer2 with one admin DB user each, yielding their keys.
 
-    Module-scoped so the namespace+user setup is paid once per test file
-    rather than per-test. Cleanup is best-effort; if the cluster is reused
-    the next run picks up the existing namespaces via the 409 short-circuit
-    in _create_namespace.
+    Module-scoped so the namespace+user setup is paid once per test file rather
+    than per-test. Goes through the client's namespaces/users/roles APIs wrapped
+    with RAFT-apply-lag retries (namespace_helpers). Cleanup is best-effort; a
+    reused cluster picks up the existing namespaces via the create idempotency.
     """
-    http_port = NODES[0][0]
-    _create_namespace(http_port, NS1)
-    _create_namespace(http_port, NS2)
-    k1 = _create_namespaced_user(http_port, "u1", NS1)
-    k2 = _create_namespaced_user(http_port, "u2", NS2)
-    _wait_for_key(k1)
-    _wait_for_key(k2)
+    admin = nsh.open_client("admin-key", *NODES[0], skip_init_checks=False)
+    try:
+        nsh.create_namespace(admin, NS1)
+        nsh.create_namespace(admin, NS2)
+        k1 = nsh.create_user(admin, f"{NS1}:u1")
+        nsh.assign_role(admin, f"{NS1}:u1", "admin")
+        k2 = nsh.create_user(admin, f"{NS2}:u2")
+        nsh.assign_role(admin, f"{NS2}:u2", "admin")
+    finally:
+        admin.close()
+    nsh.wait_for_key(k1, NODES)
+    nsh.wait_for_key(k2, NODES)
     yield k1, k2
     # No teardown: collections are cleaned per-test, and the namespace
     # itself is cheap to leave around — DeleteNamespace requires the
@@ -325,11 +140,7 @@ def client_for_key() -> Iterator[Callable[[str, int], WeaviateClient]]:
 
     def _open(key: str, node: int = 0) -> WeaviateClient:
         http_port, grpc_port = NODES[node]
-        c = weaviate.connect_to_local(
-            port=http_port,
-            grpc_port=grpc_port,
-            auth_credentials=wvc.init.Auth.api_key(key),
-        )
+        c = nsh.open_client(key, http_port, grpc_port, skip_init_checks=False)
         opened.append(c)
         return c
 
@@ -367,46 +178,42 @@ def _short_name(request: pytest.FixtureRequest, suffix: str = "") -> str:
     return s[0].upper() + s[1:]
 
 
-def _delete_qualified_collection(http_port: int, qualified: str) -> None:
-    """DELETE /v1/schema/{qualified} via raw REST + admin key.
-
-    Used instead of the python client because the client validates
-    collection names locally and rejects ':' before the request leaves
-    the process. 404 is success (already gone).
-    """
-    r = _http(
-        "DELETE",
-        f"{_rest_base(http_port)}/schema/{qualified}",
-        headers=_admin_headers(),
-    )
-    if r.status_code not in (200, 204, 404):
-        print(f"cleanup warning: DELETE /schema/{qualified} -> {r.status_code}: {r.text}")
-
-
 @pytest.fixture
 def cleanup_collections(
     namespaces: Tuple[str, str],
 ) -> Generator[Callable[[str], None], None, None]:
-    """Pre-delete + post-delete a qualified collection.
+    """Pre-delete + post-delete a collection in both namespaces.
 
-    Tests call register("Zoo") *before* the create call. The fixture
-    deletes any leftover customer1:Zoo / customer2:Zoo right away (so a
-    re-run after a previously crashed test starts from a clean slate)
-    and again on teardown.
+    Tests call register("Zoo") *before* the create call. Each namespace's admin
+    client deletes the short name — the server qualifies it to that namespace, so
+    no ':'-bearing name has to cross the client's local name validation. The
+    pre-delete lets a re-run after a crashed test start clean; teardown repeats it.
     """
+    k1, k2 = namespaces
+    clients = [nsh.open_client(k1, *NODES[0]), nsh.open_client(k2, *NODES[0])]
     to_delete: List[str] = []
-    http_port = NODES[0][0]
+
+    def _delete_in_both(short: str) -> None:
+        for c in clients:
+            try:
+                c.collections.delete(short)
+            except Exception:
+                pass
 
     def _register(short: str) -> None:
         to_delete.append(short)
-        for ns in (NS1, NS2):
-            _delete_qualified_collection(http_port, f"{ns}:{short}")
+        _delete_in_both(short)
 
-    yield _register
-
-    for short in to_delete:
-        for ns in (NS1, NS2):
-            _delete_qualified_collection(http_port, f"{ns}:{short}")
+    try:
+        yield _register
+        for short in to_delete:
+            _delete_in_both(short)
+    finally:
+        for c in clients:
+            try:
+                c.close()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------

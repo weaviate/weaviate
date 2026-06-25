@@ -237,9 +237,10 @@ var (
 )
 
 // BuiltInPermissionsFor returns the canonical permission shape of the four
-// built-in roles. On namespace-enabled clusters admin/viewer are narrowed
-// to collections/schema, data, multi-tenancy, aliases, and MCP; root/read-only
-// keep wildcard CRUD/READ across all domains.
+// built-in roles. On namespace-enabled clusters admin/viewer are narrowed to
+// collections/schema, data, multi-tenancy, aliases, and MCP; of those two only
+// admin additionally gets scoped verbose read_nodes (viewer gets no nodes
+// access). root/read-only keep wildcard CRUD/READ across all domains.
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
 		return map[string][]*models.Permission{
@@ -680,7 +681,7 @@ var tenantSafeUserActions = []string{
 
 // tenantSafeAdminPermissions returns the narrowed admin shape for
 // namespace-enabled clusters: CRUD over the namespace-bearing domains plus
-// MCP and user CRUD. Cluster-only domains (backups, replicate, nodes,
+// MCP and user CRUD. Cluster-only domains (backups, replicate,
 // cluster, roles, groups, namespaces) and AssignAndRevokeUsers are excluded.
 func tenantSafeAdminPermissions() []*models.Permission {
 	perms := make([]*models.Permission, 0, len(tenantSafeActions)+len(tenantSafeMcpActions)+len(tenantSafeUserActions))
@@ -702,6 +703,13 @@ func tenantSafeAdminPermissions() []*models.Permission {
 			Users:  AllUsers,
 		})
 	}
+	// Verbose read_nodes is namespace-safe: the matcher scopes it to the admin's
+	// own collections. Minimal stays operator-only; viewer gets no nodes access.
+	nodesAction := ReadNodes
+	perms = append(perms, &models.Permission{
+		Action: &nodesAction,
+		Nodes:  AllNodes,
+	})
 	return perms
 }
 

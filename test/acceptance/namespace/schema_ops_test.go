@@ -632,12 +632,14 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 	})
 }
 
-// TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a
-// namespaced class. /nodes is an operator-only surface: under the narrowed
-// built-in admin a namespaced user is denied (403), while the env-var root
-// reaches it by qualified name. The qualified-name path also covers the
-// cluster-API URL routing through `regxNodesClass`, which only accepts
-// namespace-qualified names once it is built from IndexNameRegexCore.
+// TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a namespaced
+// class. The narrowed built-in admin now holds verbose read_nodes scoped to its
+// namespace, so a by-class verbose request resolves the short/alias name to the
+// caller's namespace and succeeds (scoped); the node-wide minimal view stays
+// operator-only (403). The env-var root reaches it by qualified name. The
+// qualified-name path also covers the cluster-API URL routing through
+// `regxNodesClass`, which only accepts namespace-qualified names once it is
+// built from IndexNameRegexCore.
 func TestNamespaces_NodesGetClass(t *testing.T) {
 	t.Parallel()
 	ns1 := uniqueNS()
@@ -657,9 +659,34 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 	verbose := "verbose"
+	minimal := "minimal"
 
-	t.Run("namespaced user denied node status by short class name", func(t *testing.T) {
+	t.Run("namespaced admin gets scoped verbose node status by short class name", func(t *testing.T) {
+		// The server qualifies "Movies" to the caller's namespace and the matcher
+		// scopes the admin's verbose read_nodes to it, so this is allowed.
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+	})
+
+	t.Run("namespaced viewer denied verbose node status by short class name", func(t *testing.T) {
+		// A regular namespace user (built-in viewer) has no read_nodes grant at
+		// all, so even verbose by-class is denied — unlike the namespace admin.
+		viewerKey := createNamespacedViewerUser(t, "v1", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":v1", adminKey) })
+
+		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("namespaced admin denied minimal node status by short class name", func(t *testing.T) {
+		// Minimal is the node-wide operator view (never namespaceable), so an admin
+		// holding only verbose read_nodes is denied even for its own class.
+		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&minimal)
 		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
 		require.Error(t, err)
 		var forbidden *nodes.NodesGetClassForbidden
@@ -680,7 +707,7 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		assert.NotEmpty(t, resp.Payload.Nodes)
 	})
 
-	t.Run("namespaced user denied node status via alias", func(t *testing.T) {
+	t.Run("namespaced admin denied minimal node status via alias", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{
 			Class: "Concerts",
 			Properties: []*models.Property{
@@ -691,9 +718,9 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
-		// A 403 is immediate (the authz deny precedes alias resolution), so no
-		// retryOnAliasLag wrapper is needed here.
-		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
+		// Minimal stays operator-only and its 403 is immediate (the authz deny
+		// precedes alias resolution), so no retryOnAliasLag wrapper is needed here.
+		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&minimal)
 		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
 		require.Error(t, err)
 		var forbidden *nodes.NodesGetClassForbidden
