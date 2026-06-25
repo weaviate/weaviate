@@ -13,6 +13,7 @@ package namespaces
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -28,14 +29,14 @@ func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, logger)
+	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, nil, logger)
 }
 
-func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister) *Manager {
+func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister, rbac RBACNamespaceLister) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewManager(usecasesNamespaces.NewController(logger), schema, dynusers, logger)
+	return NewManager(usecasesNamespaces.NewController(logger), schema, dynusers, rbac, logger)
 }
 
 func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
@@ -94,7 +95,7 @@ func TestNewManager_RequiredArgsPanic(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Panics(t, func() {
-				NewManager(tc.controller, tc.schema, nil, logger)
+				NewManager(tc.controller, tc.schema, nil, nil, logger)
 			})
 		})
 	}
@@ -177,21 +178,34 @@ func (s stubLeftovers) ClassesInNamespace(string) ([]string, error) { return s.c
 func (s stubLeftovers) AliasesInNamespace(string) []string          { return s.aliases }
 func (s stubLeftovers) UsersInNamespace(string) []string            { return s.users }
 
+// stubRBACRows reports a fixed count of surviving RBAC rows (or an error).
+type stubRBACRows struct {
+	count int
+	err   error
+}
+
+func (s stubRBACRows) CountNamespaceLocalRBAC(string) (int, error) { return s.count, s.err }
+
 func TestManager_RemoveEntity_Leftovers(t *testing.T) {
+	errCount := errors.New("rbac count failed")
 	tests := []struct {
 		name      string
 		leftovers stubLeftovers
+		rbac      RBACNamespaceLister
 		wantErr   error
 	}{
 		{name: "no leftovers removes the entity", leftovers: stubLeftovers{}},
 		{name: "leftover class blocks", leftovers: stubLeftovers{classes: []string{"customer1:Foo"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
 		{name: "leftover alias blocks", leftovers: stubLeftovers{aliases: []string{"customer1:Bar"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
 		{name: "leftover user blocks", leftovers: stubLeftovers{users: []string{"u1"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
+		{name: "leftover RBAC row blocks", rbac: stubRBACRows{count: 1}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
+		{name: "RBAC count error blocks removal", rbac: stubRBACRows{err: errCount}, wantErr: errCount},
+		{name: "no RBAC rows removes the entity", rbac: stubRBACRows{count: 0}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers)
+			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers, tc.rbac)
 			require.NoError(t, m.Add(addCmd(t, "customer1")))
 			require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting)))
 

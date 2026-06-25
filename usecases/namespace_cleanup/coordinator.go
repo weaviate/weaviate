@@ -49,8 +49,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // namespaceLister lists namespaces in the deleting state.
@@ -84,8 +84,7 @@ type raftExecutor interface {
 // Nil when RBAC is disabled (only possible on a non-namespace cluster, which has
 // nothing to clean). Reads run on the leader; the deletes go through raftExecutor.
 type RBACLister interface {
-	GetRoles(names ...string) (map[string][]authorization.Policy, error)
-	GetUsersOrGroupsWithRoles(isGroup bool, authMethod authentication.AuthType) ([]string, error)
+	NamespaceLocalRBAC(namespace string) (roles []string, subjects []rbac.NamespaceSubject, err error)
 	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 }
 
@@ -243,49 +242,33 @@ func (c *Coordinator) cleanupNamespaceRBAC(ctx context.Context, namespace string
 	if c.rbac == nil {
 		return nil
 	}
-	for _, authMethod := range []authentication.AuthType{authentication.AuthTypeDb, authentication.AuthTypeOIDC} {
-		// Direct users only; groups are global, so their assignments aren't namespace-bound.
-		subjects, err := c.rbac.GetUsersOrGroupsWithRoles(false, authMethod)
-		if err != nil {
-			return fmt.Errorf("list %s users with roles: %w", authMethod, err)
+	localRoles, subjects, err := c.rbac.NamespaceLocalRBAC(namespace)
+	if err != nil {
+		return fmt.Errorf("list namespace-local RBAC: %w", err)
+	}
+	for _, subject := range subjects {
+		if !c.isLeader() {
+			return types.ErrNotLeader
 		}
-		for _, subject := range subjects {
-			if namespacing.NamespaceFromQualified(subject) != namespace {
-				continue
-			}
-			if !c.isLeader() {
-				return types.ErrNotLeader
-			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			roles, err := c.rbac.GetRolesForUserOrGroup(subject, authMethod, false)
-			if err != nil {
-				return fmt.Errorf("list roles for %q: %w", subject, err)
-			}
-			if len(roles) == 0 {
-				continue
-			}
-			roleNames := make([]string, 0, len(roles))
-			for name := range roles {
-				roleNames = append(roleNames, name)
-			}
-			if err := c.raft.RevokeRolesForUser(conv.UserNameWithTypeFromId(subject, authMethod), roleNames...); err != nil {
-				return fmt.Errorf("revoke roles from %q: %w", subject, err)
-			}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		roles, err := c.rbac.GetRolesForUserOrGroup(subject.ID, subject.AuthType, false)
+		if err != nil {
+			return fmt.Errorf("list roles for %q: %w", subject.ID, err)
+		}
+		if len(roles) == 0 {
+			continue
+		}
+		roleNames := make([]string, 0, len(roles))
+		for name := range roles {
+			roleNames = append(roleNames, name)
+		}
+		if err := c.raft.RevokeRolesForUser(conv.UserNameWithTypeFromId(subject.ID, subject.AuthType), roleNames...); err != nil {
+			return fmt.Errorf("revoke roles from %q: %w", subject.ID, err)
 		}
 	}
 
-	allRoles, err := c.rbac.GetRoles()
-	if err != nil {
-		return fmt.Errorf("list roles: %w", err)
-	}
-	var localRoles []string
-	for name := range allRoles {
-		if namespacing.NamespaceFromQualified(name) == namespace {
-			localRoles = append(localRoles, name)
-		}
-	}
 	if len(localRoles) > 0 {
 		if !c.isLeader() {
 			return types.ErrNotLeader

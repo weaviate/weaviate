@@ -218,6 +218,76 @@ func (m *Manager) ListGroupingSubjects() ([]string, error) {
 	return subjects, nil
 }
 
+// NamespaceSubject is a direct (db/oidc) principal holding at least one role
+// assignment bound to a namespace. ID is the user id without the auth-type
+// prefix, e.g. "customer1:bob".
+type NamespaceSubject struct {
+	ID       string
+	AuthType authentication.AuthType
+}
+
+// NamespaceLocalRBAC returns the namespace-local role names and the distinct
+// direct (db/oidc) principals whose role assignments belong to namespace. It is
+// the single source of "what RBAC belongs to a namespace": the removal-block
+// gate counts this set and the delete cascade revokes/deletes exactly it, so
+// the two stay consistent by construction. Group assignments are global and so
+// are excluded — a namespace-named group can't block its namespace's removal.
+func (m *Manager) NamespaceLocalRBAC(namespace string) (roles []string, subjects []NamespaceSubject, err error) {
+	all, err := m.GetRoles()
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetRoles: %w", err)
+	}
+	for name := range all {
+		if namespacing.NamespaceFromQualified(name) == namespace {
+			roles = append(roles, name)
+		}
+	}
+	rows, err := m.ListGroupingSubjects()
+	if err != nil {
+		return nil, nil, fmt.Errorf("ListGroupingSubjects: %w", err)
+	}
+	seen := map[NamespaceSubject]struct{}{}
+	for _, s := range rows {
+		user, prefix, err := conv.GetUserAndPrefix(s)
+		if err != nil {
+			// A row we can't parse must not be silently dropped: an undercount
+			// here lets the removal-block gate read zero and remove a namespace
+			// while an assignment survives.
+			return nil, nil, fmt.Errorf("GetUserAndPrefix %q: %w", s, err)
+		}
+		var authType authentication.AuthType
+		switch prefix {
+		case string(authentication.AuthTypeDb):
+			authType = authentication.AuthTypeDb
+		case string(authentication.AuthTypeOIDC):
+			authType = authentication.AuthTypeOIDC
+		default:
+			continue
+		}
+		if namespacing.NamespaceFromQualified(user) != namespace {
+			continue
+		}
+		subject := NamespaceSubject{ID: user, AuthType: authType}
+		if _, ok := seen[subject]; ok {
+			continue
+		}
+		seen[subject] = struct{}{}
+		subjects = append(subjects, subject)
+	}
+	return roles, subjects, nil
+}
+
+// CountNamespaceLocalRBAC returns the number of namespace-local roles plus
+// direct-principal assignments in the namespace. Removal of a namespace entity
+// is blocked while this is non-zero.
+func (m *Manager) CountNamespaceLocalRBAC(namespace string) (int, error) {
+	roles, subjects, err := m.NamespaceLocalRBAC(namespace)
+	if err != nil {
+		return 0, err
+	}
+	return len(roles) + len(subjects), nil
+}
+
 func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()

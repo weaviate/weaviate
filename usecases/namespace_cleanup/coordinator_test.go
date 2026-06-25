@@ -25,7 +25,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // stubNamespaces returns a fixed deleting list.
@@ -140,19 +142,22 @@ type stubRBAC struct {
 	rolesBySubject map[string][]string
 }
 
-func (s stubRBAC) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
-	out := map[string][]authorization.Policy{}
+func (s stubRBAC) NamespaceLocalRBAC(namespace string) ([]string, []rbac.NamespaceSubject, error) {
+	var roles []string
 	for _, r := range s.roles {
-		out[r] = nil
+		if namespacing.NamespaceFromQualified(r) == namespace {
+			roles = append(roles, r)
+		}
 	}
-	return out, nil
-}
-
-func (s stubRBAC) GetUsersOrGroupsWithRoles(isGroup bool, authMethod authentication.AuthType) ([]string, error) {
-	if isGroup {
-		return nil, nil
+	var subjects []rbac.NamespaceSubject
+	for authType, subs := range s.subjectsByAuth {
+		for _, sub := range subs {
+			if namespacing.NamespaceFromQualified(sub) == namespace {
+				subjects = append(subjects, rbac.NamespaceSubject{ID: sub, AuthType: authType})
+			}
+		}
 	}
-	return s.subjectsByAuth[authMethod], nil
+	return roles, subjects, nil
 }
 
 func (s stubRBAC) GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
