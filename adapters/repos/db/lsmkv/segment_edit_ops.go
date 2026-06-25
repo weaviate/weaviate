@@ -148,12 +148,22 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 
 // RecordCompaction does the post-merge bookkeeping for leftID+rightID ->
 // leftID_rightID in one bolt tx: the sequenced step after the rename and
-// in-memory swap, repaired by Reconcile if a crash precedes the commit. It marks
-// the merged inputs done for every op, and re-queues the merged output for any
-// op absent from builtOps (registered after the transformer was built, so its
-// target was not stripped) that had a pending input. Membership — not a
-// timestamp — gates the re-queue: the compactor's local clock and the
-// caller-supplied op CreatedAt are different clocks once ops come from a leader.
+// in-memory swap. It marks the merged inputs done for every op, and re-queues
+// the merged output for any op absent from builtOps (registered after the
+// transformer was built, so its target was not stripped) that had a pending
+// input. Membership — not a timestamp — gates the re-queue: the compactor's
+// local clock and the caller-supplied op CreatedAt are different clocks once ops
+// come from a leader.
+//
+// Crash window: if the process dies after switchOnDisk but before this commit,
+// the merge inputs are already gone from disk while their pending rows remain.
+// Reconcile then prunes those rows (segments missing) but cannot derive that the
+// merged output still needs stripping for an op that was not in builtOps — so
+// Reconcile ALONE does not recover this case. Recovery relies on the producer
+// re-snapshotting live ops against the on-disk segments at startup (the
+// leader-startup reconciliation pass, not yet implemented), which re-queues the
+// merged output. Until that pass lands a crash in this window can leave a
+// dropped target on disk.
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	mergedID := leftID + "_" + rightID
 
@@ -252,6 +262,16 @@ func (s *SegmentEditOps) loadOpsTx(tx *bolt.Tx) ([]ActiveOp, error) {
 // segments currently on disk: re-snapshotting an ID that has already been
 // completed (and whose segment was merged/cleaned away) re-queues it. Reconcile
 // is the safety net — it drops pending rows for segments no longer on disk.
+//
+// INVARIANT (load-bearing for RecordCompaction's membership re-queue): segIDs
+// must be the IDs of the in-memory segment list (SegmentGroup.segments) captured
+// under maintenanceLock, never a raw directory listing. switchOnDisk deletes the
+// merge inputs from disk before it strips the .tmp suffix off the merged output,
+// so there is a window in which neither the inputs nor the output exist under a
+// live .db name. A snapshot taken from the directory during that window would
+// record neither, and the op would never strip that data — silent partial data
+// loss. The in-memory list is swapped atomically in switchInMemory under the
+// same lock, so a lock-held snapshot always sees a coherent input-or-output set.
 func (s *SegmentEditOps) SnapshotSegments(opID string, segIDs []string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if tx.Bucket(editOpsBucketOperations).Get([]byte(opID)) == nil {
