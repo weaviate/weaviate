@@ -1,0 +1,119 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package db
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
+	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/schema"
+)
+
+// EditOpBucketForShard returns the edit-ops objects bucket for a local shard so
+// the drop-vector provider can register the op and poll its pending set. Mirrors
+// the reindex provider's ForEachShard lookup (loaded shards only).
+func (db *DB) EditOpBucketForShard(collection, shardName string) (editOpBucket, error) {
+	idx := db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return nil, fmt.Errorf("index for collection %q not found", collection)
+	}
+	var bucket editOpBucket
+	if err := idx.ForEachShard(func(name string, s ShardLike) error {
+		if name == shardName {
+			bucket = s.Store().Bucket(helpers.ObjectsBucketLSM)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if bucket == nil {
+		return nil, fmt.Errorf("objects bucket for %q/%q not found", collection, shardName)
+	}
+	return bucket, nil
+}
+
+// EnsureDroppedVectorFilesRemoved removes the on-disk artifacts (LSM buckets +
+// HNSW dirs) of the dropped named vectors for a shard. Idempotent (os.RemoveAll).
+func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targets []string) error {
+	idx := db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("index for collection %q not found", collection)
+	}
+	helper := newVectorDropIndexHelper()
+	for _, target := range targets {
+		if err := helper.removeVectorIndexFiles(idx.path(), shardName, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// schemaVectorConfigFinalizer removes dropped named-vector entries from a class's
+// VectorConfig via the internal schema update path, with fresh read-modify-write
+// and bounded retry. Implements dropVectorSchemaFinalizer.
+type schemaVectorConfigFinalizer struct {
+	mgr *schema.Manager
+}
+
+// NewSchemaVectorConfigFinalizer builds the schema finalizer used to construct
+// the DropVectorIndexProvider (exported so the REST wiring can pass it).
+func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFinalizer {
+	return &schemaVectorConfigFinalizer{mgr: mgr}
+}
+
+const dropVectorFinalizeMaxAttempts = 5
+
+func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error {
+	var lastErr error
+	for attempt := 0; attempt < dropVectorFinalizeMaxAttempts; attempt++ {
+		// Fresh read each attempt so a concurrent update doesn't get clobbered.
+		orig := f.mgr.ReadOnlyClass(collection)
+		if orig == nil {
+			return fmt.Errorf("drop-vector finalize: class %q not found", collection)
+		}
+
+		next := *orig
+		next.VectorConfig = make(map[string]models.VectorConfig, len(orig.VectorConfig))
+		changed := false
+		for name, cfg := range orig.VectorConfig {
+			if containsString(targets, name) {
+				changed = true
+				continue
+			}
+			next.VectorConfig[name] = cfg
+		}
+		if !changed {
+			return nil // idempotent: entries already gone
+		}
+
+		if err := schema.UpdateClassInternal(&f.mgr.Handler, ctx, collection, &next); err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}

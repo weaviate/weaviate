@@ -299,3 +299,13 @@ func TestCheckPropertyUpdate_NeverConflicts(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 	require.NoError(t, p.CheckPropertyUpdate("C", "someProp", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
 }
+
+func TestExtractDropVectorIndexTaskCollection(t *testing.T) {
+	enc, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v"}, OpID: "op"}).encode()
+	got, ok := ExtractDropVectorIndexTaskCollection(enc)
+	require.True(t, ok)
+	require.Equal(t, "C", got)
+
+	_, ok = ExtractDropVectorIndexTaskCollection([]byte("not json"))
+	require.False(t, ok)
+}

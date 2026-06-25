@@ -57,12 +57,13 @@ func decodeDropVectorIndexPayload(data []byte) (*DropVectorIndexTaskPayload, err
 }
 
 // ExtractDropVectorIndexTaskCollection is the collection extractor registered
-// with the DTM Manager so cluster-wide task listing can group drop-vector tasks
-// by collection (mirrors ExtractReindexTaskCollection).
-func ExtractDropVectorIndexTaskCollection(payload []byte) (string, error) {
+// with the DTM Manager so the DeleteClass cascade can drop this namespace's task
+// records (mirrors ExtractReindexTaskCollection). ok is false on an unparseable
+// payload.
+func ExtractDropVectorIndexTaskCollection(payload []byte) (collection string, ok bool) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {
-		return "", err
+		return "", false
 	}
-	return p.Collection, nil
+	return p.Collection, true
 }

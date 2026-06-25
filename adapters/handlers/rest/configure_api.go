@@ -689,7 +689,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace: db.ExtractReindexTaskCollection,
+			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
 		},
 		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -1149,6 +1150,16 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Drop-vector-index provider (S11). Added to the providers map so the
+	// conflict/schema-mutation detector loops below auto-register it.
+	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
+		repo,
+		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		appState.Logger,
+		appState.Cluster.LocalName(),
+		serverShutdownCtx,
+	)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
