@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/awscommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -69,6 +70,10 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 }
 
 func resolveCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+	if endpoint := os.Getenv("BACKUP_S3_AUTH_PROXY_ENDPOINT"); endpoint != "" {
+		return credentials.New(awscommon.NewAuthBrokerCredentials(endpoint)), nil
+	}
+
 	// When a Role ARN is configured, use STS AssumeRole to obtain
 	// temporary credentials. This supports cross-account access and
 	// the ExternalId parameter for confused-deputy prevention.
@@ -238,7 +243,8 @@ func (s *s3Client) AllBackups(ctx context.Context,
 	if prefix != "" && prefix[len(prefix)-1] != '/' {
 		prefix += "/"
 	}
-	objectsInfo := s.client.ListObjects(ctx,
+	objectsInfo := s.client.ListObjects(
+		ctx,
 		s.config.Bucket,
 		minio.ListObjectsOptions{
 			Recursive: false,
@@ -356,7 +362,8 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath))
+			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath),
+		)
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
