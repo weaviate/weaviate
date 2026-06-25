@@ -121,7 +121,31 @@ func (i *Index) IncomingGetReplicaSnapshotFile(ctx context.Context, opID, relati
 	if err != nil {
 		return nil, err
 	}
-	return os.Open(abs)
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, err
+	}
+
+	i.replicaSnapshotsMu.Lock()
+	st, ok := i.replicaSnapshots[opID]
+	i.replicaSnapshotsMu.Unlock()
+	if ok && !st.isSnapshot {
+		return &transferActivityReader{
+			ReadCloser: f,
+			reset:      func() { i.mayResetReplicaSnapshotInactivity(opID) },
+		}, nil
+	}
+	return f, nil
+}
+
+type transferActivityReader struct {
+	io.ReadCloser
+	reset func()
+}
+
+func (r *transferActivityReader) Read(p []byte) (int, error) {
+	r.reset()
+	return r.ReadCloser.Read(p)
 }
 
 // rel is shard-relative. Resolution prefers the staging dir (snapshot mode, or
@@ -149,18 +173,25 @@ func (i *Index) resolveReplicaSnapshotPath(opID, rel string) (string, error) {
 
 	// Halt-for-duration serves segments from the live root; without this
 	// reset, a slow transfer trips the watchdog and compaction can delete
-	// segments mid-stream. Background ctx — request deadlines must not
-	// suppress the reset.
-	if !st.isSnapshot {
-		shard, release, err := i.GetShard(context.Background(), st.shardName)
-		if err == nil && shard != nil {
-			shard.MayResetTransferInactivityTimer()
-			release()
-		}
-	}
+	// segments mid-stream.
+	i.mayResetReplicaSnapshotInactivity(opID)
 
 	shardRoot := shardPath(i.path(), st.shardName)
 	return containedPath(shardRoot, rel)
+}
+
+func (i *Index) mayResetReplicaSnapshotInactivity(opID string) {
+	i.replicaSnapshotsMu.Lock()
+	st, ok := i.replicaSnapshots[opID]
+	i.replicaSnapshotsMu.Unlock()
+	if !ok || st.isSnapshot {
+		return
+	}
+	shard, release, err := i.GetShard(context.Background(), st.shardName)
+	if err == nil && shard != nil {
+		shard.MayResetTransferInactivityTimer()
+		release()
+	}
 }
 
 // containedPath joins base and rel, rejecting any rel that escapes base via `..`.

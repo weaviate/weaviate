@@ -348,6 +348,7 @@ type Shard struct {
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration
 	haltForTransferInactivityTimer   *time.Timer
+	haltForTransferDeadline          time.Time
 	haltForTransferCount             int
 	haltForTransferCancel            func()
 

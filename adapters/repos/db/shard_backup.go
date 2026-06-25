@@ -171,6 +171,7 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
+	s.haltForTransferDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
 	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
 }
 
@@ -201,6 +202,7 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.haltForTransferCancel = cancel
 
+	s.haltForTransferDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
 	s.haltForTransferInactivityTimer = time.NewTimer(s.haltForTransferInactivityTimeout)
 
 	enterrors.GoWrapper(func() {
@@ -213,18 +215,32 @@ func (s *Shard) mayInitInactivityMonitoring() {
 			s.haltForTransferMux.Unlock()
 		}()
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.haltForTransferInactivityTimer.C:
-			func() {
-				s.haltForTransferMux.Lock()
-				defer s.haltForTransferMux.Unlock()
-				s.mayForceResumeMaintenanceCycles(context.Background(), true)
-			}()
-			return
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.haltForTransferInactivityTimer.C:
+				if s.reArmOrResumeAfterInactivity() {
+					return
+				}
+			}
 		}
 	}, s.index.logger)
+}
+
+func (s *Shard) reArmOrResumeAfterInactivity() (resumed bool) {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+
+	if remaining := time.Until(s.haltForTransferDeadline); remaining > 0 {
+		if s.haltForTransferInactivityTimer != nil {
+			s.haltForTransferInactivityTimer.Reset(remaining)
+		}
+		return false
+	}
+
+	s.mayForceResumeMaintenanceCycles(context.Background(), true)
+	return true
 }
 
 // CreateBackupSnapshot halts compaction, lists backup files, hardlinks them into
