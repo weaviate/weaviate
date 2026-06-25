@@ -365,7 +365,7 @@ func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 }
 
 func (s *lazySegment) isPropertyLengthsLoaded() bool {
-	// an unloaded segment cannot have a cached map, and checking must not load it
+	// an unloaded segment cannot have cached arrays, and checking must not load it
 	if !s.isLoaded() {
 		return false
 	}
@@ -378,6 +378,13 @@ func (s *lazySegment) freePropertyLengths() {
 		return
 	}
 	s.segment.freePropertyLengths()
+}
+
+func (s *lazySegment) propLengthsView() (propLengthsView, error) {
+	if err := s.load(); err != nil {
+		return propLengthsView{}, fmt.Errorf("lazySegment::propLengthsView: %w", err)
+	}
+	return s.segment.propLengthsView()
 }
 
 func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
