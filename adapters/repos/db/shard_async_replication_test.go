@@ -593,6 +593,7 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 
 	// Swap in a fresh FSM reader so we control the predicate this cycle reads.
 	fsmMock := replicationTypes.NewMockReplicationFSMReader(t)
+	fsmMock.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	saved := idx.replicationFSMReader
 	idx.replicationFSMReader = fsmMock
 	defer func() { idx.replicationFSMReader = saved }()
