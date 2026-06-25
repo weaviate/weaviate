@@ -268,16 +268,13 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return backups.NewBackupsRestoreForbidden().
+			return backups.NewBackupsRestoreStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &backup.ErrNotFound{}):
-			return backups.NewBackupsRestoreNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		case errors.As(err, &backup.ErrUnprocessable{}):
-			return backups.NewBackupsRestoreUnprocessableEntity().
+			return backups.NewBackupsRestoreStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return backups.NewBackupsRestoreInternalServerError().
+			return backups.NewBackupsRestoreStatusInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}

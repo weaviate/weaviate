@@ -48,7 +48,7 @@ func (s *aliasesHandlers) getAliases(params schema.AliasesGetParams,
 			return schema.NewAliasesGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesGetForbidden().
+			return schema.NewAliasesGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -75,7 +75,7 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 			return schema.NewAliasesGetAliasForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesGetAliasForbidden().
+			return schema.NewAliasesGetAliasInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -141,7 +141,7 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 			return schema.NewAliasesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewAliasesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 

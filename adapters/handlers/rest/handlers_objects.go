@@ -389,6 +389,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
 			return objects.NewObjectsClassPutForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &uco.ErrNotFound{}) {
+			return objects.NewObjectsClassPutNotFound()
 		} else {
 			return objects.NewObjectsClassPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
