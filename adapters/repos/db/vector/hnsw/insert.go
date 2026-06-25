@@ -36,6 +36,10 @@ const (
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
+	if err := h.checkVectorIntegrity(vector); err != nil {
+		return err
+	}
+
 	dims := int(h.dims.Load())
 
 	// no vectors exist
@@ -59,7 +63,12 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
+
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
+	if err := h.checkMultiVectorIntegrity(vector); err != nil {
+		return err
+	}
+
 	dims := int(h.dims.Load())
 
 	// no vectors exist
@@ -93,6 +102,33 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		return err
 	}
 
+	return nil
+}
+
+// checkVectorIntegrity applies common.ValidateVectorValues (NaN/Inf + magnitude
+// bound) only when the per-index opt-in flag dataIntegrityCheck is set. Kept
+// as a thin helper so the call sites in ValidateBeforeInsert stay flat.
+func (h *hnsw) checkVectorIntegrity(vector []float32) error {
+	if !h.dataIntegrityCheck.Load() {
+		return nil
+	}
+	bound := math.Float64frombits(h.magnitudeBound.Load())
+	return common.ValidateVectorValues(vector, bound)
+}
+
+// checkMultiVectorIntegrity is the multi-vector variant: each component vector
+// is validated independently and the position of the offending one is included
+// in the wrapped error.
+func (h *hnsw) checkMultiVectorIntegrity(vectors [][]float32) error {
+	if !h.dataIntegrityCheck.Load() {
+		return nil
+	}
+	bound := math.Float64frombits(h.magnitudeBound.Load())
+	for i, v := range vectors {
+		if err := common.ValidateVectorValues(v, bound); err != nil {
+			return errors.Wrapf(err, "multi vector at position %d", i)
+		}
+	}
 	return nil
 }
 

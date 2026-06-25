@@ -15,6 +15,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,6 +93,10 @@ type HFresh struct {
 	vectorForId common.VectorForID[float32]
 
 	rootPath string
+
+	dataIntegrityCheck atomic.Bool
+	// magnitudeBound stores math.Float64bits(MagnitudeBound). 0 = disabled.
+	magnitudeBound atomic.Uint64
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -156,6 +161,9 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 	h.taskQueue = *taskQueue
+
+	h.dataIntegrityCheck.Store(uc.DataIntegrityCheck)
+	h.magnitudeBound.Store(math.Float64bits(uc.MagnitudeBound))
 
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")

@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 
@@ -211,6 +212,119 @@ func TestHnswIndexValidatePQSegments(t *testing.T) {
 
 		err = index.ValidateMultiBeforeInsert([][]float32{{1, 2, 3, 4}})
 		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+	})
+}
+
+func TestHnswIndexValidateVectorValues(t *testing.T) {
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		return []float32{1, 2, 3, 4}, nil
+	}
+
+	cases := []struct {
+		name   string
+		vector []float32
+		want   string
+	}{
+		{"NaN at index 0", []float32{float32(math.NaN()), 1, 2, 3}, "NaN at index 0"},
+		{"NaN mid-vector", []float32{1, 2, float32(math.NaN()), 3}, "NaN at index 2"},
+		{"+Inf", []float32{1, float32(math.Inf(1)), 2, 3}, "Inf at index 1"},
+		{"-Inf", []float32{1, 2, 3, float32(math.Inf(-1))}, "Inf at index 3"},
+	}
+
+	t.Run("opt-in flag off: poison vectors accepted (current default behavior)", func(t *testing.T) {
+		uc := ent.UserConfig{
+			MaxConnections:     30,
+			EFConstruction:     60,
+			EF:                 36,
+			DataIntegrityCheck: false,
+		}
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := index.ValidateBeforeInsert(tc.vector)
+				require.NoError(t, err, "expected acceptance when DataIntegrityCheck is off")
+			})
+		}
+	})
+
+	t.Run("opt-in flag on: poison vectors rejected with ErrInvalidVectorValue", func(t *testing.T) {
+		uc := ent.UserConfig{
+			MaxConnections:     30,
+			EFConstruction:     60,
+			EF:                 36,
+			DataIntegrityCheck: true,
+		}
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := index.ValidateBeforeInsert(tc.vector)
+				require.Error(t, err)
+				require.ErrorIs(t, err, common.ErrInvalidVectorValue)
+				require.ErrorContains(t, err, tc.want)
+			})
+		}
+
+		t.Run("clean vector still accepted", func(t *testing.T) {
+			err := index.ValidateBeforeInsert([]float32{0.1, -0.2, 0.3, -0.4})
+			require.NoError(t, err)
+		})
+
+		t.Run("multi-vector NaN rejected with position prefix", func(t *testing.T) {
+			err := index.ValidateMultiBeforeInsert([][]float32{
+				{1, 2, 3, 4},
+				{1, float32(math.NaN()), 3, 4},
+			})
+			require.Error(t, err)
+			require.ErrorIs(t, err, common.ErrInvalidVectorValue)
+			require.ErrorContains(t, err, "multi vector at position 1")
+			require.ErrorContains(t, err, "NaN at index 1")
+		})
+	})
+
+	t.Run("magnitude bound: rejects components above bound, accepts at-or-below", func(t *testing.T) {
+		uc := ent.UserConfig{
+			MaxConnections:     30,
+			EFConstruction:     60,
+			EF:                 36,
+			DataIntegrityCheck: true,
+			MagnitudeBound:     10.0,
+		}
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		err = index.ValidateBeforeInsert([]float32{1, 2, 3, 4})
+		require.NoError(t, err, "magnitudes within bound should be accepted")
+
+		err = index.ValidateBeforeInsert([]float32{1, 2, 1e30, 4})
+		require.Error(t, err)
+		require.ErrorIs(t, err, common.ErrInvalidVectorValue)
+		require.ErrorContains(t, err, "exceeds magnitudeBound")
+		require.ErrorContains(t, err, "|v[2]|")
+
+		err = index.ValidateBeforeInsert([]float32{1, 2, -1e30, 4})
+		require.Error(t, err, "negative magnitude above bound should also reject")
+		require.ErrorIs(t, err, common.ErrInvalidVectorValue)
+	})
+
+	t.Run("magnitude bound 0 (default) disables the check", func(t *testing.T) {
+		uc := ent.UserConfig{
+			MaxConnections:     30,
+			EFConstruction:     60,
+			EF:                 36,
+			DataIntegrityCheck: true,
+			MagnitudeBound:     0,
+		}
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		// Large finite values must still pass when bound is disabled.
+		err = index.ValidateBeforeInsert([]float32{1, 2, 1e30, 4})
+		require.NoError(t, err)
 	})
 }
 

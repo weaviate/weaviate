@@ -33,6 +33,16 @@ const (
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 
+	// DefaultDataIntegrityCheck disables the optional NaN/Inf check on vector
+	// ingestion. The check is opt-in to preserve performance and back-compat
+	// for users who validate vectors upstream.
+	DefaultDataIntegrityCheck = false
+
+	// DefaultMagnitudeBound disables the per-component magnitude check.
+	// When DataIntegrityCheck is enabled and MagnitudeBound > 0, any vector
+	// containing a component with |v[i]| > MagnitudeBound is rejected.
+	DefaultMagnitudeBound float64 = 0
+
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
 
@@ -65,6 +75,8 @@ type UserConfig struct {
 	Multivector              MultivectorConfig `json:"multivector"`
 	SkipDefaultQuantization  bool              `json:"skipDefaultQuantization"`
 	TrackDefaultQuantization bool              `json:"trackDefaultQuantization"`
+	DataIntegrityCheck       bool              `json:"dataIntegrityCheck"`
+	MagnitudeBound           float64           `json:"magnitudeBound"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -93,6 +105,8 @@ func (u *UserConfig) SetDefaults() {
 	u.DynamicEFMin = DefaultDynamicEFMin
 	u.Skip = DefaultSkip
 	u.FlatSearchCutoff = DefaultFlatSearchCutoff
+	u.DataIntegrityCheck = DefaultDataIntegrityCheck
+	u.MagnitudeBound = DefaultMagnitudeBound
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
 	u.PQ = PQConfig{
 		Enabled:        DefaultPQEnabled,
@@ -250,6 +264,18 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 
 	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "trackDefaultQuantization", func(v bool) {
 		uc.TrackDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "dataIntegrityCheck", func(v bool) {
+		uc.DataIntegrityCheck = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalFloat64FromMap(asMap, "magnitudeBound", func(v float64) {
+		uc.MagnitudeBound = v
 	}); err != nil {
 		return uc, err
 	}
