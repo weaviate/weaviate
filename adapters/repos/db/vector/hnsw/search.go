@@ -979,6 +979,8 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		}
 	}
 
+	docVecs = h.normalizeVecs(docVecs)
+
 	similarity := float32(0.0)
 
 	var distancer distancer.Distancer
