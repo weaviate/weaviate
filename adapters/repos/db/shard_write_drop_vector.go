@@ -14,10 +14,41 @@ package db
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
+
+// dropVectorTransformerBuilder returns the objects-bucket TransformerBuilder:
+// per remove_target_vectors op it strips the named vectors, re-marshaling only
+// when something changed (idempotent no-op otherwise). The disk round-trip must
+// match the bucket's own encode/decode (FromBinaryDisk / MarshalBinaryDisk).
+func dropVectorTransformerBuilder(className string, skipClassNameOnDisk bool) lsmkv.TransformerBuilder {
+	return func(ops []lsmkv.ActiveOp) func([]byte) ([]byte, error) {
+		return func(value []byte) ([]byte, error) {
+			obj, err := storobj.FromBinaryDisk(value, className)
+			if err != nil {
+				return nil, fmt.Errorf("decode object for vector drop: %w", err)
+			}
+			changed := false
+			for _, op := range ops {
+				if op.Descriptor.Type != lsmkv.OpTypeRemoveTargetVectors {
+					continue
+				}
+				for _, targetVector := range op.Descriptor.Targets {
+					if obj.RemoveTargetVector(targetVector) {
+						changed = true
+					}
+				}
+			}
+			if !changed {
+				return value, nil
+			}
+			return obj.MarshalBinaryDisk(skipClassNameOnDisk)
+		}
+	}
+}
 
 // isDroppedVectorIndex reports whether the named vector's index has been
 // dropped (VectorConfig entry marked VectorIndexType=="none"). The legacy

@@ -309,6 +309,21 @@ func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Contex
 	}
 }
 
+// WithTransformerBuilder wires a SegmentEditOps facility on the bucket whose
+// per-pass transformer is produced by b (kept storobj-opaque so lsmkv never
+// imports storobj). Set on the objects bucket to strip dropped vector indexes.
+// Only valid on 'replace' buckets; rejected otherwise so the contract fails fast
+// at setup. Requires WithStrategy applied first.
+func WithTransformerBuilder(b TransformerBuilder) BucketOption {
+	return func(bucket *Bucket) error {
+		if bucket.strategy != StrategyReplace {
+			return errors.Errorf("transformer builder only supported on 'replace' buckets")
+		}
+		bucket.transformerBuilder = b
+		return nil
+	}
+}
+
 func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 	return func(b *Bucket) error {
 		b.skipSecondaryKeyCheck = skip

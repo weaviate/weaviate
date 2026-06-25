@@ -179,6 +179,11 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
 		lsmkv.WithClassName(s.index.Config.ClassName.String()),
+		// Strip dropped vector indexes from stored objects during compaction/cleanup.
+		lsmkv.WithTransformerBuilder(dropVectorTransformerBuilder(
+			s.index.Config.ClassName.String(),
+			s.index.Config.SkipWriteClassNameOnDisk,
+		)),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

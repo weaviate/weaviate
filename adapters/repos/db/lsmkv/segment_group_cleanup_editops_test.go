@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func prefixTransformerBuilder(ops []ActiveOp) valueTransformer {
+func prefixTransformerBuilder(ops []ActiveOp) func([]byte) ([]byte, error) {
 	return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 }
 
@@ -34,9 +34,11 @@ func (denyAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
 func (denyAllocChecker) Refresh(bool)                            {}
 
 // newReplaceBucketWithEditOps wires a real cleaner (cleanupInterval > 0) plus an
-// edit-ops facility, with a long interval so the time/size heuristic would never
-// fire — proving the edit-ops path bypasses it.
-func newReplaceBucketWithEditOps(t *testing.T, builder transformerBuilder) (*Bucket, *SegmentEditOps) {
+// edit-ops facility via the production WithTransformerBuilder path, with a long
+// interval so the time/size heuristic would never fire — proving the edit-ops
+// path bypasses it. The facility is owned by the segment group and closed on
+// bucket shutdown.
+func newReplaceBucketWithEditOps(t *testing.T, builder TransformerBuilder) (*Bucket, *SegmentEditOps) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -44,19 +46,13 @@ func newReplaceBucketWithEditOps(t *testing.T, builder transformerBuilder) (*Buc
 
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour))
+		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour),
+		WithTransformerBuilder(builder))
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
 
-	editOps, err := openSegmentEditOps(bucket.disk.dir, builder)
-	require.NoError(t, err)
-	bucket.disk.editOps = editOps
-
-	t.Cleanup(func() {
-		require.NoError(t, editOps.Close())
-		require.NoError(t, bucket.Shutdown(ctx))
-	})
-	return bucket, editOps
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+	return bucket, bucket.disk.editOps
 }
 
 func segIDsOf(bucket *Bucket) []string {
@@ -209,7 +205,7 @@ func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
 // TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts quarantines a segment
 // whose rewrite keeps failing, so it stops being retried (C6).
 func TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts(t *testing.T) {
-	failing := func(ops []ActiveOp) valueTransformer {
+	failing := func(ops []ActiveOp) func([]byte) ([]byte, error) {
 		return func(v []byte) ([]byte, error) { return nil, errors.New("boom") }
 	}
 	bucket, editOps := newReplaceBucketWithEditOps(t, failing)

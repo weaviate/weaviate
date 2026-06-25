@@ -14,7 +14,9 @@ package lsmkv
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -39,15 +41,11 @@ import (
 // op and segment IDs never need an in-key separator.
 type SegmentEditOps struct {
 	db *bolt.DB
-	// buildTransformer is the storobj-opaque builder (func([]ActiveOp) ->
-	// valueTransformer) injected once at construction. It is a permanent member,
-	// not a per-call argument, because the storobj bridge cannot be reconstructed
-	// by the storobj-ignorant compaction/cleanup code that needs it at pass time,
-	// and those passes are driven by the cycle manager with no handle to pass it
-	// in. It is a builder, not a cached transformer: BuildCurrentTransformer
-	// invokes it per pass so the result always reflects the live ops. nil disables
-	// transformation for this segment group.
-	buildTransformer transformerBuilder
+	// buildTransformer is the injected, storobj-opaque builder. It is a permanent
+	// member (not a per-call arg) because the storobj-ignorant, cycle-driven
+	// compaction/cleanup passes can't construct it themselves; BuildCurrentTransformer
+	// invokes it per pass. nil disables transformation.
+	buildTransformer TransformerBuilder
 }
 
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
@@ -58,9 +56,8 @@ var (
 	editOpsBucketQuarantine = []byte("quarantined")
 )
 
-// OpType discriminates an edit operation. lsmkv treats it opaquely (the injected
-// builder selects the transformer); the typed string just buys callers
-// compile-time safety over a bare string field.
+// OpType discriminates an edit operation; lsmkv treats it opaquely (the injected
+// builder selects the transformer).
 type OpType string
 
 // OpTypeRemoveTargetVectors strips dropped named vectors from stored objects.
@@ -98,10 +95,37 @@ type PendingSegment struct {
 // It must be a pure, idempotent function of the value bytes.
 type valueTransformer func(value []byte) ([]byte, error)
 
-// transformerBuilder produces the per-pass valueTransformer for the currently
-// active edit operations. It is invoked once at the start of each compaction or
-// cleanup pass so the transformer reflects the ops live at that moment.
-type transformerBuilder func(ops []ActiveOp) valueTransformer
+// TransformerBuilder produces the per-pass value transformer from the live ops.
+// It is the public type carried by WithTransformerBuilder; the returned function
+// stays storobj-opaque (plain []byte) so lsmkv never imports storobj.
+type TransformerBuilder func(ops []ActiveOp) func(value []byte) ([]byte, error)
+
+// openSegmentEditOps opens (creating if necessary) the edit-ops store for the
+// segment group rooted at dir. buildTransformer is the injected builder; pass nil
+// to use the store for op bookkeeping only.
+func openSegmentEditOps(dir string, buildTransformer TransformerBuilder) (*SegmentEditOps, error) {
+	// One handle per segment group. The Timeout turns an accidental second open
+	// into a fast error instead of a forever-hang; the single-open path is uncontended.
+	db, err := bolt.Open(filepath.Join(dir, segmentEditOpsFileName), 0o600,
+		&bolt.Options{Timeout: 5 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("open segment edit ops db: %w", err)
+	}
+
+	if err := db.Update(func(tx *bolt.Tx) error {
+		for _, name := range [][]byte{editOpsBucketOperations, editOpsBucketPending, editOpsBucketQuarantine} {
+			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("init segment edit ops buckets: %w", err)
+	}
+
+	return &SegmentEditOps{db: db, buildTransformer: buildTransformer}, nil
+}
 
 func (s *SegmentEditOps) Close() error {
 	return s.db.Close()
@@ -113,13 +137,10 @@ func (s *SegmentEditOps) Close() error {
 // lets RecordCompaction decide what the pass stripped by membership. Transformer
 // and set are both nil when no builder is configured or no ops are active.
 //
-// One transformer is applied to every segment of the pass (it is not specialised
-// per segment) and that is intentional: a dropped target must be removed from
-// all segments, so over-applying is always correct — a segment that predates an
-// op was snapshotted as pending for it (must be stripped), and one created after
-// the op cannot contain that target (the write-path reject blocked it), so the
-// strip is a harmless no-op. What varies per segment is only whether it still
-// needs processing, which pending_segments tracks separately.
+// One transformer is applied to every segment of a pass, by design: a dropped
+// target must be removed everywhere, so over-applying is always correct (a
+// segment created after the op can't carry the target — the write-path reject
+// blocked it). Per-segment state lives in pending_segments, not the transformer.
 func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp, error) {
 	if s.buildTransformer == nil {
 		return nil, nil, nil
@@ -135,23 +156,17 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 }
 
 // RecordCompaction does the post-merge bookkeeping for leftID+rightID ->
-// leftID_rightID in one bolt tx: the sequenced step after the rename and
-// in-memory swap. It marks the merged inputs done for every op, and re-queues
-// the merged output for any op absent from builtOps (registered after the
-// transformer was built, so its target was not stripped) that had a pending
-// input. Membership — not a timestamp — gates the re-queue: the compactor's
-// local clock and the caller-supplied op CreatedAt are different clocks once ops
-// come from a leader.
+// leftID_rightID in one bolt tx (the sequenced step after rename + in-memory
+// swap). It marks the merged inputs done for every op, and re-queues the merged
+// output for any op absent from builtOps (registered after the transformer was
+// built, so not stripped) that had a pending input. Membership — not a timestamp
+// — gates this, since the compactor clock and the leader-assigned CreatedAt differ.
 //
 // Crash window: if the process dies after switchOnDisk but before this commit,
-// the merge inputs are already gone from disk while their pending rows remain.
-// Reconcile then prunes those rows (segments missing) but cannot derive that the
-// merged output still needs stripping for an op that was not in builtOps — so
-// Reconcile ALONE does not recover this case. Recovery relies on the producer
-// re-snapshotting live ops against the on-disk segments at startup (the
-// leader-startup reconciliation pass, not yet implemented), which re-queues the
-// merged output. Until that pass lands a crash in this window can leave a
-// dropped target on disk.
+// the merge inputs are gone from disk but the merged output never got a pending
+// row for an op absent from builtOps. Reconcile only prunes missing-segment rows,
+// so it can't recover this — the leader-startup re-snapshot (S14, not yet built)
+// must re-queue the merged output. Until then such a crash can retain a dropped target.
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	mergedID := leftID + "_" + rightID
 
@@ -251,15 +266,12 @@ func (s *SegmentEditOps) loadOpsTx(tx *bolt.Tx) ([]ActiveOp, error) {
 // completed (and whose segment was merged/cleaned away) re-queues it. Reconcile
 // is the safety net — it drops pending rows for segments no longer on disk.
 //
-// INVARIANT (load-bearing for RecordCompaction's membership re-queue): segIDs
-// must be the IDs of the in-memory segment list (SegmentGroup.segments) captured
-// under maintenanceLock, never a raw directory listing. switchOnDisk deletes the
-// merge inputs from disk before it strips the .tmp suffix off the merged output,
-// so there is a window in which neither the inputs nor the output exist under a
-// live .db name. A snapshot taken from the directory during that window would
-// record neither, and the op would never strip that data — silent partial data
-// loss. The in-memory list is swapped atomically in switchInMemory under the
-// same lock, so a lock-held snapshot always sees a coherent input-or-output set.
+// INVARIANT (load-bearing for RecordCompaction's membership re-queue): pass the
+// IDs of the in-memory segment list (SegmentGroup.segments) under maintenanceLock,
+// never a raw directory listing. switchOnDisk deletes the merge inputs before
+// renaming the .tmp output, so a directory snapshot in that window would record
+// neither input nor output — silent partial data loss. The in-memory list is
+// swapped atomically under the same lock, so a lock-held snapshot stays coherent.
 func (s *SegmentEditOps) SnapshotSegments(opID string, segIDs []string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if tx.Bucket(editOpsBucketOperations).Get([]byte(opID)) == nil {
