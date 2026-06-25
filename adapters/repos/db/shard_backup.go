@@ -276,7 +276,7 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		}
 	}
 
-	pairs := make([]file.HardlinkPair, len(files))
+	pairs := make([]file.HardlinkPair, 0, len(files))
 	for idx, relPath := range files {
 		if _, ok := staged[relPath]; ok {
 			// already written as a consistent copy above; do not hardlink over it
