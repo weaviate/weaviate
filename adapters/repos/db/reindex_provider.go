@@ -1249,6 +1249,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 // observable query-consistency window because queries during PREP
 // still see the OLD tokenization.
 func (p *ReindexProvider) runPerUnitPhase(
+	ctx context.Context,
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
 	localGroupUnitIDs []string,
@@ -1258,7 +1259,6 @@ func (p *ReindexProvider) runPerUnitPhase(
 	parallel bool,
 	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
-	ctx := p.serverCtx
 	var agg phaseResult
 	var aggMu sync.Mutex
 
@@ -1331,7 +1331,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 // Any per-node failure here flips the task to FAILED via the appropriate
 // ack, which guarantees no cluster-wide schema flip commits while buckets
 // remain un-swapped.
-func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
+func (p *ReindexProvider) OnGroupCompleted(ctx context.Context, task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs)
 
@@ -1403,12 +1403,12 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// SWAPPING. The split bounds the cross-replica stagger window at
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
-	ctx := p.serverCtx
+	//
 	// PREP path runs heavy IO per shard (FlushAndSwitch, ShutdownBucket,
 	// PrependSegmentsFromBucket). Sequential to avoid compounding IO
 	// contention; query consistency is not at stake here because queries
 	// during PREP still see OLD tokenization.
-	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
+	return p.runPerUnitPhase(ctx, task, payload, localGroupUnitIDs, idx, logger,
 		"group-completion", false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
@@ -1461,7 +1461,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 // scheduler only fires this after the cluster-wide PREPARING → SWAPPING
 // transition. Returns non-nil on any per-shard swap failure; the resulting
 // PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
-func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
+func (p *ReindexProvider) OnSwapRequested(ctx context.Context, task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs)
 
@@ -1492,7 +1492,6 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	ctx := p.serverCtx
 	// SWAP path runs the in-memory pointer flip first (the user-observable
 	// event) and then per-shard post-flip work (Shutdown drain, dir
 	// rename, sentinel writes, trim). Parallel across this node's units
@@ -1500,7 +1499,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	// flip on shard B — without this the per-replica cutover window
 	// grows linearly in shard count. Per-shard state is structurally
 	// disjoint (see runPerUnitPhase godoc).
-	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
+	return p.runPerUnitPhase(ctx, task, payload, localGroupUnitIDs, idx, logger,
 		"swap-requested", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
@@ -1548,7 +1547,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // Skips the flip on non-SWAPPING terminal states (FAILED / CANCELLED) so
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
-func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
+func (p *ReindexProvider) OnTaskCompleted(ctx context.Context, task *distributedtask.Task) {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
 	p.clearTaskCaches(task.TaskDescriptor)
@@ -1586,9 +1585,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 
-	// p.serverCtx outlives the per-task ctx (which is gone by the time the
-	// scheduler tick fires OnTaskCompleted).
-	ctx := p.serverCtx
+	// Use the scheduler's loop ctx (passed in) so a shutdown can cancel
+	// the schema flip mid-RAFT-apply. The flip is idempotent on retry; a
+	// post-restart tick re-fires OnTaskCompleted via [RecoveryAwareProvider]
+	// + LocalCallbacksDone.
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the

@@ -163,7 +163,7 @@ func (p *ShardNoopProvider) recordFinalizedGroup(desc TaskDescriptor, groupID st
 	)
 }
 
-func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error {
+func (p *ShardNoopProvider) OnGroupCompleted(_ context.Context, task *Task, groupID string, localGroupUnitIDs []string) error {
 	p.recordFinalizedGroup(task.TaskDescriptor, groupID, localGroupUnitIDs)
 
 	// Write marker files for each finalized unit.
@@ -242,11 +242,11 @@ func (p *ShardNoopProvider) GetFinalizedGroups(desc TaskDescriptor) map[string][
 // provider is the canonical NeedsPreparationBarrier=false path (format-only
 // shape), so the scheduler never fires this for ShardNoopProvider
 // tasks. Implements the interface contract for build cleanliness.
-func (p *ShardNoopProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+func (p *ShardNoopProvider) OnSwapRequested(_ context.Context, _ *Task, _ string, _ []string) error {
 	return nil
 }
 
-func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
+func (p *ShardNoopProvider) OnTaskCompleted(_ context.Context, task *Task) {
 	p.completedTasksMu.Lock()
 	defer p.completedTasksMu.Unlock()
 	p.completedTasks[task.TaskDescriptor] = true
