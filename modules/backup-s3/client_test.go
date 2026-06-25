@@ -13,9 +13,13 @@ package modstgs3
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -27,6 +31,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/awscommon"
 )
 
 func TestInitialize_SkipAccessCheck(t *testing.T) {
@@ -136,6 +142,58 @@ func TestResolveCredentials_LegacyEnvVarsPreferred(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "legacy-key", val.AccessKeyID)
 	assert.Equal(t, "legacy-secret", val.SecretAccessKey)
+}
+
+func TestResolveCredentials_AuthBrokerEndpointTakesPrecedence(t *testing.T) {
+	const identityToken = "fake-irsa-jwt"
+	expected := awscommon.AuthBrokerCredentialValue{
+		AccessKeyID:     "AKIATESTBROKER",
+		SecretAccessKey: "broker-secret",
+		SessionToken:    "broker-session",
+		Expiration:      time.Now().UTC().Add(time.Hour).Truncate(time.Second),
+	}
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		assert.Equal(t, fmt.Sprintf("Bearer %s", identityToken), r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(expected)
+	}))
+	defer srv.Close()
+
+	tokenPath := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte(identityToken), 0o600))
+
+	setEnvVars(t, map[string]string{
+		"BACKUP_S3_AUTH_PROXY_ENDPOINT": srv.URL,
+		"AWS_WEB_IDENTITY_TOKEN_FILE":   tokenPath,
+		"AWS_ACCESS_KEY_ID":             "static-key",
+		"AWS_SECRET_ACCESS_KEY":         "static-secret",
+	})
+
+	config := &clientConfig{
+		RoleARN: "arn:aws:iam::123456789012:role/TestRole",
+	}
+
+	creds, err := resolveCredentials(config, "us-east-1")
+	require.NoError(t, err)
+	require.NotNil(t, creds)
+	assert.Equal(t, 0, hits, "broker should not be contacted before first credential use")
+
+	val, err := creds.GetWithContext(nil)
+	require.NoError(t, err)
+	assert.Equal(t, expected.AccessKeyID, val.AccessKeyID)
+	assert.Equal(t, expected.SecretAccessKey, val.SecretAccessKey)
+	assert.Equal(t, expected.SessionToken, val.SessionToken)
+	assert.Equal(t, expected.Expiration, val.Expiration)
+	assert.Equal(t, credentials.SignatureV4, val.SignerType)
+	assert.Equal(t, 1, hits, "broker should be hit exactly once on first use")
+
+	// Subsequent calls reuse the cached value until Expiry marks it stale.
+	_, err = creds.GetWithContext(nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, hits, "broker should not be re-hit while credentials are still fresh")
 }
 
 func TestResolveCredentials_RoleARNTriggersAssumeRole(t *testing.T) {
