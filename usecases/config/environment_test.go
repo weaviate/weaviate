@@ -14,9 +14,12 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -685,6 +688,199 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFromEnv_NamespacesForcedConfig verifies that NAMESPACES_ENABLED=true
+// coerces the deployment-shape settings (DISABLE_GRAPHQL=true,
+// REPLICATION_MAXIMUM_FACTOR=1, LSMSkipWriteClassNameEnabled=true), overriding
+// any conflicting operator-provided values.
+
+// ensureUnset removes key from the environment for the duration of the test,
+// restoring any prior value on cleanup. The coercion logic keys off
+// os.LookupEnv, so a value leaking in from the dev/CI shell would otherwise
+// make these tests non-hermetic.
+func ensureUnset(t *testing.T, key string) {
+	t.Helper()
+	if v, ok := os.LookupEnv(key); ok {
+		require.NoError(t, os.Unsetenv(key))
+		t.Cleanup(func() { os.Setenv(key, v) })
+	}
+}
+
+func TestFromEnv_NamespacesForcedConfig(t *testing.T) {
+	tests := []struct {
+		name               string
+		namespacesEnabled  bool
+		disableGraphQLEnv  string // "" means unset
+		maxFactorEnv       string // "" means unset
+		wantDisableGraphQL bool
+		wantMaxFactor      int
+		wantSkipClassName  bool
+	}{
+		{
+			name:               "namespaces disabled — no coercion",
+			namespacesEnabled:  false,
+			disableGraphQLEnv:  "false",
+			maxFactorEnv:       "3",
+			wantDisableGraphQL: false,
+			wantMaxFactor:      3,
+			wantSkipClassName:  false,
+		},
+		{
+			name:               "namespaces enabled, both unset — coerced silently",
+			namespacesEnabled:  true,
+			wantDisableGraphQL: true,
+			wantMaxFactor:      1,
+			wantSkipClassName:  true,
+		},
+		{
+			name:               "namespaces enabled, DISABLE_GRAPHQL=false — overridden",
+			namespacesEnabled:  true,
+			disableGraphQLEnv:  "false",
+			wantDisableGraphQL: true,
+			wantMaxFactor:      1,
+			wantSkipClassName:  true,
+		},
+		{
+			name:               "namespaces enabled, DISABLE_GRAPHQL=true — kept",
+			namespacesEnabled:  true,
+			disableGraphQLEnv:  "true",
+			wantDisableGraphQL: true,
+			wantMaxFactor:      1,
+			wantSkipClassName:  true,
+		},
+		{
+			name:               "namespaces enabled, REPLICATION_MAXIMUM_FACTOR=3 — overridden",
+			namespacesEnabled:  true,
+			maxFactorEnv:       "3",
+			wantDisableGraphQL: true,
+			wantMaxFactor:      1,
+			wantSkipClassName:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Start from a clean slate so the result depends only on what this
+			// subtest sets, not on the surrounding shell.
+			ensureUnset(t, "NAMESPACES_ENABLED")
+			ensureUnset(t, "DISABLE_GRAPHQL")
+			ensureUnset(t, "REPLICATION_MAXIMUM_FACTOR")
+
+			if tt.namespacesEnabled {
+				t.Setenv("NAMESPACES_ENABLED", "true")
+			}
+			if tt.disableGraphQLEnv != "" {
+				t.Setenv("DISABLE_GRAPHQL", tt.disableGraphQLEnv)
+			}
+			if tt.maxFactorEnv != "" {
+				t.Setenv("REPLICATION_MAXIMUM_FACTOR", tt.maxFactorEnv)
+			}
+
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+
+			assert.Equal(t, tt.wantDisableGraphQL, conf.DisableGraphQL)
+			assert.Equal(t, tt.wantMaxFactor, conf.Replication.MaximumFactor)
+			assert.Equal(t, tt.wantSkipClassName, conf.Persistence.LSMSkipWriteClassNameEnabled)
+		})
+	}
+}
+
+// warnEntriesContaining returns the WARN-level log messages mentioning substr.
+func warnEntriesContaining(entries []*logrus.Entry, substr string) []string {
+	var msgs []string
+	for _, e := range entries {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, substr) {
+			msgs = append(msgs, e.Message)
+		}
+	}
+	return msgs
+}
+
+// TestApplyNamespaceForcedConfig pins the warn-vs-silent contract: an explicitly
+// configured conflicting value is overridden with a WARN; an unset value is
+// coerced silently; a disabled namespace is a no-op.
+func TestApplyNamespaceForcedConfig(t *testing.T) {
+	t.Run("namespaces disabled — no-op, no logs", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{DisableGraphQL: false}
+		c.Replication.MaximumFactor = 3
+
+		applyNamespaceForcedConfig(c, log)
+
+		assert.False(t, c.DisableGraphQL)
+		assert.Equal(t, 3, c.Replication.MaximumFactor)
+		assert.False(t, c.Persistence.LSMSkipWriteClassNameEnabled)
+		assert.Empty(t, hook.AllEntries())
+	})
+
+	t.Run("DISABLE_GRAPHQL=false explicitly set — overridden with warn", func(t *testing.T) {
+		t.Setenv("DISABLE_GRAPHQL", "false")
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{DisableGraphQL: false}
+		c.Namespaces.Enabled = true
+
+		applyNamespaceForcedConfig(c, log)
+
+		assert.True(t, c.DisableGraphQL)
+		assert.NotEmpty(t, warnEntriesContaining(hook.AllEntries(), "DISABLE_GRAPHQL"),
+			"expected a warning about overriding DISABLE_GRAPHQL")
+	})
+
+	t.Run("DISABLE_GRAPHQL unset — coerced silently", func(t *testing.T) {
+		ensureUnset(t, "DISABLE_GRAPHQL")
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{DisableGraphQL: false}
+		c.Namespaces.Enabled = true
+
+		applyNamespaceForcedConfig(c, log)
+
+		assert.True(t, c.DisableGraphQL)
+		assert.Empty(t, warnEntriesContaining(hook.AllEntries(), "DISABLE_GRAPHQL"),
+			"unset DISABLE_GRAPHQL should be coerced without a warning")
+	})
+
+	t.Run("REPLICATION_MAXIMUM_FACTOR=3 explicitly set — overridden with warn", func(t *testing.T) {
+		t.Setenv("REPLICATION_MAXIMUM_FACTOR", "3")
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{}
+		c.Namespaces.Enabled = true
+		c.Replication.MaximumFactor = 3
+
+		applyNamespaceForcedConfig(c, log)
+
+		assert.Equal(t, 1, c.Replication.MaximumFactor)
+		assert.NotEmpty(t, warnEntriesContaining(hook.AllEntries(), "REPLICATION_MAXIMUM_FACTOR"),
+			"expected a warning about overriding REPLICATION_MAXIMUM_FACTOR")
+	})
+
+	t.Run("REPLICATION_MAXIMUM_FACTOR unset — coerced silently", func(t *testing.T) {
+		ensureUnset(t, "REPLICATION_MAXIMUM_FACTOR")
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{}
+		c.Namespaces.Enabled = true
+
+		applyNamespaceForcedConfig(c, log)
+
+		assert.Equal(t, 1, c.Replication.MaximumFactor)
+		assert.Empty(t, warnEntriesContaining(hook.AllEntries(), "REPLICATION_MAXIMUM_FACTOR"),
+			"unset REPLICATION_MAXIMUM_FACTOR should be coerced without a warning")
+	})
+
+	// MinimumFactor > 1 is fundamentally incompatible with namespaces (RF=1
+	// only). Coercion does not silently lower the floor — it leaves the bounds
+	// check to reject the config, so the misconfiguration surfaces loudly.
+	t.Run("MinimumFactor > 1 — coercion leaves bounds check to reject", func(t *testing.T) {
+		log, _ := logrustest.NewNullLogger()
+		c := &Config{}
+		c.Namespaces.Enabled = true
+		c.Replication.MinimumFactor = 3
+
+		applyNamespaceForcedConfig(c, log)
+
+		assert.Equal(t, 1, c.Replication.MaximumFactor)
+		require.Error(t, c.validateReplicationFactorBounds())
+	})
 }
 
 func TestEnvironmentCORS_Headers(t *testing.T) {

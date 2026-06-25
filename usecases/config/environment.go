@@ -982,9 +982,6 @@ func FromEnv(config *Config) error {
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
-	if config.Namespaces.Enabled {
-		config.Persistence.LSMSkipWriteClassNameEnabled = true
-	}
 
 	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
 		DefaultNamespaceCleanupInterval,
@@ -1408,7 +1405,36 @@ func FromEnv(config *Config) error {
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
+	applyNamespaceForcedConfig(config, logrus.StandardLogger())
+
 	return nil
+}
+
+// applyNamespaceForcedConfig coerces the settings a namespace-enabled cluster
+// requires so operators don't have to set them by hand. NAMESPACES_ENABLED=true
+// forces DISABLE_GRAPHQL=true (the GraphQL schema can't model namespace-qualified
+// class names) and caps the replication factor at 1 (the only supported shape).
+// The same invariants are still enforced in Config.Validate() as a safety net.
+func applyNamespaceForcedConfig(config *Config, logger logrus.FieldLogger) {
+	if !config.Namespaces.Enabled {
+		return
+	}
+
+	config.Persistence.LSMSkipWriteClassNameEnabled = true
+
+	if !config.DisableGraphQL {
+		if _, set := os.LookupEnv("DISABLE_GRAPHQL"); set {
+			logger.Warn("NAMESPACES_ENABLED=true forces DISABLE_GRAPHQL=true; overriding configured DISABLE_GRAPHQL=false")
+		}
+		config.DisableGraphQL = true
+	}
+
+	if config.Replication.MaximumFactor != 1 {
+		if _, set := os.LookupEnv("REPLICATION_MAXIMUM_FACTOR"); set {
+			logger.Warnf("NAMESPACES_ENABLED=true forces REPLICATION_MAXIMUM_FACTOR=1; overriding configured REPLICATION_MAXIMUM_FACTOR=%d", config.Replication.MaximumFactor)
+		}
+		config.Replication.MaximumFactor = 1
+	}
 }
 
 func parseRAFTConfig(hostname string) (Raft, error) {
