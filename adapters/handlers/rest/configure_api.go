@@ -1160,6 +1160,9 @@ func initReindexAndDistributedTasks(
 		appState.Cluster.LocalName(),
 		serverShutdownCtx,
 	)
+	// Enqueue Phase-2 cleanup tasks from the schema drop path (S13).
+	appState.SchemaManager.SetDropVectorIndexEnqueuer(
+		newDropVectorIndexEnqueuer(appState.ClusterService, repo))
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
