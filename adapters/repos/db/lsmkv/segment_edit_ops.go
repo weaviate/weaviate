@@ -403,6 +403,24 @@ func (s *SegmentEditOps) RegisterOp(opID string, op OpDescriptor) error {
 	})
 }
 
+// IsRegistered reports whether opID has an operation descriptor recorded. Used
+// for idempotent resume: a caller skips re-snapshotting an already-registered op
+// (re-snapshotting would re-queue segments it has already completed).
+func (s *SegmentEditOps) IsRegistered(opID string) (bool, error) {
+	if ok, err := s.openIfExists(); err != nil || !ok {
+		// No sidecar => no op was ever registered.
+		return false, err
+	}
+	registered := false
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		registered = tx.Bucket(editOpsBucketOperations).Get([]byte(opID)) != nil
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return registered, nil
+}
+
 // LoadOps returns all active operations sorted by CreatedAt (ties broken by ID)
 // so transformers are applied in a deterministic order.
 func (s *SegmentEditOps) LoadOps() ([]ActiveOp, error) {

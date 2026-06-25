@@ -623,6 +623,41 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
 }
 
+// registerEditOpAndSnapshot registers opID and snapshots the current on-disk
+// segments as pending for it. Idempotent: an already-registered op returns
+// without re-snapshotting (re-snapshotting would re-queue segments it already
+// completed), making task resume safe.
+//
+// Ordering is load-bearing. RegisterOp runs first so an in-flight compaction's
+// completion bookkeeping (RecordCompaction) can see the op and re-queue a merged
+// output for it. The segment IDs are then read and snapshotted under
+// maintenanceLock — the SnapshotSegments invariant (a coherent in-memory segment
+// set, never a raw directory listing), which also prevents a switchInMemory from
+// straddling the read and the snapshot.
+func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor) error {
+	if sg.editOps == nil {
+		return fmt.Errorf("edit ops not enabled for this segment group")
+	}
+	registered, err := sg.editOps.IsRegistered(opID)
+	if err != nil {
+		return err
+	}
+	if registered {
+		return nil
+	}
+	if err := sg.editOps.RegisterOp(opID, desc); err != nil {
+		return err
+	}
+
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	ids := make([]string, len(sg.segments))
+	for i, seg := range sg.segments {
+		ids[i] = segmentID(seg.getPath())
+	}
+	return sg.editOps.SnapshotSegments(opID, ids)
+}
+
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
 	segments = make([]Segment, len(sg.segments))
