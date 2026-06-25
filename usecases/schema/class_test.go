@@ -2654,8 +2654,12 @@ func TestRestoreClass_StripNamespaces(t *testing.T) {
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
 
 	var applied *models.Class
+	var appliedState *sharding.State
 	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) { applied = args.Get(0).(*models.Class) }).
+		Run(func(args mock.Arguments) {
+			applied = args.Get(0).(*models.Class)
+			appliedState = args.Get(1).(*sharding.State)
+		}).
 		Return(nil)
 
 	descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
@@ -2665,6 +2669,8 @@ func TestRestoreClass_StripNamespaces(t *testing.T) {
 
 	require.NotNil(t, applied)
 	assert.Equal(t, "Movies", applied.Class, "class name must be stripped")
+	require.NotNil(t, appliedState)
+	assert.Equal(t, "Movies", appliedState.IndexID, "sharding-state IndexID must be re-pointed to the stripped class name")
 	byName := map[string][]string{}
 	for _, p := range applied.Properties {
 		byName[p.Name] = p.DataType

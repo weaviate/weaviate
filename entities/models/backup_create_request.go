@@ -41,7 +41,7 @@ type BackupCreateRequest struct {
 	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`.
 	Include []string `json:"include"`
 
-	// List of users to include in the backup creation process. If not set, all users are included. Permits wildcards, e.g. `*` or `prefix*`.
+	// List of dynamic DB users to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.
 	IncludeUsers []string `json:"includeUsers"`
 
 	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.

@@ -7200,7 +7200,7 @@ func init() {
           }
         },
         "includeUsers": {
-          "description": "List of users to include in the backup creation process. If not set, all users are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.",
           "type": "array",
           "items": {
             "type": "string"
@@ -18285,7 +18285,7 @@ func init() {
           }
         },
         "includeUsers": {
-          "description": "List of users to include in the backup creation process. If not set, all users are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.",
           "type": "array",
           "items": {
             "type": "string"

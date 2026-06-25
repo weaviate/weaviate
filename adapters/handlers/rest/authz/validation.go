@@ -14,6 +14,7 @@ package authz
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -72,6 +73,10 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 			if backupsInput.Collection != nil {
 				_, err := schema.ValidateClassNameIncludesRegex(*backupsInput.Collection)
 				multiErr = errors.Join(multiErr, err)
+			}
+			if backupsInput.User != nil && strings.Contains(*backupsInput.User, "/") {
+				multiErr = errors.Join(multiErr,
+					fmt.Errorf("backups permission 'user' %q must not contain '/'", *backupsInput.User))
 			}
 		}
 

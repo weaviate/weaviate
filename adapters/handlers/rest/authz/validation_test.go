@@ -185,6 +185,37 @@ func TestValidatePermissions(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "backups user with a slash is rejected",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("ns1/alice"),
+					},
+				},
+			},
+			expectedErr: "must not contain '/'",
+		},
+		{
+			name: "valid namespaced backups user",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("ns1:alice"),
+					},
+				},
+			},
+		},
+		{
+			name: "valid namespace-wildcard backups user",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("ns1:*"),
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
