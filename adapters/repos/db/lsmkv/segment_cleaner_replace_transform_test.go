@@ -38,7 +38,7 @@ func newReplaceBucketForCleanup(t *testing.T, transformer valueTransformer) *Buc
 	// Inject the transformer via the edit-ops path: a registered op makes
 	// BuildCurrentTransformer return the builder's transformer per pass.
 	if transformer != nil {
-		editOps, err := OpenSegmentEditOps(bucket.disk.dir,
+		editOps, err := openSegmentEditOps(bucket.disk.dir,
 			func(ops []ActiveOp) valueTransformer { return transformer })
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, editOps.Close()) })

@@ -14,9 +14,7 @@ package lsmkv
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
-	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -41,10 +39,13 @@ import (
 // op and segment IDs never need an in-key separator.
 type SegmentEditOps struct {
 	db *bolt.DB
-	// buildTransformer composes the live ops into a single per-pass value
-	// transformer. It is injected as an opaque func([]ActiveOp) valueTransformer
-	// so the facility stays agnostic to what the transformer does to a value
-	// (e.g. the storobj bridge that strips dropped vectors). nil disables
+	// buildTransformer is the storobj-opaque builder (func([]ActiveOp) ->
+	// valueTransformer) injected once at construction. It is a permanent member,
+	// not a per-call argument, because the storobj bridge cannot be reconstructed
+	// by the storobj-ignorant compaction/cleanup code that needs it at pass time,
+	// and those passes are driven by the cycle manager with no handle to pass it
+	// in. It is a builder, not a cached transformer: BuildCurrentTransformer
+	// invokes it per pass so the result always reflects the live ops. nil disables
 	// transformation for this segment group.
 	buildTransformer transformerBuilder
 }
@@ -57,11 +58,19 @@ var (
 	editOpsBucketQuarantine = []byte("quarantined")
 )
 
+// OpType discriminates an edit operation. lsmkv treats it opaquely (the injected
+// builder selects the transformer); the typed string just buys callers
+// compile-time safety over a bare string field.
+type OpType string
+
+// OpTypeRemoveTargetVectors strips dropped named vectors from stored objects.
+const OpTypeRemoveTargetVectors OpType = "remove_target_vectors"
+
 // OpDescriptor describes a single edit operation. It is opaque to the rewrite
 // machinery beyond Type, which selects the transformer to apply.
 type OpDescriptor struct {
-	// Type discriminates the operation; "remove_target_vectors" today.
-	Type string `json:"type"`
+	// Type discriminates the operation; OpTypeRemoveTargetVectors today.
+	Type OpType `json:"type"`
 	// Targets are the operands, e.g. the named vectors to strip.
 	Targets []string `json:"targets"`
 	// CreatedAt is a monotonic timestamp (caller-supplied) that orders
@@ -94,35 +103,6 @@ type valueTransformer func(value []byte) ([]byte, error)
 // cleanup pass so the transformer reflects the ops live at that moment.
 type transformerBuilder func(ops []ActiveOp) valueTransformer
 
-// OpenSegmentEditOps opens (creating if necessary) the edit-ops store for the
-// segment group rooted at dir. buildTransformer is the injected, storobj-opaque
-// builder used by BuildCurrentTransformer; pass nil when no transformation is
-// needed (the store is then used only for op bookkeeping).
-func OpenSegmentEditOps(dir string, buildTransformer transformerBuilder) (*SegmentEditOps, error) {
-	// One handle per segment group is the invariant. A non-zero Timeout turns a
-	// would-be-forever hang on an accidental second open into a fast, debuggable
-	// error; it never affects the single-open path (the file lock is uncontended).
-	db, err := bolt.Open(filepath.Join(dir, segmentEditOpsFileName), 0o600,
-		&bolt.Options{Timeout: 5 * time.Second})
-	if err != nil {
-		return nil, fmt.Errorf("open segment edit ops db: %w", err)
-	}
-
-	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, name := range [][]byte{editOpsBucketOperations, editOpsBucketPending, editOpsBucketQuarantine} {
-			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("init segment edit ops buckets: %w", err)
-	}
-
-	return &SegmentEditOps{db: db, buildTransformer: buildTransformer}, nil
-}
-
 func (s *SegmentEditOps) Close() error {
 	return s.db.Close()
 }
@@ -132,6 +112,14 @@ func (s *SegmentEditOps) Close() error {
 // built from. Building per pass keeps it in step with the live ops; the op set
 // lets RecordCompaction decide what the pass stripped by membership. Transformer
 // and set are both nil when no builder is configured or no ops are active.
+//
+// One transformer is applied to every segment of the pass (it is not specialised
+// per segment) and that is intentional: a dropped target must be removed from
+// all segments, so over-applying is always correct — a segment that predates an
+// op was snapshotted as pending for it (must be stripped), and one created after
+// the op cannot contain that target (the write-path reject blocked it), so the
+// strip is a harmless no-op. What varies per segment is only whether it still
+// needs processing, which pending_segments tracks separately.
 func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp, error) {
 	if s.buildTransformer == nil {
 		return nil, nil, nil

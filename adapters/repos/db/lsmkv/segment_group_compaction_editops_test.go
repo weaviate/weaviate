@@ -29,7 +29,7 @@ import (
 // has its inputs marked done but the merged output re-queued (the merge ran with
 // a transformer that never saw it).
 func TestSegmentEditOps_RecordCompaction(t *testing.T) {
-	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
+	editOps, err := openSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
@@ -59,7 +59,7 @@ func TestSegmentEditOps_RecordCompaction(t *testing.T) {
 // absent from builtOps is only re-queued when one of the merged inputs was
 // actually pending for it.
 func TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending(t *testing.T) {
-	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
+	editOps, err := openSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
@@ -82,7 +82,7 @@ func TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending(t *testing
 // The earlier, timestamp-based gate (CreatedAt > startedAt) would wrongly skip
 // this op; membership-based bookkeeping does not.
 func TestSegmentEditOps_RecordCompaction_ReQueuesLateOpWithEarlyCreatedAt(t *testing.T) {
-	editOps, err := OpenSegmentEditOps(t.TempDir(), nil)
+	editOps, err := openSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
@@ -120,7 +120,7 @@ func TestSegmentGroup_CompactionAppliesEditOpsTransformer(t *testing.T) {
 	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
 	require.NoError(t, bucket.FlushAndSwitch())
 
-	editOps, err := OpenSegmentEditOps(bucket.disk.dir, func(ops []ActiveOp) valueTransformer {
+	editOps, err := openSegmentEditOps(bucket.disk.dir, func(ops []ActiveOp) valueTransformer {
 		require.NotEmpty(t, ops)
 		return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 	})
