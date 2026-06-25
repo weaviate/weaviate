@@ -23,6 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -114,10 +116,68 @@ func (s *stubRaft) RemoveNamespaceEntity(_ context.Context, name string) (uint64
 	return 0, s.removeEntityErr[name]
 }
 
+func (s *stubRaft) DeleteRoles(names ...string) error {
+	s.fireOnCall("delete_roles")
+	for _, n := range names {
+		s.calls = append(s.calls, recordedCall{op: "delete_roles", arg: n})
+	}
+	return nil
+}
+
+func (s *stubRaft) RevokeRolesForUser(user string, roles ...string) error {
+	s.fireOnCall("revoke_roles")
+	s.calls = append(s.calls, recordedCall{op: "revoke_roles", arg: user})
+	return nil
+}
+
+// stubRBAC reports the RBAC rows bearing each namespace for the cascade.
+type stubRBAC struct {
+	// roles maps a stored role name to its presence; only the keys matter.
+	roles []string
+	// subjectsByAuth maps an auth method to the logical subjects that hold roles.
+	subjectsByAuth map[authentication.AuthType][]string
+	// rolesBySubject maps a logical subject to the role names it holds.
+	rolesBySubject map[string][]string
+}
+
+func (s stubRBAC) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
+	out := map[string][]authorization.Policy{}
+	for _, r := range s.roles {
+		out[r] = nil
+	}
+	return out, nil
+}
+
+func (s stubRBAC) GetUsersOrGroupsWithRoles(isGroup bool, authMethod authentication.AuthType) ([]string, error) {
+	if isGroup {
+		return nil, nil
+	}
+	return s.subjectsByAuth[authMethod], nil
+}
+
+func (s stubRBAC) GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
+	out := map[string][]authorization.Policy{}
+	for _, r := range s.rolesBySubject[user] {
+		out[r] = nil
+	}
+	return out, nil
+}
+
 func newTestCoordinator(t *testing.T,
 	nsLister namespaceLister,
 	schema schemaLister,
 	raft raftExecutor,
+	isLeader func() bool,
+) *Coordinator {
+	t.Helper()
+	return newTestCoordinatorRBAC(t, nsLister, schema, raft, nil, isLeader)
+}
+
+func newTestCoordinatorRBAC(t *testing.T,
+	nsLister namespaceLister,
+	schema schemaLister,
+	raft raftExecutor,
+	rbac RBACLister,
 	isLeader func() bool,
 ) *Coordinator {
 	t.Helper()
@@ -131,7 +191,7 @@ func newTestCoordinator(t *testing.T,
 			users.users[ns] = []string{ns + ":default-user"}
 		}
 	}
-	return NewCoordinator(nsLister, schema, users, raft, isLeader, logger)
+	return NewCoordinator(nsLister, schema, users, raft, rbac, isLeader, logger)
 }
 
 func alwaysLeader() bool { return true }
@@ -160,10 +220,76 @@ func TestCoordinator_NewCoordinator_PanicsOnNilArgs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Panics(t, func() {
-				NewCoordinator(tc.ns, tc.schema, tc.users, tc.raft, tc.isLeader, logger)
+				NewCoordinator(tc.ns, tc.schema, tc.users, tc.raft, nil, tc.isLeader, logger)
 			})
 		})
 	}
+}
+
+// TestCoordinator_Tick_CleansNamespaceRBAC pins the cascade: a deleting
+// namespace's local roles and its direct principals' grouping rows (including
+// assignments to global roles) are removed via RAFT, while global roles and
+// out-of-namespace subjects are left untouched.
+//
+// Journey (c) — a global subject holding a local role — is not pinned here: it
+// falls out of Raft.DeleteRoles' apply path (RemoveFilteredGroupingPolicy on the
+// role object), which the stub can't model. The acceptance suite asserts it
+// end-to-end against a real store.
+func TestCoordinator_Tick_CleansNamespaceRBAC(t *testing.T) {
+	raft := newStubRaft()
+	rbac := stubRBAC{
+		roles: []string{"customer1:editor", "global-auditor"},
+		subjectsByAuth: map[authentication.AuthType][]string{
+			authentication.AuthTypeDb:   {"customer1:alice", "bob"},
+			authentication.AuthTypeOIDC: {"customer1:carol"},
+		},
+		rolesBySubject: map[string][]string{
+			"customer1:alice": {"customer1:editor", "viewer"},
+			"customer1:carol": {"admin"},
+		},
+	}
+	ns := stubNamespaces{deleting: []string{"customer1"}}
+	c := newTestCoordinatorRBAC(t, ns, stubSchema{}, raft, rbac, alwaysLeader)
+
+	require.NoError(t, c.Tick(context.Background()))
+
+	var revoked, deleted []string
+	var entityIdx, lastRBACIdx int
+	for i, call := range raft.calls {
+		switch call.op {
+		case "revoke_roles":
+			revoked = append(revoked, call.arg)
+			lastRBACIdx = i
+		case "delete_roles":
+			deleted = append(deleted, call.arg)
+			lastRBACIdx = i
+		case "entity":
+			entityIdx = i
+		}
+	}
+
+	// Namespaced subjects revoked (db + oidc); the global subject "bob" is not.
+	assert.ElementsMatch(t, []string{"db:customer1:alice", "oidc:customer1:carol"}, revoked)
+	// Only the local role is deleted; the global role survives.
+	assert.Equal(t, []string{"customer1:editor"}, deleted)
+	// Entity removal runs after every RBAC row is cleaned.
+	assert.Greater(t, entityIdx, lastRBACIdx, "entity must be removed after RBAC cleanup")
+}
+
+// TestCoordinator_Tick_RBACDisabledSkipsCleanup pins the nil-RBAC guard: with no
+// RBAC store, the cascade issues no role/grouping deletes and still removes the
+// entity.
+func TestCoordinator_Tick_RBACDisabledSkipsCleanup(t *testing.T) {
+	raft := newStubRaft()
+	ns := stubNamespaces{deleting: []string{"customer1"}}
+	c := newTestCoordinatorRBAC(t, ns, stubSchema{}, raft, nil, alwaysLeader)
+
+	require.NoError(t, c.Tick(context.Background()))
+
+	for _, call := range raft.calls {
+		assert.NotContains(t, []string{"revoke_roles", "delete_roles"}, call.op)
+	}
+	assert.Equal(t, 1, raft.removeEntityCall["customer1"])
 }
 
 func TestCoordinator_Tick_EmptyDeletingSetIsNoop(t *testing.T) {
@@ -204,7 +330,7 @@ func TestCoordinator_Tick_RedrainOnlyWhenUsersRemain(t *testing.T) {
 			raft := newStubRaft()
 			ns := stubNamespaces{deleting: []string{"alpha"}}
 			logger, _ := test.NewNullLogger()
-			c := NewCoordinator(ns, stubSchema{}, stubUsers{users: tc.users}, raft, alwaysLeader, logger)
+			c := NewCoordinator(ns, stubSchema{}, stubUsers{users: tc.users}, raft, nil, alwaysLeader, logger)
 
 			c.Tick(context.Background())
 
