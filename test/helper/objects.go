@@ -22,6 +22,7 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/entities/modelsext"
 
@@ -736,8 +737,15 @@ func CreateAliasWithReturn(t *testing.T, alias *models.Alias) (*schema.AliasesCr
 func CreateAliasWithAuthz(t *testing.T, alias *models.Alias, authInfo runtime.ClientAuthInfoWriter) {
 	t.Helper()
 	params := schema.NewAliasesCreateParams().WithBody(alias)
-	resp, err := Client(t).Schema.AliasesCreate(params, authInfo)
-	AssertRequestOk(t, resp, err, nil)
+	// Retry while the target class is still replicating to the node the test
+	// client talks to. The class-create returns once the leader applies it, but
+	// the alias-create's "target class exists" check runs against the local
+	// schema of the contacted node, which can briefly 422. Nothing is created on
+	// that failure, so retrying until it lands is safe.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Schema.AliasesCreate(params, authInfo)
+		assert.NoError(c, err)
+	}, 10*time.Second, 50*time.Millisecond, "alias %q create kept failing while target class replicated", alias.Alias)
 }
 
 func CreateAliasAuth(t *testing.T, alias *models.Alias, key string) {
