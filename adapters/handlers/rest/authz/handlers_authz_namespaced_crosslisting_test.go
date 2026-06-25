@@ -105,6 +105,41 @@ func TestGetUsersForRoleNamespacedOutOfEnvelope(t *testing.T) {
 	require.True(t, ok, "got %T", res)
 }
 
+// TestGetUsersForRoleNamespacedExcludesForeignAndGlobal pins the per-user
+// filter: foreign-namespace and global users assigned to a role are dropped by
+// the AuthorizeSilent(READ, Users(...)) check, so a namespaced caller listing
+// the role's users sees only users in its own namespace.
+func TestGetUsersForRoleNamespacedExcludesForeignAndGlobal(t *testing.T) {
+	authorizer := nsCrossAuthorizer(t, "customer1")
+	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetRoles", "customer1:editor").Return(map[string][]authorization.Policy{
+		"customer1:editor": {collPolicy(authorization.CREATE, "customer1:Films")},
+	}, nil).Maybe()
+	// A foreign user (via OIDC) and a global user (via DB) are assigned the role
+	// alongside the own-namespace user; only the own-namespace user may survive.
+	controller.On("GetUsersOrGroupForRole", "customer1:editor", authentication.AuthTypeOIDC, false).
+		Return([]string{"customer2:eve"}, nil)
+	controller.On("GetUsersOrGroupForRole", "customer1:editor", authentication.AuthTypeDb, false).
+		Return([]string{"customer1:bob", "globaluser"}, nil)
+	controller.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {}}, nil)
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{
+		authorizer:        authorizer,
+		controller:        controller,
+		logger:            logger,
+		rbacconfig:        rbacconf.Config{Enabled: true},
+		namespacesEnabled: true,
+	}
+
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	res := h.getUsersForRole(authz.GetUsersForRoleParams{HTTPRequest: req, ID: "editor"}, principal)
+	parsed, ok := res.(*authz.GetUsersForRoleOK)
+	require.True(t, ok, "got %T", res)
+	require.Len(t, parsed.Payload, 1, "foreign and global users must be filtered out")
+	require.Equal(t, "bob", parsed.Payload[0].UserID)
+}
+
 func TestGetGroupsForRoleNamespaced(t *testing.T) {
 	authorizer := nsCrossAuthorizer(t, "customer1")
 	controller := NewMockControllerAndGetUsers(t)
@@ -129,6 +164,36 @@ func TestGetGroupsForRoleNamespaced(t *testing.T) {
 	require.True(t, ok, "got %T", res)
 	require.Len(t, parsed.Payload, 1)
 	require.Equal(t, "engineers", parsed.Payload[0].GroupID)
+}
+
+// TestGetGroupsForRoleNamespacedExcludesUnowned pins that a group the caller
+// neither owns nor can read is dropped by AuthorizeSilent. Groups are global, so
+// a namespaced caller holds no group read and sees none of the role's groups.
+func TestGetGroupsForRoleNamespacedExcludesUnowned(t *testing.T) {
+	authorizer := nsCrossAuthorizer(t, "customer1")
+	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetRoles", "customer1:editor").Return(map[string][]authorization.Policy{
+		"customer1:editor": {collPolicy(authorization.CREATE, "customer1:Films")},
+	}, nil).Maybe()
+	controller.On("GetUsersOrGroupForRole", "customer1:editor", authentication.AuthTypeOIDC, true).
+		Return([]string{"engineers", "admins"}, nil)
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{
+		authorizer:        authorizer,
+		controller:        controller,
+		logger:            logger,
+		rbacconfig:        rbacconf.Config{Enabled: true},
+		namespacesEnabled: true,
+	}
+
+	// The caller owns no group, so both fall to AuthorizeSilent, which denies any
+	// resource outside customer1.
+	principal := &models.Principal{Username: "customer1:admin", UserType: "oidc", Namespace: "customer1"}
+	res := h.getGroupsForRole(authz.GetGroupsForRoleParams{HTTPRequest: req, ID: "editor"}, principal)
+	parsed, ok := res.(*authz.GetGroupsForRoleOK)
+	require.True(t, ok, "got %T", res)
+	require.Empty(t, parsed.Payload, "groups the caller cannot read must be filtered out")
 }
 
 func TestGetRolesForUserNamespacedStripsOwn(t *testing.T) {
