@@ -69,6 +69,7 @@ type BackupBackendProvider interface {
 type schemaManger interface {
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
 	NodeName() string
+	NamespacesEnabled() bool
 }
 
 type NodeResolver interface {
@@ -130,7 +131,7 @@ func NewHandler(
 			backends),
 		restorer: newRestorer(node, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
-			backends,
+			backends, schema.NamespacesEnabled(),
 		),
 	}
 	return m
@@ -178,10 +179,6 @@ type BackupRequest struct {
 
 	RbacRestoreOption string
 	UserRestoreOption string
-
-	// Restore-only. Strips the leading "<namespace>:" from materialized
-	// class, alias, and dynamic-user identifiers.
-	ShouldStripNamespaces bool
 
 	BaseBackupID string
 }

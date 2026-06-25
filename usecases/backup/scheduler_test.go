@@ -1968,6 +1968,8 @@ func TestSchedulerRestoreAuthorizesUsers(t *testing.T) {
 			metaBytes := marshalCoordinatorMeta(meta)
 
 			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			// Strip happens iff the target cluster is non-namespaced.
+			fs.schema.namespacesEnabled = !tc.strip
 			fa := mocks.NewMockAuthorizer()
 			fs.auth = &denyUserAuthorizer{FakeAuthorizer: fa, denyResource: tc.denyResource}
 
@@ -1982,11 +1984,10 @@ func TestSchedulerRestoreAuthorizesUsers(t *testing.T) {
 			fs.client.On("Status", any, node, sReq).Return(sResp, nil)
 
 			req := BackupRequest{
-				ID:                    backupID,
-				Include:               []string{cls},
-				Backend:               backendName,
-				UserRestoreOption:     tc.option,
-				ShouldStripNamespaces: tc.strip,
+				ID:                backupID,
+				Include:           []string{cls},
+				Backend:           backendName,
+				UserRestoreOption: tc.option,
 			}
 			s := fs.scheduler()
 			resp, err := s.Restore(ctx, &models.Principal{}, &req, false)
@@ -2022,6 +2023,9 @@ func TestSchedulerRestoreAuthorizesUsers(t *testing.T) {
 			}
 			if tc.wantDispatch {
 				fs.client.AssertCalled(t, "CanCommit", any, node, any)
+				// RestoreClass receives the strip derived from the target's
+				// namespace state: strip iff the cluster is non-namespaced.
+				assert.Equal(t, tc.strip, fs.schema.lastStripNamespaces)
 			}
 		})
 	}

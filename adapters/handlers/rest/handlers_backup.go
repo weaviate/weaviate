@@ -220,17 +220,16 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		}
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:                    params.ID,
-		Backend:               params.Backend,
-		Include:               params.Body.Include,
-		Exclude:               params.Body.Exclude,
-		NodeMapping:           params.Body.NodeMapping,
-		Compression:           compressionFromRCfg(params.Body.Config),
-		Bucket:                bucket,
-		Path:                  path,
-		RbacRestoreOption:     roleOption,
-		UserRestoreOption:     userOption,
-		ShouldStripNamespaces: params.Body.ShouldStripNamespaces,
+		ID:                params.ID,
+		Backend:           params.Backend,
+		Include:           params.Body.Include,
+		Exclude:           params.Body.Exclude,
+		NodeMapping:       params.Body.NodeMapping,
+		Compression:       compressionFromRCfg(params.Body.Config),
+		Bucket:            bucket,
+		Path:              path,
+		RbacRestoreOption: roleOption,
+		UserRestoreOption: userOption,
 	}, params.Body.OverwriteAlias)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -270,7 +269,8 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		overridePath = *params.Path
 	}
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {

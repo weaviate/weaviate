@@ -69,9 +69,6 @@ type Request struct {
 
 	RestoreOverwriteAlias bool
 
-	// Restore-only. See BackupRequest.ShouldStripNamespaces.
-	ShouldStripNamespaces bool
-
 	BaseBackupID string
 }
 

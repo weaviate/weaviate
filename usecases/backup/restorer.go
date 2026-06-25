@@ -34,12 +34,13 @@ import (
 )
 
 type restorer struct {
-	node           string // node name
-	logger         logrus.FieldLogger
-	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
-	dynUserSourcer dynUserSnapshotter
-	backends       BackupBackendProvider
+	node              string // node name
+	logger            logrus.FieldLogger
+	sourcer           Sourcer
+	rbacSourcer       fsm.Snapshotter
+	dynUserSourcer    dynUserSnapshotter
+	backends          BackupBackendProvider
+	namespacesEnabled bool
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -51,16 +52,17 @@ type restorer struct {
 
 func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter,
-	backends BackupBackendProvider,
+	backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
 	return &restorer{
-		node:           node,
-		logger:         logger,
-		sourcer:        sourcer,
-		rbacSourcer:    rbacSourcer,
-		dynUserSourcer: dynUserSourcer,
-		backends:       backends,
-		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		node:              node,
+		logger:            logger,
+		sourcer:           sourcer,
+		rbacSourcer:       rbacSourcer,
+		dynUserSourcer:    dynUserSourcer,
+		backends:          backends,
+		namespacesEnabled: namespacesEnabled,
+		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
@@ -133,7 +135,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption, req.ShouldStripNamespaces)
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption, !r.namespacesEnabled)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)

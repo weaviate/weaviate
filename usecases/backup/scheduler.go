@@ -58,6 +58,7 @@ type Scheduler struct {
 	backends   BackupBackendProvider
 	// nil when dynamic DB users are not enabled.
 	userLister UserLister
+	schema     schemaManger
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -76,6 +77,7 @@ func NewScheduler(
 		authorizer: authorizer,
 		backends:   backends,
 		userLister: userLister,
+		schema:     schema,
 		backupper: newCoordinator(
 			sourcer,
 			client,
@@ -272,7 +274,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		UserRestoreOption:     req.UserRestoreOption,
 		RbacRestoreOption:     req.RbacRestoreOption,
 		RestoreOverwriteAlias: overwriteAlais,
-		ShouldStripNamespaces: req.ShouldStripNamespaces,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
@@ -298,7 +299,7 @@ func (s *Scheduler) authorizeRestoreUsers(
 		// Preserve pre-change restore behaviour: do not gate.
 		return nil
 	}
-	if req.ShouldStripNamespaces {
+	if !s.schema.NamespacesEnabled() {
 		stripped := make([]string, len(users))
 		for i, u := range users {
 			stripped[i] = namespacing.StripQualification(u)

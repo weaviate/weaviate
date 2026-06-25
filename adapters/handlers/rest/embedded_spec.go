@@ -7407,10 +7407,6 @@ func init() {
         "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
           "type": "boolean"
-        },
-        "shouldStripNamespaces": {
-          "description": "When true, restore strips the leading namespace prefix from each qualified collection, alias, and dynamic-user identifier before materializing them on the target. Used for Stage-1 namespace graduation onto a namespace-disabled cluster.",
-          "type": "boolean"
         }
       }
     },
@@ -18498,10 +18494,6 @@ func init() {
         },
         "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
-          "type": "boolean"
-        },
-        "shouldStripNamespaces": {
-          "description": "When true, restore strips the leading namespace prefix from each qualified collection, alias, and dynamic-user identifier before materializing them on the target. Used for Stage-1 namespace graduation onto a namespace-disabled cluster.",
           "type": "boolean"
         }
       }

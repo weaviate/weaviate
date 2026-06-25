@@ -287,7 +287,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
 
-		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend})
+		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
 		restorer.lastOp.set(backup.Transferring)
 
 		desc := &backup.BackupDescriptor{

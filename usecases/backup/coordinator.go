@@ -438,7 +438,7 @@ func (c *coordinator) restoreClasses(
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
-		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias, req.ShouldStripNamespaces); err != nil {
+		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias, !c.schema.NamespacesEnabled()); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			restoreErrors = append(restoreErrors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
@@ -535,22 +535,21 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 
 			reqChan <- &Request{
-				NodeName:              nodeName,
-				NodeHost:              host,
-				Method:                req.Method,
-				ID:                    c.descriptor.ID,
-				Backend:               req.Backend,
-				Classes:               gr.Classes,
-				Users:                 req.Users,
-				Duration:              _BookingPeriod,
-				NodeMapping:           c.descriptor.NodeMapping,
-				Compression:           req.Compression,
-				Bucket:                req.Bucket,
-				Path:                  req.Path,
-				UserRestoreOption:     req.UserRestoreOption,
-				RbacRestoreOption:     req.RbacRestoreOption,
-				ShouldStripNamespaces: req.ShouldStripNamespaces,
-				BaseBackupID:          c.descriptor.BaseBackupID,
+				NodeName:          nodeName,
+				NodeHost:          host,
+				Method:            req.Method,
+				ID:                c.descriptor.ID,
+				Backend:           req.Backend,
+				Classes:           gr.Classes,
+				Users:             req.Users,
+				Duration:          _BookingPeriod,
+				NodeMapping:       c.descriptor.NodeMapping,
+				Compression:       req.Compression,
+				Bucket:            req.Bucket,
+				Path:              req.Path,
+				UserRestoreOption: req.UserRestoreOption,
+				RbacRestoreOption: req.RbacRestoreOption,
+				BaseBackupID:      c.descriptor.BaseBackupID,
 			}
 		}
 		return nil

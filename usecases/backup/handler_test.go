@@ -29,6 +29,7 @@ type fakeSchemaManger struct {
 	nodeName            string
 	lastNodeMapping     map[string]string
 	lastStripNamespaces bool
+	namespacesEnabled   bool
 }
 
 func (f *fakeSchemaManger) RestoreClass(ctx context.Context, desc *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error {
@@ -39,6 +40,10 @@ func (f *fakeSchemaManger) RestoreClass(ctx context.Context, desc *backup.ClassD
 
 func (f *fakeSchemaManger) NodeName() string {
 	return f.nodeName
+}
+
+func (f *fakeSchemaManger) NamespacesEnabled() bool {
+	return f.namespacesEnabled
 }
 
 func TestFilterClasses(t *testing.T) {
