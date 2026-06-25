@@ -12,9 +12,12 @@
 package namespacing
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFindNamespaceSegments(t *testing.T) {
@@ -68,6 +71,11 @@ func TestFindNamespaceSegments(t *testing.T) {
 			wantEnd: 0,
 		},
 		{
+			name:    "groups/ deliberately not namespaceable (colon is a literal group-id char)",
+			path:    "groups/oidc/customer1:team",
+			wantEnd: 0,
+		},
+		{
 			name:    "unknown shape → not namespaceable",
 			path:    "cluster/whatever",
 			wantEnd: 0,
@@ -96,4 +104,63 @@ func TestSegmentHasSeparator(t *testing.T) {
 	path = "roles/editor"
 	start, end, _ = FindNamespaceSegments(path)
 	assert.False(t, SegmentHasSeparator(path, start, end), "bare role segment has no separator")
+}
+
+// TestRewriteNamespaceSegments pins the shared structural walk — first segment,
+// the alias second segment at end+len("/aliases/"), the non-namespaceable
+// passthrough, and abort-on-error — so the three call sites that build on it
+// (qualify, project, enforce-rewrite) cannot drift.
+func TestRewriteNamespaceSegments(t *testing.T) {
+	// upper rewrites each visited segment so both visits are observable.
+	upper := func(seg string) (string, error) { return strings.ToUpper(seg), nil }
+
+	t.Run("single collection segment", func(t *testing.T) {
+		var seen []string
+		out, err := RewriteNamespaceSegments("data/collections/Movies/shards/.*/objects/.*", func(seg string) (string, error) {
+			seen = append(seen, seg)
+			return "X:" + seg, nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Movies"}, seen)
+		assert.Equal(t, "data/collections/X:Movies/shards/.*/objects/.*", out)
+	})
+
+	t.Run("both alias segments visited, surrounding text preserved", func(t *testing.T) {
+		var seen []string
+		out, err := RewriteNamespaceSegments("aliases/collections/Movies/aliases/Films", func(seg string) (string, error) {
+			seen = append(seen, seg)
+			return strings.ToUpper(seg), nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Movies", "Films"}, seen)
+		assert.Equal(t, "aliases/collections/MOVIES/aliases/FILMS", out)
+	})
+
+	t.Run("non-namespaceable path passes through untouched", func(t *testing.T) {
+		out, err := RewriteNamespaceSegments("cluster/*", func(string) (string, error) {
+			t.Fatal("fn must not be called for a non-namespaceable path")
+			return "", nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "cluster/*", out)
+	})
+
+	t.Run("fn error on first segment aborts", func(t *testing.T) {
+		sentinel := errors.New("boom")
+		_, err := RewriteNamespaceSegments("schema/collections/Movies/shards/#", func(string) (string, error) {
+			return "", sentinel
+		})
+		assert.ErrorIs(t, err, sentinel)
+	})
+
+	t.Run("fn error on alias second segment aborts", func(t *testing.T) {
+		sentinel := errors.New("boom")
+		_, err := RewriteNamespaceSegments("aliases/collections/Movies/aliases/Films", func(seg string) (string, error) {
+			if seg == "Films" {
+				return "", sentinel
+			}
+			return upper(seg)
+		})
+		assert.ErrorIs(t, err, sentinel)
+	})
 }

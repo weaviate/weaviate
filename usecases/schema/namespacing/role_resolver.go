@@ -51,7 +51,9 @@ type RoleExistsFunc func(storedName string) (bool, error)
 // resolves to its local role first, then falls back to a global role of the
 // same short name (':' input is rejected). A global caller's name is returned
 // as-is with no existence check — a missing-role 404 is the caller's job.
-// NS-disabled: passthrough. isLocal reports a namespace-qualified result.
+// NS-disabled: passthrough. For a namespaced caller isLocal reports that a
+// local role was resolved; for a global caller it merely echoes whether the
+// input was ':'-qualified, and no caller relies on it.
 func ResolveRoleName(principal *models.Principal, namespacesEnabled bool, raw string, exists RoleExistsFunc) (stored string, isLocal bool, err error) {
 	if !namespacesEnabled {
 		return raw, false, nil
@@ -99,38 +101,15 @@ func QualifyRolePoliciesForCreate(principal *models.Principal, namespacesEnabled
 }
 
 // qualifyResourceForCreate prefixes the namespace-bearing segment(s) of a
-// single policy resource. Resources that are not namespaceable pass through.
+// single policy resource. An already-':'-qualified segment is rejected.
+// Resources that are not namespaceable pass through.
 func qualifyResourceForCreate(prefix, resource string) (string, error) {
-	start, end, hasAlias := FindNamespaceSegments(resource)
-	if end == 0 {
-		return resource, nil
-	}
-	var b strings.Builder
-	b.Grow(len(resource) + 2*len(prefix))
-	b.WriteString(resource[:start])
-	if err := writeQualifiedSegment(&b, prefix, resource, start, end); err != nil {
-		return "", err
-	}
-	if !hasAlias {
-		b.WriteString(resource[end:])
-		return b.String(), nil
-	}
-	aliasStart := end + len(AliasesMidSeg)
-	aliasEnd := len(resource)
-	b.WriteString(resource[end:aliasStart])
-	if err := writeQualifiedSegment(&b, prefix, resource, aliasStart, aliasEnd); err != nil {
-		return "", err
-	}
-	return b.String(), nil
-}
-
-func writeQualifiedSegment(b *strings.Builder, prefix, resource string, start, end int) error {
-	if SegmentHasSeparator(resource, start, end) {
-		return fmt.Errorf("'%s' is not a valid name", resource[start:end])
-	}
-	b.WriteString(prefix)
-	b.WriteString(resource[start:end])
-	return nil
+	return RewriteNamespaceSegments(resource, func(segment string) (string, error) {
+		if strings.Contains(segment, schema.NamespaceSeparator) {
+			return "", fmt.Errorf("'%s' is not a valid name", segment)
+		}
+		return prefix + segment, nil
+	})
 }
 
 // ProjectResourceForNamespace specializes a role policy resource to a target
@@ -146,47 +125,22 @@ func ProjectResourceForNamespace(resource, namespace string) (string, error) {
 	if namespace == "" {
 		return resource, nil
 	}
-	start, end, hasAlias := FindNamespaceSegments(resource)
-	if end == 0 {
-		return resource, nil
-	}
 	prefix := namespace + schema.NamespaceSeparator
-	var b strings.Builder
-	b.Grow(len(resource) + 2*len(prefix))
-	b.WriteString(resource[:start])
-	if err := writeProjectedSegment(&b, prefix, namespace, resource, start, end); err != nil {
-		return "", err
-	}
-	if !hasAlias {
-		b.WriteString(resource[end:])
-		return b.String(), nil
-	}
-	aliasStart := end + len(AliasesMidSeg)
-	aliasEnd := len(resource)
-	b.WriteString(resource[end:aliasStart])
-	if err := writeProjectedSegment(&b, prefix, namespace, resource, aliasStart, aliasEnd); err != nil {
-		return "", err
-	}
-	return b.String(), nil
+	return RewriteNamespaceSegments(resource, func(segment string) (string, error) {
+		if strings.Contains(segment, schema.NamespaceSeparator) {
+			if NamespaceFromQualified(segment) != namespace {
+				return "", ErrForeignNamespace
+			}
+			return segment, nil
+		}
+		return prefix + segment, nil
+	})
 }
 
 // ErrForeignNamespace marks a resource bound to a namespace other than the
 // projection target; callers map it to a generic denial so no foreign
 // namespace surfaces in a response.
 var ErrForeignNamespace = errors.New("resource bound to a different namespace")
-
-func writeProjectedSegment(b *strings.Builder, prefix, namespace, resource string, start, end int) error {
-	if SegmentHasSeparator(resource, start, end) {
-		if NamespaceFromQualified(resource[start:end]) != namespace {
-			return ErrForeignNamespace
-		}
-		b.WriteString(resource[start:end])
-		return nil
-	}
-	b.WriteString(prefix)
-	b.WriteString(resource[start:end])
-	return nil
-}
 
 // RoleShortNameConflict describes why a candidate role name collides with an
 // existing role under the rule that role short names are unique per namespace
