@@ -68,10 +68,6 @@ type compactorReplace struct {
 	valueTransformer valueTransformer
 }
 
-// valueTransformer rewrites a stored value in place during a segment rewrite.
-// It must be a pure, idempotent function of the value bytes.
-type valueTransformer func(value []byte) ([]byte, error)
-
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplaceReusable, level, secondaryIndexCount uint16,
 	cleanupTombstones bool,

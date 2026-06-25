@@ -33,8 +33,19 @@ func newReplaceBucketForCompaction(t *testing.T, transformer valueTransformer) *
 		WithStrategy(StrategyReplace), WithForceCompaction(true))
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
-	bucket.disk.valueTransformer = transformer
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+
+	// Inject the transformer via the edit-ops path: a registered op makes
+	// BuildCurrentTransformer return the builder's transformer per pass.
+	if transformer != nil {
+		editOps, err := openSegmentEditOps(bucket.disk.dir,
+			func(ops []ActiveOp) valueTransformer { return transformer })
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, editOps.Close()) })
+		bucket.disk.editOps = editOps
+		require.NoError(t, editOps.RegisterOp("test-op",
+			OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	}
 	return bucket
 }
 

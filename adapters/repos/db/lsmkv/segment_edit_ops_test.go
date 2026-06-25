@@ -13,15 +13,53 @@ package lsmkv
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 )
+
+// openSegmentEditOps opens (creating if necessary) the edit-ops store for the
+// segment group rooted at dir. buildTransformer is the injected, storobj-opaque
+// builder used by BuildCurrentTransformer; pass nil when no transformation is
+// needed (the store is then used only for op bookkeeping).
+//
+// It lives in the test file because on this branch the facility has no
+// production caller yet — the wiring (newSegmentGroup opening it via the bucket
+// option) lands in a later stacked PR, which reintroduces a production
+// constructor.
+func openSegmentEditOps(dir string, buildTransformer transformerBuilder) (*SegmentEditOps, error) {
+	// One handle per segment group is the invariant. A non-zero Timeout turns a
+	// would-be-forever hang on an accidental second open into a fast, debuggable
+	// error; it never affects the single-open path (the file lock is uncontended).
+	db, err := bolt.Open(filepath.Join(dir, segmentEditOpsFileName), 0o600,
+		&bolt.Options{Timeout: 5 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("open segment edit ops db: %w", err)
+	}
+
+	if err := db.Update(func(tx *bolt.Tx) error {
+		for _, name := range [][]byte{editOpsBucketOperations, editOpsBucketPending, editOpsBucketQuarantine} {
+			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("init segment edit ops buckets: %w", err)
+	}
+
+	return &SegmentEditOps{db: db, buildTransformer: buildTransformer}, nil
+}
 
 func newTestEditOps(t *testing.T) *SegmentEditOps {
 	t.Helper()
-	s, err := OpenSegmentEditOps(t.TempDir())
+	s, err := openSegmentEditOps(t.TempDir(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return s
@@ -234,14 +272,14 @@ func TestSegmentEditOps_ReconcileDeletesOrphanedOps(t *testing.T) {
 func TestSegmentEditOps_PersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 
-	s, err := OpenSegmentEditOps(dir)
+	s, err := openSegmentEditOps(dir, nil)
 	require.NoError(t, err)
 	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
 	require.NoError(t, s.SnapshotSegments("op1", []string{"seg1", "seg2"}))
 	require.NoError(t, s.BumpAttempt("op1", "seg1", errors.New("boom")))
 	require.NoError(t, s.Close())
 
-	reopened, err := OpenSegmentEditOps(dir)
+	reopened, err := openSegmentEditOps(dir, nil)
 	require.NoError(t, err)
 	defer reopened.Close()
 

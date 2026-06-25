@@ -355,6 +355,9 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
+	// set by the StrategyReplace case; consumed by the bookkeeping after the switch.
+	var builtOps []ActiveOp
+
 	// aborted=true tells the caller to close the partial .tmp and bail
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
@@ -379,9 +382,18 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
+		// Replace is the only strategy that consumes a transformer.
+		var transformer valueTransformer
+		if sg.editOps != nil {
+			transformer, builtOps, err = sg.editOps.BuildCurrentTransformer()
+			if err != nil {
+				return false, err
+			}
+		}
+
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, sg.valueTransformer)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, transformer)
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {
@@ -499,6 +511,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
+
+	if strategy == segmentindex.StrategyReplace && sg.editOps != nil {
+		if err := sg.editOps.RecordCompaction(segmentID(leftPath), segmentID(rightPath), builtOps); err != nil {
+			return false, fmt.Errorf("segment edit ops compaction bookkeeping: %w", err)
+		}
+	}
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
