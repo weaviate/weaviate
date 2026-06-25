@@ -55,10 +55,7 @@ type DistributedBackupDescriptor struct {
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
 	BaseBackupID            string                     `json:"baseBackupId"`
-	// Users are the dynamic-user IDs included in this backup (resolved includeUsers).
-	// Authz-only on restore; user-material restore is driven by the per-node
-	// UserBackups blob. nil/absent for backups taken without includeUsers.
-	Users []string `json:"users,omitempty"`
+	Users                   []string                   `json:"users,omitempty"`
 }
 
 // Len returns how many nodes exist in d

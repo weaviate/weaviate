@@ -285,11 +285,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-// authorizeRestoreUsers authorizes the dynamic users a restore will materialize.
-// No-op when user restore is disabled, and — deliberately — also a no-op when the
-// artefact enumerates no users (a backup predating the Users field, or one taken
-// without includeUsers), so existing disaster-recovery restores keep working
-// unchanged. AuthZ is evoked only when the artefact explicitly records user IDs.
 func (s *Scheduler) authorizeRestoreUsers(
 	ctx context.Context, pr *models.Principal,
 	req *BackupRequest, meta *backup.DistributedBackupDescriptor,
