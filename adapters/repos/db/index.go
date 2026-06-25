@@ -1201,6 +1201,10 @@ func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool
 	if i.replicationEnabled() {
 		return true
 	}
+	if i.replicationFSMReader != nil &&
+		i.replicationFSMReader.HasActiveReplicationForShard(i.Config.ClassName.String(), shardName) {
+		return true
+	}
 	// if the router is nil, preserve previous behavior by returning false
 	if i.router == nil {
 		return false
