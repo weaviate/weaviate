@@ -199,6 +199,25 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	return policies, nil
 }
 
+// ListGroupingSubjects returns the subject key of every role-assignment row
+// (each a `<prefix>:<user>` or `<prefix>:<group>` string).
+func (m *Manager) ListGroupingSubjects() ([]string, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	rows, err := m.casbin.GetGroupingPolicy()
+	if err != nil {
+		return nil, fmt.Errorf("GetGroupingPolicy: %w", err)
+	}
+	subjects := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r) > 0 {
+			subjects = append(subjects, r[0])
+		}
+	}
+	return subjects, nil
+}
+
 func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
