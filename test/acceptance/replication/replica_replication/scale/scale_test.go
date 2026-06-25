@@ -22,13 +22,48 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
+
+// assertAsyncReplicationActive asserts, for every shard of the class on every
+// node, whether async replication is running. AsyncReplicationStatus is
+// populated only after a hashbeat cycle runs, so a non-empty status proves the
+// per-shard gate let the cycle through (and an empty one that it was skipped).
+func assertAsyncReplicationActive(t *testing.T, class string, active bool) {
+	t.Helper()
+	verbose := verbosity.OutputVerbose
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		body, err := helper.Client(t).Nodes.NodesGetClass(
+			nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(class), nil)
+		require.NoError(ct, err)
+		require.NotNil(ct, body.Payload)
+
+		checked := 0
+		for _, node := range body.Payload.Nodes {
+			for _, shard := range node.Shards {
+				if shard.Class != class {
+					continue
+				}
+				checked++
+				if active {
+					require.NotEmpty(ct, shard.AsyncReplicationStatus,
+						"node %s shard %s: expected async replication running", node.Name, shard.Name)
+				} else {
+					require.Empty(ct, shard.AsyncReplicationStatus,
+						"node %s shard %s: expected async replication stopped", node.Name, shard.Name)
+				}
+			}
+		}
+		require.Positive(ct, checked, "expected at least one shard of %s to be reported", class)
+	}, 120*time.Second, 2*time.Second, "async replication active=%v not reached for %s", active, class)
+}
 
 var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("3bf331ac-8c86-4f95-b127-2f8f96bbc093"),
@@ -174,6 +209,10 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 		}
 	})
 
+	t.Run("async replication is active on all nodes after scale-out", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, true)
+	})
+
 	t.Run("get scale plan to decrease replication factor to 1", func(t *testing.T) {
 		resp, err := helper.Client(t).Replication.
 			GetReplicationScalePlan(replication.NewGetReplicationScalePlanParams().
@@ -228,6 +267,10 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 
 			shardingState = resp.Payload.ShardingState
 		}, 30*time.Second, 1*time.Second, "sharding state does not reflect new replication factor")
+	})
+
+	t.Run("async replication is off after scale down to 1 replica", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, false)
 	})
 
 	t.Run("verify data is available on remaining nodes after scale down", func(t *testing.T) {
@@ -377,6 +420,10 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 		}
 	})
 
+	t.Run("async replication is active on all nodes after scale-out", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, true)
+	})
+
 	t.Run("get scale plan to decrease replication factor to 1", func(t *testing.T) {
 		resp, err := helper.Client(t).Replication.
 			GetReplicationScalePlan(replication.NewGetReplicationScalePlanParams().
@@ -431,6 +478,10 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 
 			shardingState = resp.Payload.ShardingState
 		}, 30*time.Second, 1*time.Second, "sharding state does not reflect new replication factor")
+	})
+
+	t.Run("async replication is off after scale down to 1 replica", func(t *testing.T) {
+		assertAsyncReplicationActive(t, paragraphClass.Class, false)
 	})
 
 	t.Run("verify data is available on remaining nodes after scale down for each tenant", func(t *testing.T) {

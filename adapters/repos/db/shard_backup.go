@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -44,6 +45,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	if !offloading {
 		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
 			return blockedErr
+		}
+		if busy, reason := s.structuralVectorOpInFlight(); busy {
+			return fmt.Errorf("%w: shard %q: %s; transfer deferred until it completes",
+				enterrors.ErrShardBusyStructuralOp, s.name, reason)
 		}
 	}
 
@@ -132,6 +137,20 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	return nil
 }
 
+// structuralVectorOpInFlight reports whether any vector index is mid-restructure
+// (HNSW compression or dynamic flat→HNSW upgrade) — a snapshot taken now would
+// be structurally inconsistent. reason names the first offending index.
+func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
+	_ = s.ForEachVectorIndex(func(name string, vi VectorIndex) error {
+		if u, ok := vi.(upgradableIndexer); ok && u.UpgradeInProgress() {
+			busy = true
+			reason = fmt.Sprintf("vector %q: compression or flat→HNSW upgrade in progress", name)
+		}
+		return nil
+	})
+	return
+}
+
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 	if s.haltForTransferInactivityTimeout != 0 && s.haltForTransferInactivityTimeout <= inactivityTimeout {
 		// no need to update current inactivity timeout
@@ -215,7 +234,45 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
 
+	staged := make(map[string]struct{})
+
+	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		relPaths, err := idx.SnapshotMutableFiles(ctx, s.index.Config.RootPath, stagingRoot)
+		if err != nil {
+			return fmt.Errorf("snapshot mutable files of vector %q: %w", targetVector, err)
+		}
+		for _, relPath := range relPaths {
+			staged[relPath] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if s.dynamicVectorIndexDB != nil {
+		relPath, err := dynamic.SnapshotSharedStateDB(s.dynamicVectorIndexDB, s.path(), s.index.Config.RootPath, stagingRoot)
+		if err != nil {
+			return nil, err
+		}
+		staged[relPath] = struct{}{}
+	}
+
+	listed := make(map[string]struct{}, len(files))
 	for _, relPath := range files {
+		listed[relPath] = struct{}{}
+	}
+	for relPath := range staged {
+		if _, ok := listed[relPath]; !ok {
+			files = append(files, relPath)
+		}
+	}
+
+	for _, relPath := range files {
+		if _, ok := staged[relPath]; ok {
+			// already written as a consistent copy above; do not hardlink over it
+			continue
+		}
 		src := filepath.Join(s.index.Config.RootPath, relPath)
 		dst := filepath.Join(stagingRoot, relPath)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {

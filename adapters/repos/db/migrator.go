@@ -197,22 +197,17 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
-			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
-			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
-			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
-			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
-			ReplicationFactor:                            class.ReplicationConfig.Factor,
-			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
-			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
-			ShardLoadLimiter:                             m.db.shardLoadLimiter,
-			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
-			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
-			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
-			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,
-			HNSWSnapshotOnStartup:                        m.db.config.HNSWSnapshotOnStartup,
-			HNSWSnapshotMinDeltaCommitlogsNumber:         m.db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
-			HNSWSnapshotMinDeltaCommitlogsSizePercentage: m.db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
+			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
+			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
+			SkipWriteClassNameOnDisk:            m.db.config.LSMSkipWriteClassNameEnabled,
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
+			AsyncReplicationConfig:              asyncConfig,
+			AsyncReplicationScheduler:           m.db.asyncReplicationScheduler,
+			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+			ShardLoadLimiter:                    m.db.shardLoadLimiter,
+			BucketLoadLimiter:                   m.db.bucketLoadLimiter,
+			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled
 				if lazyLoadShardEnabled {
@@ -220,15 +215,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				}
 				return m.db.config.HNSWWaitForCachePrefill
 			}(),
-			HNSWFlatSearchConcurrency: m.db.config.HNSWFlatSearchConcurrency,
-			HNSWAcornFilterRatio:      m.db.config.HNSWAcornFilterRatio,
-			VisitedListPoolMaxSize:    m.db.config.VisitedListPoolMaxSize,
-			QuerySlowLogEnabled:       m.db.config.QuerySlowLogEnabled,
-			QuerySlowLogThreshold:     m.db.config.QuerySlowLogThreshold,
-			InvertedSorterDisabled:    m.db.config.InvertedSorterDisabled,
-			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:             m.db.config.HFreshEnabled,
-			AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
+			HNSWFlatSearchConcurrency:  m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:       m.db.config.HNSWAcornFilterRatio,
+			VisitedListPoolMaxSize:     m.db.config.VisitedListPoolMaxSize,
+			QuerySlowLogEnabled:        m.db.config.QuerySlowLogEnabled,
+			QuerySlowLogThreshold:      m.db.config.QuerySlowLogThreshold,
+			InvertedSorterDisabled:     m.db.config.InvertedSorterDisabled,
+			LazyPropertyLengthsEnabled: m.db.config.LazyPropertyLengthsEnabled,
+			MaintenanceModeEnabled:     m.db.config.MaintenanceModeEnabled,
+			HFreshEnabled:              m.db.config.HFreshEnabled,
+			AutoTenantActivation:       schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -244,6 +240,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 	idx.usageLimits = m.db.usageLimits
 	idx.db = m.db
+	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
@@ -323,6 +320,14 @@ func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
 		return fmt.Errorf("could not find collection %s", class)
 	}
 	return idx.dropShards([]string{shard})
+}
+
+func (m *Migrator) ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.ReconcileAsyncReplicationForShard(ctx, shard)
 }
 
 func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error {

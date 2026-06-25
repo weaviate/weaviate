@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -181,9 +182,10 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction    bool
-	disableCompaction  bool
-	lazySegmentLoading bool
+	forceCompaction     bool
+	disableCompaction   bool
+	lazySegmentLoading  bool
+	lazyPropertyLengths *configRuntime.DynamicValue[bool]
 
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
@@ -351,6 +353,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
+			lazyPropertyLengths:          b.lazyPropertyLengths,
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
@@ -663,6 +666,24 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	return b.get(key)
+}
+
+// Exists checks whether the given key exists and is not deleted without reading
+// the full value.
+//
+// Exists is specific to ReplaceStrategy.
+func (b *Bucket) Exists(key []byte) (bool, error) {
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	err := b.existsWithConsistentView(key, view)
+	if err != nil {
+		if lsmkv.IsDeletedOrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
@@ -1152,6 +1173,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
+	skipPropertyLengths        bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -1165,6 +1187,14 @@ func MapListAcceptDuplicates() MapListOption {
 func MapListLegacySortingRequired() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.legacyRequireManualSorting = true
+	}
+}
+
+// MapListSkipPropertyLengths skips loading an inverted segment's per-document
+// property length map, for callers that read only keys (e.g. filter resolution).
+func MapListSkipPropertyLengths() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.skipPropertyLengths = true
 	}
 }
 
@@ -1213,7 +1243,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
 		propLengths := make(map[uint64]uint32)
-		if segmentStrategy == segmentindex.StrategyInverted {
+		if segmentStrategy == segmentindex.StrategyInverted && !c.skipPropertyLengths {
 			propLengths, err = segmentsDisk[i].getPropertyLengths()
 			if err != nil {
 				return nil, err
@@ -2342,6 +2372,12 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	}
 	term.propLengths = make(map[uint64]uint32)
 
+	// SetIdf later recomputes currentBlockImpact from MaxImpactTf/PropLength. If
+	// those fields are left at zero, the recomputed impact — the WAND upper bound
+	// — is zero too, so record the posting list's max-impact pair here.
+	maxImpact := float64(0)
+	var maxImpactTf, maxImpactPropLength uint32
+
 	for _, v := range mem {
 		if v.Tombstone {
 			continue
@@ -2363,15 +2399,24 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
 
+		tf := float64(d.Frequency)
+		pl := float64(d.PropLength)
+		if impact := tf / (tf + term.k1*(1-term.b+term.b*(pl/term.averagePropLength))); impact > maxImpact {
+			maxImpact = impact
+			maxImpactTf = uint32(d.Frequency)
+			maxImpactPropLength = uint32(d.PropLength)
+		}
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
 	}
 	term.exhausted = false
-	term.blockEntries = make([]*terms.BlockEntry, 1)
-	term.blockEntries[0] = &terms.BlockEntry{
-		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
-		Offset: 0,
+	term.blockEntries = make([]terms.BlockEntry, 1)
+	term.blockEntries[0] = terms.BlockEntry{
+		MaxId:               term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
+		Offset:              0,
+		MaxImpactTf:         maxImpactTf,
+		MaxImpactPropLength: maxImpactPropLength,
 	}
 
 	term.currentBlockMaxId = term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1]

@@ -928,3 +928,13 @@ func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromProper
 
 	return func() { disabled.Store(true) }
 }
+
+// AnyActiveMovement reports whether a replica movement is in flight for this shard.
+// replicationFSM is nil during the startup window before SetReplicationFSM runs, so a
+// nil there reads as "no movement" rather than panicking the scheduler goroutine.
+func (s *Shard) AnyActiveMovement() bool {
+	if s == nil || s.index == nil || s.index.db == nil || s.index.db.replicationFSM == nil {
+		return false
+	}
+	return s.index.db.replicationFSM.HasActiveReplicationForShard(s.index.Config.ClassName.String(), s.name)
+}

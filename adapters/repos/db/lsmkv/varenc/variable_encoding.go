@@ -46,3 +46,21 @@ func GetVarEncEncoder64(t VarEncDataType) VarEncEncoder[uint64] {
 		return nil
 	}
 }
+
+// GetDecodeFunc returns a stateless reusable-decode function for the query read
+// path. Unlike GetVarEncEncoder64 it allocates no per-call buffers and needs no
+// encoder instance — DecodeReusable writes straight into the caller's slice — so
+// callers avoid one heap allocation per term and the interface dispatch. Returns
+// nil for codecs without a uint64 decoder (same contract as GetVarEncEncoder64).
+func GetDecodeFunc(t VarEncDataType) func(data []byte, values []uint64) {
+	switch t {
+	case VarIntUint64:
+		return func(data []byte, values []uint64) { decodeReusable(values, data, false) }
+	case DeltaVarIntUint64:
+		return func(data []byte, values []uint64) { decodeReusable(values, data, true) }
+	case SimpleUint64:
+		return decodeSimpleUint64
+	default:
+		return nil
+	}
+}

@@ -14,6 +14,7 @@ package usage
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -365,4 +366,70 @@ func TestModule_ZeroIntervalProtection(t *testing.T) {
 	assert.Greater(t, baseModule.interval, time.Duration(0))
 
 	mockStorage.AssertExpectations(t)
+}
+
+// TestSetUsageService_StartsCollectorExactlyOnce tests that the collector only
+// starts after a valid service is provided, and that repeated calls neither
+// replace the service nor start additional collectors
+func TestSetUsageService_StartsCollectorExactlyOnce(t *testing.T) {
+	logger := logrus.New()
+
+	mockStorage := NewMockStorageBackend(t)
+	mockUsageService := clusterusage.NewMockService(t)
+
+	uploads := make(chan struct{}, 16)
+	mockUsageService.EXPECT().SetJitterInterval(mock.Anything).Return().Once()
+	mockUsageService.EXPECT().Usage(mock.Anything, mock.Anything).Return(&types.Report{Node: "test-node"}, nil)
+	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *types.Report) error {
+		uploads <- struct{}{}
+		return nil
+	})
+	mockStorage.EXPECT().UpdateConfig(mock.Anything).Return(false, nil).Maybe()
+
+	baseModule := NewBaseModule("test-module", mockStorage)
+	// short initial interval with a long base interval: each collector fires
+	// exactly one collection cycle during the test window, so a duplicate
+	// collector would show up as a second upload
+	baseModule.interval = time.Hour
+	baseModule.initialInterval = 10 * time.Millisecond
+	baseModule.nodeID = "test-node"
+	baseModule.policyVersion = "2025-06-01"
+	baseModule.metrics = NewMetrics(prometheus.NewRegistry(), "test-module")
+	baseModule.logger = logger.WithField("component", "test-module")
+	baseModule.lastPushDateFilePath = filepath.Join(t.TempDir(), "usage.module.last.push")
+	baseModule.config = &config.Config{
+		Usage: usagetypes.UsageConfig{
+			// matches the module's jitter so reloadConfig does not call
+			// SetJitterInterval again
+			ShardJitterInterval: runtime.NewDynamicValue(DefaultShardJitterInterval),
+		},
+		RuntimeOverrides: config.RuntimeOverrides{
+			LoadInterval: 2 * time.Minute,
+		},
+	}
+	defer close(baseModule.stopChan)
+
+	// an invalid service must not be set and must not start the collector
+	baseModule.SetUsageService("not a usage service")
+	assert.Nil(t, baseModule.usageService)
+
+	baseModule.SetUsageService(mockUsageService)
+
+	// a second call must keep the original service and not start another
+	// collector - any call on this mock fails the test
+	baseModule.SetUsageService(clusterusage.NewMockService(t))
+	assert.Same(t, mockUsageService, baseModule.usageService)
+
+	select {
+	case <-uploads:
+	case <-time.After(5 * time.Second):
+		t.Fatal("collector did not start after setting a valid usage service")
+	}
+
+	// a duplicate collector would fire its own initial collection right away
+	select {
+	case <-uploads:
+		t.Fatal("second collection cycle fired - collector started more than once")
+	case <-time.After(200 * time.Millisecond):
+	}
 }

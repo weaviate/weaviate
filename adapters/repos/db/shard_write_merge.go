@@ -76,6 +76,20 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 }
 
 func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
+	// Read once: reused by the reject below and the carried-over skip in the
+	// re-index loop. Lives here, not in MergeObject, because replication enters
+	// merge directly (shard_replication.go). The snapshot is intentionally
+	// consistent — a drop landing after this read isn't seen for the rest of the
+	// call (a pre-existing concurrent-schema-change window, not widened here).
+	class := s.index.getClass()
+
+	// Reject a merge that explicitly supplies a dropped vector.
+	for targetVector := range doc.Vectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			return errDroppedVectorIndex(targetVector)
+		}
+	}
+
 	obj, status, err := s.mergeObjectInStorage(ctx, doc, idBytes)
 	if err != nil {
 		return err
@@ -88,11 +102,17 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 	}
 
 	for targetVector, vector := range obj.Vectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			continue
+		}
 		if err = s.updateVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
 	}
 	for targetVector, vector := range obj.MultiVectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			continue
+		}
 		if err = s.updateMultiVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}

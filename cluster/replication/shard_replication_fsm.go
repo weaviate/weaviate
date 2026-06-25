@@ -224,6 +224,55 @@ func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, sha
 	return s.getOpsWithStatus(ops), true
 }
 
+// HasActiveReplicationForShard reports whether a non-terminal replication op exists for
+// collection/shard. The result is independent of which node hosts the source or target
+// replica — both share the collection/shard key — and reads only RAFT-replicated state, so
+// every node in the cluster returns the same answer.
+func (s *ShardReplicationFSM) HasActiveReplicationForShard(collection, shard string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollectionAndShard[collection][shard] {
+		if status, ok := s.statusById[op.ID]; ok && status.ShouldConsumeOps() {
+			return true
+		}
+	}
+	return false
+}
+
+// HasActiveReplicationForCollection is HasActiveReplicationForShard across every shard of the
+// collection, for gating class-wide schema mutations.
+func (s *ShardReplicationFSM) HasActiveReplicationForCollection(collection string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollection[collection] {
+		if status, ok := s.statusById[op.ID]; ok && status.ShouldConsumeOps() {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, shard, replica string) bool {
+	ops, ok := s.GetOpsForTargetNode(replica)
+	if !ok {
+		return false
+	}
+	for _, o := range ops {
+		if o.Op.TargetShard.CollectionId != collection || o.Op.TargetShard.ShardId != shard {
+			continue
+		}
+		switch o.Status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			// terminal — does not block async-repl gating
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
 	opsWithStatus := make([]ShardReplicationOpAndStatus, 0, len(ops))
 	for _, op := range ops {
@@ -396,7 +445,7 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 
 // AllPeersAtLeast reports whether every peer has PerNodeState[peer] >= target.
 // Missing peers count as not satisfied.
-func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState) bool {
+func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState, peers []string) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	st, ok := s.statusById[opID]
@@ -404,10 +453,33 @@ func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardRepli
 		return false
 	}
 	floor := api.StateRank(target)
-	for _, st := range st.PerNodeState {
-		if api.StateRank(st) < floor {
+	for _, peer := range peers {
+		state, ok := st.PerNodeState[peer]
+		if !ok {
+			return false
+		}
+		if api.StateRank(state) < floor {
 			return false
 		}
 	}
 	return true
+}
+
+// NonTerminalOpStates returns the current state of every op that has not reached
+// a terminal state (READY/CANCELLED), keyed by op id. It is used after a
+// snapshot restore to re-announce this node's reached state for in-progress ops;
+// see Manager.Restore.
+func (s *ShardReplicationFSM) NonTerminalOpStates() map[uint64]api.ShardReplicationState {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	out := make(map[uint64]api.ShardReplicationState, len(s.statusById))
+	for id, status := range s.statusById {
+		switch status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			continue
+		default:
+			out[id] = status.GetCurrentState()
+		}
+	}
+	return out
 }

@@ -505,9 +505,26 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		switch c.sg.strategy {
 		case StrategyReplace:
+			var transformer valueTransformer
+			if c.sg.editOps != nil {
+				// This is the heuristic (tombstone) cleanup path, which picks its
+				// own candidate rather than draining the edit-ops pending set, so it
+				// neither re-queues (no merge) nor marks anything done. That is safe
+				// because a single-segment cleanup keeps the segment ID
+				// (replaceSegment -> switchOnDisk strips .tmp back to the same
+				// segment-<id>.db): any edit-ops pending row for this segment still
+				// points at a live, now-stripped segment, so the edit-ops cleanup
+				// driver re-cleans it idempotently and then marks it done. The ID
+				// never changes here, so a pending row can never be orphaned onto a
+				// missing segment.
+				transformer, _, err = c.sg.editOps.BuildCurrentTransformer()
+				if err != nil {
+					return false, err
+				}
+			}
 			c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 				c.sg.makeKeyExistsOnUpperSegments(segments, startIdx, lastIdx), oldSegment.getLevel(),
-				oldSegment.getSecondaryIndexCount(), c.sg.enableChecksumValidation)
+				oldSegment.getSecondaryIndexCount(), c.sg.enableChecksumValidation, transformer)
 			if err = c.do(shouldAbort); err != nil {
 				return false, err
 			}

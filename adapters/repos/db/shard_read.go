@@ -121,6 +121,10 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
+	// Decode props via jsonparser (no reflection). Only schema properties are
+	// decoded; a stored property absent from the schema (i.e. deleted) is dropped.
+	propExtraction := storobj.AllPropertiesExtraction(s.index.getSchema.ReadOnlyClass(className))
+
 	for i, id := range ids {
 		bytes, err := bucket.Get(id)
 		if err != nil {
@@ -131,7 +135,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinaryDisk(bytes, className)
+		obj, err := storobj.FromBinaryDiskWithProps(bytes, className, propExtraction)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -188,14 +192,21 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-	cursor := bucket.Cursor()
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
 	defer cursor.Close()
 
+	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
+}
+
+// collectObjectDigests seeks cursor to initialKey and returns up to limit
+// digests with key <= finalKey. The cursor is reused across calls by the
+// async-replication scan, so it must not be opened/closed here.
+func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
+	initialKey, finalKey []byte, limit int) (objs []types.RepairResponse, err error,
+) {
 	n := 0
 
-	for k, v := cursor.Seek(initialUUID16[:]); n < limit && k != nil && bytes.Compare(k, finalUUID16[:]) < 1; k, v = cursor.Next() {
+	for k, v := cursor.Seek(initialKey); n < limit && k != nil && bytes.Compare(k, finalKey) < 1; k, v = cursor.Next() {
 		if ctx.Err() != nil {
 			return objs, ctx.Err()
 		}
@@ -210,12 +221,10 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 			return objs, fmt.Errorf("cannot parse object uuid: %w", err)
 		}
 
-		replicaObj := types.RepairResponse{
+		objs = append(objs, types.RepairResponse{
 			ID:         uuidParsed.String(),
 			UpdateTime: updateTime,
-		}
-
-		objs = append(objs, replicaObj)
+		})
 
 		n++
 	}

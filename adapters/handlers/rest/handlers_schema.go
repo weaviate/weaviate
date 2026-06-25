@@ -379,7 +379,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
+			return schema.NewSchemaDumpInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -417,7 +417,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaObjectsShardsGetNotFound().
+			return schema.NewSchemaObjectsShardsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
@@ -433,15 +433,16 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.UpdateShardStatus(
-		ctx, principal, params.ClassName, params.ShardName, params.Body.Status)
+		ctx, principal, params.ClassName, params.ShardName, params.Body.Status,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsGetForbidden().
+			return schema.NewSchemaObjectsShardsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
@@ -457,7 +458,8 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.AddTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
@@ -483,7 +485,8 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	updatedTenants, err := s.manager.UpdateTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -505,7 +508,8 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	err := s.manager.DeleteTenants(
-		ctx, principal, params.ClassName, params.Tenants)
+		ctx, principal, params.ClassName, params.Tenants,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {

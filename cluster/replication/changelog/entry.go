@@ -68,7 +68,7 @@ func Encode(dst []byte, e *Entry) ([]byte, error) {
 	// LSN is big-endian per the spec; byteops is little-endian only.
 	binary.BigEndian.PutUint64(dst[1:9], e.LSN)
 
-	rw := byteops.NewReadWriterWithOps(dst, byteops.WithPosition(9))
+	rw := byteops.NewReadWriterWithPosition(dst, 9)
 	var flags uint8
 	if e.IsDelete {
 		flags |= flagDelete
