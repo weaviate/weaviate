@@ -34,33 +34,39 @@ func (denyAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
 func (denyAllocChecker) Refresh(bool)                            {}
 
 // newReplaceBucketWithEditOps wires a real cleaner (cleanupInterval > 0) plus an
-// edit-ops facility via the production WithTransformerBuilder path, with a long
-// interval so the time/size heuristic would never fire — proving the edit-ops
-// path bypasses it. The facility is owned by the segment group and closed on
-// bucket shutdown.
+// edit-ops facility, with a long interval so the time/size heuristic would never
+// fire — proving the edit-ops path bypasses it. The facility is owned by the
+// segment group and closed on bucket shutdown.
+//
+// A non-nil builder goes through the production WithTransformerBuilder path. A
+// nil builder can't (WithTransformerBuilder opens nothing for a nil func), so the
+// helper attaches an edit-ops store with a nil builder directly — exercising the
+// nil-transformer guard, which in production is reached via orphan pending rows.
 func newReplaceBucketWithEditOps(t *testing.T, builder TransformerBuilder) (*Bucket, *SegmentEditOps) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
+	opts := []BucketOption{WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour)}
+	if builder != nil {
+		opts = append(opts, WithTransformerBuilder(builder))
+	}
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour),
-		WithTransformerBuilder(builder))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 
-	if builder == nil {
-		// WithTransformerBuilder(nil) wires no sidecar (a nil builder means there
-		// is nothing to transform), but the nil-transformer guard test needs an
-		// editOps facility whose BuildCurrentTransformer returns nil. Attach a
-		// nil-builder store directly so the cleanup path is still exercised.
-		bucket.disk.editOps = newSegmentEditOps(bucket.disk.dir, nil)
+	if builder != nil {
+		return bucket, bucket.disk.editOps
 	}
 
-	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
-	return bucket, bucket.disk.editOps
+	// Assigned onto the segment group so bucket.Shutdown closes it (no extra
+	// Cleanup, which would double-close).
+	editOps := newSegmentEditOps(bucket.disk.dir, nil)
+	bucket.disk.editOps = editOps
+	return bucket, editOps
 }
 
 func segIDsOf(bucket *Bucket) []string {

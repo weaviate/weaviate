@@ -90,3 +90,41 @@ func TestBucket_NoTransformerBuilder_NoEditOps(t *testing.T) {
 
 	require.Nil(t, bucket.disk.editOps)
 }
+
+// TestBucket_RegisterEditOp_SnapshotsAndResumes pins the op-registration entry
+// point: it flushes + snapshots the current segments as pending, and a repeat
+// call (task resume) is an idempotent no-op rather than re-queueing them.
+func TestBucket_RegisterEditOp_SnapshotsAndResumes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	builder := func(ops []ActiveOp) func([]byte) ([]byte, error) {
+		return func(v []byte) ([]byte, error) { return v, nil }
+	}
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithTransformerBuilder(builder))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+	bucket.SetMemtableThreshold(1e9)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+
+	// RegisterEditOp flushes the active memtable then snapshots every segment.
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.NotEmpty(t, pending, "current segments must be snapshotted as pending")
+	first := append([]string(nil), pending...)
+
+	// Resume: a second call must not re-snapshot / change the pending set.
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+	pending2, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, first, pending2)
+}
