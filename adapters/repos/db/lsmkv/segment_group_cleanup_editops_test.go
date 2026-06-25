@@ -26,6 +26,13 @@ func prefixTransformerBuilder(ops []ActiveOp) valueTransformer {
 	return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 }
 
+// denyAllocChecker always reports memory pressure, forcing the cleanup OOM guard.
+type denyAllocChecker struct{}
+
+func (denyAllocChecker) CheckAlloc(int64) error                  { return errors.New("no memory") }
+func (denyAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
+func (denyAllocChecker) Refresh(bool)                            {}
+
 // newReplaceBucketWithEditOps wires a real cleaner (cleanupInterval > 0) plus an
 // edit-ops facility, with a long interval so the time/size heuristic would never
 // fire — proving the edit-ops path bypasses it.
@@ -90,6 +97,40 @@ func TestSegmentCleanerEditOps_PicksPendingRegardlessOfInterval(t *testing.T) {
 	require.Empty(t, pending)
 }
 
+// TestSegmentCleanerEditOps_MultiOpSameSegment pins the grouping contract: when
+// several ops have the same segment pending, it is rewritten exactly once (the
+// transformer is applied a single time, not twice) and every op's row for it is
+// marked done.
+func TestSegmentCleanerEditOps_MultiOpSameSegment(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	segs := segIDsOf(bucket)
+	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, editOps.RegisterOp("op2", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 2}))
+	require.NoError(t, editOps.SnapshotSegments("op1", segs))
+	require.NoError(t, editOps.SnapshotSegments("op2", segs))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.True(t, cleaned)
+
+	// Rewritten exactly once: a single transformer application (X:v1, not X:X:v1).
+	v1, err := bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v1)
+
+	// Both ops' rows for the shared segment are marked done.
+	p1, err := editOps.Pending("op1")
+	require.NoError(t, err)
+	require.Empty(t, p1)
+	p2, err := editOps.Pending("op2")
+	require.NoError(t, err)
+	require.Empty(t, p2)
+}
+
 // TestSegmentCleanerEditOps_NilTransformerDoesNotMarkDone pins the guard against
 // silently completing a drop without stripping: with a nil transformer (no
 // builder) but pending rows, cleanup must not rewrite-and-mark-done.
@@ -111,6 +152,38 @@ func TestSegmentCleanerEditOps_NilTransformerDoesNotMarkDone(t *testing.T) {
 	pending, err := editOps.Pending("op1")
 	require.NoError(t, err)
 	require.NotEmpty(t, pending)
+}
+
+// TestSegmentCleanerEditOps_MemoryPressurePausesWithoutBumping pins that an OOM
+// guard hit pauses the pass (nothing cleaned) without counting as a failed
+// attempt — so a transient low-memory window can't quarantine a healthy segment.
+func TestSegmentCleanerEditOps_MemoryPressurePausesWithoutBumping(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket.disk.allocChecker = denyAllocChecker{}
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	segID := segIDsOf(bucket)[0]
+	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{segID}))
+
+	// More passes than the quarantine budget: if pauses bumped attempts the
+	// segment would be quarantined, so this proves a pause is not a failure.
+	for range maxCleanupAttempts + 2 {
+		cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+		require.NoError(t, err)
+		require.False(t, cleaned)
+	}
+
+	all, err := editOps.AllPending()
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	require.Equal(t, 0, all[0].Attempts)
+
+	q, err := editOps.Quarantined()
+	require.NoError(t, err)
+	require.Empty(t, q)
 }
 
 // TestSegmentCleanerEditOps_ENOENTRemovesStaleRow drops a pending row whose

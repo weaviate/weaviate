@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +29,15 @@ const (
 	cleanupDbFileName     = "cleanup.db.bolt"
 	emptyIdx              = -1
 	minCleanupSizePercent = 10
+	// cleanupAllocCheckBytes is the headroom required before starting a rewrite;
+	// matches the heuristic cleanup path's guard.
+	cleanupAllocCheckBytes = 100 * 1024 * 1024
 )
+
+// errCleanupPaused signals an edit-ops cleanup pass to stop without counting the
+// segment as a failed attempt (a pause under memory pressure, not a
+// quarantine-eligible error).
+var errCleanupPaused = errors.New("cleanup paused due to memory pressure")
 
 var (
 	cleanupDbBucketSegments       = []byte("segments")
@@ -425,7 +434,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	// pending set (every pending segment must be rewritten through the
 	// transformer), bypassing the time/size heuristic and the cleanupInterval.
 	// Normal cleanup resumes once there are no pending segments.
-	if c.sg.editOps != nil {
+	if c.sg.editOps != nil && c.sg.strategy == StrategyReplace {
 		cleaned, handled, err := c.cleanupOnceEditOps(shouldAbort)
 		if handled || err != nil {
 			return cleaned, err
@@ -630,14 +639,22 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 
 		idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
 		if cerr != nil {
+			if errors.Is(cerr, errCleanupPaused) {
+				// Memory pressure: stop the pass without bumping attempts so a
+				// transient low-memory window can't quarantine a healthy segment.
+				c.sg.logger.WithField("action", "lsm_cleanup_editops").
+					WithField("path", c.sg.dir).
+					Warn("pausing edit-ops cleanup due to memory pressure")
+				break
+			}
 			if e := c.bumpOrQuarantine(rows, cerr); e != nil {
 				return cleaned, true, e
 			}
 			continue
 		}
 		if !found {
-			// Merged/cleaned away by a concurrent compaction; drop the stale
-			// rows (ENOENT-tolerant).
+			// No longer in the live segment set (merged away by a concurrent
+			// compaction); drop the stale rows.
 			if e := c.markRowsDone(rows); e != nil {
 				return cleaned, true, e
 			}
@@ -658,7 +675,9 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 
 // cleanPendingSegmentToTmp locates the segment by id and rewrites it (minus keys
 // shadowed by newer segments, transformer applied) into a .tmp file. found is
-// false when the segment is no longer on disk; idx is consumed by replaceSegment.
+// false when the segment is no longer in the live segment set (merged away by a
+// concurrent compaction); idx is consumed by replaceSegment. Returns
+// errCleanupPaused if memory pressure should pause the pass before the rewrite.
 func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	transformer valueTransformer, shouldAbort cyclemanager.ShouldAbortCallback,
 ) (idx int, tmpPath string, found bool, err error) {
@@ -674,6 +693,15 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	}
 	if idx == emptyIdx {
 		return emptyIdx, "", false, nil
+	}
+
+	// Mirror the heuristic path's OOM guard: a rewrite produces a full copy of the
+	// segment, so under memory pressure pause the pass (errCleanupPaused) rather
+	// than push the system further. A pause must not count as a failed attempt.
+	if c.sg.allocChecker != nil {
+		if err := c.sg.allocChecker.CheckAlloc(cleanupAllocCheckBytes); err != nil {
+			return emptyIdx, "", false, errCleanupPaused
+		}
 	}
 
 	oldSegment := segments[idx]
