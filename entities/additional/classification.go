@@ -44,6 +44,10 @@ type Properties struct {
 	// QueryProfile enables per-shard query profiling data collection and return.
 	QueryProfile bool `json:"queryProfile"`
 
+	// TraceSpans forces OTel span emission for this request only, independent of
+	// the runtime tracing toggles.
+	TraceSpans bool `json:"traceSpans"`
+
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.
 	NoProps bool `json:"noProps"`

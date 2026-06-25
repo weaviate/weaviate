@@ -30,6 +30,13 @@ type Config struct {
 	SamplingRate       float64
 	BatchTimeout       time.Duration
 	MaxExportBatchSize int
+	// Headers are sent with every OTLP export request, e.g. the auth token a
+	// managed backend like dash0 requires (Authorization=Bearer …).
+	Headers map[string]string
+	// Insecure disables transport TLS for the OTLP exporter. It defaults to true
+	// to preserve the historical localhost-collector behaviour; set it false for
+	// TLS-only backends.
+	Insecure bool
 }
 
 // DefaultConfig returns the default OpenTelemetry configuration
@@ -43,6 +50,7 @@ func DefaultConfig() *Config {
 		SamplingRate:       0.01, // 1% sampling by default
 		BatchTimeout:       5 * time.Second,
 		MaxExportBatchSize: 512,
+		Insecure:           true,
 	}
 }
 
@@ -107,7 +115,35 @@ func FromEnvironment() *Config {
 		}
 	}
 
+	// Exporter transport: TLS + headers for managed OTLP backends (e.g. dash0).
+	if insecure := os.Getenv("EXPERIMENTAL_OTEL_EXPORTER_INSECURE"); insecure != "" {
+		cfg.Insecure = config.Enabled(insecure)
+	}
+
+	if headers := parseHeaders(os.Getenv("EXPERIMENTAL_OTEL_EXPORTER_HEADERS")); len(headers) > 0 {
+		cfg.Headers = headers
+	}
+
 	return cfg
+}
+
+// parseHeaders parses "k=v,k=v" OTLP export headers, e.g.
+// "Authorization=Bearer abc,Dash0-Dataset=prod". Entries without "=" or with an
+// empty key are skipped; only the first "=" splits, so values may contain "=".
+func parseHeaders(raw string) map[string]string {
+	if raw == "" {
+		return nil
+	}
+	headers := make(map[string]string)
+	for _, pair := range strings.Split(raw, ",") {
+		k, v, ok := strings.Cut(pair, "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			continue
+		}
+		headers[k] = strings.TrimSpace(v)
+	}
+	return headers
 }
 
 // IsValid checks if the configuration is valid

@@ -26,6 +26,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -40,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/tracing"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
 
@@ -216,6 +220,10 @@ func (e *Explorer) applyBoostIfNeeded(res []search.Result, boost *filters.Boost,
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.AreaBM25, "weaviate.explorer.bm25",
+		trace.WithAttributes(attribute.String("weaviate.collection", params.ClassName)))
+	defer span.End()
+
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
 	}
@@ -262,6 +270,10 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, models.Vector, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.AreaVector, "weaviate.explorer.vectorSearch",
+		trace.WithAttributes(attribute.String("weaviate.collection", params.ClassName)))
+	defer span.End()
+
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)

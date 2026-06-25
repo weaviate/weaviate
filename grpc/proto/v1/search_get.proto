@@ -88,6 +88,9 @@ message MetadataRequest {
   // query_profile enables per-shard query profiling. When true, the response includes
   // timing breakdowns for each shard and search type.
   bool query_profile = 11;
+  // trace_spans forces OTel span emission for this request only, independent of
+  // the runtime tracing toggles.
+  bool trace_spans = 12;
 }
 
 message PropertiesRequest {
