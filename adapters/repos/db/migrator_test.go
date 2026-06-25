@@ -340,6 +340,41 @@ func TestUpdateIndexShards(t *testing.T) {
 	}
 }
 
+// When the index is not local yet (RAFT schema not applied on this node) or
+// the class does not exist, the shard-status migrator methods must wrap
+// schemaUC.ErrNotFound so the REST handler maps them to 404 rather than 500.
+func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
+	logger := logrus.New()
+	migrator := NewMigrator(&DB{}, logger, "node1")
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "GetShardsStatus",
+			call: func() error {
+				_, err := migrator.GetShardsStatus(context.Background(), "DoesNotExist", "")
+				return err
+			},
+		},
+		{
+			name: "UpdateShardStatus",
+			call: func() error {
+				return migrator.UpdateShardStatus(context.Background(), "DoesNotExist", "shard1", models.TenantActivityStatusHOT, 0)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call()
+			require.Error(t, err)
+			require.ErrorIs(t, err, schemaUC.ErrNotFound)
+		})
+	}
+}
+
 func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.On("NodeName").Return("node1")

@@ -248,6 +248,9 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrNotFound):
+			return schema.NewSchemaObjectsShardsGetNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsShardsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -272,6 +275,9 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrNotFound):
+			return schema.NewSchemaObjectsShardsUpdateNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
