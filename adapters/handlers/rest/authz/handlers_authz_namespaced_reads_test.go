@@ -91,8 +91,8 @@ func nsRoles() map[string][]authorization.Policy {
 		"viewer":           {collPolicy(authorization.READ, "Movies")},
 		"customer1:editor": {collPolicy(authorization.CREATE, "customer1:Films")},
 		"customer2:editor": {collPolicy(authorization.CREATE, "customer2:Films")},
-		// A foreign-namespace role whose only policy is in a customer1 admin's
-		// envelope: only the name pre-filter (not content-match) hides it.
+		// A foreign-namespace role whose only policy is within a customer1 admin's
+		// permissions: only the name pre-filter (not content-match) hides it.
 		"customer2:probe":  {collPolicy(authorization.CREATE, "Movies")},
 		authorization.Root: {collPolicy(authorization.CREATE, "Secret")},
 		"read-only":        {collPolicy(authorization.READ, "Everything")},
@@ -118,8 +118,8 @@ func roleNames(roles []*models.Role) []string {
 }
 
 // nsRolesWithReserved adds an operator-reserved global role whose only policy is
-// inside a customer1 admin's envelope, so the permission-content gate alone would
-// surface it — only the prefix check hides it.
+// within a customer1 admin's permissions, so the permission-content gate alone
+// would surface it — only the prefix check hides it.
 func nsRolesWithReserved() map[string][]authorization.Policy {
 	m := nsRoles()
 	m["operator_foo"] = []authorization.Policy{collPolicy(authorization.CREATE, "Movies")}
@@ -286,7 +286,7 @@ func TestGetRoleNamespacedVisibility(t *testing.T) {
 			wantName:  "editor",
 		},
 		{
-			name:      "in-envelope global role visible",
+			name:      "global role within caller permissions visible",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
 			held:      adminHeld(),
 			roleID:    "viewer",
@@ -294,7 +294,7 @@ func TestGetRoleNamespacedVisibility(t *testing.T) {
 			wantName:  "viewer",
 		},
 		{
-			name:      "out-of-envelope role forbidden not found",
+			name:      "role beyond caller permissions forbidden not found",
 			principal: &models.Principal{Username: "v", Namespace: "customer1"},
 			held: map[string]bool{
 				policyKey(collPolicy(authorization.READ, "customer1:Movies")): true,
@@ -310,10 +310,10 @@ func TestGetRoleNamespacedVisibility(t *testing.T) {
 			wantType:  "404",
 		},
 		{
-			// customer2:probe's only policy is inside this admin's envelope, so a
+			// customer2:probe's only policy is within this admin's permissions, so a
 			// content match would surface it; the short name resolves into the
 			// caller's own namespace, so it is 404 not a leak.
-			name:      "foreign local role by short name is not found despite in-envelope content",
+			name:      "foreign local role by short name is not found despite matching content",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
 			held:      adminHeld(),
 			roleID:    "probe",
@@ -366,7 +366,7 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 		Collections: &models.PermissionCollections{Collection: String("Films")},
 	}
 
-	t.Run("in-envelope role returns controller verdict", func(t *testing.T) {
+	t.Run("role within caller permissions returns controller verdict", func(t *testing.T) {
 		h, controller := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
 		controller.On("HasPermission", "customer1:editor", mock.Anything).Return(true, nil)
 
@@ -377,7 +377,7 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 		require.True(t, parsed.Payload)
 	})
 
-	t.Run("out-of-envelope role forbidden", func(t *testing.T) {
+	t.Run("role beyond caller permissions forbidden", func(t *testing.T) {
 		held := map[string]bool{
 			policyKey(collPolicy(authorization.READ, "customer1:Movies")): true,
 		}
@@ -389,10 +389,10 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 		require.True(t, ok, "got %T", res)
 	})
 
-	// customer2:probe's only policy is inside this admin's envelope; a content
+	// customer2:probe's only policy is within this admin's permissions; a content
 	// match would surface it. The short name resolves into the caller's own
 	// namespace, so it is not found rather than a leak.
-	t.Run("foreign local role by short name is not found despite in-envelope content", func(t *testing.T) {
+	t.Run("foreign local role by short name is not found despite matching content", func(t *testing.T) {
 		h, _ := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
 
 		principal := &models.Principal{Username: "u", Namespace: "customer1"}
