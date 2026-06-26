@@ -164,3 +164,31 @@ func TestRewriteNamespaceSegments(t *testing.T) {
 		assert.ErrorIs(t, err, sentinel)
 	})
 }
+
+// TestGlobalCallerWidens pins the widening verdict for every registered shape so
+// adding a prefix to FindNamespaceSegments without revisiting this rule trips a
+// test rather than silently changing matcher behavior.
+func TestGlobalCallerWidens(t *testing.T) {
+	tests := []struct {
+		name   string
+		reqObj string
+		want   bool
+	}{
+		{"bare schema collection does not widen", "schema/collections/Movies/shards/#", false},
+		{"qualified schema collection widens", "schema/collections/customer1:Movies/shards/#", true},
+		{"bare role does not widen", "roles/editor", false},
+		{"bare user does not widen", "users/alice", false},
+		// users/ is the carve-out: a ':' in a user id is opaque, never a namespace.
+		{"colon-bearing user does not widen", "users/customer1:alice", false},
+		// groups/ is unregistered, so the ':'-heuristic widens here; the matcher's
+		// downstream shape check still matches groups literally. Registering groups/
+		// without carving it out would make this widening take effect.
+		{"colon-bearing group widens at this layer", "groups/oidc/team:eng", true},
+		{"non-namespaceable colon-free path does not widen", "backups/mybackup", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, GlobalCallerWidens(tt.reqObj))
+		})
+	}
+}
