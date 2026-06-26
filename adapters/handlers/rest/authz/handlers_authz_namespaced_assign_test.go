@@ -348,6 +348,67 @@ func TestAssignRoleToUserNamespacedForeignRoleRejected(t *testing.T) {
 	require.True(t, ok, "got %T", res)
 }
 
+// TestValidateOperatorRoleAssignmentToUser pins the target-based reservation:
+// an operator-reserved global role is blocked only when the target user is
+// namespaced; global targets, namespace-local roles (which carry a namespace
+// qualifier), non-reserved globals, and NS-disabled clusters all pass.
+func TestValidateOperatorRoleAssignmentToUser(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		targetNamespace   string
+		roleNames         []string
+		wantErr           bool
+	}{
+		{"reserved operator_ global to namespaced user", true, "customer1", []string{"operator_foo"}, true},
+		{"reserved global_ global to namespaced user", true, "customer1", []string{"global_foo"}, true},
+		{"reserved global to global user", true, "", []string{"operator_foo"}, false},
+		{"non-reserved global to namespaced user", true, "customer1", []string{"billing-reader"}, false},
+		{"namespace-local reserved-looking name to namespaced user", true, "customer1", []string{"customer1:operator_foo"}, false},
+		{"reserved global mixed with normal to namespaced user", true, "customer1", []string{"viewer", "operator_foo"}, true},
+		{"reserved global to namespaced user, NS disabled", false, "customer1", []string{"operator_foo"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &authZHandlers{namespacesEnabled: tt.namespacesEnabled}
+			err := h.validateOperatorRoleAssignmentToUser(tt.targetNamespace, tt.roleNames)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestAssignRoleToUserOperatorReservedDenied pins the target-based block at the
+// handler: even a global operator cannot assign an operator-reserved global role
+// to a namespaced user. The handler is wired so the assignment would otherwise
+// succeed, isolating the new guard.
+func TestAssignRoleToUserOperatorReservedDenied(t *testing.T) {
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{
+		"operator_foo": {collPolicy(authorization.READ, "Movies")},
+	}, nil).Maybe()
+	controller.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {}}, nil).Maybe()
+	controller.On("AddRolesForUser", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: true}
+	principal := &models.Principal{Username: "op", UserType: "db", IsGlobalOperator: true}
+	res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+		HTTPRequest: req,
+		ID:          "customer1:bob",
+		Body:        authz.AssignRoleToUserBody{Roles: []string{"operator_foo"}, UserType: models.UserTypeInputDb},
+	}, principal)
+	_, ok := res.(*authz.AssignRoleToUserForbidden)
+	require.True(t, ok, "got %T", res)
+}
+
 // TestRevokeRoleFromUserGlobalOperatorLocalRoleAllowed pins the deliberate
 // asymmetry with assign: a global operator MAY revoke a namespace-local role.
 // Revoke only removes a grant, so it cannot escalate privilege or make a local
