@@ -335,6 +335,18 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
+			// A role can't be assigned to a subject in a namespace that's gone or
+			// being deleted; otherwise a late assignment would leave a grouping row
+			// behind after the cleanup cascade has emptied the namespace.
+			req := &api.AddRolesForUsersRequest{}
+			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, subjectNamespace(req.User)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.authZManager.AddRolesForUser(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
