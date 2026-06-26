@@ -1557,6 +1557,79 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 	})
 }
 
+// fakeRemovalGate is a SchemaMutationDetector that also implements
+// VectorConfigRemovalGate, so CheckVectorConfigRemoval can type-assert it out of
+// the shared detector registry.
+type fakeRemovalGate struct {
+	*fakeSchemaMutationDetector
+	gateCalled    int
+	lastRemoved   []string
+	lastTaskCount int
+	gateReject    error
+}
+
+func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed []string, existing []*Task) error {
+	f.gateCalled++
+	f.lastClassName = className
+	f.lastRemoved = removed
+	f.lastTaskCount = len(existing)
+	return f.gateReject
+}
+
+// TestManager_CheckVectorConfigRemoval_DispatchToGates pins the S15 dispatch:
+// CheckVectorConfigRemoval consults only detectors that also implement
+// VectorConfigRemovalGate, passes the namespace-scoped task list, propagates the
+// gate's rejection, and is a no-op for an empty removal list.
+func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}))
+	})
+
+	t.Run("empty removal list → gate not consulted", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("should not be reached")}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", nil))
+		require.Equal(t, 0, gate.gateCalled)
+	})
+
+	t.Run("gate returns nil → removal allowed, full task list passed", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace: "drop-vector-index", Id: "T1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(), UnitIds: []string{"su-1"},
+		})
+		require.NoError(t, h.manager.AddTask(c, 100))
+
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}))
+		require.Equal(t, 1, gate.gateCalled)
+		require.Equal(t, []string{"v1"}, gate.lastRemoved)
+		require.Equal(t, 1, gate.lastTaskCount, "gate must receive the FSM-stored task list")
+	})
+
+	t.Run("gate returns error → CheckVectorConfigRemoval propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("cleanup not FINISHED")}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+		err := h.manager.CheckVectorConfigRemoval("C", []string{"v1"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cleanup not FINISHED")
+	})
+
+	t.Run("detector without the gate interface → skipped", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		// fakeSchemaMutationDetector does NOT implement VectorConfigRemovalGate.
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("should not be reached")},
+		})
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}))
+	})
+}
+
 // TestManager_CheckTenantMutation_DispatchToDetectors pins the dispatch
 // for the tenant-level guard.
 func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {

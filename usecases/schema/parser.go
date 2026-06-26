@@ -562,6 +562,12 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 	for vecName, initialCfg := range initial.VectorConfig {
 		updatedCfg, ok := updated.VectorConfig[vecName]
 		if !ok {
+			// A dropped ("none") entry may be removed outright; the FSM-apply gate
+			// decides whether the cleanup task has FINISHED. Removing a live entry
+			// stays an error.
+			if modelsext.IsVectorIndexDropped(initialCfg) {
+				continue
+			}
 			return fmt.Errorf("missing config for vector %q", vecName)
 		}
 
