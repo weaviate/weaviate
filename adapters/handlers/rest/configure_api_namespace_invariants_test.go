@@ -152,6 +152,23 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			errSubstr:       "namespace-qualified role permission",
 		},
 		{
+			// An OIDC username may legitimately contain ':', so a users/<id> or
+			// groups/<type>/<name> permission resource carrying a colon is not a
+			// namespace qualifier and must not fail startup.
+			name:            "disabled, colon-bearing opaque-id permission resources are fine",
+			enabled:         false,
+			policyResources: []string{"users/oidc:alice", "groups/oidc/team:eng"},
+		},
+		{
+			// A namespace-qualified roles/<role> permission resource is still caught;
+			// only opaque-id (users/groups) resources are exempt from the colon check.
+			name:            "disabled, namespace-qualified roles permission resource still caught",
+			enabled:         false,
+			policyResources: []string{"roles/tenant1:editor"},
+			wantErr:         true,
+			errSubstr:       "namespace-qualified role permission",
+		},
+		{
 			name:             "disabled, grouping subject for a namespaced principal",
 			enabled:          false,
 			groupingSubjects: []string{"db:alice", "db:tenant1:bob"},
@@ -169,6 +186,14 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			name:             "disabled, namespace-named group is fine",
 			enabled:          false,
 			groupingSubjects: []string{"group:tenant1:team"},
+		},
+		{
+			// OIDC usernames may legitimately contain ':', so an oidc: subject
+			// cannot be distinguished from a namespaced one and must not fail
+			// startup — only db: subjects (whose names forbid ':') are inspected.
+			name:             "disabled, colon-bearing oidc subject is fine",
+			enabled:          false,
+			groupingSubjects: []string{"oidc:foo:bar"},
 		},
 		{
 			name:       "disabled, multiple violation kinds still fails",

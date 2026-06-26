@@ -1294,15 +1294,20 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
 		}
-		if n, ex := countQualified(policyResources, conv.ContainsNamespaceSeparator); n > 0 {
+		// A users/<id> or groups/<type>/<name> resource may carry a ':' inside the
+		// id itself (e.g. an OIDC username), so its colon is not a namespace
+		// qualifier and the resource is skipped; collection/role shapes still count.
+		if n, ex := countQualified(policyResources, func(r string) bool {
+			return !conv.IsOpaqueIDResource(r) && conv.ContainsNamespaceSeparator(r)
+		}); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role permission(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
 		}
-		// Subjects are `<prefix>:<user>`; only a namespace-qualified direct user
-		// (e.g. db:customer1:alice) counts. db:alice is unqualified, and a group
-		// is global even when its name carries a colon.
+		// Only a colon in a direct db user (e.g. db:customer1:alice) is a namespace
+		// qualifier — db names forbid ':'. OIDC names may contain ':', so oidc:
+		// subjects are ambiguous and skipped; groups are global regardless of name.
 		if n, ex := countQualified(groupingSubjects, func(s string) bool {
 			user, prefix, err := conv.GetUserAndPrefix(s)
-			if err != nil || (prefix != string(authentication.AuthTypeDb) && prefix != string(authentication.AuthTypeOIDC)) {
+			if err != nil || prefix != string(authentication.AuthTypeDb) {
 				return false
 			}
 			return conv.ContainsNamespaceSeparator(user)
