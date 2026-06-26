@@ -74,23 +74,22 @@ func TestRoleResolverResolveRoleName(t *testing.T) {
 		nsEnabled    bool
 		raw          string
 		wantStored   string
-		wantLocal    bool
 		wantNotFound bool
 		wantErr      bool
 	}{
 		{name: "NS-disabled passthrough", principal: namespaced("customer1"), nsEnabled: false, raw: "editor", wantStored: "editor"},
 		{name: "global short stays global", principal: global(), nsEnabled: true, raw: "viewer", wantStored: "viewer"},
-		{name: "global colon addresses local", principal: global(), nsEnabled: true, raw: "customer1:editor", wantStored: "customer1:editor", wantLocal: true},
+		{name: "global colon addresses local", principal: global(), nsEnabled: true, raw: "customer1:editor", wantStored: "customer1:editor"},
 		{name: "global absent name returned without existence check", principal: global(), nsEnabled: true, raw: "phantom", wantStored: "phantom"},
-		{name: "global absent local addressed without existence check", principal: global(), nsEnabled: true, raw: "customer1:ghost", wantStored: "customer1:ghost", wantLocal: true},
-		{name: "namespaced short prefers local over existing global", principal: namespaced("customer1"), nsEnabled: true, raw: "editor", wantStored: "customer1:editor", wantLocal: true},
+		{name: "global absent local addressed without existence check", principal: global(), nsEnabled: true, raw: "customer1:ghost", wantStored: "customer1:ghost"},
+		{name: "namespaced short prefers local over existing global", principal: namespaced("customer1"), nsEnabled: true, raw: "editor", wantStored: "customer1:editor"},
 		{name: "namespaced short falls through to global", principal: namespaced("customer1"), nsEnabled: true, raw: "viewer", wantStored: "viewer"},
 		{name: "namespaced unknown not found", principal: namespaced("customer1"), nsEnabled: true, raw: "ghost", wantNotFound: true},
 		{name: "namespaced colon input rejected", principal: namespaced("customer1"), nsEnabled: true, raw: "customer2:editor", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stored, isLocal, err := ResolveRoleName(tt.principal, tt.nsEnabled, tt.raw, exists)
+			stored, err := ResolveRoleName(tt.principal, tt.nsEnabled, tt.raw, exists)
 			switch {
 			case tt.wantNotFound:
 				require.ErrorIs(t, err, ErrRoleNotFound)
@@ -99,7 +98,6 @@ func TestRoleResolverResolveRoleName(t *testing.T) {
 			default:
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantStored, stored)
-				assert.Equal(t, tt.wantLocal, isLocal)
 			}
 		})
 	}
@@ -107,7 +105,7 @@ func TestRoleResolverResolveRoleName(t *testing.T) {
 	t.Run("propagates existence-callback error", func(t *testing.T) {
 		boom := errors.New("store unavailable")
 		failing := func(string) (bool, error) { return false, boom }
-		_, _, err := ResolveRoleName(namespaced("customer1"), true, "editor", failing)
+		_, err := ResolveRoleName(namespaced("customer1"), true, "editor", failing)
 		require.ErrorIs(t, err, boom)
 		require.NotErrorIs(t, err, ErrRoleNotFound)
 	})
@@ -308,7 +306,7 @@ func TestRoleResolver_OperatorWithNamespaceTreatedAsGlobal(t *testing.T) {
 
 	// A ':'-qualified name passes through (a confined caller's would be rejected),
 	// and existence is never consulted for an unconfined caller.
-	stored, _, err := ResolveRoleName(op, true, "customer2:editor", func(string) (bool, error) {
+	stored, err := ResolveRoleName(op, true, "customer2:editor", func(string) (bool, error) {
 		t.Fatal("exists must not be called for an unconfined caller")
 		return false, nil
 	})

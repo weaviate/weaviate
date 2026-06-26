@@ -252,7 +252,7 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 		}
 		return rawID, nil, roleReadOK, nil
 	}
-	stored, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, rawID, h.roleExists)
+	stored, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, rawID, h.roleExists)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return "", nil, roleReadNotFound, nil
 	}
@@ -438,7 +438,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot add a permission granting cluster-wide role management")))
 	}
 
-	roleName, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	roleName, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return authz.NewAddPermissionsNotFound()
 	}
@@ -511,7 +511,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot update built-in role %s", params.ID)))
 	}
 
-	roleName, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	roleName, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return authz.NewRemovePermissionsNotFound()
 	}
@@ -729,7 +729,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not delete built-in role %s", params.ID)))
 	}
 
-	roleName, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	roleName, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		// Idempotent delete: a role the caller cannot resolve is already gone.
 		return authz.NewDeleteRoleNoContent()
@@ -1634,7 +1634,7 @@ func (h *authZHandlers) validateUserTypeForNamespaces(userType models.UserTypeIn
 func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, roles []string) (names []string, notFound bool, err error) {
 	names = make([]string, 0, len(roles))
 	for _, role := range roles {
-		stored, _, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, role, h.roleExists)
+		stored, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, role, h.roleExists)
 		if errors.Is(err, namespacing.ErrRoleNotFound) {
 			return nil, true, nil
 		}
