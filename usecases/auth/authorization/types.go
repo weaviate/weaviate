@@ -238,7 +238,22 @@ var (
 	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
 
 	EnvVarRoles = []string{ReadOnly, Root}
+
+	// OperatorReservedRolePrefixes mark a global role operator-only: invisible to,
+	// unassignable to, and uncreatable-as-a-local-role by namespace-confined callers.
+	OperatorReservedRolePrefixes = []string{"operator_", "global_"}
 )
+
+// IsOperatorReservedRoleName reports whether a role short name (no namespace
+// qualifier) carries an operator-reserved prefix. Case-sensitive.
+func IsOperatorReservedRoleName(shortName string) bool {
+	for _, prefix := range OperatorReservedRolePrefixes {
+		if strings.HasPrefix(shortName, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // BuiltInPermissionsFor returns the canonical permission shape of the four
 // built-in roles. On namespace-enabled clusters admin/viewer are narrowed
