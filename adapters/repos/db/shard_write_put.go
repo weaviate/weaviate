@@ -282,8 +282,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		objBinary, err := obj.MarshalBinary()
-		if err != nil {
+		var objBinary []byte
+		if obj.PrecomputedDiskBinary != nil {
+			// raw path: persist source bytes verbatim, only patching our docID.
+			objBinary = obj.PrecomputedDiskBinary
+			if err := storobj.PatchDocID(objBinary, status.docID); err != nil {
+				return errors.Wrapf(err, "patch docID for object %s", obj.ID())
+			}
+		} else if objBinary, err = obj.MarshalBinary(); err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}
 

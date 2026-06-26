@@ -370,7 +370,16 @@ func (c *replicationClient) CountObjects(ctx context.Context, host string, index
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	body, err := clusterapi.IndicesPayloads.VersionedObjectList.MarshalV2(vobjects)
+	raw := isRawVObjectBatch(vobjects)
+	var (
+		body []byte
+		err  error
+	)
+	if raw {
+		body, err = clusterapi.IndicesPayloads.VersionedObjectList.MarshalRaw(vobjects)
+	} else {
+		body, err = clusterapi.IndicesPayloads.VersionedObjectList.MarshalV2(vobjects)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
@@ -393,7 +402,11 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	}
 
 	req.Header.Set("X-Request-Compression", "zstd")
-	req.Header.Set("X-Request-Encoding", "binary")
+	if raw {
+		req.Header.Set("X-Request-Encoding", clusterapi.OverwriteEncodingHeaderRaw)
+	} else {
+		req.Header.Set("X-Request-Encoding", "binary")
+	}
 
 	var resp []types.RepairResponse
 	err = c.doRetry(req, bodyCompressed, &resp, MAX_RETRIES)

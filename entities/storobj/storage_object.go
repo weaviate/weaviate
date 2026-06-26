@@ -56,6 +56,10 @@ type Object struct {
 	DocID             uint64
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
+
+	// PrecomputedDiskBinary, when set, is persisted verbatim (after a docID patch)
+	// instead of re-marshalling. Set on the raw-propagation write path.
+	PrecomputedDiskBinary []byte `json:"-"`
 }
 
 func New(docID uint64) *Object {
@@ -815,6 +819,19 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	}
 	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+// PatchDocID overwrites the docID in a marshalled (version 1) object binary in
+// place, so a target can store propagated raw bytes under its own docID.
+func PatchDocID(in []byte, docID uint64) error {
+	if len(in) < 9 {
+		return errors.Errorf("binary data too short")
+	}
+	if in[0] != 1 {
+		return errors.Errorf("unsupported binary marshaller version %d", in[0])
+	}
+	binary.LittleEndian.PutUint64(in[1:9], docID)
+	return nil
 }
 
 func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {

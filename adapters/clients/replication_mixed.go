@@ -27,6 +27,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
+// isRawVObjectBatch reports whether a batch is raw-encoded; batches are
+// homogeneous, so the first element decides.
+func isRawVObjectBatch(vobjects []*objects.VObject) bool {
+	return len(vobjects) > 0 && vobjects[0].RawBytes != nil
+}
+
 // switchReplicationClient routes all replication calls to either gRPC or REST
 // based on the useGRPC function, controlled by the replication_grpc_enabled runtime config.
 type switchReplicationClient struct {

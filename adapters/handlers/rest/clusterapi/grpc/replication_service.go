@@ -213,7 +213,19 @@ func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.Compare
 }
 
 func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
-	vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
+	var (
+		vobjs []*objects.VObject
+		err   error
+	)
+	switch req.GetEncoding() {
+	case shared.OverwriteEncodingRaw:
+		var raw []byte
+		if raw, err = shared.DecompressOverwriteRaw(req.GetVobjectsData()); err == nil {
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalRaw(raw)
+		}
+	default:
+		vobjs, err = shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal vobjects: %v", err)
 	}
