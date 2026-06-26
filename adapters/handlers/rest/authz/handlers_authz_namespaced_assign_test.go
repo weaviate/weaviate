@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -407,6 +408,120 @@ func TestAssignRoleToUserOperatorReservedDenied(t *testing.T) {
 	}, principal)
 	_, ok := res.(*authz.AssignRoleToUserForbidden)
 	require.True(t, ok, "got %T", res)
+}
+
+// reservedOpsHandler wires a handler where a global operator-reserved role
+// exists, so the resolve paths can be exercised against it. The authorizer is
+// permissive; what each path returns is therefore decided by the reserved-role
+// hiding, not by an authz denial.
+func reservedOpsHandler(t *testing.T) (*authZHandlers, *MockControllerAndGetUsers) {
+	t.Helper()
+	all := map[string][]authorization.Policy{
+		"operator_foo": {collPolicy(authorization.CREATE, "Movies")},
+	}
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetRoles", mock.Anything).Return(func(names ...string) map[string][]authorization.Policy {
+		out := map[string][]authorization.Policy{}
+		if p, ok := all[names[0]]; ok {
+			out[names[0]] = p
+		}
+		return out
+	}, nil).Maybe()
+	controller.On("GetUsers", mock.Anything).Return(map[string]apikey.UserView{"customer1:bob": {}}, nil).Maybe()
+	controller.On("AddRolesForUser", mock.Anything, mock.Anything).Return(nil).Maybe()
+	controller.On("RevokeRolesForUser", mock.Anything, mock.Anything).Return(nil).Maybe()
+	controller.On("UpdateRolesPermissions", mock.Anything).Return(nil).Maybe()
+	controller.On("RemovePermissions", mock.Anything, mock.Anything).Return(nil).Maybe()
+	controller.On("DeleteRoles", mock.Anything).Return(nil).Maybe()
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: true}
+	return h, controller
+}
+
+func collectionPerm() []*models.Permission {
+	return []*models.Permission{{
+		Action:      String(authorization.CreateCollections),
+		Collections: &models.PermissionCollections{Collection: String("Films")},
+	}}
+}
+
+// TestReservedRoleExistenceHiddenOnResolvePaths pins that a confined caller
+// naming an existing operator-reserved global role gets the same not-found
+// response as it would for a nonexistent role, on every resolve path — so the
+// reserved role's existence cannot be probed (nor the role mutated) through
+// assign/revoke/update. deleteRole is covered separately because its idempotent
+// not-found response is observably identical; only the absent mutation differs.
+func TestReservedRoleExistenceHiddenOnResolvePaths(t *testing.T) {
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+
+	tests := []struct {
+		name   string
+		invoke func(h *authZHandlers) middleware.Responder
+		want   func(res middleware.Responder) bool
+	}{
+		{
+			name: "assign",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.assignRoleToUser(authz.AssignRoleToUserParams{HTTPRequest: req, ID: "bob", Body: authz.AssignRoleToUserBody{Roles: []string{"operator_foo"}, UserType: models.UserTypeInputDb}}, principal)
+			},
+			want: func(res middleware.Responder) bool { _, ok := res.(*authz.AssignRoleToUserNotFound); return ok },
+		},
+		{
+			name: "revoke",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{HTTPRequest: req, ID: "bob", Body: authz.RevokeRoleFromUserBody{Roles: []string{"operator_foo"}, UserType: models.UserTypeInputDb}}, principal)
+			},
+			want: func(res middleware.Responder) bool { _, ok := res.(*authz.RevokeRoleFromUserNotFound); return ok },
+		},
+		{
+			name: "addPermissions",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.addPermissions(authz.AddPermissionsParams{HTTPRequest: req, ID: "operator_foo", Body: authz.AddPermissionsBody{Permissions: collectionPerm()}}, principal)
+			},
+			want: func(res middleware.Responder) bool { _, ok := res.(*authz.AddPermissionsNotFound); return ok },
+		},
+		{
+			name: "removePermissions",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.removePermissions(authz.RemovePermissionsParams{HTTPRequest: req, ID: "operator_foo", Body: authz.RemovePermissionsBody{Permissions: collectionPerm()}}, principal)
+			},
+			want: func(res middleware.Responder) bool { _, ok := res.(*authz.RemovePermissionsNotFound); return ok },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _ := reservedOpsHandler(t)
+			res := tt.invoke(h)
+			require.True(t, tt.want(res), "got %T", res)
+		})
+	}
+}
+
+// TestDeleteRoleReservedNotDeletedForConfinedCaller pins that a confined caller
+// deleting an operator-reserved role is a no-op: the response is the idempotent
+// not-found, and the role is never actually deleted.
+func TestDeleteRoleReservedNotDeletedForConfinedCaller(t *testing.T) {
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	h, controller := reservedOpsHandler(t)
+	res := h.deleteRole(authz.DeleteRoleParams{HTTPRequest: req, ID: "operator_foo"}, principal)
+	_, ok := res.(*authz.DeleteRoleNoContent)
+	require.True(t, ok, "got %T", res)
+	controller.AssertNotCalled(t, "DeleteRoles", mock.Anything)
+}
+
+// TestReservedRoleManagedByOperator pins the operator regression: a global
+// operator still resolves and deletes an operator-reserved role.
+func TestReservedRoleManagedByOperator(t *testing.T) {
+	principal := &models.Principal{Username: "op", UserType: "db", IsGlobalOperator: true}
+	h, controller := reservedOpsHandler(t)
+	res := h.deleteRole(authz.DeleteRoleParams{HTTPRequest: req, ID: "operator_foo"}, principal)
+	_, ok := res.(*authz.DeleteRoleNoContent)
+	require.True(t, ok, "got %T", res)
+	controller.AssertCalled(t, "DeleteRoles", "operator_foo")
 }
 
 // TestRevokeRoleFromUserGlobalOperatorLocalRoleAllowed pins the deliberate
