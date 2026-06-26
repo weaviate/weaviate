@@ -453,3 +453,25 @@ func TestGetWildcardPath(t *testing.T) {
 		})
 	}
 }
+
+func TestIsOperatorReservedRoleName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"operator_ prefix", "operator_backup", true},
+		{"global_ prefix", "global_admin", true},
+		{"no prefix", "admin", false},
+		{"suffix not prefix", "backup-operator", false},
+		{"missing underscore", "operatorx", false},
+		{"wrong case", "Operator_x", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsOperatorReservedRoleName(tt.input))
+		})
+	}
+}
