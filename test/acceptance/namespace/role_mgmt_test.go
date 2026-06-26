@@ -515,3 +515,77 @@ func TestNamespaceDeleteCascadesRBAC(t *testing.T) {
 		require.NotEqual(t, ns+":casc", u.UserID, "global-role assignment row must be cascaded on namespace delete")
 	}
 }
+
+// TestNamespaceOperatorReservedRoles exercises the operator-reserved role-name
+// prefix end to end on a multi-namespace cluster: a namespaced admin can neither
+// create, see, nor be assigned an operator_*/global_* role, while the operator
+// can create, see, and assign one to a global user. A non-reserved global role
+// stays delegatable to the namespaced admin (regression guard).
+func TestNamespaceOperatorReservedRoles(t *testing.T) {
+	t.Parallel()
+	ns1, _, u1Key, _ := twoNamespaces(t)
+
+	t.Run("namespaced admin cannot create a reserved-prefix role", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(readCollectionsRole("operator_"+uniqueRole(), "*")),
+			helper.CreateAuth(u1Key))
+		var unproc *authz.CreateRoleUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateRoleUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("operator creates a reserved-prefix role hidden from the namespaced admin", func(t *testing.T) {
+		name := "operator_" + uniqueRole()
+		// Its single in-envelope permission would pass the content gate, so only
+		// the prefix keeps it hidden.
+		helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
+
+		// The operator sees it.
+		require.Equal(t, name, *helper.GetRoleByName(t, adminKey, name).Name)
+
+		// The namespaced admin gets a 404 and never sees it listed.
+		_, getErr := helper.Client(t).Authz.GetRole(
+			authz.NewGetRoleParams().WithID(name), helper.CreateAuth(u1Key))
+		var notFound *authz.GetRoleNotFound
+		require.True(t, errors.As(getErr, &notFound), "expected GetRoleNotFound, got %T: %v", getErr, getErr)
+		for _, r := range helper.GetRoles(t, u1Key) {
+			require.NotEqual(t, name, *r.Name, "reserved role leaked into the namespaced admin's role list")
+		}
+	})
+
+	t.Run("a reserved-prefix role cannot be assigned to a namespaced user", func(t *testing.T) {
+		name := "operator_" + uniqueRole()
+		helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
+
+		// Target-based block: even the operator cannot pull it into a namespace.
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{name}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.AssignRoleToUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("operator assigns a reserved-prefix role to a global user", func(t *testing.T) {
+		name := "operator_" + uniqueRole()
+		helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
+
+		// gTarget is a global (namespace-less) user, so the target-based block
+		// does not apply.
+		helper.AssignRoleToUser(t, adminKey, name, gTarget)
+		t.Cleanup(func() { helper.RevokeRoleFromUser(t, adminKey, name, gTarget) })
+	})
+
+	t.Run("a non-reserved global role stays delegatable to the namespaced admin", func(t *testing.T) {
+		name := uniqueRole() // no reserved prefix
+		helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
+
+		// Visible to the namespaced admin and assignable to its own-namespace user.
+		require.Equal(t, name, *helper.GetRoleByName(t, u1Key, name).Name)
+		helper.AssignRoleToUser(t, adminKey, name, ns1+":u1")
+		t.Cleanup(func() { helper.RevokeRoleFromUser(t, adminKey, name, ns1+":u1") })
+	})
+}
