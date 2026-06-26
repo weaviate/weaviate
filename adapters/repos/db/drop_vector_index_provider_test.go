@@ -284,9 +284,11 @@ func TestCheckConflict(t *testing.T) {
 	})
 }
 
-func TestCheckClassMutation_BlocksDeleteDuringDrop(t *testing.T) {
+func TestCheckClassMutation_DoesNotBlockDeleteDuringDrop(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
-	require.Error(t, p.CheckClassMutation("C", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
+	// DeleteClass supersedes an in-flight drop (the whole bucket is going away);
+	// the schema FSM cascade-deletes the task, so the guard must not block it.
+	require.NoError(t, p.CheckClassMutation("C", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
 	require.NoError(t, p.CheckClassMutation("Other", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
 }
 
