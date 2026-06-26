@@ -51,34 +51,32 @@ type RoleExistsFunc func(storedName string) (bool, error)
 // resolves to its local role first, then falls back to a global role of the
 // same short name (':' input is rejected). A global caller's name is returned
 // as-is with no existence check — a missing-role 404 is the caller's job.
-// NS-disabled: passthrough. For a namespaced caller isLocal reports that a
-// local role was resolved; for a global caller it merely echoes whether the
-// input was ':'-qualified, and no caller relies on it.
-func ResolveRoleName(principal *models.Principal, namespacesEnabled bool, raw string, exists RoleExistsFunc) (stored string, isLocal bool, err error) {
+// NS-disabled: passthrough.
+func ResolveRoleName(principal *models.Principal, namespacesEnabled bool, raw string, exists RoleExistsFunc) (stored string, err error) {
 	if !namespacesEnabled {
-		return raw, false, nil
+		return raw, nil
 	}
 	qualified := strings.Contains(raw, schema.NamespaceSeparator)
 	if ConfinedNamespace(principal) == "" {
-		return raw, qualified, nil
+		return raw, nil
 	}
 	if qualified {
-		return "", false, fmt.Errorf("'%s' is not a valid role name", raw)
+		return "", fmt.Errorf("'%s' is not a valid role name", raw)
 	}
 	local := QualifiedName(principal.Namespace, raw)
 	switch ok, err := exists(local); {
 	case err != nil:
-		return "", false, err
+		return "", err
 	case ok:
-		return local, true, nil
+		return local, nil
 	}
 	switch ok, err := exists(raw); {
 	case err != nil:
-		return "", false, err
+		return "", err
 	case ok:
-		return raw, false, nil
+		return raw, nil
 	}
-	return "", false, ErrRoleNotFound
+	return "", ErrRoleNotFound
 }
 
 // QualifyRolePoliciesForCreate auto-prefixes the namespace-bearing segments of a
