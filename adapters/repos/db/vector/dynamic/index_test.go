@@ -1125,7 +1125,7 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("upgrade callback not called after shutdown")
 	}
-	require.False(t, dyn1.upgraded.Load(), "upgrade must not have committed")
+	require.False(t, dyn1.status.IsUpgraded(), "upgrade must not have committed")
 
 	// Simulate stale WAL left by the aborted upgrade: if the shutdown was fast
 	// enough that hnsw.New() never ran, plant the directory+file manually.
@@ -1158,10 +1158,10 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 	wg.Add(1)
 	require.NoError(t, dyn2.Upgrade(func() { wg.Done() }))
 	wg.Wait()
-	// upgraded.Load() is the canonical "flat→HNSW swap committed" flag;
+	// status.IsUpgraded() is the canonical "flat→HNSW swap committed" flag;
 	// dynamic.Upgraded() also requires HNSW to be compressed, which is not
-	// configured in this test, so we check the atomic directly.
-	require.True(t, dyn2.upgraded.Load(), "upgrade must have committed to HNSW")
+	// configured in this test, so we check the status directly.
+	require.True(t, dyn2.status.IsUpgraded(), "upgrade must have committed to HNSW")
 
 	// Searches must return correct results — no "vector lengths don't match" panic.
 	recall, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dyn2, truths)
