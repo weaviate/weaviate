@@ -32,6 +32,11 @@ import (
 // variable becomes one slot in a larger encodingBackend struct.
 var assignPositionsFn func(prop *models.Property, value any) (*AssignResult, error) = AssignPositions
 
+// Keep the alternate backend reachable so it is not reported as unused while it
+// awaits being wired in as the active assignPositionsFn. Flip assignPositionsFn
+// to assignPositionsLeafDocOnly to exercise it.
+var _ = assignPositionsLeafDocOnly
+
 // assignPositionsLeafDocOnly is a drop-in replacement for AssignPositions that
 // proves the rootIdx half of the position encoding is redundant for the
 // fast-path filtering pipeline. It produces the same AssignResult shape, but
