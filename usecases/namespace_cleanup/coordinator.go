@@ -239,7 +239,7 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, namespace stri
 // The assign layer only lets a local role reach its own namespace's principals,
 // all of which are revoked above, so DeleteRoles dropping any grouping row that
 // still points at a deleted local role is a defensive backstop. No-op when RBAC
-// is disabled (only a non-namespace cluster, which has nothing here).
+// is disabled (see RBACLister).
 func (c *Coordinator) cleanupNamespaceRBAC(ctx context.Context, namespace string) error {
 	if c.rbac == nil {
 		return nil
