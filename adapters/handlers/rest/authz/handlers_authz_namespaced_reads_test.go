@@ -204,6 +204,23 @@ func TestGetRoleNamespacedVisibility(t *testing.T) {
 			wantType:  "404",
 		},
 		{
+			// customer2:probe's only policy is inside this admin's envelope, so a
+			// content match would surface it; the short name resolves into the
+			// caller's own namespace, so it is 404 not a leak.
+			name:      "foreign local role by short name is not found despite in-envelope content",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			held:      adminHeld(),
+			roleID:    "probe",
+			wantType:  "404",
+		},
+		{
+			name:      "foreign local role by qualified name is rejected",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			held:      adminHeld(),
+			roleID:    "customer2:probe",
+			wantType:  "400",
+		},
+		{
 			name:       "operator reads foreign local role unstripped",
 			principal:  &models.Principal{Username: "op"},
 			isOperator: true,
@@ -227,6 +244,9 @@ func TestGetRoleNamespacedVisibility(t *testing.T) {
 				require.True(t, ok, "got %T", res)
 			case "404":
 				_, ok := res.(*authz.GetRoleNotFound)
+				require.True(t, ok, "got %T", res)
+			case "400":
+				_, ok := res.(*authz.GetRoleBadRequest)
 				require.True(t, ok, "got %T", res)
 			}
 		})
@@ -260,6 +280,27 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 		principal := &models.Principal{Username: "v", Namespace: "customer1"}
 		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "admin", Body: heldPerm}, principal)
 		_, ok := res.(*authz.HasPermissionForbidden)
+		require.True(t, ok, "got %T", res)
+	})
+
+	// customer2:probe's only policy is inside this admin's envelope; a content
+	// match would surface it. The short name resolves into the caller's own
+	// namespace, so it is not found rather than a leak.
+	t.Run("foreign local role by short name is not found despite in-envelope content", func(t *testing.T) {
+		h, _ := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "probe", Body: heldPerm}, principal)
+		_, ok := res.(*authz.HasPermissionNotFound)
+		require.True(t, ok, "got %T", res)
+	})
+
+	t.Run("foreign local role by qualified name is rejected", func(t *testing.T) {
+		h, _ := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "customer2:probe", Body: heldPerm}, principal)
+		_, ok := res.(*authz.HasPermissionBadRequest)
 		require.True(t, ok, "got %T", res)
 	})
 }
