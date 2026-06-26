@@ -39,6 +39,13 @@ const (
 // quarantine-eligible error).
 var errCleanupPaused = errors.New("cleanup paused due to memory pressure")
 
+// errCleanupAborted is returned by the segment rewrite when shouldAbort fires
+// mid-pass (e.g. shutdown). Like errCleanupPaused it is NOT a quarantine-eligible
+// failure: an interrupted-but-otherwise-healthy segment must not be bumped toward
+// quarantine just because a shutdown or a frequently-firing abort cut the rewrite
+// short. Matches the heuristic path, which persists no attempt counter at all.
+var errCleanupAborted = errors.New("cleanup aborted")
+
 var (
 	cleanupDbBucketSegments       = []byte("segments")
 	cleanupDbBucketMeta           = []byte("meta")
@@ -460,7 +467,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		if c.sg.allocChecker != nil {
 			// allocChecker is optional
-			if err := c.sg.allocChecker.CheckAlloc(100 * 1024 * 1024); err != nil {
+			if err := c.sg.allocChecker.CheckAlloc(cleanupAllocCheckBytes); err != nil {
 				// if we don't have at least 100MB to spare, don't start a cleanup. A
 				// cleanup does not actually need a 100MB, but it will create garbage
 				// that needs to be cleaned up. If we're so close to the memory limit, we
@@ -488,13 +495,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		oldSegment := segments[candidateIdx]
 		segmentId := segmentID(oldSegment.getPath())
-		var filename string
-		if c.sg.writeSegmentInfoIntoFileName {
-			filename = "segment-" + segmentId + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy()) + ".db.tmp"
-		} else {
-			filename = "segment-" + segmentId + ".db.tmp"
-		}
-		tmpSegmentPath = filepath.Join(c.sg.dir, filename)
+		tmpSegmentPath = c.sg.tmpSegmentPath(oldSegment, segmentId)
 		start := time.Now()
 		c.sg.logger.WithFields(logrus.Fields{
 			"action":       "lsm_cleanup",
@@ -646,11 +647,13 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 
 	idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
 	if cerr != nil {
-		if errors.Is(cerr, errCleanupPaused) {
-			// Memory pressure: stop without bumping attempts so a transient
-			// low-memory window can't quarantine a healthy segment.
+		if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
+			// Memory pressure (pause) or a cycle-manager abort (e.g. shutdown):
+			// stop without bumping attempts so a transient pause/abort can't push a
+			// healthy segment toward quarantine. The heuristic path keeps no attempt
+			// counter, so this matches its free-retry behaviour.
 			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
-				Warn("pausing edit-ops cleanup due to memory pressure")
+				Warnf("edit-ops cleanup interrupted before completing segment %q (not counted as a failed attempt): %v", segID, cerr)
 			return false, true, nil
 		}
 		if e := c.bumpOrQuarantine(rows, cerr); e != nil {
@@ -718,13 +721,7 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	}
 
 	oldSegment := segments[idx]
-	var filename string
-	if c.sg.writeSegmentInfoIntoFileName {
-		filename = "segment-" + segID + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy()) + ".db.tmp"
-	} else {
-		filename = "segment-" + segID + ".db.tmp"
-	}
-	tmpPath = filepath.Join(c.sg.dir, filename)
+	tmpPath = c.sg.tmpSegmentPath(oldSegment, segID)
 
 	file, err := os.Create(tmpPath)
 	if err != nil {
@@ -756,6 +753,18 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	}
 
 	return idx, tmpPath, true, nil
+}
+
+// tmpSegmentPath returns the .tmp path a cleaned/rewritten segment with the given
+// id writes to, before replaceSegment's stripTmpExtensions renames it to its final
+// name. Both cleanup paths (heuristic and edit-ops) MUST derive this identically —
+// any divergence makes the rename silently mismatch — so they share this helper.
+func (sg *SegmentGroup) tmpSegmentPath(seg Segment, id string) string {
+	filename := "segment-" + id + ".db.tmp"
+	if sg.writeSegmentInfoIntoFileName {
+		filename = "segment-" + id + segmentExtraInfo(seg.getLevel(), seg.getStrategy()) + ".db.tmp"
+	}
+	return filepath.Join(sg.dir, filename)
 }
 
 func (c *segmentCleanerCommon) markRowsDone(rows []PendingSegment) error {

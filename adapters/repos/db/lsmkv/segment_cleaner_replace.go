@@ -122,7 +122,7 @@ func (p *segmentCleanerReplace) writeKeys(f *segmentindex.SegmentFile,
 	for node, err = p.cursor.firstWithAllKeys(); err == nil || errors.Is(err, lsmkv.Deleted); node, err = p.cursor.nextWithAllKeys() {
 		i++
 		if i%100 == 0 && shouldAbort() {
-			return nil, fmt.Errorf("should abort requested")
+			return nil, errCleanupAborted
 		}
 
 		keyExists, err = p.keyExistsFn(node.primaryKey)

@@ -203,6 +203,46 @@ func TestSegmentCleanerEditOps_MemoryPressurePausesWithoutBumping(t *testing.T) 
 	require.Empty(t, q)
 }
 
+// TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump pins that a shouldAbort
+// firing mid-rewrite (e.g. shutdown, or a frequently-firing abort under load)
+// pauses the pass WITHOUT counting as a failed attempt — an interrupted rewrite
+// must not push a healthy segment toward quarantine. Mirrors the OOM-pause test.
+func TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+
+	// >=100 keys so writeKeys reaches its i%100==0 shouldAbort check mid-rewrite
+	// (a smaller segment would finish before the check ever fires).
+	for i := range 150 {
+		require.NoError(t, bucket.Put([]byte{byte(i)}, []byte("v")))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	segID := segIDsOf(bucket)[0]
+	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{segID}))
+
+	// More passes than the quarantine budget: if aborts bumped attempts the
+	// segment would be quarantined, so this proves an abort is not a failure.
+	for range maxCleanupAttempts + 2 {
+		// false on the first call (cleanupOnceEditOps' entry guard) so the pass
+		// proceeds into the rewrite, then true — firing inside writeKeys.
+		calls := 0
+		shouldAbort := func() bool { calls++; return calls > 1 }
+		cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(shouldAbort)
+		require.NoError(t, err)
+		require.False(t, cleaned)
+	}
+
+	all, err := editOps.AllPending()
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	require.Equal(t, 0, all[0].Attempts, "an aborted rewrite must not count as a failed attempt")
+
+	q, err := editOps.Quarantined()
+	require.NoError(t, err)
+	require.Empty(t, q)
+}
+
 // TestSegmentCleanerEditOps_ENOENTRemovesStaleRow drops a pending row whose
 // segment is no longer on disk (merged away by a concurrent compaction).
 func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
