@@ -38,9 +38,8 @@ func newReplaceBucketForCompaction(t *testing.T, transformer valueTransformer) *
 	// Inject the transformer via the edit-ops path: a registered op makes
 	// BuildCurrentTransformer return the builder's transformer per pass.
 	if transformer != nil {
-		editOps, err := openSegmentEditOps(bucket.disk.dir,
+		editOps := newSegmentEditOps(bucket.disk.dir,
 			func(ops []ActiveOp) func([]byte) ([]byte, error) { return transformer })
-		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 		bucket.disk.editOps = editOps
 		require.NoError(t, editOps.RegisterOp("test-op",

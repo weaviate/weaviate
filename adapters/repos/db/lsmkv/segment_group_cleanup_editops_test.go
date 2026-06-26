@@ -51,6 +51,14 @@ func newReplaceBucketWithEditOps(t *testing.T, builder TransformerBuilder) (*Buc
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
 
+	if builder == nil {
+		// WithTransformerBuilder(nil) wires no sidecar (a nil builder means there
+		// is nothing to transform), but the nil-transformer guard test needs an
+		// editOps facility whose BuildCurrentTransformer returns nil. Attach a
+		// nil-builder store directly so the cleanup path is still exercised.
+		bucket.disk.editOps = newSegmentEditOps(bucket.disk.dir, nil)
+	}
+
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 	return bucket, bucket.disk.editOps
 }

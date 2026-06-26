@@ -21,8 +21,7 @@ import (
 
 func newTestEditOps(t *testing.T) *SegmentEditOps {
 	t.Helper()
-	s, err := openSegmentEditOps(t.TempDir(), nil)
-	require.NoError(t, err)
+	s := newSegmentEditOps(t.TempDir(), nil)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return s
 }
@@ -234,15 +233,13 @@ func TestSegmentEditOps_ReconcileDeletesOrphanedOps(t *testing.T) {
 func TestSegmentEditOps_PersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 
-	s, err := openSegmentEditOps(dir, nil)
-	require.NoError(t, err)
+	s := newSegmentEditOps(dir, nil)
 	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
 	require.NoError(t, s.SnapshotSegments("op1", []string{"seg1", "seg2"}))
 	require.NoError(t, s.BumpAttempt("op1", "seg1", errors.New("boom")))
 	require.NoError(t, s.Close())
 
-	reopened, err := openSegmentEditOps(dir, nil)
-	require.NoError(t, err)
+	reopened := newSegmentEditOps(dir, nil)
 	defer reopened.Close()
 
 	ops, err := reopened.LoadOps()
