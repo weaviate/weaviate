@@ -551,6 +551,37 @@ func TestValidateNamedVectorConfigsParityAndImmutables_DroppedEntries(t *testing
 		require.NoError(t, err)
 	})
 
+	t.Run("initial dropped, updated removed — allowed (S16 exit transition)", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		updated := &models.Class{
+			Class:        "Test",
+			VectorConfig: map[string]models.VectorConfig{},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err, "removing a dropped entry is the Phase-2 exit transition; the FSM gate decides FINISHED")
+	})
+
+	t.Run("initial active, updated removed — reject (missing config)", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		updated := &models.Class{
+			Class:        "Test",
+			VectorConfig: map[string]models.VectorConfig{},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.Error(t, err, "removing a live (non-dropped) entry must still be rejected")
+		require.Contains(t, err.Error(), "missing config for vector")
+	})
+
 	t.Run("both active, same type — allowed", func(t *testing.T) {
 		initial := &models.Class{
 			Class: "Test",

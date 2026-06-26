@@ -153,6 +153,33 @@ func (m *Manager) CheckTenantMutation(className string, tenants []string) error 
 	})
 }
 
+// CheckVectorConfigRemoval consults every registered [SchemaMutationDetector]
+// that also implements [VectorConfigRemovalGate], gating removal of dropped
+// ("none") VectorConfig entries on the cleanup task being FINISHED. Called from
+// the schema FSM's UpdateClass apply; a non-nil error rejects the update. Same
+// RAFT-determinism contract as [Manager.CheckClassMutation].
+func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors []string) error {
+	if len(removedVectors) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for namespace, detector := range m.schemaMutationDetectors {
+		gate, ok := detector.(VectorConfigRemovalGate)
+		if !ok {
+			continue
+		}
+		var existing []*Task
+		for _, t := range m.tasks[namespace] {
+			existing = append(existing, t)
+		}
+		if err := gate.CheckVectorConfigRemoval(className, removedVectors, existing); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
 // CheckClassMutation / CheckTenantMutation. Walks every registered
 // [SchemaMutationDetector], hands it the namespace-scoped task list,

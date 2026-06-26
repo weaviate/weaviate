@@ -96,6 +96,43 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 	return nil
 }
 
+// CheckVectorConfigRemoval implements distributedtask.VectorConfigRemovalGate:
+// removing a dropped vector entry is allowed only once a FINISHED drop-vector
+// task covers it, so the marker can't vanish before the vectors are stripped.
+func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*distributedtask.Task) error {
+	for _, vec := range removedVectors {
+		if !finishedDropCovers(className, vec, existingTasks) {
+			return fmt.Errorf(
+				"cannot remove dropped vector %q on %s: no FINISHED cleanup task covers it; "+
+					"the vector data is still being stripped, or the drop was never started",
+				vec, className)
+		}
+	}
+	return nil
+}
+
+// finishedDropCovers reports whether a FINISHED drop-vector task strips vec on
+// className. An unparseable FINISHED payload is skipped rather than treated as a
+// match, so a single corrupt task can't vouch for an unrelated removal.
+func finishedDropCovers(className, vec string, existingTasks []*distributedtask.Task) bool {
+	for _, task := range existingTasks {
+		if task.Status != distributedtask.TaskStatusFinished {
+			continue
+		}
+		existP, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			continue
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		if len(intersectTargets(existP.Targets, []string{vec})) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // LocalCallbacksDone implements distributedtask.RecoveryAwareProvider. It returns
 // false so the bootstrap pre-mark does not suppress OnGroupCompleted replay: the
 // file-removal safety net is idempotent, so re-firing it once after restart
