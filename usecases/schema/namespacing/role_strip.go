@@ -19,7 +19,7 @@ import "github.com/weaviate/weaviate/entities/models"
 // sub-structs may point at package-level singletons (authorization.AllCollections,
 // etc.), and mutating those would corrupt every other caller.
 func StripRolesForCaller(principal *models.Principal, roles []*models.Role) []*models.Role {
-	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" || len(roles) == 0 {
+	if ConfinedNamespace(principal) == "" || len(roles) == 0 {
 		return roles
 	}
 	out := make([]*models.Role, len(roles))

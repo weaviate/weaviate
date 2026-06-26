@@ -727,3 +727,54 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckPermissions_OperatorWithNamespaceTreatedAsGlobal pins that the
+// enforce path derives confinement via namespacing.ConfinedNamespace: a global
+// operator is unconfined even if a namespace is set on its principal, so it
+// keeps access to operator-only domains. A namespace-bound (non-operator)
+// principal with the same role is still denied those domains.
+func TestCheckPermissions_OperatorWithNamespaceTreatedAsGlobal(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	const subject = "operator-user"
+	_, err = m.casbin.AddRoleForUser(
+		conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
+		conv.PrefixRoleName(authorization.Root),
+	)
+	require.NoError(t, err)
+
+	// cluster/* is an operator-only domain: denied to confined callers.
+	resource := authorization.Cluster()
+
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		want      bool
+	}{
+		{
+			name:      "operator without namespace",
+			principal: &models.Principal{Username: subject, UserType: models.UserTypeInputDb, IsGlobalOperator: true},
+			want:      true,
+		},
+		{
+			name:      "operator with stray namespace stays unconfined",
+			principal: &models.Principal{Username: subject, UserType: models.UserTypeInputDb, IsGlobalOperator: true, Namespace: "customer1"},
+			want:      true,
+		},
+		{
+			name:      "namespaced non-operator stays confined",
+			principal: &models.Principal{Username: subject, UserType: models.UserTypeInputDb, Namespace: "customer1"},
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			allowed, err := m.checkPermissions(tt.principal, resource, authorization.READ)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, allowed)
+		})
+	}
+}

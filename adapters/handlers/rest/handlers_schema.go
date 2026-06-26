@@ -384,7 +384,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	}
 
 	payload := dbSchema.Objects
-	if principal != nil && principal.Namespace != "" && payload != nil && len(payload.Classes) > 0 {
+	if namespacing.ConfinedNamespace(principal) != "" && payload != nil && len(payload.Classes) > 0 {
 		stripped := make([]*models.Class, len(payload.Classes))
 		for i, c := range payload.Classes {
 			stripped[i] = namespacing.StripClassResponse(principal, c)
