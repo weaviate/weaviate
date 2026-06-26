@@ -102,6 +102,8 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED:                            {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:                {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:           {},
+	// Cluster identity is namespace-agnostic pure-metadata; no namespace gate needed.
+	api.ApplyRequest_TYPE_CLUSTER_ID_SET:                                             {},
 }
 
 // TestApplyTypeNamespaceGateClassification fails when a new

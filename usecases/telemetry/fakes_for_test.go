@@ -47,6 +47,21 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 	return schema.Schema{}
 }
 
+func (f *fakeSchemaManager) Nodes() []string {
+	if len(f.ExpectedCalls) > 0 {
+		for _, call := range f.ExpectedCalls {
+			if call.Method == "Nodes" {
+				args := f.Called()
+				if args.Get(0) != nil {
+					return args.Get(0).([]string)
+				}
+				return nil
+			}
+		}
+	}
+	return []string{"node1"}
+}
+
 type fakeCloudInfoProvider struct {
 	mock.Mock
 }

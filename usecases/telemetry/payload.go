@@ -28,6 +28,7 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
+	// --- existing fields, UNCHANGED ---
 	MachineID              strfmt.UUID                     `json:"machineId"`
 	Type                   string                          `json:"type"`
 	Version                string                          `json:"version"`
@@ -40,4 +41,23 @@ type Payload struct {
 	ClientIntegrationUsage map[string]map[string]int64     `json:"clientIntegrationUsage,omitempty"`
 	CloudProvider          *string                         `json:"cloudProvider,omitempty"`
 	UniqueID               *string                         `json:"uniqueID,omitempty"`
+
+	// --- NEW: stable identity ---
+	// NodeID is a persisted UUID tied to the data volume. Stable across restarts;
+	// resets only on data-volume wipe. NOT the hostname.
+	NodeID string `json:"nodeId,omitempty"`
+	// ClusterID is a UUIDv7 committed once per cluster lifetime via raft.
+	ClusterID string `json:"clusterId,omitempty"`
+	// ClusterCreatedAt is unix-millis of cluster inception. Stored explicitly so
+	// consumers never decode UUIDv7 timestamp bits.
+	ClusterCreatedAt int64 `json:"clusterCreatedAt,omitempty"`
+
+	// --- NEW: curated signal ---
+	NodeCount                  int            `json:"nodeCount,omitempty"`
+	MaxReplicationFactor       int            `json:"maxReplicationFactor,omitempty"`
+	ReplicationEnabled         bool           `json:"replicationEnabled,omitempty"`
+	MTCollectionCount          int            `json:"mtCollectionCount,omitempty"`
+	NamedVectorCollectionCount int            `json:"namedVectorCollectionCount,omitempty"`
+	AsyncIndexingEnabled       bool           `json:"asyncIndexingEnabled,omitempty"`
+	VectorIndexTypeCounts      map[string]int `json:"vectorIndexTypeCounts,omitempty"`
 }

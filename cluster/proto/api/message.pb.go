@@ -88,6 +88,8 @@ const (
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED                  ApplyRequest_Type = 306
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK      ApplyRequest_Type = 307
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK ApplyRequest_Type = 308
+	// Cluster identity - set once by the raft leader; replayed during recovery.
+	ApplyRequest_TYPE_CLUSTER_ID_SET ApplyRequest_Type = 500
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -154,6 +156,7 @@ var (
 		306: "TYPE_DISTRIBUTED_TASK_MARK_FINALIZED",
 		307: "TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK",
 		308: "TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK",
+		500: "TYPE_CLUSTER_ID_SET",
 	}
 	ApplyRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":                                                0,
@@ -217,6 +220,7 @@ var (
 		"TYPE_DISTRIBUTED_TASK_MARK_FINALIZED":                            306,
 		"TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK":                307,
 		"TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK":           308,
+		"TYPE_CLUSTER_ID_SET":                                             500,
 	}
 )
 
@@ -2321,6 +2325,60 @@ func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetAckedAtUnixMilli
 	return 0
 }
 
+// SetClusterIDRequest carries the stable cluster identity committed once per
+// cluster lifetime via TYPE_CLUSTER_ID_SET. Field numbers are permanent.
+type SetClusterIDRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId           string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	CreatedAtUnixMillis int64                  `protobuf:"varint,2,opt,name=created_at_unix_millis,json=createdAtUnixMillis,proto3" json:"created_at_unix_millis,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *SetClusterIDRequest) Reset() {
+	*x = SetClusterIDRequest{}
+	mi := &file_api_message_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetClusterIDRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetClusterIDRequest) ProtoMessage() {}
+
+func (x *SetClusterIDRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetClusterIDRequest.ProtoReflect.Descriptor instead.
+func (*SetClusterIDRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *SetClusterIDRequest) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *SetClusterIDRequest) GetCreatedAtUnixMillis() int64 {
+	if x != nil {
+		return x.CreatedAtUnixMillis
+	}
+	return 0
+}
+
 var File_api_message_proto protoreflect.FileDescriptor
 
 const file_api_message_proto_rawDesc = "" +
@@ -2339,13 +2397,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xdc\x12\n" +
+	"\x12NotifyPeerResponse\"\xf6\x12\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xb8\x11\n" +
+	"subCommand\"\xd2\x11\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2408,7 +2466,8 @@ const file_api_message_proto_rawDesc = "" +
 	"*TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS\x10\xb1\x02\x12)\n" +
 	"$TYPE_DISTRIBUTED_TASK_MARK_FINALIZED\x10\xb2\x02\x125\n" +
 	"0TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK\x10\xb3\x02\x12:\n" +
-	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\"\x04\bc\x10c\"A\n" +
+	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\x12\x18\n" +
+	"\x13TYPE_CLUSTER_ID_SET\x10\xf4\x03\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
 	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +
@@ -2559,7 +2618,11 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
-	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis2\x8d\x04\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"i\n" +
+	"\x13SetClusterIDRequest\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tR\tclusterId\x123\n" +
+	"\x16created_at_unix_millis\x18\x02 \x01(\x03R\x13createdAtUnixMillis2\x8d\x04\n" +
 	"\x0eClusterService\x12k\n" +
 	"\n" +
 	"RemovePeer\x12,.weaviate.internal.cluster.RemovePeerRequest\x1a-.weaviate.internal.cluster.RemovePeerResponse\"\x00\x12e\n" +
@@ -2583,7 +2646,7 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_api_message_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                                     // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),                                     // 1: weaviate.internal.cluster.QueryRequest.Type
@@ -2619,6 +2682,7 @@ var file_api_message_proto_goTypes = []any{
 	(*MarkTaskFinalizedRequest)(nil),                           // 31: weaviate.internal.cluster.MarkTaskFinalizedRequest
 	(*RecordDistributedTaskPostCompletionAckRequest)(nil),      // 32: weaviate.internal.cluster.RecordDistributedTaskPostCompletionAckRequest
 	(*RecordDistributedTaskPreparationCompleteAckRequest)(nil), // 33: weaviate.internal.cluster.RecordDistributedTaskPreparationCompleteAckRequest
+	(*SetClusterIDRequest)(nil),                                // 34: weaviate.internal.cluster.SetClusterIDRequest
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
@@ -2659,7 +2723,7 @@ func file_api_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   30,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

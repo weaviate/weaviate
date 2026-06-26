@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -46,6 +48,9 @@ type nodesStatusGetter interface {
 
 type schemaManager interface {
 	GetSchemaSkipAuth() schema.Schema
+	// Nodes returns a snapshot of the current cluster node names.
+	// concrete *schema.Handler already implements this.
+	Nodes() []string
 }
 
 // Telemeter is responsible for managing the transmission of telemetry data
@@ -61,14 +66,31 @@ type Telemeter struct {
 	clientTracker      *ClientTracker
 	integrationTracker *IntegrationTracker
 	cloudInfoHelper    *cloudInfoHelper
+
+	// nodeID is the persisted per-node UUID from the data-volume file. NOT the hostname.
+	// machineID stays uuid.NewString() per process (unchanged, counts restarts).
+	nodeID string
+	// clusterID and clusterCreatedAt are populated in Start() before the Init push.
+	clusterID           string
+	clusterCreatedAt    int64
+	asyncIndexingEnabled bool
+	// waitForClusterID blocks until the raft leader commits the cluster identity.
+	waitForClusterID func(ctx context.Context) (string, int64, error)
 }
 
 // New creates a new Telemeter instance.
 // consumerURL should be base64-encoded. If empty, uses DefaultTelemetryConsumerURL.
 // pushInterval defaults to DefaultTelemetryPushInterval if zero.
+// nodeID is the persisted per-node UUID from the data-volume file (NOT the hostname).
+// asyncIndexingEnabled is wired from server config.
+// waitForClusterID blocks until the raft leader commits the cluster identity; may be nil
+// (e.g. in single-node mode) in which case clusterId is omitted from payloads.
 func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
 	telemetryEnabled bool,
+	nodeID string,
+	asyncIndexingEnabled bool,
+	waitForClusterID func(ctx context.Context) (string, int64, error),
 ) *Telemeter {
 	if consumerURL == "" {
 		consumerURL = DefaultTelemetryConsumerURL
@@ -78,14 +100,19 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	}
 
 	tel := &Telemeter{
-		machineID:         strfmt.UUID(uuid.NewString()),
-		nodesStatusGetter: nodesStatusGetter,
-		schemaManager:     schemaManager,
-		logger:            logger,
-		shutdown:          make(chan struct{}),
-		consumer:          consumerURL,
-		pushInterval:      pushInterval,
-		cloudInfoHelper:   newCloudInfoHelper(logger, telemetryEnabled),
+		// machineID is a fresh UUID each process start - this is intentional and unchanged.
+		// It counts restarts. nodeID (below) is the stable per-node identity.
+		machineID:            strfmt.UUID(uuid.NewString()),
+		nodesStatusGetter:    nodesStatusGetter,
+		schemaManager:        schemaManager,
+		logger:               logger,
+		shutdown:             make(chan struct{}),
+		consumer:             consumerURL,
+		pushInterval:         pushInterval,
+		cloudInfoHelper:      newCloudInfoHelper(logger, telemetryEnabled),
+		nodeID:               nodeID,
+		asyncIndexingEnabled: asyncIndexingEnabled,
+		waitForClusterID:     waitForClusterID,
 	}
 	// Only spin up tracker goroutines when telemetry is enabled; otherwise they
 	// would leak for the lifetime of the process, since shutdown only calls
@@ -96,6 +123,41 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		tel.integrationTracker = NewIntegrationTracker(logger)
 	}
 	return tel
+}
+
+// ReadOrCreateNodeID reads the stable per-node UUID from dataPath/node-id.
+// If the file does not exist it generates a new UUID, writes it atomically
+// (tmp+rename mirroring adapters/repos/db/inverted/new_prop_length_tracker.go),
+// and returns it. On any I/O error it returns an error; the caller falls back
+// to an ephemeral UUID so a read-only data dir does not prevent startup.
+func ReadOrCreateNodeID(dataPath string) (string, error) {
+	nodePath := filepath.Join(dataPath, "node-id")
+
+	// happy path: file exists
+	if b, err := os.ReadFile(nodePath); err == nil {
+		id := strings.TrimSpace(string(b))
+		if id != "" {
+			return id, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("read node-id: %w", err)
+	}
+
+	// generate a fresh UUID and persist it atomically
+	id := uuid.NewString()
+	tmp := nodePath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(id), 0o666); err != nil {
+		return "", fmt.Errorf("write node-id tmp: %w", err)
+	}
+	if err := os.Rename(tmp, nodePath); err != nil {
+		return "", fmt.Errorf("rename node-id: %w", err)
+	}
+	// re-read to confirm (mirrors new_prop_length_tracker pattern)
+	b, err := os.ReadFile(nodePath)
+	if err != nil {
+		return "", fmt.Errorf("re-read node-id after write: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // GetClientTracker returns the client tracker instance for use in middleware
@@ -110,6 +172,23 @@ func (tel *Telemeter) GetIntegrationTracker() *IntegrationTracker {
 
 // Start begins telemetry for the node
 func (tel *Telemeter) Start(ctx context.Context) error {
+	// Wait up to 30 s for the raft leader to commit the cluster identity before the
+	// INIT push. On timeout we proceed without clusterId (best-effort; do not block
+	// startup). Single-node Docker typically resolves within ~1-2 s; restarts with a
+	// snapshot have the id restored immediately.
+	if tel.waitForClusterID != nil {
+		waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		clusterID, clusterCreatedAt, err := tel.waitForClusterID(waitCtx)
+		if err != nil {
+			tel.logger.WithField("action", "telemetry_cluster_id_wait").
+				Warnf("cluster identity not available within 30s, pushing INIT without clusterId: %v", err)
+		} else {
+			tel.clusterID = clusterID
+			tel.clusterCreatedAt = clusterCreatedAt
+		}
+	}
+
 	payload, err := tel.push(ctx, PayloadType.Init)
 	if err != nil {
 		tel.failedToStart = true
@@ -243,6 +322,9 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
+	// Curated signal fields - one pass over the schema.
+	nodeCount, maxRF, mtCount, namedVecCount, vectorIndexTypeCounts := tel.getCuratedSchemaFields()
+
 	return &Payload{
 		MachineID:              tel.machineID,
 		Type:                   payloadType,
@@ -256,7 +338,75 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		ClientIntegrationUsage: clientIntegrationUsage,
 		CloudProvider:          cloudProvider,
 		UniqueID:               uniqueID,
+		// stable identity
+		NodeID:           tel.nodeID,
+		ClusterID:        tel.clusterID,
+		ClusterCreatedAt: tel.clusterCreatedAt,
+		// curated signal
+		NodeCount:                  nodeCount,
+		MaxReplicationFactor:       maxRF,
+		ReplicationEnabled:         maxRF > 1,
+		MTCollectionCount:          mtCount,
+		NamedVectorCollectionCount: namedVecCount,
+		AsyncIndexingEnabled:       tel.asyncIndexingEnabled,
+		VectorIndexTypeCounts:      vectorIndexTypeCounts,
 	}, nil
+}
+
+// getCuratedSchemaFields performs a single pass over the schema to extract the
+// curated signal fields. Returns (nodeCount, maxRF, mtCount, namedVecCount, vectorIndexTypeCounts).
+func (tel *Telemeter) getCuratedSchemaFields() (nodeCount, maxRF, mtCount, namedVecCount int, vectorIndexTypeCounts map[string]int) {
+	nodeCount = len(tel.schemaManager.Nodes())
+
+	sch := tel.schemaManager.GetSchemaSkipAuth()
+	if sch.Objects == nil {
+		return nodeCount, 0, 0, 0, nil
+	}
+
+	vectorIndexTypeCounts = make(map[string]int)
+
+	for _, class := range sch.Objects.Classes {
+		if class == nil {
+			continue
+		}
+
+		// replication factor
+		if class.ReplicationConfig != nil {
+			rf := int(class.ReplicationConfig.Factor)
+			if rf > maxRF {
+				maxRF = rf
+			}
+		}
+
+		// multi-tenancy
+		if class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
+			mtCount++
+		}
+
+		// named-vector collections
+		if len(class.VectorConfig) > 0 {
+			namedVecCount++
+			for _, vc := range class.VectorConfig {
+				vit := vc.VectorIndexType
+				if vit == "" {
+					vit = "hnsw"
+				}
+				vectorIndexTypeCounts[vit]++
+			}
+		} else {
+			// legacy single-vector: read from class-level VectorIndexType
+			vit := class.VectorIndexType
+			if vit == "" {
+				vit = "hnsw"
+			}
+			vectorIndexTypeCounts[vit]++
+		}
+	}
+
+	if len(vectorIndexTypeCounts) == 0 {
+		vectorIndexTypeCounts = nil
+	}
+	return nodeCount, maxRF, mtCount, namedVecCount, vectorIndexTypeCounts
 }
 
 // collectUsageForPayload returns client and integration usage maps for the given
@@ -290,10 +440,18 @@ func (tel *Telemeter) getUsedModules() ([]string, error) {
 
 	if sch.Objects != nil {
 		for _, class := range sch.Objects.Classes {
+			if class == nil {
+				continue
+			}
 			if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
 				for name, cfg := range modCfg {
 					usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
 				}
+			} else if class.Vectorizer != "" && class.Vectorizer != "none" {
+				// Fallback for classes whose ModuleConfig is nil but the class-level
+				// Vectorizer field is set (pre-v1.14 schemas and old-migration gap).
+				// "none" (BYOV) is intentionally excluded - it is not a module.
+				usedModulesMap[class.Vectorizer] = struct{}{}
 			}
 			for _, vectorConfig := range class.VectorConfig {
 				if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
