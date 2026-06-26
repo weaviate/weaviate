@@ -248,23 +248,15 @@ func (m *Manager) NamespaceLocalRBAC(namespace string) (roles []string, subjects
 	}
 	seen := map[NamespaceSubject]struct{}{}
 	for _, s := range rows {
-		user, prefix, err := conv.GetUserAndPrefix(s)
+		user, authType, ns, err := conv.SubjectNamespace(s)
 		if err != nil {
 			// A row we can't parse must not be silently dropped: an undercount
 			// here lets the removal-block gate read zero and remove a namespace
 			// while an assignment survives.
-			return nil, nil, fmt.Errorf("GetUserAndPrefix %q: %w", s, err)
+			return nil, nil, fmt.Errorf("SubjectNamespace %q: %w", s, err)
 		}
-		var authType authentication.AuthType
-		switch prefix {
-		case string(authentication.AuthTypeDb):
-			authType = authentication.AuthTypeDb
-		case string(authentication.AuthTypeOIDC):
-			authType = authentication.AuthTypeOIDC
-		default:
-			continue
-		}
-		if namespacing.NamespaceFromQualified(user) != namespace {
+		// A zero auth type marks a global group subject.
+		if authType == "" || ns != namespace {
 			continue
 		}
 		subject := NamespaceSubject{ID: user, AuthType: authType}
