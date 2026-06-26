@@ -20,15 +20,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// TestObjectBucket_TransformerBuilder_Wired proves initObjectBucket wires the
-// drop-vector transformer onto the objects bucket: WithTransformerBuilder opens
-// the edit-ops sidecar at init, so its bolt file appears in the bucket dir.
-func TestObjectBucket_TransformerBuilder_Wired(t *testing.T) {
+// TestObjectBucket_TransformerBuilder_LazySidecar proves initObjectBucket wires
+// the drop-vector transformer onto the objects bucket WITHOUT eagerly creating
+// the edit-ops sidecar: the bolt file is materialized lazily on the first
+// registered op, so an objects bucket that never sees a drop carries no sidecar
+// (keeping it out of disk-size and backup accounting). The wiring of the option
+// itself is covered by lsmkv's TestBucket_WithTransformerBuilder_* tests.
+func TestObjectBucket_TransformerBuilder_LazySidecar(t *testing.T) {
 	ctx := context.Background()
 	shard, _ := testShard(t, ctx, "DropVectorTransformerWiring")
 
 	objBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 	require.NotNil(t, objBucket)
 
-	require.FileExists(t, filepath.Join(objBucket.GetDir(), "segment_edit_ops.db.bolt"))
+	require.NoFileExists(t, filepath.Join(objBucket.GetDir(), "segment_edit_ops.db.bolt"),
+		"edit-ops sidecar must be created lazily on first use, not at bucket init")
 }
