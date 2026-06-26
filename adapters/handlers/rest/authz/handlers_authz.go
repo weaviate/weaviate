@@ -222,6 +222,21 @@ func (h *authZHandlers) roleHiddenFromCaller(principal *models.Principal, stored
 	return ns != "" && ns != principal.Namespace
 }
 
+// roleOperatorReservedFromCaller hides an operator-reserved global role from any
+// caller that is not a global operator. Additive to the permission-content gate:
+// it can only hide more, never expose a role that gate would block.
+func (h *authZHandlers) roleOperatorReservedFromCaller(principal *models.Principal, storedRoleName string) bool {
+	if principal == nil {
+		return false
+	}
+	// Operator status is IsGlobalOperator, not an empty namespace: a namespace-less
+	// non-operator must still have reserved roles hidden.
+	if !h.namespacesEnabled || principal.IsGlobalOperator {
+		return false
+	}
+	return authorization.IsOperatorReservedRoleName(namespacing.StripQualification(storedRoleName))
+}
+
 // roleExists backs ResolveRoleName's local-then-global lookup.
 func (h *authZHandlers) roleExists(name string) (bool, error) {
 	roles, err := h.controller.GetRoles(name)
@@ -253,6 +268,21 @@ const (
 	roleReadInternalErr
 )
 
+// resolveRoleNameForCaller resolves a caller-supplied role name to its stored
+// form, reporting an operator-reserved global role as not found for any caller
+// that is not a global operator. Keeps a reserved role's existence from leaking
+// through the assign/revoke/update/delete responses, mirroring the read paths.
+func (h *authZHandlers) resolveRoleNameForCaller(principal *models.Principal, rawID string) (string, error) {
+	stored, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, rawID, h.roleExists)
+	if err != nil {
+		return "", err
+	}
+	if h.roleOperatorReservedFromCaller(principal, stored) {
+		return "", namespacing.ErrRoleNotFound
+	}
+	return stored, nil
+}
+
 // resolveRoleForRead resolves a caller-supplied role name to its stored form
 // and gates a role-target read: NS-disabled on the role-name matcher,
 // NS-enabled on content scope (resolve local-then-global, then verify the
@@ -268,7 +298,7 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 		}
 		return rawID, nil, roleReadOK, nil
 	}
-	stored, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, rawID, h.roleExists)
+	stored, err := h.resolveRoleNameForCaller(principal, rawID)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return "", nil, roleReadNotFound, nil
 	}
@@ -460,7 +490,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot add a permission granting cluster-wide role management")))
 	}
 
-	roleName, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	roleName, err := h.resolveRoleNameForCaller(principal, params.ID)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return authz.NewAddPermissionsNotFound()
 	}
@@ -533,7 +563,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot update built-in role %s", params.ID)))
 	}
 
-	roleName, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	roleName, err := h.resolveRoleNameForCaller(principal, params.ID)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return authz.NewRemovePermissionsNotFound()
 	}
@@ -639,6 +669,9 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			// Hide other namespaces' roles and any whose permissions the caller
 			// does not already hold; strip the caller's own namespace prefix.
 			if h.roleHiddenFromCaller(principal, roleName) {
+				continue
+			}
+			if h.roleOperatorReservedFromCaller(principal, roleName) {
 				continue
 			}
 			if !h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
@@ -751,7 +784,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not delete built-in role %s", params.ID)))
 	}
 
-	roleName, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, params.ID, h.roleExists)
+	roleName, err := h.resolveRoleNameForCaller(principal, params.ID)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		// Idempotent delete: a role the caller cannot resolve is already gone.
 		return authz.NewDeleteRoleNoContent()
@@ -1063,6 +1096,11 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	var authErrs []error
 	for roleName, policies := range existingRoles {
 		if h.roleHiddenFromCaller(principal, roleName) {
+			continue
+		}
+		// A self-read may surface a reserved role inherited via a group; only
+		// hide it when reading another user's roles.
+		if !ownUser && h.roleOperatorReservedFromCaller(principal, roleName) {
 			continue
 		}
 
@@ -1483,6 +1521,11 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 		if h.roleHiddenFromCaller(principal, roleName) {
 			continue
 		}
+		// A self-read may surface a reserved role inherited via a group; only
+		// hide it when reading another group's roles.
+		if !ownGroup && h.roleOperatorReservedFromCaller(principal, roleName) {
+			continue
+		}
 
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
@@ -1660,7 +1703,7 @@ func (h *authZHandlers) validateUserTypeForNamespaces(userType models.UserTypeIn
 func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, roles []string) (names []string, notFound bool, err error) {
 	names = make([]string, 0, len(roles))
 	for _, role := range roles {
-		stored, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, role, h.roleExists)
+		stored, err := h.resolveRoleNameForCaller(principal, role)
 		if errors.Is(err, namespacing.ErrRoleNotFound) {
 			return nil, true, nil
 		}

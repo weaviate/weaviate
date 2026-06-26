@@ -224,6 +224,66 @@ func TestGetRolesForUserNamespacedStripsOwn(t *testing.T) {
 	require.Equal(t, "Films", *parsed.Payload[0].Permissions[0].Tenants.Collection)
 }
 
+// TestGetRolesForUserNamespacedHidesReserved pins that when a namespaced admin
+// reads another user's roles, an operator-reserved global role is hidden even
+// though its permission, held by the caller, would otherwise pass the content gate.
+func TestGetRolesForUserNamespacedHidesReserved(t *testing.T) {
+	authorizer := nsCrossAuthorizer(t, "customer1")
+	authorizer.On("Authorize", mock.Anything, mock.Anything, authorization.READ, mock.Anything).Return(nil).Maybe()
+	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {}}, nil).Maybe()
+	controller.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{
+		"customer1:editor": {collPolicy(authorization.CREATE, "customer1:Films")},
+		"operator_foo":     {collPolicy(authorization.CREATE, "Movies")},
+	}, nil)
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{
+		authorizer:        authorizer,
+		controller:        controller,
+		logger:            logger,
+		rbacconfig:        rbacconf.Config{Enabled: true},
+		namespacesEnabled: true,
+	}
+
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	res := h.getRolesForUser(authz.GetRolesForUserParams{HTTPRequest: req, ID: "bob", UserType: "db"}, principal)
+	parsed, ok := res.(*authz.GetRolesForUserOK)
+	require.True(t, ok, "got %T", res)
+	got := roleNames(parsed.Payload)
+	require.Contains(t, got, "editor")
+	require.NotContains(t, got, "operator_foo")
+}
+
+// TestGetRolesForGroupNamespacedHidesReserved pins the same hiding for a
+// namespaced admin reading another group's roles.
+func TestGetRolesForGroupNamespacedHidesReserved(t *testing.T) {
+	authorizer := nsCrossAuthorizer(t, "customer1")
+	authorizer.On("Authorize", mock.Anything, mock.Anything, authorization.READ, mock.Anything).Return(nil).Maybe()
+	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetRolesForUserOrGroup", "engineers", authentication.AuthTypeOIDC, true).Return(map[string][]authorization.Policy{
+		"customer1:editor": {collPolicy(authorization.CREATE, "customer1:Films")},
+		"operator_foo":     {collPolicy(authorization.CREATE, "Movies")},
+	}, nil)
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{
+		authorizer:        authorizer,
+		controller:        controller,
+		logger:            logger,
+		rbacconfig:        rbacconf.Config{Enabled: true},
+		namespacesEnabled: true,
+	}
+
+	principal := &models.Principal{Username: "customer1:admin", UserType: "oidc", Namespace: "customer1"}
+	res := h.getRolesForGroup(authz.GetRolesForGroupParams{HTTPRequest: req, ID: "engineers", GroupType: string(authentication.AuthTypeOIDC)}, principal)
+	parsed, ok := res.(*authz.GetRolesForGroupOK)
+	require.True(t, ok, "got %T", res)
+	got := roleNames(parsed.Payload)
+	require.Contains(t, got, "editor")
+	require.NotContains(t, got, "operator_foo")
+}
+
 func TestGetRolesForGroupNamespacedStripsOwn(t *testing.T) {
 	authorizer := nsCrossAuthorizer(t, "customer1")
 	controller := NewMockControllerAndGetUsers(t)

@@ -117,6 +117,112 @@ func roleNames(roles []*models.Role) []string {
 	return out
 }
 
+// nsRolesWithReserved adds an operator-reserved global role whose only policy is
+// inside a customer1 admin's envelope, so the permission-content gate alone would
+// surface it — only the prefix check hides it.
+func nsRolesWithReserved() map[string][]authorization.Policy {
+	m := nsRoles()
+	m["operator_foo"] = []authorization.Policy{collPolicy(authorization.CREATE, "Movies")}
+	return m
+}
+
+func TestGetRolesOperatorReservedVisibility(t *testing.T) {
+	tests := []struct {
+		name        string
+		principal   *models.Principal
+		isOperator  bool
+		held        map[string]bool
+		rootUsers   []string
+		wantPresent []string
+		wantAbsent  []string
+	}{
+		{
+			name:        "namespaced admin cannot see reserved global role",
+			principal:   &models.Principal{Username: "u", Namespace: "customer1"},
+			held:        adminHeld(),
+			wantPresent: []string{"admin", "editor", "viewer"},
+			wantAbsent:  []string{"operator_foo"},
+		},
+		{
+			name:        "global non-operator admin cannot see reserved global role",
+			principal:   &models.Principal{Username: "g"},
+			held:        map[string]bool{policyKey(collPolicy(authorization.CREATE, "Movies")): true},
+			wantPresent: []string{"admin"},
+			wantAbsent:  []string{"operator_foo"},
+		},
+		{
+			name:        "global operator sees reserved global role",
+			principal:   &models.Principal{Username: "op", IsGlobalOperator: true},
+			isOperator:  true,
+			rootUsers:   []string{"op"},
+			wantPresent: []string{"operator_foo", "admin"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _ := nsReadHandler(t, tt.isOperator, nsRolesWithReserved(), tt.held, tt.rootUsers)
+			res := h.getRoles(authz.GetRolesParams{HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*authz.GetRolesOK)
+			require.True(t, ok, "got %T", res)
+			got := roleNames(parsed.Payload)
+			for _, name := range tt.wantPresent {
+				require.Contains(t, got, name)
+			}
+			for _, name := range tt.wantAbsent {
+				require.NotContains(t, got, name)
+			}
+		})
+	}
+}
+
+func TestGetRoleOperatorReservedVisibility(t *testing.T) {
+	tests := []struct {
+		name       string
+		principal  *models.Principal
+		isOperator bool
+		held       map[string]bool
+		rootUsers  []string
+		wantType   string
+	}{
+		{
+			name:      "namespaced admin gets not found for reserved role",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			held:      adminHeld(),
+			wantType:  "404",
+		},
+		{
+			name:      "global non-operator admin gets not found for reserved role",
+			principal: &models.Principal{Username: "g"},
+			held:      map[string]bool{policyKey(collPolicy(authorization.CREATE, "Movies")): true},
+			wantType:  "404",
+		},
+		{
+			name:       "global operator gets reserved role",
+			principal:  &models.Principal{Username: "op", IsGlobalOperator: true},
+			isOperator: true,
+			rootUsers:  []string{"op"},
+			wantType:   "ok",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _ := nsReadHandler(t, tt.isOperator, nsRolesWithReserved(), tt.held, tt.rootUsers)
+			res := h.getRole(authz.GetRoleParams{HTTPRequest: req, ID: "operator_foo"}, tt.principal)
+			switch tt.wantType {
+			case "ok":
+				parsed, ok := res.(*authz.GetRoleOK)
+				require.True(t, ok, "got %T", res)
+				require.Equal(t, "operator_foo", *parsed.Payload.Name)
+			case "404":
+				_, ok := res.(*authz.GetRoleNotFound)
+				require.True(t, ok, "got %T", res)
+			}
+		})
+	}
+}
+
 func TestGetRolesNamespacedVisibility(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -339,4 +445,56 @@ func TestGetRolePermissionStripping(t *testing.T) {
 		require.NotNil(t, editor)
 		require.Equal(t, "Films", *editor.Permissions[0].Tenants.Collection)
 	})
+}
+
+func TestRoleOperatorReservedFromCaller(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		principal         *models.Principal
+		storedRoleName    string
+		want              bool
+	}{
+		{
+			name:              "nil principal is not treated as reserved",
+			namespacesEnabled: true,
+			principal:         nil,
+			storedRoleName:    "global_admin",
+			want:              false,
+		},
+		{
+			name:              "namespaces disabled hides nothing",
+			namespacesEnabled: false,
+			principal:         &models.Principal{Username: "alice", Namespace: "customer1"},
+			storedRoleName:    "global_admin",
+			want:              false,
+		},
+		{
+			name:              "global operator sees reserved roles",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Username: "op", IsGlobalOperator: true},
+			storedRoleName:    "global_admin",
+			want:              false,
+		},
+		{
+			name:              "confined non-operator: reserved global role hidden",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Username: "alice", Namespace: "customer1"},
+			storedRoleName:    "operator_secret",
+			want:              true,
+		},
+		{
+			name:              "confined non-operator: ordinary role visible",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Username: "alice", Namespace: "customer1"},
+			storedRoleName:    "customer1:editor",
+			want:              false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &authZHandlers{namespacesEnabled: tt.namespacesEnabled}
+			require.Equal(t, tt.want, h.roleOperatorReservedFromCaller(tt.principal, tt.storedRoleName))
+		})
+	}
 }
