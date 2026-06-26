@@ -195,14 +195,20 @@ func (m *Manager) RemovePermissions(roleName string, permissions []*authorizatio
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	changed := false
 	for _, permission := range permissions {
 		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
 			return fmt.Errorf("RemoveNamedPolicy: %w", err)
 		}
-		if !ok {
-			return nil // deletes are idempotent
+		// Removing an already-absent permission is a no-op; keep going so the
+		// rest of the batch is still removed.
+		if ok {
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return fmt.Errorf("SavePolicy: %w", err)
