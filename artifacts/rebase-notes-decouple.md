@@ -79,6 +79,36 @@ the rebase that would reject every muvera insert. Use `h.add(...)`.
 Must-keep-passing tests: `TestSingleVectorRejectedOnMuveraIndex`,
 `TestValidateMultiBeforeInsertEmpty`.
 
+## ⚠️ 4b. routingBudget must not floor searchProbe (post-rebase fix)
+
+The decouple commit computed `routingBudget = max(searchProbe, rescoreLimit)`
+"for backward compatibility" — but that floors any explicit `searchProbe`
+below rescoreLimit (350) to 350, silently disabling the low-probe
+latency/recall knob (verified: bit-identical result sets between probe 24
+and 256; probe 16 went from 55ms/31% recall pre-decoupling to 82ms/69%).
+The claimed backward-compat baseline was the pre-#277 code, where
+k=rescoreLimit inflated the centroid count; the true pre-decoupling
+semantics are `centroids = max(k, searchProbe)`.
+
+Fixed on the rebased branch: `muveraSearchBudgets` returns
+`(max(k, searchProbe), max(k, rescoreLimit))`. searchProbe defaults to 256
+at schema parse time (SetDefaults) — "not sent" never reaches the index as
+0, on REST and gRPC alike, and schema readback keeps showing 256 (e2e TC-001
+asserts it). Tests: `TestMuveraSearchBudgets`,
+`TestSearchProbeChangesResults` (asserts candidate COVERAGE changes with the
+probe — top-k equality is data-dependent under IVF concentration, coverage
+is not; posting expansion must stay disabled in that test since recovering
+narrow-probe misses is precisely its job).
+
+**Open design question for PR review — expose rerankBudget per query?**
+Today rerankBudget derives from the collection-level `rq.rescoreLimit`
+(clamped by k) and is the parameter that dominates the recall/latency
+trade-off in the budget study: 350 → 192 cost −2pts recall for −33%
+latency. searchProbe is tunable per collection; rerankBudget arguably
+deserves per-query (or at least independent) exposure so operators can pick
+the trade-off per workload without schema updates. Not implemented —
+decision pending.
+
 ## 5. #281 — bounds are create/update-only (no conflict, semantic note)
 
 Muvera upper bounds (ksim ≤ 10, dprojections ≤ 1024, repetitions ≤ 256,
