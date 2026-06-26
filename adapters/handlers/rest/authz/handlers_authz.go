@@ -175,6 +175,28 @@ func (h *authZHandlers) callerConfined(principal *models.Principal) bool {
 	return h.namespacesEnabled && principal != nil && principal.Namespace != ""
 }
 
+// validateLocalRoleAssignment blocks assigning a namespace-local role unless the
+// caller is confined to that role's namespace. A local role is managed entirely
+// within its namespace, so a global operator (and any cross-namespace caller)
+// cannot assign it; global roles carry no namespace and assign anywhere. This is
+// what keeps a namespace1 role from ever reaching a namespace2 (or global)
+// subject. No-op on NS-disabled clusters, where ':' is a valid name character.
+func (h *authZHandlers) validateLocalRoleAssignment(principal *models.Principal, roleNames []string) error {
+	if !h.namespacesEnabled {
+		return nil
+	}
+	callerNS := ""
+	if principal != nil {
+		callerNS = principal.Namespace
+	}
+	for _, roleName := range roleNames {
+		if ns := namespacing.NamespaceFromQualified(roleName); ns != "" && ns != callerNS {
+			return fmt.Errorf("a namespace-local role can only be assigned by an administrator of its own namespace")
+		}
+	}
+	return nil
+}
+
 // roleHiddenFromCaller reports whether storedRoleName belongs to a namespace
 // other than the caller's, so its very existence must not be revealed.
 // Own-namespace and global roles are visible; only foreign-namespace roles are
@@ -792,6 +814,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	if err := h.validateLocalRoleAssignment(principal, roleNames); err != nil {
+		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	existedRoles, err := h.controller.GetRoles(roleNames...)
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
@@ -854,6 +880,11 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 	groupType, err := validateUserTypeInput(string(params.Body.GroupType))
 	if err != nil || groupType != authentication.AuthTypeOIDC {
 		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
+	}
+
+	// Groups are global; a namespace-local role can never be assigned to one.
+	if err := h.validateLocalRoleAssignment(principal, params.Body.Roles); err != nil {
+		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(groupType, params.ID)...); err != nil {

@@ -235,11 +235,6 @@ func TestCoordinator_NewCoordinator_PanicsOnNilArgs(t *testing.T) {
 // namespace's local roles and its direct principals' grouping rows (including
 // assignments to global roles) are removed via RAFT, while global roles and
 // out-of-namespace subjects are left untouched.
-//
-// Journey (c) — a global subject holding a local role — is not pinned here: it
-// falls out of Raft.DeleteRoles' apply path (RemoveFilteredGroupingPolicy on the
-// role object), which the stub can't model. The acceptance suite asserts it
-// end-to-end against a real store.
 func TestCoordinator_Tick_CleansNamespaceRBAC(t *testing.T) {
 	raft := newStubRaft()
 	rbac := stubRBAC{

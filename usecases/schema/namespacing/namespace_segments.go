@@ -88,10 +88,8 @@ func SegmentHasSeparator(path string, start, end int) bool {
 // foreign namespace) and is returned verbatim. A non-namespaceable path is
 // returned unchanged.
 //
-// It is the single structural walk shared by qualify-on-create, project-for-
-// assignment, and the enforce-time policy rewrite; only their per-segment fn
-// differs. Keeping the alias-offset arithmetic here, in one place, prevents the
-// three from drifting.
+// Callers supply only the per-segment decision via fn; the segment-location and
+// alias-offset arithmetic live here so every caller computes them identically.
 func RewriteNamespaceSegments(path string, fn func(segment string) (string, error)) (string, error) {
 	start, end, hasAlias := FindNamespaceSegments(path)
 	if end == 0 {
