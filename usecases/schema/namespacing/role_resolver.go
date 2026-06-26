@@ -88,12 +88,18 @@ func QualifyRolePoliciesForCreate(principal *models.Principal, namespacesEnabled
 		return nil
 	}
 	prefix := principal.Namespace + schema.NamespaceSeparator
+	// Qualify into a scratch slice first so a mid-slice error leaves the
+	// caller's policies untouched.
+	qualified := make([]string, len(policies))
 	for i := range policies {
-		qualified, err := qualifyResourceForCreate(prefix, policies[i].Resource)
+		q, err := qualifyResourceForCreate(prefix, policies[i].Resource)
 		if err != nil {
 			return err
 		}
-		policies[i].Resource = qualified
+		qualified[i] = q
+	}
+	for i := range policies {
+		policies[i].Resource = qualified[i]
 	}
 	return nil
 }
@@ -111,7 +117,7 @@ func qualifyResourceForCreate(prefix, resource string) (string, error) {
 }
 
 // ProjectResourceForNamespace specializes a role policy resource to a target
-// namespace for an assignment ≤-effective check, e.g. for namespace "customer1":
+// namespace for an assignment's must-already-hold check, e.g. for namespace "customer1":
 //
 //	data/collections/Movies/...            -> data/collections/customer1:Movies/...  (bare segment prefixed)
 //	data/collections/customer1:Movies/...  -> unchanged                              (already names the target)
@@ -159,6 +165,9 @@ const (
 func FindShortNameConflict(existing iter.Seq[string], candidateFull string) RoleShortNameConflict {
 	candNS := NamespaceFromQualified(candidateFull)
 	candShort := StripQualification(candidateFull)
+	// An exact duplicate always wins; a cross-type conflict is held until the
+	// scan completes so the verdict never depends on iteration order.
+	crossType := NoRoleConflict
 	for e := range existing {
 		if e == candidateFull {
 			return RoleConflictDuplicate
@@ -168,11 +177,10 @@ func FindShortNameConflict(existing iter.Seq[string], candidateFull string) Role
 		}
 		eNS := NamespaceFromQualified(e)
 		if candNS == "" && eNS != "" {
-			return RoleConflictLocal
-		}
-		if candNS != "" && eNS == "" {
-			return RoleConflictGlobal
+			crossType = RoleConflictLocal
+		} else if candNS != "" && eNS == "" {
+			crossType = RoleConflictGlobal
 		}
 	}
-	return NoRoleConflict
+	return crossType
 }

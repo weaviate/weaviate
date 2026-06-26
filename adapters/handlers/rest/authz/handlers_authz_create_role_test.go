@@ -630,8 +630,8 @@ func TestCreateRoleNamespaced(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-			// A namespaced creator authorizes at MATCH scope, then each policy is
-			// checked ≤-effective; grant both so qualify/collision stay the focus.
+			// A namespaced creator authorizes at MATCH scope, then must already
+			// hold each policy; grant both so qualify/collision stay the focus.
 			authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			all := map[string][]authorization.Policy{}
 			for _, r := range tt.existingRoles {
@@ -668,7 +668,7 @@ func TestCreateRoleNamespaced(t *testing.T) {
 	}
 }
 
-// TestCreateRoleNamespacedEffectiveDeny pins the per-permission ≤-effective
+// TestCreateRoleNamespacedEffectiveDeny pins the per-permission must-already-hold
 // MATCH check: a namespaced caller that may manage roles at MATCH scope but does
 // not itself hold a submitted (own-namespace) permission gets 403, not a role.
 // The table above grants every AuthorizeSilent, so the deny arm needs its own
