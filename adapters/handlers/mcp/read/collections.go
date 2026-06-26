@@ -65,7 +65,7 @@ func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallTo
 
 	// Return all collections
 	collections := res.Objects.Classes
-	if principal != nil && principal.Namespace != "" && len(collections) > 0 {
+	if namespacing.ConfinedNamespace(principal) != "" && len(collections) > 0 {
 		stripped := make([]*models.Class, len(collections))
 		for i, c := range collections {
 			stripped[i] = namespacing.StripClassResponse(principal, c)

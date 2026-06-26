@@ -172,7 +172,7 @@ func (h *authZHandlers) rolePoliciesVisibleToPrincipal(ctx context.Context, prin
 // its RBAC reads and writes scope to its own namespace. False for global callers
 // and on NS-disabled clusters.
 func (h *authZHandlers) callerConfined(principal *models.Principal) bool {
-	return h.namespacesEnabled && principal != nil && principal.Namespace != ""
+	return h.namespacesEnabled && namespacing.ConfinedNamespace(principal) != ""
 }
 
 // validateLocalRoleAssignment blocks assigning a namespace-local role unless the
@@ -185,10 +185,7 @@ func (h *authZHandlers) validateLocalRoleAssignment(principal *models.Principal,
 	if !h.namespacesEnabled {
 		return nil
 	}
-	callerNS := ""
-	if principal != nil {
-		callerNS = principal.Namespace
-	}
+	callerNS := namespacing.ConfinedNamespace(principal)
 	for _, roleName := range roleNames {
 		if ns := namespacing.NamespaceFromQualified(roleName); ns != "" && ns != callerNS {
 			return fmt.Errorf("a namespace-local role can only be assigned by an administrator of its own namespace")
@@ -202,7 +199,7 @@ func (h *authZHandlers) validateLocalRoleAssignment(principal *models.Principal,
 // Own-namespace and global roles are visible; only foreign-namespace roles are
 // hidden. Global operators (and NS-disabled clusters) hide nothing.
 func (h *authZHandlers) roleHiddenFromCaller(principal *models.Principal, storedRoleName string) bool {
-	if !h.callerConfined(principal) || principal.IsGlobalOperator {
+	if !h.callerConfined(principal) {
 		return false
 	}
 	ns := namespacing.NamespaceFromQualified(storedRoleName)
@@ -1664,7 +1661,7 @@ func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models
 	if !h.namespacesEnabled {
 		return nil
 	}
-	global := principal == nil || principal.Namespace == ""
+	global := namespacing.ConfinedNamespace(principal) == ""
 	for _, p := range policies {
 		if !conv.ContainsNamespaceSeparator(p.Resource) {
 			continue

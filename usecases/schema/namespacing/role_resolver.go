@@ -37,7 +37,7 @@ func QualifyRoleNameForCreate(principal *models.Principal, namespacesEnabled boo
 	if strings.Contains(raw, schema.NamespaceSeparator) {
 		return "", fmt.Errorf("'%s' is not a valid role name", raw)
 	}
-	if principal == nil || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return raw, nil
 	}
 	return QualifiedName(principal.Namespace, raw), nil
@@ -59,7 +59,7 @@ func ResolveRoleName(principal *models.Principal, namespacesEnabled bool, raw st
 		return raw, false, nil
 	}
 	qualified := strings.Contains(raw, schema.NamespaceSeparator)
-	if principal == nil || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return raw, qualified, nil
 	}
 	if qualified {
@@ -86,7 +86,7 @@ func ResolveRoleName(principal *models.Principal, namespacesEnabled bool, raw st
 // `*`) with its namespace, in place. An already-':'-qualified segment is
 // rejected. No-op for global principals and NS-disabled clusters.
 func QualifyRolePoliciesForCreate(principal *models.Principal, namespacesEnabled bool, policies []authorization.Policy) error {
-	if !namespacesEnabled || principal == nil || principal.Namespace == "" {
+	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
 		return nil
 	}
 	prefix := principal.Namespace + schema.NamespaceSeparator

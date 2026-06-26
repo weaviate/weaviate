@@ -274,3 +274,44 @@ func TestProjectResourceForNamespace(t *testing.T) {
 		})
 	}
 }
+
+func TestConfinedNamespace(t *testing.T) {
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		want      string
+	}{
+		{"nil principal is unconfined", nil, ""},
+		{"global operator is unconfined", &models.Principal{IsGlobalOperator: true}, ""},
+		{"operator with a namespace is still unconfined", &models.Principal{IsGlobalOperator: true, Namespace: "customer1"}, ""},
+		{"namespace-less principal is unconfined", &models.Principal{Username: "u"}, ""},
+		{"namespaced principal is confined to its namespace", &models.Principal{Namespace: "customer1"}, "customer1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ConfinedNamespace(tt.principal))
+		})
+	}
+}
+
+// TestRoleResolver_OperatorWithNamespaceTreatedAsGlobal pins the defense-in-depth
+// contract: should an operator ever carry a namespace, the create/resolve paths
+// treat it as unconfined — matching the strip paths via ConfinedNamespace so the
+// two predicate families cannot diverge.
+func TestRoleResolver_OperatorWithNamespaceTreatedAsGlobal(t *testing.T) {
+	op := &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"}
+
+	// No namespace prefix is added on create.
+	got, err := QualifyRoleNameForCreate(op, true, "editor")
+	require.NoError(t, err)
+	assert.Equal(t, "editor", got)
+
+	// A ':'-qualified name passes through (a confined caller's would be rejected),
+	// and existence is never consulted for an unconfined caller.
+	stored, _, err := ResolveRoleName(op, true, "customer2:editor", func(string) (bool, error) {
+		t.Fatal("exists must not be called for an unconfined caller")
+		return false, nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "customer2:editor", stored)
+}

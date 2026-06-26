@@ -56,7 +56,7 @@ func ValidateNamespacePrefix(principal *models.Principal, namespacesEnabled bool
 	if !strings.Contains(name, schema.NamespaceSeparator) {
 		return nil
 	}
-	if !namespacesEnabled || (principal != nil && principal.Namespace != "") {
+	if !namespacesEnabled || ConfinedNamespace(principal) != "" {
 		return fmt.Errorf("'%s' is not a valid %s name", name, kind)
 	}
 	ns, _, _ := strings.Cut(name, schema.NamespaceSeparator)
@@ -87,7 +87,7 @@ func QualifyForCreate(principal *models.Principal, namespacesEnabled bool, raw, 
 	if !namespacesEnabled {
 		return raw, nil
 	}
-	if principal == nil || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return "", ErrCreateRequiresNamespace
 	}
 	if len(raw) > ShortNameMaxLength {

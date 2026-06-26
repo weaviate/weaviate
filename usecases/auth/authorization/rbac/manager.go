@@ -574,7 +574,7 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	ns := principal.Namespace
+	ns := namespacing.ConfinedNamespace(principal)
 
 	// first check group permissions
 	for _, group := range principal.Groups {
