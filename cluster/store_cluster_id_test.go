@@ -168,7 +168,61 @@ func TestClusterID_OldSnapshotDecode(t *testing.T) {
 	assert.Equal(t, int64(0), snap.ClusterCreatedAt)
 }
 
-// T-COMPAT-2: new-snapshot → old-struct decode (unknown keys ignored).
+// T-CID-8: bootstrap loop exits promptly once clusterId is committed on any node.
+//
+// Drives the loop directly (no real raft instance) since setting up a multi-node
+// raft harness for a leadership-churn test is disproportionately expensive for a
+// unit suite. The IsLeader()+maybeCommitClusterID() retry path is not covered here.
+//
+// TODO(telemetry): add a 3-node integration test verifying that a second leader
+// commits the clusterId after the first leader crashes pre-commit (Gap-A hardening).
+func TestClusterIDBootstrapLoop_ExitsOnClusterIDSet(t *testing.T) {
+	st := newStoreForClusterIDTests(t)
+
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	defer loopCancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		st.clusterIDBootstrapLoop(loopCtx)
+	}()
+
+	// Simulate any node (including this one) committing the cluster id via raft apply.
+	st.setClusterIDFields("bootstrap-loop-exit-id", 12345)
+
+	select {
+	case <-done:
+		// loop exited as expected
+	case <-time.After(5 * time.Second):
+		t.Fatal("clusterIDBootstrapLoop did not exit within 5s after clusterId set")
+	}
+	assert.Equal(t, "bootstrap-loop-exit-id", st.ClusterID())
+}
+
+// T-CID-9: bootstrap loop exits promptly when the store context is cancelled (Store.Close path).
+func TestClusterIDBootstrapLoop_ExitsOnStoreContextCancelled(t *testing.T) {
+	st := newStoreForClusterIDTests(t)
+
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		st.clusterIDBootstrapLoop(loopCtx)
+	}()
+
+	loopCancel() // simulates Store.Close() calling st.bootstrapLoopCancel()
+
+	select {
+	case <-done:
+		// loop exited as expected
+	case <-time.After(5 * time.Second):
+		t.Fatal("clusterIDBootstrapLoop did not exit within 5s after context cancel")
+	}
+}
+
+// T-COMPAT-2: new-snapshot -> old-struct decode (unknown keys ignored).
 func TestClusterID_NewSnapshotToOldStructIgnored(t *testing.T) {
 	newSnap := `{"node_id":"n1","cluster_id":"xyz","cluster_created_at":12345}`
 	// Decode into a struct without the new fields (simulate old binary).

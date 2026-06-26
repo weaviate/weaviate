@@ -292,6 +292,10 @@ type Store struct {
 	// Waiters block on clusterIDCtx.Done().
 	clusterIDCtx       context.Context
 	clusterIDCtxCancel context.CancelFunc
+
+	// bootstrapLoopCancel stops clusterIDBootstrapLoop on Store.Close().
+	// Initialized to a no-op in NewFSM(); replaced with a real cancel in Open().
+	bootstrapLoopCancel context.CancelFunc
 }
 
 // storeMetrics exposes RAFT store related prometheus metrics
@@ -391,6 +395,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		applyTimeout:       time.Second * 20,
 		clusterIDCtx:       clusterIDCtx,
 		clusterIDCtxCancel: clusterIDCtxCancel,
+		bootstrapLoopCancel: func() {}, // no-op until Open() sets the real cancel
 		raftResolver: resolver.NewRaft(resolver.RaftConfig{
 			ClusterStateReader: cfg.NodeSelector,
 			RaftPort:           cfg.RaftPort,
@@ -525,8 +530,10 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// clusterIDBootstrapLoop retries committing the cluster identity on every leader
 	// tick until committed. This closes the gap where a leader crash before commit
 	// would leave the cluster without an identity indefinitely. The loop exits once
-	// clusterIDCtx is cancelled (i.e. clusterId is set on any node).
-	enterrors.GoWrapper(func() { st.clusterIDBootstrapLoop(ctx) }, st.log)
+	// clusterIDCtx is cancelled (id set on any node) or loopCtx is cancelled (Store.Close).
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	st.bootstrapLoopCancel = loopCancel
+	enterrors.GoWrapper(func() { st.clusterIDBootstrapLoop(loopCtx) }, st.log)
 	return nil
 }
 
@@ -635,6 +642,10 @@ func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
 		return nil
 	}
+
+	// Stop the cluster-id bootstrap loop before tearing down raft so the loop
+	// cannot call Execute() on a shutdown raft instance.
+	st.bootstrapLoopCancel()
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
@@ -1152,8 +1163,11 @@ func (st *Store) maybeCommitClusterID() {
 // when this node is the leader. This closes the leadership-churn gap: if the initial
 // leader crashes before commit, the next leader retries on its next tick.
 //
-// The loop is self-terminating: it exits as soon as clusterIDCtx is cancelled
-// (i.e. the identity is set on this node) regardless of leadership.
+// Two exit conditions:
+//   - clusterIDCtx cancelled: identity committed on this node (happy path, typically seconds).
+//   - storeCtx cancelled: Store.Close() called, e.g. on shutdown or if the cluster
+//     never achieves quorum. This prevents the loop from running indefinitely and
+//     calling Execute() on a shutdown raft instance.
 func (st *Store) clusterIDBootstrapLoop(storeCtx context.Context) {
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()

@@ -108,7 +108,12 @@ func TestNodeIDResetsOnDataDirWipe(t *testing.T) {
 }
 
 // T-IDENT-5: read-only / unwritable dir falls back.
+// Skipped when running as root because root bypasses dir permission bits,
+// causing the write to succeed and the assertion to fail in CI containers.
 func TestReadOrCreateNodeID_UnwritableDirReturnsError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires non-root; root bypasses dir perms")
+	}
 	dir := t.TempDir()
 	// Make the directory read-only so writes fail.
 	require.NoError(t, os.Chmod(dir, 0o555))
