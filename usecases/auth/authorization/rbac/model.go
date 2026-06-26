@@ -336,17 +336,6 @@ func rewritePolicy(policy, prefix string, fixedNs bool) (string, bool) {
 	return rewritten, true
 }
 
-// globalCallerNeedsNoWidening reports whether a global caller's (ns == "")
-// request matches the policy literally rather than widening: true when it has
-// no ':', or is a users/<id> resource (a user id may contain ':', which is
-// part of the id, not a namespace prefix).
-func globalCallerNeedsNoWidening(reqObj string) bool {
-	if strings.HasPrefix(reqObj, namespacing.UsersPrefix) {
-		return true
-	}
-	return strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) < 0
-}
-
 // operatorOnlyResource reports whether path addresses an operator-only domain
 // (backups, nodes, replicate, cluster, namespaces). A namespaced caller is
 // denied these regardless of any role granting them. roles and groups are
@@ -388,9 +377,10 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 		return false
 	}
 
-	// Trivial passthrough (see globalCallerNeedsNoWidening). Only
-	// collection/data/aliases segments treat ':' as a namespace boundary.
-	if ns == "" && globalCallerNeedsNoWidening(reqObj) {
+	// Trivial passthrough: a global caller that needs no widening matches the
+	// policy literally. Only collection/data/aliases/roles segments treat ':'
+	// as a namespace boundary.
+	if ns == "" && !namespacing.GlobalCallerWidens(reqObj) {
 		return weaviateKeyMatch(reqObj, polObj)
 	}
 

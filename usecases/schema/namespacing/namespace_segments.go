@@ -30,6 +30,18 @@ const (
 	AliasesMidSeg = "/aliases/"
 )
 
+// GlobalCallerWidens reports whether a global (namespace-less) caller's request
+// for reqObj must widen unqualified policy segments to match any namespace,
+// rather than matching the policy literally. A users/<id> resource never widens:
+// a user id may carry ':' for non-namespace reasons (e.g. OIDC subjects), so its
+// ':' is not a namespace prefix to infer from.
+func GlobalCallerWidens(reqObj string) bool {
+	if strings.HasPrefix(reqObj, UsersPrefix) {
+		return false
+	}
+	return strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) >= 0
+}
+
 // FindNamespaceSegments returns the [start, end) bounds of the collection-name
 // segment in path for the known shapes (schema/data/aliases). end == 0 means
 // path is not namespaceable. hasAlias reports whether path also has a 2nd
@@ -70,8 +82,8 @@ func FindNamespaceSegments(path string) (start, end int, hasAlias bool) {
 		return len(RolesPrefix), len(path), false
 	}
 	// groups/ is intentionally not registered: a colon-bearing group id is
-	// matched literally. Don't add it without also short-circuiting groups/
-	// in globalCallerNeedsNoWidening, or such ids would wrongly widen.
+	// matched literally. Don't add it without also carving groups/ out of
+	// GlobalCallerWidens, or such ids would wrongly widen.
 	return 0, 0, false
 }
 
