@@ -293,3 +293,74 @@ func TestRevokeRoleFromGroupGlobalCallerAllowed(t *testing.T) {
 	_, ok := res.(*authz.RevokeRoleFromGroupOK)
 	require.True(t, ok, "got %T", res)
 }
+
+// TestAssignRoleToUserGlobalOperatorLocalRoleDenied pins the cross-namespace
+// guard: a global operator cannot assign a namespace-local role to any user,
+// not even a user in that role's own namespace — local roles are managed only
+// by a caller confined to the namespace.
+func TestAssignRoleToUserGlobalOperatorLocalRoleDenied(t *testing.T) {
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, mock.Anything, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, mock.Anything).Return(nil)
+	controller := NewMockControllerAndGetUsers(t)
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: true}
+	principal := &models.Principal{Username: "op", UserType: "db"}
+	res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+		HTTPRequest: req,
+		ID:          "customer1:bob",
+		Body:        authz.AssignRoleToUserBody{Roles: []string{"customer1:editor"}, UserType: models.UserTypeInputDb},
+	}, principal)
+	_, ok := res.(*authz.AssignRoleToUserForbidden)
+	require.True(t, ok, "got %T", res)
+}
+
+// TestAssignRoleToGroupGlobalOperatorLocalRoleDenied pins that a namespace-local
+// role can never be assigned to a (global) group.
+func TestAssignRoleToGroupGlobalOperatorLocalRoleDenied(t *testing.T) {
+	authorizer := authorization.NewMockAuthorizer(t)
+	controller := NewMockControllerAndGetUsers(t)
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: true}
+	principal := &models.Principal{Username: "op", UserType: "oidc"}
+	res := h.assignRoleToGroup(authz.AssignRoleToGroupParams{
+		HTTPRequest: req,
+		ID:          "engineers",
+		Body:        authz.AssignRoleToGroupBody{Roles: []string{"customer1:editor"}, GroupType: models.GroupTypeOidc},
+	}, principal)
+	_, ok := res.(*authz.AssignRoleToGroupForbidden)
+	require.True(t, ok, "got %T", res)
+}
+
+// TestAssignRoleToUserNamespacedForeignRoleRejected pins that a namespaced
+// caller cannot reach another namespace's role by addressing it with a
+// qualified name: the qualified input is rejected before any assignment.
+func TestAssignRoleToUserNamespacedForeignRoleRejected(t *testing.T) {
+	h, _ := nsAssignHandler(t, "customer1")
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+		HTTPRequest: req,
+		ID:          "bob",
+		Body:        authz.AssignRoleToUserBody{Roles: []string{"customer2:editor"}, UserType: models.UserTypeInputDb},
+	}, principal)
+	_, ok := res.(*authz.AssignRoleToUserBadRequest)
+	require.True(t, ok, "got %T", res)
+}
+
+// TestRevokeRoleFromUserGlobalOperatorLocalRoleAllowed pins the deliberate
+// asymmetry with assign: a global operator MAY revoke a namespace-local role.
+// Revoke only removes a grant, so it cannot escalate privilege or make a local
+// role reach a foreign subject — the concerns the assign-side guard exists for —
+// so the revoke path carries no validateLocalRoleAssignment gate.
+func TestRevokeRoleFromUserGlobalOperatorLocalRoleAllowed(t *testing.T) {
+	h, _ := nsAssignHandler(t, "customer1")
+	principal := &models.Principal{Username: "op", UserType: "db", IsGlobalOperator: true}
+	res := h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+		HTTPRequest: req,
+		ID:          "customer1:bob",
+		Body:        authz.RevokeRoleFromUserBody{Roles: []string{"customer1:editor"}, UserType: models.UserTypeInputDb},
+	}, principal)
+	_, ok := res.(*authz.RevokeRoleFromUserOK)
+	require.True(t, ok, "got %T", res)
+}

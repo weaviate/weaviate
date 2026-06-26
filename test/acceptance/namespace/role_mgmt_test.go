@@ -160,12 +160,10 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		assert.False(t, names[ns2+":hidden"], "another namespace's role must stay hidden (qualified)")
 	})
 
-	t.Run("roles-for-user hides another namespace's role while keeping own and global", func(t *testing.T) {
-		// A ns2-local role whose permission projects into a ns1 admin's envelope
-		// (read collections on ns2:* -> ns1:*), so the content-scope check alone
-		// would let it leak through getRolesForUser; only a namespace pre-filter
-		// hides it. Plus an own-namespace role and the global viewer, both of
-		// which must stay visible.
+	t.Run("a foreign-namespace role cannot be assigned across namespaces; own and global roles stay visible", func(t *testing.T) {
+		// A namespace-local role belongs to exactly one namespace and may not be
+		// assigned to a user in another namespace — not even by an operator.
+		// Own-namespace and global roles assigned legitimately stay visible.
 		helper.CreateRole(t, u2Key, readCollectionsRole("probe", "*"))
 		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns2+":probe") })
 		helper.CreateRole(t, u1Key, readCollectionsRole("mine", "*"))
@@ -176,11 +174,18 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		t.Cleanup(func() { helper.DeleteUser(t, ns1+":bob", adminKey) })
 
 		helper.AssignRoleToUser(t, u1Key, "mine", "bob")                       // own-namespace role
-		helper.AssignRoleToUser(t, adminKey, ns2+":probe", ns1+":bob")         // foreign role, operator-assigned
 		helper.AssignRoleToUser(t, adminKey, authorization.Viewer, ns1+":bob") // global role
 
-		// The ns1 admin lists bob's roles. The foreign role must be absent in both
-		// the names-only and full-roles projections; own + global stay visible.
+		// The operator cannot assign ns2's local role to a ns1 user.
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(ns1+":bob").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{ns2 + ":probe"}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.AssignRoleToUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
+
+		// The ns1 admin lists bob's roles: own + global visible, the foreign role
+		// never made it in.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			for _, includeFull := range []bool{false, true} {
 				full := includeFull
@@ -195,8 +200,8 @@ func TestNamespaceLocalRoles(t *testing.T) {
 				for _, r := range resp.Payload {
 					names[*r.Name] = true
 				}
-				assert.False(c, names[ns2+":probe"], "foreign-namespace role leaked (includeFull=%v)", full)
-				assert.False(c, names["probe"], "foreign-namespace role leaked under its short name (includeFull=%v)", full)
+				assert.False(c, names[ns2+":probe"], "foreign-namespace role present (includeFull=%v)", full)
+				assert.False(c, names["probe"], "foreign-namespace role present under its short name (includeFull=%v)", full)
 				assert.True(c, names["mine"], "own-namespace role missing (includeFull=%v)", full)
 				assert.True(c, names[authorization.Viewer], "global role missing (includeFull=%v)", full)
 			}
