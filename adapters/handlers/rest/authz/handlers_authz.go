@@ -112,9 +112,9 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 	var err error
 
 	// ALL scope is for unconfined (global) principals only; a principal confined
-	// to a namespace is always forced through the MATCH ≤-effective path, so an
-	// ALL-scoped grant it somehow holds can't escalate to cluster-wide role
-	// management.
+	// to a namespace is always forced through the MATCH path, where it must
+	// already hold each permission, so an ALL-scoped grant it somehow holds can't
+	// escalate to cluster-wide role management.
 	confinedToNamespace := h.callerConfined(principal)
 	if !confinedToNamespace {
 		if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_ALL), authorization.Roles(roleName)...); err == nil {
@@ -727,8 +727,9 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 	ctx := params.HTTPRequest.Context()
 
 	// Resolve and authorize the read. NS-enabled gates on content scope and
-	// returns the role's policies; a name that resolves to no role is 404 and an
-	// out-of-envelope role is 403, so a foreign namespace's role never leaks.
+	// returns the role's policies; a name that resolves to no role is 404 and a
+	// role whose permissions the caller does not hold is 403, so a foreign
+	// namespace's role never leaks.
 	roleID, policies, outcome, err := h.resolveRoleForRead(ctx, principal, params.ID)
 	switch outcome {
 	case roleReadOK:
@@ -1676,7 +1677,7 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
 	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {
 		return nil
 	}
-	if !strings.Contains(userID, ":") {
+	if !conv.ContainsNamespaceSeparator(userID) {
 		return fmt.Errorf("user IDs on namespace-enabled clusters must be namespace-prefixed (e.g. \"customer1:alice\"); bare-form IDs are only accepted for static API-key users")
 	}
 	return nil
