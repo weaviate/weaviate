@@ -349,6 +349,12 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot create role with the same name as built-in role %s", *params.Body.Name)))
 	}
 
+	// The operator-reserved prefix is for operator-only global roles; a confined
+	// caller submits a bare short name, so check it before it is namespace-qualified.
+	if h.callerConfined(principal) && authorization.IsOperatorReservedRoleName(*params.Body.Name) {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("role name uses a reserved operator prefix")))
+	}
+
 	// A namespaced caller's role name is auto-prefixed with its namespace.
 	roleName, err := namespacing.QualifyRoleNameForCreate(principal, h.namespacesEnabled, *params.Body.Name)
 	if err != nil {
