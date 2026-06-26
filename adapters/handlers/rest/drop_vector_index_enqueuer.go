@@ -44,10 +44,12 @@ type clusterDropTaskClient interface {
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
 
-// shardOwnershipLister returns shard -> owning nodes for a collection; *db.DB
-// satisfies it via ShardReplicaOwnership. Narrowed so the enqueuer is testable.
+// shardOwnershipLister returns shard -> owning nodes for a collection, limited to
+// shards with locally loaded data (deactivated MT tenants are excluded — their
+// cleanup is deferred to activation). *db.DB satisfies it via
+// ShardReplicaOwnershipActive. Narrowed so the enqueuer is testable.
 type shardOwnershipLister interface {
-	ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error)
+	ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error)
 }
 
 func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, ownership shardOwnershipLister) *dropVectorIndexEnqueuer {
@@ -85,7 +87,7 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 // one unit per (shard, replica) grouped by shard, so each replica node strips
 // its own objects bucket.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
-	shardOwnership, err := e.ownership.ShardReplicaOwnership(ctx, collection)
+	shardOwnership, err := e.ownership.ShardReplicaOwnershipActive(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: shard ownership for %q: %w", collection, err)
 	}

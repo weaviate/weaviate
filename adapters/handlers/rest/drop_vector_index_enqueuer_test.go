@@ -92,7 +92,7 @@ func (f *fakeClusterDropClient) AddDistributedTaskWithGroups(ctx context.Context
 
 type fakeOwnership struct{ m map[string][]string }
 
-func (f *fakeOwnership) ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error) {
+func (f *fakeOwnership) ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error) {
 	return f.m, nil
 }
 

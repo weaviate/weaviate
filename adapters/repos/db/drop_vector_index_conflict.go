@@ -57,27 +57,13 @@ func (p *DropVectorIndexProvider) CheckPropertyUpdate(className, propertyName st
 	return nil
 }
 
-// CheckClassMutation blocks DeleteClass while a drop-vector task on the class is
-// in flight: deleting the class would wipe the objects bucket the task is
-// rewriting.
+// CheckClassMutation does NOT block DeleteClass for an in-flight drop: deleting
+// the class supersedes the drop (the whole objects bucket is going away, so there
+// is no half-stripped state to protect — unlike a reindex migration). The schema
+// FSM's DeleteClass apply cascade-deletes the namespace's tasks via
+// DeleteTasksForCollection, so the in-flight task is cleaned up rather than left
+// blocking the delete. Always returns nil.
 func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
-	for _, task := range existingTasks {
-		if !task.Status.IsActive() {
-			continue
-		}
-		existP, err := decodeDropVectorIndexPayload(task.Payload)
-		if err != nil {
-			return fmt.Errorf(
-				"in-flight drop-vector task %q has an unparseable payload; cannot verify DeleteClass on %s: %w",
-				task.ID, className, err)
-		}
-		if !strings.EqualFold(existP.Collection, className) {
-			continue
-		}
-		return fmt.Errorf(
-			"drop-vector task %q is in flight on %s (status=%s); cancel it before deleting the class",
-			task.ID, existP.Collection, task.Status)
-	}
 	return nil
 }
 
