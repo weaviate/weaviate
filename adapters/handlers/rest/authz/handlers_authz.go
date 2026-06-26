@@ -194,6 +194,22 @@ func (h *authZHandlers) validateLocalRoleAssignment(principal *models.Principal,
 	return nil
 }
 
+// validateOperatorRoleAssignmentToUser blocks assigning an operator-reserved
+// global role to a namespaced user. Keyed on the target's namespace, not the
+// caller's, so even an operator cannot pull a reserved global role into a
+// namespace. No-op on NS-disabled clusters and for global targets.
+func (h *authZHandlers) validateOperatorRoleAssignmentToUser(targetNamespace string, roleNames []string) error {
+	if !h.namespacesEnabled || targetNamespace == "" {
+		return nil
+	}
+	for _, roleName := range roleNames {
+		if namespacing.NamespaceFromQualified(roleName) == "" && authorization.IsOperatorReservedRoleName(namespacing.StripQualification(roleName)) {
+			return fmt.Errorf("this role cannot be assigned to a namespaced user")
+		}
+	}
+	return nil
+}
+
 // roleHiddenFromCaller reports whether storedRoleName belongs to a namespace
 // other than the caller's, so its very existence must not be revealed.
 // Own-namespace and global roles are visible; only foreign-namespace roles are
@@ -812,6 +828,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	if err := h.validateLocalRoleAssignment(principal, roleNames); err != nil {
+		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	if err := h.validateOperatorRoleAssignmentToUser(namespacing.NamespaceFromQualified(internalID), roleNames); err != nil {
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
