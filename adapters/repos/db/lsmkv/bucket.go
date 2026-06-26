@@ -433,49 +433,29 @@ func (b *Bucket) resumeCompaction(ctx context.Context) error {
 	return b.disk.resumeCompaction(ctx)
 }
 
-// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
-// and on disk, and applies the given function to each object.
-// The afterInMemCallback is called after the in-memory memtable has been processed.
-// This allows the caller to perform actions that need to happen after the in-memory
-// objects have been processed.
-// The function f is called for each object, and if it returns an error, the
-// processing is stopped and the error is returned.
-// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+// ApplyToObjectDigests applies f to every object in the bucket (memtable and disk),
+// stopping on the first error. afterInMemCallback fires once the in-memory scan is done.
+//
+// The on-disk cursor is created while the in-mem cursor holds the flush lock, so both
+// snapshots are taken at a single consistent point with no flush in between. Compaction
+// is not paused: the on-disk cursor pins its segments via reference counting.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(uuidBytes []byte, updateTime int64) error,
 ) error {
-	err := b.pauseCompaction(ctx)
-	if err != nil {
-		afterInMemCallback()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer func() {
-		ec := errorcompounder.New()
-
-		if err != nil {
-			ec.AddWrapf(err, "during ApplyToObjectDigests")
-		}
-
-		err = b.resumeCompaction(ctx)
-		if err != nil {
-			ec.AddWrapf(err, "resuming compaction after ApplyToObjectDigests")
-		}
-
-		err = ec.ToError()
-	}()
-
-	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDisk()
-	defer onDiskCursor.Close()
+	var onDiskCursor *CursorReplace
 
 	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
+	err := func() error {
 		defer afterInMemCallback()
 
 		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
+
+		// created under the in-mem cursor's flush lock, so it is consistent with the
+		// memtable view: no flush can run between the two snapshots.
+		onDiskCursor = b.CursorOnDisk()
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
 			select {
@@ -496,6 +476,9 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 		return nil
 	}()
+	if onDiskCursor != nil {
+		defer onDiskCursor.Close()
+	}
 	if err != nil {
 		return err
 	}
