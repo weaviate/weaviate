@@ -232,11 +232,14 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, namespace stri
 }
 
 // cleanupNamespaceRBAC removes the namespace's RBAC state: first the role
-// assignments of its direct principals (which may also assign a global role),
-// then the local roles themselves. DeleteRoles also drops any grouping row that
-// still references a deleted local role, a defensive backstop. Revocations run
-// before role deletes so no assignment outlives its role. No-op when RBAC is
-// disabled (only a non-namespace cluster, which has nothing here).
+// assignments of its direct principals (which may also hold a global role),
+// then the local roles themselves. Revocations run before role deletes so no
+// assignment outlives its role.
+//
+// The assign layer only lets a local role reach its own namespace's principals,
+// all of which are revoked above, so DeleteRoles dropping any grouping row that
+// still points at a deleted local role is a defensive backstop. No-op when RBAC
+// is disabled (only a non-namespace cluster, which has nothing here).
 func (c *Coordinator) cleanupNamespaceRBAC(ctx context.Context, namespace string) error {
 	if c.rbac == nil {
 		return nil
