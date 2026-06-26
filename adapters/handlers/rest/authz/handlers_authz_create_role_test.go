@@ -437,6 +437,79 @@ func collectionRole(name, collection string) authz.CreateRoleParams {
 	}
 }
 
+// TestCreateRoleOperatorReservedPrefix pins the reservation: only confined
+// (namespaced) callers are blocked from operator_/global_ role names; global
+// operators may create them and NS-disabled clusters treat them as ordinary names.
+func TestCreateRoleOperatorReservedPrefix(t *testing.T) {
+	tests := []struct {
+		name              string
+		principal         *models.Principal
+		roleName          string
+		namespacesEnabled bool
+		wantResp          string
+	}{
+		{
+			name:              "namespaced caller operator_ prefix rejected",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			roleName:          "operator_foo",
+			namespacesEnabled: true,
+			wantResp:          "422",
+		},
+		{
+			name:              "namespaced caller global_ prefix rejected",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			roleName:          "global_foo",
+			namespacesEnabled: true,
+			wantResp:          "422",
+		},
+		{
+			name:              "namespaced caller unreserved name allowed",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			roleName:          "billing-ro",
+			namespacesEnabled: true,
+			wantResp:          "created",
+		},
+		{
+			name:              "global operator operator_ prefix allowed",
+			principal:         &models.Principal{Username: "op", IsGlobalOperator: true},
+			roleName:          "operator_foo",
+			namespacesEnabled: true,
+			wantResp:          "created",
+		},
+		{
+			name:              "NS-disabled operator_ prefix allowed",
+			principal:         &models.Principal{Username: "u"},
+			roleName:          "operator_foo",
+			namespacesEnabled: false,
+			wantResp:          "created",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			schemaReader := schema.NewMockSchemaGetter(t)
+			logger, _ := test.NewNullLogger()
+
+			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			controller.On("GetRoles").Return(map[string][]authorization.Policy{}, nil).Maybe()
+			controller.On("CreateRolesPermissions", mock.Anything).Return(nil).Maybe()
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				schemaReader:      schemaReader,
+				logger:            logger,
+				namespacesEnabled: tt.namespacesEnabled,
+			}
+			res := h.createRole(collectionRole(tt.roleName, "Movies"), tt.principal)
+			require.Equal(t, tt.wantResp, createRoleRespType(res))
+		})
+	}
+}
+
 func createRoleRespType(res middleware.Responder) string {
 	switch res.(type) {
 	case *authz.CreateRoleCreated:
