@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package namespacing provides the syntax-only helpers used to qualify
-// collection and alias names with their owning namespace. The helpers are
-// pure functions: no I/O, no validation beyond a length check on the
-// pre-qualification short name.
+// Package namespacing provides the helpers used to qualify collection, alias,
+// user, and role names (and RBAC resource paths) with their owning namespace,
+// and to resolve them back. The helpers are pure syntax transforms except
+// ResolveRoleName, which consults a caller-supplied existence callback to fall
+// back from a namespace-local to a global role.
 package namespacing
 
 import (
