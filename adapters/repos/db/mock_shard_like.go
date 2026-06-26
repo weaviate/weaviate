@@ -784,6 +784,65 @@ func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// CreateReplicaSnapshot provides a mock function with given fields: ctx, stagingRoot
+func (_m *MockShardLike) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
+	ret := _m.Called(ctx, stagingRoot)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateReplicaSnapshot")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
+		return rf(ctx, stagingRoot)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
+		r0 = rf(ctx, stagingRoot)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, stagingRoot)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_CreateReplicaSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateReplicaSnapshot'
+type MockShardLike_CreateReplicaSnapshot_Call struct {
+	*mock.Call
+}
+
+// CreateReplicaSnapshot is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stagingRoot string
+func (_e *MockShardLike_Expecter) CreateReplicaSnapshot(ctx interface{}, stagingRoot interface{}) *MockShardLike_CreateReplicaSnapshot_Call {
+	return &MockShardLike_CreateReplicaSnapshot_Call{Call: _e.mock.On("CreateReplicaSnapshot", ctx, stagingRoot)}
+}
+
+func (_c *MockShardLike_CreateReplicaSnapshot_Call) Run(run func(ctx context.Context, stagingRoot string)) *MockShardLike_CreateReplicaSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_CreateReplicaSnapshot_Call) Return(_a0 []string, _a1 error) *MockShardLike_CreateReplicaSnapshot_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_CreateReplicaSnapshot_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *MockShardLike_CreateReplicaSnapshot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DebugGetDocIdLockStatus provides a mock function with no fields
 func (_m *MockShardLike) DebugGetDocIdLockStatus() (bool, error) {
 	ret := _m.Called()
@@ -2181,6 +2240,65 @@ func (_c *MockShardLike_ListBackupFiles_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// ListReplicaSnapshotFiles provides a mock function with given fields: ctx, stagingRoot
+func (_m *MockShardLike) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
+	ret := _m.Called(ctx, stagingRoot)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListReplicaSnapshotFiles")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
+		return rf(ctx, stagingRoot)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
+		r0 = rf(ctx, stagingRoot)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, stagingRoot)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_ListReplicaSnapshotFiles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListReplicaSnapshotFiles'
+type MockShardLike_ListReplicaSnapshotFiles_Call struct {
+	*mock.Call
+}
+
+// ListReplicaSnapshotFiles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stagingRoot string
+func (_e *MockShardLike_Expecter) ListReplicaSnapshotFiles(ctx interface{}, stagingRoot interface{}) *MockShardLike_ListReplicaSnapshotFiles_Call {
+	return &MockShardLike_ListReplicaSnapshotFiles_Call{Call: _e.mock.On("ListReplicaSnapshotFiles", ctx, stagingRoot)}
+}
+
+func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) Run(run func(ctx context.Context, stagingRoot string)) *MockShardLike_ListReplicaSnapshotFiles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) Return(_a0 []string, _a1 error) *MockShardLike_ListReplicaSnapshotFiles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *MockShardLike_ListReplicaSnapshotFiles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MergeObject provides a mock function with given fields: ctx, object
 func (_m *MockShardLike) MergeObject(ctx context.Context, object objects.MergeDocument) error {
 	ret := _m.Called(ctx, object)
@@ -2376,6 +2494,38 @@ func (_c *MockShardLike_Name_Call) Return(_a0 string) *MockShardLike_Name_Call {
 
 func (_c *MockShardLike_Name_Call) RunAndReturn(run func() string) *MockShardLike_Name_Call {
 	_c.Call.Return(run)
+	return _c
+}
+
+// MayResetTransferInactivityTimer provides a mock function with no fields
+func (_m *MockShardLike) MayResetTransferInactivityTimer() {
+	_m.Called()
+}
+
+// MockShardLike_MayResetTransferInactivityTimer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MayResetTransferInactivityTimer'
+type MockShardLike_MayResetTransferInactivityTimer_Call struct {
+	*mock.Call
+}
+
+// MayResetTransferInactivityTimer is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) MayResetTransferInactivityTimer() *MockShardLike_MayResetTransferInactivityTimer_Call {
+	return &MockShardLike_MayResetTransferInactivityTimer_Call{Call: _e.mock.On("MayResetTransferInactivityTimer")}
+}
+
+func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Run(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Return() *MockShardLike_MayResetTransferInactivityTimer_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) RunAndReturn(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
+	_c.Run(run)
 	return _c
 }
 

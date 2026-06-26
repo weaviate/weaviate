@@ -12,14 +12,12 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -28,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -37,14 +34,11 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
-
-const tmpCopyExtension = ".copy.tmp" // indexcount and proplen temporary copy
 
 func (db *DB) ReplicateObject(ctx context.Context, class,
 	shard, requestID string, object *storobj.Object,
@@ -489,157 +483,6 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 	}
 
 	return i.initLocalShard(ctx, shardName)
-}
-
-// IncomingPauseFileActivity pauses the background processes of the specified shard.
-// You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
-// need the returned files to stay immutable anymore.
-func (i *Index) IncomingPauseFileActivity(ctx context.Context,
-	shardName string,
-) error {
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("incoming pause file activity get shard %s err: %w", shardName, err)
-	}
-	defer release()
-
-	if shard == nil {
-		return fmt.Errorf("incoming pause file activity get shard %s: shard not found", shardName)
-	}
-
-	err = shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout)
-	if err != nil {
-		return fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
-	}
-
-	return nil
-}
-
-// IncomingResumeFileActivity resumes the background processes of the specified shard.
-func (i *Index) IncomingResumeFileActivity(ctx context.Context,
-	shardName string,
-) error {
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("incoming resume file activity get shard %s err: %w", shardName, err)
-	}
-	defer release()
-
-	if shard == nil {
-		return fmt.Errorf("incoming resume file activity get shard %s: shard not found", shardName)
-	}
-
-	err = shard.resumeMaintenanceCycles(ctx)
-	if err != nil {
-		return fmt.Errorf("shard %q could not be resumed after transfer: %w", shardName, err)
-	}
-
-	return nil
-}
-
-// IncomingListFiles returns a list of files that can be used to get the
-// shard data at the time the pause was requested.
-// You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
-// need the returned files to stay immutable anymore.
-func (i *Index) IncomingListFiles(ctx context.Context,
-	shardName string,
-) ([]string, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return nil, fmt.Errorf("incoming list files get shard %s: %w", shardName, err)
-	}
-	defer release()
-	if shard == nil {
-		return nil, fmt.Errorf("incoming list files get shard is nil: %s", shardName)
-	}
-
-	sd := backup.ShardDescriptor{Name: shardName}
-
-	// prevent writing into the index during collection of metadata
-	i.backupLock.Lock(shardName)
-	defer i.backupLock.Unlock(shardName)
-
-	// flushing memtable before gathering the files to prevent the inclusion of a partially written file
-	if err = shard.Store().FlushMemtables(ctx); err != nil {
-		return nil, fmt.Errorf("flush memtables: %w", err)
-	}
-
-	sdFiles, err := shard.ListBackupFiles(ctx, &sd)
-	if err != nil {
-		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
-	}
-
-	err = i.tmpCopy(shard.Counter().FileName(), sd.DocIDCounter)
-	if err != nil {
-		return nil, err
-	}
-
-	err = i.tmpCopy(shard.GetPropertyLengthTracker().FileName(), sd.PropLengthTracker)
-	if err != nil {
-		return nil, err
-	}
-
-	files := []string{
-		sd.DocIDCounterPath,
-		sd.PropLengthTrackerPath,
-		sd.ShardVersionPath,
-	}
-	files = append(files, sdFiles...)
-
-	return files, nil
-}
-
-func (i *Index) tmpCopy(path string, b []byte) error {
-	tmpFile, err := os.OpenFile(path+tmpCopyExtension, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
-	if err != nil {
-		return err
-	}
-	defer tmpFile.Close()
-
-	_, err = io.Copy(tmpFile, bytes.NewBuffer(b))
-	return err
-}
-
-// IncomingGetFileMetadata returns file metadata at the given path in the specified shards's root
-// directory.
-func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s err: %w", shardName, err)
-	}
-	defer release()
-	if shard == nil {
-		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s: shard not found", shardName)
-	}
-
-	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
-		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
-		relativeFilePath = relativeFilePath + tmpCopyExtension
-	}
-
-	return shard.GetFileMetadata(ctx, relativeFilePath)
-}
-
-// IncomingGetFile returns a reader for the file at the given path in the specified shard's root
-// directory. The caller must close the returned io.ReadCloser if no error is returned.
-func (i *Index) IncomingGetFile(ctx context.Context, shardName,
-	relativeFilePath string,
-) (io.ReadCloser, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return nil, fmt.Errorf("incoming get file get shard %s err: %w", shardName, err)
-	}
-	defer release()
-	if shard == nil {
-		return nil, fmt.Errorf("incoming get file get shard %s: shard not found", shardName)
-	}
-
-	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
-		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
-		relativeFilePath = relativeFilePath + tmpCopyExtension
-	}
-
-	return shard.GetFile(ctx, relativeFilePath)
 }
 
 func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error {
