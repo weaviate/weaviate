@@ -540,14 +540,12 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 	}
 
-	// Open the sidecar before registering the cycle below, so sg.editOps is
-	// published before any pass can read it (happens-before). Closed in shutdown.
+	// Construct the sidecar before registering the cycle below, so sg.editOps is
+	// published before any pass can read it (happens-before). The bolt file itself
+	// is opened lazily on the first registered op (see newSegmentEditOps), so an
+	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
 	if cfg.transformerBuilder != nil {
-		editOps, err := openSegmentEditOps(cfg.dir, cfg.transformerBuilder)
-		if err != nil {
-			return nil, fmt.Errorf("open segment edit ops: %w", err)
-		}
-		sg.editOps = editOps
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.transformerBuilder)
 	}
 
 	id := "segmentgroup/compaction/" + sg.dir

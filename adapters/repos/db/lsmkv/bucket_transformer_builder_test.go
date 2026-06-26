@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -20,9 +21,10 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestBucket_WithTransformerBuilder_OpensAndClosesEditOps proves the option
-// opens the edit-ops sidecar at bucket init and that shutdown closes it (the
-// lsmkv-owned C9 lifecycle).
+// TestBucket_WithTransformerBuilder_OpensAndClosesEditOps proves the option wires
+// the edit-ops sidecar at bucket init, that the bolt file is materialized lazily
+// on the first registered op (not at init), and that shutdown closes the handle
+// (the lsmkv-owned C9 lifecycle).
 func TestBucket_WithTransformerBuilder_OpensAndClosesEditOps(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -36,13 +38,21 @@ func TestBucket_WithTransformerBuilder_OpensAndClosesEditOps(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithTransformerBuilder(builder))
 	require.NoError(t, err)
-	require.NotNil(t, bucket.disk.editOps, "WithTransformerBuilder should open the edit-ops sidecar")
+	require.NotNil(t, bucket.disk.editOps, "WithTransformerBuilder should wire the edit-ops sidecar")
+
+	editOpsDir := bucket.disk.dir
+	// Lazy: no bolt file until an op is registered.
+	require.NoFileExists(t, filepath.Join(editOpsDir, segmentEditOpsFileName))
+	require.NoError(t, bucket.disk.editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.FileExists(t, filepath.Join(editOpsDir, segmentEditOpsFileName))
 
 	require.NoError(t, bucket.Shutdown(ctx))
 
-	// Re-opening the same file takes an exclusive bolt lock, so it succeeds only
-	// if shutdown closed the first handle.
-	reopened, err := openSegmentEditOps(dir, nil)
+	// Re-opening the (now-existing) file takes an exclusive bolt lock, so this
+	// succeeds only if shutdown closed the first handle.
+	reopened := newSegmentEditOps(editOpsDir, nil)
+	_, err = reopened.LoadOps()
 	require.NoError(t, err)
 	require.NoError(t, reopened.Close())
 }

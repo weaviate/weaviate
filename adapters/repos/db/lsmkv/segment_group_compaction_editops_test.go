@@ -29,8 +29,7 @@ import (
 // has its inputs marked done but the merged output re-queued (the merge ran with
 // a transformer that never saw it).
 func TestSegmentEditOps_RecordCompaction(t *testing.T) {
-	editOps, err := openSegmentEditOps(t.TempDir(), nil)
-	require.NoError(t, err)
+	editOps := newSegmentEditOps(t.TempDir(), nil)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
 	built := OpDescriptor{Type: "remove_target_vectors", CreatedAt: 100}
@@ -59,8 +58,7 @@ func TestSegmentEditOps_RecordCompaction(t *testing.T) {
 // absent from builtOps is only re-queued when one of the merged inputs was
 // actually pending for it.
 func TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending(t *testing.T) {
-	editOps, err := openSegmentEditOps(t.TempDir(), nil)
-	require.NoError(t, err)
+	editOps := newSegmentEditOps(t.TempDir(), nil)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
 	require.NoError(t, editOps.RegisterOp("late", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 300}))
@@ -82,8 +80,7 @@ func TestSegmentEditOps_RecordCompaction_NoReQueueWhenInputNotPending(t *testing
 // The earlier, timestamp-based gate (CreatedAt > startedAt) would wrongly skip
 // this op; membership-based bookkeeping does not.
 func TestSegmentEditOps_RecordCompaction_ReQueuesLateOpWithEarlyCreatedAt(t *testing.T) {
-	editOps, err := openSegmentEditOps(t.TempDir(), nil)
-	require.NoError(t, err)
+	editOps := newSegmentEditOps(t.TempDir(), nil)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 
 	// CreatedAt=1 is far in the past (e.g. clock skew, or a logical timestamp
@@ -120,11 +117,10 @@ func TestSegmentGroup_CompactionAppliesEditOpsTransformer(t *testing.T) {
 	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
 	require.NoError(t, bucket.FlushAndSwitch())
 
-	editOps, err := openSegmentEditOps(bucket.disk.dir, func(ops []ActiveOp) func([]byte) ([]byte, error) {
+	editOps := newSegmentEditOps(bucket.disk.dir, func(ops []ActiveOp) func([]byte) ([]byte, error) {
 		require.NotEmpty(t, ops)
 		return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 	})
-	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 	bucket.disk.editOps = editOps
 
