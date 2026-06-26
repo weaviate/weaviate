@@ -72,10 +72,10 @@ func (s *ShardReplicationFSM) validateReplicationAdmission(op ShardReplicationOp
 	if err := s.checkNoConflictingOp(op, s.opsBySourceFQDN[op.SourceShard], "source"); err != nil {
 		return err
 	}
-	return s.checkSourceNotHydrating(op)
+	return s.checkSourceNotInFlightAsTarget(op)
 }
 
-func (s *ShardReplicationFSM) checkSourceNotHydrating(op ShardReplicationOp) error {
+func (s *ShardReplicationFSM) checkSourceNotInFlightAsTarget(op ShardReplicationOp) error {
 	for _, existingOp := range s.opsByTargetFQDN[op.SourceShard] {
 		status, ok := s.statusById[existingOp.ID]
 		if !ok {
