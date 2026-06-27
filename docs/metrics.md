@@ -195,6 +195,37 @@ weaviate_shards{state="loaded",registration="lazy"}
 |---|---|---|---|---|
 | `weaviate_distributed_tasks_running` | Number of active distributed tasks running per namespace | `Gauge` | `namespace` | ❌ High 
 
+#### LSM Segment Edit Op Metrics
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_lsm_segment_edit_ops_active` | Number of LSM segment edit operations armed on this shard, by op type. See the notes below. | `Gauge` | `op_type, class_name, shard_name` | ❌ High 
+| `weaviate_lsm_segment_edit_ops_pending_segments` | Segments still queued for rewrite for an edit op on this shard, excluding quarantined ones | `Gauge` | `op_id, class_name, shard_name` | ❌ High 
+| `weaviate_lsm_segment_edit_ops_segments_owed` | Segments an edit op still owes on this shard: queued plus quarantined. See the notes below. | `Gauge` | `op_id, class_name, shard_name` | ❌ High 
+| `weaviate_lsm_segment_edit_ops_transformer_duration_seconds` | Wall-clock seconds one cleaner pass spent rewriting one segment under an edit op, by op type | `Histogram` | `op_type` | - Low 
+
+##### Notes on the segment edit op metrics
+
+- **An edit op is the background rewrite that strips a dropped vector index out of existing
+  segments.** The drop-vector-index cleanup is the first user; `op_type` names the kind of edit and
+  `op_id` is the drop epoch.
+- **`active > 0` with `segments_owed = 0` is the ordinary state, not a stall.** An op stays armed
+  until its drop completes cluster-wide, so a shard that finished its own rewrites sits here while
+  it waits on peers.
+- **`segments_owed` above `pending_segments` means segments are in quarantine**, having exhausted
+  their retry budget. A new round returns them to the queue with a fresh budget, but only a bounded
+  number of times. A brief divergence is a drop mid-retry; one that persists across rounds is a drop
+  that will not finish without intervention.
+- **`op_id` alone does not identify a series.** Every shard taking part in the same drop shares the
+  epoch, so `class_name` and `shard_name` are load-bearing — and in a multi-tenant collection
+  `shard_name` IS the tenant name, unique only within its class.
+- **The per-shard gauges are suppressed under `PROMETHEUS_MONITORING_GROUP`.** Their labels collapse
+  to `n/a` in that mode, so every shard would write one shared series and the readings would be
+  meaningless. The duration histogram carries no shard dimension and stays on.
+- **The gauges are deleted when a shard unloads or is dropped**, so an inactive tenant leaves no
+  stale series. The histogram is cumulative and deliberately node-level: it describes the cost of the
+  work rather than the state of a shard, and reaping it would make a deactivate/reactivate look like
+  a reset.
+
 #### HTTP Server Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|

@@ -262,6 +262,19 @@ func (s *Store) setBucket(name string, b *Bucket) {
 	s.bucketsByName[name] = b
 }
 
+// ReapEditOpsMetrics retires the edit-op series of every bucket in this store.
+// Called on the DELETE path only (Shard.drop): an unload leaves the series in
+// place, because a drop stalled on a deactivated tenant is precisely what they
+// report — see SegmentGroup.shutdown. Latched, so the teardown that follows
+// cannot republish what this just deleted.
+func (s *Store) ReapEditOpsMetrics() {
+	for _, bucket := range s.GetBucketsByName() {
+		if bucket != nil && bucket.disk != nil {
+			bucket.disk.reapEditOpsMetrics()
+		}
+	}
+}
+
 func (s *Store) Shutdown(ctx context.Context) error {
 	s.closeLock.Lock()
 	defer s.closeLock.Unlock()

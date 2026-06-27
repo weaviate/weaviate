@@ -658,6 +658,10 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 	sweepCtx, sweepCancel := context.WithTimeout(context.Background(), editOpsSweepTimeout)
 	c.sg.editOps.SweepOrphans(sweepCtx)
 	sweepCancel()
+	// Both the sweep and this pass mutate op state (delete, mark-done, bump, or
+	// quarantine); resync the gauges from ground truth on the way out, whichever
+	// branch we return on.
+	defer c.sg.refreshEditOpsMetrics()
 
 	pending, err := c.sg.editOps.AllPending()
 	if err != nil {
@@ -722,7 +726,7 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 		if len(strippedRows) == 0 {
 			continue
 		}
-		idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
+		idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, distinctOpTypes(builtOps), shouldAbort)
 		if cerr != nil {
 			if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
 				// Memory pressure (pause) or a cycle-manager abort (e.g. shutdown):
@@ -794,6 +798,7 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 		if e := c.markRowsDone(strippedRows); e != nil {
 			return true, true, e
 		}
+
 		return true, true, nil
 	}
 	return false, true, nil
@@ -805,7 +810,7 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 // concurrent compaction); idx is consumed by replaceSegment. Returns
 // errCleanupPaused if memory pressure should pause the pass before the rewrite.
 func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
-	transformer valueTransformer, shouldAbort cyclemanager.ShouldAbortCallback,
+	transformer valueTransformer, opTypes []string, shouldAbort cyclemanager.ShouldAbortCallback,
 ) (idx int, tmpPath string, found bool, err error) {
 	segments, release := c.sg.getConsistentViewOfSegments()
 	defer release()
@@ -861,7 +866,24 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 		}
 		return cause
 	}
-	if err := cleaner.do(shouldAbort); err != nil {
+	// Time the rewrite loop — cursor scan, shadowed-key checks, transform and
+	// buffered writes — excluding the fsync and close below, which have nothing
+	// to do with the edit op and would make the histogram a measure of disk
+	// sync latency wearing the op's label.
+	transformStart := time.Now()
+	derr := cleaner.do(shouldAbort)
+	transformSeconds := time.Since(transformStart).Seconds()
+	// FAILED attempts are observed — their time was fully spent, and a segment
+	// quarantined after five failures is exactly the tail the histogram is
+	// wanted for. ABORTED ones are not: shouldAbort cut the transform off
+	// mid-segment, so the sample is a truncated fraction of the real cost —
+	// the same reasoning the caller uses to not count an abort as an attempt.
+	if !errors.Is(derr, errCleanupAborted) {
+		for _, opType := range opTypes {
+			c.sg.metrics.ObserveEditOpsTransformerDuration(opType, transformSeconds)
+		}
+	}
+	if err := derr; err != nil {
 		file.Close()
 		return emptyIdx, "", false, discardPartial(err)
 	}
