@@ -123,6 +123,9 @@ type Metrics struct {
 
 	groupClasses        bool
 	criticalBucketsOnly bool
+
+	// editOps holds the segment-edit-op series (drop-vector cleanup). nil-safe.
+	editOps *monitoring.SegmentEditOpsMetrics
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
@@ -627,10 +630,16 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		"path":       "n/a",
 	})
 
+	editOpsMetrics, err := monitoring.NewSegmentEditOpsMetrics(register, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("register segment edit ops metrics: %w", err)
+	}
+
 	return &Metrics{
 		register:            register,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
+		editOps:             editOpsMetrics,
 
 		// bucket metrics
 		bucketInitCountByStrategy:        bucketInitCountByStrategy,
@@ -1109,4 +1118,49 @@ func (m *Metrics) ObjectCount(count int) {
 	}
 
 	m.objectCount.Set(float64(count))
+}
+
+// segment edit-op metrics (drop-vector cleanup). All delegate to the nil-safe
+// monitoring helper, so a nil *Metrics or disabled monitoring is a no-op.
+
+func (m *Metrics) SetEditOpsActive(opType string, n int) {
+	if m == nil {
+		return
+	}
+	m.editOps.SetActive(opType, n)
+}
+
+func (m *Metrics) SetEditOpsPendingSegments(opID string, n int) {
+	if m == nil {
+		return
+	}
+	m.editOps.SetPendingSegments(opID, n)
+}
+
+func (m *Metrics) SetEditOpsForcedCleanupRemaining(opID string, n int) {
+	if m == nil {
+		return
+	}
+	m.editOps.SetForcedCleanupRemaining(opID, n)
+}
+
+func (m *Metrics) ObserveEditOpsTransformerDuration(opType string, seconds float64) {
+	if m == nil {
+		return
+	}
+	m.editOps.ObserveTransformerDuration(opType, seconds)
+}
+
+func (m *Metrics) AddEditOpsBytesReclaimed(opType string, bytes int64) {
+	if m == nil {
+		return
+	}
+	m.editOps.AddBytesReclaimed(opType, bytes)
+}
+
+func (m *Metrics) ForgetEditOp(opID string) {
+	if m == nil {
+		return
+	}
+	m.editOps.ForgetOp(opID)
 }
