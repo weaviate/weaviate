@@ -110,6 +110,7 @@ import (
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
+	modmulti2vectwelvelabs "github.com/weaviate/weaviate/modules/multi2vec-twelvelabs"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
@@ -1731,6 +1732,7 @@ func registerModules(appState *state.State) error {
 		modtext2multivecjinaai.Name,
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
+		modmulti2vectwelvelabs.Name,
 		modmulti2multivecjinaai.Name,
 		modmulti2multivecweaviate.Name,
 		modmulti2vecaws.Name,
@@ -1984,6 +1986,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecvoyageai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vectwelvelabs.Name]; ok {
+		appState.Modules.Register(modmulti2vectwelvelabs.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vectwelvelabs.Name).
 			Debug("enabled module")
 	}
 
