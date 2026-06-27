@@ -103,6 +103,13 @@ type SegmentGroup struct {
 	// group.
 	editOps *SegmentEditOps
 
+	// editOpsMetricsLock guards the seen-series state below, which lets
+	// refreshEditOpsMetrics reconcile op-id series and op-type counts for ops
+	// that vanished since the previous refresh.
+	editOpsMetricsLock sync.Mutex
+	editOpsSeenOpIDs   map[string]struct{}
+	editOpsSeenTypes   map[OpType]struct{}
+
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
@@ -767,9 +774,13 @@ func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	sg.maintenanceLock.RLock()
 	ids := sg.currentSegmentIDsLocked()
 	sg.maintenanceLock.RUnlock()
-	return sg.editOps.Recover(ids,
+	if err := sg.editOps.Recover(ids,
 		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, false) },
-		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, true) })
+		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, true) }); err != nil {
+		return err
+	}
+	sg.refreshEditOpsMetrics()
+	return nil
 }
 
 // liveEditOpIDs resolves the live-op set for the orphan sweep via the package
@@ -798,6 +809,83 @@ func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context, fresh bool) map[strin
 	return live
 }
 
+// refreshEditOpsMetrics recomputes the edit-op gauges from the sidecar's current
+// state: active ops per type, and pending / forced-cleanup-remaining segment
+// counts per op. Deriving from ground truth (rather than incrementing on each
+// transition) keeps the gauges drift-free across crashes and resumes. Ops that
+// vanished since the previous refresh (completion or orphan sweep) are
+// reconciled too: their op-id series are dropped and their type count zeroed,
+// so a finished drop never lingers as a stale "active" reading. Called only on
+// op-lifecycle changes and once per cleanup pass — never on a hot path.
+func (sg *SegmentGroup) refreshEditOpsMetrics() {
+	if sg.editOps == nil {
+		return
+	}
+	ops, err := sg.editOps.LoadOps()
+	if err != nil {
+		sg.logger.WithField("action", "lsm_editops_metrics").
+			Warnf("refresh edit-op metrics: load ops: %v", err)
+		return
+	}
+	pending, err := sg.editOps.AllPending()
+	if err != nil {
+		sg.logger.WithField("action", "lsm_editops_metrics").
+			Warnf("refresh edit-op metrics: load pending: %v", err)
+		return
+	}
+
+	sg.editOpsMetricsLock.Lock()
+	defer sg.editOpsMetricsLock.Unlock()
+
+	perOp := make(map[string]int, len(ops))
+	for _, p := range pending {
+		perOp[p.OpID]++
+	}
+	perType := make(map[OpType]int, len(ops))
+	opIDs := make(map[string]struct{}, len(ops))
+	for _, op := range ops {
+		perType[op.Descriptor.Type]++
+		opIDs[op.ID] = struct{}{}
+		n := perOp[op.ID]
+		sg.metrics.SetEditOpsPendingSegments(op.ID, n)
+		sg.metrics.SetEditOpsForcedCleanupRemaining(op.ID, n)
+	}
+	for id := range sg.editOpsSeenOpIDs {
+		if _, ok := opIDs[id]; !ok {
+			sg.metrics.ForgetEditOp(id)
+		}
+	}
+	for opType := range sg.editOpsSeenTypes {
+		if _, ok := perType[opType]; !ok {
+			perType[opType] = 0
+		}
+	}
+	seenTypes := make(map[OpType]struct{}, len(perType))
+	for opType, n := range perType {
+		sg.metrics.SetEditOpsActive(string(opType), n)
+		if n > 0 {
+			seenTypes[opType] = struct{}{}
+		}
+	}
+	sg.editOpsSeenOpIDs = opIDs
+	sg.editOpsSeenTypes = seenTypes
+}
+
+// distinctOpTypes returns the unique op types in ops, the label set for the
+// per-pass transformer/bytes metrics (one pass applies every active op at once).
+func distinctOpTypes(ops []ActiveOp) []string {
+	seen := make(map[OpType]struct{}, len(ops))
+	var out []string
+	for _, op := range ops {
+		if _, ok := seen[op.Descriptor.Type]; ok {
+			continue
+		}
+		seen[op.Descriptor.Type] = struct{}{}
+		out = append(out, string(op.Descriptor.Type))
+	}
+	return out
+}
+
 // registerEditOpAndSnapshot registers opID and snapshots the current on-disk
 // segments in one write. Idempotent via the snapshot guard (not the descriptor),
 // so a resume completes an interrupted register rather than skipping it, and one
@@ -817,8 +905,13 @@ func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor
 	}
 
 	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-	return sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+	err = sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+	sg.maintenanceLock.RUnlock()
+	if err != nil {
+		return err
+	}
+	sg.refreshEditOpsMetrics()
+	return nil
 }
 
 // currentSegmentIDsLocked snapshots the in-memory segment IDs. Caller must hold
