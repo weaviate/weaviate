@@ -27,10 +27,11 @@ import (
 // --- fakes ---
 
 type fakeEditOpBucket struct {
-	mu         sync.Mutex
-	registered map[string]lsmkv.OpDescriptor
-	pendingSeq [][]string // successive EditOpPending responses; last repeats
-	callIdx    int
+	mu          sync.Mutex
+	registered  map[string]lsmkv.OpDescriptor
+	pendingSeq  [][]string // successive EditOpPending responses; last repeats
+	callIdx     int
+	quarantined []string // EditOpQuarantined response (nil = none)
 }
 
 func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error {
@@ -52,6 +53,12 @@ func (f *fakeEditOpBucket) EditOpPending(opID string) ([]string, error) {
 	}
 	f.callIdx++
 	return f.pendingSeq[i], nil
+}
+
+func (f *fakeEditOpBucket) EditOpQuarantined(opID string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.quarantined, nil
 }
 
 type removedCall struct {
@@ -215,6 +222,30 @@ func TestStartTask_BucketLookupFails_UnitFailed(t *testing.T) {
 
 	require.Contains(t, rec.failed, "u1")
 	require.Empty(t, rec.completed)
+}
+
+func TestStartTask_QuarantinedSegment_UnitFailed(t *testing.T) {
+	// s1 was quarantined (cleanup gave up). It leaves the pending set unstripped,
+	// so the unit must fail rather than complete (else the task would falsely reach
+	// FINISHED with vectors still on disk).
+	bucket := &fakeEditOpBucket{
+		pendingSeq:  [][]string{{"s1"}}, // never drains on its own
+		quarantined: []string{"s1"},
+	}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1", "a quarantined segment must fail the unit")
+	require.Contains(t, rec.failed["u1"], "quarantined")
+	require.Empty(t, rec.completed, "the unit must not complete when a segment is quarantined")
 }
 
 // --- OnGroupCompleted ---
