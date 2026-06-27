@@ -472,9 +472,11 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 // the scheduler skips any record still inside completedTaskTTL before it ever
 // consults a retainer, so a retainer can extend retention and never shorten
 // it. A fast-failing round loop (one FAILED record per nudge) therefore
-// accumulates records for the whole TTL window; what bounds the pile is the
-// requeue cap that stops such a loop (see lsmkv.maxQuarantineRequeues), not
-// this. The marker check is memoized per drop and fails toward retaining; see
+// accumulates records for the whole TTL window, and NOTHING here bounds that
+// pile — do not read lsmkv.maxQuarantineRequeues as a backstop: once a segment
+// exhausts that cap it stops being requeued, so every later round fails
+// immediately, which makes the loop faster rather than stopping it. The marker
+// check is memoized per drop and fails toward retaining; see
 // retainVerdictForDrop.
 func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,

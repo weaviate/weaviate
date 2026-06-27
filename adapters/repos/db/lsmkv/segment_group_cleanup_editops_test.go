@@ -64,6 +64,29 @@ func newReplaceBucketWithEditOps(t *testing.T, factory OpTransformerFactory) (*B
 	return bucket, bucket.disk.editOps
 }
 
+// newReplaceBucketWithEditOpsNoShutdown is newReplaceBucketWithEditOps without
+// the Cleanup that shuts the bucket down, for tests that drive the shutdown
+// themselves and would otherwise hit a double teardown.
+func newReplaceBucketWithEditOpsNoShutdown(t *testing.T, factory OpTransformerFactory) (*Bucket, *SegmentEditOps) {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour))
+	require.NoError(t, err)
+	bucket.SetMemtableThreshold(1e9)
+
+	transformers := map[OpType]OpTransformerFactory{}
+	if factory != nil {
+		transformers[OpTypeRemoveTargetVectors] = factory
+	}
+	bucket.disk.editOps = newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", staticResolver(transformers))
+	return bucket, bucket.disk.editOps
+}
+
 func segIDsOf(bucket *Bucket) []string {
 	var ids []string
 	for _, s := range bucket.disk.segments {

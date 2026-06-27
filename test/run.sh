@@ -1080,7 +1080,9 @@ function run_acceptance_drop_vector_index() {
 function run_acceptance_drop_vector_index_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — drop-vector-index-cluster"
-  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster$' \
+  # The metrics e2e rides along: a ~40s single-node test, not worth a matrix
+  # job whose image build alone dwarfs it.
+  AOF_GROUP_RUN='^TestDropVectorIndex_(Cluster|Metrics_SingleNode)$' \
     run_aof_group "drop-vector-index-cluster" test/acceptance/drop_vector_index
 }
 

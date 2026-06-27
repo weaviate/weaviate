@@ -108,6 +108,21 @@ type SegmentGroup struct {
 	// group.
 	editOps *SegmentEditOps
 
+	// editOpsMetricsLock guards the seen-series state below, which lets
+	// refreshEditOpsMetrics reconcile op-id series and op-type counts for ops
+	// that vanished since the previous refresh.
+	editOpsMetricsLock sync.Mutex
+	editOpsSeenOpIDs   map[string]struct{}
+	editOpsSeenTypes   map[OpType]struct{}
+	// editOpsMetricsReaped latches this shard's series as retired, because a
+	// bare reap can be undone with no second reap ever coming: a shutdown that
+	// fails at Unregister leaves the cycle callback live (commitIdle rolls its
+	// abort mark back on timeout) and skips editOps.Close(), so the pass
+	// republishes; a discarded segment group publishes from recovery and is
+	// thrown away; a removed sidecar reads empty without error and republishes
+	// a zero-valued child. Guarded by editOpsMetricsLock.
+	editOpsMetricsReaped bool
+
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
@@ -536,6 +551,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					sg.logger.WithField("path", cfg.dir).
 						Warnf("close edit-ops sidecar after failed init: %v", closeErr)
 				}
+				// The series go with it. recoverEditOps publishes on success and
+				// on non-timeout failure (a stalled shard is what the gauges are
+				// for), but a discarded sg never reaches shutdown, so this is
+				// its only chance to be reaped.
+				sg.reapEditOpsMetrics()
 			}
 		}()
 	}
@@ -820,16 +840,31 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 // (segments born from WAL replay were already durably pended by the recovery
 // itself; see mayRecoverFromCommitLogs). Runs before the compaction cycle
 // registers, so no pass races the segment-set read.
-func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
+func (sg *SegmentGroup) recoverEditOps(ctx context.Context) (err error) {
 	if sg.editOps == nil {
 		return nil
 	}
 	sg.maintenanceLock.RLock()
 	ids := sg.currentSegmentIDsLocked()
 	sg.maintenanceLock.RUnlock()
-	return sg.editOps.Recover(ids,
+	// Deferred, so a shard whose recovery fails non-fatally (see the caller)
+	// still publishes the stalled state the gauges exist to show — provided the
+	// sidecar is readable; the ErrTimeout guard exists because on that path it
+	// is not: the flock is still held, the refresh would re-open bolt and eat a
+	// second BoltFlockTimeout on a load that is already failing, and the failed
+	// load discards this group, whose init rollback reaps instead.
+	defer func() {
+		if errors.Is(err, bolterrors.ErrTimeout) {
+			return
+		}
+		sg.refreshEditOpsMetrics()
+	}()
+	if err = sg.editOps.Recover(ids,
 		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, false) },
-		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, true) })
+		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, true) }); err != nil {
+		return err
+	}
+	return nil
 }
 
 // liveEditOpIDs resolves the live-op set for the orphan sweep via the package
@@ -858,6 +893,126 @@ func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context, fresh bool) map[strin
 	return live
 }
 
+// editOpsOwesWork reports whether the sidecar still holds an armed op, i.e.
+// whether this shard's gauges are still describing live work. Read errors
+// answer TRUE: keeping a series that should have gone costs a stale reading
+// until the next load, while dropping one that should have stayed hides a
+// stalled drop for good.
+func (sg *SegmentGroup) editOpsOwesWork() bool {
+	has, err := sg.editOps.HasOps()
+	if err != nil {
+		sg.logger.WithField("action", "lsm_editops_metrics").
+			Warnf("check for live edit ops before reaping metrics: %v", err)
+		return true
+	}
+	return has
+}
+
+// reapEditOpsMetrics retires this shard's edit-op series for good. The latch is
+// set and the series deleted under the SAME lock hold, so a refresh cannot slip
+// between the two and republish what was just deleted; every later refresh
+// returns at the latch. Safe to call more than once, and safe to call on a
+// segment group that never published.
+func (sg *SegmentGroup) reapEditOpsMetrics() {
+	sg.editOpsMetricsLock.Lock()
+	defer sg.editOpsMetricsLock.Unlock()
+
+	sg.editOpsMetricsReaped = true
+	sg.metrics.DeleteEditOpsShardSeries()
+}
+
+// refreshEditOpsMetrics recomputes the edit-op gauges from the sidecar's current
+// state: active ops per type, and pending / forced-cleanup-remaining segment
+// counts per op. Deriving from ground truth (rather than incrementing on each
+// transition) keeps the gauges drift-free across crashes and resumes. Ops that
+// vanished since the previous refresh (completion or orphan sweep) are
+// reconciled too: their op-id series are dropped and their type count zeroed,
+// so a finished drop never lingers as a stale "active" reading. Called on
+// op-lifecycle changes, once per cleanup pass, and after compaction retires
+// pending rows — never per read or write.
+func (sg *SegmentGroup) refreshEditOpsMetrics() {
+	if sg.editOps == nil || !sg.metrics.editOpsEnabled() {
+		return
+	}
+
+	sg.editOpsMetricsLock.Lock()
+	defer sg.editOpsMetricsLock.Unlock()
+
+	if sg.editOpsMetricsReaped {
+		return
+	}
+
+	// Read the sidecar INSIDE the lock. Two refreshes racing here would other-
+	// wise interleave their reads and writes, and the one holding the older
+	// snapshot could re-publish an op the other had just forgotten. The lock
+	// does not cover the writers, which is why the three sets come from one
+	// transaction rather than three — see MetricsSnapshot.
+	ops, pending, quarantined, err := sg.editOps.MetricsSnapshot()
+	if err != nil {
+		sg.logger.WithField("action", "lsm_editops_metrics").
+			Warnf("refresh edit-op metrics: %v", err)
+		return
+	}
+
+	queued := make(map[string]int, len(ops))
+	for _, p := range pending {
+		queued[p.OpID]++
+	}
+	owed := make(map[string]int, len(ops))
+	for id, n := range queued {
+		owed[id] = n
+	}
+	for _, q := range quarantined {
+		owed[q.OpID]++
+	}
+
+	perType := make(map[OpType]int, len(ops))
+	opIDs := make(map[string]struct{}, len(ops))
+	for _, op := range ops {
+		perType[op.Descriptor.Type]++
+		opIDs[op.ID] = struct{}{}
+		// Queued excludes quarantined; owed includes it. They diverge exactly
+		// when the retry budget gave up on a segment, which is what makes a
+		// stalled drop distinguishable from a finished one.
+		sg.metrics.SetEditOpsPendingSegments(op.ID, queued[op.ID])
+		sg.metrics.SetEditOpsSegmentsOwed(op.ID, owed[op.ID])
+	}
+	for id := range sg.editOpsSeenOpIDs {
+		if _, ok := opIDs[id]; !ok {
+			sg.metrics.ForgetEditOp(id)
+		}
+	}
+	for opType := range sg.editOpsSeenTypes {
+		if _, ok := perType[opType]; !ok {
+			perType[opType] = 0
+		}
+	}
+	seenTypes := make(map[OpType]struct{}, len(perType))
+	for opType, n := range perType {
+		sg.metrics.SetEditOpsActive(string(opType), n)
+		if n > 0 {
+			seenTypes[opType] = struct{}{}
+		}
+	}
+	sg.editOpsSeenOpIDs = opIDs
+	sg.editOpsSeenTypes = seenTypes
+}
+
+// distinctOpTypes returns the unique op types in ops, the label set for the
+// per-pass transformer duration metric (one pass applies every active op at once).
+func distinctOpTypes(ops []ActiveOp) []string {
+	seen := make(map[OpType]struct{}, len(ops))
+	var out []string
+	for _, op := range ops {
+		if _, ok := seen[op.Descriptor.Type]; ok {
+			continue
+		}
+		seen[op.Descriptor.Type] = struct{}{}
+		out = append(out, string(op.Descriptor.Type))
+	}
+	return out
+}
+
 // registerEditOpAndSnapshot registers opID and snapshots the current on-disk
 // segments in one write. Idempotent via the snapshot guard (not the descriptor),
 // so a resume completes an interrupted register rather than skipping it, and one
@@ -876,9 +1031,22 @@ func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor
 		return nil
 	}
 
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-	return sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+	// The closure exists to scope maintenanceLock to the snapshot itself, so the
+	// metrics refresh below runs outside it: the refresh opens a bolt read
+	// transaction, and holding maintenanceLock across it would block compaction
+	// for the duration. (Flush is serialized with arming regardless — the caller
+	// holds flushAndSwitchMu across this whole call.) Keeping the unlock
+	// deferred means an error or panic in the snapshot still releases it.
+	err = func() error {
+		sg.maintenanceLock.RLock()
+		defer sg.maintenanceLock.RUnlock()
+		return sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+	}()
+	if err != nil {
+		return err
+	}
+	sg.refreshEditOpsMetrics()
+	return nil
 }
 
 // requeueQuarantinedEditOps returns opID's quarantined segments to pending with
@@ -1198,6 +1366,23 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+	// Reap on unload ONLY when this shard owes nothing. An unload is not a
+	// delete: tenant deactivation takes this same path (Migrator's
+	// tenants_to_cold), and a drop stalled on a cold tenant is exactly what
+	// these gauges exist to show — blanking it there makes a stalled drop read
+	// identically to no drop. Every sibling per-shard LSM gauge survives an
+	// unload for the same reason and is reaped only on delete; Store.
+	// ReapEditOpsMetrics is this metric's equivalent, called from Shard.drop.
+	//
+	// Reaped on EVERY exit below, the failure returns included: a shard whose
+	// teardown fails is torn, not retried (sticky teardownErr, heals only on
+	// process restart), so a reap skipped here never happens. Ordering against
+	// still-live refreshes is the latch's job, not this defer's — a failed
+	// Unregister leaves the cycle callback running (see editOpsMetricsReaped).
+	// The decision is taken before Unregister so the failure paths inherit it.
+	if sg.editOps != nil && !sg.editOpsOwesWork() {
+		defer sg.reapEditOpsMetrics()
+	}
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
