@@ -43,6 +43,9 @@ const maxConsecutivePollErrors = 3
 type editOpBucket interface {
 	RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error
 	EditOpPending(opID string) ([]string, error)
+	// EditOpQuarantined reports segments the cleanup driver gave up on; a
+	// non-empty result means the op cannot complete cleanly.
+	EditOpQuarantined(opID string) ([]string, error)
 	DeleteEditOp(opID string) error
 }
 
@@ -309,6 +312,8 @@ func (p *DropVectorIndexProvider) drainUnit(
 // pollUntilEmpty waits until the op has no pending segments on the bucket,
 // reporting progress each tick. The bucket's own compaction/cleanup transformer
 // does the actual rewriting; this only observes the pending set shrink to zero.
+// A segment quarantined by the cleanup driver fails the unit instead — empty
+// pending with a quarantine row is a permanently-incomplete rewrite, not success.
 func (p *DropVectorIndexProvider) pollUntilEmpty(
 	ctx context.Context, bucket editOpBucket, task *distributedtask.Task,
 	unitID, opID string,
@@ -320,6 +325,17 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 	consecutiveErrors := 0
 	for {
 		pending, err := bucket.EditOpPending(opID)
+		if err == nil {
+			// A quarantined segment left the pending set UNSTRIPPED, so an empty
+			// pending set is not success — completing would let the task finalize
+			// with vectors still on disk. Fail the unit; the marker stays and the
+			// drop can be re-triggered. The read shares the blip tolerance below.
+			var quarantined []string
+			if quarantined, err = bucket.EditOpQuarantined(opID); err == nil && len(quarantined) > 0 {
+				return fmt.Errorf("cleanup quarantined %d segment(s) after exhausting the retry budget: %v",
+					len(quarantined), quarantined)
+			}
+		}
 		switch {
 		case err != nil:
 			// Tolerate a few consecutive blips (incl. the first read); only
