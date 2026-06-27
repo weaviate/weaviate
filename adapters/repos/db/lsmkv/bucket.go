@@ -436,6 +436,27 @@ func (b *Bucket) EditOpPending(opID string) ([]string, error) {
 	return b.disk.editOps.Pending(opID)
 }
 
+// EditOpQuarantined returns the segment IDs the cleanup driver gave up on
+// (quarantined after exhausting its retry budget) for opID. A non-empty result
+// means the op can't complete cleanly — those segments still carry the dropped
+// data — so the caller must fail rather than treat empty pending as success.
+func (b *Bucket) EditOpQuarantined(opID string) ([]string, error) {
+	if !b.HasEditOps() {
+		return nil, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	all, err := b.disk.editOps.Quarantined()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, q := range all {
+		if q.OpID == opID {
+			ids = append(ids, q.SegmentID)
+		}
+	}
+	return ids, nil
+}
+
 func (b *Bucket) GetStrategy() string {
 	return b.strategy
 }

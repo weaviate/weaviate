@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -28,11 +29,13 @@ import (
 const defaultDropVectorPollInterval = 30 * time.Second
 
 // editOpBucket is the slice of *lsmkv.Bucket the provider drives: register the
-// drop op (flush + snapshot) and poll its remaining pending segments. Narrowed
-// to an interface so the provider's poll loop is unit-testable.
+// drop op (flush + snapshot), poll its remaining pending segments, and observe
+// segments the cleanup driver quarantined. Narrowed to an interface so the
+// provider's poll loop is unit-testable.
 type editOpBucket interface {
 	RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error
 	EditOpPending(opID string) ([]string, error)
+	EditOpQuarantined(opID string) ([]string, error)
 }
 
 // dropVectorShards is the slice of *DB the provider needs: locate the edit-ops
@@ -210,12 +213,20 @@ func (p *DropVectorIndexProvider) processOneUnit(
 }
 
 // pollUntilEmpty waits until the op has no pending segments on the bucket,
-// reporting progress each tick. The compaction/cleanup transformer (S6–S10) does
-// the actual rewriting; this only observes the pending set shrink to zero.
+// reporting progress each tick (the compaction/cleanup transformer does the
+// rewriting; this only observes the pending set drain).
+//
+// It also watches the quarantine set: a segment the cleanup driver gave up on
+// leaves the pending set unstripped, so an empty pending set isn't success — it
+// would let the task reach FINISHED with vectors still on disk. A quarantined
+// segment fails the unit instead; the marker stays and the drop can be re-triggered.
 func (p *DropVectorIndexProvider) pollUntilEmpty(
 	ctx context.Context, bucket editOpBucket, task *distributedtask.Task,
 	unitID, opID string,
 ) error {
+	if err := quarantineError(bucket, opID); err != nil {
+		return err
+	}
 	pending, err := bucket.EditOpPending(opID)
 	if err != nil {
 		return err
@@ -232,6 +243,9 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			if err := quarantineError(bucket, opID); err != nil {
+				return err
+			}
 			pending, err := bucket.EditOpPending(opID)
 			if err != nil {
 				return err
@@ -246,6 +260,20 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 			}
 		}
 	}
+}
+
+// quarantineError returns a non-nil error if the cleanup driver has quarantined
+// any segment for opID — a permanently-failed rewrite the unit cannot recover
+// from, so it must fail rather than complete.
+func quarantineError(bucket editOpBucket, opID string) error {
+	q, err := bucket.EditOpQuarantined(opID)
+	if err != nil {
+		return err
+	}
+	if len(q) > 0 {
+		return fmt.Errorf("cleanup quarantined %d segment(s) after exhausting the retry budget: %v", len(q), q)
+	}
+	return nil
 }
 
 func (p *DropVectorIndexProvider) failUnit(
