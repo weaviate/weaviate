@@ -172,10 +172,9 @@ func TestClusterID_OldSnapshotDecode(t *testing.T) {
 //
 // Drives the loop directly (no real raft instance) since setting up a multi-node
 // raft harness for a leadership-churn test is disproportionately expensive for a
-// unit suite. The IsLeader()+maybeCommitClusterID() retry path is not covered here.
-//
-// TODO(telemetry): add a 3-node integration test verifying that a second leader
-// commits the clusterId after the first leader crashes pre-commit (Gap-A hardening).
+// unit suite. The IsLeader()+maybeCommitClusterID() retry path (a second leader
+// committing the clusterId after the first leader crashes pre-commit) is left to a
+// separate 3-node integration test.
 func TestClusterIDBootstrapLoop_ExitsOnClusterIDSet(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
