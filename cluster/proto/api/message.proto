@@ -114,7 +114,7 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK = 308;
 
     // Cluster identity - set once by the raft leader; replayed during recovery.
-    TYPE_CLUSTER_ID_SET = 500;
+    TYPE_CLUSTER_ID_SET = 400;
   }
   Type type = 1;
   string class = 2;

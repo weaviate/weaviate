@@ -89,7 +89,7 @@ const (
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK      ApplyRequest_Type = 307
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK ApplyRequest_Type = 308
 	// Cluster identity - set once by the raft leader; replayed during recovery.
-	ApplyRequest_TYPE_CLUSTER_ID_SET ApplyRequest_Type = 500
+	ApplyRequest_TYPE_CLUSTER_ID_SET ApplyRequest_Type = 400
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -156,7 +156,7 @@ var (
 		306: "TYPE_DISTRIBUTED_TASK_MARK_FINALIZED",
 		307: "TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK",
 		308: "TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK",
-		500: "TYPE_CLUSTER_ID_SET",
+		400: "TYPE_CLUSTER_ID_SET",
 	}
 	ApplyRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":                                                0,
@@ -220,7 +220,7 @@ var (
 		"TYPE_DISTRIBUTED_TASK_MARK_FINALIZED":                            306,
 		"TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK":                307,
 		"TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK":           308,
-		"TYPE_CLUSTER_ID_SET":                                             500,
+		"TYPE_CLUSTER_ID_SET":                                             400,
 	}
 )
 
@@ -2467,7 +2467,7 @@ const file_api_message_proto_rawDesc = "" +
 	"$TYPE_DISTRIBUTED_TASK_MARK_FINALIZED\x10\xb2\x02\x125\n" +
 	"0TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK\x10\xb3\x02\x12:\n" +
 	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\x12\x18\n" +
-	"\x13TYPE_CLUSTER_ID_SET\x10\xf4\x03\"\x04\bc\x10c\"A\n" +
+	"\x13TYPE_CLUSTER_ID_SET\x10\x90\x03\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
 	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +
