@@ -38,21 +38,21 @@ func TestCuratedFields_Extraction(t *testing.T) {
 	classes := []*models.Class{
 		{
 			// single-vector, hnsw, RF=3, not MT
-			Class:           "A",
-			VectorIndexType: "hnsw",
-			ReplicationConfig: &models.ReplicationConfig{Factor: 3},
+			Class:              "A",
+			VectorIndexType:    "hnsw",
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 3},
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
 		},
 		{
 			// single-vector, flat, RF=1, MT enabled
-			Class:           "B",
-			VectorIndexType: "flat",
-			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			Class:              "B",
+			VectorIndexType:    "flat",
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		},
 		{
 			// named-vector (dynamic + flat), no RF, MT enabled
-			Class: "C",
+			Class:              "C",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			VectorConfig: map[string]models.VectorConfig{
 				"v1": {VectorIndexType: "dynamic"},

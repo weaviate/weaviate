@@ -71,8 +71,8 @@ type Telemeter struct {
 	// machineID stays uuid.NewString() per process (unchanged, counts restarts).
 	nodeID string
 	// clusterID and clusterCreatedAt are populated in Start() before the Init push.
-	clusterID           string
-	clusterCreatedAt    int64
+	clusterID            string
+	clusterCreatedAt     int64
 	asyncIndexingEnabled bool
 	// waitForClusterID blocks until the raft leader commits the cluster identity.
 	waitForClusterID func(ctx context.Context) (string, int64, error)
