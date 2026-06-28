@@ -140,6 +140,8 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 // and returns it. On any I/O error it returns an error; the caller falls back
 // to an ephemeral UUID so a read-only data dir does not prevent startup.
 func ReadOrCreateNodeID(dataPath string) (string, error) {
+	// dataPath is trusted operator config (PERSISTENCE_DATA_PATH), not request
+	// input, and the filename is a constant; filepath.Join cleans the result.
 	nodePath := filepath.Join(dataPath, "node-id")
 
 	// happy path: file exists
@@ -155,7 +157,8 @@ func ReadOrCreateNodeID(dataPath string) (string, error) {
 	// generate a fresh UUID and persist it atomically
 	id := uuid.NewString()
 	tmp := nodePath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(id), 0o666); err != nil {
+	// 0o600: the node-id is private per-node state only the server process reads.
+	if err := os.WriteFile(tmp, []byte(id), 0o600); err != nil {
 		return "", fmt.Errorf("write node-id tmp: %w", err)
 	}
 	if err := os.Rename(tmp, nodePath); err != nil {
