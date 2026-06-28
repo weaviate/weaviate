@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -30,34 +31,42 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
+// DefaultShardConcurrency is the default number of shards processed concurrently while collecting usage.
+const DefaultShardConcurrency = 1
+
 type Service interface {
-	SetJitterInterval(interval time.Duration)
+	SetShardConcurrency(concurrency int)
 	Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error)
 }
 
 type service struct {
-	schemaManager  schema.SchemaGetter
-	db             *db.DB
-	backups        backup.BackupBackendProvider
-	logger         logrus.FieldLogger
-	jitterInterval time.Duration
+	schemaManager    schema.SchemaGetter
+	db               *db.DB
+	backups          backup.BackupBackendProvider
+	logger           logrus.FieldLogger
+	shardConcurrency atomic.Int64
 }
 
 // db db.IndexGetter
 func NewService(schemaManager schema.SchemaGetter, db *db.DB, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
-	return &service{
-		schemaManager:  schemaManager,
-		db:             db,
-		backups:        backups,
-		logger:         logger,
-		jitterInterval: 0, // Default to no jitter
+	s := &service{
+		schemaManager: schemaManager,
+		db:            db,
+		backups:       backups,
+		logger:        logger,
 	}
+	s.shardConcurrency.Store(DefaultShardConcurrency)
+	return s
 }
 
-// SetJitterInterval sets the jitter interval for shard processing
-func (s *service) SetJitterInterval(interval time.Duration) {
-	s.jitterInterval = interval
-	s.logger.WithFields(logrus.Fields{"jitter_interval": interval.String()}).Info("shard jitter interval updated")
+// SetShardConcurrency sets the maximum number of shards processed concurrently during
+// collection. Values < 1 are clamped to 1.
+func (s *service) SetShardConcurrency(concurrency int) {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	s.shardConcurrency.Store(int64(concurrency))
+	s.logger.WithFields(logrus.Fields{"shard_concurrency": concurrency}).Info("usage shard concurrency updated")
 }
 
 // Usage service collects usage metrics for the node and shall return error in case of any error
@@ -81,7 +90,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		if err != nil {
 			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
 		}
-		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class), s.jitterInterval, exactObjectCount, vectorConfig)
+		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class), int(s.shardConcurrency.Load()), exactObjectCount, vectorConfig)
 		// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
 		// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
 		// as it is no longer relevant for the current node usage
