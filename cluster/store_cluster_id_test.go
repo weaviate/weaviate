@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	googleproto "google.golang.org/protobuf/proto"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	googleproto "google.golang.org/protobuf/proto"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -24,19 +24,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
-	googleproto "google.golang.org/protobuf/proto"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	googleproto "google.golang.org/protobuf/proto"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
-	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/log"
 	"github.com/weaviate/weaviate/cluster/namespaces"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -389,12 +389,12 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 
 	clusterIDCtx, clusterIDCtxCancel := context.WithCancel(context.Background())
 	return Store{
-		cfg:                cfg,
-		log:                cfg.Logger,
-		candidates:         make(map[string]string, cfg.BootstrapExpect),
-		applyTimeout:       time.Second * 20,
-		clusterIDCtx:       clusterIDCtx,
-		clusterIDCtxCancel: clusterIDCtxCancel,
+		cfg:                 cfg,
+		log:                 cfg.Logger,
+		candidates:          make(map[string]string, cfg.BootstrapExpect),
+		applyTimeout:        time.Second * 20,
+		clusterIDCtx:        clusterIDCtx,
+		clusterIDCtxCancel:  clusterIDCtxCancel,
 		bootstrapLoopCancel: func() {}, // no-op until Open() sets the real cancel
 		raftResolver: resolver.NewRaft(resolver.RaftConfig{
 			ClusterStateReader: cfg.NodeSelector,
