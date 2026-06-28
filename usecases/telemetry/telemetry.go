@@ -59,7 +59,7 @@ type Telemeter struct {
 	nodesStatusGetter  nodesStatusGetter
 	schemaManager      schemaManager
 	logger             logrus.FieldLogger
-	shutdown           chan struct{}
+	shutdown           chan struct{} // buffered(1): Stop() must not block during Start()'s clusterId wait
 	failedToStart      bool
 	consumer           string
 	pushInterval       time.Duration
@@ -78,23 +78,32 @@ type Telemeter struct {
 	waitForClusterID func(ctx context.Context) (string, int64, error)
 }
 
+// Config holds the scalar settings for a Telemeter.
+type Config struct {
+	// ConsumerURL is base64-encoded. If empty, DefaultTelemetryConsumerURL is used.
+	ConsumerURL string
+	// PushInterval defaults to DefaultTelemetryPushInterval if zero.
+	PushInterval time.Duration
+	// Enabled gates whether usage trackers spin up and payloads are pushed.
+	Enabled bool
+	// NodeID is the persisted per-node UUID from the data-volume file (NOT the hostname).
+	NodeID string
+	// AsyncIndexingEnabled is wired from server config.
+	AsyncIndexingEnabled bool
+}
+
 // New creates a new Telemeter instance.
-// consumerURL should be base64-encoded. If empty, uses DefaultTelemetryConsumerURL.
-// pushInterval defaults to DefaultTelemetryPushInterval if zero.
-// nodeID is the persisted per-node UUID from the data-volume file (NOT the hostname).
-// asyncIndexingEnabled is wired from server config.
 // waitForClusterID blocks until the raft leader commits the cluster identity; may be nil
 // (e.g. in single-node mode) in which case clusterId is omitted from payloads.
 func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
-	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
-	telemetryEnabled bool,
-	nodeID string,
-	asyncIndexingEnabled bool,
+	logger logrus.FieldLogger, cfg Config,
 	waitForClusterID func(ctx context.Context) (string, int64, error),
 ) *Telemeter {
+	consumerURL := cfg.ConsumerURL
 	if consumerURL == "" {
 		consumerURL = DefaultTelemetryConsumerURL
 	}
+	pushInterval := cfg.PushInterval
 	if pushInterval == 0 {
 		pushInterval = DefaultTelemetryPushInterval
 	}
@@ -106,19 +115,19 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		nodesStatusGetter:    nodesStatusGetter,
 		schemaManager:        schemaManager,
 		logger:               logger,
-		shutdown:             make(chan struct{}),
+		shutdown:             make(chan struct{}, 1),
 		consumer:             consumerURL,
 		pushInterval:         pushInterval,
-		cloudInfoHelper:      newCloudInfoHelper(logger, telemetryEnabled),
-		nodeID:               nodeID,
-		asyncIndexingEnabled: asyncIndexingEnabled,
+		cloudInfoHelper:      newCloudInfoHelper(logger, cfg.Enabled),
+		nodeID:               cfg.NodeID,
+		asyncIndexingEnabled: cfg.AsyncIndexingEnabled,
 		waitForClusterID:     waitForClusterID,
 	}
 	// Only spin up tracker goroutines when telemetry is enabled; otherwise they
 	// would leak for the lifetime of the process, since shutdown only calls
 	// Stop when telemetry is enabled. Callers must handle a nil tracker
 	// (middleware and debug handlers already do).
-	if telemetryEnabled {
+	if cfg.Enabled {
 		tel.clientTracker = NewClientTracker(logger)
 		tel.integrationTracker = NewIntegrationTracker(logger)
 	}
@@ -369,37 +378,14 @@ func (tel *Telemeter) getCuratedSchemaFields() (nodeCount, maxRF, mtCount, named
 		if class == nil {
 			continue
 		}
-
-		// replication factor
-		if class.ReplicationConfig != nil {
-			rf := int(class.ReplicationConfig.Factor)
-			if rf > maxRF {
-				maxRF = rf
-			}
+		if rf := replicationFactor(class); rf > maxRF {
+			maxRF = rf
 		}
-
-		// multi-tenancy
 		if class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
 			mtCount++
 		}
-
-		// named-vector collections
-		if len(class.VectorConfig) > 0 {
+		if countVectorIndexTypes(class, vectorIndexTypeCounts) {
 			namedVecCount++
-			for _, vc := range class.VectorConfig {
-				vit := vc.VectorIndexType
-				if vit == "" {
-					vit = "hnsw"
-				}
-				vectorIndexTypeCounts[vit]++
-			}
-		} else {
-			// legacy single-vector: read from class-level VectorIndexType
-			vit := class.VectorIndexType
-			if vit == "" {
-				vit = "hnsw"
-			}
-			vectorIndexTypeCounts[vit]++
 		}
 	}
 
@@ -407,6 +393,36 @@ func (tel *Telemeter) getCuratedSchemaFields() (nodeCount, maxRF, mtCount, named
 		vectorIndexTypeCounts = nil
 	}
 	return nodeCount, maxRF, mtCount, namedVecCount, vectorIndexTypeCounts
+}
+
+// replicationFactor returns the class replication factor, or 0 if unset.
+func replicationFactor(class *models.Class) int {
+	if class.ReplicationConfig == nil {
+		return 0
+	}
+	return int(class.ReplicationConfig.Factor)
+}
+
+// countVectorIndexTypes records the vector index type(s) for one class into counts
+// (defaulting "" to "hnsw") and reports whether the class uses named vectors.
+func countVectorIndexTypes(class *models.Class, counts map[string]int) (named bool) {
+	if len(class.VectorConfig) > 0 {
+		for _, vc := range class.VectorConfig {
+			counts[orHNSW(vc.VectorIndexType)]++
+		}
+		return true
+	}
+	// legacy single-vector: read from class-level VectorIndexType
+	counts[orHNSW(class.VectorIndexType)]++
+	return false
+}
+
+// orHNSW maps an empty vector index type to the "hnsw" default.
+func orHNSW(vectorIndexType string) string {
+	if vectorIndexType == "" {
+		return "hnsw"
+	}
+	return vectorIndexType
 }
 
 // collectUsageForPayload returns client and integration usage maps for the given

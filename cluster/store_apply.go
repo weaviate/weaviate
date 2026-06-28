@@ -487,8 +487,9 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// A command type unknown to this (older) binary, e.g. one introduced in a later
+		// version. We log rather than panic so a forward-incompatible command degrades to
+		// a no-op instead of crash-looping the node; upgrade the binary to apply it.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type":  cmd.Type,

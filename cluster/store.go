@@ -288,10 +288,9 @@ type Store struct {
 	clusterIDmu      sync.RWMutex
 	clusterID        string
 	clusterCreatedAt int64
-	// clusterIDCtx is cancelled once clusterID is set (either by apply or snapshot restore).
-	// Waiters block on clusterIDCtx.Done().
-	clusterIDCtx       context.Context
-	clusterIDCtxCancel context.CancelFunc
+	// clusterIDSet is closed once clusterID is set (either by apply or snapshot restore).
+	// Waiters block on a receive from it.
+	clusterIDSet chan struct{}
 
 	// bootstrapLoopCancel stops clusterIDBootstrapLoop on Store.Close().
 	// Initialized to a no-op in NewFSM(); replaced with a real cancel in Open().
@@ -387,15 +386,13 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		dynusersLister = cfg.DynamicUserController
 	}
 
-	clusterIDCtx, clusterIDCtxCancel := context.WithCancel(context.Background())
 	return Store{
 		cfg:                 cfg,
 		log:                 cfg.Logger,
 		candidates:          make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout:        time.Second * 20,
-		clusterIDCtx:        clusterIDCtx,
-		clusterIDCtxCancel:  clusterIDCtxCancel,
-		bootstrapLoopCancel: func() {}, // no-op until Open() sets the real cancel
+		clusterIDSet:        make(chan struct{}),
+		bootstrapLoopCancel: func() { /* no-op until Open() installs the real cancel */ },
 		raftResolver: resolver.NewRaft(resolver.RaftConfig{
 			ClusterStateReader: cfg.NodeSelector,
 			RaftPort:           cfg.RaftPort,
@@ -530,8 +527,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// clusterIDBootstrapLoop retries committing the cluster identity on every leader
 	// tick until committed. This closes the gap where a leader crash before commit
 	// would leave the cluster without an identity indefinitely. The loop exits once
-	// clusterIDCtx is cancelled (id set on any node) or loopCtx is cancelled (Store.Close).
-	loopCtx, loopCancel := context.WithCancel(context.Background())
+	// clusterIDSet is closed (id set on any node) or loopCtx is cancelled (Store.Close).
+	// loopCtx derives from Open's ctx, which must outlive Open (the current caller
+	// passes context.Background()). The loop is normally stopped by bootstrapLoopCancel
+	// in Close(); cancelling ctx is an additional shutdown signal, not a per-request one.
+	loopCtx, loopCancel := context.WithCancel(ctx)
 	st.bootstrapLoopCancel = loopCancel
 	enterrors.GoWrapper(func() { st.clusterIDBootstrapLoop(loopCtx) }, st.log)
 	return nil
@@ -1072,8 +1072,8 @@ func (st *Store) recoverSingleNode(force bool) error {
 }
 
 // setClusterIDFields records the cluster identity into the in-memory FSM state.
-// It is idempotent: once set the first value wins. cancel() is safe to call
-// multiple times (context.WithCancel is idempotent).
+// It is idempotent: once set the first value wins. The clusterIDSet channel is
+// closed exactly once, guarded by the set-once check below.
 func (st *Store) setClusterIDFields(clusterID string, createdAt int64) {
 	st.clusterIDmu.Lock()
 	defer st.clusterIDmu.Unlock()
@@ -1087,7 +1087,7 @@ func (st *Store) setClusterIDFields(clusterID string, createdAt int64) {
 	}
 	st.clusterID = clusterID
 	st.clusterCreatedAt = createdAt
-	st.clusterIDCtxCancel()
+	close(st.clusterIDSet)
 }
 
 // ClusterID returns the committed cluster identity, or "" if not yet set.
@@ -1108,7 +1108,7 @@ func (st *Store) ClusterCreatedAt() int64 {
 // Returns (clusterID, clusterCreatedAt, nil) on success; ("", 0, ctx.Err()) on timeout.
 func (st *Store) WaitForClusterID(ctx context.Context) (string, int64, error) {
 	select {
-	case <-st.clusterIDCtx.Done():
+	case <-st.clusterIDSet:
 		return st.ClusterID(), st.ClusterCreatedAt(), nil
 	case <-ctx.Done():
 		return "", 0, ctx.Err()
@@ -1164,7 +1164,7 @@ func (st *Store) maybeCommitClusterID() {
 // leader crashes before commit, the next leader retries on its next tick.
 //
 // Two exit conditions:
-//   - clusterIDCtx cancelled: identity committed on this node (happy path, typically seconds).
+//   - clusterIDSet closed: identity committed on this node (happy path, typically seconds).
 //   - storeCtx cancelled: Store.Close() called, e.g. on shutdown or if the cluster
 //     never achieves quorum. This prevents the loop from running indefinitely and
 //     calling Execute() on a shutdown raft instance.
@@ -1175,7 +1175,7 @@ func (st *Store) clusterIDBootstrapLoop(storeCtx context.Context) {
 		select {
 		case <-storeCtx.Done():
 			return
-		case <-st.clusterIDCtx.Done():
+		case <-st.clusterIDSet:
 			return
 		case <-t.C:
 			if st.IsLeader() {

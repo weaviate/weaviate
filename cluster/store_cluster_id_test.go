@@ -27,15 +27,13 @@ import (
 )
 
 // newStoreForClusterIDTests returns a Store with just enough initialized for cluster-id tests:
-// a logger and the clusterIDCtx/Cancel pair.
+// a logger and the clusterIDSet done-channel.
 func newStoreForClusterIDTests(t *testing.T) *Store {
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
-	ctx, cancel := context.WithCancel(context.Background())
 	return &Store{
-		log:                logger,
-		clusterIDCtx:       ctx,
-		clusterIDCtxCancel: cancel,
+		log:          logger,
+		clusterIDSet: make(chan struct{}),
 	}
 }
 
@@ -129,11 +127,11 @@ func TestClusterID_EmptyUUIDGuard(t *testing.T) {
 	assert.Empty(t, st.ClusterID(), "cluster id must remain unset")
 }
 
-// T-CID-7: WaitForClusterID returns immediately after clusterIDCtx is cancelled.
+// T-CID-7: WaitForClusterID returns immediately after clusterIDSet is closed.
 func TestClusterID_WaitReturnsOnCancel(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
-	// Set the cluster id, which cancels clusterIDCtx.
+	// Set the cluster id, which closes clusterIDSet.
 	st.setClusterIDFields("wait-test-id", 7777)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

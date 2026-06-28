@@ -1388,11 +1388,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.DB,
 		appState.SchemaManager,
 		appState.Logger,
-		getTelemetryURL(appState),
-		appState.ServerConfig.Config.TelemetryPushInterval,
-		telemetryEnabled(appState),
-		persistedNodeID,
-		appState.ServerConfig.Config.AsyncIndexingEnabled,
+		telemetry.Config{
+			ConsumerURL:          getTelemetryURL(appState),
+			PushInterval:         appState.ServerConfig.Config.TelemetryPushInterval,
+			Enabled:              telemetryEnabled(appState),
+			NodeID:               persistedNodeID,
+			AsyncIndexingEnabled: appState.ServerConfig.Config.AsyncIndexingEnabled,
+		},
 		appState.ClusterService.WaitForClusterID,
 	)
 

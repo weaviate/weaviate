@@ -666,8 +666,8 @@ func newTestTelemeter(opts ...telemetryOpt,
 	stubWaiter := func(ctx context.Context) (string, int64, error) {
 		return "00000000-0000-7000-0000-000000000001", 1000, nil
 	}
-	// Pass empty url/duration to use defaults; nodeID "" means omitempty in payload.
-	tel := New(sg, sm, logger, "", 0, false, "", false, stubWaiter)
+	// Empty Config uses defaults; nodeID "" means omitempty in payload.
+	tel := New(sg, sm, logger, Config{}, stubWaiter)
 	for _, opt := range opts {
 		opt(tel)
 	}

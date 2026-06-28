@@ -28,7 +28,7 @@ func TestCuratedFields_Extraction(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, "node-abc", true, nil)
+	tel := New(sg, sm, logger, Config{NodeID: "node-abc", AsyncIndexingEnabled: true}, nil)
 
 	// 3 nodes
 	sm.On("Nodes").Return([]string{"n1", "n2", "n3"})
@@ -86,7 +86,7 @@ func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, "", false, nil)
+	tel := New(sg, sm, logger, Config{}, nil)
 
 	classes := []*models.Class{
 		{
@@ -134,7 +134,7 @@ func TestCuratedFields_NodeCount(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, "", false, nil)
+	tel := New(sg, sm, logger, Config{}, nil)
 
 	sm.On("Nodes").Return([]string{"a", "b"})
 	sm.On("GetSchemaSkipAuth").Return(schema.Schema{})
@@ -151,7 +151,7 @@ func TestCuratedFields_DefaultVectorIndexType(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, "", false, nil)
+	tel := New(sg, sm, logger, Config{}, nil)
 
 	sm.On("GetSchemaSkipAuth").Return(schema.Schema{
 		Objects: &models.Schema{

@@ -49,13 +49,13 @@ func TestNodeIDSurvivesRestart(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	nodeID1, err := ReadOrCreateNodeID(dir)
 	require.NoError(t, err)
-	tel1 := New(sg1, sm1, logger, "", 0, false, nodeID1, false, nil)
+	tel1 := New(sg1, sm1, logger, Config{NodeID: nodeID1}, nil)
 
 	sg2 := &fakeNodesStatusGetter{}
 	sm2 := &fakeSchemaManager{}
 	nodeID2, err := ReadOrCreateNodeID(dir)
 	require.NoError(t, err)
-	tel2 := New(sg2, sm2, logger, "", 0, false, nodeID2, false, nil)
+	tel2 := New(sg2, sm2, logger, Config{NodeID: nodeID2}, nil)
 
 	assert.Equal(t, tel1.nodeID, tel2.nodeID, "nodeId must be identical across restarts")
 }
@@ -72,13 +72,13 @@ func TestMachineIDDiffersFromNodeID(t *testing.T) {
 
 	sg1 := &fakeNodesStatusGetter{}
 	sm1 := &fakeSchemaManager{}
-	tel1 := New(sg1, sm1, logger, "", 0, false, nodeID, false, nil)
+	tel1 := New(sg1, sm1, logger, Config{NodeID: nodeID}, nil)
 
 	sg2 := &fakeNodesStatusGetter{}
 	sm2 := &fakeSchemaManager{}
 	nodeID2, err := ReadOrCreateNodeID(dir)
 	require.NoError(t, err)
-	tel2 := New(sg2, sm2, logger, "", 0, false, nodeID2, false, nil)
+	tel2 := New(sg2, sm2, logger, Config{NodeID: nodeID2}, nil)
 
 	// nodeId is stable: both telemeters see the same persisted UUID
 	assert.Equal(t, tel1.nodeID, tel2.nodeID, "nodeId must be identical across New() calls")
@@ -133,7 +133,7 @@ func TestWaitForClusterIDFuncWithStub(t *testing.T) {
 	stub := func(ctx context.Context) (string, int64, error) {
 		return fixedID, 42000, nil
 	}
-	tel := New(sg, sm, logger, "", 0, false, "test-node-id", false, stub)
+	tel := New(sg, sm, logger, Config{NodeID: "test-node-id"}, stub)
 
 	// Start sets clusterID from the stub waiter
 	// We call it directly to test the field assignment path (Start itself makes
