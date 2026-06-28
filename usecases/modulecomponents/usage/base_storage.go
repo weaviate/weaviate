@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -183,6 +184,19 @@ func ParseCommonUsageConfig(config *config.Config) error {
 		shardJitterInterval = config.Usage.ShardJitterInterval.Get()
 	}
 	config.Usage.ShardJitterInterval = runtime.NewDynamicValue(shardJitterInterval)
+
+	// Parse shard concurrency environment variable
+	shardConcurrency := DefaultShardConcurrency
+	if v := os.Getenv("USAGE_SHARD_CONCURRENCY"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", "USAGE_SHARD_CONCURRENCY", err)
+		}
+		shardConcurrency = parsed
+	} else if config.Usage.ShardConcurrency != nil {
+		shardConcurrency = config.Usage.ShardConcurrency.Get()
+	}
+	config.Usage.ShardConcurrency = runtime.NewDynamicValue(shardConcurrency)
 
 	// Parse verify permissions setting
 	verifyPermissions := false

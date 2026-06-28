@@ -68,6 +68,39 @@ func (_c *MockService_SetJitterInterval_Call) RunAndReturn(run func(time.Duratio
 	return _c
 }
 
+// SetShardConcurrency provides a mock function with given fields: concurrency
+func (_m *MockService) SetShardConcurrency(concurrency int) {
+	_m.Called(concurrency)
+}
+
+// MockService_SetShardConcurrency_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetShardConcurrency'
+type MockService_SetShardConcurrency_Call struct {
+	*mock.Call
+}
+
+// SetShardConcurrency is a helper method to define mock.On call
+//   - concurrency int
+func (_e *MockService_Expecter) SetShardConcurrency(concurrency interface{}) *MockService_SetShardConcurrency_Call {
+	return &MockService_SetShardConcurrency_Call{Call: _e.mock.On("SetShardConcurrency", concurrency)}
+}
+
+func (_c *MockService_SetShardConcurrency_Call) Run(run func(concurrency int)) *MockService_SetShardConcurrency_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(int))
+	})
+	return _c
+}
+
+func (_c *MockService_SetShardConcurrency_Call) Return() *MockService_SetShardConcurrency_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockService_SetShardConcurrency_Call) RunAndReturn(run func(int)) *MockService_SetShardConcurrency_Call {
+	_c.Run(run)
+	return _c
+}
+
 // Usage provides a mock function with given fields: ctx, exactObjectCount
 func (_m *MockService) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
 	ret := _m.Called(ctx, exactObjectCount)
@@ -132,7 +165,8 @@ func (_c *MockService_Usage_Call) RunAndReturn(run func(context.Context, bool) (
 func NewMockService(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockService {
+},
+) *MockService {
 	mock := &MockService{}
 	mock.Mock.Test(t)
 
