@@ -1158,9 +1158,9 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 	wg.Add(1)
 	require.NoError(t, dyn2.Upgrade(func() { wg.Done() }))
 	wg.Wait()
-	// upgraded.Load() is the canonical "flat→HNSW swap committed" flag;
-	// dynamic.Upgraded() also requires HNSW to be compressed, which is not
-	// configured in this test, so we check the atomic directly.
+	// IsUpgraded() is the canonical "flat→HNSW swap committed" flag (status only);
+	// dynamic.Upgraded() additionally requires HNSW to be compressed, which is not
+	// configured in this test, so we check the status flag directly.
 	require.True(t, dyn2.IsUpgraded(), "upgrade must have committed to HNSW")
 
 	// Searches must return correct results — no "vector lengths don't match" panic.
