@@ -389,6 +389,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	}
 
 	readOk, writeOk := false, false
+outer:
 	for _, op := range ops {
 		opState, ok := s.statusById[op.ID]
 		if !ok {
@@ -403,6 +404,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 			// Target is a counted r/w replica while the CCL is still draining.
 			readOk = true
 			writeOk = true
+			break outer
 		default:
 		}
 	}
