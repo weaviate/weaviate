@@ -13,12 +13,14 @@ package namespace
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/batch"
 	objectsCli "github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -39,12 +41,11 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 		id := strfmt.UUID("11111111-aaaa-bbbb-cccc-111111111111")
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID:         id,
 			Class:      class,
 			Properties: map[string]any{"title": "Inception"},
 		}, user1Key)
-		require.NoError(t, err)
 
 		// Namespaced principal sees the short class on read-back (response stripping).
 		got, err := helper.GetObjectAuth(t, class, id, user1Key)
@@ -57,12 +58,11 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		assert.Equal(t, ns1+":"+class, gotClass.Class)
 
 		// Same short name in a second namespace creates an independent class.
-		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID:         id,
 			Class:      class,
 			Properties: map[string]any{"title": "Memento"},
 		}, user2Key)
-		require.NoError(t, err)
 		t.Cleanup(func() { helper.DeleteClassAuth(t, ns2+":"+class, adminKey) })
 
 		gotClass2 := helper.GetClassAuth(t, ns2+":"+class, adminKey)
@@ -74,7 +74,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 		id := strfmt.UUID("22222222-aaaa-bbbb-cccc-222222222222")
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID:    id,
 			Class: class,
 			Properties: map[string]any{
@@ -82,7 +82,6 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 				"runtime": int64(150),
 			},
 		}, user1Key)
-		require.NoError(t, err)
 
 		got, err := helper.GetObjectAuth(t, class, id, user1Key)
 		require.NoError(t, err)
@@ -107,12 +106,11 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		setupClassInNs1(t, ns1, class, user1Key)
 
 		id := strfmt.UUID("33333333-aaaa-bbbb-cccc-333333333333")
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID: id, Class: class, Properties: map[string]any{"title": "v1"},
 		}, user1Key)
-		require.NoError(t, err)
 
-		_, err = helper.Client(t).Objects.ObjectsClassPut(
+		_, err := helper.Client(t).Objects.ObjectsClassPut(
 			objectsCli.NewObjectsClassPutParams().WithClassName(class).WithID(id).
 				WithBody(&models.Object{
 					ID:    id,
@@ -136,12 +134,11 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		setupClassInNs1(t, ns1, class, user1Key)
 
 		id := strfmt.UUID("44444444-aaaa-bbbb-cccc-444444444444")
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID: id, Class: class, Properties: map[string]any{"title": "v1"},
 		}, user1Key)
-		require.NoError(t, err)
 
-		_, err = helper.Client(t).Objects.ObjectsClassPatch(
+		_, err := helper.Client(t).Objects.ObjectsClassPatch(
 			objectsCli.NewObjectsClassPatchParams().WithClassName(class).WithID(id).
 				WithBody(&models.Object{
 					Class: class,
@@ -164,13 +161,12 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 		id := strfmt.UUID("55555555-aaaa-bbbb-cccc-555555555555")
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID:         id,
 			Class:      class,
 			Tenant:     "tenantA",
 			Properties: map[string]any{"title": "Oppenheimer"},
 		}, user1Key)
-		require.NoError(t, err)
 
 		got, err := helper.GetObjectAuthWithTenant(t, class, id, "tenantA", user1Key)
 		require.NoError(t, err)
@@ -185,7 +181,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		id1 := strfmt.UUID("66666666-aaaa-bbbb-cccc-666666666666")
 		id2 := strfmt.UUID("66666666-aaaa-bbbb-cccc-777777777777")
-		helper.CreateObjectsBatchAuth(t, []*models.Object{
+		createObjectsBatchWithLagRetry(t, []*models.Object{
 			{ID: id1, Class: class, Tenant: "tenantB", Properties: map[string]any{"title": "Dune"}},
 			{ID: id2, Class: class, Tenant: "tenantC", Properties: map[string]any{"title": "Dune2"}},
 		}, user1Key)
@@ -214,13 +210,12 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		)
 
 		id := strfmt.UUID("77777777-aaaa-bbbb-cccc-777777777777")
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID:         id,
 			Class:      class,
 			Tenant:     "tenantD",
 			Properties: map[string]any{"title": "Interstellar"},
 		}, user1Key)
-		require.NoError(t, err)
 
 		got, err := helper.GetObjectAuthWithTenant(t, class, id, "tenantD", user1Key)
 		require.NoError(t, err)
@@ -241,13 +236,12 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		setupClassInNs1(t, ns1, target, user1Key)
 
 		targetID := strfmt.UUID("88888888-aaaa-bbbb-cccc-111111111111")
-		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID: targetID, Class: target, Properties: map[string]any{"title": "ref-target"},
 		}, user1Key)
-		require.NoError(t, err)
 
 		sourceID := strfmt.UUID("88888888-aaaa-bbbb-cccc-222222222222")
-		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+		createObjectWithLagRetry(t, &models.Object{
 			ID: sourceID, Class: source,
 			Properties: map[string]any{
 				"title": "ref-source",
@@ -256,7 +250,6 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 				},
 			},
 		}, user1Key)
-		require.NoError(t, err)
 
 		// Admin sees the qualified DataType in storage.
 		gotAdmin := helper.GetClassAuth(t, ns1+":"+source, adminKey)
@@ -333,4 +326,57 @@ func mustCreateMTClass(t *testing.T, name, key string, mode mtMode) {
 		},
 		MultiTenancyConfig: cfg,
 	}, key)
+}
+
+// createObjectWithLagRetry inserts an object, retrying the brief window where
+// a just-auto-created class/tenant has not yet converged on the write's target
+// node. Callers use unique fixed ids, so an "already exists" rejection on retry
+// means a prior attempt landed and counts as success.
+func createObjectWithLagRetry(t *testing.T, obj *models.Object, key string) {
+	t.Helper()
+	retryOnAliasLag(t, func() error {
+		_, err := helper.CreateObjectWithResponseAuth(t, obj, key)
+		if objectAlreadyExists(err) {
+			return nil
+		}
+		return err
+	})
+}
+
+// objectAlreadyExists reports whether err is the duplicate-id 422. The message
+// is in the typed payload, not err.Error(), so it is read off the response.
+func objectAlreadyExists(err error) bool {
+	var unprocessable *objectsCli.ObjectsCreateUnprocessableEntity
+	if !errors.As(err, &unprocessable) || unprocessable.Payload == nil {
+		return false
+	}
+	for _, e := range unprocessable.Payload.Error {
+		if e != nil && strings.Contains(e.Message, "already exists") {
+			return true
+		}
+	}
+	return false
+}
+
+// createObjectsBatchWithLagRetry retries a batch insert through the same
+// convergence window as createObjectWithLagRetry. The batch endpoint reports
+// per-object failures inside a 200 payload, so item errors are retried too.
+func createObjectsBatchWithLagRetry(t *testing.T, objs []*models.Object, key string) {
+	t.Helper()
+	retryOnAliasLag(t, func() error {
+		resp, err := helper.Client(t).Batch.BatchObjectsCreate(
+			batch.NewBatchObjectsCreateParams().
+				WithBody(batch.BatchObjectsCreateBody{Objects: objs}),
+			helper.CreateAuth(key),
+		)
+		if err != nil {
+			return err
+		}
+		for _, elem := range resp.Payload {
+			if elem.Result != nil && elem.Result.Errors != nil && len(elem.Result.Errors.Error) > 0 {
+				return errors.New(elem.Result.Errors.Error[0].Message)
+			}
+		}
+		return nil
+	})
 }
