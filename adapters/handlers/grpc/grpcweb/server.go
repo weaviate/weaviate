@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"strings"
 
+	"connectrpc.com/vanguard"
 	"connectrpc.com/vanguard/vanguardgrpc"
 	"github.com/rs/cors"
 	"google.golang.org/grpc"
@@ -34,7 +35,9 @@ import (
 // middleware chain, and browsers need the gRPC trailer headers exposed to read
 // the RPC status.
 func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, error) {
-	transcoder, err := vanguardgrpc.NewTranscoder(grpcServer)
+	opts := []vanguard.ServiceOption{}
+	opts = append(opts, vanguard.WithMaxMessageBufferBytes(uint32(state.ServerConfig.Config.GRPC.MaxMsgSize)))
+	transcoder, err := vanguardgrpc.NewTranscoder(grpcServer, vanguard.WithDefaultServiceOptions(opts...))
 	if err != nil {
 		return nil, fmt.Errorf("build grpc-web transcoder: %w", err)
 	}
