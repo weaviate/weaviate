@@ -565,6 +565,20 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		require.True(t, errors.As(err, &forbidden), "expected RevokeRoleFromGroupForbidden, got %T: %v", err, err)
 	})
 
+	t.Run("an operator cannot assign a namespace-local role to a group", func(t *testing.T) {
+		// Groups are global; a namespace-local role can never be on one, so an
+		// operator naming one by its qualified form is denied.
+		helper.CreateRole(t, u1Key, readCollectionsRole("grouplocalassign", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":grouplocalassign") })
+
+		_, err := helper.Client(t).Authz.AssignRoleToGroup(
+			authz.NewAssignRoleToGroupParams().WithID("engineers").
+				WithBody(authz.AssignRoleToGroupBody{Roles: []string{ns1 + ":grouplocalassign"}, GroupType: models.GroupTypeOidc}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.AssignRoleToGroupForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToGroupForbidden, got %T: %v", err, err)
+	})
+
 	t.Run("an operator cannot revoke a namespace-local role from a group", func(t *testing.T) {
 		// Groups are global; a namespace-local role can never be on one, so an
 		// operator naming one by its qualified form is denied.
@@ -791,47 +805,49 @@ func TestNamespaceOperatorReservedRoles(t *testing.T) {
 	t.Parallel()
 	ns1, _, u1Key, _ := twoNamespaces(t)
 
-	t.Run("namespaced admin cannot create a reserved-prefix role", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.CreateRole(
-			authz.NewCreateRoleParams().WithBody(readCollectionsRole("operator_"+uniqueRole(), "*")),
-			helper.CreateAuth(u1Key))
-		var unproc *authz.CreateRoleUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected CreateRoleUnprocessableEntity, got %T: %v", err, err)
-	})
+	// Each operator-reserved prefix is guarded identically: a namespaced admin can
+	// neither create, see, nor be assigned a role carrying it.
+	for _, prefix := range authorization.OperatorReservedRolePrefixes {
+		t.Run("namespaced admin cannot create a "+prefix+"* role", func(t *testing.T) {
+			_, err := helper.Client(t).Authz.CreateRole(
+				authz.NewCreateRoleParams().WithBody(readCollectionsRole(prefix+uniqueRole(), "*")),
+				helper.CreateAuth(u1Key))
+			var unproc *authz.CreateRoleUnprocessableEntity
+			require.True(t, errors.As(err, &unproc), "expected CreateRoleUnprocessableEntity, got %T: %v", err, err)
+		})
 
-	t.Run("operator creates a reserved-prefix role hidden from the namespaced admin", func(t *testing.T) {
-		name := "operator_" + uniqueRole()
-		// Its single permission, held by the caller, would pass the content gate, so only
-		// the prefix keeps it hidden.
-		helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
-		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
+		t.Run("operator creates a "+prefix+"* role hidden from the namespaced admin", func(t *testing.T) {
+			name := prefix + uniqueRole()
+			// Its single permission, held by the caller, would pass the content gate, so only
+			// the prefix keeps it hidden.
+			helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
+			t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
 
-		// The operator sees it.
-		require.Equal(t, name, *helper.GetRoleByName(t, adminKey, name).Name)
+			// The operator sees it in its role list.
+			require.Contains(t, roleNames(helper.GetRoles(t, adminKey)), name, "operator must see the role it created")
 
-		// The namespaced admin gets a 404 and never sees it listed.
-		_, getErr := helper.Client(t).Authz.GetRole(
-			authz.NewGetRoleParams().WithID(name), helper.CreateAuth(u1Key))
-		var notFound *authz.GetRoleNotFound
-		require.True(t, errors.As(getErr, &notFound), "expected GetRoleNotFound, got %T: %v", getErr, getErr)
-		for _, r := range helper.GetRoles(t, u1Key) {
-			require.NotEqual(t, name, *r.Name, "reserved role leaked into the namespaced admin's role list")
-		}
-	})
+			// The namespaced admin gets a 404 and never sees it listed.
+			_, getErr := helper.Client(t).Authz.GetRole(
+				authz.NewGetRoleParams().WithID(name), helper.CreateAuth(u1Key))
+			var notFound *authz.GetRoleNotFound
+			require.True(t, errors.As(getErr, &notFound), "expected GetRoleNotFound, got %T: %v", getErr, getErr)
+			require.NotContains(t, roleNames(helper.GetRoles(t, u1Key)), name, "reserved role leaked into the namespaced admin's role list")
+		})
 
-	t.Run("a reserved-prefix role cannot be assigned to a namespaced user", func(t *testing.T) {
-		name := "operator_" + uniqueRole()
-		helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
-		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
+		t.Run("a "+prefix+"* role cannot be assigned to a namespaced user", func(t *testing.T) {
+			name := prefix + uniqueRole()
+			helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
+			t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
 
-		// Target-based block: even the operator cannot pull it into a namespace.
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").
-				WithBody(authz.AssignRoleToUserBody{Roles: []string{name}, UserType: models.UserTypeInputDb}),
-			helper.CreateAuth(adminKey))
-		var forbidden *authz.AssignRoleToUserForbidden
-		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
-	})
+			// Target-based block: even the operator cannot pull it into a namespace.
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(ns1+":u1").
+					WithBody(authz.AssignRoleToUserBody{Roles: []string{name}, UserType: models.UserTypeInputDb}),
+				helper.CreateAuth(adminKey))
+			var forbidden *authz.AssignRoleToUserForbidden
+			require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
+		})
+	}
 
 	t.Run("operator assigns a reserved-prefix role to a global user", func(t *testing.T) {
 		name := "operator_" + uniqueRole()
@@ -850,7 +866,7 @@ func TestNamespaceOperatorReservedRoles(t *testing.T) {
 		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
 
 		// Visible to the namespaced admin and assignable to its own-namespace user.
-		require.Equal(t, name, *helper.GetRoleByName(t, u1Key, name).Name)
+		require.Contains(t, roleNames(helper.GetRoles(t, u1Key)), name, "non-reserved global role must be visible to the namespaced admin")
 		helper.AssignRoleToUser(t, adminKey, name, ns1+":u1")
 		t.Cleanup(func() { helper.RevokeRoleFromUser(t, adminKey, name, ns1+":u1") })
 	})
