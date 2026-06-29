@@ -55,6 +55,8 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		composer.New(
 			state.ServerConfig.Config.Authentication,
+			state.ServerConfig.Config.Namespaces.Enabled,
+			state.Logger,
 			state.APIKey,
 			state.OIDC,
 		),
