@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -57,9 +58,17 @@ type SegmentEditOps struct {
 	// common case, no drop ever issued — carries no sidecar. Read and bookkeeping
 	// paths use openIfExists, which opens an already-present file but never creates
 	// one, so the constantly-running compaction/cleanup cycles can't materialize it.
-	// mu guards the one-time open; once set, db is stable until Close.
+	// mu guards the one-time open and warnedMissingTransformer; once set, db is
+	// stable until Close.
 	mu sync.Mutex
 	db *bolt.DB
+
+	// logger is optional (nil disables logging); the segment group sets it after
+	// construction. Used only to warn about ops with no registered transformer.
+	logger logrus.FieldLogger
+	// warnedMissingTransformer dedups the "no transformer for this op type" warning
+	// to once per type, so the frequent compaction/cleanup passes can't spam it.
+	warnedMissingTransformer map[OpType]struct{}
 }
 
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
@@ -123,7 +132,11 @@ type OpTransformerFactory func(ops []ActiveOp) func(value []byte) ([]byte, error
 // transformers maps each handled op type to its factory; pass nil/empty for
 // bookkeeping only.
 func newSegmentEditOps(dir string, transformers map[OpType]OpTransformerFactory) *SegmentEditOps {
-	return &SegmentEditOps{dir: dir, transformers: transformers}
+	return &SegmentEditOps{
+		dir:                      dir,
+		transformers:             transformers,
+		warnedMissingTransformer: map[OpType]struct{}{},
+	}
 }
 
 // ensureOpen opens — creating the file if absent — the bolt sidecar and its
@@ -250,10 +263,11 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 
 	var order []OpType
 	byType := map[OpType][]ActiveOp{}
-	var applied []ActiveOp
+	var applied, missing []ActiveOp
 	for _, op := range ops {
 		opType := op.Descriptor.Type
 		if _, ok := s.transformers[opType]; !ok {
+			missing = append(missing, op)
 			continue
 		}
 		if _, seen := byType[opType]; !seen {
@@ -262,6 +276,7 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 		byType[opType] = append(byType[opType], op)
 		applied = append(applied, op)
 	}
+	s.warnMissingTransformers(missing)
 	if len(applied) == 0 {
 		return nil, nil, nil
 	}
@@ -271,6 +286,34 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 		transformers = append(transformers, s.transformers[opType](byType[opType]))
 	}
 	return chainTransformers(transformers), applied, nil
+}
+
+// warnMissingTransformers logs — once per op type per process — that the sidecar
+// holds an op whose type has no registered transformer, so its pending segments
+// will never be rewritten and the operation cannot complete. This is reached when
+// either a new op type was persisted without wiring its factory into
+// WithEditOpTransformers, or a downgrade dropped support for a type still on disk.
+// Skipping such an op is the safe behavior (we don't run a transform we don't
+// understand), but it must be visible rather than silently stalling.
+func (s *SegmentEditOps) warnMissingTransformers(missing []ActiveOp) {
+	if s.logger == nil || len(missing) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, op := range missing {
+		if _, warned := s.warnedMissingTransformer[op.Descriptor.Type]; warned {
+			continue
+		}
+		s.warnedMissingTransformer[op.Descriptor.Type] = struct{}{}
+		s.logger.WithFields(logrus.Fields{
+			"op_id":   op.ID,
+			"op_type": op.Descriptor.Type,
+		}).Warn("segment edit op has no registered transformer for its type; its pending " +
+			"segments will not be rewritten and the operation cannot complete — wire the " +
+			"op type into WithEditOpTransformers (or this op is a leftover from a newer " +
+			"version after a downgrade)")
+	}
 }
 
 // chainTransformers threads the output of each transformer into the next, so

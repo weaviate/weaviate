@@ -18,6 +18,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -357,6 +359,53 @@ func TestSegmentEditOps_BuildCurrentTransformerDispatchesByOpType(t *testing.T) 
 		assert.Nil(t, transformer)
 		assert.Nil(t, applied)
 	})
+}
+
+// TestSegmentEditOps_WarnsOnMissingTransformer pins the observability guard: when
+// the sidecar holds an op whose type has no registered transformer (a forgotten
+// WithEditOpTransformers entry, or a leftover after downgrade), BuildCurrentTransformer
+// skips it safely but logs a warning — once per type, not once per pass — so the
+// stalled operation is visible instead of silently never completing.
+func TestSegmentEditOps_WarnsOnMissingTransformer(t *testing.T) {
+	const (
+		opA OpType = "op_a"
+		opB OpType = "op_b" // no factory registered for this type
+	)
+	logger, hook := test.NewNullLogger()
+	s := newSegmentEditOps(t.TempDir(), map[OpType]OpTransformerFactory{
+		opA: func(ops []ActiveOp) func([]byte) ([]byte, error) {
+			return func(v []byte) ([]byte, error) { return v, nil }
+		},
+	})
+	s.logger = logger
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 1}))
+	require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 2}))
+
+	_, applied, err := s.BuildCurrentTransformer()
+	require.NoError(t, err)
+	require.Len(t, applied, 1, "only the op with a registered transformer is applied")
+
+	warns := warnEntries(hook)
+	require.Len(t, warns, 1, "exactly one warning for the unsupported op type")
+	assert.Equal(t, opB, warns[0].Data["op_type"])
+	assert.Equal(t, "b1", warns[0].Data["op_id"])
+
+	// Deduped: re-running the pass over the same unsupported type does not re-log.
+	_, _, err = s.BuildCurrentTransformer()
+	require.NoError(t, err)
+	require.Len(t, warnEntries(hook), 1, "the warning is emitted once per op type, not once per pass")
+}
+
+func warnEntries(hook *test.Hook) []*logrus.Entry {
+	var out []*logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // TestSegmentEditOps_ReadPathsNeverCreateSidecar pins the headline lazy-open

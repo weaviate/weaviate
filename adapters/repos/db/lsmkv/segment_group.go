@@ -546,6 +546,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
 	if len(cfg.editOpTransformers) > 0 {
 		sg.editOps = newSegmentEditOps(cfg.dir, cfg.editOpTransformers)
+		sg.editOps.logger = sg.logger
 	}
 
 	id := "segmentgroup/compaction/" + sg.dir
