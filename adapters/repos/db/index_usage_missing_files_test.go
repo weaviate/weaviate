@@ -251,7 +251,11 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 	shard, release, err := index.GetShard(ctx, tenantName)
 	require.NoError(t, err)
 	require.NotNil(t, shard)
-	require.NoError(t, shard.Store().Bucket(helpers.ObjectsBucketLSM).FlushMemtable())
+	// FlushMemtables deactivates the background flush cycle before flushing, so
+	// it cannot race with the cycle's own FlushAndSwitch (which would nil out
+	// b.flushing under the other goroutine and panic). Poking a single bucket's
+	// FlushMemtable directly skips that guard.
+	require.NoError(t, shard.Store().FlushMemtables(ctx))
 	release()
 
 	vectorConfigs := index.GetVectorIndexConfigs()

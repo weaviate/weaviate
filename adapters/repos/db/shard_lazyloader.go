@@ -575,6 +575,16 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
+// Skips Load: a never-loaded shard can't be halted, so there's no timer.
+func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if l.shard == nil {
+		return
+	}
+	l.shard.MayResetTransferInactivityTimer()
+}
+
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -587,6 +597,20 @@ func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.Sha
 		return nil, err
 	}
 	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+}
+
+func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CreateReplicaSnapshot(ctx, stagingRoot)
+}
+
+func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {

@@ -13,12 +13,9 @@ package db
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +23,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -249,29 +247,13 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 	return classNames
 }
 
-// probeHardlinkSupport tests whether the filesystem backing RootPath supports hardlinks.
-func (i *Index) probeHardlinkSupport() bool {
-	f, err := os.CreateTemp(i.Config.RootPath, ".hardlink-probe-*")
-	if err != nil {
-		return false
-	}
-	src := f.Name()
-	f.Close()
-	defer os.Remove(src)
-
-	dst := src + ".link"
-	defer os.Remove(dst)
-
-	return os.Link(src, dst) == nil
-}
-
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
 
-	useHardlinks := i.probeHardlinkSupport()
+	useHardlinks := file.ProbeHardlinkSupport(i.Config.RootPath)
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
 
 	if useHardlinks {
@@ -447,22 +429,26 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("list inactive shard %s files: %w", name, err)
 	}
 
+	var hardlinks []file.HardlinkPair
 	for _, relPath := range files {
 		src := filepath.Join(i.Config.RootPath, relPath)
 		dst := filepath.Join(stagingRoot, relPath)
+		if isImmutableFile(relPath) {
+			hardlinks = append(hardlinks, file.HardlinkPair{Src: src, Dst: dst})
+			continue
+		}
+		// Mutable files are copied, not hard-linked — a shared inode would let
+		// post-snapshot writes corrupt the staged copy. CopyFile, unlike
+		// HardlinkFiles, doesn't create the destination dir.
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if isImmutableFile(relPath) {
-			if err := os.Link(src, dst); err != nil {
-				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
-		} else {
-			if err := copyFile(src, dst); err != nil {
-				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
+		if err := file.CopyFile(src, dst); err != nil {
+			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 		}
-
+	}
+	if err := file.HardlinkFiles(hardlinks); err != nil {
+		return fmt.Errorf("hardlink inactive shard %s files to staging: %w", name, err)
 	}
 
 	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
@@ -504,33 +490,6 @@ func isImmutableFile(relPath string) bool {
 		return true
 	}
 	return false
-}
-
-// copyFile creates an independent copy of src at dst, fsyncing the destination.
-// Used instead of os.Link for mutable files where a shared inode would allow
-// post-snapshot writes to corrupt the backup copy.
-func copyFile(src, dst string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("open source: %w", err)
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("create destination: %w", err)
-	}
-	defer func() {
-		if closeErr := out.Close(); err == nil && closeErr != nil {
-			err = fmt.Errorf("close destination: %w", closeErr)
-		}
-	}()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("copy data: %w", err)
-	}
-
-	return out.Sync()
 }
 
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
@@ -706,34 +665,8 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 	return nil
 }
 
-// snapshotNameMaxLabel is the maximum length of the human-readable label
-// in a snapshot directory name. The label is best-effort — it exists only
-// for operator convenience when inspecting the filesystem. Uniqueness is
-// guaranteed by the hash suffix, not the label.
-const snapshotNameMaxLabel = 20
-
-// safeSnapshotName builds a directory name that is guaranteed to fit within
-// filesystem path component limits (255 bytes). The prefix is prepended
-// verbatim; the remaining parts are joined with "-" to form a human-readable
-// label that is truncated to snapshotNameMaxLabel. A SHA-256 hash of the
-// full input (prefix + body) is appended for uniqueness.
-//
-// Example: safeSnapshotName(".backup-staging-", "backup1", "myclass")
-// → ".backup-staging-backup1-myclass-a1b2c3d4e5f6"
-func safeSnapshotName(prefix string, parts ...string) string {
-	body := strings.Join(parts, "-")
-	h := sha256.Sum256([]byte(prefix + body))
-	hashSuffix := hex.EncodeToString(h[:6]) // 12 hex chars
-
-	label := body
-	if len(label) > snapshotNameMaxLabel {
-		label = label[:snapshotNameMaxLabel]
-	}
-	return prefix + label + "-" + hashSuffix
-}
-
 func backupStagingDir(rootPath, backupID string, className schema.ClassName) string {
-	name := safeSnapshotName(backup.BackupStagingPrefix, backupID, indexID(className))
+	name := file.SafeStagingDirName(backup.BackupStagingPrefix, backupID, indexID(className))
 	return filepath.Join(rootPath, name)
 }
 

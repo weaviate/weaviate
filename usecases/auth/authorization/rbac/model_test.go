@@ -372,6 +372,87 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 	}
 }
 
+// TestNamespaceAwareMatcher_ColonBearingGlobalUser: a global caller (ns == "")
+// may carry a user id containing ':'. The matcher must match users/<id>
+// literally — else such ids are falsely denied a wildcard grant, or falsely
+// matched against a grant to a different user.
+func TestNamespaceAwareMatcher_ColonBearingGlobalUser(t *testing.T) {
+	tests := []struct {
+		name     string
+		reqObj   string
+		polObj   string
+		ns       string
+		expected bool
+	}{
+		{
+			"baseline: no colon, wildcard grant → allow",
+			"users/alice", "users/.*", "", true,
+		},
+		{
+			"colon in id must not break a wildcard grant → allow",
+			"users/urn:foo", "users/.*", "", true,
+		},
+		{
+			"leading colon must not break a wildcard grant → allow",
+			"users/:foo", "users/.*", "", true,
+		},
+		{
+			"trailing colon must not break a wildcard grant → allow",
+			"users/foo:", "users/.*", "", true,
+		},
+		{
+			"multi-colon id must not break a wildcard grant → allow",
+			"users/a:b:c", "users/.*", "", true,
+		},
+		{
+			"literal /* wildcard normalizes and still matches colon id → allow",
+			"users/customer1:alice", "users/*", "", true,
+		},
+		{
+			"root's bare * grant still matches colon id → allow",
+			"users/customer1:alice", "*", "", true,
+		},
+		{
+			"narrower grant to user 'a' must NOT widen to id 'x:a' → deny",
+			"users/x:a", "users/a", "", false,
+		},
+		{
+			"narrower grant to user 'alice' must NOT widen to id 'customer1:alice' → deny",
+			"users/customer1:alice", "users/alice", "", false,
+		},
+		{
+			"exact-match grant to a colon id → allow",
+			"users/customer1:alice", "users/customer1:alice", "", true,
+		},
+		{
+			"namespaced caller still specializes a relative user grant → allow",
+			"users/customer1:alice", "users/alice", "customer1", true,
+		},
+		{
+			"namespaced caller is denied a cross-namespace user → deny",
+			"users/customer2:alice", "users/alice", "customer1", false,
+		},
+		{
+			"colon in a group name is opaque too: exact grant → allow",
+			"groups/oidc/team:eng", "groups/oidc/team:eng", "", true,
+		},
+		{
+			"colon in a group name must not widen to a different group → deny",
+			"groups/oidc/team:eng", "groups/oidc/team:other", "", false,
+		},
+		{
+			"regression guard: collection widening for a global caller still works → allow",
+			"schema/collections/customer1:Movies/shards/#", conv.CasbinSchema("Movies*", "#"), "", true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testNamespaceAwareMatcher(t, tt.reqObj, tt.polObj, tt.ns, tt.expected)
+		})
+	}
+}
+
 // TestNamespaceAwareMatcherGate locks the namespacesEnabled gate: on
 // namespace-disabled clusters the matcher must not parse ':' as a namespace
 // prefix, because an OIDC username may legitimately contain ':' there
@@ -392,10 +473,10 @@ func TestNamespaceAwareMatcherGate(t *testing.T) {
 	assert.True(t, call(false, "schema/collections/Movies/shards/#", conv.CasbinSchema("Movies", "#"), ""),
 		"NS-disabled: collection matching unchanged")
 
-	// The gate is load-bearing: the raw namespace-aware core would wrongly match
-	// "x:a" against a grant to "a" via any-ns widening.
-	assert.True(t, namespaceAwareMatcher("users/x:a", "users/a", ""),
-		"documents the bug the gate prevents")
+	// NS-enabled global caller (ns == "") matches user ids literally: a grant to
+	// "a" must not widen to OIDC user "x:a".
+	assert.False(t, namespaceAwareMatcher("users/x:a", "users/a", ""),
+		"NS-enabled global caller: grant to user 'a' must not match OIDC user 'x:a'")
 
 	// NS-enabled: the gate delegates to the namespace-aware core.
 	assert.True(t, call(true, "users/customer1:bob", "users/.*", "customer1"),

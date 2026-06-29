@@ -330,6 +330,9 @@ func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
 		return len(usersPrefix), len(path), false
 	}
+	// groups/ is intentionally not registered: a colon-bearing group id is
+	// matched literally. Don't add it without also short-circuiting groups/
+	// in globalCallerNeedsNoWidening, or such ids would wrongly widen.
 	return 0, 0, false
 }
 
@@ -384,6 +387,17 @@ func rewritePolicy(policy string, colStart, colEnd int, hasAlias bool, prefix st
 	return b.String(), true
 }
 
+// globalCallerNeedsNoWidening reports whether a global caller's (ns == "")
+// request matches the policy literally rather than widening: true when it has
+// no ':', or is a users/<id> resource (a user id may contain ':', which is
+// part of the id, not a namespace prefix).
+func globalCallerNeedsNoWidening(reqObj string) bool {
+	if strings.HasPrefix(reqObj, usersPrefix) {
+		return true
+	}
+	return strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) < 0
+}
+
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
 // KeyMatch5: a collection-level request must not match a per-tenant policy.
 func weaviateKeyMatch(reqObj, polObj string) bool {
@@ -401,18 +415,12 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 //     already-qualified segments must start with `<ns>:` exactly.
 //   - ns == "" with a qualified request segment: unqualified policy segments
 //     widen with anyNamespacePattern; qualified segments stay fixed.
-//   - ns == "" with an unqualified request segment, or a non-namespaceable
-//     path shape: no rewrite.
+//   - ns == "" with an unqualified request, a users/<id> resource, or a
+//     non-namespaceable shape: no rewrite.
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
-	// Trivial passthrough: no rewrite is needed when the caller carries no
-	// namespace and the request resource is unqualified. This is the only
-	// path on namespace-disabled clusters (validation forbids `:` in any resource
-	// path) and also covers operator calls against unqualified resources
-	// on namespace-enabled clusters. The namespace separator never appears
-	// in any other part of a valid resource path
-	// (class/shard/tenant/role names all forbid `:`), so a single byte
-	// scan classifies the request.
-	if ns == "" && strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) < 0 {
+	// Trivial passthrough (see globalCallerNeedsNoWidening). Only
+	// collection/data/aliases segments treat ':' as a namespace boundary.
+	if ns == "" && globalCallerNeedsNoWidening(reqObj) {
 		return weaviateKeyMatch(reqObj, polObj)
 	}
 

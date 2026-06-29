@@ -57,6 +57,14 @@ func retryOnAliasLag(t *testing.T, op func() error) {
 // createNamespacedUser and granted the built-in admin role by this root.
 const adminUser, adminKey = "admin-user", "admin-key"
 
+// Two extra static API-key users for TestGlobalCallerColonUserIDAuthz. Static
+// keys are global operators (ns==""), the journey the matcher fix targets. The
+// test grants gCaller a narrow role at runtime; gTarget just needs to exist.
+const (
+	gCaller, gCallerKey = "gcaller", "gcaller-key"
+	gTarget, gTargetKey = "gtarget", "gtarget-key"
+)
+
 var sharedCompose *docker.DockerCompose
 
 func TestMain(m *testing.M) {
@@ -72,6 +80,8 @@ func TestMain(m *testing.M) {
 		WithApiKey().
 		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).
+		WithUserApiKey(gCaller, gCallerKey).
+		WithUserApiKey(gTarget, gTargetKey).
 		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
