@@ -38,11 +38,7 @@ type Params struct {
 	ModuleParams         map[string]interface{}
 	AdditionalProperties additional.Properties
 
-	// SelectionFn, when set, runs a post-fusion re-ranking pass (e.g. MMR
-	// diversity selection) over the full fused candidate pool before it is
-	// truncated to the user's limit. It is the only place diversity selection
-	// can take effect for hybrid search, since the per-leg ANN pass is
-	// discarded by fusion.
+	// SelectionFn, when set, re-ranks the full fused pool (e.g. MMR diversity) before it is truncated to the user's limit.
 	SelectionFn func(ctx context.Context, fused []search.Result) ([]search.Result, error)
 }
 

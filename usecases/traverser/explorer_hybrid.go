@@ -94,8 +94,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	params.Group = nil
 	params.GroupBy = nil
 	params.Boost = nil
-	// Selection (MMR) is applied once post-fusion, never per-leg: a per-leg ANN
-	// MMR pass picks diverse-but-far candidates that fusion then discards.
+	// Selection (MMR) runs once post-fusion; a per-leg ANN pass would be discarded by fusion.
 	params.Selection = nil
 
 	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
@@ -251,11 +250,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	// MMR diversity selection must run once on the fused candidate pool — the
-	// per-leg ANN pass is discarded by fusion (see denseSearch). That requires
-	// the target vector resident on every fused candidate, including BM25-only
-	// hits from the keyword leg, so force-load it on both legs and strip it
-	// again afterwards if the user did not request vectors.
+	// Force-load the target vector on both legs so post-fusion MMR can place every candidate; strip it afterwards if the user didn't request it.
 	var selectionFn func(ctx context.Context, fused []search.Result) ([]search.Result, error)
 	var stripVector string
 	var stripDefaultVector bool
@@ -512,9 +507,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	return out, nil
 }
 
-// withVectorTarget returns src with target appended if not already present.
-// When an append is needed it allocates a fresh slice so the caller's copy
-// never mutates a backing array shared with the original params.
+// withVectorTarget returns src with target appended (into a fresh slice) if not already present.
 func withVectorTarget(src []string, target string) []string {
 	if slices.Contains(src, target) {
 		return src

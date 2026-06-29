@@ -57,8 +57,7 @@ func (s *MMRSelection) Select(ctx context.Context, ids []uint64, queryDistances 
 		}
 	}
 
-	// Candidates without a usable vector cannot be placed in the space and are
-	// excluded, so the distancer is never handed a nil vector.
+	// Vectorless candidates are excluded so the distancer is never handed a nil vector.
 	if eligibleCount == 0 {
 		return nil, nil, nil
 	}
