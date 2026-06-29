@@ -58,21 +58,31 @@ func TestBucket_WithTransformerBuilder_OpensAndClosesEditOps(t *testing.T) {
 }
 
 // TestWithTransformerBuilder_RejectsNonReplace pins the fail-fast replace-only
-// guard: wiring the option on a non-replace bucket errors at setup.
+// guard: wiring the option on any non-replace bucket errors at setup, across
+// every other strategy.
 func TestWithTransformerBuilder_RejectsNonReplace(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
-
 	builder := func(ops []ActiveOp) func([]byte) ([]byte, error) {
 		return func(v []byte) ([]byte, error) { return v, nil }
 	}
 
-	_, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategySetCollection), WithTransformerBuilder(builder))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "replace")
+	for _, strategy := range []string{
+		StrategySetCollection,
+		StrategyMapCollection,
+		StrategyRoaringSet,
+		StrategyInverted,
+	} {
+		t.Run(strategy, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			logger, _ := test.NewNullLogger()
+
+			_, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy), WithTransformerBuilder(builder))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "replace")
+		})
+	}
 }
 
 // TestBucket_NoTransformerBuilder_NoEditOps confirms a bucket without the option

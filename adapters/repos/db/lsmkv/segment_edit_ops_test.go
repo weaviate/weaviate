@@ -13,6 +13,9 @@ package lsmkv
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -282,4 +285,106 @@ func TestSegmentEditOps_SnapshotSegmentsRequiresRegisteredOp(t *testing.T) {
 	p, err := s.Pending("unregistered")
 	require.NoError(t, err)
 	assert.Empty(t, p)
+}
+
+// TestSegmentEditOps_ReadPathsNeverCreateSidecar pins the headline lazy-open
+// invariant: every read/bookkeeping path is a clean no-op on a store that has
+// never seen an op, and crucially none of them materializes the bolt file. The
+// constantly-running compaction/cleanup/reconcile cycles call these on every
+// idle objects bucket; a single ensureOpen slip here would litter the data
+// directory with empty sidecars (breaking backups and disk accounting). Each
+// case runs against a fresh store so a leak in one method can't be masked by
+// another.
+func TestSegmentEditOps_ReadPathsNeverCreateSidecar(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(t *testing.T, s *SegmentEditOps)
+	}{
+		{"LoadOps", func(t *testing.T, s *SegmentEditOps) {
+			ops, err := s.LoadOps()
+			require.NoError(t, err)
+			assert.Empty(t, ops)
+		}},
+		{"Pending", func(t *testing.T, s *SegmentEditOps) {
+			p, err := s.Pending("op1")
+			require.NoError(t, err)
+			assert.Empty(t, p)
+		}},
+		{"AllPending", func(t *testing.T, s *SegmentEditOps) {
+			p, err := s.AllPending()
+			require.NoError(t, err)
+			assert.Empty(t, p)
+		}},
+		{"Quarantined", func(t *testing.T, s *SegmentEditOps) {
+			q, err := s.Quarantined()
+			require.NoError(t, err)
+			assert.Empty(t, q)
+		}},
+		{"MarkSegmentDone", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.MarkSegmentDone("op1", "seg1"))
+		}},
+		{"BumpAttempt", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.BumpAttempt("op1", "seg1", errors.New("boom")))
+		}},
+		{"Quarantine", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.Quarantine("op1", "seg1"))
+		}},
+		{"DeleteOp", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.DeleteOp("op1"))
+		}},
+		{"Reconcile", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.Reconcile(set("seg1"), set("op1")))
+		}},
+		{"RecordCompaction", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.RecordCompaction("a", "b", nil))
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s := newSegmentEditOps(dir, nil)
+			t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+			tt.call(t, s)
+
+			require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName),
+				"%s must not materialize the sidecar on an idle store", tt.name)
+		})
+	}
+}
+
+// TestSegmentEditOps_ConcurrentOpenIsSafe exercises the mu-guarded one-time open
+// under -race: many goroutines racing to register the first op must converge on
+// a single bolt handle with no torn open and no lost write.
+func TestSegmentEditOps_ConcurrentOpenIsSafe(t *testing.T) {
+	s := newTestEditOps(t)
+
+	const n = 16
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = s.RegisterOp(fmt.Sprintf("op%d", i), removeOp("foo"))
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	ops, err := s.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, n)
+}
+
+// TestSegmentEditOps_CloseWithoutOpenIsNoop pins that Close on a never-opened
+// store (the common idle-bucket shutdown) is a clean no-op and creates nothing.
+func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	s := newSegmentEditOps(dir, nil)
+	require.NoError(t, s.Close())
+	require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName))
 }
