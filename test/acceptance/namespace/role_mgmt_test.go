@@ -659,6 +659,41 @@ func TestNamespaceHasPermissionGlobalFallbackRole(t *testing.T) {
 	require.True(t, resp.Payload, "namespaced caller must see the global role's unqualified permission")
 }
 
+// TestNamespaceHasPermissionOperatorOnLocalRole checks a global operator's
+// hasPermission verdict against a namespace-local role. The operator names the
+// role's namespace explicitly (ns1:Movies); that qualified resource is compared
+// as submitted against the role's qualified stored rows.
+func TestNamespaceHasPermissionOperatorOnLocalRole(t *testing.T) {
+	t.Parallel()
+	ns1, _, u1Key, _ := twoNamespaces(t)
+
+	// A namespace-local role whose collection permission stores ns1:Movies.
+	helper.CreateRole(t, u1Key, readCollectionsRole("opcheck", "Movies"))
+	t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":opcheck") })
+
+	// The operator submits the qualified collection it sees on the stored role.
+	granted := helper.NewCollectionsPermission().
+		WithAction(authorization.ReadCollections).
+		WithCollection(ns1 + ":Movies").
+		Permission()
+	resp, err := helper.Client(t).Authz.HasPermission(
+		authz.NewHasPermissionParams().WithID(ns1+":opcheck").WithBody(granted),
+		helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	require.True(t, resp.Payload, "operator's qualified permission must match the role's stored row")
+
+	// A different namespace's collection is not what the role grants.
+	notGranted := helper.NewCollectionsPermission().
+		WithAction(authorization.ReadCollections).
+		WithCollection(ns1 + ":Other").
+		Permission()
+	respNeg, err := helper.Client(t).Authz.HasPermission(
+		authz.NewHasPermissionParams().WithID(ns1+":opcheck").WithBody(notGranted),
+		helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	require.False(t, respNeg.Payload, "a permission the role lacks must report false")
+}
+
 // TestNamespaceDeleteCascadesRBAC proves the namespace-delete cascade and the
 // apply-time emptiness gate work together: a namespace holding a local role and
 // a user with both a local and a global role assignment can still be deleted —

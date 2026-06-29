@@ -377,6 +377,47 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 		require.True(t, parsed.Payload)
 	})
 
+	// A global operator names the role's namespace explicitly; the qualified
+	// resource is compared as submitted, lining up with the role's qualified rows.
+	t.Run("global operator checks a local role with a qualified resource", func(t *testing.T) {
+		h, controller := nsReadHandler(t, true, nsRoles(), nil, nil)
+		var gotResource string
+		controller.On("HasPermission", "customer1:editor", mock.Anything).
+			Return(func(role string, permission *authorization.Policy) bool {
+				gotResource = permission.Resource
+				return true
+			}, nil)
+
+		qualified := &models.Permission{
+			Action:      String(authorization.CreateCollections),
+			Collections: &models.PermissionCollections{Collection: String("customer1:Films")},
+		}
+		principal := &models.Principal{Username: "op", IsGlobalOperator: true}
+		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "customer1:editor", Body: qualified}, principal)
+		parsed, ok := res.(*authz.HasPermissionOK)
+		require.True(t, ok, "got %T", res)
+		require.True(t, parsed.Payload)
+		require.Contains(t, gotResource, "collections/customer1:Films/")
+	})
+
+	// A global operator's bare resource names the global collection, so it is
+	// passed through unchanged (not re-qualified into the role's namespace).
+	t.Run("global operator bare resource is not re-qualified", func(t *testing.T) {
+		h, controller := nsReadHandler(t, true, nsRoles(), nil, nil)
+		var gotResource string
+		controller.On("HasPermission", "customer1:editor", mock.Anything).
+			Return(func(role string, permission *authorization.Policy) bool {
+				gotResource = permission.Resource
+				return false
+			}, nil)
+
+		principal := &models.Principal{Username: "op", IsGlobalOperator: true}
+		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "customer1:editor", Body: heldPerm}, principal)
+		_, ok := res.(*authz.HasPermissionOK)
+		require.True(t, ok, "got %T", res)
+		require.NotContains(t, gotResource, "customer1:", "operator's bare resource must not be re-qualified")
+	})
+
 	t.Run("role beyond caller permissions forbidden", func(t *testing.T) {
 		held := map[string]bool{
 			policyKey(collPolicy(authorization.READ, "customer1:Movies")): true,
