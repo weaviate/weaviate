@@ -197,6 +197,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
+	// Return immediately if ctx is cancelled before launching any leg.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	var err error
 	var results [][]*search.Result
 	var weights []float64
@@ -245,7 +250,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		resultsCount = 2
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(e.logger)
+	// Run both legs under a cancellable context so a failing or cancelled leg stops the sibling instead of leaking.
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	eg.SetLimit(resultsCount)
 
 	results = make([][]*search.Result, resultsCount)
@@ -253,7 +259,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	names = make([]string, resultsCount)
 	var belowCutoffSet map[strfmt.UUID]struct{}
 
-	if (params.HybridSearch.Alpha) > 0 {
+	if params.HybridSearch.Alpha > 0 {
 		eg.Go(func() error {
 			params := vectorParams
 			var err error
@@ -261,7 +267,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			var res []*search.Result
 			var errorText string
 			if params.HybridSearch.NearTextParams != nil {
-				res, name, err = nearTextSubSearch(ctx, e, params, targetVectors)
+				res, name, err = nearTextSubSearch(egCtx, e, params, targetVectors)
 				errorText = "nearTextSubSearch"
 			} else if params.HybridSearch.NearVectorParams != nil {
 				searchVectors := make([]*searchparams.NearVector, len(targetVectors))
@@ -269,7 +275,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					searchVectors[i] = params.HybridSearch.NearVectorParams
 					searchVectors[i].TargetVectors = []string{targetVector}
 				}
-				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
+				res, name, err = denseSearch(egCtx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
 				sch := e.schemaGetter.GetSchemaSkipAuth()
@@ -303,12 +309,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 							}
 							if isMultiVector {
 								searchVectors.TargetVectors[i] = targetVector
-								searchVector, err := e.modulesProvider.MultiVectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
+								searchVector, err := e.modulesProvider.MultiVectorFromInput(egCtx, params.ClassName, params.HybridSearch.Query, targetVector)
 								searchVectors.Vectors[i] = searchVector
 								return err
 							}
 							searchVectors.TargetVectors[i] = targetVector
-							searchVector, err := e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
+							searchVector, err := e.modulesProvider.VectorFromInput(egCtx, params.ClassName, params.HybridSearch.Query, targetVector)
 							searchVectors.Vectors[i] = searchVector
 							return err
 						})
@@ -318,7 +324,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					}
 				}
 
-				res, name, err = denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
+				res, name, err = denseSearch(egCtx, e, params, "hybridVector", targetVectors, searchVectors)
 				errorText = "hybrid"
 			}
 
@@ -355,7 +361,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		eg.Go(func() error {
 			// If the user has given any weight to the keyword search, do a keyword search
 			params := keywordParams
-			sparseResults, name, err := sparseSearch(ctx, e, params)
+			sparseResults, name, err := sparseSearch(egCtx, e, params)
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
 				return err
@@ -371,6 +377,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	if err := eg.Wait(); err != nil {
+		// On client cancel, return the canonical context error: a losing leg may wrap it with %v and break errors.Is.
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		return nil, err
 	}
 
