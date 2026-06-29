@@ -160,6 +160,21 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			policyResources: []string{"users/oidc:alice", "groups/oidc/team:eng"},
 		},
 		{
+			// A colon-bearing users/<id> or groups/<type>/<name> is a global
+			// opaque id, not namespaced state, so it must not fail startup.
+			name:            "disabled, namespace-looking opaque-id resources are exempt",
+			enabled:         false,
+			policyResources: []string{"users/customer1:alice", "groups/db/customer1:team"},
+		},
+		{
+			// An exempt opaque-id must not mask a qualified resource in the same role.
+			name:            "disabled, qualified resource alongside exempt opaque-id still caught",
+			enabled:         false,
+			policyResources: []string{"users/customer1:alice", "roles/tenant1:editor"},
+			wantErr:         true,
+			errSubstr:       "namespace-qualified role permission",
+		},
+		{
 			// A namespace-qualified roles/<role> permission resource is still caught;
 			// only opaque-id (users/groups) resources are exempt from the colon check.
 			name:            "disabled, namespace-qualified roles permission resource still caught",
