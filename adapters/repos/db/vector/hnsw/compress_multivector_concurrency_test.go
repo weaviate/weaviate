@@ -80,6 +80,8 @@ func TestAddMultiBatch_ConcurrentWithCompression(t *testing.T) {
 	// Writers add new docs (growing the index) throughout the rebuild.
 	done := make(chan struct{})
 	var wg sync.WaitGroup
+	var writeErr error
+	var writeErrOnce sync.Once
 	for w := 0; w < 4; w++ {
 		wg.Add(1)
 		go func(start uint64) {
@@ -90,7 +92,10 @@ func TestAddMultiBatch_ConcurrentWithCompression(t *testing.T) {
 				case <-done:
 					return
 				default:
-					_ = index.AddMulti(ctx, id, doc(id))
+					if err := index.AddMulti(ctx, id, doc(id)); err != nil {
+						writeErrOnce.Do(func() { writeErr = err })
+						return
+					}
 					id++
 				}
 			}
@@ -106,4 +111,5 @@ func TestAddMultiBatch_ConcurrentWithCompression(t *testing.T) {
 
 	close(done)
 	wg.Wait()
+	require.NoError(t, writeErr)
 }
