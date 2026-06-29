@@ -65,9 +65,23 @@ func TestFindNamespaceSegments(t *testing.T) {
 			wantEnd:   len("roles/customer1:editor"),
 			wantSeg:   "customer1:editor",
 		},
+		// These three exercise the defensive missing-delimiter branch for each
+		// collection prefix: the path constructors always emit /shards/ or
+		// /aliases/, so a truncated path means the parser must return the safe
+		// end==0 sentinel rather than slicing on a -1 index.
 		{
 			name:    "schema without /shards/ → not namespaceable",
 			path:    "schema/collections/Movies",
+			wantEnd: 0,
+		},
+		{
+			name:    "data without /shards/ → not namespaceable",
+			path:    "data/collections/Movies",
+			wantEnd: 0,
+		},
+		{
+			name:    "aliases without /aliases/ → not namespaceable",
+			path:    "aliases/collections/Movies",
 			wantEnd: 0,
 		},
 		{
