@@ -233,26 +233,21 @@ func TestRoleResolverFindShortNameConflict(t *testing.T) {
 		{"local duplicate", []string{"customer1:editor"}, "customer1:editor", RoleConflictDuplicate},
 		{"local blocked by global reservation", []string{"editor"}, "customer1:editor", RoleConflictGlobal},
 		{"global blocked by existing local", []string{"customer1:editor"}, "editor", RoleConflictLocal},
+		{"global blocked by multiple locals", []string{"customer1:editor", "customer2:editor"}, "editor", RoleConflictLocal},
 		{"global duplicate", []string{"editor"}, "editor", RoleConflictDuplicate},
 		{"different short no conflict", []string{"customer1:editor"}, "customer1:viewer", NoRoleConflict},
+		// An exact duplicate must win over a cross-type match no matter where in
+		// the scan each appears — pin both orderings for each candidate type.
+		{"global duplicate wins, dup first", []string{"editor", "customer1:editor"}, "editor", RoleConflictDuplicate},
+		{"global duplicate wins, dup last", []string{"customer1:editor", "editor"}, "editor", RoleConflictDuplicate},
+		{"local duplicate wins, dup first", []string{"customer1:editor", "editor"}, "customer1:editor", RoleConflictDuplicate},
+		{"local duplicate wins, dup last", []string{"editor", "customer1:editor"}, "customer1:editor", RoleConflictDuplicate},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, FindShortNameConflict(slices.Values(tt.existing), tt.candidate))
 		})
 	}
-}
-
-// Collision matrix from the spec — both create directions.
-func TestRoleResolverCollisionMatrix(t *testing.T) {
-	// customer1 editor, then customer2 editor: both fine.
-	assert.Equal(t, NoRoleConflict, FindShortNameConflict(slices.Values([]string(nil)), "customer1:editor"))
-	assert.Equal(t, NoRoleConflict, FindShortNameConflict(slices.Values([]string{"customer1:editor"}), "customer2:editor"))
-	// then a global editor: blocked by the existing locals.
-	assert.Equal(t, RoleConflictLocal, FindShortNameConflict(slices.Values([]string{"customer1:editor", "customer2:editor"}), "editor"))
-
-	// Reverse direction: global editor first, then customer1 editor blocked.
-	assert.Equal(t, RoleConflictGlobal, FindShortNameConflict(slices.Values([]string{"editor"}), "customer1:editor"))
 }
 
 // TestProjectResourceForNamespace pins assignment-time specialization: a bare
