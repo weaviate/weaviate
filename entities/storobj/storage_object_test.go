@@ -1963,6 +1963,53 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 	})
 }
 
+func TestPatchDocID(t *testing.T) {
+	obj := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties:         map[string]interface{}{"name": "MyName"},
+		},
+		[]float32{1, 2, 0.7},
+		map[string][]float32{"vector1": {1, 2, 3}},
+		nil,
+	)
+	obj.DocID = 7
+
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	require.NoError(t, PatchDocID(asBinary, 42))
+
+	gotID, err := DocIDFromBinary(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), gotID)
+
+	obj.DocID = 42
+	expected, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	assert.Equal(t, expected, asBinary)
+
+	decoded, err := FromBinaryNetwork(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), decoded.DocID)
+	assert.Equal(t, obj.ID(), decoded.ID())
+}
+
+func TestPatchDocID_Errors(t *testing.T) {
+	t.Run("too short", func(t *testing.T) {
+		require.Error(t, PatchDocID(make([]byte, 8), 1))
+	})
+
+	t.Run("unsupported version", func(t *testing.T) {
+		buf := make([]byte, 9)
+		buf[0] = 2
+		require.Error(t, PatchDocID(buf, 1))
+	})
+}
+
 func pickRandomIDsBetween(start, end uint64, count int) []uint64 {
 	ids := make([]uint64, count)
 	for i := 0; i < count; i++ {

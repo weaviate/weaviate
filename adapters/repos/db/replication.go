@@ -671,17 +671,39 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 	for i, u := range updates {
 		incomingObj := u.LatestObject
+		lastUpdateTime := u.LastUpdateTimeUnixMilli
 
-		if (u.Deleted && u.ID == "") || (!u.Deleted && (incomingObj == nil || incomingObj.ID == "")) {
+		// raw path: decode once for indexing, persist the bytes verbatim on write.
+		// FromBinaryDisk (canonical class) because the on-disk class-name may be
+		// empty, which FromBinaryNetwork rejects.
+		var rawObj *storobj.Object
+		if u.RawBytes != nil {
+			decoded, decErr := storobj.FromBinaryDisk(u.RawBytes, idx.Config.ClassName.String())
+			if decErr != nil {
+				result = append(result, types.RepairResponse{
+					Err: fmt.Sprintf("decode raw object at position %d: %v", i, decErr),
+				})
+				continue
+			}
+			decoded.PrecomputedDiskBinary = u.RawBytes
+			rawObj = decoded
+			lastUpdateTime = rawObj.LastUpdateTimeUnix()
+		}
+
+		if (u.Deleted && u.ID == "") ||
+			(!u.Deleted && rawObj == nil && (incomingObj == nil || incomingObj.ID == "")) {
 			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
 			result = append(result, types.RepairResponse{Err: msg})
 			continue
 		}
 
 		var id strfmt.UUID
-		if u.Deleted {
+		switch {
+		case u.Deleted:
 			id = u.ID
-		} else {
+		case rawObj != nil:
+			id = rawObj.ID()
+		default:
 			id = incomingObj.ID
 		}
 
@@ -707,7 +729,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 		if currUpdateTime != u.StaleUpdateTime {
 
-			if currUpdateTime == u.LastUpdateTimeUnixMilli {
+			if currUpdateTime == lastUpdateTime {
 				// local object was updated in the mean time, no need to do anything
 				continue
 			}
@@ -721,7 +743,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			// the fact `currUpdateTime == u.StaleUpdateTime` does not hold.
 			if !locallyDeleted ||
 				idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
-				currUpdateTime > u.LastUpdateTimeUnixMilli {
+				currUpdateTime > lastUpdateTime {
 				// object changed and its state differs from recent known state
 				r := types.RepairResponse{
 					ID:         id.String(),
@@ -744,7 +766,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		// time-based strategy and a more recent creation/update is required
 		if !u.Deleted && locallyDeleted &&
 			(idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
-				currUpdateTime > u.LastUpdateTimeUnixMilli) {
+				currUpdateTime > lastUpdateTime) {
 			r := types.RepairResponse{
 				ID:         id.String(),
 				Deleted:    locallyDeleted,
@@ -768,7 +790,11 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 
-		updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+		if rawObj != nil {
+			updateBatch = append(updateBatch, rawObj)
+		} else {
+			updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+		}
 	}
 
 	if len(updateBatch) > 0 {

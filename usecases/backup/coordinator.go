@@ -773,7 +773,11 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 		node string
 		err  error
 	}
-	errChan := make(chan pair)
+	// Buffer one slot per node so a failing worker never blocks on the send.
+	// The consumer only runs after the submit loop finishes, so an unbuffered
+	// channel would let the first _MaxNumberConns failures hold every g.Go slot
+	// while blocked on the send, deadlocking the submit loop.
+	errChan := make(chan pair, len(nodes))
 	aCounter := int64(len(nodes))
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)

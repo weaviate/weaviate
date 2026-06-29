@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -1069,4 +1071,56 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 		"coordinator must wrap the shared sentinel from entities/backup; "+
 			"if this fails, a parallel declaration has been re-introduced")
+}
+
+// TestCommitAllManyFailures verifies commitAll does not deadlock when the number
+// of participants exceeds the connection limit and they all fail. Each failing
+// worker sends on errChan, but the consumer only runs after every worker is
+// submitted; with an unbuffered channel the first _MaxNumberConns workers block
+// on the send, holding all the errgroup slots so the submit loop can never reach
+// the consumer.
+func TestCommitAllManyFailures(t *testing.T) {
+	t.Parallel()
+
+	const numNodes = _MaxNumberConns * 2
+	var (
+		backendName = "s3"
+		backupID    = "test-backup"
+		ctx         = context.Background()
+		any         = mock.Anything
+	)
+
+	nodes := make([]string, numNodes)
+	for i := range nodes {
+		nodes[i] = fmt.Sprintf("N%d", i)
+	}
+
+	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+	coordinator := fc.coordinator()
+
+	node2Addr := make(map[string]string, numNodes)
+	for _, n := range nodes {
+		coordinator.Participants[n] = participantStatus{
+			Status:   backup.Transferring,
+			LastTime: time.Now(),
+		}
+		node2Addr[n] = n
+	}
+
+	// Every commit fails, so every worker tries to send on errChan.
+	fc.client.On("Commit", any, any, any).Return(errors.New("commit failed"))
+
+	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+
+	done := make(chan int, 1)
+	enterrors.GoWrapper(func() {
+		done <- coordinator.commitAll(ctx, req, node2Addr)
+	}, coordinator.log)
+
+	select {
+	case nFailures := <-done:
+		assert.Equal(t, numNodes, nFailures)
+	case <-time.After(10 * time.Second):
+		t.Fatal("commitAll deadlocked with more failing participants than the connection limit")
+	}
 }
