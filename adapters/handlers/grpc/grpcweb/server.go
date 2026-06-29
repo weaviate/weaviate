@@ -17,6 +17,7 @@ package grpcweb
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 
@@ -36,7 +37,7 @@ import (
 // the RPC status.
 func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, error) {
 	opts := []vanguard.ServiceOption{}
-	opts = append(opts, vanguard.WithMaxMessageBufferBytes(uint32(state.ServerConfig.Config.GRPC.MaxMsgSize)))
+	opts = append(opts, vanguard.WithMaxMessageBufferBytes(msgBufferLimit(state.ServerConfig.Config.GRPC.MaxMsgSize)))
 	transcoder, err := vanguardgrpc.NewTranscoder(grpcServer, vanguard.WithDefaultServiceOptions(opts...))
 	if err != nil {
 		return nil, fmt.Errorf("build grpc-web transcoder: %w", err)
@@ -62,6 +63,13 @@ func corsOptions(cfg config.CORS) cors.Options {
 		// browsers reject. Matches the REST handler's posture.
 		AllowCredentials: false,
 	}
+}
+
+func msgBufferLimit(maxMsgSize int) uint32 {
+	if maxMsgSize <= 0 || uint64(maxMsgSize) > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(maxMsgSize)
 }
 
 // splitTrim splits a comma-separated config value and trims each element.
