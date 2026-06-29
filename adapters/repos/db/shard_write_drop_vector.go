@@ -20,11 +20,13 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// dropVectorTransformerBuilder returns the objects-bucket TransformerBuilder:
-// per remove_target_vectors op it strips the named vectors, re-marshaling only
-// when something changed (idempotent no-op otherwise). The disk round-trip must
+// dropVectorTransformer is the OpTransformerFactory for OpTypeRemoveTargetVectors:
+// given the live remove-target-vector ops it strips the named vectors from each
+// stored object, re-marshaling only when something changed (idempotent no-op
+// otherwise). Every op passed in is already of this type — the edit-ops registry
+// dispatches by type — so no type check is needed here. The disk round-trip must
 // match the bucket's own encode/decode (FromBinaryDisk / MarshalBinaryDisk).
-func dropVectorTransformerBuilder(className string, skipClassNameOnDisk bool) lsmkv.TransformerBuilder {
+func dropVectorTransformer(className string, skipClassNameOnDisk bool) lsmkv.OpTransformerFactory {
 	return func(ops []lsmkv.ActiveOp) func([]byte) ([]byte, error) {
 		return func(value []byte) ([]byte, error) {
 			obj, err := storobj.FromBinaryDisk(value, className)
@@ -33,9 +35,6 @@ func dropVectorTransformerBuilder(className string, skipClassNameOnDisk bool) ls
 			}
 			changed := false
 			for _, op := range ops {
-				if op.Descriptor.Type != lsmkv.OpTypeRemoveTargetVectors {
-					continue
-				}
 				for _, targetVector := range op.Descriptor.Targets {
 					if obj.RemoveTargetVector(targetVector) {
 						changed = true

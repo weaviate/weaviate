@@ -45,11 +45,12 @@ import (
 // op and segment IDs never need an in-key separator.
 type SegmentEditOps struct {
 	dir string
-	// buildTransformer is the injected, storobj-opaque builder. It is a permanent
-	// member (not a per-call arg) because the storobj-ignorant, cycle-driven
-	// compaction/cleanup passes can't construct it themselves; BuildCurrentTransformer
-	// invokes it per pass. nil disables transformation.
-	buildTransformer TransformerBuilder
+	// transformers maps an OpType to its storobj-opaque transformer factory. The
+	// edit-ops DB drives selection: BuildCurrentTransformer reads the op types
+	// recorded in the sidecar and loads only the matching factories, so the bucket
+	// wiring no longer decides what runs — the persisted ops do. Empty disables
+	// transformation. Set once at construction; never mutated after.
+	transformers map[OpType]OpTransformerFactory
 
 	// db is opened lazily: the bolt sidecar file is created only when the first
 	// edit op is registered (see ensureOpen), so an idle objects bucket — the
@@ -108,18 +109,21 @@ type PendingSegment struct {
 // It must be a pure, idempotent function of the value bytes.
 type valueTransformer func(value []byte) ([]byte, error)
 
-// TransformerBuilder produces the per-pass value transformer from the live ops.
-// It is the public type carried by WithTransformerBuilder; the returned function
-// stays storobj-opaque (plain []byte) so lsmkv never imports storobj.
-type TransformerBuilder func(ops []ActiveOp) func(value []byte) ([]byte, error)
+// OpTransformerFactory builds the value transformer for all live ops of a single
+// OpType (the factory's registry key guarantees every op handed to it shares that
+// type). The returned function stays storobj-opaque (plain []byte) so lsmkv never
+// imports storobj. One factory is registered per op type, e.g.
+// OpTypeRemoveTargetVectors -> a vector-stripping transformer.
+type OpTransformerFactory func(ops []ActiveOp) func(value []byte) ([]byte, error)
 
 // newSegmentEditOps constructs the edit-ops store for the segment group rooted at
 // dir. It does NO I/O: the bolt sidecar file is opened (and created) lazily on the
 // first registered op, so an objects bucket that never sees a drop carries no
 // sidecar — keeping it out of file listings, backups and disk-size accounting.
-// buildTransformer is the injected builder; pass nil for bookkeeping only.
-func newSegmentEditOps(dir string, buildTransformer TransformerBuilder) *SegmentEditOps {
-	return &SegmentEditOps{dir: dir, buildTransformer: buildTransformer}
+// transformers maps each handled op type to its factory; pass nil/empty for
+// bookkeeping only.
+func newSegmentEditOps(dir string, transformers map[OpType]OpTransformerFactory) *SegmentEditOps {
+	return &SegmentEditOps{dir: dir, transformers: transformers}
 }
 
 // ensureOpen opens — creating the file if absent — the bolt sidecar and its
@@ -223,26 +227,68 @@ func (s *SegmentEditOps) withReadTx(fn func(tx *bolt.Tx) error) error {
 
 // BuildCurrentTransformer composes the ops live right now into one value
 // transformer for a single compaction or cleanup pass, plus the exact ops it was
-// built from. Building per pass keeps it in step with the live ops; the op set
-// lets RecordCompaction decide what the pass stripped by membership. Transformer
-// and set are both nil when no builder is configured or no ops are active.
+// built from. The op types recorded in the sidecar drive selection: ops are
+// grouped by type, each present type's registered factory builds a transformer
+// over its ops, and the per-type transformers are chained (in first-seen
+// CreatedAt order). An op whose type has no registered factory is skipped — a
+// forward-compatible no-op. Building per pass keeps it in step with the live ops;
+// the returned op set lets RecordCompaction decide what the pass stripped by
+// membership. Transformer and set are both nil when nothing applies.
 //
 // One transformer is applied to every segment of a pass, by design: a dropped
 // target must be removed everywhere, so over-applying is always correct (a
 // segment created after the op can't carry the target — the write-path reject
 // blocked it). Per-segment state lives in pending_segments, not the transformer.
 func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp, error) {
-	if s.buildTransformer == nil {
+	if len(s.transformers) == 0 {
 		return nil, nil, nil
 	}
 	ops, err := s.LoadOps()
 	if err != nil {
 		return nil, nil, fmt.Errorf("load edit ops: %w", err)
 	}
-	if len(ops) == 0 {
+
+	var order []OpType
+	byType := map[OpType][]ActiveOp{}
+	var applied []ActiveOp
+	for _, op := range ops {
+		opType := op.Descriptor.Type
+		if _, ok := s.transformers[opType]; !ok {
+			continue
+		}
+		if _, seen := byType[opType]; !seen {
+			order = append(order, opType)
+		}
+		byType[opType] = append(byType[opType], op)
+		applied = append(applied, op)
+	}
+	if len(applied) == 0 {
 		return nil, nil, nil
 	}
-	return s.buildTransformer(ops), ops, nil
+
+	transformers := make([]valueTransformer, 0, len(order))
+	for _, opType := range order {
+		transformers = append(transformers, s.transformers[opType](byType[opType]))
+	}
+	return chainTransformers(transformers), applied, nil
+}
+
+// chainTransformers threads the output of each transformer into the next, so
+// multiple op types apply in sequence within a single segment rewrite. A lone
+// transformer is returned unwrapped.
+func chainTransformers(transformers []valueTransformer) valueTransformer {
+	if len(transformers) == 1 {
+		return transformers[0]
+	}
+	return func(value []byte) ([]byte, error) {
+		var err error
+		for _, transform := range transformers {
+			if value, err = transform(value); err != nil {
+				return nil, err
+			}
+		}
+		return value, nil
+	}
 }
 
 // RecordCompaction does the post-merge bookkeeping for leftID+rightID ->

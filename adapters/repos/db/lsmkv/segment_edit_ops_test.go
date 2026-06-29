@@ -287,6 +287,78 @@ func TestSegmentEditOps_SnapshotSegmentsRequiresRegisteredOp(t *testing.T) {
 	assert.Empty(t, p)
 }
 
+// TestSegmentEditOps_BuildCurrentTransformerDispatchesByOpType pins the design
+// Dirk asked for: the persisted ops — via their OpType — drive which transformer
+// runs. The bucket registers a factory per type; BuildCurrentTransformer selects
+// only the registered types present in the sidecar and chains them in CreatedAt
+// order. Op types with no factory are silently skipped.
+func TestSegmentEditOps_BuildCurrentTransformerDispatchesByOpType(t *testing.T) {
+	const (
+		opA OpType = "op_a"
+		opB OpType = "op_b"
+	)
+	// Each factory appends a tag so the output reveals which transformers ran and
+	// in what order.
+	tagFactory := func(tag string) OpTransformerFactory {
+		return func(ops []ActiveOp) func([]byte) ([]byte, error) {
+			return func(v []byte) ([]byte, error) { return append(v, tag...), nil }
+		}
+	}
+	newStore := func(t *testing.T, transformers map[OpType]OpTransformerFactory) *SegmentEditOps {
+		s := newSegmentEditOps(t.TempDir(), transformers)
+		t.Cleanup(func() { require.NoError(t, s.Close()) })
+		return s
+	}
+
+	t.Run("only registered op types contribute", func(t *testing.T) {
+		s := newStore(t, map[OpType]OpTransformerFactory{opA: tagFactory("A")})
+		require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 1}))
+		require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 2})) // no factory
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		require.NotNil(t, transformer)
+		out, err := transformer([]byte("v:"))
+		require.NoError(t, err)
+		assert.Equal(t, "v:A", string(out))
+		require.Len(t, applied, 1)
+		assert.Equal(t, "a1", applied[0].ID)
+	})
+
+	t.Run("multiple types chain in CreatedAt order", func(t *testing.T) {
+		s := newStore(t, map[OpType]OpTransformerFactory{opA: tagFactory("A"), opB: tagFactory("B")})
+		require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 1}))
+		require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 2}))
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		out, err := transformer([]byte("v:"))
+		require.NoError(t, err)
+		assert.Equal(t, "v:BA", string(out), "opB (CreatedAt 1) must apply before opA (CreatedAt 2)")
+		require.Len(t, applied, 2)
+	})
+
+	t.Run("no registered type present yields nil transformer", func(t *testing.T) {
+		s := newStore(t, map[OpType]OpTransformerFactory{opA: tagFactory("A")})
+		require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 1}))
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		assert.Nil(t, transformer)
+		assert.Nil(t, applied)
+	})
+
+	t.Run("empty registry yields nil transformer", func(t *testing.T) {
+		s := newStore(t, nil)
+		require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 1}))
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		assert.Nil(t, transformer)
+		assert.Nil(t, applied)
+	})
+}
+
 // TestSegmentEditOps_ReadPathsNeverCreateSidecar pins the headline lazy-open
 // invariant: every read/bookkeeping path is a clean no-op on a store that has
 // never seen an op, and crucially none of them materializes the bolt file. The

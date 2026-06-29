@@ -20,13 +20,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// TestObjectBucket_TransformerBuilder_LazySidecar proves initObjectBucket wires
+// TestObjectBucket_EditOpTransformers_LazySidecar proves initObjectBucket wires
 // the drop-vector transformer onto the objects bucket WITHOUT eagerly creating
 // the edit-ops sidecar: the bolt file is materialized lazily on the first
 // registered op, so an objects bucket that never sees a drop carries no sidecar
 // (keeping it out of disk-size and backup accounting). The wiring of the option
-// itself is covered by lsmkv's TestBucket_WithTransformerBuilder_* tests.
-func TestObjectBucket_TransformerBuilder_LazySidecar(t *testing.T) {
+// itself is covered by lsmkv's TestBucket_WithEditOpTransformers_* tests.
+func TestObjectBucket_EditOpTransformers_LazySidecar(t *testing.T) {
 	ctx := context.Background()
 	shard, _ := testShard(t, ctx, "DropVectorTransformerWiring")
 

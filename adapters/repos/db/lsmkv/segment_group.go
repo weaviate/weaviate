@@ -141,7 +141,7 @@ type sgConfig struct {
 	writeMetadata                bool
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
-	transformerBuilder           TransformerBuilder
+	editOpTransformers           map[OpType]OpTransformerFactory
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -544,8 +544,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	// published before any pass can read it (happens-before). The bolt file itself
 	// is opened lazily on the first registered op (see newSegmentEditOps), so an
 	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
-	if cfg.transformerBuilder != nil {
-		sg.editOps = newSegmentEditOps(cfg.dir, cfg.transformerBuilder)
+	if len(cfg.editOpTransformers) > 0 {
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.editOpTransformers)
 	}
 
 	id := "segmentgroup/compaction/" + sg.dir

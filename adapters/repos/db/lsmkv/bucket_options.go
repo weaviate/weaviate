@@ -309,17 +309,19 @@ func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Contex
 	}
 }
 
-// WithTransformerBuilder wires a SegmentEditOps facility on the bucket whose
-// per-pass transformer is produced by b (kept storobj-opaque so lsmkv never
-// imports storobj). Set on the objects bucket to strip dropped vector indexes.
-// Only valid on 'replace' buckets; rejected otherwise so the contract fails fast
-// at setup. Requires WithStrategy applied first.
-func WithTransformerBuilder(b TransformerBuilder) BucketOption {
+// WithEditOpTransformers wires a SegmentEditOps facility on the bucket, keyed by
+// op type: each persisted op selects its transformer by type at compaction/cleanup
+// time, so the edit-ops DB — not this wiring — drives what runs (factories stay
+// storobj-opaque so lsmkv never imports storobj). Set on the objects bucket to
+// strip dropped vector indexes. Only valid on 'replace' buckets; rejected
+// otherwise so the contract fails fast at setup. Requires WithStrategy applied
+// first.
+func WithEditOpTransformers(transformers map[OpType]OpTransformerFactory) BucketOption {
 	return func(bucket *Bucket) error {
 		if bucket.strategy != StrategyReplace {
-			return errors.Errorf("transformer builder only supported on 'replace' buckets")
+			return errors.Errorf("edit-op transformers only supported on 'replace' buckets")
 		}
-		bucket.transformerBuilder = b
+		bucket.editOpTransformers = transformers
 		return nil
 	}
 }

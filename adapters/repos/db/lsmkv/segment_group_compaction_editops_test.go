@@ -117,9 +117,11 @@ func TestSegmentGroup_CompactionAppliesEditOpsTransformer(t *testing.T) {
 	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
 	require.NoError(t, bucket.FlushAndSwitch())
 
-	editOps := newSegmentEditOps(bucket.disk.dir, func(ops []ActiveOp) func([]byte) ([]byte, error) {
-		require.NotEmpty(t, ops)
-		return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
+	editOps := newSegmentEditOps(bucket.disk.dir, map[OpType]OpTransformerFactory{
+		OpTypeRemoveTargetVectors: func(ops []ActiveOp) func([]byte) ([]byte, error) {
+			require.NotEmpty(t, ops)
+			return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
+		},
 	})
 	t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 	bucket.disk.editOps = editOps

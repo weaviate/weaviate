@@ -130,7 +130,7 @@ func TestDropVectorIndex_RejectObjectVectors(t *testing.T) {
 	}
 }
 
-func TestDropVectorTransformerBuilder(t *testing.T) {
+func TestDropVectorTransformer(t *testing.T) {
 	const className = "TestClass"
 
 	marshal := func(t *testing.T, vecs map[string][]float32, multi map[string][][]float32) []byte {
@@ -159,7 +159,7 @@ func TestDropVectorTransformerBuilder(t *testing.T) {
 
 	transform := func(t *testing.T, in []byte, ops ...lsmkv.ActiveOp) []byte {
 		t.Helper()
-		fn := dropVectorTransformerBuilder(className, false)(ops)
+		fn := dropVectorTransformer(className, false)(ops)
 		out, err := fn(in)
 		require.NoError(t, err)
 		return out
@@ -190,13 +190,6 @@ func TestDropVectorTransformerBuilder(t *testing.T) {
 		in := marshal(t, map[string][]float32{"keep": {1, 2}}, nil)
 		out := transform(t, in, op(lsmkv.OpTypeRemoveTargetVectors, "missing"))
 		require.Equal(t, in, out, "unchanged object must return the original bytes unmodified")
-	})
-
-	t.Run("non-matching op type is ignored", func(t *testing.T) {
-		in := marshal(t, map[string][]float32{"drop": {3, 4}}, nil)
-		out := transform(t, in, op("some_other_op", "drop"))
-		require.Equal(t, in, out)
-		require.Contains(t, decode(t, out).Vectors, "drop")
 	})
 
 	t.Run("idempotent under repeated application (C2)", func(t *testing.T) {
@@ -261,7 +254,7 @@ func TestDropVectorTransformer_CodecSymmetry(t *testing.T) {
 	}
 	strip := func(t *testing.T, in []byte, targets ...string) []byte {
 		t.Helper()
-		fn := dropVectorTransformerBuilder(className, false)([]lsmkv.ActiveOp{{
+		fn := dropVectorTransformer(className, false)([]lsmkv.ActiveOp{{
 			ID: "op", Descriptor: lsmkv.OpDescriptor{
 				Type: lsmkv.OpTypeRemoveTargetVectors, Targets: targets, CreatedAt: 1,
 			},
@@ -331,7 +324,7 @@ func TestDropVectorTransformer_CorruptBytesSurfacesError(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fn := dropVectorTransformerBuilder(className, false)([]lsmkv.ActiveOp{{
+			fn := dropVectorTransformer(className, false)([]lsmkv.ActiveOp{{
 				ID: "op", Descriptor: lsmkv.OpDescriptor{
 					Type: lsmkv.OpTypeRemoveTargetVectors, Targets: []string{"drop"}, CreatedAt: 1,
 				},

@@ -238,8 +238,9 @@ type Bucket struct {
 	// during compaction for the SetCollection strategy
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
-	// builder for the edit-ops transformer; set via WithTransformerBuilder.
-	transformerBuilder TransformerBuilder
+	// per-op-type transformer factories for the edit-ops sidecar; set via
+	// WithEditOpTransformers. The persisted ops select which run.
+	editOpTransformers map[OpType]OpTransformerFactory
 
 	skipSecondaryKeyCheck bool
 
@@ -362,7 +363,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			writeMetadata:                b.writeMetadata,
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
-			transformerBuilder:           b.transformerBuilder,
+			editOpTransformers:           b.editOpTransformers,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

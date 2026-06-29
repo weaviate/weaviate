@@ -180,10 +180,13 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithLazySegmentLoading(false), // always load
 		lsmkv.WithClassName(s.index.Config.ClassName.String()),
 		// Strip dropped vector indexes from stored objects during compaction/cleanup.
-		lsmkv.WithTransformerBuilder(dropVectorTransformerBuilder(
-			s.index.Config.ClassName.String(),
-			s.index.Config.SkipWriteClassNameOnDisk,
-		)),
+		// Keyed by op type so the persisted edit ops drive which transformer runs.
+		lsmkv.WithEditOpTransformers(map[lsmkv.OpType]lsmkv.OpTransformerFactory{
+			lsmkv.OpTypeRemoveTargetVectors: dropVectorTransformer(
+				s.index.Config.ClassName.String(),
+				s.index.Config.SkipWriteClassNameOnDisk,
+			),
+		}),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

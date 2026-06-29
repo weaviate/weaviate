@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func prefixTransformerBuilder(ops []ActiveOp) func([]byte) ([]byte, error) {
+func prefixTransformer(ops []ActiveOp) func([]byte) ([]byte, error) {
 	return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 }
 
@@ -34,28 +34,33 @@ func (denyAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
 func (denyAllocChecker) Refresh(bool)                            {}
 
 // newReplaceBucketWithEditOps wires a real cleaner (cleanupInterval > 0) plus an
-// edit-ops facility via the production WithTransformerBuilder path, with a long
-// interval so the time/size heuristic would never fire — proving the edit-ops
-// path bypasses it. The facility is owned by the segment group and closed on
-// bucket shutdown.
-func newReplaceBucketWithEditOps(t *testing.T, builder TransformerBuilder) (*Bucket, *SegmentEditOps) {
+// edit-ops facility via the production WithEditOpTransformers path (factory keyed
+// by OpTypeRemoveTargetVectors), with a long interval so the time/size heuristic
+// would never fire — proving the edit-ops path bypasses it. The facility is owned
+// by the segment group and closed on bucket shutdown.
+func newReplaceBucketWithEditOps(t *testing.T, factory OpTransformerFactory) (*Bucket, *SegmentEditOps) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
+	var transformers map[OpType]OpTransformerFactory
+	if factory != nil {
+		transformers = map[OpType]OpTransformerFactory{OpTypeRemoveTargetVectors: factory}
+	}
+
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour),
-		WithTransformerBuilder(builder))
+		WithEditOpTransformers(transformers))
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
 
-	if builder == nil {
-		// WithTransformerBuilder(nil) wires no sidecar (a nil builder means there
-		// is nothing to transform), but the nil-transformer guard test needs an
-		// editOps facility whose BuildCurrentTransformer returns nil. Attach a
-		// nil-builder store directly so the cleanup path is still exercised.
+	if factory == nil {
+		// An empty registry wires no sidecar (nothing to transform), but the
+		// nil-transformer guard test needs an editOps facility whose
+		// BuildCurrentTransformer returns nil. Attach a no-transformer store
+		// directly so the cleanup path is still exercised.
 		bucket.disk.editOps = newSegmentEditOps(bucket.disk.dir, nil)
 	}
 
@@ -75,7 +80,7 @@ func segIDsOf(bucket *Bucket) []string {
 // segment through the transformer — including the last segment, which the
 // time/size heuristic skips — even though the cleanup interval has not elapsed.
 func TestSegmentCleanerEditOps_PicksPendingRegardlessOfInterval(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
@@ -123,7 +128,7 @@ func drainEditOpsCleanup(t *testing.T, bucket *Bucket) {
 // transformer is applied a single time, not twice) and every op's row for it is
 // marked done.
 func TestSegmentCleanerEditOps_MultiOpSameSegment(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
@@ -179,7 +184,7 @@ func TestSegmentCleanerEditOps_NilTransformerDoesNotMarkDone(t *testing.T) {
 // guard hit pauses the pass (nothing cleaned) without counting as a failed
 // attempt — so a transient low-memory window can't quarantine a healthy segment.
 func TestSegmentCleanerEditOps_MemoryPressurePausesWithoutBumping(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 	bucket.disk.allocChecker = denyAllocChecker{}
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
@@ -212,7 +217,7 @@ func TestSegmentCleanerEditOps_MemoryPressurePausesWithoutBumping(t *testing.T) 
 // pauses the pass WITHOUT counting as a failed attempt — an interrupted rewrite
 // must not push a healthy segment toward quarantine. Mirrors the OOM-pause test.
 func TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	// >=100 keys so writeKeys reaches its i%100==0 shouldAbort check mid-rewrite
 	// (a smaller segment would finish before the check ever fires).
@@ -250,7 +255,7 @@ func TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump(t *testing.T) {
 // TestSegmentCleanerEditOps_ENOENTRemovesStaleRow drops a pending row whose
 // segment is no longer on disk (merged away by a concurrent compaction).
 func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
