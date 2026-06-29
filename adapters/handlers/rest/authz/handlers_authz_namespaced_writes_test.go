@@ -215,3 +215,75 @@ func TestDeleteRoleNamespaced(t *testing.T) {
 		})
 	}
 }
+
+// operatorWriteHandler models a global operator/root: the authorizer grants
+// every role scope, so the namespace-local guard is the only thing that can
+// block a write to a local role.
+func operatorWriteHandler(t *testing.T, all map[string][]authorization.Policy) (*authZHandlers, *MockControllerAndGetUsers) {
+	t.Helper()
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetRoles", mock.Anything).Return(func(names ...string) map[string][]authorization.Policy {
+		out := map[string][]authorization.Policy{}
+		if p, ok := all[names[0]]; ok {
+			out[names[0]] = p
+		}
+		return out
+	}, nil).Maybe()
+	controller.On("UpdateRolesPermissions", mock.Anything).Return(nil).Maybe()
+	controller.On("RemovePermissions", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	logger, _ := test.NewNullLogger()
+	h := &authZHandlers{
+		authorizer:        authorizer,
+		controller:        controller,
+		logger:            logger,
+		rbacconfig:        rbacconf.Config{Enabled: true},
+		namespacesEnabled: true,
+	}
+	return h, controller
+}
+
+// A global operator must not edit a namespace-local role: its bare resources
+// would be stored unqualified inside the role. Global roles stay editable.
+func TestOperatorCannotModifyLocalRole(t *testing.T) {
+	operator := &models.Principal{Username: "op", IsGlobalOperator: true}
+
+	t.Run("addPermissions on a local role is forbidden and writes nothing", func(t *testing.T) {
+		h, controller := operatorWriteHandler(t, nsWriteRoles())
+		res := h.addPermissions(authz.AddPermissionsParams{
+			HTTPRequest: req,
+			ID:          "customer1:editor",
+			Body:        authz.AddPermissionsBody{Permissions: []*models.Permission{nsWritePerm()}},
+		}, operator)
+		_, ok := res.(*authz.AddPermissionsForbidden)
+		require.True(t, ok, "got %T", res)
+		controller.AssertNotCalled(t, "UpdateRolesPermissions", mock.Anything)
+	})
+
+	t.Run("removePermissions on a local role is forbidden and removes nothing", func(t *testing.T) {
+		h, controller := operatorWriteHandler(t, nsWriteRoles())
+		res := h.removePermissions(authz.RemovePermissionsParams{
+			HTTPRequest: req,
+			ID:          "customer1:editor",
+			Body:        authz.RemovePermissionsBody{Permissions: []*models.Permission{nsWritePerm()}},
+		}, operator)
+		_, ok := res.(*authz.RemovePermissionsForbidden)
+		require.True(t, ok, "got %T", res)
+		controller.AssertNotCalled(t, "RemovePermissions", mock.Anything, mock.Anything)
+	})
+
+	t.Run("addPermissions on a global role still succeeds", func(t *testing.T) {
+		h, _ := operatorWriteHandler(t, nsWriteRoles())
+		res := h.addPermissions(authz.AddPermissionsParams{
+			HTTPRequest: req,
+			ID:          "globalauditor",
+			Body:        authz.AddPermissionsBody{Permissions: []*models.Permission{nsWritePerm()}},
+		}, operator)
+		_, ok := res.(*authz.AddPermissionsOK)
+		require.True(t, ok, "got %T", res)
+	})
+}
