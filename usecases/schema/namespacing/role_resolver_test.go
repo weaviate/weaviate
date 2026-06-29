@@ -186,12 +186,31 @@ func TestRoleResolverQualifyPoliciesForCreate(t *testing.T) {
 			in:        []authorization.Policy{{Resource: "data/collections/customer1:Movies/shards/.*/objects/.*"}},
 			wantErr:   true,
 		},
+		{
+			// Atomicity: a later policy's error must leave the earlier,
+			// qualifiable policy unmutated.
+			name:      "namespaced error leaves earlier policy untouched",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in: []authorization.Policy{
+				{Resource: "data/collections/Movies/shards/.*/objects/.*"},
+				{Resource: "data/collections/customer1:Other/shards/.*/objects/.*"},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			orig := make([]string, len(tt.in))
+			for i := range tt.in {
+				orig[i] = tt.in[i].Resource
+			}
 			err := QualifyRolePoliciesForCreate(tt.principal, tt.nsEnabled, tt.in)
 			if tt.wantErr {
 				require.Error(t, err)
+				for i := range tt.in {
+					assert.Equal(t, orig[i], tt.in[i].Resource, "policy resource mutated despite error")
+				}
 				return
 			}
 			require.NoError(t, err)
