@@ -153,6 +153,69 @@ func TestValidatePermissions(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "backups permission cannot set both collection and user",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						Collection: String("*"),
+						User:       String("*"),
+					},
+				},
+			},
+			expectedErr: "cannot set both 'collection' and 'user'",
+		},
+		{
+			name: "valid backups collection only",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						Collection: String("ValidCollectionName"),
+					},
+				},
+			},
+		},
+		{
+			name: "valid backups user only",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("some-user"),
+					},
+				},
+			},
+		},
+		{
+			name: "backups user with a slash is rejected",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("ns1/alice"),
+					},
+				},
+			},
+			expectedErr: "must not contain '/'",
+		},
+		{
+			name: "valid namespaced backups user",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("ns1:alice"),
+					},
+				},
+			},
+		},
+		{
+			name: "valid namespace-wildcard backups user",
+			permissions: []*models.Permission{
+				{
+					Backups: &models.PermissionBackups{
+						User: String("ns1:*"),
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
