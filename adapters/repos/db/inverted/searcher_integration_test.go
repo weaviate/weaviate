@@ -61,7 +61,7 @@ func TestObjects(t *testing.T) {
 
 	t.Run("create buckets", func(t *testing.T) {
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
-			lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1), lsmkv.WithClassName(className)))
+			lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1), lsmkv.WithClassName(className, false)))
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
@@ -281,7 +281,7 @@ func TestDocIDs(t *testing.T) {
 
 	t.Run("create buckets", func(t *testing.T) {
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
-			lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1), lsmkv.WithClassName(className)))
+			lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1), lsmkv.WithClassName(className, false)))
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
@@ -817,7 +817,7 @@ func TestFilterASCIIFold(t *testing.T) {
 
 	require.NoError(t, store.CreateOrLoadBucket(context.Background(),
 		helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1), lsmkv.WithClassName(className)))
+		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1), lsmkv.WithClassName(className, false)))
 	require.NoError(t, store.CreateOrLoadBucket(context.Background(),
 		helpers.BucketSearchableFromPropNameLSM(propFold),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))

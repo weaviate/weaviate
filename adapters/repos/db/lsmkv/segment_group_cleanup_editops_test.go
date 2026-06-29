@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func prefixTransformer(ops []ActiveOp) func([]byte) ([]byte, error) {
+func prefixTransformer(className string, skip bool, ops []ActiveOp) func([]byte) ([]byte, error) {
 	return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 }
 
@@ -34,35 +34,28 @@ func (denyAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
 func (denyAllocChecker) Refresh(bool)                            {}
 
 // newReplaceBucketWithEditOps wires a real cleaner (cleanupInterval > 0) plus an
-// edit-ops facility via the production WithEditOpTransformers path (factory keyed
-// by OpTypeRemoveTargetVectors), with a long interval so the time/size heuristic
-// would never fire — proving the edit-ops path bypasses it. The facility is owned
-// by the segment group and closed on bucket shutdown.
+// edit-ops facility, with a long cleanup interval so the time/size heuristic would
+// never fire — proving the edit-ops path bypasses it. The facility is attached
+// directly with an injected resolver so tests can use a fake transformer (and, for
+// factory == nil, an empty resolver that yields a nil transformer to exercise the
+// don't-mark-done guard). Owned by the segment group and closed on bucket shutdown.
 func newReplaceBucketWithEditOps(t *testing.T, factory OpTransformerFactory) (*Bucket, *SegmentEditOps) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	var transformers map[OpType]OpTransformerFactory
-	if factory != nil {
-		transformers = map[OpType]OpTransformerFactory{OpTypeRemoveTargetVectors: factory}
-	}
-
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour),
-		WithEditOpTransformers(transformers))
+		WithStrategy(StrategyReplace), WithSegmentsCleanupInterval(time.Hour))
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
 
-	if factory == nil {
-		// An empty registry wires no sidecar (nothing to transform), but the
-		// nil-transformer guard test needs an editOps facility whose
-		// BuildCurrentTransformer returns nil. Attach a no-transformer store
-		// directly so the cleanup path is still exercised.
-		bucket.disk.editOps = newSegmentEditOps(bucket.disk.dir, nil)
+	transformers := map[OpType]OpTransformerFactory{}
+	if factory != nil {
+		transformers[OpTypeRemoveTargetVectors] = factory
 	}
+	bucket.disk.editOps = newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", false, staticResolver(transformers))
 
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 	return bucket, bucket.disk.editOps
@@ -275,7 +268,7 @@ func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
 // TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts quarantines a segment
 // whose rewrite keeps failing, so it stops being retried (C6).
 func TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts(t *testing.T) {
-	failing := func(ops []ActiveOp) func([]byte) ([]byte, error) {
+	failing := func(className string, skip bool, ops []ActiveOp) func([]byte) ([]byte, error) {
 		return func(v []byte) ([]byte, error) { return nil, errors.New("boom") }
 	}
 	bucket, editOps := newReplaceBucketWithEditOps(t, failing)

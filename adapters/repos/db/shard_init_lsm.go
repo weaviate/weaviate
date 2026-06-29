@@ -178,15 +178,14 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithKeepTombstones(true),
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
-		lsmkv.WithClassName(s.index.Config.ClassName.String()),
-		// Strip dropped vector indexes from stored objects during compaction/cleanup.
-		// Keyed by op type so the persisted edit ops drive which transformer runs.
-		lsmkv.WithEditOpTransformers(map[lsmkv.OpType]lsmkv.OpTransformerFactory{
-			lsmkv.OpTypeRemoveTargetVectors: dropVectorTransformer(
-				s.index.Config.ClassName.String(),
-				s.index.Config.SkipWriteClassNameOnDisk,
-			),
-		}),
+		// A non-empty className enables the segment edit-ops sidecar on this bucket,
+		// which strips dropped vector indexes from stored objects during
+		// compaction/cleanup. The transformer to run is resolved per op type from the
+		// transformers registry, driven by the ops persisted in the sidecar.
+		lsmkv.WithClassName(
+			s.index.Config.ClassName.String(),
+			s.index.Config.SkipWriteClassNameOnDisk,
+		),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

@@ -24,6 +24,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
+	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
 )
 
 // SegmentEditOps is a bolt-backed sidecar that records in-place segment edit
@@ -46,12 +49,16 @@ import (
 // op and segment IDs never need an in-key separator.
 type SegmentEditOps struct {
 	dir string
-	// transformers maps an OpType to its storobj-opaque transformer factory. The
-	// edit-ops DB drives selection: BuildCurrentTransformer reads the op types
-	// recorded in the sidecar and loads only the matching factories, so the bucket
-	// wiring no longer decides what runs — the persisted ops do. Empty disables
-	// transformation. Set once at construction; never mutated after.
-	transformers map[OpType]OpTransformerFactory
+	// className and skipClassNameOnDisk are the per-bucket object-codec settings
+	// handed to each transformer factory at build time (the global transformers
+	// registry can't capture per-bucket state). Set once at construction.
+	className           string
+	skipClassNameOnDisk bool
+	// resolve maps an op type to its transformer factory. It defaults to the global
+	// transformers registry (transformers.Lookup); the edit-ops DB drives selection,
+	// so the persisted ops — not the bucket wiring — decide what runs. Overridable
+	// in tests to inject fakes for op types absent from the real registry.
+	resolve transformerResolver
 
 	// db is opened lazily: the bolt sidecar file is created only when the first
 	// edit op is registered (see ensureOpen), so an idle objects bucket — the
@@ -71,6 +78,10 @@ type SegmentEditOps struct {
 	warnedMissingTransformer map[OpType]struct{}
 }
 
+// transformerResolver maps an op type to its transformer factory, reporting
+// whether one is registered. Production uses transformers.Lookup; tests inject.
+type transformerResolver func(OpType) (OpTransformerFactory, bool)
+
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
 
 var (
@@ -79,30 +90,18 @@ var (
 	editOpsBucketQuarantine = []byte("quarantined")
 )
 
-// OpType discriminates an edit operation; lsmkv treats it opaquely (the injected
-// builder selects the transformer).
-type OpType string
+// The op vocabulary lives in package editops so the transformers package can
+// define factories against it without importing lsmkv (avoiding an import cycle).
+// These aliases keep the existing lsmkv.X spellings valid for callers and tests.
+type (
+	OpType               = editops.OpType
+	OpDescriptor         = editops.OpDescriptor
+	ActiveOp             = editops.ActiveOp
+	OpTransformerFactory = editops.OpTransformerFactory
+)
 
 // OpTypeRemoveTargetVectors strips dropped named vectors from stored objects.
-const OpTypeRemoveTargetVectors OpType = "remove_target_vectors"
-
-// OpDescriptor describes a single edit operation. It is opaque to the rewrite
-// machinery beyond Type, which selects the transformer to apply.
-type OpDescriptor struct {
-	// Type discriminates the operation; OpTypeRemoveTargetVectors today.
-	Type OpType `json:"type"`
-	// Targets are the operands, e.g. the named vectors to strip.
-	Targets []string `json:"targets"`
-	// CreatedAt is a monotonic timestamp (caller-supplied) that orders
-	// transformer application when multiple ops are active.
-	CreatedAt int64 `json:"createdAt"`
-}
-
-// ActiveOp pairs an operation's ID with its descriptor.
-type ActiveOp struct {
-	ID         string
-	Descriptor OpDescriptor
-}
+const OpTypeRemoveTargetVectors = editops.OpTypeRemoveTargetVectors
 
 // PendingSegment is one segment still awaiting rewrite for an operation, with
 // its retry bookkeeping.
@@ -118,23 +117,29 @@ type PendingSegment struct {
 // It must be a pure, idempotent function of the value bytes.
 type valueTransformer func(value []byte) ([]byte, error)
 
-// OpTransformerFactory builds the value transformer for all live ops of a single
-// OpType (the factory's registry key guarantees every op handed to it shares that
-// type). The returned function stays storobj-opaque (plain []byte) so lsmkv never
-// imports storobj. One factory is registered per op type, e.g.
-// OpTypeRemoveTargetVectors -> a vector-stripping transformer.
-type OpTransformerFactory func(ops []ActiveOp) func(value []byte) ([]byte, error)
-
 // newSegmentEditOps constructs the edit-ops store for the segment group rooted at
-// dir. It does NO I/O: the bolt sidecar file is opened (and created) lazily on the
-// first registered op, so an objects bucket that never sees a drop carries no
-// sidecar — keeping it out of file listings, backups and disk-size accounting.
-// transformers maps each handled op type to its factory; pass nil/empty for
-// bookkeeping only.
-func newSegmentEditOps(dir string, transformers map[OpType]OpTransformerFactory) *SegmentEditOps {
+// dir, resolving op types against the global transformers registry. This is the
+// production constructor. It does NO I/O: the bolt sidecar file is opened (and
+// created) lazily on the first registered op, so an objects bucket that never sees
+// a drop carries no sidecar — keeping it out of file listings, backups and
+// disk-size accounting. className/skipClassNameOnDisk are the object-codec settings
+// passed to each transformer factory.
+func newSegmentEditOps(dir, className string, skipClassNameOnDisk bool) *SegmentEditOps {
+	return newSegmentEditOpsWithLookup(dir, className, skipClassNameOnDisk, nil)
+}
+
+// newSegmentEditOpsWithLookup is newSegmentEditOps with an explicit op-type
+// resolver. Tests use it to inject fakes (including op types absent from the real
+// registry); a nil resolve falls back to the global transformers registry.
+func newSegmentEditOpsWithLookup(dir, className string, skipClassNameOnDisk bool, resolve transformerResolver) *SegmentEditOps {
+	if resolve == nil {
+		resolve = transformers.Lookup
+	}
 	return &SegmentEditOps{
 		dir:                      dir,
-		transformers:             transformers,
+		className:                className,
+		skipClassNameOnDisk:      skipClassNameOnDisk,
+		resolve:                  resolve,
 		warnedMissingTransformer: map[OpType]struct{}{},
 	}
 }
@@ -253,7 +258,7 @@ func (s *SegmentEditOps) withReadTx(fn func(tx *bolt.Tx) error) error {
 // segment created after the op can't carry the target — the write-path reject
 // blocked it). Per-segment state lives in pending_segments, not the transformer.
 func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp, error) {
-	if len(s.transformers) == 0 {
+	if s.resolve == nil {
 		return nil, nil, nil
 	}
 	ops, err := s.LoadOps()
@@ -262,15 +267,18 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 	}
 
 	var order []OpType
+	factories := map[OpType]OpTransformerFactory{}
 	byType := map[OpType][]ActiveOp{}
 	var applied, missing []ActiveOp
 	for _, op := range ops {
 		opType := op.Descriptor.Type
-		if _, ok := s.transformers[opType]; !ok {
-			missing = append(missing, op)
-			continue
-		}
-		if _, seen := byType[opType]; !seen {
+		if _, resolved := factories[opType]; !resolved {
+			factory, ok := s.resolve(opType)
+			if !ok {
+				missing = append(missing, op)
+				continue
+			}
+			factories[opType] = factory
 			order = append(order, opType)
 		}
 		byType[opType] = append(byType[opType], op)
@@ -281,20 +289,20 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 		return nil, nil, nil
 	}
 
-	transformers := make([]valueTransformer, 0, len(order))
+	built := make([]valueTransformer, 0, len(order))
 	for _, opType := range order {
-		transformers = append(transformers, s.transformers[opType](byType[opType]))
+		built = append(built, factories[opType](s.className, s.skipClassNameOnDisk, byType[opType]))
 	}
-	return chainTransformers(transformers), applied, nil
+	return chainTransformers(built), applied, nil
 }
 
 // warnMissingTransformers logs — once per op type per process — that the sidecar
 // holds an op whose type has no registered transformer, so its pending segments
 // will never be rewritten and the operation cannot complete. This is reached when
-// either a new op type was persisted without wiring its factory into
-// WithEditOpTransformers, or a downgrade dropped support for a type still on disk.
-// Skipping such an op is the safe behavior (we don't run a transform we don't
-// understand), but it must be visible rather than silently stalling.
+// either a new op type was persisted without adding its factory to the transformers
+// registry, or a downgrade dropped support for a type still on disk. Skipping such
+// an op is the safe behavior (we don't run a transform we don't understand), but it
+// must be visible rather than silently stalling.
 func (s *SegmentEditOps) warnMissingTransformers(missing []ActiveOp) {
 	if s.logger == nil || len(missing) == 0 {
 		return
@@ -310,8 +318,8 @@ func (s *SegmentEditOps) warnMissingTransformers(missing []ActiveOp) {
 			"op_id":   op.ID,
 			"op_type": op.Descriptor.Type,
 		}).Warn("segment edit op has no registered transformer for its type; its pending " +
-			"segments will not be rewritten and the operation cannot complete — wire the " +
-			"op type into WithEditOpTransformers (or this op is a leftover from a newer " +
+			"segments will not be rewritten and the operation cannot complete — add the " +
+			"op type to the transformers registry (or this op is a leftover from a newer " +
 			"version after a downgrade)")
 	}
 }

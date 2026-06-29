@@ -48,13 +48,17 @@ func WithStrategy(strategy string) BucketOption {
 	}
 }
 
-// WithClassName attaches the canonical class name to the bucket. Set on the
-// objects bucket so storobj decoders stamp the canonical class on every
-// decoded object instead of trusting the on-disk className field. Leave unset
-// for buckets that do not hold storobj payloads.
-func WithClassName(className string) BucketOption {
+// WithClassName attaches the canonical class name and the on-disk class-name
+// codec setting to the bucket. Set on the objects bucket so storobj decoders stamp
+// the canonical class on every decoded object instead of trusting the on-disk
+// className field, and so the edit-ops transformers re-marshal byte-stably.
+// A non-empty className also enables the segment edit-ops sidecar for the bucket
+// (only the objects bucket sets it). Leave unset for buckets that do not hold
+// storobj payloads.
+func WithClassName(className string, skipClassNameOnDisk bool) BucketOption {
 	return func(b *Bucket) error {
 		b.className = className
+		b.skipClassNameOnDisk = skipClassNameOnDisk
 		return nil
 	}
 }
@@ -305,23 +309,6 @@ func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Context) (bool, error)) BucketOption {
 	return func(b *Bucket) error {
 		b.shouldSkipKey = shouldSkipKey
-		return nil
-	}
-}
-
-// WithEditOpTransformers wires a SegmentEditOps facility on the bucket, keyed by
-// op type: each persisted op selects its transformer by type at compaction/cleanup
-// time, so the edit-ops DB — not this wiring — drives what runs (factories stay
-// storobj-opaque so lsmkv never imports storobj). Set on the objects bucket to
-// strip dropped vector indexes. Only valid on 'replace' buckets; rejected
-// otherwise so the contract fails fast at setup. Requires WithStrategy applied
-// first.
-func WithEditOpTransformers(transformers map[OpType]OpTransformerFactory) BucketOption {
-	return func(bucket *Bucket) error {
-		if bucket.strategy != StrategyReplace {
-			return errors.Errorf("edit-op transformers only supported on 'replace' buckets")
-		}
-		bucket.editOpTransformers = transformers
 		return nil
 	}
 }
