@@ -31,10 +31,9 @@ import (
 )
 
 // NewHandler transcodes grpc-web/Connect requests into calls against the
-// existing gRPC server, reusing its interceptor chain (auth, maintenance mode).
-// It carries its own CORS layer because grpc-web requests bypass the REST
-// middleware chain, and browsers need the gRPC trailer headers exposed to read
-// the RPC status.
+// existing gRPC server. It carries its own CORS layer (grpc-web is routed
+// outside the REST middleware chain; see Mount) and exposes the gRPC trailer
+// headers so browsers can read the RPC status.
 func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, error) {
 	opts := []vanguard.ServiceOption{}
 	opts = append(opts, vanguard.WithMaxMessageBufferBytes(msgBufferLimit(state.ServerConfig.Config.GRPC.MaxMsgSize)))
@@ -73,7 +72,7 @@ func msgBufferLimit(maxMsgSize int) uint32 {
 }
 
 // splitTrim splits a comma-separated config value and trims each element.
-// The trim is load-bearing: DefaultCORSAllowHeaders is ", "-separated and
+// The trim is critical: DefaultCORSAllowHeaders is ", "-separated and
 // rs/cors matches header names verbatim, so a leading space on " Authorization"
 // would silently fail the browser's preflight and block authenticated requests.
 func splitTrim(s string) []string {
