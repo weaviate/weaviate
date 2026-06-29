@@ -71,6 +71,8 @@ type stubRaft struct {
 	deleteClassErr   map[string]error
 	removeEntityErr  map[string]error
 	removeEntityCall map[string]int
+	deleteRolesErr   map[string]error // keyed by role name
+	revokeRolesErr   map[string]error // keyed by typed user id
 
 	// onCall fires at the start of every RAFT method with the op name; tests
 	// use it to cancel the tick context mid-flight.
@@ -90,6 +92,8 @@ func newStubRaft() *stubRaft {
 		deleteClassErr:   map[string]error{},
 		removeEntityErr:  map[string]error{},
 		removeEntityCall: map[string]int{},
+		deleteRolesErr:   map[string]error{},
+		revokeRolesErr:   map[string]error{},
 	}
 }
 
@@ -122,6 +126,9 @@ func (s *stubRaft) DeleteRoles(names ...string) error {
 	s.fireOnCall("delete_roles")
 	for _, n := range names {
 		s.calls = append(s.calls, recordedCall{op: "delete_roles", arg: n})
+		if err := s.deleteRolesErr[n]; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -129,7 +136,7 @@ func (s *stubRaft) DeleteRoles(names ...string) error {
 func (s *stubRaft) RevokeRolesForUser(user string, roles ...string) error {
 	s.fireOnCall("revoke_roles")
 	s.calls = append(s.calls, recordedCall{op: "revoke_roles", arg: user})
-	return nil
+	return s.revokeRolesErr[user]
 }
 
 // stubRBAC reports the RBAC rows bearing each namespace for the cascade.
@@ -166,6 +173,26 @@ func (s stubRBAC) GetRolesForUserOrGroup(user string, authMethod authentication.
 		out[r] = nil
 	}
 	return out, nil
+}
+
+// fadingRBAC reports a namespace's RBAC rows on the first NamespaceLocalRBAC
+// call and nothing afterwards, modelling a second tick that runs once the first
+// already removed the namespace's roles and assignments.
+type fadingRBAC struct {
+	inner stubRBAC
+	seen  map[string]bool
+}
+
+func (f *fadingRBAC) NamespaceLocalRBAC(namespace string) ([]string, []rbac.NamespaceSubject, error) {
+	if f.seen[namespace] {
+		return nil, nil, nil
+	}
+	f.seen[namespace] = true
+	return f.inner.NamespaceLocalRBAC(namespace)
+}
+
+func (f *fadingRBAC) GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
+	return f.inner.GetRolesForUserOrGroup(user, authMethod, isGroup)
 }
 
 func newTestCoordinator(t *testing.T,
@@ -274,6 +301,93 @@ func TestCoordinator_Tick_CleansNamespaceRBAC(t *testing.T) {
 	assert.Equal(t, []string{"customer1:editor"}, deleted)
 	// Entity removal runs after every RBAC row is cleaned.
 	assert.Greater(t, entityIdx, lastRBACIdx, "entity must be removed after RBAC cleanup")
+}
+
+// TestCoordinator_Tick_RBACErrorAbortsBeforeEntityRemoval pins that a failure in
+// either RBAC cleanup phase (revoke assignments, then delete roles) aborts the
+// namespace before RemoveNamespaceEntity, so the next tick retries.
+func TestCoordinator_Tick_RBACErrorAbortsBeforeEntityRemoval(t *testing.T) {
+	newRBAC := func() stubRBAC {
+		return stubRBAC{
+			roles: []string{"customer1:editor", "global-auditor"},
+			subjectsByAuth: map[authentication.AuthType][]string{
+				authentication.AuthTypeDb:   {"customer1:alice", "bob"},
+				authentication.AuthTypeOIDC: {"customer1:carol"},
+			},
+			rolesBySubject: map[string][]string{
+				"customer1:alice": {"customer1:editor", "viewer"},
+				"customer1:carol": {"admin"},
+			},
+		}
+	}
+	tests := []struct {
+		name           string
+		setupRaft      func(*stubRaft)
+		wantRoleDelete bool // whether the role-delete phase is reached before aborting
+	}{
+		{
+			name: "revoke failure aborts before role delete and entity removal",
+			setupRaft: func(s *stubRaft) {
+				// Both subjects fail so the abort is order-independent.
+				s.revokeRolesErr["db:customer1:alice"] = errors.New("boom")
+				s.revokeRolesErr["oidc:customer1:carol"] = errors.New("boom")
+			},
+			wantRoleDelete: false,
+		},
+		{
+			name: "role-delete failure aborts before entity removal",
+			setupRaft: func(s *stubRaft) {
+				s.deleteRolesErr["customer1:editor"] = errors.New("boom")
+			},
+			wantRoleDelete: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raft := newStubRaft()
+			tc.setupRaft(raft)
+			ns := stubNamespaces{deleting: []string{"customer1"}}
+			c := newTestCoordinatorRBAC(t, ns, stubSchema{}, raft, newRBAC(), alwaysLeader)
+
+			require.NoError(t, c.Tick(context.Background()))
+
+			assert.Equal(t, 0, raft.removeEntityCall["customer1"],
+				"entity removal must not run after an RBAC cleanup failure")
+			assert.Equal(t, tc.wantRoleDelete, countOps(raft.calls, "delete_roles") > 0,
+				"role-delete reachability mismatch")
+		})
+	}
+}
+
+// TestCoordinator_Tick_SecondPassIsRBACNoop pins idempotency: once the first
+// tick removed the namespace's roles and assignments, a re-run issues no further
+// RBAC writes while still attempting entity removal.
+func TestCoordinator_Tick_SecondPassIsRBACNoop(t *testing.T) {
+	raft := newStubRaft()
+	rbac := &fadingRBAC{
+		inner: stubRBAC{
+			roles: []string{"customer1:editor"},
+			subjectsByAuth: map[authentication.AuthType][]string{
+				authentication.AuthTypeDb: {"customer1:alice"},
+			},
+			rolesBySubject: map[string][]string{
+				"customer1:alice": {"customer1:editor"},
+			},
+		},
+		seen: map[string]bool{},
+	}
+	ns := stubNamespaces{deleting: []string{"customer1"}}
+	c := newTestCoordinatorRBAC(t, ns, stubSchema{}, raft, rbac, alwaysLeader)
+
+	require.NoError(t, c.Tick(context.Background()))
+	rbacAfterFirst := countOps(raft.calls, "revoke_roles") + countOps(raft.calls, "delete_roles")
+	require.Positive(t, rbacAfterFirst, "first tick must issue RBAC cleanup")
+
+	require.NoError(t, c.Tick(context.Background()))
+	rbacAfterSecond := countOps(raft.calls, "revoke_roles") + countOps(raft.calls, "delete_roles")
+
+	assert.Equal(t, rbacAfterFirst, rbacAfterSecond, "second tick must issue no further RBAC writes")
+	assert.Equal(t, 2, raft.removeEntityCall["customer1"], "each tick still attempts entity removal")
 }
 
 // TestCoordinator_Tick_RBACDisabledSkipsCleanup pins the nil-RBAC guard: with no
@@ -651,6 +765,16 @@ func TestCoordinator_Tick_StopsOnContextCancellation(t *testing.T) {
 		assert.Equal(t, 0, raft.removeEntityCall["alpha"],
 			"entity removal must not run when ctx is cancelled before it")
 	})
+}
+
+func countOps(calls []recordedCall, op string) int {
+	n := 0
+	for _, c := range calls {
+		if c.op == op {
+			n++
+		}
+	}
+	return n
 }
 
 func opsOf(calls []recordedCall) []string {
