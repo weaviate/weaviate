@@ -51,6 +51,38 @@ func findDataCollection(role *models.Role) string {
 	return ""
 }
 
+// collectionReadPerm builds a collection-read permission for add/remove/has-permission bodies.
+func collectionReadPerm(collection string) []*models.Permission {
+	return []*models.Permission{
+		helper.NewCollectionsPermission().
+			WithAction(authorization.ReadCollections).
+			WithCollection(collection).
+			Permission(),
+	}
+}
+
+// roleNames extracts the names from a role list.
+func roleNames(roles []*models.Role) []string {
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		out = append(out, *r.Name)
+	}
+	return out
+}
+
+// usersForRole returns the user ids the role lists for the given caller.
+func usersForRole(t *testing.T, key, roleID string) []string {
+	t.Helper()
+	resp, err := helper.Client(t).Authz.GetUsersForRole(
+		authz.NewGetUsersForRoleParams().WithID(roleID), helper.CreateAuth(key))
+	require.NoError(t, err)
+	ids := make([]string, 0, len(resp.Payload))
+	for _, u := range resp.Payload {
+		ids = append(ids, u.UserID)
+	}
+	return ids
+}
+
 // TestNamespaceLocalRoles exercises the user-facing contract for
 // namespace-local roles against a real multi-namespace cluster: names and
 // permissions auto-prefix on write and strip on read, short names are unique
@@ -821,5 +853,187 @@ func TestNamespaceOperatorReservedRoles(t *testing.T) {
 		require.Equal(t, name, *helper.GetRoleByName(t, u1Key, name).Name)
 		helper.AssignRoleToUser(t, adminKey, name, ns1+":u1")
 		t.Cleanup(func() { helper.RevokeRoleFromUser(t, adminKey, name, ns1+":u1") })
+	})
+}
+
+// TestNamespaceCrossNamespaceLocalRoleWrites pins that a namespaced caller cannot
+// reach another namespace's local role through any write/delete: a bare short
+// name resolves into the caller's own namespace (idempotent / not found), and a
+// qualified foreign name is rejected outright. The modify-outside subtests above
+// use a global role as the target; this exercises a foreign local role.
+func TestNamespaceCrossNamespaceLocalRoleWrites(t *testing.T) {
+	t.Parallel()
+	_, ns2, u1Key, u2Key := twoNamespaces(t)
+
+	helper.CreateRole(t, u2Key, readCollectionsRole("probe", "*"))
+	t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns2+":probe") })
+
+	t.Run("delete by short name is a no-op and leaves the foreign role intact", func(t *testing.T) {
+		// "probe" resolves into ns1, which has no such role, so delete is idempotent.
+		_, err := helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID("probe"), helper.CreateAuth(u1Key))
+		require.NoError(t, err)
+		require.Equal(t, ns2+":probe", *helper.GetRoleByName(t, adminKey, ns2+":probe").Name)
+	})
+
+	t.Run("delete by qualified foreign name is rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID(ns2+":probe"), helper.CreateAuth(u1Key))
+		var badReq *authz.DeleteRoleBadRequest
+		require.True(t, errors.As(err, &badReq), "got %T: %v", err, err)
+	})
+
+	t.Run("addPermissions by short name is not found", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID("probe").WithBody(authz.AddPermissionsBody{Permissions: collectionReadPerm("Movies")}),
+			helper.CreateAuth(u1Key))
+		var notFound *authz.AddPermissionsNotFound
+		require.True(t, errors.As(err, &notFound), "got %T: %v", err, err)
+	})
+
+	t.Run("addPermissions by qualified foreign name is rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID(ns2+":probe").WithBody(authz.AddPermissionsBody{Permissions: collectionReadPerm("Movies")}),
+			helper.CreateAuth(u1Key))
+		var badReq *authz.AddPermissionsBadRequest
+		require.True(t, errors.As(err, &badReq), "got %T: %v", err, err)
+	})
+
+	t.Run("removePermissions by short name is not found", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID("probe").WithBody(authz.RemovePermissionsBody{Permissions: collectionReadPerm("Movies")}),
+			helper.CreateAuth(u1Key))
+		var notFound *authz.RemovePermissionsNotFound
+		require.True(t, errors.As(err, &notFound), "got %T: %v", err, err)
+	})
+
+	t.Run("removePermissions by qualified foreign name is rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID(ns2+":probe").WithBody(authz.RemovePermissionsBody{Permissions: collectionReadPerm("Movies")}),
+			helper.CreateAuth(u1Key))
+		var badReq *authz.RemovePermissionsBadRequest
+		require.True(t, errors.As(err, &badReq), "got %T: %v", err, err)
+	})
+
+	t.Run("revoke of a qualified foreign role is rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID("u1").
+				WithBody(authz.RevokeRoleFromUserBody{Roles: []string{ns2 + ":probe"}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(u1Key))
+		var badReq *authz.RevokeRoleFromUserBadRequest
+		require.True(t, errors.As(err, &badReq), "got %T: %v", err, err)
+	})
+}
+
+// TestNamespaceHasPermissionLocalRolePositive proves the local-caller happy path:
+// a bare resource is qualified into the caller's namespace and matches its own
+// local role's stored qualified row.
+func TestNamespaceHasPermissionLocalRolePositive(t *testing.T) {
+	t.Parallel()
+	ns1, _, u1Key, _ := twoNamespaces(t)
+
+	helper.CreateRole(t, u1Key, readCollectionsRole("checker", "Docs"))
+	t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":checker") })
+
+	t.Run("granted bare permission matches the local role's qualified row", func(t *testing.T) {
+		resp, err := helper.Client(t).Authz.HasPermission(
+			authz.NewHasPermissionParams().WithID("checker").WithBody(collectionReadPerm("Docs")[0]),
+			helper.CreateAuth(u1Key))
+		require.NoError(t, err)
+		require.True(t, resp.Payload, "own bare permission must qualify into ns1 and match")
+	})
+
+	t.Run("ungranted permission reports false", func(t *testing.T) {
+		resp, err := helper.Client(t).Authz.HasPermission(
+			authz.NewHasPermissionParams().WithID("checker").WithBody(collectionReadPerm("Other")[0]),
+			helper.CreateAuth(u1Key))
+		require.NoError(t, err)
+		require.False(t, resp.Payload)
+	})
+}
+
+// TestNamespaceOperatorLocalRoleDeleteVsEdit pins the deliberate asymmetry: an
+// operator may delete a namespace-local role (needed for teardown) but may not
+// edit its permissions or assign it — those stay namespace-owned.
+func TestNamespaceOperatorLocalRoleDeleteVsEdit(t *testing.T) {
+	t.Parallel()
+	ns1, _, u1Key, _ := twoNamespaces(t)
+
+	t.Run("operator may delete a namespace-local role", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("deletable", "*"))
+		_, err := helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID(ns1+":deletable"), helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		_, getErr := helper.Client(t).Authz.GetRole(
+			authz.NewGetRoleParams().WithID(ns1+":deletable"), helper.CreateAuth(adminKey))
+		var notFound *authz.GetRoleNotFound
+		require.True(t, errors.As(getErr, &notFound), "got %T: %v", getErr, getErr)
+	})
+
+	t.Run("operator may not edit a namespace-local role's permissions", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("uneditable", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":uneditable") })
+		_, err := helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID(ns1+":uneditable").WithBody(authz.AddPermissionsBody{Permissions: collectionReadPerm("Movies")}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.AddPermissionsForbidden
+		require.True(t, errors.As(err, &forbidden), "got %T: %v", err, err)
+	})
+
+	t.Run("operator may not assign a namespace-local role even within its namespace", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("assignable", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":assignable") })
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{ns1 + ":assignable"}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.AssignRoleToUserForbidden
+		require.True(t, errors.As(err, &forbidden), "got %T: %v", err, err)
+	})
+}
+
+// TestNamespaceRoleReadEndpoints covers the role read endpoints that had no
+// namespace coverage: getUsersForRole (owner and operator views of a local
+// role), the deprecated users-for-role endpoint (gone on NS clusters), and the
+// group role listings (operator allowed, namespaced caller denied).
+func TestNamespaceRoleReadEndpoints(t *testing.T) {
+	t.Parallel()
+	ns1, _, u1Key, _ := twoNamespaces(t)
+
+	t.Run("getUsersForRole lists a local role's members for owner and operator", func(t *testing.T) {
+		helper.CreateRole(t, u1Key, readCollectionsRole("members", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":members") })
+		helper.AssignRoleToUser(t, u1Key, "members", "u1")
+
+		// The operator addresses the qualified role and sees the qualified user id.
+		require.Contains(t, usersForRole(t, adminKey, ns1+":members"), ns1+":u1")
+		// The namespaced owner addresses the short name and sees the stripped id.
+		require.Contains(t, usersForRole(t, u1Key, "members"), "u1")
+	})
+
+	t.Run("deprecated users-for-role endpoint is gone on namespace clusters", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.GetUsersForRoleDeprecated(
+			authz.NewGetUsersForRoleDeprecatedParams().WithID(authorization.Viewer), helper.CreateAuth(adminKey))
+		var gone *authz.GetUsersForRoleDeprecatedGone
+		require.True(t, errors.As(err, &gone), "got %T: %v", err, err)
+	})
+
+	t.Run("group role listings: operator allowed, namespaced caller denied", func(t *testing.T) {
+		gRole := uniqueRole()
+		helper.CreateRole(t, adminKey, readCollectionsRole(gRole, "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, gRole) })
+		group := "grp-" + gRole
+		helper.AssignRoleToGroup(t, adminKey, gRole, group)
+
+		// The operator sees the binding from both directions.
+		require.Contains(t, roleNames(helper.GetRolesForGroup(t, adminKey, group, false)), gRole)
+		require.Contains(t, helper.GetGroupsForRole(t, adminKey, gRole), group)
+
+		// A namespaced caller may not read a (global) group's roles.
+		_, err := helper.Client(t).Authz.GetRolesForGroup(
+			authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.GroupTypeOidc)),
+			helper.CreateAuth(u1Key))
+		var forbidden *authz.GetRolesForGroupForbidden
+		require.True(t, errors.As(err, &forbidden), "got %T: %v", err, err)
 	})
 }
