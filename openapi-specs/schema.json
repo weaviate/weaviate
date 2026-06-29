@@ -163,6 +163,11 @@
               "type": "string",
               "default": "*",
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
+            },
+            "user": {
+              "type": "string",
+              "default": "*",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value `*` applies the permission to all users."
             }
           }
         },

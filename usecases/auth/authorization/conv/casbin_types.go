@@ -77,6 +77,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/users/.*$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/users/[^/]+$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
@@ -122,6 +124,16 @@ func CasbinBackups(class string) string {
 	}
 	class = strings.ReplaceAll(class, "*", ".*")
 	return fmt.Sprintf("%s/collections/%s", authorization.BackupsDomain, class)
+}
+
+// CasbinBackupUsers builds the resource for user-scoped backup permissions.
+// Unlike CasbinBackups, no uppercasing — user ids are case-sensitive.
+func CasbinBackupUsers(user string) string {
+	if user == "" {
+		user = "*"
+	}
+	user = strings.ReplaceAll(user, "*", ".*")
+	return fmt.Sprintf("%s/users/%s", authorization.BackupsDomain, user)
 }
 
 func CasbinUsers(user string) string {
@@ -345,13 +357,17 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		}
 		resource = CasbinData(collection, tenant, object)
 	case authorization.BackupsDomain:
-		collection := "*"
-		if permission.Backups != nil {
-			if permission.Backups.Collection != nil {
+		// Backups.User and Backups.Collection are a discriminated union —
+		// validatePermissions rejects setting both. Same shape as PermissionNodes.
+		if permission.Backups != nil && permission.Backups.User != nil {
+			resource = CasbinBackupUsers(*permission.Backups.User)
+		} else {
+			collection := "*"
+			if permission.Backups != nil && permission.Backups.Collection != nil {
 				collection = schema.UppercaseClassName(*permission.Backups.Collection)
 			}
+			resource = CasbinBackups(collection)
 		}
-		resource = CasbinBackups(collection)
 	case authorization.NodesDomain:
 		collection := "*"
 		verbosity := "minimal"
@@ -491,8 +507,15 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Verbosity:  &verbosity,
 		}
 	case authorization.BackupsDomain:
-		permission.Backups = &models.PermissionBackups{
-			Collection: &splits[2],
+		// "<...>/users/<id>" is user-scoped; otherwise collection-scoped.
+		if splits[len(splits)-2] == "users" {
+			permission.Backups = &models.PermissionBackups{
+				User: &splits[len(splits)-1],
+			}
+		} else {
+			permission.Backups = &models.PermissionBackups{
+				Collection: &splits[len(splits)-1],
+			}
 		}
 	case authorization.UsersDomain:
 		permission.Users = &models.PermissionUsers{
