@@ -165,8 +165,7 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 			return schema.NewAliasesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewAliasesDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+			return schema.NewAliasesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
