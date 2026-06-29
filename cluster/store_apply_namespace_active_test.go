@@ -258,9 +258,10 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 }
 
 // TestApplyGate_RejectsRoleCreationIntoInactiveNamespace drives the role-
-// creation gate through the live apply switch: a namespaced role can't be
-// minted into a deleting or missing namespace. Non-creation upserts and
-// global (unqualified) roles are not gated.
+// upsert gate through the live apply switch: a namespaced role can't be minted
+// into a deleting or missing namespace. Permission-only upserts
+// (RoleCreation=false) re-mint the role row too, so they're gated as well;
+// global (unqualified) roles always pass.
 func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 	roleCmd := func(name string, creation bool) []byte {
 		return cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
@@ -309,12 +310,34 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 			creation: true,
 		},
 		{
-			name: "non-creation upsert into deleting namespace not gated",
+			name: "non-creation upsert into deleting namespace rejected",
 			seed: func(c *namespaces.Controller) {
 				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
 				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
 			},
 			role:     "alpha:editor",
+			creation: false,
+			wantErr:  namespaces.ErrNamespaceDeleting,
+		},
+		{
+			name:     "non-creation upsert into missing namespace rejected",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "alpha:editor",
+			creation: false,
+			wantErr:  namespaces.ErrNamespaceGone,
+		},
+		{
+			name: "non-creation upsert into active namespace passes gate",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+			},
+			role:     "alpha:editor",
+			creation: false,
+		},
+		{
+			name:     "global non-creation upsert passes gate",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "editor",
 			creation: false,
 		},
 	}
@@ -336,6 +359,28 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
 		})
 	}
+}
+
+// TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace verifies the gate
+// loops over every name in a multi-role upsert: a single namespaced-inactive
+// name rejects the whole batch even when other names are global or active.
+func TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
+	ms, log := setupApplyTest(t)
+	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, ms.cfg.NamespacesController.ChangeState("alpha", api.NamespaceStateDeleting))
+
+	log.Data = cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
+		api.CreateRolesRequest{
+			Roles: map[string][]authorization.Policy{
+				"editor":       nil,
+				"alpha:editor": nil,
+			},
+			RoleCreation: false,
+		}, nil)
+
+	resp, ok := ms.store.Apply(log).(Response)
+	require.True(t, ok)
+	require.ErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
 }
 
 // TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace drives the role-
