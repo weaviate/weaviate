@@ -159,6 +159,7 @@ type Config struct {
 	LazyLoadShardSizeThresholdGB        float64                `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
 	ForceFullReplicasSearch             bool                   `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration          `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
+	QueueDrainTimeout                   time.Duration          `json:"queue_drain_timeout" yaml:"queue_drain_timeout"`
 	RecountPropertiesAtStartup          bool                   `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                   `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	ReindexerGoroutinesFactor           float64                `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`

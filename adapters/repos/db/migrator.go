@@ -199,6 +199,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			}(),
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
+			QueueDrainTimeout:                            m.db.config.QueueDrainTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,

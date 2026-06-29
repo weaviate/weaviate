@@ -74,12 +74,7 @@ func TestPrepareForBackup_DrainTimeout(t *testing.T) {
 	drainTimeout := 100 * time.Millisecond
 	startTime := time.Now()
 
-	// Use context with timeout to simulate drainTimeout parameter
-	// (In the fix, the signature will change to PrepareForBackup(ctx, drainTimeout))
-	drainCtx, cancel := context.WithTimeout(t.Context(), drainTimeout)
-	defer cancel()
-
-	err := q.PrepareForBackup(drainCtx)
+	err := q.PrepareForBackup(t.Context(), drainTimeout)
 	elapsed := time.Since(startTime)
 
 	// Assert: completes within bounded time (well under blocking task duration)
@@ -135,10 +130,7 @@ func TestPrepareForBackup_NormalDrain(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call PrepareForBackup with generous timeout
-	drainCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-
-	err = q.PrepareForBackup(drainCtx)
+	err = q.PrepareForBackup(t.Context(), 5*time.Second)
 
 	// Assert: succeeds
 	require.NoError(t, err, "PrepareForBackup should succeed with fast-completing tasks")
@@ -155,10 +147,7 @@ func TestPrepareForBackup_NormalDrain(t *testing.T) {
 // TestPrepareForBackup_ZeroTimeoutMeansUnbounded verifies that with
 // drainTimeout == 0 (no timeout), PrepareForBackup does NOT abort instantly.
 // A quickly-completing drain should still succeed.
-//
-// NOTE: This test uses context.Background() to simulate drainTimeout == 0.
-// In the fix, the signature will change to PrepareForBackup(ctx, drainTimeout)
-// where drainTimeout == 0 means unbounded wait.
+// drainTimeout == 0 means unbounded wait (honors only parent ctx deadline).
 func TestPrepareForBackup_ZeroTimeoutMeansUnbounded(t *testing.T) {
 	s := makeScheduler(t, 1)
 	s.Start()
@@ -182,11 +171,10 @@ func TestPrepareForBackup_ZeroTimeoutMeansUnbounded(t *testing.T) {
 	err := q.Wait(t.Context())
 	require.NoError(t, err)
 
-	// Call PrepareForBackup with NO timeout (context.Background)
-	// This simulates drainTimeout == 0 which means unbounded wait.
+	// Call PrepareForBackup with drainTimeout == 0 (unbounded wait).
 	// The key assertion is that this does NOT abort instantly (as would happen
 	// if we incorrectly wrapped with context.WithTimeout(ctx, 0)).
-	err = q.PrepareForBackup(context.Background())
+	err = q.PrepareForBackup(t.Context(), 0)
 
 	// Assert: succeeds (does NOT abort instantly)
 	require.NoError(t, err,

@@ -58,6 +58,7 @@ const (
 	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+	DefaultQueueDrainTimeout         = 60 * time.Second
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
@@ -175,6 +176,16 @@ func FromEnv(config *Config) error {
 		config.TransferInactivityTimeout = timeout
 	} else {
 		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+	}
+
+	if v := os.Getenv("QUEUE_DRAIN_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse QUEUE_DRAIN_TIMEOUT as duration: %w", err)
+		}
+		config.QueueDrainTimeout = timeout
+	} else {
+		config.QueueDrainTimeout = DefaultQueueDrainTimeout
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring

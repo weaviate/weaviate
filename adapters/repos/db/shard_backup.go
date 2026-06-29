@@ -77,7 +77,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	}
 	// get the queues ready for backup (e.g. enable maintenance mode, switch to new chunks)
 	_ = s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
-		if err = q.PrepareForBackup(ctx); err != nil {
+		if err = q.PrepareForBackup(ctx, s.index.Config.QueueDrainTimeout); err != nil {
 			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil

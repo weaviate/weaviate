@@ -1555,3 +1555,37 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentQueueDrainTimeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    time.Duration
+		expectError bool
+	}{
+		{"valid duration 30s", "30s", 30 * time.Second, false},
+		{"valid duration 2m", "2m", 2 * time.Minute, false},
+		{"valid duration 500ms", "500ms", 500 * time.Millisecond, false},
+		{"default when not set", "", DefaultQueueDrainTimeout, false},
+		{"invalid format", "not-a-duration", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.value != "" {
+				t.Setenv("QUEUE_DRAIN_TIMEOUT", tt.value)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "QUEUE_DRAIN_TIMEOUT")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.QueueDrainTimeout,
+					"QueueDrainTimeout should be %v when env is %q", tt.expected, tt.value)
+			}
+		})
+	}
+}

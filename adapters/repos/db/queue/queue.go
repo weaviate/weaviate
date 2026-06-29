@@ -478,15 +478,37 @@ func (q *DiskQueue) Wait(ctx context.Context) error {
 	return q.scheduler.Wait(ctx, q.id)
 }
 
-// PrepareForBackup pauses the queue and flushes all tasks to disk to prepare for backup.
-// It also enables maintenance mode, which prevents processed chunk files from being deleted until the backup is complete.
-func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
-	q.Pause(ctx)
+// PrepareForBackup pauses the queue and waits for in-flight tasks to drain,
+// then flushes all tasks to disk to prepare for backup.
+// It also enables maintenance mode, which prevents processed chunk files from
+// being deleted until the backup is complete.
+//
+// drainTimeout bounds how long to wait for in-flight tasks to complete.
+// If drainTimeout == 0, the wait is unbounded (honors only parent ctx deadline).
+// If the drain times out, an error is returned and maintenance mode is NOT
+// enabled, preventing inconsistent backup snapshots.
+func (q *DiskQueue) PrepareForBackup(ctx context.Context, drainTimeout time.Duration) error {
+	// Pause scheduling immediately (don't wait in Pause, we'll wait explicitly below)
+	q.scheduler.PauseQueue(q.id)
 	defer q.Resume()
-	q.Wait(ctx)
 
-	err := q.Flush()
-	if err != nil {
+	// Apply drain timeout if specified; drainTimeout == 0 means unbounded
+	drainCtx := ctx
+	if drainTimeout > 0 {
+		var cancel context.CancelFunc
+		drainCtx, cancel = context.WithTimeout(ctx, drainTimeout)
+		defer cancel()
+	}
+
+	// Wait for in-flight tasks to complete - capture and propagate the error
+	if err := q.Wait(drainCtx); err != nil {
+		return fmt.Errorf("queue %q drain did not complete within %v "+
+			"(configurable via QUEUE_DRAIN_TIMEOUT); "+
+			"retry expected, investigate stuck tasks if repeated: %w",
+			q.id, drainTimeout, err)
+	}
+
+	if err := q.Flush(); err != nil {
 		return err
 	}
 
