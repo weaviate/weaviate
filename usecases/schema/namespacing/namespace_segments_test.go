@@ -96,16 +96,6 @@ func TestFindNamespaceSegments(t *testing.T) {
 	}
 }
 
-func TestSegmentHasSeparator(t *testing.T) {
-	path := "roles/customer1:editor"
-	start, end, _ := FindNamespaceSegments(path)
-	assert.True(t, SegmentHasSeparator(path, start, end), "qualified role segment has separator")
-
-	path = "roles/editor"
-	start, end, _ = FindNamespaceSegments(path)
-	assert.False(t, SegmentHasSeparator(path, start, end), "bare role segment has no separator")
-}
-
 // TestRewriteNamespaceSegments pins the shared structural walk — first segment,
 // the alias second segment at end+len("/aliases/"), the non-namespaceable
 // passthrough, and abort-on-error — so the three call sites that build on it

@@ -117,7 +117,7 @@ func qualifyResourceForCreate(prefix, resource string) (string, error) {
 }
 
 // ProjectResourceForNamespace specializes a role policy resource to a target
-// namespace for an assignment's must-already-hold check, e.g. for namespace "customer1":
+// namespace for a must-hold or has-permission check, e.g. for namespace "customer1":
 //
 //	data/collections/Movies/...            -> data/collections/customer1:Movies/...  (bare segment prefixed)
 //	data/collections/customer1:Movies/...  -> unchanged                              (already names the target)
