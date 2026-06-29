@@ -409,6 +409,21 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 		_, ok := res.(*authz.HasPermissionBadRequest)
 		require.True(t, ok, "got %T", res)
 	})
+
+	// A namespaced caller must submit bare resource paths, matching create/add/
+	// remove; a colon-bearing id is a cross-namespace reference and is rejected.
+	t.Run("permission with qualified namespace id is rejected", func(t *testing.T) {
+		h, _ := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
+
+		qualified := &models.Permission{
+			Action: String(authorization.ReadUsers),
+			Users:  &models.PermissionUsers{Users: String("customer2:bob")},
+		}
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "editor", Body: qualified}, principal)
+		_, ok := res.(*authz.HasPermissionBadRequest)
+		require.True(t, ok, "got %T", res)
+	})
 }
 
 func TestGetRolePermissionStripping(t *testing.T) {

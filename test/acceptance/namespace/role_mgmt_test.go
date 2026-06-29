@@ -353,6 +353,29 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		}, 10*time.Second, 100*time.Millisecond, "revoke did not remove the binding")
 	})
 
+	t.Run("an operator cannot revoke a namespace-local role", func(t *testing.T) {
+		// A local role is managed entirely within its namespace, so an operator
+		// cannot revoke it.
+		helper.CreateRole(t, u1Key, readCollectionsRole("revmine", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":revmine") })
+
+		createNamespacedUser(t, "carol", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":carol", adminKey) })
+
+		helper.AssignRoleToUser(t, u1Key, "revmine", "carol")
+
+		// The operator addresses the local role by its qualified name and is denied.
+		_, err := helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID(ns1+":carol").
+				WithBody(authz.RevokeRoleFromUserBody{Roles: []string{ns1 + ":revmine"}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.RevokeRoleFromUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected RevokeRoleFromUserForbidden, got %T: %v", err, err)
+
+		// The binding survived the denied revoke; the ns1 admin can still revoke it.
+		helper.RevokeRoleFromUser(t, u1Key, "revmine", "carol")
+	})
+
 	t.Run("a namespaced admin cannot modify a role outside its namespace", func(t *testing.T) {
 		// An operator-created global custom role; the matcher confines the
 		// namespaced admin to its own namespace's roles.
@@ -389,6 +412,47 @@ func TestNamespaceLocalRoles(t *testing.T) {
 			helper.CreateAuth(u1Key))
 		var forbidden *authz.AssignRoleToGroupForbidden
 		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToGroupForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("a namespaced admin cannot revoke roles from groups", func(t *testing.T) {
+		// Group revocation is hard-denied for namespaced principals.
+		_, err := helper.Client(t).Authz.RevokeRoleFromGroup(
+			authz.NewRevokeRoleFromGroupParams().WithID("engineers").
+				WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{authorization.Viewer}, GroupType: models.GroupTypeOidc}),
+			helper.CreateAuth(u1Key))
+		var forbidden *authz.RevokeRoleFromGroupForbidden
+		require.True(t, errors.As(err, &forbidden), "expected RevokeRoleFromGroupForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("an operator cannot revoke a namespace-local role from a group", func(t *testing.T) {
+		// Groups are global; a namespace-local role can never be on one, so an
+		// operator naming one by its qualified form is denied.
+		helper.CreateRole(t, u1Key, readCollectionsRole("grouplocal", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":grouplocal") })
+
+		_, err := helper.Client(t).Authz.RevokeRoleFromGroup(
+			authz.NewRevokeRoleFromGroupParams().WithID("engineers").
+				WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{ns1 + ":grouplocal"}, GroupType: models.GroupTypeOidc}),
+			helper.CreateAuth(adminKey))
+		var forbidden *authz.RevokeRoleFromGroupForbidden
+		require.True(t, errors.As(err, &forbidden), "expected RevokeRoleFromGroupForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("hasPermission rejects a namespace-qualified permission body", func(t *testing.T) {
+		// A namespaced caller must submit bare resource paths; an explicit prefix
+		// (even its own) is rejected, matching create/add/remove.
+		helper.CreateRole(t, u1Key, readCollectionsRole("permcheck", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":permcheck") })
+
+		perm := helper.NewCollectionsPermission().
+			WithAction(authorization.ReadCollections).
+			WithCollection(ns1 + ":Foo").
+			Permission()
+		_, err := helper.Client(t).Authz.HasPermission(
+			authz.NewHasPermissionParams().WithID("permcheck").WithBody(perm),
+			helper.CreateAuth(u1Key))
+		var badReq *authz.HasPermissionBadRequest
+		require.True(t, errors.As(err, &badReq), "expected HasPermissionBadRequest, got %T: %v", err, err)
 	})
 
 	t.Run("creating a role beyond the caller's permissions is denied", func(t *testing.T) {

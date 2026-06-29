@@ -237,6 +237,25 @@ func (h *authZHandlers) roleOperatorReservedFromCaller(principal *models.Princip
 	return authorization.IsOperatorReservedRoleName(namespacing.StripQualification(storedRoleName))
 }
 
+// roleVisibleToCaller reports whether the caller may see another subject's role
+// given its stored name and policies. A role is hidden when it belongs to another
+// namespace, when it is an operator-reserved global role and the caller is not a
+// global operator, or when the caller does not already hold every permission it
+// grants. A caller's own roles are always visible, so callers skip this check for
+// a self-read.
+func (h *authZHandlers) roleVisibleToCaller(ctx context.Context, principal *models.Principal, storedRoleName string, policies []authorization.Policy) bool {
+	if h.roleHiddenFromCaller(principal, storedRoleName) {
+		return false
+	}
+	if h.roleOperatorReservedFromCaller(principal, storedRoleName) {
+		return false
+	}
+	if h.namespacesEnabled && !h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
+		return false
+	}
+	return true
+}
+
 // roleExists backs ResolveRoleName's local-then-global lookup.
 func (h *authZHandlers) roleExists(name string) (bool, error) {
 	roles, err := h.controller.GetRoles(name)
@@ -314,7 +333,7 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 		// Role removed between the resolve and the fetch.
 		return "", nil, roleReadNotFound, nil
 	}
-	if !h.rolePoliciesVisibleToPrincipal(ctx, principal, storedPolicies) {
+	if !h.roleVisibleToCaller(ctx, principal, stored, storedPolicies) {
 		return "", nil, roleReadForbidden, errors.New("insufficient permissions to view role")
 	}
 	return stored, storedPolicies, roleReadOK, nil
@@ -618,6 +637,11 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("unknown error occurred passing permission to policy")))
 	}
 
+	// Callers submit bare resource paths; a namespaced caller's are qualified below.
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, []authorization.Policy{*policy[0]}); err != nil {
+		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	roleID, _, outcome, err := h.resolveRoleForRead(ctx, principal, params.ID)
 	switch outcome {
 	case roleReadOK:
@@ -666,15 +690,10 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 
 		name := roleName
 		if h.namespacesEnabled {
-			// Hide other namespaces' roles and any whose permissions the caller
-			// does not already hold; strip the caller's own namespace prefix.
-			if h.roleHiddenFromCaller(principal, roleName) {
-				continue
-			}
-			if h.roleOperatorReservedFromCaller(principal, roleName) {
-				continue
-			}
-			if !h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
+			// Hide other namespaces' roles, reserved global roles, and any whose
+			// permissions the caller does not already hold; strip the caller's own
+			// namespace prefix.
+			if !h.roleVisibleToCaller(ctx, principal, roleName, policies) {
 				continue
 			}
 			name = namespacing.StripOwnNamespace(principal, roleName)
@@ -1096,12 +1115,17 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	var roles []*models.Role
 	var authErrs []error
 	for roleName, policies := range existingRoles {
-		if h.roleHiddenFromCaller(principal, roleName) {
-			continue
-		}
-		// A self-read may surface a reserved role inherited via a group; only
-		// hide it when reading another user's roles.
-		if !ownUser && h.roleOperatorReservedFromCaller(principal, roleName) {
+		// Full reads hide foreign-namespace and reserved roles here but return 403
+		// on content (via authorizeRoleRead below); name-only reads hide all three
+		// silently. A self-read keeps a reserved role inherited via a group.
+		if includeFullRoles {
+			if h.roleHiddenFromCaller(principal, roleName) {
+				continue
+			}
+			if !ownUser && h.roleOperatorReservedFromCaller(principal, roleName) {
+				continue
+			}
+		} else if !ownUser && !h.roleVisibleToCaller(ctx, principal, roleName, policies) {
 			continue
 		}
 
@@ -1120,11 +1144,6 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 				}
 			}
 			role.Permissions = perms
-		} else if h.callerConfined(principal) && !ownUser &&
-			!h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
-			// Name-only: still hide a role whose permissions the caller does not
-			// hold, so a global role's name doesn't leak to a namespaced caller.
-			continue
 		}
 		roles = append(roles, role)
 	}
@@ -1370,6 +1389,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	if err := h.validateLocalRoleAssignment(principal, roleNames); err != nil {
+		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	existedRoles, err := h.controller.GetRoles(roleNames...)
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
@@ -1427,6 +1450,11 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	groupType, err := validateUserTypeInput(string(params.Body.GroupType))
 	if err != nil || groupType != authentication.AuthTypeOIDC {
 		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
+	}
+
+	// Groups are global; a namespace-local role can never be on one.
+	if err := h.validateLocalRoleAssignment(principal, params.Body.Roles); err != nil {
+		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(groupType, params.ID)...); err != nil {
@@ -1519,12 +1547,17 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	var roles []*models.Role
 	var authErrs []error
 	for roleName, policies := range existingRoles {
-		if h.roleHiddenFromCaller(principal, roleName) {
-			continue
-		}
-		// A self-read may surface a reserved role inherited via a group; only
-		// hide it when reading another group's roles.
-		if !ownGroup && h.roleOperatorReservedFromCaller(principal, roleName) {
+		// Full reads hide foreign-namespace and reserved roles here but return 403
+		// on content (via authorizeRoleRead below); name-only reads hide all three
+		// silently. A self-read keeps a reserved role inherited via a group.
+		if includeFullRoles {
+			if h.roleHiddenFromCaller(principal, roleName) {
+				continue
+			}
+			if !ownGroup && h.roleOperatorReservedFromCaller(principal, roleName) {
+				continue
+			}
+		} else if !ownGroup && !h.roleVisibleToCaller(ctx, principal, roleName, policies) {
 			continue
 		}
 
@@ -1543,11 +1576,6 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 				}
 			}
 			role.Permissions = perms
-		} else if h.callerConfined(principal) && !ownGroup &&
-			!h.rolePoliciesVisibleToPrincipal(ctx, principal, policies) {
-			// Name-only: still hide a role whose permissions the caller does not
-			// hold, so a global role's name doesn't leak to a namespaced caller.
-			continue
 		}
 		roles = append(roles, role)
 	}
