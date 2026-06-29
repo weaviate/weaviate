@@ -208,6 +208,41 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		}, 15*time.Second, 100*time.Millisecond, "roles-for-user visibility did not converge")
 	})
 
+	t.Run("a namespaced caller cannot read or assign a foreign-namespace role", func(t *testing.T) {
+		// ns2 owns the role; ns1's caller must not reach it under any name form.
+		helper.CreateRole(t, u2Key, readCollectionsRole("foreignprobe", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns2+":foreignprobe") })
+
+		// By short name the caller's own namespace is searched, so ns2's role 404s.
+		_, getShortErr := helper.Client(t).Authz.GetRole(
+			authz.NewGetRoleParams().WithID("foreignprobe"), helper.CreateAuth(u1Key))
+		var getNotFound *authz.GetRoleNotFound
+		require.True(t, errors.As(getShortErr, &getNotFound), "expected GetRoleNotFound, got %T: %v", getShortErr, getShortErr)
+
+		// Naming the foreign namespace explicitly is an invalid name for a confined caller.
+		_, getQualErr := helper.Client(t).Authz.GetRole(
+			authz.NewGetRoleParams().WithID(ns2+":foreignprobe"), helper.CreateAuth(u1Key))
+		var getBadReq *authz.GetRoleBadRequest
+		require.True(t, errors.As(getQualErr, &getBadReq), "expected GetRoleBadRequest, got %T: %v", getQualErr, getQualErr)
+
+		// Assigning it to the caller's own user fails identically: the short name
+		// resolves to a missing own-namespace role (404), the qualified name is a
+		// bad request.
+		_, asgShortErr := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("u1").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{"foreignprobe"}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(u1Key))
+		var asgNotFound *authz.AssignRoleToUserNotFound
+		require.True(t, errors.As(asgShortErr, &asgNotFound), "expected AssignRoleToUserNotFound, got %T: %v", asgShortErr, asgShortErr)
+
+		_, asgQualErr := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("u1").
+				WithBody(authz.AssignRoleToUserBody{Roles: []string{ns2 + ":foreignprobe"}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(u1Key))
+		var asgBadReq *authz.AssignRoleToUserBadRequest
+		require.True(t, errors.As(asgQualErr, &asgBadReq), "expected AssignRoleToUserBadRequest, got %T: %v", asgQualErr, asgQualErr)
+	})
+
 	t.Run("assign requires an explicit userType", func(t *testing.T) {
 		helper.CreateRole(t, u1Key, readCollectionsRole("asg", "*"))
 		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":asg") })
@@ -272,6 +307,23 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		// cluster, not even by the operator.
 		_, err := helper.Client(t).Authz.CreateRole(
 			authz.NewCreateRoleParams().WithBody(role), helper.CreateAuth(adminKey))
+		var forbidden *authz.CreateRoleForbidden
+		require.True(t, errors.As(err, &forbidden), "expected CreateRoleForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("a namespaced caller is also denied an ALL-scoped roles permission", func(t *testing.T) {
+		scope := models.PermissionRolesScopeAll
+		role := &models.Role{
+			Name: authorization.String("nssuperroles"),
+			Permissions: []*models.Permission{{
+				Action: authorization.String(authorization.ReadRoles),
+				Roles:  &models.PermissionRoles{Role: authorization.All, Scope: &scope},
+			}},
+		}
+		// The ALL-scope gate fires before the content-scope check, so a confined
+		// caller is denied the same way the operator is.
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(role), helper.CreateAuth(u1Key))
 		var forbidden *authz.CreateRoleForbidden
 		require.True(t, errors.As(err, &forbidden), "expected CreateRoleForbidden, got %T: %v", err, err)
 	})
@@ -351,6 +403,41 @@ func TestNamespaceLocalRoles(t *testing.T) {
 				assert.NotEqual(c, "rev", *r.Name, "revoked role still bound")
 			}
 		}, 10*time.Second, 100*time.Millisecond, "revoke did not remove the binding")
+	})
+
+	t.Run("revoking a namespaced role removes the effective capability", func(t *testing.T) {
+		// Binding removal in the role list is not the same as effective denial:
+		// prove the previously granted read actually stops working after revoke.
+		setupClassInNs1(t, ns1, "Revdocs", u1Key)
+		helper.CreateRole(t, u1Key, &models.Role{
+			Name: authorization.String("revreader"),
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().
+					WithAction(authorization.ReadData).
+					WithCollection("Revdocs").
+					Permission(),
+			},
+		})
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":revreader") })
+
+		// A fresh user holding only the read-data role.
+		readerKey := helper.CreateUserWithNamespace(t, "revreader1", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":revreader1", adminKey) })
+		helper.AssignRoleToUser(t, u1Key, "revreader", "revreader1")
+
+		// The capability becomes effective (past apikey + binding replication lag).
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, err := helper.ListObjectsAuth(t, "Revdocs", readerKey)
+			assert.NoError(c, err)
+		}, 15*time.Second, 100*time.Millisecond, "read_data role never became effective for the new user")
+
+		// After revoke the read must start failing with a forbidden.
+		helper.RevokeRoleFromUser(t, u1Key, "revreader", "revreader1")
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, err := helper.ListObjectsAuth(t, "Revdocs", readerKey)
+			var forbidden *objects.ObjectsListForbidden
+			assert.True(c, errors.As(err, &forbidden), "expected ObjectsListForbidden, got %T: %v", err, err)
+		}, 15*time.Second, 100*time.Millisecond, "revoke did not remove the effective read capability")
 	})
 
 	t.Run("an operator cannot revoke a namespace-local role", func(t *testing.T) {
