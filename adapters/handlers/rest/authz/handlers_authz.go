@@ -401,7 +401,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("role name is invalid")))
 	}
 
-	if err := validatePermissions(true, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, true, params.Body.Permissions...); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role permissions are invalid: %w", err)))
 	}
 
@@ -429,7 +429,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	// Reject namespace-qualified resource paths up front (callers submit bare
 	// names; a namespaced caller's are auto-prefixed below).
 	rolePolicies := policies[*params.Body.Name]
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies); err != nil {
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies, false); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -481,7 +481,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
-	if err := validatePermissions(false, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, false, params.Body.Permissions...); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -494,7 +494,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	rolePolicies := policies[params.ID]
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies); err != nil {
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies, false); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -551,7 +551,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
-	if err := validatePermissions(false, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, false, params.Body.Permissions...); err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -565,7 +565,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		policies[i] = *p
 	}
 
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies); err != nil {
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies, false); err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -625,7 +625,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("permission is required")))
 	}
 
-	if err := validatePermissions(false, params.Body); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, false, params.Body); err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -637,8 +637,10 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("unknown error occurred passing permission to policy")))
 	}
 
-	// Callers submit bare resource paths; a namespaced caller's are qualified below.
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, []authorization.Policy{*policy[0]}); err != nil {
+	// A confined caller submits a bare resource, qualified into its namespace
+	// below; a global operator must name the role's namespace explicitly to check
+	// a namespace-local role's qualified rows.
+	if err := h.validateNoQualifiedNamespaceInPolicies(principal, []authorization.Policy{*policy[0]}, true); err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -656,8 +658,10 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	// Qualify only for a namespace-local role (its stored rows are qualified); a
-	// global role stores unqualified rows, so check it raw.
+	// For a namespace-local role, a confined caller's bare resource is qualified
+	// into its namespace; a global caller's resource is checked as submitted (it
+	// already names the namespace). A global role stores unqualified rows, so its
+	// check is raw.
 	policyToCheck := policy[0]
 	if h.namespacesEnabled && namespacing.NamespaceFromQualified(roleID) != "" {
 		qualified := []authorization.Policy{*policy[0]}
@@ -1732,11 +1736,18 @@ func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, role
 // class-name rule that forbids them typing any "<namespace>:" prefix. So a
 // namespaced caller cannot express a colon-bearing group id; acceptable while
 // group grants are global-only. Revisit if namespaced callers gain them.
-func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models.Principal, policies []authorization.Policy) error {
+//
+// allowGlobalQualified lifts the restriction for a global caller, used by the
+// hasPermission read path so an operator can name a namespace-local role's
+// qualified rows. Confined callers stay restricted.
+func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models.Principal, policies []authorization.Policy, allowGlobalQualified bool) error {
 	if !h.namespacesEnabled {
 		return nil
 	}
 	global := namespacing.ConfinedNamespace(principal) == ""
+	if global && allowGlobalQualified {
+		return nil
+	}
 	for _, p := range policies {
 		if !conv.ContainsNamespaceSeparator(p.Resource) {
 			continue
