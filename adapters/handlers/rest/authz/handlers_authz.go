@@ -618,17 +618,6 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("unknown error occurred passing permission to policy")))
 	}
 
-	// Qualify the inbound permission into the caller's namespace (NS-enabled
-	// only); NS-disabled checks the raw permission against the role-name matcher.
-	policyToCheck := policy[0]
-	if h.namespacesEnabled {
-		qualified := []authorization.Policy{*policy[0]}
-		if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, qualified); err != nil {
-			return authz.NewHasPermissionUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-		}
-		policyToCheck = &qualified[0]
-	}
-
 	roleID, _, outcome, err := h.resolveRoleForRead(ctx, principal, params.ID)
 	switch outcome {
 	case roleReadOK:
@@ -641,6 +630,17 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	case roleReadInternalErr:
 		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	// Qualify only for a namespace-local role (its stored rows are qualified); a
+	// global role stores unqualified rows, so check it raw.
+	policyToCheck := policy[0]
+	if h.namespacesEnabled && namespacing.NamespaceFromQualified(roleID) != "" {
+		qualified := []authorization.Policy{*policy[0]}
+		if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, qualified); err != nil {
+			return authz.NewHasPermissionUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		policyToCheck = &qualified[0]
 	}
 
 	hasPermission, err := h.controller.HasPermission(roleID, policyToCheck)

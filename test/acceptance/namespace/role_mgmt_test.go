@@ -482,6 +482,32 @@ func TestNamespaceLocalRoles(t *testing.T) {
 	})
 }
 
+// TestNamespaceHasPermissionGlobalFallbackRole checks hasPermission against an
+// inherited global role unqualified, end-to-end through real casbin matching.
+func TestNamespaceHasPermissionGlobalFallbackRole(t *testing.T) {
+	t.Parallel()
+	ns1, _, u1Key, _ := twoNamespaces(t)
+
+	// A global role with a concrete unqualified permission, inherited by the ns1 user.
+	gRole := uniqueRole()
+	helper.CreateRole(t, adminKey, readCollectionsRole(gRole, "Movies"))
+	t.Cleanup(func() { helper.DeleteRole(t, adminKey, gRole) })
+	helper.AssignRoleToUser(t, adminKey, gRole, ns1+":u1")
+	helper.WaitForOwnRole(t, u1Key, gRole)
+
+	// The bare "Movies" permission must match the global role's unqualified row,
+	// not be qualified to "ns1:Movies" (which could never match it).
+	perm := helper.NewCollectionsPermission().
+		WithAction(authorization.ReadCollections).
+		WithCollection("Movies").
+		Permission()
+	resp, err := helper.Client(t).Authz.HasPermission(
+		authz.NewHasPermissionParams().WithID(gRole).WithBody(perm),
+		helper.CreateAuth(u1Key))
+	require.NoError(t, err)
+	require.True(t, resp.Payload, "namespaced caller must see the global role's unqualified permission")
+}
+
 // TestNamespaceDeleteCascadesRBAC proves the namespace-delete cascade and the
 // apply-time emptiness gate work together: a namespace holding a local role and
 // a user with both a local and a global role assignment can still be deleted —
