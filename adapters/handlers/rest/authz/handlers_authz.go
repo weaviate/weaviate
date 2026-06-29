@@ -1076,6 +1076,47 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 	return authz.NewGetRolesForUserDeprecatedOK().WithPayload(response)
 }
 
+// visibleRolesForSubject filters a subject's assigned roles down to those the
+// caller may see and converts them to API roles. Full reads hide foreign-namespace
+// and reserved roles here but return 403 on content (via authorizeRoleRead);
+// name-only reads hide all three silently. own relaxes reserved-role hiding so a
+// self-read keeps a reserved role inherited via a group. Roles the caller may not
+// read under a full read are collected into authErrs; a conversion failure returns
+// an error for the caller to map to its own response.
+func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *models.Principal, existingRoles map[string][]authorization.Policy, includeFullRoles, own bool) (roles []*models.Role, authErrs []error, err error) {
+	for roleName, policies := range existingRoles {
+		if includeFullRoles {
+			if h.roleHiddenFromCaller(principal, roleName) {
+				continue
+			}
+			if !own && h.roleOperatorReservedFromCaller(principal, roleName) {
+				continue
+			}
+		} else if !own && !h.roleVisibleToCaller(ctx, principal, roleName, policies) {
+			continue
+		}
+
+		perms, err := conv.PoliciesToPermission(policies...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("PoliciesToPermission: %w", err)
+		}
+
+		name := namespacing.StripOwnNamespace(principal, roleName)
+		role := &models.Role{Name: &name}
+		if includeFullRoles {
+			if !own {
+				if err := h.authorizeRoleRead(ctx, principal, roleName, policies); err != nil {
+					authErrs = append(authErrs, err)
+					continue
+				}
+			}
+			role.Permissions = perms
+		}
+		roles = append(roles, role)
+	}
+	return roles, authErrs, nil
+}
+
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
@@ -1112,42 +1153,10 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
 
-	var roles []*models.Role
-	var authErrs []error
-	for roleName, policies := range existingRoles {
-		// Full reads hide foreign-namespace and reserved roles here but return 403
-		// on content (via authorizeRoleRead below); name-only reads hide all three
-		// silently. A self-read keeps a reserved role inherited via a group.
-		if includeFullRoles {
-			if h.roleHiddenFromCaller(principal, roleName) {
-				continue
-			}
-			if !ownUser && h.roleOperatorReservedFromCaller(principal, roleName) {
-				continue
-			}
-		} else if !ownUser && !h.roleVisibleToCaller(ctx, principal, roleName, policies) {
-			continue
-		}
-
-		perms, err := conv.PoliciesToPermission(policies...)
-		if err != nil {
-			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
-		}
-
-		name := namespacing.StripOwnNamespace(principal, roleName)
-		role := &models.Role{Name: &name}
-		if includeFullRoles {
-			if !ownUser {
-				if err := h.authorizeRoleRead(ctx, principal, roleName, policies); err != nil {
-					authErrs = append(authErrs, err)
-					continue
-				}
-			}
-			role.Permissions = perms
-		}
-		roles = append(roles, role)
+	roles, authErrs, err := h.visibleRolesForSubject(ctx, principal, existingRoles, includeFullRoles, ownUser)
+	if err != nil {
+		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
-
 	if len(authErrs) > 0 {
 		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.Join(authErrs...)))
 	}
@@ -1544,42 +1553,10 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 		return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRolesForUserOrGroup: %w", err)))
 	}
 
-	var roles []*models.Role
-	var authErrs []error
-	for roleName, policies := range existingRoles {
-		// Full reads hide foreign-namespace and reserved roles here but return 403
-		// on content (via authorizeRoleRead below); name-only reads hide all three
-		// silently. A self-read keeps a reserved role inherited via a group.
-		if includeFullRoles {
-			if h.roleHiddenFromCaller(principal, roleName) {
-				continue
-			}
-			if !ownGroup && h.roleOperatorReservedFromCaller(principal, roleName) {
-				continue
-			}
-		} else if !ownGroup && !h.roleVisibleToCaller(ctx, principal, roleName, policies) {
-			continue
-		}
-
-		perms, err := conv.PoliciesToPermission(policies...)
-		if err != nil {
-			return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
-		}
-
-		name := namespacing.StripOwnNamespace(principal, roleName)
-		role := &models.Role{Name: &name}
-		if includeFullRoles {
-			if !ownGroup {
-				if err := h.authorizeRoleRead(ctx, principal, roleName, policies); err != nil {
-					authErrs = append(authErrs, err)
-					continue
-				}
-			}
-			role.Permissions = perms
-		}
-		roles = append(roles, role)
+	roles, authErrs, err := h.visibleRolesForSubject(ctx, principal, existingRoles, includeFullRoles, ownGroup)
+	if err != nil {
+		return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
-
 	if len(authErrs) > 0 {
 		return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.Join(authErrs...)))
 	}
