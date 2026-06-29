@@ -328,6 +328,20 @@ func TestStripRolesForCaller(t *testing.T) {
 			want:      makeStrippedRoles(),
 		},
 		{
+			name:      "nil role element among real roles: nil preserved, others stripped",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{
+				{Name: strPtr("customer1:viewer")},
+				nil,
+				{Name: strPtr("customer1:editor")},
+			},
+			want: []*models.Role{
+				{Name: strPtr("viewer")},
+				nil,
+				{Name: strPtr("editor")},
+			},
+		},
+		{
 			name:      "global principal: input slice returned unchanged",
 			principal: stripGlobalPrincipal,
 			in:        makeRoles(),
