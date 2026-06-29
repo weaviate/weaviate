@@ -676,8 +676,10 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		assert.NotContains(t, msg, ns1+":", "namespaced error must not leak the caller's prefix")
 		assert.Contains(t, msg, "duperr")
 
-		// The operator sees the same role's qualified name raw (never stripped).
-		require.Equal(t, ns1+":duperr", *helper.GetRoleByName(t, adminKey, ns1+":duperr").Name)
+		// The operator's view is never stripped: addressing the role by its
+		// qualified name returns its permission resource still namespace-qualified.
+		stored := helper.GetRoleByName(t, adminKey, ns1+":duperr")
+		require.Equal(t, ns1+":*", *stored.Permissions[0].Collections.Collection)
 	})
 
 	t.Run("GET /users/me strips the namespace prefix from a bound local role", func(t *testing.T) {

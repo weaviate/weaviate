@@ -56,7 +56,9 @@ func StripPermissionForCaller(principal *models.Principal, p *models.Permission)
 	out := *p
 	if p.Collections != nil && p.Collections.Collection != nil {
 		stripped := StripOwnNamespace(principal, *p.Collections.Collection)
-		out.Collections = &models.PermissionCollections{Collection: &stripped}
+		fresh := *p.Collections
+		fresh.Collection = &stripped
+		out.Collections = &fresh
 	}
 	if p.Data != nil && p.Data.Collection != nil {
 		stripped := StripOwnNamespace(principal, *p.Data.Collection)
@@ -78,7 +80,9 @@ func StripPermissionForCaller(principal *models.Principal, p *models.Permission)
 	}
 	if p.Backups != nil && p.Backups.Collection != nil {
 		stripped := StripOwnNamespace(principal, *p.Backups.Collection)
-		out.Backups = &models.PermissionBackups{Collection: &stripped}
+		fresh := *p.Backups
+		fresh.Collection = &stripped
+		out.Backups = &fresh
 	}
 	if p.Replicate != nil && p.Replicate.Collection != nil {
 		stripped := StripOwnNamespace(principal, *p.Replicate.Collection)
@@ -105,7 +109,9 @@ func StripPermissionForCaller(principal *models.Principal, p *models.Permission)
 	}
 	if p.Users != nil && p.Users.Users != nil {
 		stripped := StripOwnNamespace(principal, *p.Users.Users)
-		out.Users = &models.PermissionUsers{Users: &stripped}
+		fresh := *p.Users
+		fresh.Users = &stripped
+		out.Users = &fresh
 	}
 	if p.Roles != nil && p.Roles.Role != nil {
 		stripped := StripOwnNamespace(principal, *p.Roles.Role)
