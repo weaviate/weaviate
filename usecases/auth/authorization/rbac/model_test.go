@@ -1079,3 +1079,74 @@ func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
 		})
 	}
 }
+
+// TestEnforce_GlobalRoleAssignedToNamespacedSubject drives the full Enforce
+// path to pin that a global built-in role assigned to a `<ns>:` subject is
+// enforced namespace-scoped: the caller reaches only its own namespace.
+func TestEnforce_GlobalRoleAssignedToNamespacedSubject(t *testing.T) {
+	dir := freshPolicyDir(t)
+	conf := rbacconf.Config{Enabled: true}
+	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	require.NoError(t, err)
+	require.NotNil(t, enforcer)
+
+	// Assign the built-in admin (a global role) to one DB user per namespace.
+	c1Alice := conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb)
+	c2Bob := conv.UserNameWithTypeFromId("customer2:bob", authentication.AuthTypeDb)
+	for _, sub := range []string{c1Alice, c2Bob} {
+		_, err := enforcer.AddRoleForUser(sub, conv.PrefixRoleName(authorization.Admin))
+		require.NoError(t, err)
+	}
+	// Unassigned: enforcement is gated by the grouping, not blanket allow.
+	c1Eve := conv.UserNameWithTypeFromId("customer1:eve", authentication.AuthTypeDb)
+
+	tests := []struct {
+		name     string
+		subject  string
+		resource string
+		verb     string
+		ns       string
+		want     bool
+	}{
+		{
+			"customer1 admin reads own-namespace collection → allow",
+			c1Alice, authorization.CollectionsMetadata("customer1:Movies")[0], authorization.READ, "customer1", true,
+		},
+		{
+			"customer1 admin reads other-namespace collection → deny",
+			c1Alice, authorization.CollectionsMetadata("customer2:Movies")[0], authorization.READ, "customer1", false,
+		},
+		{
+			"customer2 admin reads own-namespace collection → allow",
+			c2Bob, authorization.CollectionsMetadata("customer2:Movies")[0], authorization.READ, "customer2", true,
+		},
+		{
+			"customer2 admin reads other-namespace collection → deny",
+			c2Bob, authorization.CollectionsMetadata("customer1:Movies")[0], authorization.READ, "customer2", false,
+		},
+		{
+			"customer1 admin reads own-namespace data → allow",
+			c1Alice, authorization.Objects("customer1:Movies", "", ""), authorization.READ, "customer1", true,
+		},
+		{
+			"customer1 admin reads other-namespace data → deny",
+			c1Alice, authorization.Objects("customer2:Movies", "", ""), authorization.READ, "customer1", false,
+		},
+		{
+			"customer1 admin reads bare unqualified collection → deny (must address own namespace)",
+			c1Alice, authorization.CollectionsMetadata("Movies")[0], authorization.READ, "customer1", false,
+		},
+		{
+			"unassigned namespaced subject → deny",
+			c1Eve, authorization.CollectionsMetadata("customer1:Movies")[0], authorization.READ, "customer1", false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := enforcer.Enforce(tt.subject, tt.resource, tt.verb, tt.ns)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -55,7 +55,7 @@ func findDataCollection(role *models.Role) string {
 // namespace-local roles against a real multi-namespace cluster: names and
 // permissions auto-prefix on write and strip on read, short names are unique
 // per namespace with a global reservation, cross-namespace references are
-// rejected, and content-scope visibility hides out-of-envelope roles.
+// rejected, and content-scope visibility hides roles beyond the caller's permissions.
 func TestNamespaceLocalRoles(t *testing.T) {
 	t.Parallel()
 	ns1, ns2, u1Key, u2Key := twoNamespaces(t)
@@ -252,7 +252,7 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, authorization.Viewer, ns1+":vw")
 		helper.WaitForOwnRole(t, viewerKey, authorization.Viewer)
 
-		// admin's write permissions are not ≤ viewer's, so it is out of envelope.
+		// admin's write permissions exceed viewer's, so it is not visible to it.
 		_, err := helper.Client(t).Authz.GetRole(
 			authz.NewGetRoleParams().WithID(authorization.Admin), helper.CreateAuth(viewerKey))
 		var forbidden *authz.GetRoleForbidden
@@ -393,7 +393,7 @@ func TestNamespaceLocalRoles(t *testing.T) {
 
 	t.Run("creating a role beyond the caller's permissions is denied", func(t *testing.T) {
 		// A narrowed namespaced admin lacks manage_backups, so it cannot author
-		// it into a role (≤-effective check on create).
+		// it into a role (the caller must already hold each permission on create).
 		role := &models.Role{
 			Name: authorization.String("toobroad"),
 			Permissions: []*models.Permission{
@@ -561,7 +561,7 @@ func TestNamespaceOperatorReservedRoles(t *testing.T) {
 
 	t.Run("operator creates a reserved-prefix role hidden from the namespaced admin", func(t *testing.T) {
 		name := "operator_" + uniqueRole()
-		// Its single in-envelope permission would pass the content gate, so only
+		// Its single permission, held by the caller, would pass the content gate, so only
 		// the prefix keeps it hidden.
 		helper.CreateRole(t, adminKey, readCollectionsRole(name, "*"))
 		t.Cleanup(func() { helper.DeleteRole(t, adminKey, name) })
