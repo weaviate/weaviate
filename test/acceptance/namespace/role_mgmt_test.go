@@ -491,6 +491,28 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		require.True(t, errors.As(remErr, &remForbidden), "expected RemovePermissionsForbidden, got %T: %v", remErr, remErr)
 	})
 
+	t.Run("an operator cannot modify a namespace-local role's permissions", func(t *testing.T) {
+		// A local role is managed entirely within its namespace; even the operator
+		// is denied, so its bare resources can't be stored unqualified in the role.
+		helper.CreateRole(t, u1Key, readCollectionsRole("opedit", "*"))
+		t.Cleanup(func() { helper.DeleteRole(t, adminKey, ns1+":opedit") })
+
+		extra := []*models.Permission{
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Movies").Permission(),
+		}
+		_, addErr := helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID(ns1+":opedit").WithBody(authz.AddPermissionsBody{Permissions: extra}),
+			helper.CreateAuth(adminKey))
+		var addForbidden *authz.AddPermissionsForbidden
+		require.True(t, errors.As(addErr, &addForbidden), "expected AddPermissionsForbidden, got %T: %v", addErr, addErr)
+
+		_, remErr := helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID(ns1+":opedit").WithBody(authz.RemovePermissionsBody{Permissions: extra}),
+			helper.CreateAuth(adminKey))
+		var remForbidden *authz.RemovePermissionsForbidden
+		require.True(t, errors.As(remErr, &remForbidden), "expected RemovePermissionsForbidden, got %T: %v", remErr, remErr)
+	})
+
 	t.Run("a namespaced admin cannot assign roles to groups", func(t *testing.T) {
 		// Group assignment is hard-denied for namespaced principals.
 		_, err := helper.Client(t).Authz.AssignRoleToGroup(

@@ -194,6 +194,21 @@ func (h *authZHandlers) validateLocalRoleAssignment(principal *models.Principal,
 	return nil
 }
 
+// validateLocalRoleModification blocks editing a namespace-local role's
+// permissions unless the caller is confined to that role's namespace. A global
+// operator's bare resources would be stored unqualified inside the role, and it
+// cannot express the qualified form; global roles carry no namespace and stay
+// editable. No-op on NS-disabled clusters.
+func (h *authZHandlers) validateLocalRoleModification(principal *models.Principal, roleName string) error {
+	if !h.namespacesEnabled {
+		return nil
+	}
+	if ns := namespacing.NamespaceFromQualified(roleName); ns != "" && ns != namespacing.ConfinedNamespace(principal) {
+		return fmt.Errorf("a namespace-local role can only be modified by an administrator of its own namespace")
+	}
+	return nil
+}
+
 // validateOperatorRoleAssignmentToUser blocks assigning an operator-reserved
 // global role to a namespaced user. Keyed on the target's namespace, not the
 // caller's, so even an operator cannot pull a reserved global role into a
@@ -517,6 +532,10 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	if err := h.validateLocalRoleModification(principal, roleName); err != nil {
+		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, rolePolicies, roleName); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -588,6 +607,10 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	}
 	if err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	if err := h.validateLocalRoleModification(principal, roleName); err != nil {
+		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, policies, roleName); err != nil {
