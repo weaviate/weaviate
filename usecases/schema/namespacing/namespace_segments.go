@@ -87,11 +87,6 @@ func FindNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	return 0, 0, false
 }
 
-// SegmentHasSeparator reports whether path[start:end] contains the namespace separator.
-func SegmentHasSeparator(path string, start, end int) bool {
-	return strings.IndexByte(path[start:end], schema.NamespaceSeparator[0]) >= 0
-}
-
 // RewriteNamespaceSegments walks the namespace-bearing segment(s) of an
 // authorization resource path — the collection name, plus the alias name on
 // aliases paths — and replaces each via fn, leaving the rest of path
