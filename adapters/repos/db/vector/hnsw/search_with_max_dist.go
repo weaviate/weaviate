@@ -23,7 +23,11 @@ import (
 func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32,
 	dist float32, ef int, allowList helpers.AllowList,
 ) ([]uint64, error) {
+	h.RLock()
 	entryPointID := h.entryPointID
+	maxLayer := h.currentMaximumLayer
+	h.RUnlock()
+
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		var returnFn compressionhelpers.ReturnDistancerFn
@@ -40,7 +44,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32
 	}
 
 	// stop at layer 1, not 0!
-	for level := h.currentMaximumLayer; level >= 1; level-- {
+	for level := maxLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin[any](1)
 		eps.Insert(entryPointID, entryPointDistance)
 		// ignore allowList on layers > 0
