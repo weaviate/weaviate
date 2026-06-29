@@ -12,9 +12,11 @@
 package backup
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -451,6 +453,85 @@ func TestTestDistributedBackupResetStatus(t *testing.T) {
 		Status: Started,
 	}
 	assert.Equal(t, want, desc)
+}
+
+func TestDistributedBackupDescriptor_UserList(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{name: "nil", in: nil, want: []string{}},
+		{name: "empty", in: []string{}, want: []string{}},
+		{name: "single", in: []string{"ns1:alice"}, want: []string{"ns1:alice"}},
+		{name: "many", in: []string{"ns1:alice", "ns1:bob"}, want: []string{"ns1:alice", "ns1:bob"}},
+		{name: "dedupes", in: []string{"ns1:alice", "ns1:alice", "ns1:bob"}, want: []string{"ns1:alice", "ns1:bob"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := DistributedBackupDescriptor{Users: tc.in}
+			got := d.UserList()
+			sort.Strings(got)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	t.Run("json round-trip omits absent users", func(t *testing.T) {
+		// A pre-change artefact carries no "users" key; it must unmarshal to no users.
+		old := `{"id":"1","version":"1","serverVersion":"1"}`
+		var d DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal([]byte(old), &d))
+		assert.Empty(t, d.UserList())
+
+		// omitempty: a descriptor with no users marshals without the key, keeping the
+		// on-disk shape identical to a pre-change backup.
+		b, err := json.Marshal(DistributedBackupDescriptor{ID: "1"})
+		require.NoError(t, err)
+		assert.NotContains(t, string(b), `"users"`)
+	})
+
+	t.Run("json round-trip preserves users", func(t *testing.T) {
+		d := DistributedBackupDescriptor{ID: "1", Users: []string{"ns1:alice"}}
+		b, err := json.Marshal(d)
+		require.NoError(t, err)
+		assert.Contains(t, string(b), `"users":["ns1:alice"]`)
+
+		var back DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal(b, &back))
+		assert.Equal(t, []string{"ns1:alice"}, back.UserList())
+	})
+
+	// Persistence fidelity: the Users field and the per-node UserBackups blob are
+	// persisted on different paths and only the field drives restore authz. Pin that
+	// Users survives both the in-place ResetStatus reset and a marshal→unmarshal cycle,
+	// so a future hand-written copy/reset that rebuilds the struct can't silently drop
+	// it and disable authz on a backup that included users.
+	t.Run("users survive ResetStatus and marshal cycle", func(t *testing.T) {
+		d := DistributedBackupDescriptor{
+			ID:            "1",
+			Version:       "1",
+			ServerVersion: "1",
+			Status:        Success,
+			Nodes:         map[string]*NodeDescriptor{"N1": {Status: Success}},
+			Users:         []string{"ns1:alice", "ns1:bob"},
+		}
+
+		d.ResetStatus()
+		got := d.UserList()
+		sort.Strings(got)
+		assert.Equal(t, []string{"ns1:alice", "ns1:bob"}, got)
+		assert.Equal(t, Started, d.Status, "ResetStatus must still reset status")
+
+		b, err := json.Marshal(&d)
+		require.NoError(t, err)
+		require.True(t, strings.Contains(string(b), `"users"`), "marshalled meta must carry users")
+
+		var back DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal(b, &back))
+		got = back.UserList()
+		sort.Strings(got)
+		assert.Equal(t, []string{"ns1:alice", "ns1:bob"}, got)
+	})
 }
 
 func TestShardDescriptorClear(t *testing.T) {

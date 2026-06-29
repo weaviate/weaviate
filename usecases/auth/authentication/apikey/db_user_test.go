@@ -319,7 +319,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
-	require.NoError(t, dynUsers2.Restore(snapShot))
+	require.NoError(t, dynUsers2.Restore(snapShot, false))
 
 	// content should be identical:
 	// - all users and their status present
@@ -551,7 +551,7 @@ func TestSnapshotRestoreEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, user[userId].Id, userId)
 
-	err = dynUsers.Restore([]byte{})
+	err = dynUsers.Restore([]byte{}, false)
 	require.NoError(t, err)
 
 	// nothing overwritten
@@ -564,7 +564,7 @@ func TestRestoreInvalidData(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 
-	require.Error(t, dynUsers.Restore([]byte("invalid json")))
+	require.Error(t, dynUsers.Restore([]byte("invalid json"), false))
 }
 
 func TestCreateUserStoresNamespace(t *testing.T) {
@@ -618,7 +618,7 @@ func TestSnapshotRestoreMultipleNamespaces(t *testing.T) {
 
 	restored, err := NewDBUser(t.TempDir(), false, log)
 	require.NoError(t, err)
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(snap, false))
 
 	users, err := restored.GetUsers()
 	require.NoError(t, err)
@@ -750,6 +750,250 @@ func TestDeleteUsersInNamespace(t *testing.T) {
 	})
 }
 
+// seedUser creates a dynamic user with a real API key and returns the decoded
+// login key + identifier, so a test can prove the credential actually survives
+// snapshot/restore by authenticating with it (a far stronger check than reading
+// the GetUsers map). userId is the storage key: bare on a non-namespaced
+// cluster, MakeUserKey("id","ns") on a namespaced one.
+func seedUser(t *testing.T, u *DBUser, userId, namespace string) (login, identifier string) {
+	t.Helper()
+	apiKey, hash, ident, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+	require.NoError(t, u.CreateUser(userId, hash, ident, "", namespace, time.Now()))
+	login, _, err = keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+	return login, ident
+}
+
+func requireLogin(t *testing.T, u *DBUser, login, identifier, wantUserId, wantNamespace string) {
+	t.Helper()
+	p, err := u.ValidateAndExtract(login, identifier)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	require.Equal(t, wantUserId, p.Username)
+	require.Equal(t, wantNamespace, p.Namespace)
+}
+
+func requireNoLogin(t *testing.T, u *DBUser, login, identifier string) {
+	t.Helper()
+	p, err := u.ValidateAndExtract(login, identifier)
+	require.Error(t, err)
+	require.Nil(t, p)
+}
+
+// TestSnapshotRestore_IncludeUsers_NonNamespaced: the includeUsers backup path
+// on a flat cluster. Snapshot(subset) must ship ONLY the selected users; the
+// excluded user's credentials must not travel and must not authenticate after
+// restore. This is the assertion that fails if filterDBUserData stops filtering.
+func TestSnapshotRestore_IncludeUsers_NonNamespaced(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+
+	login1, ident1 := seedUser(t, src, "u1", "")
+	loginExcluded, identExcluded := seedUser(t, src, "u2", "")
+	login3, ident3 := seedUser(t, src, "u3", "")
+
+	snap, err := src.Snapshot("u1", "u3")
+	require.NoError(t, err)
+
+	dst, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	require.NoError(t, dst.Restore(snap, false))
+
+	users, err := dst.GetUsers()
+	require.NoError(t, err)
+	require.Len(t, users, 2)
+	require.Contains(t, users, "u1")
+	require.Contains(t, users, "u3")
+
+	requireLogin(t, dst, login1, ident1, "u1", "")
+	requireLogin(t, dst, login3, ident3, "u3", "")
+
+	require.NotContains(t, users, "u2")
+	requireNoLogin(t, dst, loginExcluded, identExcluded)
+}
+
+// TestSnapshotRestore_IncludeUsers_Namespaced: the includeUsers backup path on a
+// namespaced cluster, where users are stored under their qualified id
+// (MakeUserKey -> "ns:id") with User.Namespace set. Covers both restore modes:
+// graduation (stripNamespaces=true -> bare id, namespace cleared) and an
+// ordinary restore (stripNamespaces=false -> qualified id, namespace kept). A
+// user from a non-selected namespace must never appear.
+func TestSnapshotRestore_IncludeUsers_Namespaced(t *testing.T) {
+	tests := []struct {
+		name            string
+		stripNamespaces bool
+		wantNamespace   string
+	}{
+		{name: "graduation strips the namespace", stripNamespaces: true, wantNamespace: ""},
+		{name: "ordinary restore preserves the namespace", stripNamespaces: false, wantNamespace: "ns1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wantID := func(short string) string {
+				if tc.stripNamespaces {
+					return short
+				}
+				return MakeUserKey(short, "ns1")
+			}
+
+			src, err := NewDBUser(t.TempDir(), false, log)
+			require.NoError(t, err)
+
+			login1, ident1 := seedUser(t, src, MakeUserKey("u1", "ns1"), "ns1")
+			login2, ident2 := seedUser(t, src, MakeUserKey("u2", "ns1"), "ns1")
+			loginOther, identOther := seedUser(t, src, MakeUserKey("u3", "ns2"), "ns2")
+
+			snap, err := src.Snapshot(MakeUserKey("u1", "ns1"), MakeUserKey("u2", "ns1"))
+			require.NoError(t, err)
+
+			dst, err := NewDBUser(t.TempDir(), false, log)
+			require.NoError(t, err)
+			require.NoError(t, dst.Restore(snap, tc.stripNamespaces))
+
+			users, err := dst.GetUsers()
+			require.NoError(t, err)
+			require.Len(t, users, 2)
+			require.Contains(t, users, wantID("u1"))
+			require.Contains(t, users, wantID("u2"))
+			require.Equal(t, tc.wantNamespace, users[wantID("u1")].Namespace)
+
+			requireLogin(t, dst, login1, ident1, wantID("u1"), tc.wantNamespace)
+			requireLogin(t, dst, login2, ident2, wantID("u2"), tc.wantNamespace)
+
+			require.NotContains(t, users, MakeUserKey("u3", "ns2"))
+			require.NotContains(t, users, "u3")
+			requireNoLogin(t, dst, loginOther, identOther)
+		})
+	}
+}
+
+// TestSnapshot_IncludeUsers_RejectsUnknownID: selecting a user that does not
+// exist must fail loudly at snapshot time rather than ship an incomplete backup
+// that silently drops the missing id.
+func TestSnapshot_IncludeUsers_RejectsUnknownID(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	seedUser(t, src, "u1", "")
+
+	_, err = src.Snapshot("u1", "ghost")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ghost")
+}
+
+// TestSnapshotRestore_IncludeUsers_GraduationAliasCollision: includeUsers
+// spanning two namespaces whose users share a short id. After the graduation
+// strip both collapse to the same bare id; restore must fail closed rather than
+// silently overwrite one user's credentials with the other's, and the target's
+// existing users must survive the rejected restore.
+func TestSnapshotRestore_IncludeUsers_GraduationAliasCollision(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	seedUser(t, src, MakeUserKey("alice", "ns1"), "ns1")
+	seedUser(t, src, MakeUserKey("alice", "ns2"), "ns2")
+
+	snap, err := src.Snapshot(MakeUserKey("alice", "ns1"), MakeUserKey("alice", "ns2"))
+	require.NoError(t, err)
+
+	dst, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	loginIncumbent, identIncumbent := seedUser(t, dst, "incumbent", "")
+
+	err = dst.Restore(snap, true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "alias")
+
+	users, err := dst.GetUsers()
+	require.NoError(t, err)
+	require.Contains(t, users, "incumbent")
+	require.NotContains(t, users, "alice")
+	requireLogin(t, dst, loginIncumbent, identIncumbent, "incumbent", "")
+}
+
+// TestSnapshotRestore_IncludeUsers_RestoreReplacesTarget: restoring an
+// includeUsers subset REPLACES the target's user store, it does not merge. An
+// incumbent user in the target is wiped, so stale credentials cannot linger
+// past a restore.
+func TestSnapshotRestore_IncludeUsers_RestoreReplacesTarget(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	login1, ident1 := seedUser(t, src, "u1", "")
+
+	snap, err := src.Snapshot("u1")
+	require.NoError(t, err)
+
+	dst, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	loginIncumbent, identIncumbent := seedUser(t, dst, "incumbent", "")
+
+	require.NoError(t, dst.Restore(snap, false))
+
+	users, err := dst.GetUsers()
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Contains(t, users, "u1")
+	require.NotContains(t, users, "incumbent")
+
+	requireLogin(t, dst, login1, ident1, "u1", "")
+	requireNoLogin(t, dst, loginIncumbent, identIncumbent)
+}
+
+// TestSnapshotRestore_IncludeUsers_PreservesStatus: deactivation and key
+// revocation must survive an includeUsers backup, or a restore would silently
+// re-enable a disabled credential.
+func TestSnapshotRestore_IncludeUsers_PreservesStatus(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	loginActive, identActive := seedUser(t, src, "active", "")
+	loginDeact, identDeact := seedUser(t, src, "deactivated", "")
+	require.NoError(t, src.DeactivateUser("deactivated", true)) // revoke the key too
+
+	snap, err := src.Snapshot("active", "deactivated")
+	require.NoError(t, err)
+
+	dst, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	require.NoError(t, dst.Restore(snap, false))
+
+	users, err := dst.GetUsers()
+	require.NoError(t, err)
+	require.True(t, users["active"].Active)
+	require.False(t, users["deactivated"].Active)
+
+	requireLogin(t, dst, loginActive, identActive, "active", "")
+	requireNoLogin(t, dst, loginDeact, identDeact)
+}
+
+// TestSnapshotRestore_IncludeUsers_ImportedKey: imported (static) keys are never
+// namespaced and are carried through the strip wholesale. An imported user
+// selected by includeUsers must still validate after a graduation restore,
+// alongside a stripped namespaced dynamic user.
+func TestSnapshotRestore_IncludeUsers_ImportedKey(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+
+	seedUser(t, src, MakeUserKey("u1", "ns1"), "ns1")
+	importedKey := "imported-static-key"
+	require.NoError(t, src.CreateUserWithKey("svc", importedKey[:3], sha256.Sum256([]byte(importedKey)), time.Now()))
+
+	snap, err := src.Snapshot(MakeUserKey("u1", "ns1"), "svc")
+	require.NoError(t, err)
+
+	dst, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	require.NoError(t, dst.Restore(snap, true)) // graduation strip
+
+	p, err := dst.ValidateImportedKey(importedKey)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	require.Equal(t, "svc", p.Username)
+
+	users, err := dst.GetUsers()
+	require.NoError(t, err)
+	require.Contains(t, users, "u1")
+	require.Contains(t, users, "svc")
+}
+
 func TestRestoreIncompleteData(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), false, log)
 	require.NoError(t, err)
@@ -767,7 +1011,7 @@ func TestRestoreIncompleteData(t *testing.T) {
 
 	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
-	err = dynUsers2.Restore(snapShot)
+	err = dynUsers2.Restore(snapShot, false)
 	require.NoError(t, err)
 
 	importedApiKey := "importedApiKey"

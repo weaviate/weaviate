@@ -208,7 +208,8 @@ func (m *Manager) Restore(snapshot []byte) error {
 	if m.dynUser == nil {
 		return nil
 	}
-	err := m.dynUser.Restore(snapshot)
+	// false: RAFT log compaction never strips; only the backup-restore path does.
+	err := m.dynUser.Restore(snapshot, false)
 	if err != nil {
 		m.logger.Errorf("restored db users from snapshot failed with: %v", err)
 		return err

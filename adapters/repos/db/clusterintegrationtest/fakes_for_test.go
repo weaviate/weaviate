@@ -167,12 +167,12 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
+		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
 	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, nil, backendProvider, nodeResolver, n.schemaManager, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -213,6 +213,16 @@ func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
 }
 
 func (r fakeRbacBackupWrapper) Restore([]byte) error {
+	return nil
+}
+
+type fakeDynUserBackupWrapper struct{}
+
+func (r fakeDynUserBackupWrapper) Snapshot(userIds ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func (r fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
@@ -291,7 +301,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ss.Shard("", string(uuid))
 }
 
-func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwrite bool) error {
+func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwrite bool, stripNamespaces bool) error {
 	return nil
 }
 
@@ -314,6 +324,10 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
+}
+
+func (f *fakeSchemaManager) NamespacesEnabled() bool {
+	return false
 }
 
 type nodeResolver struct {

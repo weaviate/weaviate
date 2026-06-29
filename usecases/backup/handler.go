@@ -67,8 +67,9 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
-	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool) error
+	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
 	NodeName() string
+	NamespacesEnabled() bool
 }
 
 type NodeResolver interface {
@@ -79,6 +80,14 @@ type NodeResolver interface {
 	// LeaderID is used to return the current leader ID
 	// It may return empty strings if there is no current leader or the leader is unknown.
 	LeaderID() string
+}
+
+// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM,
+// deliberately separate from fsm.Snapshotter (RAFT log compaction): the
+// variadic filter only makes sense for backups.
+type dynUserSnapshotter interface {
+	Snapshot(userIDs ...string) ([]byte, error)
+	Restore(snapshot []byte, stripNamespaces bool) error
 }
 
 type Status struct {
@@ -109,7 +118,7 @@ func NewHandler(
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	rbacSourcer fsm.Snapshotter,
-	dynUserSourcer fsm.Snapshotter,
+	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
 	node := schema.NodeName()
 	m := &Handler{
@@ -122,7 +131,7 @@ func NewHandler(
 			backends),
 		restorer: newRestorer(node, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
-			backends,
+			backends, schema.NamespacesEnabled(),
 		),
 	}
 	return m
@@ -153,6 +162,10 @@ type BackupRequest struct {
 	// Exclude means include all classes but those specified in Exclude
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
+
+	// Non-empty switches the backup to a filtered dynamic-user snapshot.
+	// Empty keeps the whole-cluster snapshot. Same '*'/'?' wildcards as Include.
+	IncludeUsers []string
 
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty

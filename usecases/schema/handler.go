@@ -341,6 +341,11 @@ func (h *Handler) NodeName() string {
 	return h.clusterState.LocalName()
 }
 
+// NamespacesEnabled reports whether this cluster runs with namespaces on.
+func (h *Handler) NamespacesEnabled() bool {
+	return h.config.Namespaces.Enabled
+}
+
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
