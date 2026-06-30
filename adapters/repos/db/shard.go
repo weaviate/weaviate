@@ -541,6 +541,12 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 	return uint((lo ^ hi) % IdLockPoolSize)
 }
 
+// noopCallback is passed to VectorIndex.UpdateUserConfig, which invokes the
+// callback unconditionally once the (possibly long, async) config apply settles.
+// The callback used to restore the shard from READONLY to READY; the shard is no
+// longer marked READONLY for a config update, so there is nothing to restore.
+func noopCallback() {}
+
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
@@ -551,7 +557,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return fmt.Errorf("vector index does not exist")
 	}
 
-	return index.UpdateUserConfig(updated, func() {})
+	return index.UpdateUserConfig(updated, noopCallback)
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
@@ -569,7 +575,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	var err error
 	for targetVector, targetCfg := range updated {
 		if index, ok := s.GetVectorIndex(targetVector); ok {
-			if err = index.UpdateUserConfig(targetCfg, func() {}); err != nil {
+			if err = index.UpdateUserConfig(targetCfg, noopCallback); err != nil {
 				break
 			}
 		} else {
