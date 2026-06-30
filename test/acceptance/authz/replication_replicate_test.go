@@ -114,7 +114,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 	t.Run("Cancel a replication of a shard with permissions", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.
 			CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
-		// Don't care about the response type here, as it can be either CancelReplicationNoContent or CancelReplicationConflict depending on the state of the replication.
+		// Don't care about the error type here, as it can be either CancelReplicationNoContent or CancelReplicationConflict depending on the state of the replication.
 		require.IsNotType(t, replication.NewCancelReplicationForbidden(), err)
 	})
 
@@ -148,7 +148,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 	t.Run("Delete a replication of a shard with permissions", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.
 			DeleteReplication(replication.NewDeleteReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
-		// Don't care about the response type here, as it can be either DeleteReplicationNoContent or DeleteReplicationConflict depending on the state of the replication.
+		// Don't care about the error type here, as it can be either DeleteReplicationNoContent or DeleteReplicationConflict depending on the state of the replication.
 		require.IsNotType(t, replication.NewDeleteReplicationForbidden(), err)
 	})
 }
