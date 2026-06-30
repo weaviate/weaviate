@@ -197,6 +197,12 @@ type hnsw struct {
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
 
+	// entrypointRepairPending is an optimization to prevent goroutine accumulation
+	// when many concurrent searches hit an invalid entrypoint. Only one repair
+	// goroutine should be spawned; subsequent searches skip spawning.
+	// CAS inside repairGlobalEntrypoint provides correctness; this is optimization only.
+	entrypointRepairPending atomic.Bool
+
 	visitedListPoolMaxSize int
 
 	asyncIndexingEnabled bool

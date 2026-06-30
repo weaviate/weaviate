@@ -13,22 +13,19 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32,
 	dist float32, ef int, allowList helpers.AllowList,
 ) ([]uint64, error) {
-	h.RLock()
-	entryPointID := h.entryPointID
-	maxLayer := h.currentMaximumLayer
-	h.RUnlock()
+	if h.isEmpty() {
+		return nil, nil
+	}
 
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
@@ -36,16 +33,23 @@ func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+
+	// Resolve a valid entrypoint (may use fallback and trigger async repair)
+	resolved, ok, err := h.resolveEntrypoint(compressorDistancer, searchVec)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "KnnSearchByVectorMaxDist")
-			return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-		}
-		return nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
+		return nil, errors.Wrap(err, "knn search: resolve entrypoint")
 	}
+	if !ok {
+		// No valid nodes in graph (empty or all under maintenance)
+		return nil, nil
+	}
+
+	entryPointID := resolved.id
+	entryPointDistance := resolved.distance
+
+	h.RLock()
+	maxLayer := h.currentMaximumLayer
+	h.RUnlock()
 
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {

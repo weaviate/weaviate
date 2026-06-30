@@ -79,31 +79,35 @@ func (m *searchFallbackMockVectorCompressor) NewDistancer(q []float32) (compress
 	return &searchFallbackMockCompressorDistancer{deleted: m.deleted, vectors: m.vectors, queryVec: q}, func() {}
 }
 
-func (m *searchFallbackMockVectorCompressor) Drop() error                            { return nil }
-func (m *searchFallbackMockVectorCompressor) GrowCache(uint64)                       {}
-func (m *searchFallbackMockVectorCompressor) SetCacheMaxSize(int64)                  {}
-func (m *searchFallbackMockVectorCompressor) GetCacheMaxSize() int64                 { return 0 }
-func (m *searchFallbackMockVectorCompressor) Delete(context.Context, uint64)         {}
-func (m *searchFallbackMockVectorCompressor) Preload(uint64, []float32)              {}
+func (m *searchFallbackMockVectorCompressor) Drop() error                    { return nil }
+func (m *searchFallbackMockVectorCompressor) GrowCache(uint64)               {}
+func (m *searchFallbackMockVectorCompressor) SetCacheMaxSize(int64)          {}
+func (m *searchFallbackMockVectorCompressor) GetCacheMaxSize() int64         { return 0 }
+func (m *searchFallbackMockVectorCompressor) Delete(context.Context, uint64) {}
+func (m *searchFallbackMockVectorCompressor) Preload(uint64, []float32)      {}
 func (m *searchFallbackMockVectorCompressor) PreloadMulti(uint64, []uint64, [][]float32) {
 }
+
 func (m *searchFallbackMockVectorCompressor) PreloadPassage(uint64, uint64, uint64, []float32) {
 }
-func (m *searchFallbackMockVectorCompressor) GetKeys(uint64) (uint64, uint64)    { return 0, 0 }
-func (m *searchFallbackMockVectorCompressor) SetKeys(uint64, uint64, uint64)     {}
-func (m *searchFallbackMockVectorCompressor) Prefetch(uint64)                    {}
-func (m *searchFallbackMockVectorCompressor) CountVectors() int64                { return int64(len(m.vectors)) }
-func (m *searchFallbackMockVectorCompressor) MaxVectorID() uint64                { return uint64(len(m.vectors)) }
-func (m *searchFallbackMockVectorCompressor) Len() int32                         { return int32(len(m.vectors)) }
-func (m *searchFallbackMockVectorCompressor) PrefillCache(context.Context)       {}
+func (m *searchFallbackMockVectorCompressor) GetKeys(uint64) (uint64, uint64) { return 0, 0 }
+func (m *searchFallbackMockVectorCompressor) SetKeys(uint64, uint64, uint64)  {}
+func (m *searchFallbackMockVectorCompressor) Prefetch(uint64)                 {}
+func (m *searchFallbackMockVectorCompressor) CountVectors() int64             { return int64(len(m.vectors)) }
+func (m *searchFallbackMockVectorCompressor) MaxVectorID() uint64             { return uint64(len(m.vectors)) }
+func (m *searchFallbackMockVectorCompressor) Len() int32                      { return int32(len(m.vectors)) }
+func (m *searchFallbackMockVectorCompressor) PrefillCache(context.Context)    {}
 func (m *searchFallbackMockVectorCompressor) PrefillMultiCache(context.Context, map[uint64][]uint64) {
 }
+
 func (m *searchFallbackMockVectorCompressor) DistanceBetweenCompressedVectorsFromIDs(context.Context, uint64, uint64) (float32, error) {
 	return 0, nil
 }
+
 func (m *searchFallbackMockVectorCompressor) NewDistancerFromID(uint64) (compressionhelpers.CompressorDistancer, error) {
 	return nil, nil
 }
+
 func (m *searchFallbackMockVectorCompressor) NewBag() compressionhelpers.CompressionDistanceBag {
 	return nil
 }
@@ -111,6 +115,7 @@ func (m *searchFallbackMockVectorCompressor) PersistCompression(compressionhelpe
 func (m *searchFallbackMockVectorCompressor) Stats() compressionhelpers.CompressionStats {
 	return nil
 }
+
 func (m *searchFallbackMockVectorCompressor) Get(id uint64) ([]float32, error) {
 	if int(id) < len(m.vectors) {
 		return m.vectors[id], nil
@@ -302,8 +307,8 @@ func TestSearchFallback_EmptyGraph_ReturnsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { index.Shutdown(ctx) })
 
-	// Graph is empty - no nodes
-	index.nodes = nil
+	// Index is empty by default (no Add calls) - isEmpty() returns true
+	// because nodes[entryPointID] == nil
 
 	// SearchByVector on empty graph
 	results, dists, err := index.SearchByVector(ctx, []float32{1, 1}, 10, nil)
@@ -381,7 +386,7 @@ func TestSearchFallback_AsyncRepair_SubsequentSearchFastPath(t *testing.T) {
 	repairCompleted := false
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if index.entryPointID != 0 {
+		if index.getEntrypoint() != 0 {
 			repairCompleted = true
 			break
 		}
@@ -389,7 +394,7 @@ func TestSearchFallback_AsyncRepair_SubsequentSearchFastPath(t *testing.T) {
 	}
 
 	require.True(t, repairCompleted, "async repair should complete and change entrypoint from 0")
-	assert.NotEqual(t, uint64(0), index.entryPointID, "entrypoint should be repaired to a valid node")
+	assert.NotEqual(t, uint64(0), index.getEntrypoint(), "entrypoint should be repaired to a valid node")
 
 	// Verify commit logger recorded the repair
 	assert.GreaterOrEqual(t, commitLogger.setEntrypointCalls.Load(), int32(1),
@@ -398,7 +403,7 @@ func TestSearchFallback_AsyncRepair_SubsequentSearchFastPath(t *testing.T) {
 	// Second search - should use the repaired entrypoint (fast path)
 	// Reset the deleted flag for verification - we want to see the fast path works
 	// The new entrypoint should be valid
-	newEntrypoint := index.entryPointID
+	newEntrypoint := index.getEntrypoint()
 	assert.False(t, deleted[newEntrypoint], "repaired entrypoint should not be in deleted set")
 
 	results2, _, err := index.SearchByVector(ctx, []float32{1.5, 1.5}, 2, nil)
