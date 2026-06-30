@@ -229,6 +229,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
 		subSearchLimit = params.Boost.OriginalLimit
 	}
+	// Under MMR, fetch Boost.Depth deep per leg so boost re-ranks that deep.
+	if origParams.Selection != nil && origParams.Selection.MMR != nil {
+		if d := e.mmrFetchDepth(origParams.Boost, params.Pagination.Limit); d > subSearchLimit {
+			subSearchLimit = d
+		}
+	}
 
 	// pagination is handled after combining results
 	vectorParams := params
@@ -271,7 +277,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			keywordParams.AdditionalProperties.Vectors = withVectorTarget(keywordParams.AdditionalProperties.Vectors, targetVector)
 		}
 
-		// The query Limit is the MMR candidate pool; MMR.Limit is the page size, applied below.
+		// Query Limit is the MMR candidate pool; MMR.Limit is the page size.
 		pool := origParams.Pagination.Limit
 		if pool <= 0 {
 			pool = int(e.config.QueryHybridMaximumResults)
@@ -279,7 +285,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		selTargetVector := targetVector
 		boost := origParams.Boost
 		selectionFn = func(ctx context.Context, fused []search.Result) ([]search.Result, error) {
-			// Boost re-ranks the pool first so its relevance feeds MMR; pagination happens below.
 			if boost != nil && boost.Weight > 0 {
 				fused = boostScoreAndSort(fused, boost)
 			}

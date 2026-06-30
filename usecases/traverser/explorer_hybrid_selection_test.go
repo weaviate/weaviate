@@ -168,7 +168,6 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		}
 		searcher.On("VectorSearch", mock.Anything, mock.Anything).Return(results, nil)
 
-		// Capture the pool entering MMR to prove boost ran first.
 		var diversifyInput []string
 		searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, in []search.Result) ([]search.Result, error) {
 			diversifyInput = make([]string, len(in))
@@ -190,13 +189,46 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 3, "MMR.Limit is the page size")
 
-		// The fused pool arrives boost-ordered (likes desc → Item 09 first).
 		require.Len(t, diversifyInput, 10)
 		assert.Equal(t, "Item 09", diversifyInput[0], "boost must re-rank the fused pool before MMR")
-
-		// MMR relevance uses the post-boost score, not raw distance.
-		assert.False(t, searcher.diversifyCalledRelevanceFromDist)
-
+		assert.False(t, searcher.diversifyCalledRelevanceFromDist, "boost active ⇒ score relevance")
 		assert.Equal(t, []string{"Item 09", "Item 08", "Item 07"}, idsFromResponse(res))
+	})
+
+	t.Run("Boost.Depth deepens the leg fetch, MMR over top Limit", func(t *testing.T) {
+		searcher := &fakeVectorSearcher{}
+		explorer := newTestExplorer(searcher, getFakeModulesProvider())
+
+		results := makeHybridVectorResults(50)
+		for i := range results {
+			results[i].Schema.(map[string]any)["likes"] = float64(i * 100)
+		}
+		var legLimit int
+		searcher.On("VectorSearch", mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) {
+				legLimit = args.Get(0).(dto.GetParams).Pagination.Limit
+			}).
+			Return(results, nil)
+
+		var diversifyInputLen int
+		searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, in []search.Result) ([]search.Result, error) {
+			diversifyInputLen = len(in)
+			return in, nil
+		}
+
+		params := dto.GetParams{
+			ClassName:    "TestClass",
+			Pagination:   &filters.Pagination{Offset: 0, Limit: 10}, // MMR candidate pool
+			HybridSearch: &searchparams.HybridSearch{Query: "foo", Alpha: 1, Vector: []float32{0.1, 0.2, 0.3}},
+			Boost:        likesBoost(1.0, 40), // Depth = 40
+			Selection:    mmrSel(5, 0.5),
+		}
+
+		res, err := explorer.GetClass(context.Background(), params)
+		require.NoError(t, err)
+		require.Len(t, res, 5, "page size is MMR.Limit")
+
+		assert.GreaterOrEqual(t, legLimit, 40, "leg fetch must reach Boost.Depth")
+		assert.Equal(t, 10, diversifyInputLen, "MMR pool must be the query Limit")
 	})
 }

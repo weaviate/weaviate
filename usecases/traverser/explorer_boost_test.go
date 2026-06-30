@@ -328,7 +328,6 @@ func Test_Explorer_BoostThenMMR(t *testing.T) {
 		explorer := newTestExplorer(searcher, getFakeModulesProvider())
 		searcher.On("VectorSearch", mock.Anything, mock.Anything).Return(makeVectorResults(20), nil)
 
-		// Capture the pool entering MMR to prove boost ran first.
 		var diversifyInput []string
 		searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, results []search.Result) ([]search.Result, error) {
 			diversifyInput = make([]string, len(results))
@@ -350,12 +349,9 @@ func Test_Explorer_BoostThenMMR(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 3, "MMR.Limit is the page size")
 
-		// The pool arrives boost-ordered (likes desc → Item 19 first), not raw-distance ordered.
 		require.Len(t, diversifyInput, 20)
 		assert.Equal(t, "Item 19", diversifyInput[0], "boost must re-rank the pool before MMR")
-
-		// With boost active, MMR's relevance is the post-boost score, not raw distance.
-		assert.False(t, searcher.diversifyCalledRelevanceFromDist)
+		assert.False(t, searcher.diversifyCalledRelevanceFromDist, "boost active ⇒ score relevance")
 
 		assert.Equal(t, []string{"Item 19", "Item 18", "Item 17"}, idsFromResponse(res))
 	})
@@ -375,7 +371,46 @@ func Test_Explorer_BoostThenMMR(t *testing.T) {
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NoError(t, err)
 
-		// No boost ⇒ relevance is the raw vector distance.
-		assert.True(t, searcher.diversifyCalledRelevanceFromDist)
+		assert.True(t, searcher.diversifyCalledRelevanceFromDist, "no boost ⇒ raw distance relevance")
+	})
+}
+
+// Test_Explorer_BoostDepthUnderMMR: Boost.Depth sets the fetch/rerank pool; the query Limit is the MMR pool.
+func Test_Explorer_BoostDepthUnderMMR(t *testing.T) {
+	t.Run("nearVector: Depth deepens fetch/rerank, MMR over top Limit", func(t *testing.T) {
+		searcher := &fakeVectorSearcher{}
+		explorer := newTestExplorer(searcher, getFakeModulesProvider())
+
+		var fetchLimit, fetchOffset int
+		searcher.On("VectorSearch", mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) {
+				p := args.Get(0).(dto.GetParams)
+				fetchLimit = p.Pagination.Limit
+				fetchOffset = p.Pagination.Offset
+			}).
+			Return(makeVectorResults(50), nil)
+
+		var diversifyInputLen int
+		searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, in []search.Result) ([]search.Result, error) {
+			diversifyInputLen = len(in)
+			return in, nil
+		}
+
+		params := dto.GetParams{
+			ClassName:  "TestClass",
+			Pagination: &filters.Pagination{Offset: 0, Limit: 10}, // MMR candidate pool
+			NearVector: &searchparams.NearVector{Vectors: []models.Vector{[]float32{0.1, 0.2, 0.3}}},
+			Boost:      likesBoost(1.0, 40), // Depth = 40
+			Selection:  mmrSel(5, 0.5),      // MMR.Limit = page size
+		}
+
+		res, err := explorer.GetClass(context.Background(), params)
+		require.NoError(t, err)
+		require.Len(t, res, 5, "page size is MMR.Limit")
+
+		assert.Equal(t, 40, fetchLimit, "fetch must be Boost.Depth deep, not the query Limit")
+		assert.Equal(t, 0, fetchOffset)
+
+		assert.Equal(t, 10, diversifyInputLen, "MMR pool must be the query Limit")
 	})
 }

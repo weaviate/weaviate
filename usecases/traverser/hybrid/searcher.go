@@ -37,9 +37,7 @@ type Params struct {
 	Autocut              int
 	ModuleParams         map[string]interface{}
 	AdditionalProperties additional.Properties
-
-	// SelectionFn, when set, re-ranks the full fused pool (e.g. MMR diversity) before it is truncated to the user's limit.
-	SelectionFn func(ctx context.Context, fused []search.Result) ([]search.Result, error)
+	SelectionFn          func(ctx context.Context, fused []search.Result) ([]search.Result, error)
 }
 
 // sparseSearchFunc is the signature of a closure which performs sparse search.

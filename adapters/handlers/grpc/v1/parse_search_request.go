@@ -317,7 +317,6 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			Distance:        distance,
 			WithDistance:    withDistance,
 		}
-		// Post-fusion diversity is carried on the top-level Hybrid.selection, not the near sub-query's selection.
 		out.Selection = parseSelection(hs.Selection)
 
 		if hs.Bm25SearchOperator != nil {
