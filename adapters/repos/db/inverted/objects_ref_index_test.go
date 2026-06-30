@@ -47,16 +47,18 @@ func TestAnalyzer_ReferenceFromUntypedBeaconsIsIndexed(t *testing.T) {
 			map[string]interface{}{"beacon": "weaviate://localhost/Books/11111111-1111-1111-1111-111111111111"},
 			map[string]interface{}{"beacon": "weaviate://localhost/Books/22222222-2222-2222-2222-222222222222"},
 		}}
-		props, _, err := a.Object(input, []*models.Property{refProp}, uuid)
+		props, nestedProps, err := a.Object(input, []*models.Property{refProp}, uuid)
 		require.NoError(t, err)
+		require.Empty(t, nestedProps)
 		require.True(t, hasRefValueProp(props),
 			"populated []interface{} ref must be indexed into the filterable bucket")
 	})
 
 	t.Run("empty []interface{} is treated as no refs", func(t *testing.T) {
 		input := map[string]any{"wroteBooks": []any{}}
-		props, _, err := a.Object(input, []*models.Property{refProp}, uuid)
+		props, nestedProps, err := a.Object(input, []*models.Property{refProp}, uuid)
 		require.NoError(t, err)
+		require.Empty(t, nestedProps)
 		require.False(t, hasRefValueProp(props), "empty ref must not produce a ref value entry")
 	})
 }

@@ -1983,6 +1983,31 @@ func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNo
 	return time.Now().Add(-config.propagationDelay).UnixMilli()
 }
 
+// buildPropagationBatch wraps each local object's raw on-disk bytes as a VObject
+// to overwrite on the target. Objects deleted locally in the meantime are
+// skipped. An older target that cannot decode raw fails gracefully and converges
+// once upgraded (see VObject.MarshalBinaryRaw).
+func (s *Shard) buildPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
+	remoteStaleUpdateTime map[strfmt.UUID]int64,
+) ([]*objects.VObject, error) {
+	rawObjs, err := s.MultiObjectRawByID(ctx, uuidBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	batch := make([]*objects.VObject, 0, len(rawObjs))
+	for j, raw := range rawObjs {
+		if raw == nil {
+			continue
+		}
+		batch = append(batch, &objects.VObject{
+			StaleUpdateTime: remoteStaleUpdateTime[uuidBatch[j]],
+			RawBytes:        raw,
+		})
+	}
+	return batch, nil
+}
+
 func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationConfig, host string,
 	objectsToPropagate []strfmt.UUID, remoteStaleUpdateTime map[strfmt.UUID]int64,
 ) (res []types.RepairResponse, err error) {
@@ -2052,7 +2077,7 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 					continue
 				}
 
-				localObjs, err := s.MultiObjectByID(workerCtx, wrapIDsInMulti(uuidBatch))
+				batch, err := s.buildPropagationBatch(workerCtx, uuidBatch, remoteStaleUpdateTime)
 				if err != nil {
 					// Skip ctx-cancellation errors: the parent surfaces the cancel
 					// cause via context.Cause(workerCtx) once workers drain.
@@ -2065,43 +2090,6 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 						err: fmt.Errorf("fetching local objects: %w", err),
 					}
 					continue
-				}
-
-				batch := make([]*objects.VObject, 0, len(localObjs))
-
-				for _, obj := range localObjs {
-					if obj == nil {
-						// local object was deleted meanwhile
-						continue
-					}
-
-					var vectors map[string][]float32
-					var multiVectors map[string][][]float32
-
-					if obj.Vectors != nil {
-						vectors = make(map[string][]float32, len(obj.Vectors))
-						for targetVector, v := range obj.Vectors {
-							vectors[targetVector] = v
-						}
-					}
-					if obj.MultiVectors != nil {
-						multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
-						for targetVector, v := range obj.MultiVectors {
-							multiVectors[targetVector] = v
-						}
-					}
-
-					obj := &objects.VObject{
-						ID:                      obj.ID(),
-						LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-						LatestObject:            &obj.Object,
-						Vector:                  obj.Vector,
-						Vectors:                 vectors,
-						MultiVectors:            multiVectors,
-						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
-					}
-
-					batch = append(batch, obj)
 				}
 
 				if len(batch) > 0 {

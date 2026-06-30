@@ -14,7 +14,6 @@ package geo
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -65,12 +64,7 @@ type Config struct {
 
 	HNSWEF int
 
-	SnapshotDisabled                         bool
-	SnapshotOnStartup                        bool
-	SnapshotCreateInterval                   time.Duration
-	SnapshotMinDeltaCommitlogsNumer          int
-	SnapshotMinDeltaCommitlogsSizePercentage int
-	AllocChecker                             memwatch.AllocChecker
+	AllocChecker memwatch.AllocChecker
 }
 
 func (c Config) hnswEF() int {
@@ -89,8 +83,6 @@ func NewIndex(config Config,
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCallbacks),
 		DistanceProvider:      distancer.NewGeoProvider(),
-		DisableSnapshots:      config.SnapshotDisabled,
-		SnapshotOnStartup:     config.SnapshotOnStartup,
 		AllocChecker:          config.AllocChecker,
 		GetViewThunk:          func() common.BucketView { return nil },
 	}, hnswent.UserConfig{
@@ -127,13 +119,8 @@ func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager
 ) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
-		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks,
-				hnsw.WithSnapshotDisabled(config.SnapshotDisabled),
-				hnsw.WithSnapshotCreateInterval(config.SnapshotCreateInterval),
-				hnsw.WithSnapshotMinDeltaCommitlogsNumer(config.SnapshotMinDeltaCommitlogsNumer),
-				hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(config.SnapshotMinDeltaCommitlogsSizePercentage),
-			)
+		makeCL = func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks, opts...)
 		}
 	}
 	return makeCL

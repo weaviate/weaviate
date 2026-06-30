@@ -137,6 +137,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	return nil
 }
 
+// MayResetTransferInactivityTimer counts an in-flight transfer RPC as
+// activity so the halt watchdog doesn't force-resume mid-stream.
+func (s *Shard) MayResetTransferInactivityTimer() {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+	s.mayResetInactivityTimer()
+}
+
 // structuralVectorOpInFlight reports whether any vector index is mid-restructure
 // (HNSW compression or dynamic flat→HNSW upgrade) — a snapshot taken now would
 // be structurally inconsistent. reason names the first offending index.
@@ -163,6 +171,7 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
+	s.haltForTransferDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
 	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
 }
 
@@ -193,6 +202,7 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.haltForTransferCancel = cancel
 
+	s.haltForTransferDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
 	s.haltForTransferInactivityTimer = time.NewTimer(s.haltForTransferInactivityTimeout)
 
 	enterrors.GoWrapper(func() {
@@ -205,18 +215,32 @@ func (s *Shard) mayInitInactivityMonitoring() {
 			s.haltForTransferMux.Unlock()
 		}()
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.haltForTransferInactivityTimer.C:
-			func() {
-				s.haltForTransferMux.Lock()
-				defer s.haltForTransferMux.Unlock()
-				s.mayForceResumeMaintenanceCycles(context.Background(), true)
-			}()
-			return
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.haltForTransferInactivityTimer.C:
+				if s.reArmOrResumeAfterInactivity() {
+					return
+				}
+			}
 		}
 	}, s.index.logger)
+}
+
+func (s *Shard) reArmOrResumeAfterInactivity() (resumed bool) {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+
+	if remaining := time.Until(s.haltForTransferDeadline); remaining > 0 {
+		if s.haltForTransferInactivityTimer != nil {
+			s.haltForTransferInactivityTimer.Reset(remaining)
+		}
+		return false
+	}
+
+	s.mayForceResumeMaintenanceCycles(context.Background(), true)
+	return true
 }
 
 // CreateBackupSnapshot halts compaction, lists backup files, hardlinks them into
@@ -268,19 +292,19 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		}
 	}
 
+	pairs := make([]file.HardlinkPair, 0, len(files))
 	for _, relPath := range files {
 		if _, ok := staged[relPath]; ok {
 			// already written as a consistent copy above; do not hardlink over it
 			continue
 		}
-		src := filepath.Join(s.index.Config.RootPath, relPath)
-		dst := filepath.Join(stagingRoot, relPath)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return nil, fmt.Errorf("create staging subdir for %s: %w", relPath, err)
-		}
-		if err := os.Link(src, dst); err != nil {
-			return nil, fmt.Errorf("hardlink %s to staging: %w", relPath, err)
-		}
+		pairs = append(pairs, file.HardlinkPair{
+			Src: filepath.Join(s.index.Config.RootPath, relPath),
+			Dst: filepath.Join(stagingRoot, relPath),
+		})
+	}
+	if err := file.HardlinkFiles(pairs); err != nil {
+		return nil, fmt.Errorf("hardlink backup files to staging: %w", err)
 	}
 
 	return files, nil
@@ -359,6 +383,13 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	if forced {
 		s.haltForTransferCount = 0
+		// Non-zero in steady state means a transfer was force-resumed
+		// mid-stream — i.e. the read-path timer reset isn't reaching us.
+		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
+			s.promMetrics.ShardHaltForTransferForceResume.
+				WithLabelValues().
+				Inc()
+		}
 	} else {
 		s.haltForTransferCount--
 

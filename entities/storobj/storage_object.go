@@ -56,6 +56,10 @@ type Object struct {
 	DocID             uint64
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
+
+	// PrecomputedDiskBinary, when set, is persisted verbatim (after a docID patch)
+	// instead of re-marshalling. Set on the raw-propagation write path.
+	PrecomputedDiskBinary []byte `json:"-"`
 }
 
 func New(docID uint64) *Object {
@@ -773,6 +777,18 @@ func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dim
 	return nil
 }
 
+func (ko *Object) RemoveTargetVector(targetVector string) bool {
+	if _, ok := ko.Vectors[targetVector]; ok {
+		delete(ko.Vectors, targetVector)
+		return true
+	}
+	if _, ok := ko.MultiVectors[targetVector]; ok {
+		delete(ko.MultiVectors, targetVector)
+		return true
+	}
+	return false
+}
+
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
@@ -815,6 +831,19 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	}
 	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+// PatchDocID overwrites the docID in a marshalled (version 1) object binary in
+// place, so a target can store propagated raw bytes under its own docID.
+func PatchDocID(in []byte, docID uint64) error {
+	if len(in) < 9 {
+		return errors.Errorf("binary data too short")
+	}
+	if in[0] != 1 {
+		return errors.Errorf("unsupported binary marshaller version %d", in[0])
+	}
+	binary.LittleEndian.PutUint64(in[1:9], docID)
+	return nil
 }
 
 func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
@@ -1202,7 +1231,7 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 	clear(resultProperties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(startPos))
+	rw := byteops.NewReadWriterWithPosition(data, startPos)
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1355,7 +1384,7 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 	}
 	ko.MarshallerVersion = version
 
-	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(1))
+	rw := byteops.NewReadWriterWithPosition(data, 1)
 	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
@@ -1389,22 +1418,13 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 	}
 
 	schemaLength := uint64(rw.ReadUint32())
-	schema, err := rw.CopyBytesFromBuffer(schemaLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy schema")
-	}
+	schema := rw.ReadBytesFromBuffer(schemaLength)
 
 	metaLength := uint64(rw.ReadUint32())
-	meta, err := rw.CopyBytesFromBuffer(metaLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy meta")
-	}
+	meta := rw.ReadBytesFromBuffer(metaLength)
 
 	vectorWeightsLength := uint64(rw.ReadUint32())
-	vectorWeights, err := rw.CopyBytesFromBuffer(vectorWeightsLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy vectorWeights")
-	}
+	vectorWeights := rw.ReadBytesFromBuffer(vectorWeightsLength)
 
 	vectors, err := unmarshalTargetVectors(&rw)
 	if err != nil {
@@ -1536,12 +1556,12 @@ func unmarshalMultiVectors(
 				}
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				numVecs := rw.ReadUint32()
-				vecs := make([][]float32, 0)
+				vecs := make([][]float32, numVecs)
 				for i := 0; i < int(numVecs); i++ {
 					vecLen := rw.ReadUint16()
 					vec := make([]float32, vecLen)
 					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
-					vecs = append(vecs, vec)
+					vecs[i] = vec
 				}
 				multiVectors[name] = vecs
 			}
@@ -1565,7 +1585,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 
 	if targetVector != "" {
 		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(startPos))
+		rw := byteops.NewReadWriterWithPosition(in, startPos)
 
 		vectorLength := uint64(rw.ReadUint16())
 		rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1666,7 +1686,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	var multiVectors map[string][][]float32
 
 	if len(in) > pos {
-		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(uint64(pos)))
+		rw := byteops.NewReadWriterWithPosition(in, uint64(pos))
 		mv, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
 		if err != nil {
 			return nil, errors.Errorf("unable to unmarshal multivector for target vector: %s", targetVector)
