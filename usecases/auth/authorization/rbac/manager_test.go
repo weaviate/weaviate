@@ -163,6 +163,68 @@ func equalPolicies(a, b []string) bool {
 	return true
 }
 
+// TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload pins that an
+// already-absent role in a batch delete does not drop persistence of the roles
+// (and their assignments) removed alongside it: the cleanup cascade calls
+// DeleteRoles with many names, and a concurrent delete can leave one already
+// gone. Reloading the policy from disk (a restart) must still see every removed
+// role and assignment gone.
+func TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload(t *testing.T) {
+	const (
+		roleA = "batchRoleA"
+		roleB = "batchRoleB"
+		roleC = "batchRoleC"
+	)
+	allRoles := []string{roleA, roleB, roleC}
+	user := conv.UserNameWithTypeFromId("batch-user", authentication.AuthTypeDb)
+
+	tests := []struct {
+		name       string
+		preRemoved []string // roles deleted (and persisted) before the batch
+	}{
+		{name: "no pre-removed role", preRemoved: nil},
+		{name: "some roles already absent", preRemoved: []string{roleB}},
+		{name: "all roles already absent", preRemoved: allRoles},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			for _, r := range allRoles {
+				require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+					r: {{Resource: "data/collections/Movies/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
+				}))
+			}
+			// Assign every role so the batch must also persist assignment removal.
+			require.NoError(t, m.AddRolesForUser(user, allRoles))
+
+			if len(tt.preRemoved) > 0 {
+				require.NoError(t, m.DeleteRoles(tt.preRemoved...))
+			}
+
+			require.NoError(t, m.DeleteRoles(allRoles...))
+
+			// Drop in-memory state and reload from the persisted policy file,
+			// which is what a restart does.
+			require.NoError(t, m.casbin.LoadPolicy())
+
+			got, err := m.GetRoles()
+			require.NoError(t, err)
+			for _, r := range allRoles {
+				_, exists := got[r]
+				require.Falsef(t, exists, "role %q must stay deleted across reload", r)
+			}
+
+			assignments, err := m.GetRolesForUserOrGroup("batch-user", authentication.AuthTypeDb, false)
+			require.NoError(t, err)
+			require.Empty(t, assignments, "assignments must stay removed across reload")
+		})
+	}
+}
+
 // TestManager_CountNamespaceLocalRBAC pins the filtering: a namespace-local
 // role and assignments to its direct principals count (even when the assigned
 // role is global), while global roles and out-of-namespace subjects do not.
