@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func prefixTransformer(className string, skip bool, ops []ActiveOp) func([]byte) ([]byte, error) {
+func prefixTransformer(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
 	return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 }
 
@@ -55,7 +55,7 @@ func newReplaceBucketWithEditOps(t *testing.T, factory OpTransformerFactory) (*B
 	if factory != nil {
 		transformers[OpTypeRemoveTargetVectors] = factory
 	}
-	bucket.disk.editOps = newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", false, staticResolver(transformers))
+	bucket.disk.editOps = newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", staticResolver(transformers))
 
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 	return bucket, bucket.disk.editOps
@@ -268,7 +268,7 @@ func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
 // TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts quarantines a segment
 // whose rewrite keeps failing, so it stops being retried (C6).
 func TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts(t *testing.T) {
-	failing := func(className string, skip bool, ops []ActiveOp) func([]byte) ([]byte, error) {
+	failing := func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
 		return func(v []byte) ([]byte, error) { return nil, errors.New("boom") }
 	}
 	bucket, editOps := newReplaceBucketWithEditOps(t, failing)

@@ -49,11 +49,10 @@ import (
 // op and segment IDs never need an in-key separator.
 type SegmentEditOps struct {
 	dir string
-	// className and skipClassNameOnDisk are the per-bucket object-codec settings
-	// handed to each transformer factory at build time (the global transformers
-	// registry can't capture per-bucket state). Set once at construction.
-	className           string
-	skipClassNameOnDisk bool
+	// className is the bucket's canonical class name, handed to each transformer
+	// factory at build time (the global transformers registry can't capture per-bucket
+	// state). Set once at construction.
+	className string
 	// resolve maps an op type to its transformer factory. It defaults to the global
 	// transformers registry (transformers.Lookup); the edit-ops DB drives selection,
 	// so the persisted ops — not the bucket wiring — decide what runs. Overridable
@@ -122,23 +121,22 @@ type valueTransformer func(value []byte) ([]byte, error)
 // production constructor. It does NO I/O: the bolt sidecar file is opened (and
 // created) lazily on the first registered op, so an objects bucket that never sees
 // a drop carries no sidecar — keeping it out of file listings, backups and
-// disk-size accounting. className/skipClassNameOnDisk are the object-codec settings
-// passed to each transformer factory.
-func newSegmentEditOps(dir, className string, skipClassNameOnDisk bool) *SegmentEditOps {
-	return newSegmentEditOpsWithLookup(dir, className, skipClassNameOnDisk, nil)
+// disk-size accounting. className is the canonical class name passed to each
+// transformer factory.
+func newSegmentEditOps(dir, className string) *SegmentEditOps {
+	return newSegmentEditOpsWithLookup(dir, className, nil)
 }
 
 // newSegmentEditOpsWithLookup is newSegmentEditOps with an explicit op-type
 // resolver. Tests use it to inject fakes (including op types absent from the real
 // registry); a nil resolve falls back to the global transformers registry.
-func newSegmentEditOpsWithLookup(dir, className string, skipClassNameOnDisk bool, resolve transformerResolver) *SegmentEditOps {
+func newSegmentEditOpsWithLookup(dir, className string, resolve transformerResolver) *SegmentEditOps {
 	if resolve == nil {
 		resolve = transformers.Lookup
 	}
 	return &SegmentEditOps{
 		dir:                      dir,
 		className:                className,
-		skipClassNameOnDisk:      skipClassNameOnDisk,
 		resolve:                  resolve,
 		warnedMissingTransformer: map[OpType]struct{}{},
 	}
@@ -291,7 +289,7 @@ func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp
 
 	built := make([]valueTransformer, 0, len(order))
 	for _, opType := range order {
-		built = append(built, factories[opType](s.className, s.skipClassNameOnDisk, byType[opType]))
+		built = append(built, factories[opType](s.className, byType[opType]))
 	}
 	return chainTransformers(built), applied, nil
 }

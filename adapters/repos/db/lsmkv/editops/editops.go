@@ -44,8 +44,8 @@ type ActiveOp struct {
 
 // OpTransformerFactory builds the value transformer for all live ops of a single
 // OpType (the registry key guarantees every op handed to it shares that type).
-// className and skipClassNameOnDisk are the per-bucket object-codec settings the
-// transformer needs to decode/re-marshal; lsmkv supplies them at build time so the
-// factory itself can live in a global registry without capturing bucket state. The
-// returned function operates on raw value bytes.
-type OpTransformerFactory func(className string, skipClassNameOnDisk bool, ops []ActiveOp) func(value []byte) ([]byte, error)
+// className is the bucket's canonical class name, which the transformer needs to
+// decode the object; lsmkv supplies it at build time so the factory itself can live
+// in a global registry without capturing bucket state. The returned function
+// operates on raw value bytes.
+type OpTransformerFactory func(className string, ops []ActiveOp) func(value []byte) ([]byte, error)

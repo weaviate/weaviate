@@ -26,7 +26,7 @@ import (
 
 func newTestEditOps(t *testing.T) *SegmentEditOps {
 	t.Helper()
-	s := newSegmentEditOps(t.TempDir(), "", false)
+	s := newSegmentEditOps(t.TempDir(), "")
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return s
 }
@@ -247,13 +247,13 @@ func TestSegmentEditOps_ReconcileDeletesOrphanedOps(t *testing.T) {
 func TestSegmentEditOps_PersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 
-	s := newSegmentEditOps(dir, "", false)
+	s := newSegmentEditOps(dir, "")
 	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
 	require.NoError(t, s.SnapshotSegments("op1", []string{"seg1", "seg2"}))
 	require.NoError(t, s.BumpAttempt("op1", "seg1", errors.New("boom")))
 	require.NoError(t, s.Close())
 
-	reopened := newSegmentEditOps(dir, "", false)
+	reopened := newSegmentEditOps(dir, "")
 	defer reopened.Close()
 
 	ops, err := reopened.LoadOps()
@@ -311,12 +311,12 @@ func TestSegmentEditOps_BuildCurrentTransformerDispatchesByOpType(t *testing.T) 
 	// Each factory appends a tag so the output reveals which transformers ran and
 	// in what order.
 	tagFactory := func(tag string) OpTransformerFactory {
-		return func(className string, skip bool, ops []ActiveOp) func([]byte) ([]byte, error) {
+		return func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
 			return func(v []byte) ([]byte, error) { return append(v, tag...), nil }
 		}
 	}
 	newStore := func(t *testing.T, transformers map[OpType]OpTransformerFactory) *SegmentEditOps {
-		s := newSegmentEditOpsWithLookup(t.TempDir(), "", false, staticResolver(transformers))
+		s := newSegmentEditOpsWithLookup(t.TempDir(), "", staticResolver(transformers))
 		t.Cleanup(func() { require.NoError(t, s.Close()) })
 		return s
 	}
@@ -381,8 +381,8 @@ func TestSegmentEditOps_WarnsOnMissingTransformer(t *testing.T) {
 		opB OpType = "op_b" // no factory registered for this type
 	)
 	logger, hook := test.NewNullLogger()
-	s := newSegmentEditOpsWithLookup(t.TempDir(), "", false, staticResolver(map[OpType]OpTransformerFactory{
-		opA: func(className string, skip bool, ops []ActiveOp) func([]byte) ([]byte, error) {
+	s := newSegmentEditOpsWithLookup(t.TempDir(), "", staticResolver(map[OpType]OpTransformerFactory{
+		opA: func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
 			return func(v []byte) ([]byte, error) { return v, nil }
 		},
 	}))
@@ -473,7 +473,7 @@ func TestSegmentEditOps_ReadPathsNeverCreateSidecar(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			s := newSegmentEditOps(dir, "", false)
+			s := newSegmentEditOps(dir, "")
 			t.Cleanup(func() { require.NoError(t, s.Close()) })
 
 			tt.call(t, s)
@@ -514,7 +514,7 @@ func TestSegmentEditOps_ConcurrentOpenIsSafe(t *testing.T) {
 // store (the common idle-bucket shutdown) is a clean no-op and creates nothing.
 func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
 	dir := t.TempDir()
-	s := newSegmentEditOps(dir, "", false)
+	s := newSegmentEditOps(dir, "")
 	require.NoError(t, s.Close())
 	require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName))
 }

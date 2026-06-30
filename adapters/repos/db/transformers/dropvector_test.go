@@ -50,7 +50,7 @@ func TestDropVectorTransformer(t *testing.T) {
 	}
 	transform := func(t *testing.T, in []byte, ops ...editops.ActiveOp) []byte {
 		t.Helper()
-		out, err := dropVectorTransformer(className, false, ops)(in)
+		out, err := dropVectorTransformer(className, ops)(in)
 		require.NoError(t, err)
 		return out
 	}
@@ -142,7 +142,7 @@ func TestDropVectorTransformer_CodecSymmetry(t *testing.T) {
 	}
 	strip := func(t *testing.T, in []byte, targets ...string) []byte {
 		t.Helper()
-		out, err := dropVectorTransformer(className, false, []editops.ActiveOp{{
+		out, err := dropVectorTransformer(className, []editops.ActiveOp{{
 			ID: "op", Descriptor: editops.OpDescriptor{
 				Type: editops.OpTypeRemoveTargetVectors, Targets: targets, CreatedAt: 1,
 			},
@@ -211,7 +211,7 @@ func TestDropVectorTransformer_CorruptBytesSurfacesError(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := dropVectorTransformer(className, false, []editops.ActiveOp{{
+			_, err := dropVectorTransformer(className, []editops.ActiveOp{{
 				ID: "op", Descriptor: editops.OpDescriptor{
 					Type: editops.OpTypeRemoveTargetVectors, Targets: []string{"drop"}, CreatedAt: 1,
 				},

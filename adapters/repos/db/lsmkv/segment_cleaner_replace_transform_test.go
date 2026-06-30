@@ -38,8 +38,8 @@ func newReplaceBucketForCleanup(t *testing.T, transformer valueTransformer) *Buc
 	// Inject the transformer via the edit-ops path: a registered op makes
 	// BuildCurrentTransformer dispatch to this type's factory per pass.
 	if transformer != nil {
-		editOps := newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", false, staticResolver(map[OpType]OpTransformerFactory{
-			OpTypeRemoveTargetVectors: func(className string, skip bool, ops []ActiveOp) func([]byte) ([]byte, error) { return transformer },
+		editOps := newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", staticResolver(map[OpType]OpTransformerFactory{
+			OpTypeRemoveTargetVectors: func(className string, ops []ActiveOp) func([]byte) ([]byte, error) { return transformer },
 		}))
 		t.Cleanup(func() { require.NoError(t, editOps.Close()) })
 		bucket.disk.editOps = editOps

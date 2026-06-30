@@ -63,7 +63,7 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 
 			bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
 				WithStrategy(StrategyReplace),
-				WithClassName(tc.wantClass, false),
+				WithClassName(tc.wantClass),
 			)
 			require.NoError(t, err)
 			defer bucket.Shutdown(ctx)
@@ -240,7 +240,7 @@ func TestObjectsBucket_RoundTripWithSkipClassName(t *testing.T) {
 
 	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
 		WithStrategy(StrategyReplace),
-		WithClassName("Movies", false),
+		WithClassName("Movies"),
 	)
 	require.NoError(t, err)
 	defer bucket.Shutdown(ctx)
@@ -322,7 +322,7 @@ func TestObjectsBucket_OnDiskSegmentsWithoutClassName(t *testing.T) {
 			open := func() *Bucket {
 				b, err := NewBucketCreator().NewBucket(ctx, dir, "", testLogger(), nil, noopCB, noopCB,
 					WithStrategy(StrategyReplace),
-					WithClassName(className, false),
+					WithClassName(className),
 				)
 				require.NoError(t, err)
 				return b

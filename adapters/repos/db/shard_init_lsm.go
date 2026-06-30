@@ -182,10 +182,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		// which strips dropped vector indexes from stored objects during
 		// compaction/cleanup. The transformer to run is resolved per op type from the
 		// transformers registry, driven by the ops persisted in the sidecar.
-		lsmkv.WithClassName(
-			s.index.Config.ClassName.String(),
-			s.index.Config.SkipWriteClassNameOnDisk,
-		),
+		lsmkv.WithClassName(s.index.Config.ClassName.String()),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

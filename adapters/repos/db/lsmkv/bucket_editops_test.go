@@ -32,7 +32,7 @@ func TestBucket_EditOps_WiredByClassNameOnReplace(t *testing.T) {
 
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithClassName("MyClass", false))
+		WithStrategy(StrategyReplace), WithClassName("MyClass"))
 	require.NoError(t, err)
 	require.NotNil(t, bucket.disk.editOps, "className on a replace bucket should wire the edit-ops sidecar")
 
@@ -47,7 +47,7 @@ func TestBucket_EditOps_WiredByClassNameOnReplace(t *testing.T) {
 
 	// Re-opening the (now-existing) file takes an exclusive bolt lock, so this
 	// succeeds only if shutdown closed the first handle.
-	reopened := newSegmentEditOps(editOpsDir, "", false)
+	reopened := newSegmentEditOps(editOpsDir, "")
 	_, err = reopened.LoadOps()
 	require.NoError(t, err)
 	require.NoError(t, reopened.Close())
@@ -86,7 +86,7 @@ func TestBucket_EditOps_NotWiredOnNonReplace(t *testing.T) {
 
 			bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithClassName("MyClass", false))
+				WithStrategy(strategy), WithClassName("MyClass"))
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 

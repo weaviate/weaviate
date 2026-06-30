@@ -142,7 +142,6 @@ type sgConfig struct {
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 	className                    string
-	skipClassNameOnDisk          bool
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -550,7 +549,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	// edit ops only apply to its replace-strategy store. Transformers are resolved
 	// per op type from the global registry; the persisted ops drive what runs.
 	if cfg.className != "" && cfg.strategy == StrategyReplace {
-		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className, cfg.skipClassNameOnDisk)
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
 		sg.editOps.logger = sg.logger
 	}
 

@@ -22,10 +22,11 @@ import (
 // given the live remove-target-vector ops it strips the named vectors from each
 // stored object, re-marshaling only when something changed (idempotent no-op
 // otherwise). Every op handed in is already of this type — the registry dispatches
-// by type — so no type check is needed here. The disk round-trip must match the
-// bucket's own encode/decode (FromBinaryDisk / MarshalBinaryDisk), which is why
-// className and skipClassNameOnDisk are supplied by the caller.
-func dropVectorTransformer(className string, skipClassNameOnDisk bool, ops []editops.ActiveOp) func([]byte) ([]byte, error) {
+// by type — so no type check is needed here. className is needed to decode the
+// object (FromBinaryDisk stamps the bucket's class name, ignoring the on-disk one).
+// Re-marshal always writes the class name (MarshalBinaryDisk(false)): readers stamp
+// the bucket class name regardless, so the on-disk class-name field is not load-bearing.
+func dropVectorTransformer(className string, ops []editops.ActiveOp) func([]byte) ([]byte, error) {
 	return func(value []byte) ([]byte, error) {
 		obj, err := storobj.FromBinaryDisk(value, className)
 		if err != nil {
@@ -42,6 +43,6 @@ func dropVectorTransformer(className string, skipClassNameOnDisk bool, ops []edi
 		if !changed {
 			return value, nil
 		}
-		return obj.MarshalBinaryDisk(skipClassNameOnDisk)
+		return obj.MarshalBinaryDisk(false)
 	}
 }

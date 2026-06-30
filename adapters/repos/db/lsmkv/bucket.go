@@ -238,10 +238,6 @@ type Bucket struct {
 	// during compaction for the SetCollection strategy
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
-	// skipClassNameOnDisk mirrors the object-codec setting used for writes; the
-	// edit-ops transformers need it to re-marshal byte-stably. Set via WithClassName.
-	skipClassNameOnDisk bool
-
 	skipSecondaryKeyCheck bool
 
 	// immutable prevents all write operations. Set via WithImmutable, used by
@@ -364,7 +360,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
 			className:                    b.className,
-			skipClassNameOnDisk:          b.skipClassNameOnDisk,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

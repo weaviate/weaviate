@@ -48,17 +48,14 @@ func WithStrategy(strategy string) BucketOption {
 	}
 }
 
-// WithClassName attaches the canonical class name and the on-disk class-name
-// codec setting to the bucket. Set on the objects bucket so storobj decoders stamp
-// the canonical class on every decoded object instead of trusting the on-disk
-// className field, and so the edit-ops transformers re-marshal byte-stably.
-// A non-empty className also enables the segment edit-ops sidecar for the bucket
-// (only the objects bucket sets it). Leave unset for buckets that do not hold
-// storobj payloads.
-func WithClassName(className string, skipClassNameOnDisk bool) BucketOption {
+// WithClassName attaches the canonical class name to the bucket. Set on the objects
+// bucket so storobj decoders stamp the canonical class on every decoded object
+// instead of trusting the on-disk className field. A non-empty className also enables
+// the segment edit-ops sidecar for the bucket (only the objects bucket sets it).
+// Leave unset for buckets that do not hold storobj payloads.
+func WithClassName(className string) BucketOption {
 	return func(b *Bucket) error {
 		b.className = className
-		b.skipClassNameOnDisk = skipClassNameOnDisk
 		return nil
 	}
 }
