@@ -21,6 +21,16 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+func defaultMuveraConfig() hnsw.MultivectorConfig {
+	return hnsw.MultivectorConfig{
+		MuveraConfig: hnsw.MuveraConfig{
+			KSim:         DefaultMuveraKSim,
+			DProjections: DefaultMuveraDProjections,
+			Repetitions:  DefaultMuveraRepetitions,
+		},
+	}
+}
+
 func Test_UserConfig(t *testing.T) {
 	t.Run("default searchProbe is 256", func(t *testing.T) {
 		cfg := NewDefaultUserConfig()
@@ -50,6 +60,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -67,6 +78,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -84,6 +96,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -101,6 +114,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -120,6 +134,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 500,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -137,6 +152,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -154,6 +170,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -177,6 +194,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 500,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -199,6 +217,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 500,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -218,6 +237,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: 0,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
@@ -330,6 +350,76 @@ func Test_UserConfig(t *testing.T) {
 			},
 			expectErr:    true,
 			expectErrMsg: "invalid hfresh config: maxPostingSizeKB is '1025' but must be less than 1024",
+		},
+		{
+			name: "with valid muvera ksim",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("4"),
+					},
+				},
+			},
+			expected: UserConfig{
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
+				Multivector: hnsw.MultivectorConfig{
+					Enabled: true,
+					MuveraConfig: hnsw.MuveraConfig{
+						Enabled:      true,
+						KSim:         4,
+						DProjections: DefaultMuveraDProjections,
+						Repetitions:  DefaultMuveraRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "with muvera ksim zero",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("0"),
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "muvera ksim must be greater than 0",
+		},
+		{
+			name: "with muvera ksim negative",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("-1"),
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "muvera ksim must be greater than 0",
+		},
+		{
+			name: "with muvera ksim too large",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number("11"),
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "muvera ksim must be at most 10",
 		},
 	}
 

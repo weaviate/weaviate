@@ -204,3 +204,59 @@ func TestReassignTaskQueueOperations(t *testing.T) {
 	err = tf.Index.taskQueue.EnqueueReassign(postingID, vectorID)
 	require.NoError(t, err)
 }
+
+func TestReassignMuveraVector(t *testing.T) {
+	tf := createMuveraHFreshIndex(t)
+
+	multiVectors := [][]float32{
+		{1.0, 0.0, 0.0, 0.0},
+		{0.0, 1.0, 0.0, 0.0},
+		{0.0, 0.0, 1.0, 0.0},
+	}
+	docID := uint64(1000)
+	addMultiVectorToIndex(t, &tf, docID, multiVectors)
+
+	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		return nil, errors.New("single-vector slot is empty")
+	}
+
+	version, err := tf.Index.VersionMap.Get(t.Context(), docID)
+	require.NoError(t, err)
+	require.False(t, version.Deleted())
+
+	op := reassignOperation{
+		PostingID: 1,
+		VectorID:  docID,
+	}
+
+	err = tf.Index.doReassign(t.Context(), op)
+	require.NoError(t, err)
+
+	results, _, err := tf.Index.SearchByMultiVector(t.Context(), multiVectors, 10, nil)
+	require.NoError(t, err)
+	require.Contains(t, results, docID)
+}
+
+func TestReassignMuveraVectorNotFound(t *testing.T) {
+	tf := createMuveraHFreshIndex(t)
+
+	multiVectors := [][]float32{
+		{1.0, 0.0, 0.0, 0.0},
+		{0.0, 1.0, 0.0, 0.0},
+	}
+	docID := uint64(1000)
+	addMultiVectorToIndex(t, &tf, docID, multiVectors)
+
+	nonExistentID := uint64(9999)
+	err := tf.Index.VersionMap.store.Set(t.Context(), nonExistentID, VectorVersion(1))
+	require.NoError(t, err)
+
+	op := reassignOperation{
+		PostingID: 1,
+		VectorID:  nonExistentID,
+	}
+
+	err = tf.Index.doReassign(t.Context(), op)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to get vector by index ID")
+}
