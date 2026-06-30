@@ -12,11 +12,10 @@
 package hnsw
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,12 +24,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const defaultCommitLogSize = 500 * 1024 * 1024
@@ -40,48 +37,27 @@ type hnswCommitLogger struct {
 	// buffer
 	sync.Mutex
 
-	rootPath          string
-	id                string
-	condensor         Condensor
-	logger            logrus.FieldLogger
-	maxSizeIndividual int64
-	maxSizeCombining  int64
-	commitLogger      *commitlog.Logger
+	rootPath string
+	id       string
+	logger   logrus.FieldLogger
+	fs       common.FS
 
+	// File management
+	currentFile     common.File
+	currentFileName string
+	currentWriter   *bufio.Writer
+	walWriter       *compact.WALWriter
+
+	// Compaction (replaces condensor + combiner)
+	compactor *compact.Compactor
+
+	// Maintenance
 	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
 	maintainLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
 	maintenanceCallbacks     cyclemanager.CycleCallbackGroup
 
-	allocChecker memwatch.AllocChecker
-
-	snapshotLock   sync.Mutex
-	snapshotLogger logrus.FieldLogger
-	// whether snapshots are disabled
-	snapshotDisabled bool
-	// minimum interval to create next snapshot out of last one and new commitlogs, 0 = no periodic snapshots
-	snapshotCreateInterval time.Duration
-	// minimal interval to check if next snapshot should be created
-	snapshotCheckInterval time.Duration
-	// minimum number of delta commitlogs required to create new snapshot
-	snapshotMinDeltaCommitlogsNumber int
-	// minimum percentage size of delta commitlogs (compared to last snapshot) required to create new one
-	snapshotMinDeltaCommitlogsSizePercentage int
-	// time that last snapshot was created at (based on its name, which is based on last included commitlog name;
-	// not the actual snapshot file creation time)
-	snapshotLastCreatedAt time.Time
-	// time that last check if snapshot should be created was made
-	snapshotLastCheckedAt time.Time
-	// size of each snapshot block. non-configurable except for testing
-	snapshotBlockSize int64
-	// partitions mark commitlogs (left ones) that should not be combined with
-	// logs on the right side (newer ones).
-	// example: given logs 0001.condensed, 0002.condensed, 0003.condensed and 0004.condensed
-	// with partition = "0002", only logs [older or equal 0002.condensed]
-	// or [newer than 0002.condensed] can be combined with each other
-	// (so 0001+0002 or 0003+0004, NOT 0002+0003)
-	// partitions are commitlog filenames (no path, no extension)
-	snapshotPartitions []string
-	fs                 common.FS
+	// Config
+	maxSizeIndividual int64
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -90,18 +66,12 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	l := &hnswCommitLogger{
 		rootPath:             rootPath,
 		id:                   name,
-		condensor:            NewMemoryCondensor(logger),
 		logger:               logger,
+		fs:                   common.NewOSFS(),
 		maintenanceCallbacks: maintenanceCallbacks,
 
-		// both can be overwritten using functional options
+		// can be overwritten using functional options
 		maxSizeIndividual: defaultCommitLogSize / 5,
-		maxSizeCombining:  defaultCommitLogSize,
-
-		snapshotMinDeltaCommitlogsNumber:         1,
-		snapshotMinDeltaCommitlogsSizePercentage: 0,
-		snapshotBlockSize:                        blockSize,
-		fs:                                       common.NewOSFS(),
 	}
 
 	for _, o := range opts {
@@ -110,15 +80,37 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		}
 	}
 
-	fd, err := getLatestCommitFileOrCreate(rootPath, name, l.fs)
+	// Ensure the commit log directory exists
+	dir := commitLogDirectory(rootPath, name)
+	if err := l.fs.MkdirAll(dir, os.ModePerm); err != nil {
+		return nil, errors.Wrap(err, "create commit logger directory")
+	}
+
+	// Always start a fresh raw commit log file. Reusing an existing file is a
+	// footgun: getCurrentCommitLogFileName used to select the append target
+	// by highest parsed timestamp, which let it hand back a .snapshot /
+	// .sorted / .condensed file and the next AddNode would corrupt it (block
+	// CRCs become invalid on next SnapshotReader load). Creating a new file
+	// every startup eliminates the class of bug — the append path can never
+	// land on anything but a freshly created raw file that we own.
+	//
+	// Any existing zero-byte raw files from previous startups that the
+	// compactor hasn't yet absorbed are pruned first so the directory never
+	// accumulates more than one empty raw file at a time.
+	fd, fileName, err := createNewCommitFile(rootPath, name, l.fs, l.logger)
 	if err != nil {
 		return nil, err
 	}
-	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
-	if err := l.initSnapshotData(); err != nil {
-		return nil, errors.Wrapf(err, "init snapshot data")
-	}
+	l.currentFile = fd
+	l.currentFileName = fileName
+	l.currentWriter = bufio.NewWriterSize(fd, 32*1024)
+	l.walWriter = compact.NewWALWriter(l.currentWriter)
+
+	// Create compactor for maintenance
+	compactorCfg := compact.DefaultCompactorConfig(dir)
+	compactorCfg.FS = l.fs
+	l.compactor = compact.NewCompactor(compactorCfg, logger)
 
 	return l, nil
 }
@@ -142,256 +134,114 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func getLatestCommitFileOrCreate(rootPath, name string, fs common.FS) (common.File, error) {
+// createNewCommitFile always starts a fresh raw commit log file, regardless
+// of what already exists in the directory. Before creating the new file, any
+// zero-byte raw files left behind by previous startups (that the compactor
+// hasn't yet absorbed into a .sorted file) are pruned so the directory holds
+// at most one empty raw file at a time.
+//
+// This is the append target — so by construction it is:
+//   - a raw file (pure-timestamp name, no .snapshot/.sorted/.condensed suffix)
+//   - newly created in this process, never reused across restarts
+//
+// Previous versions picked the highest-timestamp file in the directory as the
+// append target, which could return a snapshot/sorted/condensed file and
+// corrupt it on the next WAL write.
+func createNewCommitFile(rootPath, name string, fs common.FS, logger logrus.FieldLogger) (common.File, string, error) {
 	dir := commitLogDirectory(rootPath, name)
-	err := fs.MkdirAll(dir, os.ModePerm)
+	if err := fs.MkdirAll(dir, os.ModePerm); err != nil {
+		return nil, "", errors.Wrap(err, "create commit logger directory")
+	}
+
+	if err := pruneEmptyRawCommitLogs(dir, logger); err != nil {
+		// Pruning is best-effort housekeeping — never fatal. A leftover empty
+		// raw file will simply be absorbed by the next compaction cycle.
+		logger.WithError(err).
+			WithField("action", "hnsw_commit_log_prune_empty").
+			Warn("failed to prune empty raw commit log files; continuing")
+	}
+
+	fileName := fmt.Sprintf("%d", time.Now().Unix())
+	filePath := commitLogFileName(rootPath, name, fileName)
+	// Still pass O_CREATE for correctness on a fresh directory; O_EXCL would
+	// fail in the (extremely unlikely) case of a 1-second restart collision
+	// where a prior empty raw file with the same timestamp still exists, and
+	// the consequences of the O_APPEND fallback here are harmless because
+	// the prior file is — by definition — also a raw file we own.
+	fd, err := fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
-		return nil, errors.Wrap(err, "create commit logger directory")
+		return nil, "", errors.Wrap(err, "create commit log file")
 	}
 
-	fileName, ok, err := getCurrentCommitLogFileName(dir, fs)
-	if err != nil {
-		return nil, errors.Wrap(err, "find commit logger file in directory")
-	}
-
-	if !ok {
-		// this is a new commit log, initialize with the current time stamp
-		fileName = fmt.Sprintf("%d", time.Now().Unix())
-	}
-
-	fd, err := fs.OpenFile(commitLogFileName(rootPath, name, fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-	if err != nil {
-		return nil, errors.Wrap(err, "create commit log file")
-	}
-
-	return fd, nil
+	return fd, filePath, nil
 }
 
-// getCommitFileNames in order, from old to new
-func getCommitFileNames(rootPath, id string, createdAfter int64, fs common.FS) ([]string, error) {
-	files, err := getCommitFiles(rootPath, id, createdAfter, fs)
+// pruneEmptyRawCommitLogs removes zero-byte raw commit log files from the
+// directory. Raw files are identified by a pure-numeric filename; any file
+// with a suffix like .snapshot/.sorted/.condensed or a range form with '_'
+// is not a raw file and is never touched by this function.
+func pruneEmptyRawCommitLogs(dir string, logger logrus.FieldLogger) error {
+	entries, err := listRawCommitLogFiles(dir)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return commitLogFileNames(rootPath, id, files), nil
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			// Entry vanished between ReadDir and Info; nothing to prune.
+			continue
+		}
+		if info.Size() != 0 {
+			continue
+		}
+		path := fmt.Sprintf("%s/%s", dir, entry.Name())
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logger.WithError(err).
+				WithField("action", "hnsw_commit_log_prune_empty").
+				WithField("file", entry.Name()).
+				Warn("failed to remove empty raw commit log file")
+			continue
+		}
+		logger.WithFields(logrus.Fields{
+			"action": "hnsw_commit_log_prune_empty",
+			"file":   entry.Name(),
+		}).Debug("removed empty raw commit log file from a previous startup")
+	}
+	return nil
 }
 
-func getCommitFiles(rootPath, id string, createdAfter int64, fs common.FS) ([]os.DirEntry, error) {
-	dir := commitLogDirectory(rootPath, id)
-	err := fs.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return nil, errors.Wrap(err, "create commit logger directory")
-	}
-
-	files, err := fs.ReadDir(dir)
+// listRawCommitLogFiles returns the directory entries that represent raw
+// commit log files — i.e. entries whose name is a pure timestamp with no
+// ".snapshot" / ".sorted" / ".condensed" suffix and no "_" range separator.
+// Hidden files and ".tmp" scratch files are also excluded.
+func listRawCommitLogFiles(dirPath string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
 
-	files = skipTmpScratchOrHiddenFiles(files)
-	files, err = removeTmpCombiningFiles(dir, files, fs)
-	if err != nil {
-		return nil, errors.Wrap(err, "clean up tmp combining files")
-	}
-
-	if createdAfter > 0 {
-		files, err = filterNewerCommitLogFiles(files, createdAfter)
-		if err != nil {
-			return nil, errors.Wrap(err, "remove old commit files")
-		}
-	}
-
-	if len(files) == 0 {
-		return nil, nil
-	}
-
-	ec := errorcompounder.New()
-	sort.Slice(files, func(a, b int) bool {
-		ts1, err := asTimeStamp(files[a].Name())
-		if err != nil {
-			ec.Add(err)
-		}
-
-		ts2, err := asTimeStamp(files[b].Name())
-		if err != nil {
-			ec.Add(err)
-		}
-		return ts1 < ts2
-	})
-	if err := ec.ToError(); err != nil {
-		return nil, err
-	}
-
-	return files, nil
-}
-
-func commitLogFileNames(rootPath, id string, files []os.DirEntry) []string {
-	out := make([]string, len(files))
-	for i, file := range files {
-		out[i] = commitLogFileName(rootPath, id, file.Name())
-	}
-	return out
-}
-
-// getCurrentCommitLogFileName returns the fileName and true if a file was
-// present. If no file was present, the second arg is false.
-func getCurrentCommitLogFileName(dirPath string, fs common.FS) (string, bool, error) {
-	files, err := fs.ReadDir(dirPath)
-	if err != nil {
-		return "", false, errors.Wrap(err, "browse commit logger directory")
-	}
-
-	if len(files) > 0 {
-		files = skipTmpScratchOrHiddenFiles(files)
-		files, err = removeTmpCombiningFiles(dirPath, files, fs)
-		if err != nil {
-			return "", false, errors.Wrap(err, "clean up tmp combining files")
-		}
-	}
-
-	if len(files) == 0 {
-		return "", false, nil
-	}
-
-	ec := errorcompounder.New()
-	sort.Slice(files, func(a, b int) bool {
-		ts1, err := asTimeStamp(files[a].Name())
-		if err != nil {
-			ec.Add(err)
-		}
-
-		ts2, err := asTimeStamp(files[b].Name())
-		if err != nil {
-			ec.Add(err)
-		}
-		return ts1 > ts2
-	})
-	if err := ec.ToError(); err != nil {
-		return "", false, err
-	}
-
-	return files[0].Name(), true, nil
-}
-
-func skipTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
-	out := make([]os.DirEntry, len(in))
-	i := 0
-	for _, entry := range in {
-		if strings.HasSuffix(entry.Name(), ".scratch.tmp") {
+	raws := make([]os.DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
 			continue
 		}
-
-		if strings.HasPrefix(entry.Name(), ".") {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
-
-		// Skip snapshot files — they are handled by the snapshot system,
-		// not the WAL deserializer. This includes compact v2 snapshots
-		// that may appear in the commitlog directory before migration.
-		if strings.HasSuffix(entry.Name(), ".snapshot") {
+		if strings.HasSuffix(name, ".tmp") {
 			continue
 		}
-
-		out[i] = entry
-		i++
-	}
-	return out[:i]
-}
-
-func skipEmptyFiles(in []os.DirEntry) ([]os.DirEntry, error) {
-	out := make([]os.DirEntry, len(in))
-	i := 0
-	for _, entry := range in {
-		info, err := entry.Info()
-		if err != nil {
-			return nil, errors.Wrap(err, "get file info")
-		}
-		if info.Size() == 0 {
+		// A raw file's name must be a pure timestamp: no extension, no range.
+		if strings.ContainsAny(name, "._") {
 			continue
 		}
-		out[i] = entry
-		i++
-	}
-	return out[:i], nil
-}
-
-func removeTmpCombiningFiles(dirPath string, in []os.DirEntry, fs common.FS) ([]os.DirEntry, error) {
-	out := make([]os.DirEntry, len(in))
-	i := 0
-
-	for _, info := range in {
-		if strings.HasSuffix(info.Name(), ".combined.tmp") {
-			// a temporary combining file was found which means that the combining
-			// process never completed, this file is thus considered corrupt (too
-			// short) and must be deleted. The original sources still exist (because
-			// the only get deleted after the .tmp file is removed), so it's safe to
-			// delete this without data loss.
-
-			if err := fs.Remove(filepath.Join(dirPath, info.Name())); err != nil {
-				return out, errors.Wrap(err, "remove tmp combining file")
-			}
+		if _, err := strconv.ParseInt(name, 10, 64); err != nil {
 			continue
 		}
-
-		out[i] = info
-		i++
+		raws = append(raws, entry)
 	}
-
-	return out[:i], nil
-}
-
-func filterNewerCommitLogFiles(in []os.DirEntry, createdAfter int64) ([]os.DirEntry, error) {
-	out := make([]os.DirEntry, len(in))
-	i := 0
-	for _, entry := range in {
-		// Use endTimeStamp so that range files (e.g. 1400_1600.sorted) are
-		// included when the snapshot covers only up to 1500. The file contains
-		// data beyond the snapshot and must be loaded.
-		ts, err := endTimeStamp(entry.Name())
-		if err != nil {
-			return nil, errors.Wrapf(err, "read commitlog timestamp %q", entry.Name())
-		}
-
-		if ts <= createdAfter {
-			continue
-		}
-
-		out[i] = entry
-		i++
-	}
-
-	return out[:i], nil
-}
-
-func asTimeStamp(in string) (int64, error) {
-	s := in
-	for _, suffix := range []string{".condensed", ".sorted", ".snapshot"} {
-		s = strings.TrimSuffix(s, suffix)
-	}
-	// Handle range format: {start}_{end} — use start timestamp for sorting
-	if idx := strings.Index(s, "_"); idx != -1 {
-		s = s[:idx]
-	}
-	return strconv.ParseInt(s, 10, 64)
-}
-
-// endTimeStamp returns the end timestamp from a commit log filename.
-// For single-timestamp files, it returns the same value as asTimeStamp.
-// For range-format files ({start}_{end}), it returns the end timestamp.
-func endTimeStamp(in string) (int64, error) {
-	s := in
-	for _, suffix := range []string{".condensed", ".sorted", ".snapshot"} {
-		s = strings.TrimSuffix(s, suffix)
-	}
-	if _, end, ok := strings.Cut(s, "_"); ok {
-		return strconv.ParseInt(end, 10, 64)
-	}
-	return strconv.ParseInt(s, 10, 64)
-}
-
-type Condensor interface {
-	Do(filename string) error
+	return raws, nil
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -461,35 +311,35 @@ func (l *hnswCommitLogger) AddPQCompression(data compression.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddPQCompression(data)
+	return l.walWriter.WriteAddPQ(&data)
 }
 
 func (l *hnswCommitLogger) AddSQCompression(data compression.SQData) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddSQCompression(data)
+	return l.walWriter.WriteAddSQ(&data)
 }
 
 func (l *hnswCommitLogger) AddRQCompression(data compression.RQData) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddRQCompression(data)
+	return l.walWriter.WriteAddRQ(&data)
 }
 
 func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddMuvera(data)
+	return l.walWriter.WriteAddMuvera(&data)
 }
 
 func (l *hnswCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddBRQCompression(data)
+	return l.walWriter.WriteAddBRQ(&data)
 }
 
 // AddNode adds an empty node
@@ -497,72 +347,70 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddNode(node.id, node.level)
+	return l.walWriter.WriteAddNode(node.id, uint16(node.level))
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.SetEntryPointWithMaxLayer(id, level)
+	return l.walWriter.WriteSetEntryPointMaxLevel(id, uint16(level))
 }
 
 func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.ReplaceLinksAtLevel(nodeid, level, targets)
+	return l.walWriter.WriteReplaceLinksAtLevel(nodeid, uint16(level), targets)
 }
 
-func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
-	target uint64,
-) error {
+func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddLinkAtLevel(nodeid, level, target)
+	return l.walWriter.WriteAddLinkAtLevel(nodeid, uint16(level), target)
 }
 
 func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddTombstone(nodeid)
+	return l.walWriter.WriteAddTombstone(nodeid)
 }
 
 func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.RemoveTombstone(nodeid)
+	return l.walWriter.WriteRemoveTombstone(nodeid)
 }
 
 func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.ClearLinks(nodeid)
+	return l.walWriter.WriteClearLinks(nodeid)
 }
 
 func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.ClearLinksAtLevel(nodeid, level)
+	return l.walWriter.WriteClearLinksAtLevel(nodeid, level)
 }
 
 func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.DeleteNode(nodeid)
+	return l.walWriter.WriteDeleteNode(nodeid)
 }
 
 func (l *hnswCommitLogger) Reset() error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.Reset()
+	return l.walWriter.WriteResetIndex()
 }
 
 // Shutdown waits for ongoing maintenance processes to stop, then cancels their
@@ -576,7 +424,7 @@ func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
 	}
 	if l.maintainLogsCallbackCtrl != nil {
 		if err := l.maintainLogsCallbackCtrl.Unregister(ctx); err != nil {
-			return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
+			return errors.Wrap(err, "failed to unregister commitlog compaction from maintenance cycle")
 		}
 	}
 	return nil
@@ -584,6 +432,22 @@ func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
 
 func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
+}
+
+// ActiveFilePath returns the absolute path of the file the writer would
+// append to right now. It is captured under l.Mutex, so it can never
+// disagree with whatever a concurrent AddNode / switch sees.
+//
+// The backup path (hnsw.ListFiles) uses this to exclude the active file by
+// identity. We can't rely on "the active file is empty after
+// PrepareForBackup" because PrepareForBackup releases this mutex before
+// returning, and writers (re-armed by the queue's deferred Resume) can
+// land an AddNode + Flush against the new file before ListFiles enumerates
+// the directory. See backup.go for the full chain.
+func (l *hnswCommitLogger) ActiveFilePath() string {
+	l.Lock()
+	defer l.Unlock()
+	return l.currentFileName
 }
 
 func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortCallback) bool {
@@ -599,41 +463,26 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 }
 
 func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	err := l.fixCorruptedCommitLogs()
-	if err != nil {
-		l.logger.WithError(err).
-			WithField("action", "hnsw_commit_log_fixing").
-			Error("hnsw commit log maintenance (fixing) failed")
-	}
-
-	executedCombine, err := l.combineLogs()
-	if err != nil {
-		l.logger.WithError(err).
-			WithField("action", "hnsw_commit_log_combining").
+	action, err := l.compactor.RunCycle(shouldAbort)
+	switch {
+	case errors.Is(err, compact.ErrCompactionAborted):
+		// A pending Drop or Shutdown asked the cycle to yield; the on-disk
+		// state is left clean by the SafeFileWriter pattern. This is
+		// expected, not an error, so we don't surface it as one.
+		l.logger.
+			WithField("action", "hnsw_commit_log_compaction").
 			WithField("file", l.rootPath).
 			WithField("id", l.id).
-			Error("hnsw commit log maintenance (combining) failed")
-	}
-
-	executedCondense, err := l.condenseLogs()
-	if err != nil {
+			Debug("hnsw commit log maintenance (compaction) aborted at caller's request")
+	case err != nil:
 		l.logger.WithError(err).
-			WithField("action", "hnsw_commit_log_condensing").
+			WithField("action", "hnsw_commit_log_compaction").
 			WithField("file", l.rootPath).
 			WithField("id", l.id).
-			Error("hnsw commit log maintenance (condensing) failed")
+			Error("hnsw commit log maintenance (compaction) failed")
 	}
 
-	executedSnapshot, err := l.createSnapshot(shouldAbort)
-	if err != nil {
-		l.logger.WithError(err).
-			WithField("action", "hnsw_snapshot_creating").
-			WithField("file", l.rootPath).
-			WithField("id", l.id).
-			Error("hnsw commit log maintenance (snapshot) failed")
-	}
-
-	return executedCombine || executedCondense || executedSnapshot
+	return action != compact.ActionNone
 }
 
 func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
@@ -642,7 +491,11 @@ func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 }
 
 func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
-	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	// Nothing to do here. The backup invariant ("listed files are immutable
+	// for the duration of the copy") is upheld by ListFiles excluding the
+	// active commit log file by path. The active file *does* receive writes
+	// during a backup, but it is never part of the file set the backup
+	// machinery copies.
 	return nil
 }
 
@@ -650,26 +503,50 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	l.Lock()
 	defer l.Unlock()
 
-	size, err := l.commitLogger.FileSize()
+	// Get current file size
+	info, err := l.currentFile.Stat()
 	if err != nil {
-		return false, err
+		return false, errors.Wrap(err, "get file info")
 	}
+	size := info.Size()
 
 	if size <= l.maxSizeIndividual && !force {
 		return false, nil
 	}
 
-	oldFileName, err := l.commitLogger.FileName()
-	if err != nil {
-		return false, err
+	oldFile := l.currentFile
+	oldWriter := l.currentWriter
+	oldFileName := l.currentFileName
+
+	// Flush and fsync the current file so its bytes are durable before we stop
+	// appending to it. The old file is deliberately NOT closed yet: every step
+	// below can fail (ENOSPC/EIO), and l.currentFile must never be left pointing
+	// at a dead fd. While the old file stays open and assigned, a failure here
+	// just aborts the rotation and writes continue against it.
+	if err := oldWriter.Flush(); err != nil {
+		return true, errors.Wrap(err, "flush commit log")
+	}
+	if err := oldFile.Sync(); err != nil {
+		return true, errors.Wrap(err, "sync commit log")
 	}
 
-	if err := l.commitLogger.Close(); err != nil {
-		return true, err
-	}
-
-	// this is a new commit log, initialize with the current time stamp
+	// Open the new file BEFORE closing the old one. If this fails, the old file
+	// is still open and l.currentFile/currentWriter are unchanged, so the next
+	// AddNode keeps writing to a healthy fd instead of a closed one; the rotation
+	// is simply retried on the next maintenance cycle.
 	fileName := fmt.Sprintf("%d", time.Now().Unix())
+	filePath := commitLogFileName(l.rootPath, l.id, fileName)
+	fd, err := l.fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return true, errors.Wrap(err, "create commit log file")
+	}
+
+	// New file is open: redirect all writes to it before touching the old fd, so
+	// there is no window in which l.currentFile is closed.
+	l.currentFile = fd
+	l.currentFileName = filePath
+	l.currentWriter = bufio.NewWriterSize(fd, 32*1024)
+	l.walWriter = compact.NewWALWriter(l.currentWriter)
 
 	if force {
 		l.logger.WithField("action", "commit_log_file_switched").
@@ -687,104 +564,29 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 			Info("commit log size crossed threshold, switching to new file")
 	}
 
-	fd, err := l.fs.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-	if err != nil {
-		return true, errors.Wrap(err, "create commit log file")
+	// The rotation has committed; the old file's bytes are already flushed and
+	// synced. Closing it is cleanup — a failure here risks at most a leaked fd,
+	// not lost writes (those land on the new file now), so it must not fail the
+	// rotation or a backup that depends on it.
+	if err := oldFile.Close(); err != nil {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			Warnf("failed to close rotated-out commit log file: %v", err)
 	}
-
-	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
 	return true, nil
-}
-
-func (l *hnswCommitLogger) condenseLogs() (bool, error) {
-	files, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
-	if err != nil {
-		return false, err
-	}
-
-	if len(files) <= 1 {
-		// if there are no files there is nothing to do
-		// if there is only a single file, it must still be in use, we can't do
-		// anything yet
-		return false, nil
-	}
-
-	// cut off last element, as that's never a candidate
-	candidates := files[:len(files)-1]
-
-	for _, candidate := range candidates {
-		if strings.HasSuffix(candidate, ".condensed") {
-			// don't attempt to condense logs which are already condensed
-			continue
-		}
-
-		if l.allocChecker != nil {
-			// allocChecker is optional, so we can only check this if it's actually set
-			s, err := l.fs.Stat(candidate)
-			if err != nil {
-				return false, fmt.Errorf("stat candidate file %q: %w", candidate, err)
-			}
-
-			// We're estimating here that the in-mem condensor needs about 1B of
-			// memory for every byte of data in the log file. This estimate can
-			// probably be refined.
-			if err := l.allocChecker.CheckAlloc(s.Size()); err != nil {
-				l.logger.WithFields(logrus.Fields{
-					"action": "hnsw_commit_log_condensing",
-					"event":  "condensing_skipped_oom",
-					"path":   candidate,
-					"size":   s.Size(),
-				}).WithError(err).
-					Warnf("skipping hnsw condensing due to memory pressure")
-				return false, nil
-			}
-
-		}
-
-		return true, l.condensor.Do(candidate)
-	}
-
-	return false, nil
-}
-
-func (l *hnswCommitLogger) combineLogs() (bool, error) {
-	// maxSize is the desired final size, since we assume a lot of redundancy we
-	// can set the combining threshold higher than the final threshold under the
-	// assumption that the combined file will be considerably smaller than the
-	// sum of both input files
-	threshold := l.logCombiningThreshold()
-	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger, l.fs).Do(l.snapshotPartitions...)
-}
-
-// TODO al:snapshot handle should abort
-func (l *hnswCommitLogger) createSnapshot(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
-	if l.snapshotDisabled || l.snapshotCreateInterval <= 0 {
-		return false, nil
-	}
-
-	if !time.Now().Add(-l.snapshotCheckInterval).After(l.snapshotLastCheckedAt) {
-		return false, nil
-	}
-	l.snapshotLastCheckedAt = time.Now()
-
-	if !time.Now().Add(-l.snapshotCreateInterval).After(l.snapshotLastCreatedAt) {
-		return false, nil
-	}
-
-	created, _, err := l.CreateSnapshot()
-	return created, err
-}
-
-func (l *hnswCommitLogger) logCombiningThreshold() int64 {
-	return int64(float64(l.maxSizeCombining) * 1.75)
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 	l.Lock()
 	defer l.Unlock()
-	if err := l.commitLogger.Close(); err != nil {
+
+	// Flush and close the file
+	if err := l.currentWriter.Flush(); err != nil {
+		return errors.Wrap(err, "flush hnsw commit logger prior to delete")
+	}
+	if err := l.currentFile.Close(); err != nil {
 		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}
 
@@ -805,14 +607,6 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 		}
 	}
 
-	// remove snapshot directory if exists
-	sDir := snapshotDirectory(l.rootPath, l.id)
-	if _, err := l.fs.Stat(sDir); err == nil {
-		if err := l.fs.RemoveAll(sDir); err != nil {
-			return errors.Wrap(err, "delete snapshot directory")
-		}
-	}
-
 	return nil
 }
 
@@ -820,14 +614,12 @@ func (l *hnswCommitLogger) Flush() error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.Flush()
-}
-
-func (l *hnswCommitLogger) fixCorruptedCommitLogs() error {
-	fileNames, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
-	if err != nil {
-		return err
-	}
-	_, err = NewCorruptedCommitLogFixer().Do(fileNames)
-	return err
+	// Buffered writer flush is sufficient here: the OS page cache absorbs the
+	// bytes and the per-batch durability the fsync used to provide isn't
+	// load-bearing for HNSW (the index is rebuilt from the object store on
+	// any unclean shutdown). The fsync is retained on `switchCommitLogs`
+	// (file rotation) and on backup/snapshot paths. Per-batch fsync was the
+	// dominant contributor to the ~15-30% import time regression on slow
+	// disks observed in weaviate/0-weaviate-issues#199.
+	return l.currentWriter.Flush()
 }

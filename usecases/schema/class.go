@@ -538,6 +538,20 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// in validateVectorSettingsAgainst.
 	initial := h.schemaReader.ReadOnlyClass(className)
 
+	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
+		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
+		if qErr != nil {
+			return err
+		}
+		consistent, ok := vclasses[className]
+		if !ok || consistent.Class == nil {
+			return err
+		}
+		if err := rejectVectorIndexTypeNone(consistent.Class, updated); err != nil {
+			return err
+		}
+	}
+
 	if err := h.validateVectorSettingsAgainst(updated, initial); err != nil {
 		return err
 	}
@@ -1047,6 +1061,29 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 	}
 
 	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
+}
+
+// rejectVectorIndexTypeNone rejects a client update that newly introduces the
+// dropped-index sentinel (VectorIndexType=="none"); an existing "none" may
+// persist. That marker is set only server-side by DeleteClassVectorIndex.
+func rejectVectorIndexTypeNone(prev, next *models.Class) error {
+	if next == nil {
+		return nil
+	}
+	for name, nextCfg := range next.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(nextCfg) {
+			continue
+		}
+		if prev != nil {
+			if prevCfg, ok := prev.VectorConfig[name]; ok && modelsext.IsVectorIndexDropped(prevCfg) {
+				continue
+			}
+		}
+		return fmt.Errorf("vector %q: vectorIndexType %q is an internal sentinel for "+
+			"dropped indexes and cannot be set through a class update; use the drop "+
+			"vector index API instead", name, modelsext.VectorIndexTypeNone)
+	}
+	return nil
 }
 
 func (h *Handler) validateClassInvariants(

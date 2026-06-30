@@ -1704,10 +1704,14 @@ func (x *CompareDigestsResponse) GetDigests() []*RepairResponse {
 // OverwriteObjects conditionally updates existing objects
 // (binary-encoded via versionedObjectListPayload.Marshal).
 type OverwriteObjectsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	VobjectsData  []byte                 `protobuf:"bytes,3,opt,name=vobjects_data,json=vobjectsData,proto3" json:"vobjects_data,omitempty"` // versionedObjectListPayload.Marshal output
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Index        string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard        string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	VobjectsData []byte                 `protobuf:"bytes,3,opt,name=vobjects_data,json=vobjectsData,proto3" json:"vobjects_data,omitempty"` // versionedObjectListPayload.Marshal output
+	// Encoding of vobjects_data. 0 (default, used by older senders) = JSON
+	// VObject list; 1 = raw on-disk object bytes (MarshalRaw). Decoding both is
+	// always supported; senders only emit 1 when the runtime flag is enabled.
+	Encoding      uint32 `protobuf:"varint,4,opt,name=encoding,proto3" json:"encoding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1761,6 +1765,13 @@ func (x *OverwriteObjectsRequest) GetVobjectsData() []byte {
 		return x.VobjectsData
 	}
 	return nil
+}
+
+func (x *OverwriteObjectsRequest) GetEncoding() uint32 {
+	if x != nil {
+		return x.Encoding
+	}
+	return 0
 }
 
 type OverwriteObjectsResponse struct {
@@ -2609,11 +2620,12 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x124\n" +
 	"\adigests\x18\x03 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"N\n" +
 	"\x16CompareDigestsResponse\x124\n" +
-	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"j\n" +
+	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"\x86\x01\n" +
 	"\x17OverwriteObjectsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12#\n" +
-	"\rvobjects_data\x18\x03 \x01(\fR\fvobjectsData\"P\n" +
+	"\rvobjects_data\x18\x03 \x01(\fR\fvobjectsData\x12\x1a\n" +
+	"\bencoding\x18\x04 \x01(\rR\bencoding\"P\n" +
 	"\x18OverwriteObjectsResponse\x124\n" +
 	"\aresults\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\aresults\"u\n" +
 	"\x10FindUUIDsRequest\x12\x14\n" +
