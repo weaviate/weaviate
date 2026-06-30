@@ -250,7 +250,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	// Force-load the target vector on both legs so post-fusion MMR can place every candidate; strip it afterwards if the user didn't request it.
+	// Force-load the target vector on both legs so post-fusion MMR can place every candidate; strip it afterwards if unrequested.
 	var selectionFn func(ctx context.Context, fused []search.Result) ([]search.Result, error)
 	var stripVector string
 	var stripDefaultVector bool
@@ -271,9 +271,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			keywordParams.AdditionalProperties.Vectors = withVectorTarget(keywordParams.AdditionalProperties.Vectors, targetVector)
 		}
 
-		// Y model: the query Limit is the MMR candidate pool. Diversify the top
-		// `pool` fused candidates (the rest were overfetched only for fusion
-		// quality); the page size MMR.Limit is applied when slicing below.
+		// The query Limit is the MMR candidate pool; MMR.Limit is the page size, applied below.
 		pool := origParams.Pagination.Limit
 		if pool <= 0 {
 			pool = int(e.config.QueryHybridMaximumResults)
@@ -281,9 +279,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		selTargetVector := targetVector
 		boost := origParams.Boost
 		selectionFn = func(ctx context.Context, fused []search.Result) ([]search.Result, error) {
-			// MMR is terminal: boost re-ranks the fused pool first so its
-			// relevance feeds MMR, then we diversify. Boost only re-scores here
-			// (no pagination) — the page slice below owns pagination.
+			// Boost re-ranks the pool first so its relevance feeds MMR; pagination happens below.
 			if boost != nil && boost.Weight > 0 {
 				fused = boostScoreAndSort(fused, boost)
 			}
@@ -497,9 +493,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		offset = 0
 	}
 
-	// Page size is the query Limit, except under MMR (Y model) where MMR.Limit is
-	// the page size and the query Limit was the candidate pool. MMR is terminal
-	// (boost already ran inside the selection fn), so it owns pagination here.
+	// Under MMR the query Limit was the candidate pool, so MMR.Limit is the page size.
 	pageLimit := origParams.Pagination.Limit
 	if origParams.Selection != nil && origParams.Selection.MMR != nil {
 		pageLimit = int(origParams.Selection.MMR.Limit)
@@ -531,7 +525,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	return out, nil
 }
 
-// withVectorTarget returns src with target appended (into a fresh slice) if not already present.
 func withVectorTarget(src []string, target string) []string {
 	if slices.Contains(src, target) {
 		return src

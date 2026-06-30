@@ -34,9 +34,8 @@ func boolPtr(b bool) *bool          { return &b }
 func uint32Ptr(u uint32) *uint32    { return &u }
 func float32Ptr(f float32) *float32 { return &f }
 
-// clusteredVectors places objects in three well-separated clusters in 3D so MMR
-// (balance=0) has a clear opportunity to pull a far-cluster object into the top
-// results where pure relevance (balance=1) would return three near-duplicates.
+// clusteredVectors places objects in three well-separated 3D clusters so MMR
+// (balance=0) can pull a far-cluster object into the top results.
 func clusteredVectors() map[string][]float32 {
 	return map[string][]float32{
 		"a1": {1.0, 0.0, 0.0},
@@ -88,11 +87,8 @@ func mmrSelection(limit uint32, balance float32) *pb.Selection {
 	}
 }
 
-// TestHybridDiversitySelection is the end-to-end regression for
-// weaviate/0-weaviate-issues#198: diversity_selection (MMR) passed via the
-// hybrid near-vector sub-query must be applied as a post-fusion pass, so
-// balance=0 (diversity) produces a different result ordering than balance=1
-// (pure relevance), and balance=1 matches the plain hybrid baseline.
+// TestHybridDiversitySelection is the end-to-end regression: hybrid MMR runs as a
+// post-fusion pass, so balance=0 reorders for diversity while balance=1 matches the baseline.
 func TestHybridDiversitySelection(t *testing.T) {
 	ctx := context.Background()
 
@@ -117,10 +113,7 @@ func TestHybridDiversitySelection(t *testing.T) {
 
 	queryVec := byteops.Fp32SliceToBytes(clusteredVectors()["a1"])
 
-	// alpha=1 → pure-vector hybrid: the single fused leg is the vector search,
-	// so post-fusion MMR is the only thing that can reorder the results.
-	// Diversity selection is carried on the top-level Hybrid.selection field
-	// (the canonical, hybrid-level location), not the near_vector sub-query.
+	// alpha=1 → pure-vector hybrid, so post-fusion MMR is the only thing that can reorder.
 	hybridReq := func(sel *pb.Selection) *pb.SearchRequest {
 		return &pb.SearchRequest{
 			Collection: className,
@@ -138,7 +131,6 @@ func TestHybridDiversitySelection(t *testing.T) {
 		}
 	}
 
-	// Wait for indexing.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection:  className,
@@ -175,8 +167,6 @@ func TestHybridDiversitySelection(t *testing.T) {
 		require.Len(t, resp.Results, 3)
 		balance0IDs = resultIDs(resp.Results)
 
-		// The bug: balance=0 returned the same ordering as balance=1 because no
-		// post-fusion MMR pass ran. After the fix the diverse picks differ.
 		assert.NotEqual(t, balance1IDs, balance0IDs,
 			"MMR balance=0 (diversity) must differ from balance=1 (relevance)")
 

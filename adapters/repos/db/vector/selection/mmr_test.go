@@ -85,9 +85,7 @@ func TestMMR_KEqualsN(t *testing.T) {
 	assert.Equal(t, float32(0.1), dists[0])
 }
 
-// TestMMR_NilVectorsExcluded guards against handing a nil vector to the
-// distancer: candidates whose vecForID yields an empty vector (e.g. a missing
-// object from ObjectsByDocIDWithEmpty) must be excluded rather than crash.
+// TestMMR_NilVectorsExcluded: candidates with an empty vector must be excluded, not crash.
 func TestMMR_NilVectorsExcluded(t *testing.T) {
 	provider := distancer.NewL2SquaredProvider()
 
@@ -100,7 +98,6 @@ func TestMMR_NilVectorsExcluded(t *testing.T) {
 		}
 		ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2, 3, 4}, []float32{0.1, 0.2, 0.3, 0.4}, 4, 0)
 		require.NoError(t, err)
-		// Only the two vectored candidates survive.
 		assert.ElementsMatch(t, []uint64{1, 3}, ids)
 		assert.Len(t, dists, 2)
 	})

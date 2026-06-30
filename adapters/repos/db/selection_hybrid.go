@@ -23,12 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
-// DiversifyResults runs the terminal MMR pass over an already-ranked candidate
-// pool (post-fusion/retrieval and post-boost). It is the single MMR entry point
-// for both the hybrid and pure-vector paths. relevanceFromDist selects the MMR
-// relevance signal: true uses the raw vector distance on each result (pure vector
-// search, no boost), false uses the min-max-normalized score (hybrid fusion, or
-// whenever boost has re-scored the results). Vectorless candidates keep their rank.
+// DiversifyResults runs the terminal MMR pass. relevanceFromDist=true uses raw
+// vector distance (pure vector); false uses the normalized fused score.
 func (db *DB) DiversifyResults(ctx context.Context, selection *searchparams.Selection,
 	className, targetVector string, results []search.Result, relevanceFromDist bool,
 ) ([]search.Result, error) {
@@ -44,9 +40,6 @@ func (db *DB) DiversifyResults(ctx context.Context, selection *searchparams.Sele
 	return diversifyResults(ctx, selection, targetVector, distProv, results, relevanceFromDist)
 }
 
-// diversifyResults is the distancer-agnostic MMR core, testable without a live
-// index. It returns the FULL diversified ordering of results; the caller sizes
-// the candidate pool (its input) and paginates the output.
 func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	targetVector string, distProv distancer.Provider, results []search.Result, relevanceFromDist bool,
 ) ([]search.Result, error) {
@@ -54,7 +47,6 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 		return results, nil
 	}
 
-	// vectoredPos[i] indexes into results; vecs[i] is its aligned vector.
 	vectoredPos := make([]int, 0, len(results))
 	vecs := make([][]float32, 0, len(results))
 	hasVector := make([]bool, len(results))
@@ -109,7 +101,7 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 		mmrOrder[j] = results[vectoredPos[id]]
 	}
 
-	// Re-merge: vectorless docs keep their fused slot; vectored slots take the diversified order.
+	// Vectorless docs keep their fused slot; vectored slots take the diversified order.
 	out := make([]search.Result, 0, len(results))
 	next := 0
 	for i := range results {
@@ -125,7 +117,6 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	return out, nil
 }
 
-// resultVector returns the []float32 for targetVector; multi-vectors are reported absent since MMR's distancer is []float32-only.
 func resultVector(r *search.Result, targetVector string) ([]float32, bool) {
 	if targetVector == "" {
 		if len(r.Vector) > 0 {
@@ -144,7 +135,6 @@ func resultVector(r *search.Result, targetVector string) ([]float32, bool) {
 	return vec, true
 }
 
-// normalizedScoreDistances min-max normalizes fused scores to [0,1] then inverts them into distances (lower = more relevant); equal scores yield 0.
 func normalizedScoreDistances(results []search.Result, vectoredPos []int) []float32 {
 	dists := make([]float32, len(vectoredPos))
 	minScore := float32(math.MaxFloat32)

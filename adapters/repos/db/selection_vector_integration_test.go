@@ -37,17 +37,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestVectorSelectionPagination pins the diversity (MMR) pagination contract for
-// pure-vector search (issue: page1/page2 must tile a single stable diversified
-// ordering, no overlap, no dropped results).
-//
-// Model (Y): query Limit = candidate pool (offset-independent); MMR.Limit = page
-// size; Offset pages the diversified pool.
+// TestVectorSelectionPagination: MMR pages must tile a single stable diversified
+// ordering. Query Limit = candidate pool; MMR.Limit = page size; Offset pages the pool.
 func TestVectorSelectionPagination(t *testing.T) {
 	className := "VectorSelectionPaging"
 	const total = 20
-	const pool = 20    // query Limit == candidate pool
-	const pageSize = 5 // MMR.Limit == results per page
+	const pool = 20
+	const pageSize = 5
 
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -93,8 +89,7 @@ func TestVectorSelectionPagination(t *testing.T) {
 	require.Nil(t, migrator.AddClass(context.Background(), class))
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
 
-	// Spread vectors along a line so the nearest-neighbour order is well-defined
-	// and MMR has a non-trivial diversification to perform.
+	// Spread vectors along a line so the nearest-neighbour order is well-defined.
 	for i := 0; i < total; i++ {
 		vec := []float32{float32(i) / float32(total), 1 - float32(i)/float32(total), 0.25}
 		obj := &models.Object{
@@ -106,11 +101,8 @@ func TestVectorSelectionPagination(t *testing.T) {
 
 	queryVec := []float32{0.1, 0.9, 0.25}
 
-	// MMR is terminal in the traverser: getClassVectorSearch fetches an
-	// offset-independent candidate pool (Offset=0, Limit=pool) with the target
-	// vector loaded, diversifies via DiversifyResults, then paginates by
-	// MMR.Limit. We compose the same two repo calls here to pin that contract
-	// against a real index.
+	// Compose the same two repo calls the traverser makes: fetch an offset-independent
+	// pool, diversify, then paginate.
 	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 0, Balance: 0.5}}
 	runSearch := func(offset int, mmrLimit uint32) []search.Result {
 		candidates, err := repo.VectorSearch(context.Background(), dto.GetParams{
@@ -123,11 +115,9 @@ func TestVectorSelectionPagination(t *testing.T) {
 		}, []string{""}, []models.Vector{queryVec})
 		require.Nil(t, err)
 
-		// relevanceFromDist=true: pure-vector relevance is the query distance.
 		diversified, err := repo.DiversifyResults(context.Background(), sel, className, "", candidates, true)
 		require.Nil(t, err)
 
-		// Slice the diversified ordering by [offset : offset+MMR.Limit].
 		if offset >= len(diversified) {
 			return []search.Result{}
 		}
@@ -169,8 +159,7 @@ func TestVectorSelectionPagination(t *testing.T) {
 	require.Equal(t, idsFull[:pageSize], ids1, "page1 must equal full[:pageSize]")
 	require.Equal(t, idsFull[pageSize:2*pageSize], ids2, "page2 must equal full[pageSize:2*pageSize]")
 
-	// Regression: when the MMR page size exceeds the candidate pool, paging past
-	// the pool must return empty — never duplicate items from an offset-grown pool.
+	// Regression: paging past the pool must return empty, never duplicates.
 	big := runSearch(0, total*2)
 	beyond := runSearch(total*2, total*2)
 	require.Len(t, big, total, "page size > pool returns the whole pool once")

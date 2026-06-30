@@ -689,7 +689,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				return nil
 			}
 
-			// selection (MMR) is applied once at the coordinator after merge, never per-shard.
 			idss[i] = ids
 			distss[i] = dists
 			return nil

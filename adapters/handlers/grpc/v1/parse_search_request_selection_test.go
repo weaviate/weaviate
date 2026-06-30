@@ -21,11 +21,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestParseHybridSelection pins the canonical contract for hybrid diversity
-// selection: it is a post-fusion, hybrid-level operation carried on the
-// top-level Hybrid.selection field. Selection attached to the near_vector /
-// near_text sub-query is intentionally NOT honored for hybrid (that field only
-// applies to a standalone near search).
+// TestParseHybridSelection: hybrid diversity is carried on the top-level
+// Hybrid.selection field; selection on a near sub-query is ignored.
 func TestParseHybridSelection(t *testing.T) {
 	parser := NewParser(false, getClass, nil, false)
 	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}

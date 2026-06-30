@@ -176,10 +176,6 @@ func (db *DB) VectorSearch(ctx context.Context,
 		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
-	// Diversity (MMR) is applied as the terminal stage in the traverser, after
-	// boost/fusion. VectorSearch just returns the candidate pool sliced by the
-	// caller's pagination (the traverser sets Offset=0/Limit=pool when MMR is
-	// active and paginates by MMR.Limit afterwards).
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination params: %w", err)

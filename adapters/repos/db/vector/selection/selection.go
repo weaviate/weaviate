@@ -26,11 +26,9 @@ type Selection interface {
 	Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error)
 }
 
-// New returns the Selection described by sel, wired up with the provided
-// distance and vector-fetch functions. k is how many candidates the selection
-// should emit (the diversified ordering length); callers paginate/truncate the
-// result. Returns nil when sel is nil or no known strategy is set, meaning the
-// caller should skip post-processing.
+// New returns the Selection described by sel, wired up with the provided distance
+// and vector-fetch functions. k is how many candidates to emit; callers paginate.
+// Returns nil when sel is nil or no known strategy is set.
 func New(
 	sel *searchparams.Selection,
 	distFn func(a, b []float32) (float32, error),

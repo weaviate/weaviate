@@ -320,9 +320,8 @@ func Test_Explorer_BoostPipeline(t *testing.T) {
 	})
 }
 
-// Test_Explorer_BoostThenMMR pins the "MMR is terminal" contract on the vector
-// path: boost re-ranks the candidate pool first, then MMR diversifies, then we
-// paginate by MMR.Limit. Boost must not run again after MMR.
+// Test_Explorer_BoostThenMMR: boost re-ranks the pool, then MMR diversifies and
+// paginates. Boost must not run again after MMR.
 func Test_Explorer_BoostThenMMR(t *testing.T) {
 	t.Run("nearVector + boost: boost feeds MMR relevance", func(t *testing.T) {
 		searcher := &fakeVectorSearcher{}
@@ -351,17 +350,13 @@ func Test_Explorer_BoostThenMMR(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 3, "MMR.Limit is the page size")
 
-		// The whole pool (20) is diversified, and it arrives boost-ordered: likes
-		// desc means Item 19 first (raw distance order would have put Item 00 first).
+		// The pool arrives boost-ordered (likes desc → Item 19 first), not raw-distance ordered.
 		require.Len(t, diversifyInput, 20)
 		assert.Equal(t, "Item 19", diversifyInput[0], "boost must re-rank the pool before MMR")
 
-		// With boost active, MMR's relevance signal is the post-boost score, not the
-		// raw vector distance.
+		// With boost active, MMR's relevance is the post-boost score, not raw distance.
 		assert.False(t, searcher.diversifyCalledRelevanceFromDist)
 
-		// Output is the boost-ordered, MMR-passthrough pool paginated to MMR.Limit,
-		// with boost applied exactly once (not re-clustered afterwards).
 		assert.Equal(t, []string{"Item 19", "Item 18", "Item 17"}, idsFromResponse(res))
 	})
 

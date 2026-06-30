@@ -22,13 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-// These tests exercise diversifyResults in its raw-distance relevance mode
-// (relevanceFromDist=true), used by the pure-vector path where MMR's relevance
-// term is the vector distance rather than a fused/boosted score. The
-// score-based mode is covered in selection_hybrid_test.go.
-
-// resultFromVecDist builds a Result carrying the default vector and its query
-// distance (used as the MMR relevance term when relevanceFromDist=true).
+// These tests exercise diversifyResults in raw-distance relevance mode
+// (relevanceFromDist=true); the score-based mode is in selection_hybrid_test.go.
 func resultFromVecDist(id int, vector []float32, dist float32) search.Result {
 	return search.Result{ID: strfmtUUID(id), Vector: vector, Dist: dist}
 }
@@ -125,8 +120,7 @@ func TestDiversifyResultsFromDist_NamedVector(t *testing.T) {
 }
 
 func TestDiversifyResultsFromDist_FullOrderingRegardlessOfLimit(t *testing.T) {
-	// MMR.Limit does not truncate here: diversifyResults emits the full
-	// diversified ordering and the caller paginates.
+	// MMR.Limit does not truncate here: diversifyResults emits the full ordering.
 	prov := distancer.NewCosineDistanceProvider()
 	results := []search.Result{
 		resultFromVecDist(0, []float32{1, 0}, 0.1),

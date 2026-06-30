@@ -243,9 +243,7 @@ func TestHybridOffsets(t *testing.T) {
 									gtResults[*res.DocID] = res.Score
 								}
 							} else {
-								// Limit == -1 ("max results") with an offset extends the page past
-								// the QHMR window, so it can include items beyond the ground-truth
-								// set and is not compared against the base case (see paginations).
+								// Limit == -1 with an offset can include items beyond the ground-truth set.
 								if pagination.Limit == -1 && pagination.Offset > 0 {
 									return
 								}

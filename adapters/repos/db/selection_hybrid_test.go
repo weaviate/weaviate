@@ -29,15 +29,13 @@ func strfmtUUID(i int) strfmt.UUID {
 	return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i))
 }
 
-// resultsFromVecs builds a fused result set sorted by descending score, where
-// score is assigned by position (earlier = more relevant). targetVector ==
-// "" stores vectors on Result.Vector, otherwise on Result.Vectors[target].
+// resultsFromVecs builds a fused result set sorted by descending score (earlier = more relevant).
 func resultsFromVecs(targetVector string, vecs [][]float32) []search.Result {
 	out := make([]search.Result, len(vecs))
 	for i, v := range vecs {
 		out[i] = search.Result{
 			ID:    strfmtUUID(i),
-			Score: float32(len(vecs) - i), // descending
+			Score: float32(len(vecs) - i),
 		}
 		if v == nil {
 			continue
@@ -67,23 +65,19 @@ func TestDiversifyResults(t *testing.T) {
 	ctx := context.Background()
 	prov := distancer.NewCosineDistanceProvider()
 
-	// Three tight cluster-A vectors and one far cluster-B vector. By fused
-	// score the top of the list is dominated by cluster A.
+	// Three tight cluster-A vectors and one far cluster-B vector.
 	clusterA1 := []float32{1, 0, 0}
 	clusterA2 := []float32{0.99, 0.01, 0}
 	clusterA3 := []float32{0.98, 0.02, 0}
 	clusterB := []float32{0, 0, 1}
 
-	// diversifyResults returns the FULL diversified ordering; the caller (and
-	// pagination) applies the page size. So output length always == input length.
+	// diversifyResults returns the full ordering, so output length always == input length.
 	t.Run("balance=0 pulls the diverse far candidate into the top results", func(t *testing.T) {
-		// Fused order: A1, A2, A3, B. The diversified head should be [A1, B, ...].
 		results := resultsFromVecs("", [][]float32{clusterA1, clusterA2, clusterA3, clusterB})
 		out, err := diversifyResults(ctx, mmrSelection(2, 0), "", prov, results, false)
 		require.NoError(t, err)
 		require.Len(t, out, 4)
-		// Most relevant stays first; second slot should be the far cluster-B
-		// candidate, not the near-duplicate A2.
+		// Second slot should be far cluster-B, not the near-duplicate A2.
 		assert.Equal(t, strfmtUUID(0), out[0].ID)
 		assert.Equal(t, strfmtUUID(3), out[1].ID, "expected diverse candidate, got %v", ids(out))
 	})
@@ -100,12 +94,11 @@ func TestDiversifyResults(t *testing.T) {
 	})
 
 	t.Run("vectorless candidate keeps its fused rank", func(t *testing.T) {
-		// Position 1 (second-most relevant) has no vector — a BM25-only hit.
+		// Position 1 has no vector — a BM25-only hit that must keep its rank.
 		results := resultsFromVecs("", [][]float32{clusterA1, nil, clusterA2, clusterB})
 		out, err := diversifyResults(ctx, mmrSelection(4, 0), "", prov, results, false)
 		require.NoError(t, err)
 		require.Len(t, out, 4)
-		// The vectorless doc must remain at index 1, never dropped or demoted.
 		assert.Equal(t, strfmtUUID(1), out[1].ID, "vectorless hit lost its rank: %v", ids(out))
 	})
 

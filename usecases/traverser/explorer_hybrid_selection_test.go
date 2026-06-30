@@ -47,11 +47,8 @@ func makeHybridVectorResults(n int) []search.Result {
 	return results
 }
 
-// Test_Explorer_HybridSelection pins the fix for the post-fusion MMR no-op bug.
-// Before the fix, diversity_selection on a hybrid query was forwarded to the
-// vector leg only and then discarded by fusion, so no post-fusion pass ever
-// ran. These tests assert that the pass is invoked on the fused pool and that
-// the legs are told to load the vectors MMR needs.
+// Test_Explorer_HybridSelection: MMR on a hybrid query must run as a post-fusion
+// pass on the fused pool, with the legs loading the vectors MMR needs.
 func Test_Explorer_HybridSelection(t *testing.T) {
 	t.Run("MMR selection runs post-fusion on hybrid results", func(t *testing.T) {
 		searcher := &fakeVectorSearcher{}
@@ -64,8 +61,7 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 			}).
 			Return(makeHybridVectorResults(10), nil)
 
-		// Return the full diversified ordering (reversed), matching the real
-		// DiversifyResults contract; pagination applies the page size afterwards.
+		// Return the full diversified ordering (reversed), like the real DiversifyResults.
 		searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, results []search.Result) ([]search.Result, error) {
 			reversed := make([]search.Result, len(results))
 			for i := range results {
@@ -74,8 +70,7 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 			return reversed, nil
 		}
 
-		// Y model: query Limit is the candidate pool (diversify all 10); MMR.Limit
-		// is the page size (return 3).
+		// Query Limit is the pool (diversify all 10); MMR.Limit is the page size (3).
 		params := dto.GetParams{
 			ClassName:    "TestClass",
 			Pagination:   &filters.Pagination{Offset: 0, Limit: 10},
@@ -87,29 +82,22 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 3, "MMR.Limit is the page size")
 
-		// 1. Selection reached the post-fusion pass (previously it never did).
-		require.NotNil(t, searcher.diversifyCalledSel)
+		require.NotNil(t, searcher.diversifyCalledSel, "selection must reach the post-fusion pass")
 		assert.Equal(t, uint32(3), searcher.diversifyCalledSel.MMR.Limit)
 
-		// 2. The dense leg was instructed to load vectors for the MMR pass.
 		assert.True(t, capturedAddl.Vector, "expected vector force-load on the hybrid leg")
 
-		// 3. The output reflects the post-fusion reorder: the fused pool was
-		// ordered by distance ascending (Item 00 first); after the reversing
-		// diversifyFn the most-distant items come first, then paginated to 3.
 		names := idsFromResponse(res)
 		assert.Equal(t, []string{"Item 09", "Item 08", "Item 07"}, names,
 			"post-fusion selection did not reorder+paginate results: %v", names)
 	})
 
 	t.Run("MMR pagination tiles the diversified pool", func(t *testing.T) {
-		// Y model: query Limit = pool (10), MMR.Limit = page size (3), Offset pages
-		// the diversified pool. Pages must tile one stable ordering with no overlap.
+		// Pages must tile one stable ordering with no overlap.
 		newExplorer := func() (*Explorer, *fakeVectorSearcher) {
 			searcher := &fakeVectorSearcher{}
 			searcher.On("VectorSearch", mock.Anything, mock.Anything).
 				Return(makeHybridVectorResults(10), nil)
-			// Full reversed ordering (deterministic, offset-independent).
 			searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, results []search.Result) ([]search.Result, error) {
 				reversed := make([]search.Result, len(results))
 				for i := range results {
@@ -163,7 +151,6 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 3)
 
-		// No diversity pass, no forced vector load — zero overhead when unused.
 		assert.Nil(t, searcher.diversifyCalledSel)
 		assert.False(t, capturedAddl.Vector)
 		names := idsFromResponse(res)
@@ -203,16 +190,13 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 3, "MMR.Limit is the page size")
 
-		// Boost ran before MMR: the fused pool arrives boost-ordered (likes desc),
-		// so Item 09 (highest likes) leads instead of the fusion-relevance leader.
+		// The fused pool arrives boost-ordered (likes desc → Item 09 first).
 		require.Len(t, diversifyInput, 10)
 		assert.Equal(t, "Item 09", diversifyInput[0], "boost must re-rank the fused pool before MMR")
 
 		// MMR relevance uses the post-boost score, not raw distance.
 		assert.False(t, searcher.diversifyCalledRelevanceFromDist)
 
-		// Boost is applied exactly once (inside the selection fn); the output is the
-		// boost-ordered, MMR-passthrough pool paginated to MMR.Limit.
 		assert.Equal(t, []string{"Item 09", "Item 08", "Item 07"}, idsFromResponse(res))
 	})
 }
