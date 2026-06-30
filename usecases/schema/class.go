@@ -468,19 +468,29 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
+	} else if updated != nil {
+		// Auth is on the path but the RAFT command keys on updated.Class; pin
+		// them together. The body class is optional, so only reject an explicit
+		// non-empty mismatch — an omitted class is taken from the path instead of
+		// reaching RAFT as an empty-class error.
+		if updated.Class != "" && schema.UppercaseClassName(updated.Class) != className {
+			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, className)
+		}
+		updated.Class = className
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {
 		return err
 	}
 
-	// Require DELETE permission on data when any TTL setting is being changed,
-	// but not when the user is updating other collection settings without
-	// touching TTL configuration.
-	initial := h.schemaReader.ReadOnlyClass(className)
+	// readInitialClass is a local, no-wait read with a leader-consistent
+	// fallback; on a lagging follower confirm against the leader before 404ing
+	// (also gates the TTL permission below).
+	initial, err := h.readInitialClass(className)
+	if err != nil {
+		return err
+	}
 	if initial == nil {
-		// Reject here so the body's Class field can't redirect the
-		// update to a different, existing class.
 		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 	if ttl.IsTtlConfigChanged(initial.ObjectTTLConfig, updated.ObjectTTLConfig) {
@@ -489,11 +499,37 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	return UpdateClassInternal(h, ctx, className, updated)
+	// Reuse the leader-confirmed initial for the rest of the update so a lagging
+	// follower validates against the real class state, not a stale local view.
+	return updateClassInternal(h, ctx, className, updated, initial)
+}
+
+// readInitialClass returns the current class definition, falling back to a
+// leader-consistent read (QueryReadOnlyClasses) when the local no-wait read
+// misses on a lagging follower. It returns (nil, nil) when the class genuinely
+// does not exist on the leader, leaving the not-found decision to the caller.
+func (h *Handler) readInitialClass(className string) (*models.Class, error) {
+	if initial := h.schemaReader.ReadOnlyClass(className); initial != nil {
+		return initial, nil
+	}
+	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	if err != nil {
+		return nil, err
+	}
+	return vclasses[className].Class, nil
 }
 
 // bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+) error {
+	return updateClassInternal(h, ctx, className, updated, nil)
+}
+
+// updateClassInternal applies the update. When initial is non-nil it is used as
+// the pre-update class state for the validations below; otherwise it is read
+// locally with a leader-consistent fallback so a lagging follower validates
+// against the real class state, not a stale or missing local view.
+func updateClassInternal(h *Handler, ctx context.Context, className string, updated, initial *models.Class,
 ) error {
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
@@ -523,9 +559,17 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return fmt.Errorf("parse vector config: %w", err)
 	}
 
-	// Initial class is read up-front for the grandfather-on-tighten skip
-	// in validateVectorSettingsAgainst.
-	initial := h.schemaReader.ReadOnlyClass(className)
+	// Reuse the caller-provided (leader-confirmed) initial when available;
+	// otherwise read it locally with a leader-consistent fallback so the
+	// grandfather-on-tighten skip in validateVectorSettingsAgainst and the
+	// `initial != nil` validations below don't depend on a stale local view.
+	if initial == nil {
+		var err error
+		initial, err = h.readInitialClass(className)
+		if err != nil {
+			return err
+		}
+	}
 
 	if err := h.validateVectorSettingsAgainst(updated, initial); err != nil {
 		return err
