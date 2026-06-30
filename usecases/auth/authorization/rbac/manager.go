@@ -336,8 +336,8 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
 		}
 
-		// Deleting an already-absent role is a no-op; keep going so the rest of
-		// the batch is still removed.
+		// deletes are idempotent: an already-absent role is a no-op, but other
+		// roles in the batch may still have been removed, so keep going.
 		if roleRemoved || roleAssignmentsRemoved {
 			changed = true
 		}
