@@ -294,6 +294,7 @@ var (
 	replicatePrefix  = authorization.ReplicateDomain + "/"
 	clusterPrefix    = authorization.ClusterDomain + "/"
 	namespacesPrefix = authorization.NamespacesDomain + "/"
+	groupsPrefix     = authorization.GroupsDomain + "/"
 )
 
 // rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
@@ -337,16 +338,18 @@ func rewritePolicy(policy, prefix string, fixedNs bool) (string, bool) {
 }
 
 // operatorOnlyResource reports whether path addresses an operator-only domain
-// (backups, nodes, replicate, cluster, namespaces). A namespaced caller is
-// denied these regardless of any role granting them. roles and groups are
-// excluded: their resources are namespace-bearing via qualified names, so a
-// blanket prefix-deny would be wrong for them.
+// (backups, nodes, replicate, cluster, namespaces, groups). A namespaced caller
+// is denied these regardless of any role granting them. Groups are global:
+// their ids are not namespace-bearing, so a namespaced caller must never reach
+// them. roles is excluded: role resources are namespace-bearing via qualified
+// names, so a blanket prefix-deny would be wrong for them.
 func operatorOnlyResource(path string) bool {
 	return strings.HasPrefix(path, backupsPrefix) ||
 		strings.HasPrefix(path, nodesPrefix) ||
 		strings.HasPrefix(path, replicatePrefix) ||
 		strings.HasPrefix(path, clusterPrefix) ||
-		strings.HasPrefix(path, namespacesPrefix)
+		strings.HasPrefix(path, namespacesPrefix) ||
+		strings.HasPrefix(path, groupsPrefix)
 }
 
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
@@ -370,7 +373,7 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 //     non-namespaceable shape: no rewrite.
 //
 // Namespaced callers are denied the operator-only domains (backups, nodes,
-// replicate, cluster, namespaces) outright.
+// replicate, cluster, namespaces, groups) outright.
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	// Namespaced callers have no access to operator-only domains, whatever the policy.
 	if ns != "" && operatorOnlyResource(reqObj) {

@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/export"
@@ -240,6 +241,13 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 				WithAction(authorization.ManageNamespaces).
 				WithNamespace("*").
 				Permission(),
+			{
+				Action: &authorization.ReadGroups,
+				Groups: &models.PermissionGroups{
+					Group:     authorization.String("*"),
+					GroupType: models.GroupTypeOidc,
+				},
+			},
 		},
 	})
 	t.Cleanup(func() { helper.DeleteRole(t, adminKey, role) })
@@ -347,5 +355,26 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 
 		helper.CreateNamespace(t, newNS, adminKey)
 		t.Cleanup(func() { helper.DeleteNamespace(t, newNS, adminKey) })
+	})
+
+	t.Run("group roles: namespaced role denied despite read_groups, root allowed", func(t *testing.T) {
+		// OIDC groups are global, not namespace-bearing: read_groups on groups/*
+		// would match the groups domain, but the operator-only deny fires for the
+		// namespaced caller. The group is one u1 does not belong to, so the
+		// handler runs the authz check rather than the own-group fast path.
+		const grp = "operator-only-group"
+		_, err := helper.Client(t).Authz.GetRolesForGroup(
+			authz.NewGetRolesForGroupParams().WithID(grp).WithGroupType(string(models.GroupTypeOidc)),
+			helper.CreateAuth(u1Key))
+		require.Error(t, err)
+		var forbidden *authz.GetRolesForGroupForbidden
+		require.True(t, errors.As(err, &forbidden), "expected GetRolesForGroupForbidden, got %T: %v", err, err)
+
+		// Root reads the same group's roles (empty, but a real 200) — proof the
+		// deny is narrowing, not a disabled endpoint.
+		_, err = helper.Client(t).Authz.GetRolesForGroup(
+			authz.NewGetRolesForGroupParams().WithID(grp).WithGroupType(string(models.GroupTypeOidc)),
+			helper.CreateAuth(adminKey))
+		require.NoError(t, err)
 	})
 }
