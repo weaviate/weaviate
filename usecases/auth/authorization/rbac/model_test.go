@@ -535,16 +535,20 @@ func TestNamespaceAwareMatcherGate(t *testing.T) {
 	// Operator-only domains are denied to namespaced callers (ns != "") even
 	// when a delegated role's wildcard policy would otherwise match, but stay
 	// reachable for the global caller (ns == "").
-	for _, dom := range []string{"backups", "nodes", "replicate", "cluster", "namespaces"} {
+	for _, dom := range []string{"backups", "nodes", "replicate", "cluster", "namespaces", "groups"} {
 		req := dom + "/anything"
 		assert.False(t, namespaceAwareMatcher(req, dom+"/.*", "customer1"),
 			"namespaced caller must be denied operator-only domain %q", dom)
 		assert.True(t, namespaceAwareMatcher(req, dom+"/.*", ""),
 			"global caller must reach operator-only domain %q", dom)
 	}
+	// Groups are global, not namespace-bearing: a namespaced caller must not
+	// match a groups/ policy even when the group id itself carries a ':'.
+	assert.False(t, namespaceAwareMatcher("groups/oidc/customer1:admins", "groups/.*", "customer1"),
+		"namespaced caller must be denied groups/ even for a colon-bearing group id")
 
-	// roles/groups are namespace-bearing via qualified names, so the gate must
-	// not blanket-deny them for namespaced callers.
+	// roles is namespace-bearing via qualified names, so the gate must not
+	// blanket-deny it for namespaced callers.
 	assert.True(t, call(true, "roles/customer1:editor", "roles/.*", "customer1"),
 		"NS-enabled: roles/.* specializes to the caller's namespace")
 	assert.False(t, call(true, "roles/customer2:editor", "roles/.*", "customer1"),
