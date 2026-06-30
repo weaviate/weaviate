@@ -140,6 +140,7 @@ type sgConfig struct {
 	writeMetadata                bool
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
+	className                    string
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -538,6 +539,19 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 	}
 
+	// Construct the sidecar before registering the cycle below, so sg.editOps is
+	// published before any pass can read it (happens-before). The bolt file itself
+	// is opened lazily on the first registered op (see newSegmentEditOps), so an
+	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
+	//
+	// A non-empty className means the objects bucket (the only WithClassName caller);
+	// edit ops only apply to its replace-strategy store. Transformers are resolved
+	// per op type from the global registry; the persisted ops drive what runs.
+	if cfg.className != "" && cfg.strategy == StrategyReplace {
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
+		sg.editOps.logger = sg.logger
+	}
+
 	id := "segmentgroup/compaction/" + sg.dir
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
@@ -891,6 +905,11 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
+	}
+	if sg.editOps != nil {
+		if err := sg.editOps.Close(); err != nil {
+			return err
+		}
 	}
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
