@@ -9217,11 +9217,6 @@ func init() {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
-            },
-            "user": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
-              "type": "string",
-              "default": "*"
             }
           }
         },
@@ -20502,11 +20497,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
-              "type": "string",
-              "default": "*"
-            },
-            "user": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
               "type": "string",
               "default": "*"
             }
