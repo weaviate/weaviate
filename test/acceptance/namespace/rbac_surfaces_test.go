@@ -210,8 +210,8 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 	foreignClass := ns2 + ":" + class // ns2's collection, named verbatim by u1
 	setupClassInNs1(t, ns1, class, u1Key)
 
-	// Root delegates a global role with three operator domains (on all
-	// collections) to the namespaced user u1.
+	// Root delegates a global role spanning every operator domain (on all
+	// collections / namespaces) to the namespaced user u1.
 	const role = "opdomaindeny"
 	helper.CreateRole(t, adminKey, &models.Role{
 		Name: authorization.String(role),
@@ -232,6 +232,11 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 					Shard:      authorization.String("*"),
 				},
 			},
+			{Action: authorization.String(authorization.ReadCluster)},
+			helper.NewNamespacesPermission().
+				WithAction(authorization.ManageNamespaces).
+				WithNamespace("*").
+				Permission(),
 		},
 	})
 	t.Cleanup(func() { helper.DeleteRole(t, adminKey, role) })
@@ -309,5 +314,33 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 		_, err := helper.Client(t).Replication.Replicate(
 			replication.NewReplicateParams().WithBody(req), helper.CreateAuth(adminKey))
 		require.False(t, errors.As(err, &forbidden), "root must not be forbidden on replicate; got %v", err)
+	})
+
+	t.Run("cluster statistics: namespaced role denied despite read_cluster, root allowed", func(t *testing.T) {
+		// cluster is a single global surface (no own/foreign): the delegated
+		// read_cluster grant would match cluster/.* but the operator-only deny fires.
+		_, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(u1Key))
+		require.Error(t, err)
+		var forbidden *cluster.ClusterGetStatisticsForbidden
+		require.True(t, errors.As(err, &forbidden), "expected ClusterGetStatisticsForbidden, got %T: %v", err, err)
+
+		resp, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		assert.NotEmpty(t, resp.Payload.Statistics)
+	})
+
+	t.Run("create namespace: namespaced role denied despite manage_namespaces, root allowed", func(t *testing.T) {
+		// manage_namespaces was granted on all namespaces, yet the operator-only
+		// deny fires for the namespaced caller.
+		newNS := uniqueNS()
+		_, err := helper.Client(t).Namespaces.CreateNamespace(
+			clns.NewCreateNamespaceParams().WithNamespaceID(newNS), helper.CreateAuth(u1Key))
+		require.Error(t, err)
+		var forbidden *clns.CreateNamespaceForbidden
+		require.True(t, errors.As(err, &forbidden), "expected CreateNamespaceForbidden, got %T: %v", err, err)
+
+		helper.CreateNamespace(t, newNS, adminKey)
+		t.Cleanup(func() { helper.DeleteNamespace(t, newNS, adminKey) })
 	})
 }

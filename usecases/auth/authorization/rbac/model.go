@@ -287,9 +287,11 @@ var (
 	usersPrefix              = authorization.UsersDomain + "/"
 
 	// Operator-only domain prefixes; see operatorOnlyResource.
-	backupsPrefix   = authorization.BackupsDomain + "/"
-	nodesPrefix     = authorization.NodesDomain + "/"
-	replicatePrefix = authorization.ReplicateDomain + "/"
+	backupsPrefix    = authorization.BackupsDomain + "/"
+	nodesPrefix      = authorization.NodesDomain + "/"
+	replicatePrefix  = authorization.ReplicateDomain + "/"
+	clusterPrefix    = authorization.ClusterDomain + "/"
+	namespacesPrefix = authorization.NamespacesDomain + "/"
 )
 
 const (
@@ -404,12 +406,16 @@ func globalCallerNeedsNoWidening(reqObj string) bool {
 }
 
 // operatorOnlyResource reports whether path addresses an operator-only domain
-// (backups, nodes, replicate). A namespaced caller is denied these regardless
-// of any role granting them.
+// (backups, nodes, replicate, cluster, namespaces). A namespaced caller is
+// denied these regardless of any role granting them. roles and groups are
+// excluded: their resources are namespace-bearing via qualified names, so a
+// blanket prefix-deny would be wrong for them.
 func operatorOnlyResource(path string) bool {
 	return strings.HasPrefix(path, backupsPrefix) ||
 		strings.HasPrefix(path, nodesPrefix) ||
-		strings.HasPrefix(path, replicatePrefix)
+		strings.HasPrefix(path, replicatePrefix) ||
+		strings.HasPrefix(path, clusterPrefix) ||
+		strings.HasPrefix(path, namespacesPrefix)
 }
 
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
@@ -433,7 +439,7 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 //     non-namespaceable shape: no rewrite.
 //
 // Namespaced callers are denied the operator-only domains (backups, nodes,
-// replicate) outright.
+// replicate, cluster, namespaces) outright.
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	// Namespaced callers have no access to operator-only domains, whatever the policy.
 	if ns != "" && operatorOnlyResource(reqObj) {
