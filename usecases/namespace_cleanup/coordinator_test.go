@@ -406,6 +406,62 @@ func TestCoordinator_Tick_RBACDisabledSkipsCleanup(t *testing.T) {
 	assert.Equal(t, 1, raft.removeEntityCall["customer1"])
 }
 
+// TestCoordinator_Tick_RBACSparseAssignments pins the two thin branches of the
+// cascade: a namespaced subject holding no roles is skipped (no revoke), and a
+// local role with no assignments at all is still deleted.
+func TestCoordinator_Tick_RBACSparseAssignments(t *testing.T) {
+	tests := []struct {
+		name        string
+		rbac        stubRBAC
+		wantRevoked []string
+		wantDeleted []string
+	}{
+		{
+			name: "zero-role namespaced subject is skipped",
+			rbac: stubRBAC{
+				roles: []string{"customer1:editor"},
+				subjectsByAuth: map[authentication.AuthType][]string{
+					authentication.AuthTypeDb: {"customer1:alice", "customer1:dave"},
+				},
+				rolesBySubject: map[string][]string{
+					"customer1:alice": {"customer1:editor"},
+				},
+			},
+			wantRevoked: []string{"db:customer1:alice"},
+			wantDeleted: []string{"customer1:editor"},
+		},
+		{
+			name: "local role with no assignments is still deleted",
+			rbac: stubRBAC{
+				roles: []string{"customer1:editor"},
+			},
+			wantRevoked: nil,
+			wantDeleted: []string{"customer1:editor"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raft := newStubRaft()
+			ns := stubNamespaces{deleting: []string{"customer1"}}
+			c := newTestCoordinatorRBAC(t, ns, stubSchema{}, raft, tc.rbac, alwaysLeader)
+
+			require.NoError(t, c.Tick(context.Background()))
+
+			var revoked, deleted []string
+			for _, call := range raft.calls {
+				switch call.op {
+				case "revoke_roles":
+					revoked = append(revoked, call.arg)
+				case "delete_roles":
+					deleted = append(deleted, call.arg)
+				}
+			}
+			assert.ElementsMatch(t, tc.wantRevoked, revoked)
+			assert.ElementsMatch(t, tc.wantDeleted, deleted)
+		})
+	}
+}
+
 func TestCoordinator_Tick_EmptyDeletingSetIsNoop(t *testing.T) {
 	raft := newStubRaft()
 	c := newTestCoordinator(t, stubNamespaces{}, stubSchema{}, raft, alwaysLeader)

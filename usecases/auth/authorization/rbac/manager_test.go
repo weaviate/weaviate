@@ -251,6 +251,17 @@ func TestManager_CountNamespaceLocalRBAC(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, got)
 
+	// The cascade enumeration surfaces the two namespaced users, never the
+	// namespace-named group: a group is global, so it must never be treated as a
+	// namespace-local subject the cascade would try to revoke from.
+	_, subjects, err := m.NamespaceLocalRBAC("customer1")
+	require.NoError(t, err)
+	ids := make([]string, len(subjects))
+	for i, s := range subjects {
+		ids[i] = s.ID
+	}
+	assert.ElementsMatch(t, []string{"customer1:alice", "customer1:carol"}, ids)
+
 	other, err := m.CountNamespaceLocalRBAC("customer2")
 	require.NoError(t, err)
 	assert.Equal(t, 0, other)

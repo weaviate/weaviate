@@ -108,3 +108,15 @@ func TestUpsertRolesPermissionsShortNameConflict(t *testing.T) {
 		})
 	}
 }
+
+// TestUpsertRolesPermissionsRejectsMalformedSubCommand pins that a sub-command
+// payload that is not a valid CreateRolesRequest is rejected as a bad request
+// rather than panicking or applying a partial state.
+func TestUpsertRolesPermissionsRejectsMalformedSubCommand(t *testing.T) {
+	m := newTestManager(t)
+	err := m.UpsertRolesPermissions(&cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
+		SubCommand: []byte("not json"),
+	})
+	require.ErrorIs(t, err, ErrBadRequest)
+}
