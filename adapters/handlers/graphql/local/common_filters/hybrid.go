@@ -170,6 +170,9 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		if operator["minimumOrTokensMatch"] != nil {
 			args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
 		}
+		if operator["matchTokensAcrossProperties"] != nil {
+			args.MatchTokensAcrossProperties = operator["matchTokensAcrossProperties"].(bool)
+		}
 	}
 
 	args.Type = "hybrid"

@@ -56,6 +56,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		params.KeywordRanking.MinimumOrTokensMatch = params.HybridSearch.MinimumOrTokensMatch
 	}
 
+	params.KeywordRanking.MatchTokensAcrossProperties = params.HybridSearch.MatchTokensAcrossProperties
+
 	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 	if err != nil {
 		return nil, "", err

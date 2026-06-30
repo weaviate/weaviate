@@ -51,6 +51,10 @@ func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFie
 						Description: "The minimum number of tokens that should match (only for OR operator)",
 						Type:        graphql.Int,
 					},
+					"matchTokensAcrossProperties": &graphql.InputObjectFieldConfig{
+						Description: "When true and operator is And, a document matches if every token is present in at least one searched property (tokens may be spread across properties)",
+						Type:        graphql.Boolean,
+					},
 				},
 			},
 		),
@@ -84,6 +88,9 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 		args.SearchOperator = operator["operator"].(string)
 		if operator["minimumOrTokensMatch"] != nil {
 			args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
+		}
+		if operator["matchTokensAcrossProperties"] != nil {
+			args.MatchTokensAcrossProperties = operator["matchTokensAcrossProperties"].(bool)
 		}
 	}
 

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -256,4 +257,106 @@ func TestBM25FJourneyAnd(t *testing.T) {
 		}
 
 	}
+}
+
+func TestBM25FCrossPropertyAnd(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.Background()))
+	defer repo.Shutdown(context.Background())
+
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "none")
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	addit := additional.Properties{}
+	searchProps := []string{"title", "description"}
+	// doc 3 is title "An unrelated title", description "Actually all about journey".
+	// "unrelated" appears only in titles (docs 3 and 7); "journey" appears in many
+	// descriptions/titles. Only doc 3 has BOTH tokens — and they sit in different
+	// properties, so it matches cross-property AND but not per-property AND.
+	const query = "unrelated journey"
+
+	idSet := func(res []*storobj.Object) map[uint64]struct{} {
+		out := make(map[uint64]struct{}, len(res))
+		for _, r := range res {
+			out[r.DocID] = struct{}{}
+		}
+		return out
+	}
+	scoreFor := func(res []*storobj.Object, scores []float32, id uint64) (float32, bool) {
+		for i, r := range res {
+			if r.DocID == id {
+				return scores[i], true
+			}
+		}
+		return 0, false
+	}
+
+	kwrCross := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorAnd, MatchTokensAcrossProperties: true}
+	resCross, scoresCross, err := idx.objectSearch(context.TODO(), 1000, nil, kwrCross, nil, nil, addit, nil, "", 0, props)
+	require.Nil(t, err)
+
+	kwrAnd := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorAnd}
+	resAnd, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrAnd, nil, nil, addit, nil, "", 0, props)
+	require.Nil(t, err)
+
+	kwrOr := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorOr}
+	resOr, scoresOr, err := idx.objectSearch(context.TODO(), 1000, nil, kwrOr, nil, nil, addit, nil, "", 0, props)
+	require.Nil(t, err)
+
+	crossIDs := idSet(resCross)
+	orIDs := idSet(resOr)
+
+	// cross-property AND matches exactly doc 3
+	require.Len(t, resCross, 1, "cross-property AND should match exactly one doc")
+	require.Contains(t, crossIDs, uint64(3))
+
+	// per-property AND matches nothing: no single property holds both tokens
+	require.Empty(t, resAnd, "per-property AND should not match when tokens are split across properties")
+
+	// cross-property AND is a strict subset of OR, which also includes doc 3
+	require.Contains(t, orIDs, uint64(3))
+	for id := range crossIDs {
+		require.Contains(t, orIDs, id, "cross-property AND result must be a subset of OR")
+	}
+	require.GreaterOrEqual(t, len(resOr), len(resCross))
+
+	// scoring is unchanged: doc 3's cross-property AND score equals its OR score,
+	// since cross-property AND only filters and sums the same per-property scores.
+	sCross, okCross := scoreFor(resCross, scoresCross, 3)
+	sOr, okOr := scoreFor(resOr, scoresOr, 3)
+	require.True(t, okCross)
+	require.True(t, okOr)
+	EqualFloats(t, sCross, sOr, 4)
 }

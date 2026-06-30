@@ -45,6 +45,10 @@ type KeywordRanking struct {
 	AdditionalExplanations bool     `json:"additionalExplanations"`
 	MinimumOrTokensMatch   int      `json:"minimumOrTokensMatch"`
 	SearchOperator         string   `json:"searchOperator"`
+	// MatchTokensAcrossProperties only takes effect with SearchOperator AND: a
+	// document matches when every query token is present in at least one searched
+	// property rather than all tokens within a single property.
+	MatchTokensAcrossProperties bool `json:"matchTokensAcrossProperties"`
 }
 
 // Indicates whether property should be indexed
@@ -121,8 +125,10 @@ type HybridSearch struct {
 	WithDistance         bool          `json:"withDistance"`
 	MinimumOrTokensMatch int           `json:"minimumOrTokenMatch"`
 	SearchOperator       string        `json:"searchOperator"`
-	NearTextParams       *NearTextParams
-	NearVectorParams     *NearVector
+	// MatchTokensAcrossProperties: see KeywordRanking.MatchTokensAcrossProperties.
+	MatchTokensAcrossProperties bool `json:"matchTokensAcrossProperties"`
+	NearTextParams              *NearTextParams
+	NearVectorParams            *NearVector
 }
 
 type NearObject struct {

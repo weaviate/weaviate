@@ -116,6 +116,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 				out.KeywordRanking.MinimumOrTokensMatch = int(*bm25.SearchOperator.MinimumOrTokensMatch)
 			}
 			out.KeywordRanking.SearchOperator = bm25.SearchOperator.Operator.String()
+			out.KeywordRanking.MatchTokensAcrossProperties = bm25.SearchOperator.GetMatchTokensAcrossProperties()
 		}
 	}
 
