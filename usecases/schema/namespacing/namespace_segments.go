@@ -39,7 +39,7 @@ func GlobalCallerWidens(reqObj string) bool {
 	if strings.HasPrefix(reqObj, UsersPrefix) {
 		return false
 	}
-	return strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) >= 0
+	return strings.Contains(reqObj, schema.NamespaceSeparator)
 }
 
 // FindNamespaceSegments returns the [start, end) bounds of the collection-name
@@ -103,7 +103,7 @@ func RewriteNamespaceSegments(path string, fn func(segment string) (string, erro
 		return path, nil
 	}
 	var b strings.Builder
-	b.Grow(len(path) + 2*len(schema.NamespaceSeparator) + 32)
+	b.Grow(len(path) + 2*len(schema.NamespaceSeparator))
 	b.WriteString(path[:start])
 	seg, err := fn(path[start:end])
 	if err != nil {

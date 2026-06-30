@@ -161,7 +161,7 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 			if errors.Is(err, types.ErrNotLeader) || ctx.Err() != nil {
 				return nil
 			}
-			c.logger.WithField("namespace", namespace).Error(err)
+			c.logger.WithField("namespace", namespace).Errorf("cleanup namespace: %v", err)
 		}
 	}
 	return nil
@@ -236,7 +236,7 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, namespace stri
 // then the local roles themselves. Revocations run before role deletes so no
 // assignment outlives its role.
 //
-// The assign layer only lets a local role reach its own namespace's principals,
+// The assignment handler only lets a local role reach its own namespace's principals,
 // all of which are revoked above, so DeleteRoles dropping any grouping row that
 // still points at a deleted local role is a defensive backstop. No-op when RBAC
 // is disabled (see RBACLister).
