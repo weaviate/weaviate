@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.2"
+    "version": "1.39.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -9217,11 +9217,6 @@ func init() {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
-            },
-            "user": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
-              "type": "string",
-              "default": "*"
             }
           }
         },
@@ -11035,7 +11030,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.2"
+    "version": "1.39.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -20502,11 +20497,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
-              "type": "string",
-              "default": "*"
-            },
-            "user": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
               "type": "string",
               "default": "*"
             }

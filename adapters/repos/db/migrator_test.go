@@ -340,6 +340,41 @@ func TestUpdateIndexShards(t *testing.T) {
 	}
 }
 
+// When the index is not local yet (RAFT schema not applied on this node) or
+// the class does not exist, the shard-status migrator methods must wrap
+// schemaUC.ErrNotFound so the REST handler maps them to 404 rather than 500.
+func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
+	logger := logrus.New()
+	migrator := NewMigrator(&DB{}, logger, "node1")
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "GetShardsStatus",
+			call: func() error {
+				_, err := migrator.GetShardsStatus(context.Background(), "DoesNotExist", "")
+				return err
+			},
+		},
+		{
+			name: "UpdateShardStatus",
+			call: func() error {
+				return migrator.UpdateShardStatus(context.Background(), "DoesNotExist", "shard1", models.TenantActivityStatusHOT, 0)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call()
+			require.Error(t, err)
+			require.ErrorIs(t, err, schemaUC.ErrNotFound)
+		})
+	}
+}
+
 func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.On("NodeName").Return("node1")
@@ -408,15 +443,14 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	}, 0)
 	require.NoError(t, err)
 
-	err = index.IncomingPauseFileActivity(ctx, "shard1")
-	require.NoError(t, err)
+	const opID = "00000000-0000-0000-0000-000000000001"
 
-	files, err := index.IncomingListFiles(ctx, "shard1")
+	files, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 
 	for i, f := range files {
-		md, err := index.IncomingGetFileMetadata(ctx, "shard1", f)
+		md, err := index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, f)
 		require.NoError(t, err)
 
 		// object insertion should not affect file copy process
@@ -430,7 +464,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		}, 0)
 		require.NoError(t, err)
 
-		r, err := index.IncomingGetFile(ctx, "shard1", f)
+		r, err := index.IncomingGetReplicaSnapshotFile(ctx, opID, f)
 		require.NoError(t, err)
 
 		h := crc32.NewIEEE()
@@ -441,6 +475,6 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		require.Equal(t, md.CRC32, h.Sum32())
 	}
 
-	err = index.IncomingResumeFileActivity(ctx, "shard1")
+	err = index.IncomingReleaseReplicaSnapshot(ctx, opID)
 	require.NoError(t, err)
 }

@@ -45,6 +45,17 @@ const (
 	MethodPut string = "PUT"
 )
 
+// OverwriteObjects gRPC vobjects_data encodings. Raw is emitted only when the
+// runtime flag is on, and is always zstd-compressed (gRPC, unlike REST, does not
+// compress the body).
+const (
+	OverwriteEncodingJSON uint32 = 0
+	OverwriteEncodingRaw  uint32 = 1
+)
+
+// OverwriteEncodingHeaderRaw is the REST X-Request-Encoding value for raw.
+const OverwriteEncodingHeaderRaw = "raw"
+
 type indicesPayloads struct {
 	ErrorList                  errorListPayload
 	SingleObject               singleObjectPayload
@@ -465,21 +476,21 @@ func (p versionedObjectListPayload) CheckContentTypeHeaderReq(r *http.Request) (
 	return ct, ct == p.MIME()
 }
 
-func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
-	// NOTE: This implementation is not optimized for allocation efficiency,
-	// reserve 1024 byte per object which is rather arbitrary
+// marshalFramedVObjects writes each object's encoding with an 8-byte
+// little-endian length prefix. All VersionedObjectList encodings share this
+// framing; only the per-object encoder differs.
+func marshalFramedVObjects(in []*objects.VObject, encode func(*objects.VObject) ([]byte, error)) ([]byte, error) {
+	// 1024 bytes/object reserved is arbitrary, not allocation-optimal.
 	out := make([]byte, 0, 1024*len(in))
 
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
-		objBytes, err := ind.MarshalBinary()
+		objBytes, err := encode(ind)
 		if err != nil {
 			return nil, err
 		}
 
-		length := uint64(len(objBytes))
-		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
-
+		binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(len(objBytes)))
 		out = append(out, reusableLengthBuf...)
 		out = append(out, objBytes...)
 	}
@@ -487,108 +498,77 @@ func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, erro
 	return out, nil
 }
 
-// MarshalV2 encodes each VObject using the compact binary format (MarshalBinaryV2)
-// instead of the JSON-wrapped format used by Marshal. The framing (8-byte length
-// prefix per object) is identical so the same reader loop works for both.
-func (p versionedObjectListPayload) MarshalV2(in []*objects.VObject) ([]byte, error) {
-	out := make([]byte, 0, 1024*len(in))
+func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
+	return marshalFramedVObjects(in, (*objects.VObject).MarshalBinary)
+}
 
-	reusableLengthBuf := make([]byte, 8)
-	for _, ind := range in {
-		objBytes, err := ind.MarshalBinaryV2()
+// MarshalV2 encodes each VObject using the compact binary format
+// (MarshalBinaryV2) instead of the JSON-wrapped format used by Marshal.
+func (p versionedObjectListPayload) MarshalV2(in []*objects.VObject) ([]byte, error) {
+	return marshalFramedVObjects(in, (*objects.VObject).MarshalBinaryV2)
+}
+
+// MarshalRaw encodes each VObject using the raw-propagation format
+// (MarshalBinaryRaw): stale-update time + the object's raw on-disk bytes.
+func (p versionedObjectListPayload) MarshalRaw(in []*objects.VObject) ([]byte, error) {
+	return marshalFramedVObjects(in, (*objects.VObject).MarshalBinaryRaw)
+}
+
+// unmarshalFramedVObjects reads length-prefixed records written by
+// marshalFramedVObjects and decodes each into a VObject via decode. A clean EOF
+// before a record ends the stream; a mid-prefix EOF is a truncation error.
+func unmarshalFramedVObjects(in []byte, decode func(*objects.VObject, []byte) error) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	lenBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := io.ReadFull(r, lenBuf)
+		if errors.Is(err, io.EOF) {
+			break
+		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
 		}
 
-		length := uint64(len(objBytes))
-		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+		ln := binary.LittleEndian.Uint64(lenBuf)
+		if ln > uint64(r.Len()) {
+			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
+		}
+		if ln > math.MaxInt {
+			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
+		}
 
-		out = append(out, reusableLengthBuf...)
-		out = append(out, objBytes...)
+		payloadBytes := make([]byte, int(ln))
+		if _, err = io.ReadFull(r, payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
+		}
+
+		var vobj objects.VObject
+		if err = decode(&vobj, payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
+		}
+
+		out = append(out, &vobj)
 	}
 
 	return out, nil
+}
+
+// UnmarshalRaw decodes a payload produced by MarshalRaw. Each VObject's RawBytes
+// aliases a freshly-allocated per-object slice, so it is safe to retain.
+func (p versionedObjectListPayload) UnmarshalRaw(in []byte) ([]*objects.VObject, error) {
+	return unmarshalFramedVObjects(in, (*objects.VObject).UnmarshalBinaryRaw)
 }
 
 // UnmarshalV2 decodes a payload produced by MarshalV2 (binary V2 per-object encoding).
 func (p versionedObjectListPayload) UnmarshalV2(in []byte) ([]*objects.VObject, error) {
-	var out []*objects.VObject
-
-	lenBuf := make([]byte, 8)
-	r := bytes.NewReader(in)
-
-	for {
-		_, err := io.ReadFull(r, lenBuf)
-		if errors.Is(err, io.EOF) {
-			// Reader was already empty before we started — clean end of stream.
-			break
-		}
-		if err != nil {
-			// io.ErrUnexpectedEOF: stream ended mid-prefix (truncated length field).
-			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
-		}
-
-		ln := binary.LittleEndian.Uint64(lenBuf)
-		if ln > uint64(r.Len()) {
-			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
-		}
-		if ln > math.MaxInt {
-			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
-		}
-
-		payloadBytes := make([]byte, int(ln))
-		if _, err = io.ReadFull(r, payloadBytes); err != nil {
-			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
-		}
-
-		var vobj objects.VObject
-		if err = vobj.UnmarshalBinaryV2(payloadBytes); err != nil {
-			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
-		}
-
-		out = append(out, &vobj)
-	}
-
-	return out, nil
+	return unmarshalFramedVObjects(in, (*objects.VObject).UnmarshalBinaryV2)
 }
 
 func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
-	var out []*objects.VObject
-
-	lenBuf := make([]byte, 8)
-	r := bytes.NewReader(in)
-
-	for {
-		_, err := io.ReadFull(r, lenBuf)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
-		}
-
-		ln := binary.LittleEndian.Uint64(lenBuf)
-		if ln > uint64(r.Len()) {
-			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
-		}
-		if ln > math.MaxInt {
-			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
-		}
-
-		payloadBytes := make([]byte, int(ln))
-		if _, err = io.ReadFull(r, payloadBytes); err != nil {
-			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
-		}
-
-		var vobj objects.VObject
-		if err = vobj.UnmarshalBinary(payloadBytes); err != nil {
-			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
-		}
-
-		out = append(out, &vobj)
-	}
-
-	return out, nil
+	return unmarshalFramedVObjects(in, (*objects.VObject).UnmarshalBinary)
 }
 
 type mergeDocPayload struct{}

@@ -32,6 +32,14 @@ var blockMaxBufferSize = 4096
 // free of the counter writes.
 var collectBlockMetrics = false
 
+// deferTombstoneToScore rejects tombstoned (deleted) docs in the DoBlockMax*
+// scoring branch rather than skipping them per advance. Filters stay at advance
+// time because they prune the WAND candidate space; a tombstone does not (the
+// deleted doc still occupies its posting slot and is still visited), so probing it
+// per advanced doc is pure overhead. Bit-identical either way — a doc dropped at
+// scoring affects neither other scores nor the heap threshold.
+var deferTombstoneToScore = true
+
 // decodeFuncsFromCodecs resolves the stateless doc-id and tf decode functions for
 // a segment's codecs once, so per-term iterators carry func values instead of
 // allocating decoder instances.
@@ -45,7 +53,7 @@ func decodeFuncsFromCodecs(codecs []varenc.VarEncDataType) (docIds, tfs func(dat
 	return docIds, tfs
 }
 
-func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint64]uint32) ([]terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
+func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsView) ([]terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
 	if s.readFromMemory {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
@@ -69,7 +77,9 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, propLengths map[uint6
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]terms.BlockEntry, 1)
-		propLength := propLengths[data.DocIds[0]]
+		// reuse the snapshot reset already took under lock (propLengthsView), so
+		// this never reads the segment's arrays unlocked
+		propLength := plView.get(data.DocIds[0])
 		tf := data.Tfs[0]
 		entries[0] = terms.BlockEntry{
 			Offset:              0,
@@ -184,6 +194,10 @@ type SegmentBlockMax struct {
 	decodeDocIds func(data []byte, values []uint64)
 	decodeTfs    func(data []byte, values []uint64)
 
+	// disk terms read property lengths through the cursor view over the
+	// segment's sorted pairs; the map remains only for memtable-decoded terms
+	// (addDataToTerm) and the in-memory test constructor.
+	plView         propLengthsView
 	propLengths    map[uint64]uint32
 	blockDatasTest []*terms.BlockData
 
@@ -194,8 +208,17 @@ type SegmentBlockMax struct {
 	Metrics BlockMetrics
 }
 
-func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
-	return NewSegmentBlockMax(s, key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
+// A non-nil node is the term's prefetched index node, reused as-is; nil means
+// look it up here.
+func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	if node == nil {
+		n, err := s.index.Get(key)
+		if err != nil {
+			return nil
+		}
+		node = &n
+	}
+	return newSegmentBlockMaxFromNode(s, *node, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
 }
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
@@ -203,7 +226,10 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	if err != nil {
 		return nil
 	}
+	return newSegmentBlockMaxFromNode(s, node, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
+}
 
+func newSegmentBlockMaxFromNode(s *segment, node segmentindex.Node, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	// if filter is empty after checking for tombstones,
 	// we can skip it and return nil for the segment
 	if filterDocIds != nil && filterDocIds.IsEmpty() {
@@ -247,8 +273,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		sectionReader: sectionReader,
 	}
 
-	err = output.reset()
-	if err != nil {
+	if err := output.reset(); err != nil {
 		return nil
 	}
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
@@ -331,7 +356,8 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 }
 
 func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
-	if (s.filterDocIds == nil && s.tombstones == nil && s.memTombstones == nil) || s.exhausted {
+	checkTomb := !deferTombstoneToScore && (s.tombstones != nil || s.memTombstones != nil)
+	if (s.filterDocIds == nil && !checkTomb) || s.exhausted {
 		if !s.exhausted {
 			s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 		}
@@ -342,9 +368,10 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 		// read the current doc id once instead of re-indexing the slice in each
 		// of the up-to-three membership checks below
 		docID := s.blockDataDecoded.DocIds[s.blockDataIdx]
-		passes := (s.filterDocIds == nil || s.filterDocIds.Contains(docID)) &&
-			(s.tombstones == nil || !s.tombstones.Contains(docID)) &&
-			(s.memTombstones == nil || !s.memTombstones.Contains(docID))
+		passes := s.filterDocIds == nil || s.filterDocIds.Contains(docID)
+		if passes && checkTomb {
+			passes = !s.tombstoned(docID)
+		}
 		if passes {
 			break
 		}
@@ -365,15 +392,25 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	}
 }
 
+// tombstoned reports whether docID is deleted in this iterator's view. All terms
+// in a segment share the same tombstone bitmaps, so any one of them can report
+// tombstone status for a pivot they all align on.
+func (s *SegmentBlockMax) tombstoned(docID uint64) bool {
+	return (s.tombstones != nil && s.tombstones.Contains(docID)) ||
+		(s.memTombstones != nil && s.memTombstones.Contains(docID))
+}
+
 func (s *SegmentBlockMax) reset() error {
 	var err error
 
-	s.propLengths, err = s.segment.getPropertyLengths()
+	// the view is a no-IO cursor over the segment's sorted pairs —
+	// getPropertyLengths would reconstruct the whole map per query.
+	s.plView, err = s.segment.propLengthsView()
 	if err != nil {
 		return err
 	}
 
-	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node, s.propLengths)
+	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node, &s.plView)
 	if err != nil {
 		return err
 	}
@@ -474,15 +511,23 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		return
 	}
 
-	for s.blockEntryIdx < len(s.blockEntries) && docId > s.blockEntries[s.blockEntryIdx].MaxId {
-		s.blockEntryIdx++
+	// scan with locals so the index stays in a register and the decoded/freqDecoded
+	// stores happen once after the loop instead of on every skipped block.
+	entries := s.blockEntries
+	idx := s.blockEntryIdx
+	for idx < len(entries) && docId > entries[idx].MaxId {
+		idx++
+	}
+	if idx != s.blockEntryIdx {
+		s.blockEntryIdx = idx
 		s.decoded = false
 		s.freqDecoded = false
 	}
 
-	// the loop stops only at blockEntryIdx == len or docId <= this block's
-	// MaxId, so a bounds check is enough to detect exhaustion here.
-	if s.blockEntryIdx >= len(s.blockEntries) {
+	// the loop only stops when idx hits the end or docId <= this block's MaxId,
+	// so the "last block, still past it" case the old condition also tested can
+	// never hold here — a bounds check is enough.
+	if idx >= len(entries) {
 		s.exhaust()
 		return
 	}
@@ -491,9 +536,15 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.decodeBlock()
 	}
 
-	for s.blockDataIdx < s.blockDataSize-1 && docId > s.blockDataDecoded.DocIds[s.blockDataIdx] {
-		s.blockDataIdx++
+	// read after decodeBlock: it rewrites the decoded buffer in place and updates
+	// blockDataSize.
+	docIDs := s.blockDataDecoded.DocIds
+	last := s.blockDataSize - 1
+	j := s.blockDataIdx
+	for j < last && docId > docIDs[j] {
+		j++
 	}
+	s.blockDataIdx = j
 
 	s.advanceOnTombstoneOrFilter()
 }
@@ -506,8 +557,9 @@ func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
 		return
 	}
 
-	for s.blockEntryIdx < len(s.blockEntries) && docId > s.blockEntries[s.blockEntryIdx].MaxId {
-
+	// the in-loop bounds return below guarantees blockEntryIdx < len on every
+	// condition re-eval, so the index is always valid here — no length guard needed.
+	for docId > s.blockEntries[s.blockEntryIdx].MaxId {
 		s.blockEntryIdx++
 		s.blockDataIdx = 0
 		s.decoded = false
@@ -549,6 +601,17 @@ func (s *SegmentBlockMax) QueryTerm() string {
 	return string(s.node.Key)
 }
 
+// propLengthOf returns the property length for a docID: the segment view for
+// disk terms (dense indexed load, or the pairs cursor — scoring visits docIDs
+// in ascending order, so the cursor is amortized O(1)), the map for
+// memtable-decoded terms. A docID without an entry yields 0 in all paths.
+func (s *SegmentBlockMax) propLengthOf(docID uint64) uint32 {
+	if s.plView.dense != nil || s.plView.ids != nil {
+		return s.plView.get(docID)
+	}
+	return s.propLengths[docID]
+}
+
 func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation bool) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
 		return 0, 0, nil
@@ -562,7 +625,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	}
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
-	propLength := s.propLengths[s.idPointer]
+	propLength := s.propLengthOf(s.idPointer)
 	tf := freq / (freq + s.k1*((1-s.b)+s.b*(float64(propLength)/s.averagePropLength)))
 	if collectBlockMetrics {
 		s.Metrics.DocCountScored++

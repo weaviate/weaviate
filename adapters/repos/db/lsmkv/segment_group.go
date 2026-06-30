@@ -41,8 +41,7 @@ import (
 )
 
 type SegmentGroup struct {
-	segments              []Segment
-	segmentRefCounterLock sync.Mutex
+	segments []Segment
 
 	// Holds compacted / cleaned up segments meant to be closed and removed from disk
 	// after their's refs counter drops to 0.
@@ -96,6 +95,12 @@ type SegmentGroup struct {
 	cleanupInterval    time.Duration
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
+
+	// editOps tracks in-place segment edit operations and the segments still
+	// pending rewrite. It also builds the per-pass value transformer (see
+	// BuildCurrentTransformer). nil unless edit ops are enabled for this segment
+	// group.
+	editOps *SegmentEditOps
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
@@ -594,24 +599,33 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
+// segmentAtPositionHasID reports, under maintenanceLock, whether the in-memory
+// segment at pos still has the given id. Used to re-validate a position-based
+// swap before it runs, so a wrong-segment swap fails loudly instead of corrupting
+// data if the compaction/cleanup serialization invariant is ever broken.
+func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
+}
+
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
-	sg.segmentRefCounterLock.Lock()
+	// incRef under the RLock so the refs are taken before any compaction (which
+	// holds the write lock) can swap these segments out. refCount is atomic, so no
+	// separate refcount lock is needed.
 	for _, seg := range segments {
 		seg.incRef()
 	}
-	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
 		}
-		sg.segmentRefCounterLock.Unlock()
 	}
 }
 

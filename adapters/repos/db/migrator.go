@@ -197,22 +197,17 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
-			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
-			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
-			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
-			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
-			ReplicationFactor:                            class.ReplicationConfig.Factor,
-			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
-			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
-			ShardLoadLimiter:                             m.db.shardLoadLimiter,
-			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
-			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
-			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
-			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,
-			HNSWSnapshotOnStartup:                        m.db.config.HNSWSnapshotOnStartup,
-			HNSWSnapshotMinDeltaCommitlogsNumber:         m.db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
-			HNSWSnapshotMinDeltaCommitlogsSizePercentage: m.db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
+			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
+			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
+			SkipWriteClassNameOnDisk:            m.db.config.LSMSkipWriteClassNameEnabled,
+			ReplicationFactor:                   class.ReplicationConfig.Factor,
+			AsyncReplicationConfig:              asyncConfig,
+			AsyncReplicationScheduler:           m.db.asyncReplicationScheduler,
+			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+			ShardLoadLimiter:                    m.db.shardLoadLimiter,
+			BucketLoadLimiter:                   m.db.bucketLoadLimiter,
+			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled
 				if lazyLoadShardEnabled {
@@ -575,7 +570,8 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.getShardsStatus(ctx, tenant)
@@ -589,7 +585,8 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return fmt.Errorf("cannot update shard status to a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)

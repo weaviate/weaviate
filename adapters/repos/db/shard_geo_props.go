@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -33,18 +32,13 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
-		ID:                                       geoPropID(prop.Name),
-		RootPath:                                 s.path(),
-		CoordinatesForID:                         s.makeCoordinatesForID(prop.Name),
-		DisablePersistence:                       false,
-		Logger:                                   s.index.logger,
-		HNSWEF:                                   s.index.Config.HNSWGeoIndexEF,
-		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
-		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
-		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,
-		SnapshotMinDeltaCommitlogsNumer:          s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber,
-		SnapshotMinDeltaCommitlogsSizePercentage: s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-		AllocChecker:                             s.index.allocChecker,
+		ID:                 geoPropID(prop.Name),
+		RootPath:           s.path(),
+		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
+		DisablePersistence: false,
+		Logger:             s.index.logger,
+		HNSWEF:             s.index.Config.HNSWGeoIndexEF,
+		AllocChecker:       s.index.allocChecker,
 	},
 		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
 		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,

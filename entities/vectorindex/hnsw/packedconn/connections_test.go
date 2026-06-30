@@ -1343,3 +1343,12 @@ func TestConnections_DataSerialization_MalformedData(t *testing.T) {
 	assert.Len(t, copied.GetLayer(0), 0)
 	assert.Len(t, copied.GetLayer(1), 0)
 }
+
+func TestGrowLayersTo(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.NoError(t, err)
+	assert.Equal(t, uint8(1), c.Layers())
+
+	c.GrowLayersTo(MaxLayerCount - 1)
+	assert.Equal(t, uint8(MaxLayerCount), c.Layers())
+}
