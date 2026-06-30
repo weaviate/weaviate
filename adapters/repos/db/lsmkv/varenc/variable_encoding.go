@@ -29,6 +29,11 @@ const (
 type VarEncEncoder[T any] interface {
 	Init(expectedCount int)
 	Encode(values []T) []byte
+	// EncodeAppend encodes values into the encoder's internal buffer, then
+	// appends the encoded bytes to arena. Returns the encoded sub-slice and
+	// the updated arena. This avoids per-call allocations when encoding
+	// multiple blocks whose data must coexist.
+	EncodeAppend(values []T, arena []byte) (encoded []byte, updatedArena []byte)
 	Decode(data []byte) []T
 	EncodeReusable(values []T, buf []byte)
 	DecodeReusable(data []byte, values []T)

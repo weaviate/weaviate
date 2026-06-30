@@ -177,3 +177,74 @@ func TestMapCursorConsistentView(t *testing.T) {
 	}
 	require.Equal(t, expected, actual)
 }
+
+// MapCursorKeyOnly must walk every primary key just like MapCursor — it just
+// drops the values from the returned tuple. Regression for a bug where the
+// keyOnly fast-path left state[i].value=nil, the merger saw only empty
+// per-segment results, and every key was skipped (callers like
+// filterableToSearchableMigrator.isEmptyMapBucket then mis-classified
+// non-empty buckets as empty).
+func TestMapCursorKeyOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	diskSegments := &SegmentGroup{
+		logger: logger,
+		segments: []Segment{
+			newFakeMapSegment(map[string][]MapPair{
+				"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
+			}),
+			newFakeMapSegment(map[string][]MapPair{
+				"key2": {{Key: []byte("dk2"), Value: []byte("dv2")}},
+			}),
+		},
+	}
+
+	active := newTestMemtableMap(map[string][]MapPair{
+		"key3": {{Key: []byte("ak1"), Value: []byte("av1")}},
+	})
+
+	b := Bucket{
+		active:   active,
+		disk:     diskSegments,
+		strategy: StrategyMapCollection,
+	}
+
+	cur, err := b.MapCursorKeyOnly()
+	require.NoError(t, err)
+	defer cur.Close()
+
+	var keys []string
+	for k, v := cur.First(ctx); k != nil; k, v = cur.Next(ctx) {
+		assert.Nil(t, v, "keyOnly cursor must not return values")
+		keys = append(keys, string(k))
+	}
+	require.Equal(t, []string{"key1", "key2", "key3"}, keys)
+}
+
+// Mirrors the filterableToSearchableMigrator.isEmptyMapBucket usage: only the
+// first key is read. If the cursor's keyOnly path is broken, this looks like
+// an empty bucket even though it has data.
+func TestMapCursorKeyOnly_FirstKeyOnNonEmptyBucket(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	b := Bucket{
+		active: newTestMemtableMap(map[string][]MapPair{
+			"only": {{Key: []byte("sk"), Value: []byte("sv")}},
+		}),
+		disk:     &SegmentGroup{logger: logger},
+		strategy: StrategyMapCollection,
+	}
+
+	cur, err := b.MapCursorKeyOnly()
+	require.NoError(t, err)
+	defer cur.Close()
+
+	k, _ := cur.First(ctx)
+	require.Equal(t, []byte("only"), k)
+}
