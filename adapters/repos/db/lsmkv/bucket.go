@@ -433,6 +433,18 @@ func (b *Bucket) EditOpPending(opID string) ([]string, error) {
 	return b.disk.editOps.Pending(opID)
 }
 
+// DeleteEditOp removes opID and its bookkeeping from the sidecar once the cleanup
+// task has finished, so the op stops driving the compaction/cleanup transformer.
+// A lingering op would re-decode every object on every future compaction, force a
+// full re-clean on each restart (via recoverEditOps), and — once the dropped name
+// is freed for re-creation — strip the re-created vector. Idempotent.
+func (b *Bucket) DeleteEditOp(opID string) error {
+	if !b.HasEditOps() {
+		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.DeleteOp(opID)
+}
+
 func (b *Bucket) GetStrategy() string {
 	return b.strategy
 }

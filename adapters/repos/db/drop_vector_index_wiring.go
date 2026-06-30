@@ -101,7 +101,11 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 
 		if err := schema.UpdateClassInternal(&f.mgr.Handler, ctx, collection, &next); err != nil {
 			lastErr = err
-			time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+			}
 			continue
 		}
 		return nil

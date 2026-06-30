@@ -50,6 +50,12 @@ func decodeDropVectorIndexPayload(data []byte) (*DropVectorIndexTaskPayload, err
 	if len(p.Targets) == 0 {
 		return nil, fmt.Errorf("drop-vector-index payload missing targets")
 	}
+	for _, t := range p.Targets {
+		// An empty target reaches os.RemoveAll via removeVectorIndexFiles; reject it.
+		if t == "" {
+			return nil, fmt.Errorf("drop-vector-index payload has an empty target name")
+		}
+	}
 	if p.OpID == "" {
 		return nil, fmt.Errorf("drop-vector-index payload missing opId")
 	}

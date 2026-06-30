@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ const defaultDropVectorPollInterval = 30 * time.Second
 type editOpBucket interface {
 	RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error
 	EditOpPending(opID string) ([]string, error)
+	DeleteEditOp(opID string) error
 }
 
 // dropVectorShards is the slice of *DB the provider needs: locate the edit-ops
@@ -239,7 +241,13 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 			if len(pending) == 0 {
 				return nil
 			}
-			progress := float32(total-len(pending)) / float32(total)
+			// pending can transiently grow (re-queue), so clamp; completion is gated
+			// on len==0, not on this value.
+			done := total - len(pending)
+			if done < 0 {
+				done = 0
+			}
+			progress := float32(done) / float32(total)
 			if err := p.recorder.UpdateDistributedTaskUnitProgress(ctx, task.Namespace,
 				task.ID, task.Version, p.localNode, unitID, progress); err != nil {
 				p.unitLogger(task, nil, unitID).Warnf("drop-vector: progress update failed: %v", err)
@@ -305,6 +313,14 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 
+	// Delete the op before removing the schema entry so "schema entry removed ⇒ no
+	// op on a loaded shard" holds (see DeleteEditOp for why a lingering op is unsafe).
+	// On failure, defer the schema removal for reconciliation rather than break it.
+	if err := p.deleteLocalEditOps(payload); err != nil {
+		logger.Errorf("drop-vector: task-completion: deleting completed edit op failed (reconcile will retry): %v", err)
+		return
+	}
+
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
 		// Leave the marker for S14 reconciliation to retry; requires the S15/S16
 		// FSM gate to allow the real→absent exit transition.
@@ -312,6 +328,29 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 	logger.Info("drop-vector: task-completion: dropped vector(s) removed from schema")
+}
+
+// deleteLocalEditOps removes the finished op from each local shard's sidecar. An
+// unloaded shard (e.g. a deactivated tenant) is skipped — its cleanup is deferred
+// to activation; a delete failure on a loaded shard is returned so the caller
+// defers schema removal for reconciliation to retry.
+func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTaskPayload) error {
+	for unitID, node := range payload.UnitToNode {
+		if node != p.localNode {
+			continue
+		}
+		shardName := payload.UnitToShard[unitID]
+		bucket, err := p.shards.EditOpBucketForShard(payload.Collection, shardName)
+		if err != nil {
+			p.logger.WithField("collection", payload.Collection).WithField("shard", shardName).
+				Warnf("drop-vector: task-completion: locate bucket to delete edit op (shard not loaded; deferring): %v", err)
+			continue
+		}
+		if err := bucket.DeleteEditOp(payload.OpID); err != nil {
+			return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)
+		}
+	}
+	return nil
 }
 
 // --- internal ---

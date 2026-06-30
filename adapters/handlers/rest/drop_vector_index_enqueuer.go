@@ -75,7 +75,8 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 			continue
 		}
 		for _, t := range p.Targets {
-			if t == targetVector {
+			// Case-insensitive, matching CheckConflict so pre-check and FSM agree.
+			if strings.EqualFold(t, targetVector) {
 				return true, nil
 			}
 		}

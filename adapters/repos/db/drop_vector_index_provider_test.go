@@ -31,6 +31,8 @@ type fakeEditOpBucket struct {
 	registered map[string]lsmkv.OpDescriptor
 	pendingSeq [][]string // successive EditOpPending responses; last repeats
 	callIdx    int
+	deleted    []string // opIDs passed to DeleteEditOp
+	deleteErr  error
 }
 
 func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error {
@@ -52,6 +54,16 @@ func (f *fakeEditOpBucket) EditOpPending(opID string) ([]string, error) {
 	}
 	f.callIdx++
 	return f.pendingSeq[i], nil
+}
+
+func (f *fakeEditOpBucket) DeleteEditOp(opID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.deleted = append(f.deleted, opID)
+	return nil
 }
 
 type removedCall struct {
@@ -232,22 +244,45 @@ func TestOnGroupCompleted_PerTenantIndexFilesRemoved(t *testing.T) {
 
 // --- OnTaskCompleted ---
 
-func TestOnTaskCompleted_FAILED_DoesNotMutateSchema(t *testing.T) {
+func TestOnTaskCompleted_FAILED_DoesNotMutateSchemaOrDeleteOp(t *testing.T) {
+	bucket := &fakeEditOpBucket{}
 	fin := &fakeFinalizer{}
-	p := newTestDropProvider(&fakeShards{}, fin, newFakeRecorder())
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
 	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, nil))
 	require.False(t, fin.called, "FAILED task must not mutate schema")
+	require.Empty(t, bucket.deleted, "FAILED task must not delete the edit op (a retry resumes it)")
 }
 
-func TestOnTaskCompleted_FINISHED_RemovesVectorConfig(t *testing.T) {
+func TestOnTaskCompleted_FINISHED_DeletesEditOpThenRemovesVectorConfig(t *testing.T) {
+	bucket := &fakeEditOpBucket{}
 	fin := &fakeFinalizer{}
-	p := newTestDropProvider(&fakeShards{}, fin, newFakeRecorder())
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
 	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+
+	require.Equal(t, []string{"op1"}, bucket.deleted, "FINISHED must delete the completed op on the local shard")
 	require.True(t, fin.called)
 	require.Equal(t, "Collection", fin.collection)
 	require.Equal(t, []string{"v1"}, fin.targets)
+}
+
+func TestOnTaskCompleted_FINISHED_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {
+	bucket := &fakeEditOpBucket{deleteErr: errors.New("bolt busy")}
+	fin := &fakeFinalizer{}
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+
+	require.False(t, fin.called, "schema removal must be deferred when op deletion fails on a loaded shard")
+}
+
+func TestOnTaskCompleted_FINISHED_UnloadedShard_SkipsDeleteAndStillFinalizes(t *testing.T) {
+	fin := &fakeFinalizer{}
+	p := newTestDropProvider(&fakeShards{bucketErr: errors.New("shard not loaded")}, fin, newFakeRecorder())
+
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+	require.True(t, fin.called, "an unloaded shard is skipped, not a hard failure")
 }
 
 // --- detectors ---
