@@ -13,7 +13,9 @@ package namespace
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -120,8 +122,9 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		require.True(t, errors.As(err, &forbidden), "expected BackupsCreateForbidden, got %T: %v", err, err)
 
 		// Root backs up the same namespaced class by qualified name and the backup
-		// reaches SUCCESS — a real, completed operator action.
-		const backupID = "ns-root-backup"
+		// reaches SUCCESS — a real, completed operator action. The ID carries a
+		// unique suffix so reruns against the shared, persisted bucket don't collide.
+		backupID := fmt.Sprintf("ns-root-backup-%s-%d", ns1, time.Now().UnixNano())
 		okResp, err := helper.CreateBackupWithAuthz(
 			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
 			helper.CreateAuth(adminKey))
@@ -185,7 +188,7 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		// IsAsyncReplicationEnabled treats as async-not-required, so root clears
 		// every gate and the export actually starts — proof that root passed the
 		// backups-domain filter the namespaced admin did not.
-		rootID := "root-export-allowed"
+		rootID := fmt.Sprintf("root-export-allowed-%s-%d", ns1, time.Now().UnixNano())
 		ok, err := helper.Client(t).Export.ExportCreate(
 			export.NewExportCreateParams().WithBackend(s3Backend).WithBody(
 				&models.ExportCreateRequest{ID: &rootID, FileFormat: &fileFormat, Include: []string{qualified}}),
@@ -258,7 +261,9 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 		}
 
 		// Root backs up the same namespaced class and the backup reaches SUCCESS.
-		const backupID = "cr-root-backup"
+		// The ID carries a unique suffix so reruns against the shared, persisted
+		// bucket don't collide.
+		backupID := fmt.Sprintf("cr-root-backup-%s-%d", ns1, time.Now().UnixNano())
 		ok, err := helper.CreateBackupWithAuthz(
 			t, helper.DefaultBackupConfig(), ownClass, s3Backend, backupID,
 			helper.CreateAuth(adminKey))
