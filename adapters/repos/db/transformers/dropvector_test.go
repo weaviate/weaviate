@@ -25,7 +25,7 @@ import (
 func TestDropVectorTransformer(t *testing.T) {
 	const className = "TestClass"
 
-	marshal := func(t *testing.T, vecs map[string][]float32, multi map[string][][]float32) []byte {
+	marshal := func(t *testing.T, skipClassName bool, vecs map[string][]float32, multi map[string][][]float32) []byte {
 		t.Helper()
 		obj := storobj.FromObject(&models.Object{
 			Class:      className,
@@ -33,7 +33,7 @@ func TestDropVectorTransformer(t *testing.T) {
 			Properties: map[string]interface{}{"name": "x"},
 		}, nil, vecs, multi)
 		obj.DocID = 1
-		b, err := obj.MarshalBinaryDisk(false)
+		b, err := obj.MarshalBinaryDisk(skipClassName)
 		require.NoError(t, err)
 		return b
 	}
@@ -55,50 +55,65 @@ func TestDropVectorTransformer(t *testing.T) {
 		return out
 	}
 
-	t.Run("strips a single named vector, keeps the rest", func(t *testing.T) {
-		in := marshal(t, map[string][]float32{"keep": {1, 2}, "drop": {3, 4}}, nil)
-		out := transform(t, in, op("drop"))
-		got := decode(t, out)
-		require.Contains(t, got.Vectors, "keep")
-		require.NotContains(t, got.Vectors, "drop")
-		require.Equal(t, []float32{1, 2}, got.Vectors["keep"])
-	})
+	// The on-disk class-name field is not authoritative: FromBinaryDisk stamps the
+	// bucket class name regardless. The transformer must therefore behave identically
+	// whether the input segment value was written with the class name on disk
+	// (skipClassName=false) or without it (skipClassName=true, the
+	// SkipWriteClassNameOnDisk path).
+	for _, enc := range []struct {
+		name          string
+		skipClassName bool
+	}{
+		{"className on disk", false},
+		{"className skipped on disk", true},
+	} {
+		t.Run(enc.name, func(t *testing.T) {
+			t.Run("strips a single named vector, keeps the rest", func(t *testing.T) {
+				in := marshal(t, enc.skipClassName, map[string][]float32{"keep": {1, 2}, "drop": {3, 4}}, nil)
+				out := transform(t, in, op("drop"))
+				got := decode(t, out)
+				require.Contains(t, got.Vectors, "keep")
+				require.NotContains(t, got.Vectors, "drop")
+				require.Equal(t, []float32{1, 2}, got.Vectors["keep"])
+			})
 
-	t.Run("strips multiple targets across vectors and multi-vectors (C3)", func(t *testing.T) {
-		in := marshal(t,
-			map[string][]float32{"keep": {1, 2}, "drop": {3, 4}},
-			map[string][][]float32{"mkeep": {{5, 6}}, "mdrop": {{7, 8}}})
-		out := transform(t, in, op("drop", "mdrop"))
-		got := decode(t, out)
-		require.Contains(t, got.Vectors, "keep")
-		require.NotContains(t, got.Vectors, "drop")
-		require.Contains(t, got.MultiVectors, "mkeep")
-		require.NotContains(t, got.MultiVectors, "mdrop")
-	})
+			t.Run("strips multiple targets across vectors and multi-vectors (C3)", func(t *testing.T) {
+				in := marshal(t, enc.skipClassName,
+					map[string][]float32{"keep": {1, 2}, "drop": {3, 4}},
+					map[string][][]float32{"mkeep": {{5, 6}}, "mdrop": {{7, 8}}})
+				out := transform(t, in, op("drop", "mdrop"))
+				got := decode(t, out)
+				require.Contains(t, got.Vectors, "keep")
+				require.NotContains(t, got.Vectors, "drop")
+				require.Contains(t, got.MultiVectors, "mkeep")
+				require.NotContains(t, got.MultiVectors, "mdrop")
+			})
 
-	t.Run("absent target is an identity no-op (same bytes)", func(t *testing.T) {
-		in := marshal(t, map[string][]float32{"keep": {1, 2}}, nil)
-		out := transform(t, in, op("missing"))
-		require.Equal(t, in, out, "unchanged object must return the original bytes unmodified")
-	})
+			t.Run("absent target is an identity no-op (same bytes)", func(t *testing.T) {
+				in := marshal(t, enc.skipClassName, map[string][]float32{"keep": {1, 2}}, nil)
+				out := transform(t, in, op("missing"))
+				require.Equal(t, in, out, "unchanged object must return the original bytes unmodified")
+			})
 
-	t.Run("idempotent under repeated application (C2)", func(t *testing.T) {
-		in := marshal(t, map[string][]float32{"keep": {1, 2}, "drop": {3, 4}}, nil)
-		once := transform(t, in, op("drop"))
-		twice := transform(t, once, op("drop"))
-		require.Equal(t, once, twice, "re-running the drop on already-clean bytes must be a no-op")
-	})
+			t.Run("idempotent under repeated application (C2)", func(t *testing.T) {
+				in := marshal(t, enc.skipClassName, map[string][]float32{"keep": {1, 2}, "drop": {3, 4}}, nil)
+				once := transform(t, in, op("drop"))
+				twice := transform(t, once, op("drop"))
+				require.Equal(t, once, twice, "re-running the drop on already-clean bytes must be a no-op")
+			})
 
-	t.Run("composition is order-independent (C2)", func(t *testing.T) {
-		in := marshal(t, map[string][]float32{"a": {1}, "b": {2}, "c": {3}}, nil)
-		forward := transform(t, in, op("a"), op("b"))
-		reverse := transform(t, in, op("b"), op("a"))
-		require.Equal(t, forward, reverse, "drop order must not affect the result")
-		got := decode(t, forward)
-		require.NotContains(t, got.Vectors, "a")
-		require.NotContains(t, got.Vectors, "b")
-		require.Contains(t, got.Vectors, "c")
-	})
+			t.Run("composition is order-independent (C2)", func(t *testing.T) {
+				in := marshal(t, enc.skipClassName, map[string][]float32{"a": {1}, "b": {2}, "c": {3}}, nil)
+				forward := transform(t, in, op("a"), op("b"))
+				reverse := transform(t, in, op("b"), op("a"))
+				require.Equal(t, forward, reverse, "drop order must not affect the result")
+				got := decode(t, forward)
+				require.NotContains(t, got.Vectors, "a")
+				require.NotContains(t, got.Vectors, "b")
+				require.Contains(t, got.Vectors, "c")
+			})
+		})
+	}
 }
 
 // TestDropVectorTransformer_CodecSymmetry pins the load-bearing correctness claim
@@ -128,9 +143,9 @@ func TestDropVectorTransformer_CodecSymmetry(t *testing.T) {
 		o.DocID = 42
 		return o
 	}
-	marshalDisk := func(t *testing.T, o *storobj.Object) []byte {
+	marshalDisk := func(t *testing.T, o *storobj.Object, skipClassName bool) []byte {
 		t.Helper()
-		b, err := o.MarshalBinaryDisk(false)
+		b, err := o.MarshalBinaryDisk(skipClassName)
 		require.NoError(t, err)
 		return b
 	}
@@ -151,31 +166,50 @@ func TestDropVectorTransformer_CodecSymmetry(t *testing.T) {
 		return out
 	}
 
-	t.Run("every untouched field survives across legacy/named/multi vectors and rich props", func(t *testing.T) {
-		in := marshalDisk(t, build(t,
-			map[string][]float32{"keep": {1, 2}, "drop": {3, 4}},
-			map[string][][]float32{"mkeep": {{5, 6}, {7, 8}}}))
-		out := strip(t, in, "drop")
-		require.Less(t, len(out), len(in), "dropping a vector must shrink the payload")
+	// The transformer always re-marshals with the class name on disk
+	// (MarshalBinaryDisk(false)), so references stay false-encoded; only the input
+	// encoding varies, proving the decode side handles both on-disk layouts.
+	for _, enc := range []struct {
+		name          string
+		skipClassName bool
+	}{
+		{"className on disk", false},
+		{"className skipped on disk", true},
+	} {
+		t.Run(enc.name, func(t *testing.T) {
+			t.Run("every untouched field survives across legacy/named/multi vectors and rich props", func(t *testing.T) {
+				in := marshalDisk(t, build(t,
+					map[string][]float32{"keep": {1, 2}, "drop": {3, 4}},
+					map[string][][]float32{"mkeep": {{5, 6}, {7, 8}}}), enc.skipClassName)
+				out := strip(t, in, "drop")
 
-		// Compare the decoded result against the same logical object re-encoded
-		// without "drop": maps compare order-independently, so this isolates field
-		// fidelity from map-iteration nondeterminism in the encoder.
-		want := decodeDisk(t, marshalDisk(t, build(t,
-			map[string][]float32{"keep": {1, 2}},
-			map[string][][]float32{"mkeep": {{5, 6}, {7, 8}}})))
-		require.Equal(t, want, decodeDisk(t, out))
-	})
+				// out is always false-encoded; compare its length to the full object
+				// encoded the same way so the shrink check is independent of the input encoding.
+				full := marshalDisk(t, build(t,
+					map[string][]float32{"keep": {1, 2}, "drop": {3, 4}},
+					map[string][][]float32{"mkeep": {{5, 6}, {7, 8}}}), false)
+				require.Less(t, len(out), len(full), "dropping a vector must shrink the payload")
 
-	t.Run("byte-identical to reference when a single named vector remains", func(t *testing.T) {
-		// With exactly one surviving named vector and no multi-vectors the encoder's
-		// offsets map has a single entry, so the output is deterministic and we can
-		// assert true byte-stability (not just field equality) of the re-marshal.
-		in := marshalDisk(t, build(t, map[string][]float32{"keep": {1, 2}, "drop": {3, 4}}, nil))
-		out := strip(t, in, "drop")
-		want := marshalDisk(t, build(t, map[string][]float32{"keep": {1, 2}}, nil))
-		require.Equal(t, want, out, "re-marshaled bytes must match the reference object encoded without the dropped vector")
-	})
+				// Compare the decoded result against the same logical object re-encoded
+				// without "drop": maps compare order-independently, so this isolates field
+				// fidelity from map-iteration nondeterminism in the encoder.
+				want := decodeDisk(t, marshalDisk(t, build(t,
+					map[string][]float32{"keep": {1, 2}},
+					map[string][][]float32{"mkeep": {{5, 6}, {7, 8}}}), false))
+				require.Equal(t, want, decodeDisk(t, out))
+			})
+
+			t.Run("byte-identical to reference when a single named vector remains", func(t *testing.T) {
+				// With exactly one surviving named vector and no multi-vectors the encoder's
+				// offsets map has a single entry, so the output is deterministic and we can
+				// assert true byte-stability (not just field equality) of the re-marshal.
+				in := marshalDisk(t, build(t, map[string][]float32{"keep": {1, 2}, "drop": {3, 4}}, nil), enc.skipClassName)
+				out := strip(t, in, "drop")
+				want := marshalDisk(t, build(t, map[string][]float32{"keep": {1, 2}}, nil), false)
+				require.Equal(t, want, out, "re-marshaled bytes must match the reference object encoded without the dropped vector")
+			})
+		})
+	}
 }
 
 // TestDropVectorTransformer_CorruptBytesSurfacesError exercises the decode-error

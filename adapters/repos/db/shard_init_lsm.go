@@ -178,10 +178,6 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithKeepTombstones(true),
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
-		// A non-empty className enables the segment edit-ops sidecar on this bucket,
-		// which strips dropped vector indexes from stored objects during
-		// compaction/cleanup. The transformer to run is resolved per op type from the
-		// transformers registry, driven by the ops persisted in the sidecar.
 		lsmkv.WithClassName(s.index.Config.ClassName.String()),
 	)
 
