@@ -1610,23 +1610,7 @@ func (h *authZHandlers) userExists(user string, userType authentication.AuthType
 		}
 		return true, nil
 	case authentication.AuthTypeDb:
-		if h.apiKeysConfigs.Enabled {
-			for _, apiKey := range h.apiKeysConfigs.Users {
-				if apiKey == user {
-					return true, nil
-				}
-			}
-		}
-
-		users, err := h.controller.GetUsers(user)
-		if err != nil {
-			return false, err
-		}
-		if len(users) == 1 {
-			return true, nil
-		} else {
-			return false, nil
-		}
+		return h.dbUserExists(user)
 	default:
 		return false, fmt.Errorf("unknown user type")
 	}
@@ -1639,24 +1623,21 @@ func (h *authZHandlers) userExistsDeprecated(user string) (bool, error) {
 	if h.oidcConfigs.Enabled {
 		return true, nil
 	}
+	return h.dbUserExists(user)
+}
 
-	if h.apiKeysConfigs.Enabled {
-		for _, apiKey := range h.apiKeysConfigs.Users {
-			if apiKey == user {
-				return true, nil
-			}
-		}
+// dbUserExists reports whether a db user exists: a static API-key user or a
+// dynamic user known to the controller.
+func (h *authZHandlers) dbUserExists(user string) (bool, error) {
+	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, user) {
+		return true, nil
 	}
 
 	users, err := h.controller.GetUsers(user)
 	if err != nil {
 		return false, err
 	}
-	if len(users) == 1 {
-		return true, nil
-	} else {
-		return false, nil
-	}
+	return len(users) == 1, nil
 }
 
 // validateRootGroup validates that enduser do not touch the internal root group
