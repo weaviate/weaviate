@@ -287,6 +287,29 @@ func TestProjectResourceForNamespace(t *testing.T) {
 	}
 }
 
+// TestProjectResourceForNamespace_UsersColonAsymmetry pins the deliberate
+// asymmetry between the two layers that read a users/<id> resource. A global
+// caller's widening treats the id as opaque — a ':' in it (e.g. an OIDC
+// subject) is never a namespace prefix, so GlobalCallerWidens stays false. The
+// confined-caller projection has no such carve-out: it reads the leading
+// segment as a namespace, so the same id projects against the target namespace
+// and errors when that leading segment names a different one.
+func TestProjectResourceForNamespace_UsersColonAsymmetry(t *testing.T) {
+	const oidcUser = "users/oidc:google:123"
+
+	// The widening layer never treats the id's ':' as a namespace.
+	assert.False(t, GlobalCallerWidens(oidcUser))
+
+	// The projection layer does: the leading "oidc" reads as a namespace, so it
+	// is foreign to customer1 but matches a target namespace literally named "oidc".
+	_, err := ProjectResourceForNamespace(oidcUser, "customer1")
+	require.ErrorIs(t, err, ErrForeignNamespace)
+
+	got, err := ProjectResourceForNamespace(oidcUser, "oidc")
+	require.NoError(t, err)
+	assert.Equal(t, oidcUser, got)
+}
+
 func TestConfinedNamespace(t *testing.T) {
 	tests := []struct {
 		name      string

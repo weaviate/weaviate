@@ -349,6 +349,38 @@ func TestAssignRoleToUserNamespacedForeignRoleRejected(t *testing.T) {
 	require.True(t, ok, "got %T", res)
 }
 
+// TestRevokeRoleFromUserNamespacedForeignRoleRejected mirrors the assign-side
+// foreign-role guard on the revoke path: a namespaced caller cannot reach
+// another namespace's role by addressing it with a qualified name; the
+// qualified input is rejected before any revoke.
+func TestRevokeRoleFromUserNamespacedForeignRoleRejected(t *testing.T) {
+	h, _ := nsAssignHandler(t, "customer1")
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	res := h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+		HTTPRequest: req,
+		ID:          "bob",
+		Body:        authz.RevokeRoleFromUserBody{Roles: []string{"customer2:editor"}, UserType: models.UserTypeInputDb},
+	}, principal)
+	_, ok := res.(*authz.RevokeRoleFromUserBadRequest)
+	require.True(t, ok, "got %T", res)
+}
+
+// TestRevokeRoleFromUserOverPrivilegedGlobalRoleAllowed pins that revoke carries
+// no must-already-hold guard: a namespaced caller can revoke a global role whose
+// permissions it does not itself hold, because revoking only de-escalates. This
+// is the deliberate asymmetry with assign, which would reject the same role.
+func TestRevokeRoleFromUserOverPrivilegedGlobalRoleAllowed(t *testing.T) {
+	h, _ := nsAssignHandler(t, "customer1")
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	res := h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+		HTTPRequest: req,
+		ID:          "bob",
+		Body:        authz.RevokeRoleFromUserBody{Roles: []string{"admin"}, UserType: models.UserTypeInputDb},
+	}, principal)
+	_, ok := res.(*authz.RevokeRoleFromUserOK)
+	require.True(t, ok, "got %T", res)
+}
+
 // TestValidateOperatorRoleAssignmentToUser pins the target-based reservation:
 // an operator-reserved global role is blocked only when the target user is
 // namespaced; global targets, namespace-local roles (which carry a namespace
