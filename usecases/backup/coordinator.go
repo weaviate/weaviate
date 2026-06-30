@@ -172,11 +172,11 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
-		return fmt.Errorf("backup %s already in progress", prevID)
+		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
-		return err
+		return backup.NewErrUnprocessable(err)
 	}
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
@@ -257,7 +257,7 @@ func (c *coordinator) Restore(
 
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
-		return fmt.Errorf("restoration %s already in progress", prevID)
+		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
 
 	for key := range c.Participants {
@@ -456,7 +456,10 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {
 		path := st.Path
-		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %w store: %v", errMetaNotFound, path, err, st)
+		if errors.As(err, &backup.ErrNotFound{}) {
+			return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %w store: %v", errMetaNotFound, path, err, st)
+		}
+		return nil, fmt.Errorf("coordinator cannot get status: %q: %w store: %v", path, err, st)
 	}
 
 	status := &Status{
@@ -770,7 +773,11 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 		node string
 		err  error
 	}
-	errChan := make(chan pair)
+	// Buffer one slot per node so a failing worker never blocks on the send.
+	// The consumer only runs after the submit loop finishes, so an unbuffered
+	// channel would let the first _MaxNumberConns failures hold every g.Go slot
+	// while blocked on the send, deadlocking the submit loop.
+	errChan := make(chan pair, len(nodes))
 	aCounter := int64(len(nodes))
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)

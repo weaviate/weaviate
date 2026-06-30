@@ -24,6 +24,8 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
@@ -360,6 +362,10 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						c.cancelOp(operation, opLogger)
 						return
 					}
+					if isShardBusyError(err) {
+						opLogger.Infof("replication operation deferred: source shard busy: %v", err)
+						return
+					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
 					opLogger.WithError(err).Error("replication operation failed")
 				}, c.logger)
@@ -431,6 +437,13 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			if err := c.checkCancelled(logger, op); err != nil {
 				return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 			}
+			// Skip ReplicationRegisterError so a slow structural op cannot
+			// burn the MaxErrors budget and auto-cancel the movement; the
+			// outer worker re-dispatches on the next poll.
+			if isShardBusyError(err) {
+				logger.Infof("source shard busy with structural vector op; deferring movement step: %v", err)
+				return api.ShardReplicationState(""), backoff.Permanent(err)
+			}
 			logger.WithError(err).Warn("state transition handler failed")
 			// Otherwise, register the error with the FSM
 			if err := c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error()); err != nil {
@@ -490,6 +503,17 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	if err := c.replicaCopier.StopChangeCapture(ctx, op.Op.SourceShard.NodeId,
 		op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
 		logger.WithError(err).Warn("StopChangeCapture failed during cancel (non-fatal)")
+	}
+
+	// Covers the case where CopyReplicaFiles' defer never registered — a
+	// leaked staging dir would otherwise pin compaction.
+	opUUID := string(op.Op.UUID)
+	if opUUID == "" {
+		opUUID = strconv.FormatUint(op.Op.ID, 10)
+	}
+	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, opUUID); err != nil {
+		logger.WithError(err).Warn("ReleaseReplicaSnapshot failed during cancel (non-fatal)")
 	}
 
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
@@ -606,7 +630,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		}
 	}()
 
-	if err := c.replicaCopier.CopyReplicaFiles(ctx, src, coll, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
 		logger.WithError(err).Error("failure while copying replica shard")
 		return api.ShardReplicationState(""), err
 	}
@@ -829,9 +853,33 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 		logger.WithError(err).Warn("StopChangeCapture failed during cancelled-op cleanup (non-fatal)")
 	}
 
+	// Same cleanup as cancelOp, for the FSM-dispatched cancel path.
+	opUUID := string(op.Op.UUID)
+	if opUUID == "" {
+		opUUID = strconv.FormatUint(op.Op.ID, 10)
+	}
+	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, opUUID); err != nil {
+		logger.WithError(err).Warn("ReleaseReplicaSnapshot failed during cancelled-op cleanup (non-fatal)")
+	}
+
 	if err := c.leaderClient.ReplicationRemoveReplicaOp(ctx, op.Op.ID); err != nil {
 		logger.WithError(err).Error("failure while removing replica operation")
 		return api.ShardReplicationState(""), err
 	}
 	return DELETED, nil
+}
+
+func isShardBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		st, ok := status.FromError(e)
+		if !ok {
+			continue
+		}
+		return st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), enterrors.ErrShardBusyStructuralOp.Error())
+	}
+	return false
 }

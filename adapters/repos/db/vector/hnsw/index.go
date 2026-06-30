@@ -168,13 +168,13 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed       atomic.Bool
+	compressed atomic.Bool
+	// compressing spans Upgrade() through compressThenCallback completion;
+	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
+	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
-
-	disableSnapshots  bool
-	snapshotOnStartup bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -254,16 +254,20 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	PrepareForBackup(bool) error
+	// ActiveFilePath returns the absolute path of the file the writer would
+	// append to right now. The lookup happens under the commit-logger mutex,
+	// so it reflects the live append target at the moment of the call. The
+	// backup path uses this to exclude the active file by identity rather
+	// than by transient state (size==0): once any worker write hits the new
+	// file between PrepareForBackup and ListFiles, size==0 stops being a
+	// reliable witness that "this file is the writer's append target".
+	ActiveFilePath() string
 	AddPQCompression(compression.PQData) error
 	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
 	AddRQCompression(compression.RQData) error
 	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
-
-	CreateSnapshot() (bool, int64, error)
-	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)
-	LoadSnapshot() (*DeserializationResult, int64, error)
 }
 
 type BufferedLinksLogger interface {
@@ -272,7 +276,7 @@ type BufferedLinksLogger interface {
 	Close() error // Close should Flush and Close
 }
 
-type MakeCommitLogger func() (CommitLogger, error)
+type MakeCommitLogger func(opts ...CommitlogOption) (CommitLogger, error)
 
 type HNSW = hnsw
 
@@ -340,8 +344,6 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
-		disableSnapshots:      cfg.DisableSnapshots,
-		snapshotOnStartup:     cfg.SnapshotOnStartup,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -712,7 +714,7 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
-	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+	return h.entryPointID >= uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -911,6 +913,10 @@ func (h *hnsw) Multivector() bool {
 
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
+}
+
+func (h *hnsw) UpgradeInProgress() bool {
+	return h.compressing.Load()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {

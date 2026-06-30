@@ -1392,7 +1392,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 	// the source. (Source-side hashbeat during the same op is left enabled —
 	// LWW makes any source→target push idempotent with the concurrent CCL replay.)
 	if s.index.replicationFSMReader != nil &&
-		s.index.replicationFSMReader.HasOngoingTargetReplication(s.class.Class, s.name, s.index.db.localNodeName) {
+		s.index.replicationFSMReader.HasActiveTargetReplicationForShard(s.class.Class, s.name, s.index.db.localNodeName) {
 		return false, nil
 	}
 
@@ -1614,58 +1614,23 @@ func (s *Shard) hashBeat(
 	hashtreeDiffTook := time.Since(hashtreeDiffStart)
 	s.metrics.ObserveAsyncReplicationHashtreeDiffDuration(hashtreeDiffTook)
 
-	rangeReader := shardDiffReader.RangeReader
-
 	objectDigestsDiffStart := time.Now()
-
-	localObjectDigestsCount := 0
-	objectsDiffCount := 0
-
-	localObjectsToPropagate := make([]strfmt.UUID, 0, config.propagationLimit)
-	localUpdateTimeByUUID := make(map[strfmt.UUID]int64, config.propagationLimit)
-	remoteStaleUpdateTimeByUUID := make(map[strfmt.UUID]int64, config.propagationLimit)
 
 	objectDigestsDiffCtx, cancel := context.WithTimeout(ctx, config.prePropagationTimeout)
 	defer cancel()
 
-	for len(localObjectsToPropagate) < config.propagationLimit {
-		initialLeaf, finalLeaf, err := rangeReader.Next()
-		if err != nil {
-			if errors.Is(err, hashtree.ErrNoMoreRanges) {
-				break
-			}
-			return nil, fmt.Errorf("reading collected differences: %w", err)
-		}
-
-		localObjsCountWithinRange, objsToPropagateWithinRange, err := s.objectsToPropagateWithinRange(
-			objectDigestsDiffCtx,
-			config,
-			shardDiffReader.TargetNodeAddress,
-			shardDiffReader.TargetNodeName,
-			initialLeaf,
-			finalLeaf,
-			config.propagationLimit-len(localObjectsToPropagate),
-			targetNodeOverridesSnapshot,
-			activeCutoff,
-		)
-		if err != nil {
-			if objectDigestsDiffCtx.Err() != nil {
-				// it may be the case that just pre propagation timeout was reached
-				// and some objects could be propagated
-				break
-			}
-
-			return nil, fmt.Errorf("collecting local objects to be propagated: %w", err)
-		}
-
-		localObjectDigestsCount += localObjsCountWithinRange
-		objectsDiffCount += len(objsToPropagateWithinRange)
-
-		for _, obj := range objsToPropagateWithinRange {
-			localObjectsToPropagate = append(localObjectsToPropagate, obj.uuid)
-			localUpdateTimeByUUID[obj.uuid] = obj.lastUpdateTime
-			remoteStaleUpdateTimeByUUID[obj.uuid] = obj.remoteStaleUpdateTime
-		}
+	localObjectsToPropagate, localUpdateTimeByUUID, remoteStaleUpdateTimeByUUID,
+		localObjectDigestsCount, objectsDiffCount, err := s.collectObjectsToPropagate(
+		objectDigestsDiffCtx,
+		config,
+		shardDiffReader.RangeReader,
+		shardDiffReader.TargetNodeAddress,
+		shardDiffReader.TargetNodeName,
+		targetNodeOverridesSnapshot,
+		activeCutoff,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	objectDigestsDiffTook := time.Since(objectDigestsDiffStart)
@@ -1756,14 +1721,6 @@ func (s *Shard) resolveObjectConflict(
 	return false, false, nil
 }
 
-func uuidFromBytes(uuidBytes []byte) (id strfmt.UUID, err error) {
-	uuidParsed, err := uuid.FromBytes(uuidBytes)
-	if err != nil {
-		return id, err
-	}
-	return strfmt.UUID(uuidParsed.String()), nil
-}
-
 func bytesFromUUID(id strfmt.UUID) (uuidBytes []byte, err error) {
 	uuidParsed, err := uuid.Parse(id.String())
 	if err != nil {
@@ -1789,15 +1746,87 @@ type objectToPropagate struct {
 	remoteStaleUpdateTime int64
 }
 
+// collectObjectsToPropagate scans the hashtree diff ranges and returns the local
+// objects that must be propagated. It owns a single reusable objects-bucket
+// cursor for the whole scan (released before propagation begins) so the cursor,
+// its memtable snapshot and segment reader chain are reused across all ranges
+// and batches instead of re-allocated per batch.
+func (s *Shard) collectObjectsToPropagate(
+	ctx context.Context,
+	config AsyncReplicationConfig,
+	rangeReader hashtree.AggregatedHashTreeRangeReader,
+	targetNodeAddress, targetNodeName string,
+	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
+	asyncCheckpointCutoff int64,
+) (
+	localObjectsToPropagate []strfmt.UUID,
+	localUpdateTimeByUUID map[strfmt.UUID]int64,
+	remoteStaleUpdateTimeByUUID map[strfmt.UUID]int64,
+	localObjectDigestsCount int,
+	objectsDiffCount int,
+	err error,
+) {
+	localObjectsToPropagate = make([]strfmt.UUID, 0, config.propagationLimit)
+	localUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
+	remoteStaleUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
+
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	defer cursor.Close()
+
+	for len(localObjectsToPropagate) < config.propagationLimit {
+		initialLeaf, finalLeaf, rangeErr := rangeReader.Next()
+		if rangeErr != nil {
+			if errors.Is(rangeErr, hashtree.ErrNoMoreRanges) {
+				break
+			}
+			return nil, nil, nil, 0, 0, fmt.Errorf("reading collected differences: %w", rangeErr)
+		}
+
+		localObjsCountWithinRange, objsToPropagateWithinRange, rangeErr := s.objectsToPropagateWithinRange(
+			ctx,
+			config,
+			cursor,
+			targetNodeAddress,
+			targetNodeName,
+			initialLeaf,
+			finalLeaf,
+			config.propagationLimit-len(localObjectsToPropagate),
+			targetNodeOverrides,
+			asyncCheckpointCutoff,
+		)
+		if rangeErr != nil {
+			if ctx.Err() != nil {
+				// pre-propagation timeout may have been reached with some objects
+				// already collected; propagate those
+				break
+			}
+			return nil, nil, nil, 0, 0, fmt.Errorf("collecting local objects to be propagated: %w", rangeErr)
+		}
+
+		localObjectDigestsCount += localObjsCountWithinRange
+		objectsDiffCount += len(objsToPropagateWithinRange)
+
+		for _, obj := range objsToPropagateWithinRange {
+			localObjectsToPropagate = append(localObjectsToPropagate, obj.uuid)
+			localUpdateTimeByUUID[obj.uuid] = obj.lastUpdateTime
+			remoteStaleUpdateTimeByUUID[obj.uuid] = obj.remoteStaleUpdateTime
+		}
+	}
+
+	return localObjectsToPropagate, localUpdateTimeByUUID, remoteStaleUpdateTimeByUUID,
+		localObjectDigestsCount, objectsDiffCount, nil
+}
+
 // objectsToPropagateWithinRange returns the local objects in the given hashtree
 // leaf range that must be propagated to the target. Per batch it fetches local
-// digests (DigestObjectsInRange), drops the ones too recent to propagate (per
+// digests via the shared cursor, drops the ones too recent to propagate (per
 // maxUpdateTime), and asks the target via CompareDigests for the subset needing
 // action: objects missing on the target (UpdateTime==0, which also covers
 // target-side tombstones) and objects the source holds a newer version of. Every
 // returned entry is queued; tombstone resolution is left to the post-Overwrite
 // resolveObjectConflict path.
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
+	cursor *lsmkv.CursorReplace,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
 	asyncCheckpointCutoff int64,
@@ -1809,11 +1838,6 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	finalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(finalUUIDBytes, finalLeaf<<(64-hashtreeHeight)|((1<<(64-hashtreeHeight))-1))
 	copy(finalUUIDBytes[8:], []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
-
-	finalUUID, err := uuidFromBytes(finalUUIDBytes)
-	if err != nil {
-		return localObjectsCount, objectsToPropagate, err
-	}
 
 	// Computed once so every batch uses the same cut-off; a per-batch recompute
 	// would let objects near the boundary flip eligibility mid-scan.
@@ -1836,14 +1860,9 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			return localObjectsCount, objectsToPropagate, ctx.Err()
 		}
 
-		currLocalUUID, err := uuidFromBytes(currLocalUUIDBytes)
-		if err != nil {
-			return localObjectsCount, objectsToPropagate, err
-		}
-
 		currBatchSize := min(limit, config.diffBatchSize)
 
-		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, s.name, currLocalUUID, finalUUID, currBatchSize)
+		allLocalDigests, err := collectObjectDigests(ctx, cursor, currLocalUUIDBytes, finalUUIDBytes, currBatchSize)
 		if err != nil {
 			return localObjectsCount, objectsToPropagate, fmt.Errorf("fetching local object digests: %w", err)
 		}
@@ -1964,6 +1983,31 @@ func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNo
 	return time.Now().Add(-config.propagationDelay).UnixMilli()
 }
 
+// buildPropagationBatch wraps each local object's raw on-disk bytes as a VObject
+// to overwrite on the target. Objects deleted locally in the meantime are
+// skipped. An older target that cannot decode raw fails gracefully and converges
+// once upgraded (see VObject.MarshalBinaryRaw).
+func (s *Shard) buildPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
+	remoteStaleUpdateTime map[strfmt.UUID]int64,
+) ([]*objects.VObject, error) {
+	rawObjs, err := s.MultiObjectRawByID(ctx, uuidBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	batch := make([]*objects.VObject, 0, len(rawObjs))
+	for j, raw := range rawObjs {
+		if raw == nil {
+			continue
+		}
+		batch = append(batch, &objects.VObject{
+			StaleUpdateTime: remoteStaleUpdateTime[uuidBatch[j]],
+			RawBytes:        raw,
+		})
+	}
+	return batch, nil
+}
+
 func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationConfig, host string,
 	objectsToPropagate []strfmt.UUID, remoteStaleUpdateTime map[strfmt.UUID]int64,
 ) (res []types.RepairResponse, err error) {
@@ -2033,7 +2077,7 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 					continue
 				}
 
-				localObjs, err := s.MultiObjectByID(workerCtx, wrapIDsInMulti(uuidBatch))
+				batch, err := s.buildPropagationBatch(workerCtx, uuidBatch, remoteStaleUpdateTime)
 				if err != nil {
 					// Skip ctx-cancellation errors: the parent surfaces the cancel
 					// cause via context.Cause(workerCtx) once workers drain.
@@ -2046,43 +2090,6 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 						err: fmt.Errorf("fetching local objects: %w", err),
 					}
 					continue
-				}
-
-				batch := make([]*objects.VObject, 0, len(localObjs))
-
-				for _, obj := range localObjs {
-					if obj == nil {
-						// local object was deleted meanwhile
-						continue
-					}
-
-					var vectors map[string][]float32
-					var multiVectors map[string][][]float32
-
-					if obj.Vectors != nil {
-						vectors = make(map[string][]float32, len(obj.Vectors))
-						for targetVector, v := range obj.Vectors {
-							vectors[targetVector] = v
-						}
-					}
-					if obj.MultiVectors != nil {
-						multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
-						for targetVector, v := range obj.MultiVectors {
-							multiVectors[targetVector] = v
-						}
-					}
-
-					obj := &objects.VObject{
-						ID:                      obj.ID(),
-						LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-						LatestObject:            &obj.Object,
-						Vector:                  obj.Vector,
-						Vectors:                 vectors,
-						MultiVectors:            multiVectors,
-						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
-					}
-
-					batch = append(batch, obj)
 				}
 
 				if len(batch) > 0 {

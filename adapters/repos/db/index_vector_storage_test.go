@@ -877,7 +877,12 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, err)
 	for _, tenant := range collectionUsage.Shards {
 		if tenant.Name == tenantNamePopulated {
-			assert.Equal(t, uint64(activeVectorStorageSize), tenant.VectorStorageBytes, "Active and inactive vector storage size should be very similar")
+			// Live capture folds in the not-yet-condensed commit log; the
+			// unloaded from-disk size sees it post-condense. Only that
+			// commit-log component differs (bounded by commitLogSize); exact
+			// equality flaked. Accounting fix: weaviate/0-weaviate-issues#205.
+			assert.InDelta(t, activeVectorStorageSize, tenant.VectorStorageBytes, float64(commitLogSize),
+				"active vs unloaded differ only by the condensable commit-log component (weaviate/0-weaviate-issues#205)")
 			assert.Equal(t, objectCount, tenant.NamedVectors[0].Dimensionalities[0].Count, "Active and inactive object count should match")
 			assert.Equal(t, vectorDimensions, tenant.NamedVectors[0].Dimensionalities[0].Dimensions, "Active and inactive dimensions should match")
 		} else {

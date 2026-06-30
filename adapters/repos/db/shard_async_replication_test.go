@@ -30,8 +30,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -190,6 +192,17 @@ func flushShard(t *testing.T, ctx context.Context, shard ShardLike) {
 	require.NoError(t, s.store.FlushMemtables(ctx))
 }
 
+func (s *Shard) propagateWithinRangeForTest(t *testing.T, ctx context.Context,
+	cfg AsyncReplicationConfig, addr, node string, initialLeaf, finalLeaf uint64,
+	limit int, overrides additional.AsyncReplicationTargetNodeOverrides,
+	asyncCheckpointCutoff int64,
+) (int, []objectToPropagate, error) {
+	t.Helper()
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	defer cursor.Close()
+	return s.objectsToPropagateWithinRange(ctx, cfg, cursor, addr, node, initialLeaf, finalLeaf, limit, overrides, asyncCheckpointCutoff)
+}
+
 // ─── objectsToPropagateWithinRange ───────────────────────────────────────────
 
 // TestObjectsToPropagateWithinRange covers the scanning and filtering logic
@@ -205,9 +218,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		s := concreteShard(t, sl)
 		cfg := fullRangeConfig(100)
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
-			0, // asyncCheckpointCutoff: no active checkpoint
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local)
@@ -226,9 +238,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		s := concreteShard(t, sl)
 		cfg := fullRangeConfig(100)
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
-			0, // asyncCheckpointCutoff: no active checkpoint
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local, "memtable objects must be visible to the merged bucket cursor")
@@ -252,9 +263,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
-			0, // asyncCheckpointCutoff: no active checkpoint
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local)
@@ -279,9 +289,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		_, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, limit, nil,
-			0, // asyncCheckpointCutoff: no active checkpoint
+		_, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, limit, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(objs), limit,
@@ -314,9 +323,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 			propagationDelay: 30 * time.Second,
 		}
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
-			0, // asyncCheckpointCutoff: no active checkpoint
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local,
@@ -347,9 +355,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 			propagationDelay: 30 * time.Second,
 		}
 
-		local, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
-			0, // asyncCheckpointCutoff: no active checkpoint
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 1, local,
@@ -374,9 +381,8 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		_, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
-			0, // asyncCheckpointCutoff: no active checkpoint
+		_, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "comparing digests with remote",
@@ -587,6 +593,7 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 
 	// Swap in a fresh FSM reader so we control the predicate this cycle reads.
 	fsmMock := replicationTypes.NewMockReplicationFSMReader(t)
+	fsmMock.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	saved := idx.replicationFSMReader
 	idx.replicationFSMReader = fsmMock
 	defer func() { idx.replicationFSMReader = saved }()
@@ -601,7 +608,7 @@ func TestRunHashbeatCycle_SkipsWhileNonTerminalOpForShard(t *testing.T) {
 		// Cycle must consult the FSM, see the in-flight op, and return without
 		// calling the replicator (asserted implicitly via NewMockReplicationFSMReader's
 		// Cleanup: any unexpected call would fail the mock).
-		call := fsmMock.EXPECT().HasOngoingTargetReplication(class, shardName, localNode).Return(true).Once()
+		call := fsmMock.EXPECT().HasActiveTargetReplicationForShard(class, shardName, localNode).Return(true).Once()
 		defer call.Unset()
 		propagated, err := concrete.runHashbeatCycle(ctx, cfg)
 		require.NoError(t, err)

@@ -56,6 +56,10 @@ type Object struct {
 	DocID             uint64
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
+
+	// PrecomputedDiskBinary, when set, is persisted verbatim (after a docID patch)
+	// instead of re-marshalling. Set on the raw-propagation write path.
+	PrecomputedDiskBinary []byte `json:"-"`
 }
 
 func New(docID uint64) *Object {
@@ -124,8 +128,14 @@ func FromBinaryNetwork(data []byte) (*Object, error) {
 // FromBinaryNetwork for the on-disk-fallback path used by wire-receive callers
 // that have no canonical class to supply.
 func FromBinaryDisk(data []byte, className string) (*Object, error) {
+	return FromBinaryDiskWithProps(data, className, nil)
+}
+
+// FromBinaryDiskWithProps is FromBinaryDisk with a known property set; see
+// UnmarshalBinaryDiskWithProps for the contract.
+func FromBinaryDiskWithProps(data []byte, className string, properties *PropertyExtraction) (*Object, error) {
 	ko := &Object{}
-	if err := ko.UnmarshalBinaryDisk(data, className); err != nil {
+	if err := ko.UnmarshalBinaryDiskWithProps(data, className, properties); err != nil {
 		return nil, err
 	}
 
@@ -359,6 +369,20 @@ func NewPropExtraction() *PropertyExtraction {
 func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
 	for i := range props {
 		pe.PropertyPaths = append(pe.PropertyPaths, []string{props[i]})
+	}
+	return pe
+}
+
+// AllPropertiesExtraction lists every top-level property of the class for the
+// jsonparser-based decode path. Returns nil (json.Unmarshal fallback) when the
+// class is unknown or has no properties.
+func AllPropertiesExtraction(class *models.Class) *PropertyExtraction {
+	if class == nil || len(class.Properties) == 0 {
+		return nil
+	}
+	pe := NewPropExtraction()
+	for _, prop := range class.Properties {
+		pe.Add(prop.Name)
 	}
 	return pe
 }
@@ -753,6 +777,18 @@ func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dim
 	return nil
 }
 
+func (ko *Object) RemoveTargetVector(targetVector string) bool {
+	if _, ok := ko.Vectors[targetVector]; ok {
+		delete(ko.Vectors, targetVector)
+		return true
+	}
+	if _, ok := ko.MultiVectors[targetVector]; ok {
+		delete(ko.MultiVectors, targetVector)
+		return true
+	}
+	return false
+}
+
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
@@ -795,6 +831,19 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	}
 	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+// PatchDocID overwrites the docID in a marshalled (version 1) object binary in
+// place, so a target can store propagated raw bytes under its own docID.
+func PatchDocID(in []byte, docID uint64) error {
+	if len(in) < 9 {
+		return errors.Errorf("binary data too short")
+	}
+	if in[0] != 1 {
+		return errors.Errorf("unsupported binary marshaller version %d", in[0])
+	}
+	binary.LittleEndian.PutUint64(in[1:9], docID)
+	return nil
 }
 
 func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
@@ -1304,23 +1353,31 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 // Use UnmarshalBinaryDisk when reading from disk, as the on-disk class-name
 // may be empty.
 func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
-	return ko.unmarshalInternal(data, "")
+	return ko.unmarshalInternal(data, "", nil)
 }
 
 // UnmarshalBinaryDisk decodes onto ko and stamps the supplied className on
 // Object.Class, skipping the on-disk class-name bytes. className must be
 // non-empty.
 func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
+	return ko.UnmarshalBinaryDiskWithProps(data, className, nil)
+}
+
+// UnmarshalBinaryDiskWithProps is UnmarshalBinaryDisk with a known property
+// set: a non-nil properties decodes the property blob via UnmarshalProperties
+// (no reflection) instead of json.Unmarshal. Names not listed are dropped, so
+// callers must pass every property that can be present on disk.
+func (ko *Object) UnmarshalBinaryDiskWithProps(data []byte, className string, properties *PropertyExtraction) error {
 	if className == "" {
 		return errors.New("className is required for UnmarshalBinaryDisk; use UnmarshalBinaryNetwork to fall back to the on-disk value")
 	}
-	return ko.unmarshalInternal(data, className)
+	return ko.unmarshalInternal(data, className, properties)
 }
 
 // unmarshalInternal is the shared decoder behind UnmarshalBinaryDisk and
 // UnmarshalBinaryNetwork. A non-empty className stamps Object.Class; an empty
 // className falls back to the on-disk value.
-func (ko *Object) unmarshalInternal(data []byte, className string) error {
+func (ko *Object) unmarshalInternal(data []byte, className string, properties *PropertyExtraction) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
@@ -1388,7 +1445,7 @@ func (ko *Object) unmarshalInternal(data []byte, className string) error {
 		className,
 		schema,
 		meta,
-		vectorWeights, nil, 0,
+		vectorWeights, properties, uint32(schemaLength),
 	)
 }
 

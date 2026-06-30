@@ -359,6 +359,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			writeMetadata:                b.writeMetadata,
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
+			className:                    b.className,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -490,49 +491,29 @@ func (b *Bucket) resumeCompaction(ctx context.Context) error {
 	return nil
 }
 
-// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
-// and on disk, and applies the given function to each object.
-// The afterInMemCallback is called after the in-memory memtable has been processed.
-// This allows the caller to perform actions that need to happen after the in-memory
-// objects have been processed.
-// The function f is called for each object, and if it returns an error, the
-// processing is stopped and the error is returned.
-// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+// ApplyToObjectDigests applies f to every object in the bucket (memtable and disk),
+// stopping on the first error. afterInMemCallback fires once the in-memory scan is done.
+//
+// The on-disk cursor is created while the in-mem cursor holds the flush lock, so both
+// snapshots are taken at a single consistent point with no flush in between. Compaction
+// is not paused: the on-disk cursor pins its segments via reference counting.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(uuidBytes []byte, updateTime int64) error,
 ) error {
-	err := b.pauseCompaction(ctx)
-	if err != nil {
-		afterInMemCallback()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer func() {
-		ec := errorcompounder.New()
-
-		if err != nil {
-			ec.AddWrapf(err, "during ApplyToObjectDigests")
-		}
-
-		err = b.resumeCompaction(ctx)
-		if err != nil {
-			ec.AddWrapf(err, "resuming compaction after ApplyToObjectDigests")
-		}
-
-		err = ec.ToError()
-	}()
-
-	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDisk()
-	defer onDiskCursor.Close()
+	var onDiskCursor *CursorReplace
 
 	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
+	err := func() error {
 		defer afterInMemCallback()
 
 		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
+
+		// created under the in-mem cursor's flush lock, so it is consistent with the
+		// memtable view: no flush can run between the two snapshots.
+		onDiskCursor = b.CursorOnDisk()
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
 			select {
@@ -553,6 +534,9 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 		return nil
 	}()
+	if onDiskCursor != nil {
+		defer onDiskCursor.Close()
+	}
 	if err != nil {
 		return err
 	}
@@ -666,6 +650,24 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	return b.get(key)
+}
+
+// Exists checks whether the given key exists and is not deleted without reading
+// the full value.
+//
+// Exists is specific to ReplaceStrategy.
+func (b *Bucket) Exists(key []byte) (bool, error) {
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	err := b.existsWithConsistentView(key, view)
+	if err != nil {
+		if lsmkv.IsDeletedOrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
@@ -1224,9 +1226,9 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
+		var propLengths propLengthsView
 		if segmentStrategy == segmentindex.StrategyInverted && !c.skipPropertyLengths {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -1249,7 +1251,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 					}
 				}
 				// put the property length in the value from the "external" property lengths
-				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths[docId])))
+				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths.get(docId))))
 
 			} else {
 				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
@@ -2124,9 +2126,9 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 
 		segmentStrategy := segmentsDisk[i].getStrategy()
 
-		propLengths := make(map[uint64]uint32)
+		var propLengths propLengthsView
 		if segmentStrategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].getPropertyLengths()
+			propLengths, err = segmentsDisk[i].propLengthsView()
 			if err != nil {
 				return nil, err
 			}
@@ -2136,7 +2138,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 		for j, v := range plist {
 			if segmentStrategy == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
-				propLen := propLengths[docId]
+				propLen := propLengths.get(docId)
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
 					return nil, err
 				}
@@ -2236,70 +2238,98 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// active memtable
 	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
+	// Memtable tombstones are invariant within a consistent view: read once and
+	// OR into a single bitmap shared by every term.
 	memTombstones := sroar.NewBitmap()
+	var activeTombstones *sroar.Bitmap
+	if view.Active != nil {
+		activeTombstones, err = view.Active.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
+		}
+		memTombstones.Or(activeTombstones)
+	}
+	if view.Flushing != nil {
+		flushingTombstones, err := view.Flushing.ReadOnlyTombstones()
+		if err != nil {
+			view.ReleaseView()
+			return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+		}
+		memTombstones.Or(flushingTombstones)
+	}
+
+	// One index descent per (segment, term): diskNodes/diskNodeOk cache the node
+	// and doc count for reuse by both the count below and term construction.
+	// diskSkip marks inverted segments where the key is absent, so construction
+	// is skipped.
+	qn := len(query)
+	diskNodes := make([]segmentindex.Node, len(view.Disk)*qn)
+	diskNodeOk := make([]bool, len(view.Disk)*qn)
+	diskSkip := make([]bool, len(view.Disk)*qn)
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
 		n := uint64(0)
 
-		active := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
-
-		var activeTombstones *sroar.Bitmap
+		var active, flushing *SegmentBlockMax
 		if view.Active != nil {
-			n2, _ := fillTerm(view.Active, key, active, filterDocIds)
-			if active.Count() > 0 {
-				output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
-			}
-			n += n2
+			if mapPairs, err := view.Active.getMap(key); err == nil {
+				if active = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config); active != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, active)
+					if active.Count() > 0 {
+						output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
+					}
+					n += n2
 
-			activeTombstones, err = view.Active.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
-			}
-			memTombstones.Or(activeTombstones)
-
-			if !active.Exhausted() {
-				active.advanceOnTombstoneOrFilter()
+					if !active.Exhausted() {
+						active.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
 		}
 
 		if view.Flushing != nil {
-			n2, _ := fillTerm(view.Flushing, key, flushing, filterDocIds)
-			if flushing.Count() > 0 {
-				output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
-			}
-			n += n2
+			if mapPairs, err := view.Flushing.getMap(key); err == nil {
+				if flushing = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config); flushing != nil {
+					n2, _ := addDataToTerm(mapPairs, filterDocIds, flushing)
+					if flushing.Count() > 0 {
+						output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
+					}
+					n += n2
 
-			tombstones, err := view.Flushing.ReadOnlyTombstones()
-			if err != nil {
-				view.ReleaseView()
-				return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
+					if !flushing.Exhausted() {
+						flushing.tombstones = activeTombstones
+						flushing.advanceOnTombstoneOrFilter()
+					}
+				}
 			}
-			memTombstones.Or(tombstones)
-
-			if !flushing.Exhausted() {
-				flushing.tombstones = activeTombstones
-				flushing.advanceOnTombstoneOrFilter()
-			}
-
 		}
 
-		for _, segment := range view.Disk {
-			if segment.getStrategy() == segmentindex.StrategyInverted && segment.hasKey(key) {
-				n += segment.getDocCount(key)
+		for j, segment := range view.Disk {
+			if segment.getStrategy() != segmentindex.StrategyInverted {
+				continue
+			}
+			if node, docCount, ok := segment.getInvertedNodeAndDocCount(key); ok {
+				n += docCount
+				diskNodes[j*qn+i] = node
+				diskNodeOk[j*qn+i] = true
+			} else {
+				diskSkip[j*qn+i] = true
 			}
 		}
 
 		// we can only know the full n after we have checked all segments and all memtables
 		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
 
-		active.idf = idfs[i]
-		active.currentBlockImpact = float32(idfs[i])
-
-		flushing.idf = idfs[i]
-		flushing.currentBlockImpact = float32(idfs[i])
+		if active != nil {
+			active.idf = idfs[i]
+			active.currentBlockImpact = float32(idfs[i])
+		}
+		if flushing != nil {
+			flushing.idf = idfs[i]
+			flushing.currentBlockImpact = float32(idfs[i])
+		}
 
 		idfCounts[queryTerm] = n
 	}
@@ -2322,7 +2352,17 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 
 		for i, key := range query {
-			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
+			idx := j*qn + i
+			if diskSkip[idx] {
+				continue
+			}
+			// non-inverted segments have no prefetched node; nil makes the
+			// constructor do its own index lookup.
+			var node *segmentindex.Node
+			if diskNodeOk[idx] {
+				node = &diskNodes[idx]
+			}
+			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
@@ -2354,6 +2394,12 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	}
 	term.propLengths = make(map[uint64]uint32)
 
+	// SetIdf later recomputes currentBlockImpact from MaxImpactTf/PropLength. If
+	// those fields are left at zero, the recomputed impact — the WAND upper bound
+	// — is zero too, so record the posting list's max-impact pair here.
+	maxImpact := float64(0)
+	var maxImpactTf, maxImpactPropLength uint32
+
 	for _, v := range mem {
 		if v.Tombstone {
 			continue
@@ -2375,15 +2421,24 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
 
+		tf := float64(d.Frequency)
+		pl := float64(d.PropLength)
+		if impact := tf / (tf + term.k1*(1-term.b+term.b*(pl/term.averagePropLength))); impact > maxImpact {
+			maxImpact = impact
+			maxImpactTf = uint32(d.Frequency)
+			maxImpactPropLength = uint32(d.PropLength)
+		}
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
 	}
 	term.exhausted = false
-	term.blockEntries = make([]*terms.BlockEntry, 1)
-	term.blockEntries[0] = &terms.BlockEntry{
-		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
-		Offset: 0,
+	term.blockEntries = make([]terms.BlockEntry, 1)
+	term.blockEntries[0] = terms.BlockEntry{
+		MaxId:               term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
+		Offset:              0,
+		MaxImpactTf:         maxImpactTf,
+		MaxImpactPropLength: maxImpactPropLength,
 	}
 
 	term.currentBlockMaxId = term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1]

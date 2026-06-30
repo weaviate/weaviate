@@ -59,6 +59,9 @@ func TestRaftEndpoints(t *testing.T) {
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 
+	m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+	m.replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 
 	// LeaderNotFound

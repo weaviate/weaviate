@@ -90,6 +90,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
+	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
@@ -540,30 +541,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
 		},
-		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
-		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
-		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
-		HNSWSnapshotOnStartup:                        appState.ServerConfig.Config.Persistence.HNSWSnapshotOnStartup,
-		HNSWSnapshotMinDeltaCommitlogsNumber:         appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber,
-		HNSWSnapshotMinDeltaCommitlogsSizePercentage: appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		HNSWGeoIndexEF:                               appState.ServerConfig.Config.HNSWGeoIndexEF,
-		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
-		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
-		TenantActivityWriteLogLevel:                  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
-		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
-		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
-		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
-		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
-		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
-		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
-		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
+		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
+		HNSWMaxLogSize:               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		HNSWGeoIndexEF:               appState.ServerConfig.Config.HNSWGeoIndexEF,
+		VisitedListPoolMaxSize:       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:   appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
+		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
+		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
+		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -695,8 +691,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace: db.ExtractReindexTaskCollection,
 		},
-		ReplicaMovementEnabled: appState.ServerConfig.Config.ReplicaMovementEnabled,
-		DrainSleep:             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
+		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		UsageLimitsErrorMessage: appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -1326,6 +1324,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
+		appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger,
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
@@ -1724,6 +1723,7 @@ func registerModules(appState *state.State) error {
 		modmistral.Name,
 		modtext2vecoctoai.Name,
 		modopenai.Name,
+		modgenerativedeepseek.Name,
 		moddigitalocean.Name,
 		modmorph.Name,
 		modvoyageai.Name,
@@ -2073,6 +2073,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativeopenai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativedeepseek.Name]; ok {
+		appState.Modules.Register(modgenerativedeepseek.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedeepseek.Name).
 			Debug("enabled module")
 	}
 
@@ -2623,14 +2631,14 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseRuntimeConfig,
+			config.NewRuntimeConfigParser(appState.Logger),
 			config.UpdateRuntimeConfig,
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
 			prometheus.DefaultRegisterer)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").Errorf("could not create runtime config manager: %v", err)
+			appState.Logger.WithField("action", "runtime_overrides_parse").Errorf("could not create runtime config manager: %v", err)
 		}
 		return cm
 	}

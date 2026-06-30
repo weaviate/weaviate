@@ -283,6 +283,16 @@ type Index struct {
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
 	backupProtectedShards sync.Map
 
+	// Release uses this to decide whether to resume the shard (halt-for-duration
+	// fallback) or skip resume (snapshot already resumed at create time).
+	replicaSnapshotsMu sync.Mutex
+	replicaSnapshots   map[string]replicaSnapshotState
+
+	// Serializes create/release per opID against target retries. Read RPCs
+	// skip it on purpose — locking them would queue downloads behind any
+	// concurrent Release and tank throughput.
+	replicaSnapshotOpLocks *esync.KeyRWLocker
+
 	metrics          *Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
@@ -418,6 +428,7 @@ func NewIndex(
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyRWLocker(),
+		replicaSnapshotOpLocks:  esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,
@@ -1063,17 +1074,12 @@ type IndexConfig struct {
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 
-	HNSWMaxLogSize                               int64
-	HNSWDisableSnapshots                         bool
-	HNSWSnapshotIntervalSeconds                  int
-	HNSWSnapshotOnStartup                        bool
-	HNSWSnapshotMinDeltaCommitlogsNumber         int
-	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
-	HNSWWaitForCachePrefill                      bool
-	HNSWFlatSearchConcurrency                    int
-	HNSWAcornFilterRatio                         float64
-	HNSWGeoIndexEF                               int
-	VisitedListPoolMaxSize                       int
+	HNSWMaxLogSize            int64
+	HNSWWaitForCachePrefill   bool
+	HNSWFlatSearchConcurrency int
+	HNSWAcornFilterRatio      float64
+	HNSWGeoIndexEF            int
+	VisitedListPoolMaxSize    int
 
 	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]
@@ -1188,6 +1194,10 @@ func (i *Index) replicationEnabled() bool {
 func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool {
 	// if replication is enabled, we always have multiple replicas
 	if i.replicationEnabled() {
+		return true
+	}
+	if i.replicationFSMReader != nil &&
+		i.replicationFSMReader.HasActiveReplicationForShard(i.Config.ClassName.String(), shardName) {
 		return true
 	}
 	// if the router is nil, preserve previous behavior by returning false
@@ -1435,7 +1445,7 @@ func (i *Index) anyShardMidMovement() (bool, error) {
 		for shardName := range state.Physical {
 			// Short-circuit on first match: map iteration is randomized, so
 			// without this we'd non-deterministically miss other in-flight shards.
-			if i.replicationFSMReader.HasOngoingReplication(className, shardName) {
+			if i.replicationFSMReader.HasActiveReplicationForShard(className, shardName) {
 				midMovement = true
 				return nil
 			}

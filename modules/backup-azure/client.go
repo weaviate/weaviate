@@ -27,6 +27,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -149,28 +150,31 @@ func (g *azureClient) makeObjectName(overridePath string, parts []string) string
 }
 
 func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var keys []string
+	prefix := a.config.BackupPath
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
 
-	blobs := a.client.NewListBlobsFlatPager(a.config.Container, &azblob.ListBlobsFlatOptions{Prefix: to.Ptr(a.config.BackupPath)})
-	for {
-		if !blobs.More() {
-			break
-		}
-		blob, err := blobs.NextPage(ctx)
+	containerClient := a.client.ServiceClient().NewContainerClient(a.config.Container)
+	pager := containerClient.NewListBlobsHierarchyPager("/", &container.ListBlobsHierarchyOptions{
+		Prefix: new(prefix),
+	})
+
+	var keys []string
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("get next blob: %w", err)
 		}
 
-		if blob.ListBlobsFlatSegmentResponse.Segment != nil {
-			for _, item := range blob.ListBlobsFlatSegmentResponse.Segment.BlobItems {
-				if item.Name == nil {
-					continue
-				}
-				// Only collect backup_config.json keys, skip all node data files.
-				if strings.HasSuffix(*item.Name, ubak.GlobalBackupFile) {
-					keys = append(keys, *item.Name)
-				}
+		if page.Segment == nil {
+			continue
+		}
+		for _, bp := range page.Segment.BlobPrefixes {
+			if bp == nil || bp.Name == nil {
+				continue
 			}
+			keys = append(keys, *bp.Name+ubak.GlobalBackupFile)
 		}
 	}
 

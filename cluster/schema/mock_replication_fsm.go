@@ -121,6 +121,99 @@ func (_c *MockreplicationFSM_DeleteReplicationsByTenants_Call) RunAndReturn(run 
 	return _c
 }
 
+// HasActiveReplicationForCollection provides a mock function with given fields: collection
+func (_m *MockreplicationFSM) HasActiveReplicationForCollection(collection string) bool {
+	ret := _m.Called(collection)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasActiveReplicationForCollection")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string) bool); ok {
+		r0 = rf(collection)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockreplicationFSM_HasActiveReplicationForCollection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasActiveReplicationForCollection'
+type MockreplicationFSM_HasActiveReplicationForCollection_Call struct {
+	*mock.Call
+}
+
+// HasActiveReplicationForCollection is a helper method to define mock.On call
+//   - collection string
+func (_e *MockreplicationFSM_Expecter) HasActiveReplicationForCollection(collection interface{}) *MockreplicationFSM_HasActiveReplicationForCollection_Call {
+	return &MockreplicationFSM_HasActiveReplicationForCollection_Call{Call: _e.mock.On("HasActiveReplicationForCollection", collection)}
+}
+
+func (_c *MockreplicationFSM_HasActiveReplicationForCollection_Call) Run(run func(collection string)) *MockreplicationFSM_HasActiveReplicationForCollection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockreplicationFSM_HasActiveReplicationForCollection_Call) Return(_a0 bool) *MockreplicationFSM_HasActiveReplicationForCollection_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockreplicationFSM_HasActiveReplicationForCollection_Call) RunAndReturn(run func(string) bool) *MockreplicationFSM_HasActiveReplicationForCollection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// HasActiveReplicationForShard provides a mock function with given fields: collection, shard
+func (_m *MockreplicationFSM) HasActiveReplicationForShard(collection string, shard string) bool {
+	ret := _m.Called(collection, shard)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasActiveReplicationForShard")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string, string) bool); ok {
+		r0 = rf(collection, shard)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockreplicationFSM_HasActiveReplicationForShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasActiveReplicationForShard'
+type MockreplicationFSM_HasActiveReplicationForShard_Call struct {
+	*mock.Call
+}
+
+// HasActiveReplicationForShard is a helper method to define mock.On call
+//   - collection string
+//   - shard string
+func (_e *MockreplicationFSM_Expecter) HasActiveReplicationForShard(collection interface{}, shard interface{}) *MockreplicationFSM_HasActiveReplicationForShard_Call {
+	return &MockreplicationFSM_HasActiveReplicationForShard_Call{Call: _e.mock.On("HasActiveReplicationForShard", collection, shard)}
+}
+
+func (_c *MockreplicationFSM_HasActiveReplicationForShard_Call) Run(run func(collection string, shard string)) *MockreplicationFSM_HasActiveReplicationForShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockreplicationFSM_HasActiveReplicationForShard_Call) Return(_a0 bool) *MockreplicationFSM_HasActiveReplicationForShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockreplicationFSM_HasActiveReplicationForShard_Call) RunAndReturn(run func(string, string) bool) *MockreplicationFSM_HasActiveReplicationForShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetUnCancellable provides a mock function with given fields: id
 func (_m *MockreplicationFSM) SetUnCancellable(id uint64) error {
 	ret := _m.Called(id)
