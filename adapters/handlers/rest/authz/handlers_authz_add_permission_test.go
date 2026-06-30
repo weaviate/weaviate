@@ -382,54 +382,92 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 }
 
 func TestValidateNoQualifiedNamespaceInPolicies(t *testing.T) {
+	global := &models.Principal{Username: "root"}
+	namespaced := &models.Principal{Username: "alice", Namespace: "customer1"}
+
 	tests := []struct {
 		name              string
 		namespacesEnabled bool
+		principal         *models.Principal
 		policies          []authorization.Policy
 		wantErr           bool
 	}{
 		{
 			name:              "namespaces disabled: qualified resource accepted",
 			namespacesEnabled: false,
+			principal:         namespaced,
 			policies:          []authorization.Policy{{Resource: "schema/collections/customer1:Movies/shards/#"}},
 		},
 		{
-			name:              "namespaces enabled: ns-relative resource accepted",
+			name:              "ns-relative resource accepted",
 			namespacesEnabled: true,
+			principal:         global,
 			policies:          []authorization.Policy{{Resource: "schema/collections/Movies/shards/#"}},
 		},
 		{
-			name:              "namespaces enabled: qualified collection segment rejected",
+			name:              "qualified collection segment rejected (global)",
 			namespacesEnabled: true,
+			principal:         global,
 			policies:          []authorization.Policy{{Resource: "schema/collections/customer1:Movies/shards/#"}},
 			wantErr:           true,
 		},
 		{
-			name:              "namespaces enabled: qualified alias segment rejected",
+			name:              "qualified alias segment rejected",
 			namespacesEnabled: true,
+			principal:         global,
 			policies:          []authorization.Policy{{Resource: "aliases/collections/Movies/aliases/customer1:Films"}},
 			wantErr:           true,
 		},
 		{
-			name:              "namespaces enabled: rejection scans every policy",
+			name:              "rejection scans every policy",
 			namespacesEnabled: true,
+			principal:         global,
 			policies: []authorization.Policy{
 				{Resource: "schema/collections/Movies/shards/#"},
 				{Resource: "data/collections/customer1:Movies/shards/.*/objects/.*"},
 			},
 			wantErr: true,
 		},
+		// users/<id> and groups/<...> ids may contain ':' — opaque, not a
+		// qualifier. Allowed for a global caller, rejected for a namespaced one
+		// (must submit the short form).
+		{
+			name:              "global: colon-bearing user id accepted",
+			namespacesEnabled: true,
+			principal:         global,
+			policies:          []authorization.Policy{{Resource: "users/urn:foo"}},
+		},
+		{
+			name:              "global: colon-bearing group name accepted",
+			namespacesEnabled: true,
+			principal:         global,
+			policies:          []authorization.Policy{{Resource: "groups/oidc/team:eng"}},
+		},
+		{
+			name:              "namespaced: colon-bearing user id rejected",
+			namespacesEnabled: true,
+			principal:         namespaced,
+			policies:          []authorization.Policy{{Resource: "users/customer2:bob"}},
+			wantErr:           true,
+		},
+		{
+			name:              "global: qualified user collection shape still rejected",
+			namespacesEnabled: true,
+			principal:         global,
+			policies:          []authorization.Policy{{Resource: "schema/collections/customer1:Movies/shards/#"}},
+			wantErr:           true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := &authZHandlers{namespacesEnabled: tt.namespacesEnabled}
-			err := h.validateNoQualifiedNamespaceInPolicies(tt.policies)
+			err := h.validateNoQualifiedNamespaceInPolicies(tt.principal, tt.policies)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "namespace-qualified")
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
