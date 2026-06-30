@@ -147,6 +147,33 @@ autoschema_enabled: true`)
 	})
 }
 
+func TestDisableGraphQLRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+
+	t.Run("parses disable_graphql from the overrides file", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		assert.Equal(t, true, cfg.DisableGraphQL.Get())
+	})
+
+	t.Run("toggles on then back to the env default when removed", func(t *testing.T) {
+		// Removing the key reverts to the env-seeded default, not a hardcoded false.
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(false),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+	})
+}
+
 func TestUpdateRuntimeConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)

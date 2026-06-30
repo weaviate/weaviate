@@ -49,7 +49,10 @@ var configureServer func(*http.Server, string, string)
 
 func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithAliases) {
 	return func(updatedSchema schema.SchemaWithAliases) {
-		if appState.ServerConfig.Config.DisableGraphQL {
+		// Namespaces can't be modeled in the GraphQL schema, so the graph is never
+		// built there. DISABLE_GRAPHQL gates serving only (handlers_graphql.go), not
+		// the build: the graph stays current so it can be toggled on without a restart.
+		if appState.ServerConfig.Config.Namespaces.Enabled {
 			return
 		}
 

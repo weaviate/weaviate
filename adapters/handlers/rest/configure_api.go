@@ -1590,7 +1590,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	monitoring.InitConfig(serverConfig.Config.Monitoring)
 
-	if serverConfig.Config.DisableGraphQL {
+	if serverConfig.Config.DisableGraphQL.Get() {
 		logger.WithFields(logrus.Fields{
 			"action":          "startup",
 			"disable_graphql": true,
@@ -2621,6 +2621,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

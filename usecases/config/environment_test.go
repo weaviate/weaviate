@@ -681,7 +681,7 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 			if tt.expectedErr {
 				require.NotNil(t, err)
 			} else {
-				require.Equal(t, tt.expected, conf.DisableGraphQL)
+				require.Equal(t, tt.expected, conf.DisableGraphQL.Get())
 			}
 		})
 	}
