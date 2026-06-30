@@ -30,12 +30,13 @@ import (
 // (Phase 1) and the drop is immediately effective — writes targeting the dropped
 // vector are rejected exactly as for a never-existing vector.
 //
-// NOT covered here (deferred to S22, the full acceptance suite): the Phase-2
-// cleanup that strips the dropped vector from already-stored objects, and the
-// final removal of the VectorConfig entry from the schema. Neither is observable
-// in a black-box acceptance test today — the edit-ops cleanup driver only runs on
-// a cleanup interval that is whole-hours-granular (default off), compaction is
-// not API-triggerable, and the schema removal is gated on S15/S16.
+// NOT covered here (left to the full acceptance suite): the background cleanup
+// that strips the dropped vector from already-stored objects, and the final
+// removal of the VectorConfig entry from the schema. Neither is observable in a
+// black-box acceptance test today — the segment cleanup driver only runs on a
+// cleanup interval that is whole-hours-granular (default off), compaction is not
+// API-triggerable, and the schema removal needs the FSM transition that permits
+// removing a dropped vector entry once cleanup has finished.
 func testDropVectorIndexSmoke() func(t *testing.T) {
 	return func(t *testing.T) {
 		className := "DropVectorIndexSmoke"
@@ -115,11 +116,11 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 			}, 15*time.Second, 200*time.Millisecond, "writes to the dropped vector should be rejected")
 		})
 
-		// Best-effort teardown only. The in-flight Phase-2 cleanup task blocks
-		// DeleteClass (the SchemaMutationDetector — correct behaviour), and the
-		// task can't drain here: the edit-ops cleanup driver runs only on a
-		// cleanup interval that is off by default in this harness. The container
-		// is ephemeral, so leaving the class is harmless.
+		// Best-effort teardown. DeleteClass is allowed to proceed during an
+		// in-flight cleanup (the conflict detector lets it through and the schema
+		// removes the task as it deletes the class), so this succeeds. The cleanup
+		// itself can't drain in this harness — the segment cleanup driver runs only
+		// on an interval that is off by default — but the container is ephemeral.
 		helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
 	}
 }

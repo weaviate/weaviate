@@ -411,17 +411,17 @@ func (h *Handler) Statistics() map[string]any {
 }
 
 // DropVectorIndexEnqueuer submits the Phase-2 cleanup distributed task for a
-// dropped named vector and reports whether one is already in flight, so
-// DeleteClassVectorIndex can apply the §3.4 re-trigger matrix. It is implemented
-// in the cluster wiring layer (which owns the DTM client and sharding state) and
-// injected via SetDropVectorIndexEnqueuer. When nil — the distributed-task
+// dropped named vector and reports whether one is already in flight, so a re-issued
+// drop can be handled (no-op while a cleanup runs, re-enqueue if it failed). It is
+// implemented in the cluster wiring layer (which owns the DTM client and sharding
+// state) and injected via SetDropVectorIndexEnqueuer. When nil — the distributed-task
 // machinery is not wired — a drop only sets the schema marker.
 type DropVectorIndexEnqueuer interface {
 	// HasActiveDrop reports whether a non-terminal cleanup task already covers
 	// targetVector on collection.
 	HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error)
-	// EnqueueDropVectorIndex submits a fresh cleanup task (fresh task ID, C4) for
-	// the given targets on collection.
+	// EnqueueDropVectorIndex submits a fresh cleanup task (fresh task ID) for the
+	// given targets on collection.
 	EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error
 }
 
@@ -440,9 +440,9 @@ func (h *Handler) enqueueDropVectorIndexCleanup(ctx context.Context, collection,
 	return h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector})
 }
 
-// retriggerDropVectorIndexCleanup applies the §3.4 re-trigger matrix when a drop
-// is re-issued on a vector whose marker is already set: a still-running cleanup
-// is a no-op; a failed/absent one is re-enqueued with a fresh task ID (C4).
+// retriggerDropVectorIndexCleanup handles a drop re-issued on a vector whose marker
+// is already set: a still-running cleanup is a no-op; a failed/absent one is
+// re-enqueued with a fresh task ID.
 func (h *Handler) retriggerDropVectorIndexCleanup(ctx context.Context, collection, targetVector string) error {
 	if h.dropVectorEnqueuer == nil {
 		return nil

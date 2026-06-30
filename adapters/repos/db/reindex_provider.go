@@ -2336,43 +2336,25 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 // WARNING: Do NOT use ShardOwnership for reindex — it only returns one node per
 // shard and would leave replicas on other nodes un-reindexed.
 func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error) {
-	result := make(map[string][]string)
-
-	err := db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
-		}
-
-		for shardName, shard := range state.Physical {
-			for _, node := range shard.BelongsToNodes {
-				if node != "" {
-					result[node] = append(result[node], shardName)
-				}
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
-	}
-
-	// Sort shard names per node for determinism.
-	for _, shards := range result {
-		sort.Strings(shards)
-	}
-
-	return result, nil
+	return db.shardReplicaOwnership(className, true)
 }
 
-// ShardReplicaOwnershipActive returns replica ownership for shards with locally
-// loaded data: for multi-tenant collections only HOT/ACTIVE tenants (COLD /
-// INACTIVE and offloaded/frozen tenants are skipped — their dropped-index cleanup
-// is deferred to tenant activation, which tears the index down on shard load);
-// for non-MT collections all shards. Used by the drop-vector enqueuer so the
-// Phase-2 task never touches a deactivated tenant's shard, which would load it and
+// ShardReplicaOwnershipActive is ShardReplicaOwnership restricted to shards with
+// locally loaded data: for multi-tenant collections only HOT/ACTIVE tenants are
+// returned (COLD/INACTIVE/frozen/offloaded are skipped — their dropped-index
+// cleanup is deferred to tenant activation, which tears the index down on shard
+// load); for non-MT collections all shards. Used by the drop-vector enqueuer so a
+// cleanup task never touches a deactivated tenant's shard, which would load it and
 // prematurely remove its files.
 func (db *DB) ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error) {
+	return db.shardReplicaOwnership(className, false)
+}
+
+// shardReplicaOwnership builds the node -> shards ownership map for className. When
+// includeInactive is false, multi-tenant tenants that are not HOT/ACTIVE are
+// skipped (their shards are not locally loaded). Shard lists are sorted per node
+// for determinism.
+func (db *DB) shardReplicaOwnership(className string, includeInactive bool) (map[string][]string, error) {
 	result := make(map[string][]string)
 
 	err := db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
@@ -2381,12 +2363,12 @@ func (db *DB) ShardReplicaOwnershipActive(ctx context.Context, className string)
 		}
 
 		for shardName, shard := range state.Physical {
-			if state.PartitioningEnabled {
+			if !includeInactive && state.PartitioningEnabled {
 				switch entschema.ActivityStatus(shard.Status) {
 				case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
 					// Loaded — include.
 				default:
-					continue // COLD / INACTIVE / frozen / offloaded — defer to activation.
+					continue
 				}
 			}
 			for _, node := range shard.BelongsToNodes {

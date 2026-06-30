@@ -1151,7 +1151,7 @@ func initReindexAndDistributedTasks(
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
-	// Drop-vector-index provider (S11). Added to the providers map so the
+	// Drop-vector-index distributed-task provider. Added to the providers map so the
 	// conflict/schema-mutation detector loops below auto-register it.
 	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
 		repo,
@@ -1160,10 +1160,10 @@ func initReindexAndDistributedTasks(
 		appState.Cluster.LocalName(),
 		serverShutdownCtx,
 	)
-	// Enqueue Phase-2 cleanup tasks from the schema drop path (S13).
+	// Lets the schema drop path enqueue the cleanup task that strips dropped vectors.
 	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, repo)
 	appState.SchemaManager.SetDropVectorIndexEnqueuer(dropVectorEnqueuer)
-	// S14 startup reconciliation: enqueue cleanup for any "none" marker whose task
+	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
 		runDropVectorIndexReconciliationAtStartup(

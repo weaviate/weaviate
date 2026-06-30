@@ -280,9 +280,9 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	}
 
 	if modelsext.IsVectorIndexDropped(cfg) {
-		// Marker already set: apply the §3.4 re-trigger matrix (no-op while the
-		// cleanup is in flight, re-enqueue if it failed) rather than a blanket
-		// no-op, so a stuck/failed Phase-2 cleanup can be retried.
+		// Marker already set: handle a re-issued drop (no-op while the cleanup is in
+		// flight, re-enqueue if it failed) rather than a blanket no-op, so a
+		// stuck/failed cleanup can be retried.
 		return h.retriggerDropVectorIndexCleanup(ctx, className, vectorIndexName)
 	}
 

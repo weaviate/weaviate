@@ -626,24 +626,14 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
 }
 
-// registerEditOpAndSnapshot registers opID and snapshots the current on-disk
-// segments as pending for it. Idempotent: an already-registered op returns
-// without re-snapshotting (re-snapshotting would re-queue segments it already
-// completed), making task resume safe.
-//
-// Ordering is load-bearing. RegisterOp runs first so an in-flight compaction's
-// completion bookkeeping (RecordCompaction) can see the op and re-queue a merged
-// output for it. The segment IDs are then read and snapshotted under
-// maintenanceLock — the SnapshotSegments invariant (a coherent in-memory segment
-// set, never a raw directory listing), which also prevents a switchInMemory from
-// straddling the read and the snapshot.
 // recoverEditOps runs startup recovery for the edit-ops sidecar: prune rows for
 // segments gone from disk (Reconcile; nil liveOpIDs — op lifecycle is the DTM
 // provider's concern), then re-snapshot every live op over the current segments.
-// The re-snapshot is the only recovery for the RecordCompaction crash window — a
-// merged output never re-queued for an op absent from that pass's builtOps;
-// re-cleaning already-clean segments is a no-op by the transformer's idempotency.
-// Runs before the cycle registers, so no pass races the segment-set read.
+// The re-snapshot is the only recovery for the crash window where a compaction
+// renamed its merged output but died before recording it as pending for an op that
+// was not part of that compaction's transformer; re-cleaning already-clean segments
+// is a no-op because the transformer is idempotent. Runs before the compaction
+// cycle registers, so no pass races the segment-set read.
 func (sg *SegmentGroup) recoverEditOps() error {
 	if sg.editOps == nil {
 		return nil
@@ -678,6 +668,16 @@ func (sg *SegmentGroup) recoverEditOps() error {
 	return nil
 }
 
+// registerEditOpAndSnapshot registers opID and snapshots the current on-disk
+// segments as pending for it. Idempotent: an already-registered op returns without
+// re-snapshotting (re-snapshotting would re-queue segments it already completed),
+// making task resume safe.
+//
+// Ordering is load-bearing. RegisterOp runs first so an in-flight compaction
+// completing concurrently can see the op and re-queue its merged output. The
+// segment IDs are then read and snapshotted under maintenanceLock, so the snapshot
+// reflects a coherent in-memory segment set (never a raw directory listing) and no
+// segment swap can straddle the read and the snapshot.
 func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor) error {
 	if sg.editOps == nil {
 		return fmt.Errorf("edit ops not enabled for this segment group")

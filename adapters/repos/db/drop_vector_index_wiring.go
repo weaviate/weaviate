@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -89,7 +90,7 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		next.VectorConfig = make(map[string]models.VectorConfig, len(orig.VectorConfig))
 		changed := false
 		for name, cfg := range orig.VectorConfig {
-			if containsString(targets, name) {
+			if slices.Contains(targets, name) {
 				changed = true
 				continue
 			}
@@ -111,13 +112,4 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
-}
-
-func containsString(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }

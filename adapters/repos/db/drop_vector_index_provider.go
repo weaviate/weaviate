@@ -212,8 +212,8 @@ func (p *DropVectorIndexProvider) processOneUnit(
 }
 
 // pollUntilEmpty waits until the op has no pending segments on the bucket,
-// reporting progress each tick. The compaction/cleanup transformer (S6–S10) does
-// the actual rewriting; this only observes the pending set shrink to zero.
+// reporting progress each tick. The bucket's own compaction/cleanup transformer
+// does the actual rewriting; this only observes the pending set shrink to zero.
 func (p *DropVectorIndexProvider) pollUntilEmpty(
 	ctx context.Context, bucket editOpBucket, task *distributedtask.Task,
 	unitID, opID string,
@@ -322,8 +322,9 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	}
 
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
-		// Leave the marker for S14 reconciliation to retry; requires the S15/S16
-		// FSM gate to allow the real→absent exit transition.
+		// Leave the marker in place; startup reconciliation retries the removal. The
+		// schema FSM only permits removing a "none" vector entry once its cleanup
+		// task has finished, so this can legitimately fail until that gate ships.
 		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
 		return
 	}

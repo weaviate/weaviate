@@ -111,8 +111,8 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	}
 
 	// Fresh task ID per submission so a re-trigger after a FAILED run is a new
-	// task version (C4). The ConflictDetector rejects a duplicate against an
-	// active task, the backstop for the HasActiveDrop check race.
+	// task version. The ConflictDetector rejects a duplicate against an active
+	// task, the backstop for the HasActiveDrop check race.
 	taskID := uuid.NewString()
 	return e.clusterService.AddDistributedTaskWithGroups(ctx, db.DropVectorIndexNamespace, taskID, payload, specs)
 }

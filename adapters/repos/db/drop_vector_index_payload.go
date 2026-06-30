@@ -22,8 +22,8 @@ import (
 const DropVectorIndexNamespace = "drop-vector-index"
 
 // DropVectorIndexTaskPayload is the RAFT-replicated payload of a drop-vector
-// task: the collection, the dropped named vectors (C3: several at once), the
-// edit-ops bookkeeping key (OpID), and the unit→node/unit→shard assignment.
+// task: the collection, the dropped named vectors (several at once is supported),
+// the edit-ops bookkeeping key (OpID), and the unit→node/unit→shard assignment.
 type DropVectorIndexTaskPayload struct {
 	Collection string   `json:"collection"`
 	Targets    []string `json:"targets"`
