@@ -72,7 +72,6 @@ type RemoteIndexIncomingRepo interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-		selection *searchparams.Selection,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
@@ -229,7 +228,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	vectors []models.Vector, targetVectors []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string, selection *searchparams.Selection,
+	properties []string,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
@@ -237,7 +236,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	}
 
 	return index.IncomingSearch(
-		ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties, selection)
+		ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,

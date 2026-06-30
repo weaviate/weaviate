@@ -75,8 +75,9 @@ type fakeVectorSearcher struct {
 	calledWithOffset int
 	results          []search.Result
 
-	diversifyFn        func(selection *searchparams.Selection, className, targetVector string, results []search.Result) ([]search.Result, error)
-	diversifyCalledSel *searchparams.Selection
+	diversifyFn                      func(selection *searchparams.Selection, className, targetVector string, results []search.Result) ([]search.Result, error)
+	diversifyCalledSel               *searchparams.Selection
+	diversifyCalledRelevanceFromDist bool
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -139,9 +140,10 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 }
 
 func (f *fakeVectorSearcher) DiversifyResults(ctx context.Context, selection *searchparams.Selection,
-	className, targetVector string, results []search.Result,
+	className, targetVector string, results []search.Result, relevanceFromDist bool,
 ) ([]search.Result, error) {
 	f.diversifyCalledSel = selection
+	f.diversifyCalledRelevanceFromDist = relevanceFromDist
 	if f.diversifyFn != nil {
 		return f.diversifyFn(selection, className, targetVector, results)
 	}

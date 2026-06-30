@@ -714,7 +714,6 @@ type searchParametersPayload struct {
 	TargetVectors     []string                     `json:"TargetVectors"`
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
-	Selection         *searchparams.Selection      `json:"selection,omitempty"`
 }
 
 func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
@@ -770,7 +769,6 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	selection *searchparams.Selection,
 ) ([]byte, error) {
 	var vector []float32
 	var targetVector string
@@ -783,13 +781,13 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 		}
 	}
 
-	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, selection}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection, error,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
 ) {
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
@@ -800,7 +798,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, fl
 	}
 
 	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.Selection, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, err
 }
 
 func (p searchParamsPayload) MIME() string {

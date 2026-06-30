@@ -271,9 +271,26 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			keywordParams.AdditionalProperties.Vectors = withVectorTarget(keywordParams.AdditionalProperties.Vectors, targetVector)
 		}
 
+		// Y model: the query Limit is the MMR candidate pool. Diversify the top
+		// `pool` fused candidates (the rest were overfetched only for fusion
+		// quality); the page size MMR.Limit is applied when slicing below.
+		pool := origParams.Pagination.Limit
+		if pool <= 0 {
+			pool = int(e.config.QueryHybridMaximumResults)
+		}
 		selTargetVector := targetVector
+		boost := origParams.Boost
 		selectionFn = func(ctx context.Context, fused []search.Result) ([]search.Result, error) {
-			return e.searcher.DiversifyResults(ctx, origParams.Selection, origParams.ClassName, selTargetVector, fused)
+			// MMR is terminal: boost re-ranks the fused pool first so its
+			// relevance feeds MMR, then we diversify. Boost only re-scores here
+			// (no pagination) — the page slice below owns pagination.
+			if boost != nil && boost.Weight > 0 {
+				fused = boostScoreAndSort(fused, boost)
+			}
+			if len(fused) > pool {
+				fused = fused[:pool]
+			}
+			return e.searcher.DiversifyResults(ctx, origParams.Selection, origParams.ClassName, selTargetVector, fused, false)
 		}
 	}
 
@@ -475,21 +492,28 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	var out []search.Result
 
-	if origParams.Pagination.Limit <= 0 {
-		origParams.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
+	offset := origParams.Pagination.Offset
+	if offset < 0 {
+		offset = 0
 	}
 
-	if origParams.Pagination.Offset < 0 {
-		origParams.Pagination.Offset = 0
+	// Page size is the query Limit, except under MMR (Y model) where MMR.Limit is
+	// the page size and the query Limit was the candidate pool. MMR is terminal
+	// (boost already ran inside the selection fn), so it owns pagination here.
+	pageLimit := origParams.Pagination.Limit
+	if origParams.Selection != nil && origParams.Selection.MMR != nil {
+		pageLimit = int(origParams.Selection.MMR.Limit)
+	}
+	if pageLimit <= 0 {
+		pageLimit = int(e.config.QueryHybridMaximumResults)
 	}
 
-	if len(res) >= origParams.Pagination.Limit+origParams.Pagination.Offset {
-		out = res[origParams.Pagination.Offset : origParams.Pagination.Limit+origParams.Pagination.Offset]
-	}
-	if len(res) < origParams.Pagination.Limit+origParams.Pagination.Offset && len(res) > origParams.Pagination.Offset {
-		out = res[origParams.Pagination.Offset:]
-	}
-	if len(res) <= origParams.Pagination.Offset {
+	switch {
+	case len(res) >= offset+pageLimit:
+		out = res[offset : offset+pageLimit]
+	case len(res) > offset:
+		out = res[offset:]
+	default:
 		out = []search.Result{}
 	}
 

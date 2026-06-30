@@ -176,6 +176,10 @@ func (db *DB) VectorSearch(ctx context.Context,
 		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
+	// Diversity (MMR) is applied as the terminal stage in the traverser, after
+	// boost/fusion. VectorSearch just returns the candidate pool sliced by the
+	// caller's pagination (the traverser sets Offset=0/Limit=pool when MMR is
+	// active and paginates by MMR.Limit afterwards).
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination params: %w", err)
@@ -189,7 +193,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames(), params.Selection)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames())
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -256,7 +260,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "", nil, nil, nil)
+				additional.Properties{}, nil, "", nil, nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))

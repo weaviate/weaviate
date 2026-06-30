@@ -243,6 +243,12 @@ func TestHybridOffsets(t *testing.T) {
 									gtResults[*res.DocID] = res.Score
 								}
 							} else {
+								// Limit == -1 ("max results") with an offset extends the page past
+								// the QHMR window, so it can include items beyond the ground-truth
+								// set and is not compared against the base case (see paginations).
+								if pagination.Limit == -1 && pagination.Offset > 0 {
+									return
+								}
 								if pagination.Limit != -1 && pagination.Offset+pagination.Limit > int(queryHybridMaximumResult) {
 									// no need to check the results, as this is the exception where we override the maximum results with an offset of zero
 									// t.Logf("Skipping result check for pagination offset %d + limit %d > %d", pagination.Offset, pagination.Limit, int(queryHybridMaximumResult))

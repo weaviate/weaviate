@@ -74,12 +74,14 @@ func TestDiversifyResults(t *testing.T) {
 	clusterA3 := []float32{0.98, 0.02, 0}
 	clusterB := []float32{0, 0, 1}
 
+	// diversifyResults returns the FULL diversified ordering; the caller (and
+	// pagination) applies the page size. So output length always == input length.
 	t.Run("balance=0 pulls the diverse far candidate into the top results", func(t *testing.T) {
-		// Fused order: A1, A2, A3, B. A plain truncation to 2 yields [A1, A2].
+		// Fused order: A1, A2, A3, B. The diversified head should be [A1, B, ...].
 		results := resultsFromVecs("", [][]float32{clusterA1, clusterA2, clusterA3, clusterB})
-		out, err := diversifyResults(ctx, mmrSelection(2, 0), "", prov, results)
+		out, err := diversifyResults(ctx, mmrSelection(2, 0), "", prov, results, false)
 		require.NoError(t, err)
-		require.Len(t, out, 2)
+		require.Len(t, out, 4)
 		// Most relevant stays first; second slot should be the far cluster-B
 		// candidate, not the near-duplicate A2.
 		assert.Equal(t, strfmtUUID(0), out[0].ID)
@@ -88,54 +90,50 @@ func TestDiversifyResults(t *testing.T) {
 
 	t.Run("balance=1 preserves fused relevance order", func(t *testing.T) {
 		results := resultsFromVecs("", [][]float32{clusterA1, clusterA2, clusterA3, clusterB})
-		out, err := diversifyResults(ctx, mmrSelection(3, 1), "", prov, results)
+		out, err := diversifyResults(ctx, mmrSelection(3, 1), "", prov, results, false)
 		require.NoError(t, err)
-		require.Len(t, out, 3)
-		assert.Equal(t, []string{string(strfmtUUID(0)), string(strfmtUUID(1)), string(strfmtUUID(2))}, ids(out))
+		require.Len(t, out, 4)
+		assert.Equal(t, []string{
+			string(strfmtUUID(0)), string(strfmtUUID(1)),
+			string(strfmtUUID(2)), string(strfmtUUID(3)),
+		}, ids(out))
 	})
 
 	t.Run("vectorless candidate keeps its fused rank", func(t *testing.T) {
 		// Position 1 (second-most relevant) has no vector — a BM25-only hit.
 		results := resultsFromVecs("", [][]float32{clusterA1, nil, clusterA2, clusterB})
-		out, err := diversifyResults(ctx, mmrSelection(4, 0), "", prov, results)
+		out, err := diversifyResults(ctx, mmrSelection(4, 0), "", prov, results, false)
 		require.NoError(t, err)
 		require.Len(t, out, 4)
 		// The vectorless doc must remain at index 1, never dropped or demoted.
 		assert.Equal(t, strfmtUUID(1), out[1].ID, "vectorless hit lost its rank: %v", ids(out))
 	})
 
-	t.Run("all candidates vectorless falls back to fused truncation", func(t *testing.T) {
+	t.Run("all candidates vectorless keeps fused order", func(t *testing.T) {
 		results := resultsFromVecs("", [][]float32{nil, nil, nil})
-		out, err := diversifyResults(ctx, mmrSelection(2, 0), "", prov, results)
+		out, err := diversifyResults(ctx, mmrSelection(2, 0), "", prov, results, false)
 		require.NoError(t, err)
-		require.Len(t, out, 2)
-		assert.Equal(t, []string{string(strfmtUUID(0)), string(strfmtUUID(1))}, ids(out))
-	})
-
-	t.Run("limit larger than candidate pool returns all", func(t *testing.T) {
-		results := resultsFromVecs("", [][]float32{clusterA1, clusterB})
-		out, err := diversifyResults(ctx, mmrSelection(10, 0), "", prov, results)
-		require.NoError(t, err)
-		assert.Len(t, out, 2)
+		require.Len(t, out, 3)
+		assert.Equal(t, []string{string(strfmtUUID(0)), string(strfmtUUID(1)), string(strfmtUUID(2))}, ids(out))
 	})
 
 	t.Run("named target vector is read from Result.Vectors", func(t *testing.T) {
 		results := resultsFromVecs("my_vec", [][]float32{clusterA1, clusterA2, clusterA3, clusterB})
-		out, err := diversifyResults(ctx, mmrSelection(2, 0), "my_vec", prov, results)
+		out, err := diversifyResults(ctx, mmrSelection(2, 0), "my_vec", prov, results, false)
 		require.NoError(t, err)
-		require.Len(t, out, 2)
+		require.Len(t, out, 4)
 		assert.Equal(t, strfmtUUID(3), out[1].ID)
 	})
 
 	t.Run("nil selection is a no-op", func(t *testing.T) {
 		results := resultsFromVecs("", [][]float32{clusterA1, clusterB})
-		out, err := diversifyResults(ctx, nil, "", prov, results)
+		out, err := diversifyResults(ctx, nil, "", prov, results, false)
 		require.NoError(t, err)
 		assert.Equal(t, results, out)
 	})
 
 	t.Run("empty input", func(t *testing.T) {
-		out, err := diversifyResults(ctx, mmrSelection(5, 0), "", prov, nil)
+		out, err := diversifyResults(ctx, mmrSelection(5, 0), "", prov, nil, false)
 		require.NoError(t, err)
 		assert.Empty(t, out)
 	})

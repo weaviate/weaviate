@@ -17,95 +17,71 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/models"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
-	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
-// stubVectorIndexConfig implements schemaConfig.VectorIndexConfig for tests.
-type stubVectorIndexConfig struct {
-	distance string
+// These tests exercise diversifyResults in its raw-distance relevance mode
+// (relevanceFromDist=true), used by the pure-vector path where MMR's relevance
+// term is the vector distance rather than a fused/boosted score. The
+// score-based mode is covered in selection_hybrid_test.go.
+
+// resultFromVecDist builds a Result carrying the default vector and its query
+// distance (used as the MMR relevance term when relevanceFromDist=true).
+func resultFromVecDist(id int, vector []float32, dist float32) search.Result {
+	return search.Result{ID: strfmtUUID(id), Vector: vector, Dist: dist}
 }
 
-func (s stubVectorIndexConfig) IndexType() string    { return "hnsw" }
-func (s stubVectorIndexConfig) DistanceName() string { return s.distance }
-func (s stubVectorIndexConfig) IsMultiVector() bool  { return false }
-
-func makeTestObject(vector []float32) *storobj.Object {
-	return &storobj.Object{
-		Object: models.Object{},
-		Vector: vector,
-	}
+func resultFromNamedVecDist(id int, name string, vector []float32, dist float32) search.Result {
+	return search.Result{ID: strfmtUUID(id), Vectors: models.Vectors{name: vector}, Dist: dist}
 }
 
-func makeTestObjectNamed(name string, vector []float32) *storobj.Object {
-	return &storobj.Object{
-		Object:  models.Object{Vectors: models.Vectors{name: vector}},
-		Vectors: map[string][]float32{name: vector},
-	}
-}
+func TestDiversifyResultsFromDist_NilSelection(t *testing.T) {
+	prov := distancer.NewL2SquaredProvider()
+	results := []search.Result{resultFromVecDist(0, []float32{1, 0}, 0.1)}
 
-func TestApplySelectionOnObjects_NilSelection(t *testing.T) {
-	idx := &Index{}
-	objs := []*storobj.Object{makeTestObject([]float32{1, 0})}
-	dists := []float32{0.1}
-
-	out, outDists, err := idx.applySelectionOnObjects(context.Background(), nil, []string{""}, objs, dists)
+	out, err := diversifyResults(context.Background(), nil, "", prov, results, true)
 	require.NoError(t, err)
-	assert.Equal(t, objs, out)
-	assert.Equal(t, dists, outDists)
+	assert.Equal(t, results, out)
 }
 
-func TestApplySelectionOnObjects_EmptyObjects(t *testing.T) {
-	idx := &Index{}
-	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 3, Balance: 0.5}}
+func TestDiversifyResultsFromDist_EmptyInput(t *testing.T) {
+	prov := distancer.NewL2SquaredProvider()
+	sel := mmrSelection(3, 0.5)
 
-	out, outDists, err := idx.applySelectionOnObjects(context.Background(), sel, []string{""}, nil, nil)
+	out, err := diversifyResults(context.Background(), sel, "", prov, nil, true)
 	require.NoError(t, err)
-	assert.Nil(t, out)
-	assert.Nil(t, outDists)
+	assert.Empty(t, out)
 }
 
-func TestApplySelectionOnObjects_DiversityWithDefaultVector(t *testing.T) {
+func TestDiversifyResultsFromDist_DiversityWithDefaultVector(t *testing.T) {
 	// Two clusters: close cluster near (1,0,0), far cluster near (0,1,0).
-	// With balance=0 (pure diversity) and limit=4, MMR should alternate clusters.
-	idx := &Index{
-		vectorIndexUserConfig: stubVectorIndexConfig{distance: vectorIndexCommon.DistanceL2Squared},
+	// With balance=0 (pure diversity) MMR should select from both clusters.
+	prov := distancer.NewL2SquaredProvider()
+	results := []search.Result{
+		resultFromVecDist(0, []float32{1, 0, 0}, 0.01),
+		resultFromVecDist(1, []float32{1.01, 0, 0}, 0.02),
+		resultFromVecDist(2, []float32{0.99, 0, 0}, 0.03),
+		resultFromVecDist(3, []float32{0, 1, 0}, 0.9),
+		resultFromVecDist(4, []float32{0, 1.01, 0}, 0.91),
+		resultFromVecDist(5, []float32{0, 0.99, 0}, 0.92),
 	}
 
-	objects := []*storobj.Object{
-		makeTestObject([]float32{1, 0, 0}),    // close cluster
-		makeTestObject([]float32{1.01, 0, 0}), // close cluster
-		makeTestObject([]float32{0.99, 0, 0}), // close cluster
-		makeTestObject([]float32{0, 1, 0}),    // far cluster
-		makeTestObject([]float32{0, 1.01, 0}), // far cluster
-		makeTestObject([]float32{0, 0.99, 0}), // far cluster
-	}
-	// Query distances: close cluster is nearer
-	queryDists := []float32{0.01, 0.02, 0.03, 0.9, 0.91, 0.92}
-
-	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 4, Balance: 0}}
-
-	out, outDists, err := idx.applySelectionOnObjects(
-		context.Background(), sel, []string{""}, objects, queryDists)
+	sel := mmrSelection(4, 0)
+	out, err := diversifyResults(context.Background(), sel, "", prov, results, true)
 	require.NoError(t, err)
-	require.Len(t, out, 4)
-	require.Len(t, outDists, 4)
+	require.Len(t, out, len(results))
 
-	// First pick: most relevant (objects[0], close cluster)
-	assert.Equal(t, objects[0], out[0])
+	// First pick: most relevant (closest distance).
+	assert.Equal(t, strfmtUUID(0), out[0].ID)
+	// Second pick: from the far cluster (diverse from the first pick).
+	assert.Contains(t, []string{string(strfmtUUID(3)), string(strfmtUUID(4)), string(strfmtUUID(5))},
+		string(out[1].ID), "second pick should be from the far cluster for diversity")
 
-	// Second pick: should be from far cluster (diverse from objects[0])
-	assert.Contains(t, []*storobj.Object{objects[3], objects[4], objects[5]}, out[1],
-		"second pick should be from the far cluster for diversity")
-
-	// With 4 picks and balance=0, we should get objects from both clusters
-	closeCount := 0
-	farCount := 0
-	for _, obj := range out {
-		if obj.Vector[0] > 0.5 {
+	closeCount, farCount := 0, 0
+	for _, r := range out {
+		if r.Vector[0] > 0.5 {
 			closeCount++
 		} else {
 			farCount++
@@ -115,80 +91,55 @@ func TestApplySelectionOnObjects_DiversityWithDefaultVector(t *testing.T) {
 		"MMR should select from both clusters, got close=%d far=%d", closeCount, farCount)
 }
 
-func TestApplySelectionOnObjects_PureRelevance(t *testing.T) {
-	// With balance=1 (pure relevance), MMR should return in distance order.
-	idx := &Index{
-		vectorIndexUserConfig: stubVectorIndexConfig{distance: vectorIndexCommon.DistanceCosine},
+func TestDiversifyResultsFromDist_PureRelevance(t *testing.T) {
+	// With balance=1 (pure relevance), MMR returns in ascending distance order.
+	prov := distancer.NewCosineDistanceProvider()
+	results := []search.Result{
+		resultFromVecDist(0, []float32{1, 0}, 0.1),
+		resultFromVecDist(1, []float32{0, 1}, 0.9),
+		resultFromVecDist(2, []float32{0.5, 0.5}, 0.5),
 	}
 
-	objects := []*storobj.Object{
-		makeTestObject([]float32{1, 0}),
-		makeTestObject([]float32{0, 1}),
-		makeTestObject([]float32{0.5, 0.5}),
-	}
-	queryDists := []float32{0.1, 0.9, 0.5}
-
-	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 3, Balance: 1}}
-
-	out, outDists, err := idx.applySelectionOnObjects(
-		context.Background(), sel, []string{""}, objects, queryDists)
+	sel := mmrSelection(3, 1)
+	out, err := diversifyResults(context.Background(), sel, "", prov, results, true)
 	require.NoError(t, err)
 	require.Len(t, out, 3)
 
-	// Pure relevance: sorted by ascending query distance
-	assert.Equal(t, objects[0], out[0])
-	assert.Equal(t, objects[2], out[1])
-	assert.Equal(t, objects[1], out[2])
-	assert.Equal(t, []float32{0.1, 0.5, 0.9}, outDists)
+	assert.Equal(t, []string{
+		string(strfmtUUID(0)), string(strfmtUUID(2)), string(strfmtUUID(1)),
+	}, ids(out))
 }
 
-func TestApplySelectionOnObjects_NamedVector(t *testing.T) {
-	// Test with a named target vector instead of the default.
-	idx := &Index{
-		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{
-			"title": stubVectorIndexConfig{distance: vectorIndexCommon.DistanceL2Squared},
-		},
+func TestDiversifyResultsFromDist_NamedVector(t *testing.T) {
+	prov := distancer.NewL2SquaredProvider()
+	results := []search.Result{
+		resultFromNamedVecDist(0, "title", []float32{1, 0}, 0.1),
+		resultFromNamedVecDist(1, "title", []float32{0, 1}, 0.8),
 	}
 
-	objects := []*storobj.Object{
-		makeTestObjectNamed("title", []float32{1, 0}),
-		makeTestObjectNamed("title", []float32{0, 1}),
-	}
-	queryDists := []float32{0.1, 0.8}
-
-	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 2, Balance: 0.5}}
-
-	out, outDists, err := idx.applySelectionOnObjects(
-		context.Background(), sel, []string{"title"}, objects, queryDists)
+	sel := mmrSelection(2, 0.5)
+	out, err := diversifyResults(context.Background(), sel, "title", prov, results, true)
 	require.NoError(t, err)
 	require.Len(t, out, 2)
-	require.Len(t, outDists, 2)
-	assert.Equal(t, objects[0], out[0])
+	assert.Equal(t, strfmtUUID(0), out[0].ID)
 }
 
-func TestApplySelectionOnObjects_LimitSmaller(t *testing.T) {
-	// MMR limit smaller than input: should select a subset.
-	idx := &Index{
-		vectorIndexUserConfig: stubVectorIndexConfig{distance: vectorIndexCommon.DistanceCosine},
+func TestDiversifyResultsFromDist_FullOrderingRegardlessOfLimit(t *testing.T) {
+	// MMR.Limit does not truncate here: diversifyResults emits the full
+	// diversified ordering and the caller paginates.
+	prov := distancer.NewCosineDistanceProvider()
+	results := []search.Result{
+		resultFromVecDist(0, []float32{1, 0}, 0.1),
+		resultFromVecDist(1, []float32{0.9, 0.1}, 0.15),
+		resultFromVecDist(2, []float32{0, 1}, 0.9),
+		resultFromVecDist(3, []float32{0.5, 0.5}, 0.5),
 	}
 
-	objects := []*storobj.Object{
-		makeTestObject([]float32{1, 0}),
-		makeTestObject([]float32{0.9, 0.1}),
-		makeTestObject([]float32{0, 1}),
-		makeTestObject([]float32{0.5, 0.5}),
-	}
-	queryDists := []float32{0.1, 0.15, 0.9, 0.5}
-
-	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 2, Balance: 0}}
-
-	out, _, err := idx.applySelectionOnObjects(
-		context.Background(), sel, []string{""}, objects, queryDists)
+	sel := mmrSelection(2, 0)
+	out, err := diversifyResults(context.Background(), sel, "", prov, results, true)
 	require.NoError(t, err)
-	assert.Len(t, out, 2)
+	require.Len(t, out, len(results))
 
-	// First: most relevant (objects[0])
-	assert.Equal(t, objects[0], out[0])
-	// Second: with pure diversity, should be the most different from objects[0]
-	assert.Equal(t, objects[2], out[1])
+	assert.Equal(t, strfmtUUID(0), out[0].ID)
+	assert.Equal(t, strfmtUUID(2), out[1].ID)
 }

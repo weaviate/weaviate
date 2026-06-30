@@ -23,9 +23,14 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
-// DiversifyResults runs a post-fusion MMR pass over fused hybrid results, using the fused score as the relevance signal; vectorless candidates keep their fused rank.
+// DiversifyResults runs the terminal MMR pass over an already-ranked candidate
+// pool (post-fusion/retrieval and post-boost). It is the single MMR entry point
+// for both the hybrid and pure-vector paths. relevanceFromDist selects the MMR
+// relevance signal: true uses the raw vector distance on each result (pure vector
+// search, no boost), false uses the min-max-normalized score (hybrid fusion, or
+// whenever boost has re-scored the results). Vectorless candidates keep their rank.
 func (db *DB) DiversifyResults(ctx context.Context, selection *searchparams.Selection,
-	className, targetVector string, results []search.Result,
+	className, targetVector string, results []search.Result, relevanceFromDist bool,
 ) ([]search.Result, error) {
 	if selection == nil || selection.MMR == nil || len(results) == 0 {
 		return results, nil
@@ -33,22 +38,19 @@ func (db *DB) DiversifyResults(ctx context.Context, selection *searchparams.Sele
 
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, fmt.Errorf("hybrid mmr: index for class %q not found", className)
+		return nil, fmt.Errorf("mmr: index for class %q not found", className)
 	}
 	distProv := distancerForConfig(idx.GetVectorIndexConfig(targetVector))
-	return diversifyResults(ctx, selection, targetVector, distProv, results)
+	return diversifyResults(ctx, selection, targetVector, distProv, results, relevanceFromDist)
 }
 
-// diversifyResults is the distancer-agnostic MMR core, testable without a live index.
+// diversifyResults is the distancer-agnostic MMR core, testable without a live
+// index. It returns the FULL diversified ordering of results; the caller sizes
+// the candidate pool (its input) and paginates the output.
 func diversifyResults(ctx context.Context, selection *searchparams.Selection,
-	targetVector string, distProv distancer.Provider, results []search.Result,
+	targetVector string, distProv distancer.Provider, results []search.Result, relevanceFromDist bool,
 ) ([]search.Result, error) {
 	if selection == nil || selection.MMR == nil || len(results) == 0 {
-		return results, nil
-	}
-
-	k := int(selection.MMR.Limit)
-	if k <= 0 {
 		return results, nil
 	}
 
@@ -69,26 +71,28 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	diverseCount := len(vectoredPos)
 
 	if diverseCount == 0 {
-		return truncateResults(results, k), nil
+		return results, nil
 	}
 
-	queryDists := normalizedScoreDistances(results, vectoredPos)
-
-	// Widen the limit to rank every vectored candidate, so vectorless docs can later claim some of the k output slots.
-	rankAll := *selection
-	mmrAll := *selection.MMR
-	mmrAll.Limit = uint32(diverseCount)
-	rankAll.MMR = &mmrAll
+	var queryDists []float32
+	if relevanceFromDist {
+		queryDists = make([]float32, len(vectoredPos))
+		for i, pos := range vectoredPos {
+			queryDists[i] = results[pos].Dist
+		}
+	} else {
+		queryDists = normalizedScoreDistances(results, vectoredPos)
+	}
 
 	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
 		return vecs[id], nil
 	}
-	sel, err := selector.New(&rankAll, distProv.SingleDist, vecForID, diverseCount)
+	sel, err := selector.New(selection, distProv.SingleDist, vecForID, diverseCount)
 	if err != nil {
 		return nil, fmt.Errorf("hybrid mmr: %w", err)
 	}
 	if sel == nil {
-		return truncateResults(results, k), nil
+		return results, nil
 	}
 
 	ids := make([]uint64, diverseCount)
@@ -106,12 +110,9 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	}
 
 	// Re-merge: vectorless docs keep their fused slot; vectored slots take the diversified order.
-	out := make([]search.Result, 0, k)
+	out := make([]search.Result, 0, len(results))
 	next := 0
 	for i := range results {
-		if len(out) >= k {
-			break
-		}
 		if hasVector[i] {
 			if next < len(mmrOrder) {
 				out = append(out, mmrOrder[next])
@@ -167,11 +168,4 @@ func normalizedScoreDistances(results []search.Result, vectoredPos []int) []floa
 		}
 	}
 	return dists
-}
-
-func truncateResults(results []search.Result, k int) []search.Result {
-	if k > 0 && len(results) > k {
-		return results[:k]
-	}
-	return results
 }

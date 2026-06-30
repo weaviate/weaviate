@@ -1077,7 +1077,7 @@ func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.
 	return out, nil
 }
 
-func (f *fakeObjectSearcher) DiversifyResults(ctx context.Context, selection *searchparams.Selection, className, targetVector string, results []search.Result) ([]search.Result, error) {
+func (f *fakeObjectSearcher) DiversifyResults(ctx context.Context, selection *searchparams.Selection, className, targetVector string, results []search.Result, relevanceFromDist bool) ([]search.Result, error) {
 	return results, nil
 }
 

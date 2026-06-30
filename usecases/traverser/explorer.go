@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -109,7 +110,7 @@ type hybridSearcher interface {
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 	DiversifyResults(ctx context.Context, selection *searchparams.Selection,
-		className, targetVector string, results []search.Result) ([]search.Result, error)
+		className, targetVector string, results []search.Result, relevanceFromDist bool) ([]search.Result, error)
 }
 
 // NewExplorer with search and connector repo
@@ -156,7 +157,12 @@ func (e *Explorer) GetClass(ctx context.Context,
 	// We also zero the offset so boost sees all top candidates from position 0;
 	// the original offset/limit are stored on the Boost struct and applied
 	// after boost re-sorts.
-	if params.Boost != nil && params.Boost.Weight > 0 {
+	//
+	// When MMR diversity is also set, MMR is terminal and owns the candidate pool
+	// (the query Limit) and pagination (MMR.Limit). Boost then only re-ranks
+	// within that pool, so we skip the boost-specific overfetch here.
+	mmrActive := params.Selection != nil && params.Selection.MMR != nil
+	if params.Boost != nil && params.Boost.Weight > 0 && !mmrActive {
 		params.Boost.OriginalOffset = params.Pagination.Offset
 		params.Boost.OriginalLimit = params.Pagination.Limit
 
@@ -275,15 +281,86 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 
+	// MMR diversity is the terminal stage: fetch the candidate pool (the query
+	// Limit, offset-independent), let boost re-rank it (inside searchForTargets),
+	// then diversify and paginate by MMR.Limit. The target vector is force-loaded
+	// for the diversity computation and stripped afterwards if unrequested.
+	mmr := params.Selection != nil && params.Selection.MMR != nil
+	var (
+		mmrTargetVector     string
+		mmrOffset, mmrLimit int
+		stripVector         string
+		stripDefaultVector  bool
+	)
+	if mmr {
+		if len(targetVectors) > 0 {
+			mmrTargetVector = targetVectors[0]
+		}
+		mmrOffset = params.Pagination.Offset
+		mmrLimit = int(params.Selection.MMR.Limit)
+
+		pool := *params.Pagination
+		pool.Offset = 0
+		params.Pagination = &pool
+
+		if mmrTargetVector == "" {
+			stripDefaultVector = !params.AdditionalProperties.Vector
+			params.AdditionalProperties.Vector = true
+		} else if !slices.Contains(params.AdditionalProperties.Vectors, mmrTargetVector) {
+			stripVector = mmrTargetVector
+			params.AdditionalProperties.Vectors = withVectorTarget(params.AdditionalProperties.Vectors, mmrTargetVector)
+		}
+	}
+
 	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
+	}
+
+	if mmr {
+		// No boost ⇒ relevance is the raw vector distance; with boost the results
+		// were re-scored, so relevance is the normalized post-boost score.
+		relevanceFromDist := params.Boost == nil || params.Boost.Weight <= 0
+		res, err = e.searcher.DiversifyResults(ctx, params.Selection, params.ClassName, mmrTargetVector, res, relevanceFromDist)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "explorer: get class: diversify results")
+		}
+		res = paginateResults(res, mmrOffset, mmrLimit)
+		if stripDefaultVector || stripVector != "" {
+			for i := range res {
+				if stripDefaultVector {
+					res[i].Vector = nil
+				}
+				if stripVector != "" {
+					delete(res[i].Vectors, stripVector)
+				}
+			}
+		}
 	}
 
 	if len(searchVectors) > 0 {
 		return res, searchVectors[0], nil
 	}
 	return res, []float32{}, nil
+}
+
+// paginateResults returns the page [offset : offset+limit] of res, clamped to
+// bounds. A non-positive limit returns everything from offset onward.
+func paginateResults(res []search.Result, offset, limit int) []search.Result {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(res) {
+		return []search.Result{}
+	}
+	if limit <= 0 {
+		return res[offset:]
+	}
+	end := offset + limit
+	if end > len(res) {
+		end = len(res)
+	}
+	return res[offset:end]
 }
 
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
@@ -446,7 +523,13 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
-	res = e.applyBoostIfNeeded(res, params.Boost, false)
+	// For hybrid + MMR, boost already ran before MMR inside Hybrid's selection
+	// fn (MMR is terminal). Applying it again here would re-cluster the diverse
+	// set, so skip it. Plain (non-hybrid) and hybrid-without-MMR boost as usual.
+	hybridMMR := params.HybridSearch != nil && params.Selection != nil && params.Selection.MMR != nil
+	if !hybridMMR {
+		res = e.applyBoostIfNeeded(res, params.Boost, false)
+	}
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
