@@ -63,17 +63,36 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	return nil
 }
 
+// schemaClassUpdater is the slice of the schema manager the finalizer needs: read a
+// class and apply an internal class update. Narrowed to an interface so the
+// finalizer's read-modify-write / retry / guard logic is unit-testable.
+type schemaClassUpdater interface {
+	ReadOnlyClass(collection string) *models.Class
+	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error
+}
+
 // schemaVectorConfigFinalizer removes dropped named-vector entries from a class's
 // VectorConfig via the internal schema update path, with fresh read-modify-write
 // and bounded retry. Implements dropVectorSchemaFinalizer.
 type schemaVectorConfigFinalizer struct {
-	mgr *schema.Manager
+	mgr schemaClassUpdater
+}
+
+// managerClassUpdater adapts *schema.Manager to schemaClassUpdater.
+type managerClassUpdater struct{ mgr *schema.Manager }
+
+func (a managerClassUpdater) ReadOnlyClass(collection string) *models.Class {
+	return a.mgr.ReadOnlyClass(collection)
+}
+
+func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error {
+	return schema.UpdateClassInternal(&a.mgr.Handler, ctx, collection, updated)
 }
 
 // NewSchemaVectorConfigFinalizer builds the schema finalizer used to construct
 // the DropVectorIndexProvider (exported so the REST wiring can pass it).
 func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFinalizer {
-	return &schemaVectorConfigFinalizer{mgr: mgr}
+	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{mgr}}
 }
 
 const dropVectorFinalizeMaxAttempts = 5
@@ -102,7 +121,7 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 			return nil // idempotent: entries already gone
 		}
 
-		if err := schema.UpdateClassInternal(&f.mgr.Handler, ctx, collection, &next); err != nil {
+		if err := f.mgr.UpdateClassInternal(ctx, collection, &next); err != nil {
 			lastErr = err
 			select {
 			case <-ctx.Done():
