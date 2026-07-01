@@ -353,6 +353,31 @@ func matchesValueClause(clause *filters.Clause, props map[string]any) bool {
 }
 
 func compareValues(op filters.Operator, propVal, filterVal any) bool {
+	// When the property value is a slice (e.g. text[], number[], boolean[]),
+	// compare each element individually.  For Equal the condition matches if
+	// any element matches; for NotEqual it matches only when no element
+	// equals the filter value; for ordered comparisons it matches if any
+	// element satisfies the relation.
+	if elems, ok := asSlice(propVal); ok {
+		switch op {
+		case filters.OperatorNotEqual:
+			// Array does not contain the filter value.
+			for _, elem := range elems {
+				if compareValues(filters.OperatorEqual, elem, filterVal) {
+					return false
+				}
+			}
+			return true
+		default:
+			for _, elem := range elems {
+				if compareValues(op, elem, filterVal) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+
 	// Try boolean comparison.
 	if boolVal, ok := asBool(propVal); ok {
 		if filterBool, ok := asBool(filterVal); ok {
@@ -438,6 +463,48 @@ func asFloat64(v any) (float64, bool) {
 		return float64(n), true
 	default:
 		return 0, false
+	}
+}
+
+// asSlice normalises a property value into a flat []any so that array-typed
+// properties (text[], number[], boolean[], int[]) can be element-wise
+// compared.  Returns (nil, false) for non-slice values.
+func asSlice(v any) ([]any, bool) {
+	switch s := v.(type) {
+	case []any:
+		return s, true
+	case []string:
+		out := make([]any, len(s))
+		for i, str := range s {
+			out[i] = str
+		}
+		return out, true
+	case []float64:
+		out := make([]any, len(s))
+		for i, n := range s {
+			out[i] = n
+		}
+		return out, true
+	case []int:
+		out := make([]any, len(s))
+		for i, n := range s {
+			out[i] = n
+		}
+		return out, true
+	case []int64:
+		out := make([]any, len(s))
+		for i, n := range s {
+			out[i] = n
+		}
+		return out, true
+	case []bool:
+		out := make([]any, len(s))
+		for i, b := range s {
+			out[i] = b
+		}
+		return out, true
+	default:
+		return nil, false
 	}
 }
 
