@@ -64,14 +64,16 @@ type State struct {
 	RBAC             *rbac.Manager
 	Crons            *cron.Crons
 
-	ServerConfig        *config.WeaviateConfig
-	LDIntegration       *configRuntime.LDIntegration
-	Logger              *logrus.Logger
-	gqlMutex            sync.Mutex
-	GraphQL             graphql.GraphQL
-	Modules             *modules.Provider
-	SchemaManager       *schema.Manager
-	Cluster             *cluster.State
+	ServerConfig  *config.WeaviateConfig
+	LDIntegration *configRuntime.LDIntegration
+	Logger        *logrus.Logger
+	gqlMutex      sync.Mutex
+	GraphQL       graphql.GraphQL
+	gqlGen        uint64
+	Modules       *modules.Provider
+	SchemaManager *schema.Manager
+	Cluster       *cluster.State
+
 	RemoteIndexIncoming *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
 	Traverser           *traverser.Traverser
@@ -162,8 +164,36 @@ func (s *State) GetGraphQL() graphql.GraphQL {
 	return gql
 }
 
+// SetGraphQL replaces the served graph authoritatively — used by the serial
+// RAFT schema-apply path and the disable hook. It bumps the generation so an
+// in-flight lock-free rebuild that started earlier is discarded by
+// SetGraphQLIfCurrent rather than clobbering this newer graph.
 func (s *State) SetGraphQL(gql graphql.GraphQL) {
 	s.gqlMutex.Lock()
 	s.GraphQL = gql
+	s.gqlGen++
 	s.gqlMutex.Unlock()
+}
+
+// GraphQLGeneration returns the current graph generation. Capture it before a
+// lock-free rebuild and pass it to SetGraphQLIfCurrent.
+func (s *State) GraphQLGeneration() uint64 {
+	s.gqlMutex.Lock()
+	defer s.gqlMutex.Unlock()
+	return s.gqlGen
+}
+
+// SetGraphQLIfCurrent stores gql only if no authoritative SetGraphQL happened
+// since gen was captured. The DisableGraphQL enable hook rebuilds off the RAFT
+// apply goroutine; this stops a slow build from an older schema snapshot from
+// overwriting a newer, apply-built graph. Returns false if the store was skipped.
+func (s *State) SetGraphQLIfCurrent(gql graphql.GraphQL, gen uint64) bool {
+	s.gqlMutex.Lock()
+	defer s.gqlMutex.Unlock()
+	if s.gqlGen != gen {
+		return false
+	}
+	s.GraphQL = gql
+	s.gqlGen++
+	return true
 }

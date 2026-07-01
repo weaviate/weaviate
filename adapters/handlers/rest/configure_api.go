@@ -2689,6 +2689,17 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 			}, appState.Logger)
 			return nil
 		}
+		// GraphQL is loaded lazily on toggle: makeUpdateSchemaCall skips the build
+		// while disabled, so on enable rebuild from the current schema, and on
+		// disable drop the graph (it's no longer served).
+		hooks["DisableGraphQL"] = func() error {
+			if appState.ServerConfig.Config.DisableGraphQL.Get() {
+				appState.SetGraphQL(nil)
+			} else {
+				rebuildGraphQLOnEnable(appState)
+			}
+			return nil
+		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
 
 		// Re-run cross-field restriction validation on runtime YAML pushes

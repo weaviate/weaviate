@@ -191,6 +191,27 @@ func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, true, source.DisableGraphQL.Get())
 	})
+
+	t.Run("hook keyed on the DisableGraphQL field fires only on change", func(t *testing.T) {
+		// The lazy GraphQL rebuild relies on this hook firing when the flag flips;
+		// the key must match the struct field name, and a no-op reload must not fire.
+		source := &WeaviateRuntimeConfig{DisableGraphQL: runtime.NewDynamicValue(false)}
+		var calls int
+		hooks := map[string]func() error{"DisableGraphQL": func() error { calls++; return nil }}
+
+		apply := func(yaml string) {
+			parsed, err := ParseRuntimeConfig([]byte(yaml))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, hooks))
+		}
+
+		apply("disable_graphql: true")
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: true") // unchanged
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: false")
+		assert.Equal(t, 2, calls)
+	})
 }
 
 func TestUpdateRuntimeConfig(t *testing.T) {
