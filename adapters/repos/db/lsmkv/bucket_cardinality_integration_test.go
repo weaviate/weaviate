@@ -85,7 +85,7 @@ func TestBucketPropertyCardinality(t *testing.T) {
 
 		// Compacting into a single segment gives a consistent geometry again, so
 		// the estimate covers the full union.
-		compactAll(t, ctx, b)
+		compactBucketFully(t, ctx, b)
 		require.Equal(t, 1, b.disk.Len())
 
 		est, err = b.GetKeysCount()
@@ -93,17 +93,17 @@ func TestBucketPropertyCardinality(t *testing.T) {
 		assertWithinPct(t, 1500, float64(est), 5)
 	})
 
-	t.Run("memtable-only: no flushed segments yet", func(t *testing.T) {
+	t.Run("memtable-only: estimates from the unflushed memtable", func(t *testing.T) {
 		b := newCardinalityBucket(ctx, t, t.TempDir())
 		defer b.Shutdown(ctx)
 
 		addDistinctKeys(t, b, 0, 100) // no flush: data stays in the memtable
 		require.Equal(t, 0, b.disk.Len())
 
-		// With no disk segments the bloom path has nothing to estimate.
+		// With no disk segments the estimate is built from the memtable keys.
 		est, err := b.GetKeysCount()
 		require.NoError(t, err)
-		assert.Equal(t, uint32(0), est)
+		assertWithinPct(t, 100, float64(est), 5)
 	})
 }
 
@@ -131,7 +131,7 @@ func addDistinctKeys(t *testing.T, b *Bucket, start, end int) {
 	}
 }
 
-func compactAll(t *testing.T, ctx context.Context, b *Bucket) {
+func compactBucketFully(t *testing.T, ctx context.Context, b *Bucket) {
 	t.Helper()
 	for {
 		compacted, err := b.disk.compactOnce(ctx)
