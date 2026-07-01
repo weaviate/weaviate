@@ -778,6 +778,14 @@ func (m *Memtable) GetKeys() ([][]byte, error) {
 		}
 		return keys, nil
 	}
+	if m.roaringSet != nil {
+		iterator := m.roaringSet.FlattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.Key)
+		}
+		return keys, nil
+	}
 
 	return [][]byte{}, nil
 }
