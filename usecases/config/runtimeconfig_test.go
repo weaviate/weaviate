@@ -156,8 +156,7 @@ func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 		assert.Equal(t, true, cfg.DisableGraphQL.Get())
 	})
 
-	t.Run("toggles on then back to the env default when removed", func(t *testing.T) {
-		// Removing the key reverts to the env-seeded default, not a hardcoded false.
+	t.Run("override wins over the env default, then removal reverts (env default false)", func(t *testing.T) {
 		source := &WeaviateRuntimeConfig{
 			DisableGraphQL: runtime.NewDynamicValue(false),
 		}
@@ -171,6 +170,26 @@ func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, false, source.DisableGraphQL.Get())
+	})
+
+	t.Run("removal reverts to the env default, not a hardcoded false", func(t *testing.T) {
+		// Seed def=true (the DISABLE_GRAPHQL=true-at-boot operator). This is the case
+		// that discriminates a correct Reset() — which reverts to def — from one that
+		// zeroes the value: pushing a transient disable_graphql=false and then removing
+		// the key must land back on true, not false.
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(true),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: false"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
 	})
 }
 
