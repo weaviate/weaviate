@@ -101,6 +101,10 @@ type SegmentGroup struct {
 	// BuildCurrentTransformer). nil unless edit ops are enabled for this segment
 	// group.
 	editOps *SegmentEditOps
+	// editOpLiveness returns the set of edit-op IDs that still have a live task.
+	// Used by recoverEditOps to sweep an orphaned op on shard load instead of
+	// re-arming it. nil disables the sweep (Reconcile then only prunes segments).
+	editOpLiveness EditOpLivenessProvider
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
@@ -141,6 +145,7 @@ type sgConfig struct {
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 	className                    string
+	editOpLiveness               EditOpLivenessProvider
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -550,7 +555,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	if cfg.className != "" && cfg.strategy == StrategyReplace {
 		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
 		sg.editOps.logger = sg.logger
-		if err := sg.recoverEditOps(); err != nil {
+		sg.editOpLiveness = cfg.editOpLiveness
+		if err := sg.recoverEditOps(ctx); err != nil {
 			return nil, fmt.Errorf("recover segment edit ops: %w", err)
 		}
 	}
@@ -634,7 +640,7 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 // was not part of that compaction's transformer; re-cleaning already-clean segments
 // is a no-op because the transformer is idempotent. Runs before the compaction
 // cycle registers, so no pass races the segment-set read.
-func (sg *SegmentGroup) recoverEditOps() error {
+func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	if sg.editOps == nil {
 		return nil
 	}
@@ -657,8 +663,18 @@ func (sg *SegmentGroup) recoverEditOps() error {
 	for _, id := range ids {
 		existing[id] = struct{}{}
 	}
-	if err := sg.editOps.Reconcile(existing, nil); err != nil {
+
+	// Sweep orphaned ops (no live task) instead of re-arming them; a lookup error
+	// (or no provider) falls back to no sweep. Reconcile drops swept ops, so reload
+	// afterwards and only re-snapshot what survives.
+	liveOpIDs := sg.liveEditOpIDs(ctx)
+	if err := sg.editOps.Reconcile(existing, liveOpIDs); err != nil {
 		return err
+	}
+	if liveOpIDs != nil {
+		if ops, err = sg.editOps.LoadOps(); err != nil {
+			return err
+		}
 	}
 	for _, op := range ops {
 		if err := sg.editOps.SnapshotSegments(op.ID, ids); err != nil {
@@ -666,6 +682,21 @@ func (sg *SegmentGroup) recoverEditOps() error {
 		}
 	}
 	return nil
+}
+
+// liveEditOpIDs resolves the live-op set for the orphan sweep, or nil to skip it
+// (no provider, or a lookup failure — sweeping on a bad read could drop a still-live
+// op, so we prefer to re-arm and let a later load reconcile).
+func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context) map[string]struct{} {
+	if sg.editOpLiveness == nil {
+		return nil
+	}
+	live, err := sg.editOpLiveness(ctx)
+	if err != nil {
+		sg.logger.Warnf("drop-vector: live edit-op lookup failed; skipping orphan sweep this load: %v", err)
+		return nil
+	}
+	return live
 }
 
 // registerEditOpAndSnapshot registers opID and snapshots the current on-disk

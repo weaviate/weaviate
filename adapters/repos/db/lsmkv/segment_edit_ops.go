@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,6 +81,14 @@ type SegmentEditOps struct {
 // transformerResolver maps an op type to its transformer factory, reporting
 // whether one is registered. Production uses transformers.Lookup; tests inject.
 type transformerResolver func(OpType) (OpTransformerFactory, bool)
+
+// EditOpLivenessProvider returns the set of edit-op IDs that still have a live
+// (non-terminal) task. recoverEditOps passes it to Reconcile so an op whose task
+// has finished/gone is swept on shard load rather than re-armed — closing the
+// window where a completed op lingers on a shard that was unloaded at finalize
+// time and later strips a re-created same-name vector. A nil provider (or a lookup
+// error) disables the sweep, keeping the pre-existing re-arm behavior.
+type EditOpLivenessProvider func(ctx context.Context) (map[string]struct{}, error)
 
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
 

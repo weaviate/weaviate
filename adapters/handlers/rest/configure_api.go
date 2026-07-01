@@ -1163,6 +1163,8 @@ func initReindexAndDistributedTasks(
 	// Lets the schema drop path enqueue the cleanup task that strips dropped vectors.
 	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, repo)
 	appState.SchemaManager.SetDropVectorIndexEnqueuer(dropVectorEnqueuer)
+	// Lets a shard load sweep an orphaned edit op (its task is gone) instead of re-arming it.
+	repo.SetDropVectorLiveOpsLookup(dropVectorEnqueuer.LiveOpIDs)
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {

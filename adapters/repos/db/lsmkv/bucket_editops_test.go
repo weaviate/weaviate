@@ -205,6 +205,87 @@ func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T)
 		"reopen recovery must re-snapshot current segments and drop the stale row")
 }
 
+// TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen pins the multi-node data-loss
+// fix: on shard load an op whose task is gone (not in the live-op set) is swept, not
+// re-armed. Without it a completed op left on a shard that was unloaded at finalize
+// time would re-arm on reactivation and strip a re-created same-name vector.
+func TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	open := func(live EditOpLivenessProvider) *Bucket {
+		opts := []BucketOption{WithStrategy(StrategyReplace), WithClassName("MyClass")}
+		if live != nil {
+			opts = append(opts, WithEditOpLivenessProvider(live))
+		}
+		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	bucket := open(nil)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.disk.editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+	require.NoError(t, bucket.disk.editOps.SnapshotSegments("op1", segIDsOf(bucket)))
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	// Reopen with a liveness provider reporting NO live ops → op1 is orphaned.
+	reopened := open(func(context.Context) (map[string]struct{}, error) {
+		return map[string]struct{}{}, nil
+	})
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+
+	pending, err := reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "orphaned op must be swept, not re-armed")
+	ops, err := reopened.disk.editOps.LoadOps()
+	require.NoError(t, err)
+	require.Empty(t, ops, "orphaned op descriptor must be removed")
+}
+
+// TestBucket_RecoverEditOps_KeepsLiveOpOnReopen is the counterpart: an op whose task
+// is still live is re-armed (re-snapshotted), not swept.
+func TestBucket_RecoverEditOps_KeepsLiveOpOnReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	open := func(live EditOpLivenessProvider) *Bucket {
+		opts := []BucketOption{WithStrategy(StrategyReplace), WithClassName("MyClass")}
+		if live != nil {
+			opts = append(opts, WithEditOpLivenessProvider(live))
+		}
+		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	bucket := open(nil)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.NoError(t, bucket.disk.editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+	require.NoError(t, bucket.disk.editOps.SnapshotSegments("op1", segs))
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	reopened := open(func(context.Context) (map[string]struct{}, error) {
+		return map[string]struct{}{"op1": {}}, nil
+	})
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+
+	pending, err := reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, segs, pending, "a live op must be re-armed, not swept")
+}
+
 // TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment pins the startup
 // crash-window recovery: a live op that is missing a segment (the merged output
 // from a crash between switchOnDisk and RecordCompaction) gets it re-queued, and
@@ -236,7 +317,7 @@ func TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment(t *testing.T) {
 	// output it was never told about. Plus a stale row for an absent segment.
 	require.NoError(t, editOps.SnapshotSegments("op1", []string{segs[0], "9999999999999999999"}))
 
-	require.NoError(t, bucket.disk.recoverEditOps())
+	require.NoError(t, bucket.disk.recoverEditOps(ctx))
 
 	pending, err := editOps.Pending("op1")
 	require.NoError(t, err)

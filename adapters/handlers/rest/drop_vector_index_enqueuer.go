@@ -126,6 +126,31 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	return e.clusterService.AddDistributedTaskWithGroups(ctx, db.DropVectorIndexNamespace, taskID, payload, specs)
 }
 
+// LiveOpIDs returns the op IDs of drop-vector tasks that are still active
+// (non-terminal). Wired into the DB so a shard load can sweep an orphaned op — one
+// whose task has finished or been removed — instead of re-arming it. Returns a
+// non-nil (possibly empty) set on success; empty means "no active drop, sweep all".
+func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]struct{}, error) {
+	tasks, err := e.clusterService.ListDistributedTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	live := map[string]struct{}{}
+	for _, task := range tasks[db.DropVectorIndexNamespace] {
+		if !task.Status.IsActive() {
+			continue
+		}
+		var p db.DropVectorIndexTaskPayload
+		if err := json.Unmarshal(task.Payload, &p); err != nil {
+			continue
+		}
+		if p.OpID != "" {
+			live[p.OpID] = struct{}{}
+		}
+	}
+	return live, nil
+}
+
 var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)
 
 // reconcileDroppedVectorIndexes enqueues cleanup for every "none" marker with no

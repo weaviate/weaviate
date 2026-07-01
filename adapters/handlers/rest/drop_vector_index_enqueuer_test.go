@@ -119,6 +119,36 @@ func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 	require.False(t, got)
 }
 
+// TestLiveOpIDs_ReturnsActiveOpIDs pins the sweep input: LiveOpIDs returns op IDs
+// of active drop tasks and excludes terminal ones (whose ops should be swept).
+func TestLiveOpIDs_ReturnsActiveOpIDs(t *testing.T) {
+	active := &distributedtask.Task{
+		Namespace: db.DropVectorIndexNamespace,
+		Payload:   mustPayloadWithOp(t, "C", "opActive", "v1"),
+		Status:    distributedtask.TaskStatusStarted,
+	}
+	done := &distributedtask.Task{
+		Namespace: db.DropVectorIndexNamespace,
+		Payload:   mustPayloadWithOp(t, "C", "opDone", "v2"),
+		Status:    distributedtask.TaskStatusFinished,
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+		db.DropVectorIndexNamespace: {active, done},
+	}}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: &fakeOwnership{}}
+
+	live, err := enq.LiveOpIDs(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, map[string]struct{}{"opActive": {}}, live)
+}
+
+func mustPayloadWithOp(t *testing.T, collection, opID string, targets ...string) []byte {
+	t.Helper()
+	b, err := json.Marshal(db.DropVectorIndexTaskPayload{Collection: collection, Targets: targets, OpID: opID})
+	require.NoError(t, err)
+	return b
+}
+
 func mustDropPayload(t *testing.T, collection string, targets ...string) []byte {
 	t.Helper()
 	b, err := json.Marshal(db.DropVectorIndexTaskPayload{Collection: collection, Targets: targets, OpID: "op"})
