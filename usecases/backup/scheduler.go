@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 var (
@@ -165,6 +166,15 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		}
 	}
 
+	// Guard preserves backward compatibility: existing roles only have the
+	// collection-scoped backup permission. Skipping the user-scoped check
+	// when includeUsers wasn't set keeps ordinary backups working unchanged.
+	if len(users) > 0 {
+		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.BackupUsers(users...)...); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
@@ -236,6 +246,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		meta.Include(allowed)
 	}
 
+	if err := s.authorizeRestoreUsers(ctx, pr, req, meta); err != nil {
+		return nil, err
+	}
+
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, err
@@ -270,6 +284,30 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	data.Status = &status
 	return data, nil
+}
+
+func (s *Scheduler) authorizeRestoreUsers(
+	ctx context.Context, pr *models.Principal,
+	req *BackupRequest, meta *backup.DistributedBackupDescriptor,
+) error {
+	if req.UserRestoreOption == models.RestoreConfigUsersOptionsNoRestore {
+		return nil
+	}
+	users := meta.UserList()
+	if len(users) == 0 {
+		// The artefact records no users (old artefact, or none included).
+		// Preserve pre-change restore behaviour: do not gate.
+		return nil
+	}
+	if !s.schema.NamespacesEnabled() {
+		stripped := make([]string, len(users))
+		for i, u := range users {
+			stripped[i] = namespacing.StripQualification(u)
+		}
+		users = stripped
+	}
+	return s.authorizer.Authorize(ctx, pr, authorization.CREATE,
+		authorization.BackupUsers(users...)...)
 }
 
 // filterBackupableClasses returns the subset of classes the caller may act on
