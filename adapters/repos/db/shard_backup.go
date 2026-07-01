@@ -31,7 +31,7 @@ import (
 // a zeroed `inactivityTimeout` implies no timeout.
 // If inactivity timeout is reached it will resume maintenance cycle independently on how many halt request has been made.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
-	ctx, cancel := haltForTransferContext(ctx, s.index.Config.HaltForTransferTimeout)
+	innerCtx, cancel := context.WithTimeout(ctx, s.index.Config.HaltForTransferTimeout)
 	defer cancel()
 
 	s.haltForTransferMux.Lock()
@@ -66,21 +66,21 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		}
 	}()
 
-	if err = s.store.PauseCompaction(ctx); err != nil {
+	if err = s.store.PauseCompaction(innerCtx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
 	}
-	if err = s.store.FlushMemtables(ctx); err != nil {
+	if err = s.store.FlushMemtables(innerCtx); err != nil {
 		return fmt.Errorf("flush memtables: %w", err)
 	}
-	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
+	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(innerCtx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
 	}
-	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
+	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(innerCtx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
 	// get the queues ready for backup (e.g. enable maintenance mode, switch to new chunks)
 	_ = s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
-		if err = q.PrepareForBackup(ctx); err != nil {
+		if err = q.PrepareForBackup(innerCtx); err != nil {
 			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil
@@ -91,19 +91,12 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.PrepareForBackup(ctx); err != nil {
+		if err = index.PrepareForBackup(innerCtx); err != nil {
 			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func haltForTransferContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, timeout)
+	return err
 }
 
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
