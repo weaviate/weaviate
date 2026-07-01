@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -90,7 +91,8 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		next.VectorConfig = make(map[string]models.VectorConfig, len(orig.VectorConfig))
 		changed := false
 		for name, cfg := range orig.VectorConfig {
-			if slices.Contains(targets, name) {
+			// Only remove an entry still marked dropped; keep a live same-name re-creation.
+			if slices.Contains(targets, name) && modelsext.IsVectorIndexDropped(cfg) {
 				changed = true
 				continue
 			}

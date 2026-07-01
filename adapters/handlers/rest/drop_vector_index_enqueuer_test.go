@@ -90,6 +90,42 @@ func (f *fakeClusterDropClient) AddDistributedTaskWithGroups(ctx context.Context
 	return nil
 }
 
+// TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget exercises the real
+// HasActiveDrop against the cluster task list: it matches an active task by
+// collection (case-insensitive) and target, and ignores terminal tasks.
+func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
+	active := &distributedtask.Task{
+		Namespace:      db.DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+		Payload:        mustDropPayload(t, "C", "v1"),
+		Status:         distributedtask.TaskStatusStarted,
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+		db.DropVectorIndexNamespace: {active},
+	}}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: &fakeOwnership{}}
+
+	got, err := enq.HasActiveDrop(context.Background(), "c", "v1") // collection case-insensitive
+	require.NoError(t, err)
+	require.True(t, got)
+
+	got, err = enq.HasActiveDrop(context.Background(), "C", "v2") // different target
+	require.NoError(t, err)
+	require.False(t, got)
+
+	active.Status = distributedtask.TaskStatusFinished // terminal → ignored
+	got, err = enq.HasActiveDrop(context.Background(), "C", "v1")
+	require.NoError(t, err)
+	require.False(t, got)
+}
+
+func mustDropPayload(t *testing.T, collection string, targets ...string) []byte {
+	t.Helper()
+	b, err := json.Marshal(db.DropVectorIndexTaskPayload{Collection: collection, Targets: targets, OpID: "op"})
+	require.NoError(t, err)
+	return b
+}
+
 type fakeOwnership struct {
 	m           map[string][]string
 	multiTenant bool

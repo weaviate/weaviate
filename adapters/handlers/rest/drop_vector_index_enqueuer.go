@@ -45,9 +45,10 @@ type clusterDropTaskClient interface {
 }
 
 // shardOwnershipLister returns node -> shard-names for a collection (non-HOT MT
-// tenants excluded — cleanup deferred to activation), and reports multi-tenancy so
-// the enqueuer can tell an all-cold MT collection (empty, expected) from a
-// shard-less one (an error). *db.DB satisfies it; narrowed for testability.
+// tenants excluded — their cleanup is deferred to a later reconciliation once they
+// are active), and reports multi-tenancy so the enqueuer can tell an all-cold MT
+// collection (empty, expected) from a shard-less one (an error). *db.DB satisfies
+// it; narrowed for testability.
 type shardOwnershipLister interface {
 	ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error)
 	IsMultiTenant(ctx context.Context, className string) bool
@@ -94,9 +95,10 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		return fmt.Errorf("drop-vector enqueue: shard ownership for %q: %w", collection, err)
 	}
 	if len(shardOwnership) == 0 {
-		// All-cold MT collection: nothing to strip now (deferred to activation), and
-		// the marker is already applied — a no-op success, not an error. A non-MT
-		// collection always has shards, so an empty map there is a real problem.
+		// All-cold MT collection: no active shard to strip now, and the marker is
+		// already applied — a no-op success, not an error. Reconciliation re-enqueues
+		// once tenants are active. A non-MT collection always has shards, so an empty
+		// map there is a real problem.
 		if e.ownership.IsMultiTenant(ctx, collection) {
 			return nil
 		}

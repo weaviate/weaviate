@@ -350,8 +350,8 @@ func chainTransformers(transformers []valueTransformer) valueTransformer {
 // Crash window: if the process dies after switchOnDisk but before this commit,
 // the merge inputs are gone from disk but the merged output never got a pending
 // row for an op absent from builtOps. Reconcile only prunes missing-segment rows,
-// so it can't recover this — the leader-startup re-snapshot (S14, not yet built)
-// must re-queue the merged output. Until then such a crash can retain a dropped target.
+// so it can't recover this; the re-snapshot on shard load (recoverEditOps) re-queues
+// every current segment for each live op, which covers the merged output.
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	mergedID := leftID + "_" + rightID
 

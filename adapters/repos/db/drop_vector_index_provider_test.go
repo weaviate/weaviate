@@ -26,10 +26,16 @@ import (
 
 // --- fakes ---
 
+type pendingStep struct {
+	vals []string
+	err  error
+}
+
 type fakeEditOpBucket struct {
 	mu         sync.Mutex
 	registered map[string]lsmkv.OpDescriptor
-	pendingSeq [][]string // successive EditOpPending responses; last repeats
+	pendingSeq [][]string    // successive EditOpPending responses; last repeats
+	script     []pendingStep // if set, takes precedence over pendingSeq (per-call val/err; last repeats)
 	callIdx    int
 	deleted    []string // opIDs passed to DeleteEditOp
 	deleteErr  error
@@ -58,6 +64,14 @@ func (f *fakeEditOpBucket) EditOpPending(opID string) ([]string, error) {
 	}
 	if f.pendingErr != nil {
 		return nil, f.pendingErr
+	}
+	if f.script != nil {
+		i := f.callIdx
+		if i >= len(f.script) {
+			i = len(f.script) - 1
+		}
+		f.callIdx++
+		return f.script[i].vals, f.script[i].err
 	}
 	i := f.callIdx
 	if i >= len(f.pendingSeq) {
@@ -294,6 +308,52 @@ func TestPollUntilEmpty_ProgressClampedWhenPendingGrows(t *testing.T) {
 	require.Equal(t, []string{"u1"}, rec.completed)
 }
 
+// TestPollUntilEmpty_ToleratesTransientErrors: a few consecutive pending-read
+// errors mid-drain are tolerated (not failed) and the unit completes on recovery.
+func TestPollUntilEmpty_ToleratesTransientErrors(t *testing.T) {
+	blip := errors.New("transient bolt read")
+	bucket := &fakeEditOpBucket{script: []pendingStep{
+		{vals: []string{"s1"}}, // baseline: total=1
+		{err: blip},            // tolerated (1)
+		{err: blip},            // tolerated (2)
+		{vals: []string{}},     // recovered + drained
+	}}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Equal(t, []string{"u1"}, rec.completed, "transient poll errors must not fail the unit")
+	require.Empty(t, rec.failed)
+}
+
+// TestPollUntilEmpty_PersistentErrorsFailUnit: once errors exceed the tolerance
+// the unit fails (so a permanently broken shard doesn't hang the task forever).
+func TestPollUntilEmpty_PersistentErrorsFailUnit(t *testing.T) {
+	boom := errors.New("bolt read down")
+	bucket := &fakeEditOpBucket{script: []pendingStep{
+		{vals: []string{"s1"}},                // baseline
+		{err: boom}, {err: boom}, {err: boom}, // last repeats; trips at maxConsecutivePollErrors
+	}}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1")
+	require.Empty(t, rec.completed)
+}
+
 func TestStartTask_BucketLookupFails_UnitFailed(t *testing.T) {
 	shards := &fakeShards{bucketErr: errors.New("no such shard")}
 	rec := newFakeRecorder()
@@ -358,12 +418,15 @@ func TestOnTaskCompleted_FINISHED_DeleteOpFailure_DefersSchemaRemoval(t *testing
 	require.False(t, fin.called, "schema removal must be deferred when op deletion fails on a loaded shard")
 }
 
-func TestOnTaskCompleted_FINISHED_UnloadedShard_SkipsDeleteAndStillFinalizes(t *testing.T) {
+// TestOnTaskCompleted_FINISHED_UnloadedShard_DefersFinalize: if a local shard's op
+// can't be deleted (shard unloaded), the schema marker must NOT be removed —
+// otherwise a re-created same-name vector would later be stripped by the lingering op.
+func TestOnTaskCompleted_FINISHED_UnloadedShard_DefersFinalize(t *testing.T) {
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucketErr: errors.New("shard not loaded")}, fin, newFakeRecorder())
 
 	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
-	require.True(t, fin.called, "an unloaded shard is skipped, not a hard failure")
+	require.False(t, fin.called, "schema removal must be deferred when an op can't be deleted on an unloaded shard")
 }
 
 // --- detectors ---
@@ -416,6 +479,59 @@ func TestCheckTenantMutation_BlocksDuringDrop(t *testing.T) {
 func TestCheckPropertyUpdate_NeverConflicts(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 	require.NoError(t, p.CheckPropertyUpdate("C", "someProp", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
+}
+
+// TestDecodeDropVectorIndexPayload_Rejects pins the only guard before
+// removeVectorIndexFiles' os.RemoveAll (path-traversal targets) plus the
+// missing-field checks.
+func TestDecodeDropVectorIndexPayload_Rejects(t *testing.T) {
+	valid := DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "op"}
+	enc := func(p DropVectorIndexTaskPayload) []byte { b, _ := p.encode(); return b }
+
+	cases := map[string][]byte{
+		"not json":           []byte("{"),
+		"missing collection": enc(DropVectorIndexTaskPayload{Targets: []string{"v1"}, OpID: "op"}),
+		"missing targets":    enc(DropVectorIndexTaskPayload{Collection: "C", OpID: "op"}),
+		"missing opID":       enc(DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}}),
+		"empty target":       enc(DropVectorIndexTaskPayload{Collection: "C", Targets: []string{""}, OpID: "op"}),
+		"slash target":       enc(DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"a/b"}, OpID: "op"}),
+		"backslash target":   enc(DropVectorIndexTaskPayload{Collection: "C", Targets: []string{`a\b`}, OpID: "op"}),
+		"dotdot target":      enc(DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"../x"}, OpID: "op"}),
+	}
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := decodeDropVectorIndexPayload(payload)
+			require.Error(t, err)
+		})
+	}
+
+	_, err := decodeDropVectorIndexPayload(enc(valid))
+	require.NoError(t, err, "a valid payload must decode")
+}
+
+// TestCheckConflict_SkipsCorruptActiveTask pins the fail-open behavior: a corrupt
+// active task must not block a new drop (it can't be matched to a collection).
+func TestCheckConflict_SkipsCorruptActiveTask(t *testing.T) {
+	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	newPayload, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "new"}).encode()
+	corrupt := &distributedtask.Task{
+		Namespace: DropVectorIndexNamespace,
+		Payload:   []byte("not json"),
+		Status:    distributedtask.TaskStatusStarted,
+	}
+	require.NoError(t, p.CheckConflict(newPayload, []*distributedtask.Task{corrupt}))
+}
+
+// TestCheckTenantMutation_SkipsCorruptActiveTask: likewise a corrupt task must not
+// block every tenant mutation cluster-wide.
+func TestCheckTenantMutation_SkipsCorruptActiveTask(t *testing.T) {
+	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	corrupt := &distributedtask.Task{
+		Namespace: DropVectorIndexNamespace,
+		Payload:   []byte("not json"),
+		Status:    distributedtask.TaskStatusStarted,
+	}
+	require.NoError(t, p.CheckTenantMutation("C", []string{"t1"}, []*distributedtask.Task{corrupt}))
 }
 
 func TestExtractDropVectorIndexTaskCollection(t *testing.T) {

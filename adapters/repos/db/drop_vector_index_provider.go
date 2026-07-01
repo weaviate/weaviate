@@ -337,19 +337,18 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	}
 
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
-		// Leave the marker in place; startup reconciliation retries the removal. The
-		// schema FSM only permits removing a "none" vector entry once its cleanup
-		// task has finished, so this can legitimately fail until that gate ships.
+		// Leave the marker in place; startup reconciliation retries the removal.
 		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
 		return
 	}
 	logger.Info("drop-vector: task-completion: dropped vector(s) removed from schema")
 }
 
-// deleteLocalEditOps removes the finished op from each local shard's sidecar. An
-// unloaded shard (e.g. a deactivated tenant) is skipped — its cleanup is deferred
-// to activation; a delete failure on a loaded shard is returned so the caller
-// defers schema removal for reconciliation to retry.
+// deleteLocalEditOps removes the finished op from each local shard's sidecar,
+// returning an error if any shard's op can't be deleted (delete failure, or an
+// unloaded shard). That defers the schema removal: freeing the name while an op
+// lingers in an unloaded shard would let a later reactivation re-arm it and strip
+// the re-created vector.
 func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTaskPayload) error {
 	for unitID, node := range payload.UnitToNode {
 		if node != p.localNode {
@@ -358,9 +357,7 @@ func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTas
 		shardName := payload.UnitToShard[unitID]
 		bucket, err := p.shards.EditOpBucketForShard(payload.Collection, shardName)
 		if err != nil {
-			p.logger.WithField("collection", payload.Collection).WithField("shard", shardName).
-				Warnf("drop-vector: task-completion: locate bucket to delete edit op (shard not loaded; deferring): %v", err)
-			continue
+			return fmt.Errorf("locate bucket for shard %q to delete edit op (deferring finalize): %w", shardName, err)
 		}
 		if err := bucket.DeleteEditOp(payload.OpID); err != nil {
 			return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)
