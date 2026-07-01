@@ -14,6 +14,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // DropVectorIndexNamespace is the distributed-task namespace for dropping a
@@ -51,9 +52,10 @@ func decodeDropVectorIndexPayload(data []byte) (*DropVectorIndexTaskPayload, err
 		return nil, fmt.Errorf("drop-vector-index payload missing targets")
 	}
 	for _, t := range p.Targets {
-		// An empty target reaches os.RemoveAll via removeVectorIndexFiles; reject it.
-		if t == "" {
-			return nil, fmt.Errorf("drop-vector-index payload has an empty target name")
+		// Targets are filepath.Joined and os.RemoveAll'd by removeVectorIndexFiles;
+		// reject empty / separators / ".." so a target can't escape the shard dir.
+		if t == "" || strings.ContainsAny(t, `/\`) || strings.Contains(t, "..") {
+			return nil, fmt.Errorf("drop-vector-index payload has an invalid target name %q", t)
 		}
 	}
 	if p.OpID == "" {

@@ -403,22 +403,60 @@ func (s *SegmentEditOps) RegisterOp(opID string, op OpDescriptor) error {
 	})
 }
 
-// IsRegistered reports whether opID has an operation descriptor recorded. Used
-// for idempotent resume: a caller skips re-snapshotting an already-registered op
-// (re-snapshotting would re-queue segments it has already completed).
-func (s *SegmentEditOps) IsRegistered(opID string) (bool, error) {
+// RegisterOpWithSnapshot writes the op descriptor and the pending rows for segIDs
+// in one transaction, so the descriptor is never durable without its snapshot (a
+// resume would otherwise skip a drop that stripped nothing). Idempotent: an
+// existing descriptor keeps its CreatedAt and already-pending segments are left
+// untouched. Callers must derive segIDs under maintenanceLock (see
+// SnapshotSegments' invariant) and hold it across this call.
+func (s *SegmentEditOps) RegisterOpWithSnapshot(opID string, op OpDescriptor, segIDs []string) error {
+	return s.withWriteTx(true, func(tx *bolt.Tx) error {
+		ops := tx.Bucket(editOpsBucketOperations)
+		if ops.Get([]byte(opID)) == nil {
+			enc, err := json.Marshal(op)
+			if err != nil {
+				return err
+			}
+			if err := ops.Put([]byte(opID), enc); err != nil {
+				return err
+			}
+		}
+		sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+		if err != nil {
+			return err
+		}
+		for _, segID := range segIDs {
+			if sub.Get([]byte(segID)) != nil {
+				continue
+			}
+			enc, err := json.Marshal(PendingSegment{})
+			if err != nil {
+				return err
+			}
+			if err := sub.Put([]byte(segID), enc); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// HasPendingSnapshot reports whether opID's segments have been snapshotted (its
+// pending sub-bucket exists, even if now empty). Only a snapshot creates that
+// sub-bucket, so this — not descriptor presence — is the correct "resume may skip
+// the snapshot" signal.
+func (s *SegmentEditOps) HasPendingSnapshot(opID string) (bool, error) {
 	if ok, err := s.openIfExists(); err != nil || !ok {
-		// No sidecar => no op was ever registered.
 		return false, err
 	}
-	registered := false
+	exists := false
 	if err := s.db.View(func(tx *bolt.Tx) error {
-		registered = tx.Bucket(editOpsBucketOperations).Get([]byte(opID)) != nil
+		exists = tx.Bucket(editOpsBucketPending).Bucket([]byte(opID)) != nil
 		return nil
 	}); err != nil {
 		return false, err
 	}
-	return registered, nil
+	return exists, nil
 }
 
 // LoadOps returns all active operations sorted by CreatedAt (ties broken by ID)

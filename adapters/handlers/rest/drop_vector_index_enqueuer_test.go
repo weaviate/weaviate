@@ -90,10 +90,40 @@ func (f *fakeClusterDropClient) AddDistributedTaskWithGroups(ctx context.Context
 	return nil
 }
 
-type fakeOwnership struct{ m map[string][]string }
+type fakeOwnership struct {
+	m           map[string][]string
+	multiTenant bool
+}
 
 func (f *fakeOwnership) ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error) {
 	return f.m, nil
+}
+
+func (f *fakeOwnership) IsMultiTenant(ctx context.Context, className string) bool {
+	return f.multiTenant
+}
+
+// TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp pins A1: an MT collection
+// whose tenants are all inactive yields an empty active-ownership map; the enqueuer
+// must treat that as a no-op success (cleanup deferred to activation), not error,
+// since the drop marker is already applied.
+func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
+	cluster := &fakeClusterDropClient{}
+	own := &fakeOwnership{m: map[string][]string{}, multiTenant: true}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: own}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.Empty(t, cluster.gotTaskID, "no task should be enqueued when there are no active shards")
+}
+
+// TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors confirms the empty-map
+// no-op is scoped to MT: a non-MT collection with no shards is a real error.
+func TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors(t *testing.T) {
+	cluster := &fakeClusterDropClient{}
+	own := &fakeOwnership{m: map[string][]string{}, multiTenant: false}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: own}
+
+	require.Error(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 }
 
 // TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal pins the encoding

@@ -33,6 +33,8 @@ type fakeEditOpBucket struct {
 	callIdx    int
 	deleted    []string // opIDs passed to DeleteEditOp
 	deleteErr  error
+	pendingErr error         // when set, EditOpPending returns it
+	polled     chan struct{} // if set, a non-blocking signal per EditOpPending call
 }
 
 func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error {
@@ -48,6 +50,15 @@ func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) 
 func (f *fakeEditOpBucket) EditOpPending(opID string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.polled != nil {
+		select {
+		case f.polled <- struct{}{}:
+		default:
+		}
+	}
+	if f.pendingErr != nil {
+		return nil, f.pendingErr
+	}
 	i := f.callIdx
 	if i >= len(f.pendingSeq) {
 		i = len(f.pendingSeq) - 1
@@ -141,8 +152,12 @@ func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, na
 // --- helpers ---
 
 func newTestDropProvider(shards dropVectorShards, fin dropVectorSchemaFinalizer, rec distributedtask.TaskCompletionRecorder) *DropVectorIndexProvider {
+	return newTestDropProviderCtx(shards, fin, rec, context.Background())
+}
+
+func newTestDropProviderCtx(shards dropVectorShards, fin dropVectorSchemaFinalizer, rec distributedtask.TaskCompletionRecorder, serverCtx context.Context) *DropVectorIndexProvider {
 	logger, _ := test.NewNullLogger()
-	p := NewDropVectorIndexProvider(shards, fin, logger, "node1", context.Background())
+	p := NewDropVectorIndexProvider(shards, fin, logger, "node1", serverCtx)
 	p.pollInterval = time.Millisecond
 	p.SetCompletionRecorder(rec)
 	return p
@@ -211,6 +226,72 @@ func TestStartTask_SkipsAlreadyCompletedUnit(t *testing.T) {
 
 	require.NotContains(t, bucket.registered, "op1", "completed unit must not be re-registered")
 	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_ShutdownMidDrain_LeavesUnitUnfailed pins the data-safety guard: a
+// graceful shutdown (serverCtx cancelled) mid-drain must leave the unit neither
+// FAILED nor COMPLETED, so the task resumes after restart. Deleting the ctx.Err()
+// guards would fail the unit here (and strand the marker).
+func TestStartTask_ShutdownMidDrain_LeavesUnitUnfailed(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s1"}}, polled: make(chan struct{}, 1)}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
+	p := newTestDropProviderCtx(shards, &fakeFinalizer{}, rec, ctx)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+
+	<-bucket.polled // the drain is running (never drains: pendingSeq stays {"s1"})
+	cancel()        // graceful shutdown
+	waitDone(t, h)
+
+	require.Empty(t, rec.failed, "shutdown must not fail the unit")
+	require.Empty(t, rec.completed, "shutdown must not complete the unit")
+}
+
+// TestStartTask_DrainError_FailsUnit confirms a pending-read error that can't be
+// tolerated fails the unit (here the baseline read errors, which is terminal).
+func TestStartTask_DrainError_FailsUnit(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s1"}}, pendingErr: errors.New("bolt read failed")}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1")
+	require.Empty(t, rec.completed)
+}
+
+// TestPollUntilEmpty_ProgressClampedWhenPendingGrows pins the progress clamp: when
+// the pending set transiently grows (a re-queue), reported progress must stay in
+// [0,1] rather than going negative.
+func TestPollUntilEmpty_ProgressClampedWhenPendingGrows(t *testing.T) {
+	// total=1 (baseline), grows to 3 (progress would be -2 without the clamp), drains.
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s1"}, {"s1", "s2", "s3"}, {}}}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.GreaterOrEqual(t, rec.progress["u1"], float32(0))
+	require.LessOrEqual(t, rec.progress["u1"], float32(1))
+	require.Equal(t, []string{"u1"}, rec.completed)
 }
 
 func TestStartTask_BucketLookupFails_UnitFailed(t *testing.T) {

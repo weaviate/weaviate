@@ -669,28 +669,21 @@ func (sg *SegmentGroup) recoverEditOps() error {
 }
 
 // registerEditOpAndSnapshot registers opID and snapshots the current on-disk
-// segments as pending for it. Idempotent: an already-registered op returns without
-// re-snapshotting (re-snapshotting would re-queue segments it already completed),
-// making task resume safe.
-//
-// Ordering is load-bearing. RegisterOp runs first so an in-flight compaction
-// completing concurrently can see the op and re-queue its merged output. The
-// segment IDs are then read and snapshotted under maintenanceLock, so the snapshot
-// reflects a coherent in-memory segment set (never a raw directory listing) and no
-// segment swap can straddle the read and the snapshot.
+// segments in one write. Idempotent via the snapshot guard (not the descriptor),
+// so a resume completes an interrupted register rather than skipping it, and one
+// that already snapshotted does not re-queue completed segments. The segment IDs
+// are read and written under maintenanceLock so the snapshot stays coherent with
+// the in-memory segment set.
 func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor) error {
 	if sg.editOps == nil {
 		return fmt.Errorf("edit ops not enabled for this segment group")
 	}
-	registered, err := sg.editOps.IsRegistered(opID)
+	snapshotted, err := sg.editOps.HasPendingSnapshot(opID)
 	if err != nil {
 		return err
 	}
-	if registered {
+	if snapshotted {
 		return nil
-	}
-	if err := sg.editOps.RegisterOp(opID, desc); err != nil {
-		return err
 	}
 
 	sg.maintenanceLock.RLock()
@@ -699,7 +692,7 @@ func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor
 	for i, seg := range sg.segments {
 		ids[i] = segmentID(seg.getPath())
 	}
-	return sg.editOps.SnapshotSegments(opID, ids)
+	return sg.editOps.RegisterOpWithSnapshot(opID, desc, ids)
 }
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {

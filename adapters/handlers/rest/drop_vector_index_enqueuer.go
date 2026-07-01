@@ -44,12 +44,13 @@ type clusterDropTaskClient interface {
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
 
-// shardOwnershipLister returns shard -> owning nodes for a collection, limited to
-// shards with locally loaded data (deactivated MT tenants are excluded — their
-// cleanup is deferred to activation). *db.DB satisfies it via
-// ShardReplicaOwnershipActive. Narrowed so the enqueuer is testable.
+// shardOwnershipLister returns node -> shard-names for a collection (non-HOT MT
+// tenants excluded — cleanup deferred to activation), and reports multi-tenancy so
+// the enqueuer can tell an all-cold MT collection (empty, expected) from a
+// shard-less one (an error). *db.DB satisfies it; narrowed for testability.
 type shardOwnershipLister interface {
 	ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error)
+	IsMultiTenant(ctx context.Context, className string) bool
 }
 
 func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, ownership shardOwnershipLister) *dropVectorIndexEnqueuer {
@@ -93,6 +94,12 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		return fmt.Errorf("drop-vector enqueue: shard ownership for %q: %w", collection, err)
 	}
 	if len(shardOwnership) == 0 {
+		// All-cold MT collection: nothing to strip now (deferred to activation), and
+		// the marker is already applied — a no-op success, not an error. A non-MT
+		// collection always has shards, so an empty map there is a real problem.
+		if e.ownership.IsMultiTenant(ctx, collection) {
+			return nil
+		}
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
 	}
 

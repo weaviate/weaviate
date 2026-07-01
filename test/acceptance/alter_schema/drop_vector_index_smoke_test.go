@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -61,9 +62,9 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 		mkVec := func(base float32) []float32 { return []float32{base, base + 0.1, base + 0.2, base + 0.3} }
 
 		t.Run("create class", func(t *testing.T) {
-			resp, err := helper.Client(t).Schema.SchemaObjectsCreate(
+			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
 				clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
-			helper.AssertRequestOk(t, resp, err, nil)
+			require.NoError(t, err)
 		})
 
 		t.Run("insert objects with the vector", func(t *testing.T) {
@@ -74,17 +75,17 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 					Properties: map[string]any{"name": fmt.Sprintf("object-%d", i)},
 					Vectors:    models.Vectors{vec: mkVec(float32(i))},
 				}
-				resp, err := helper.Client(t).Objects.ObjectsCreate(
+				_, err := helper.Client(t).Objects.ObjectsCreate(
 					clobjects.NewObjectsCreateParams().WithBody(obj), nil)
-				helper.AssertRequestOk(t, resp, err, nil)
+				require.NoError(t, err)
 			}
 		})
 
 		t.Run("drop the vector index", func(t *testing.T) {
-			resp, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(
+			_, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(
 				clschema.NewSchemaObjectsVectorsDeleteParams().
 					WithClassName(className).WithVectorIndexName(vec), nil)
-			helper.AssertRequestOk(t, resp, err, nil)
+			require.NoError(t, err)
 		})
 
 		t.Run("schema marks the vector dropped", func(t *testing.T) {

@@ -28,6 +28,10 @@ import (
 // drains it.
 const defaultDropVectorPollInterval = 30 * time.Second
 
+// maxConsecutivePollErrors tolerates transient pending-read blips before failing
+// the unit, so a momentary I/O error doesn't flip the whole task to FAILED.
+const maxConsecutivePollErrors = 3
+
 // editOpBucket is the slice of *lsmkv.Bucket the provider drives: register the
 // drop op (flush + snapshot) and poll its remaining pending segments. Narrowed
 // to an interface so the provider's poll loop is unit-testable.
@@ -229,6 +233,7 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
+	consecutiveErrors := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -236,8 +241,16 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 		case <-ticker.C:
 			pending, err := bucket.EditOpPending(opID)
 			if err != nil {
-				return err
+				// Tolerate a few consecutive blips; only persistent errors fail the unit.
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutivePollErrors {
+					return fmt.Errorf("read pending after %d consecutive errors: %w", consecutiveErrors, err)
+				}
+				p.unitLogger(task, nil, unitID).Warnf("drop-vector: pending read failed (%d/%d), retrying: %v",
+					consecutiveErrors, maxConsecutivePollErrors, err)
+				continue
 			}
+			consecutiveErrors = 0
 			if len(pending) == 0 {
 				return nil
 			}
@@ -297,8 +310,10 @@ func (p *DropVectorIndexProvider) OnSwapRequested(
 
 // OnTaskCompleted removes the dropped named vectors from the schema once the task
 // FINISHED on every node. FAILED/CANCELLED do NOT mutate the schema (the marker
-// stays so an operator can retry). Idempotent: a re-invocation after the entries
-// are gone is a no-op.
+// stays so an operator can retry). It must be safe to invoke more than once:
+// LocalCallbacksDone returns false, so the scheduler may replay this after a
+// restart. Both steps are idempotent — deleting an absent op and removing
+// already-gone schema entries are no-ops.
 func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	payload, err := decodeDropVectorIndexPayload(task.Payload)
 	if err != nil {

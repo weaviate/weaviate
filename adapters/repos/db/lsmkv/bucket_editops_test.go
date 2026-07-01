@@ -120,7 +120,7 @@ func TestBucket_RegisterEditOp_SnapshotsAndResumes(t *testing.T) {
 
 	pending, err := bucket.EditOpPending("op1")
 	require.NoError(t, err)
-	require.NotEmpty(t, pending, "current segments must be snapshotted as pending")
+	require.Len(t, pending, 2, "both segments (flushed + memtable-flushed) must be snapshotted")
 	first := append([]string(nil), pending...)
 
 	// Resume: a second call must not re-snapshot / change the pending set.
@@ -128,6 +128,81 @@ func TestBucket_RegisterEditOp_SnapshotsAndResumes(t *testing.T) {
 	pending2, err := bucket.EditOpPending("op1")
 	require.NoError(t, err)
 	require.ElementsMatch(t, first, pending2)
+}
+
+// TestBucket_RegisterEditOp_CompletesInterruptedSnapshot pins B1: if a prior
+// register persisted the op descriptor but not its pending rows (a two-step
+// register interrupted between the writes), a resume must still take the snapshot.
+// The guard keys off the snapshot, not the descriptor — otherwise EditOpPending
+// would read empty, the drain would report "done", and the drop would complete
+// without ever stripping the segments present at registration.
+func TestBucket_RegisterEditOp_CompletesInterruptedSnapshot(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithClassName("MyClass"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+	bucket.SetMemtableThreshold(1e9)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+
+	// Simulate the interrupted state: descriptor written, no snapshot taken.
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.disk.editOps.RegisterOp("op1", desc))
+
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Len(t, pending, 2, "resume with a descriptor but no snapshot must still snapshot the segments")
+}
+
+// TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments proves the startup
+// recovery runs through the real newSegmentGroup wiring (not just a direct call):
+// after reopening the bucket, a live op whose only snapshot row is stale gets the
+// current on-disk segments re-queued and the stale row pruned.
+func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	open := func() *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace), WithClassName("MyClass"))
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	bucket := open()
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 2)
+
+	// Crash-window state: op registered, but only a now-absent segment snapshotted.
+	editOps := bucket.disk.editOps
+	require.NoError(t, editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{"9999999999999999999"}))
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	reopened := open()
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+
+	pending, err := reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, segs, pending,
+		"reopen recovery must re-snapshot current segments and drop the stale row")
 }
 
 // TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment pins the startup

@@ -432,7 +432,9 @@ func (h *Handler) SetDropVectorIndexEnqueuer(e DropVectorIndexEnqueuer) {
 }
 
 // enqueueDropVectorIndexCleanup submits the cleanup task for a freshly dropped
-// vector. A nil enqueuer (DTM not wired) leaves the drop marker-only.
+// vector. A nil enqueuer (DTM not wired) leaves the drop marker-only. If enqueue
+// fails the marker is already durable but no task exists; startup reconciliation
+// (or a user re-drop) idempotently enqueues cleanup for any marker without a task.
 func (h *Handler) enqueueDropVectorIndexCleanup(ctx context.Context, collection, targetVector string) error {
 	if h.dropVectorEnqueuer == nil {
 		return nil

@@ -405,17 +405,17 @@ func (b *Bucket) HasEditOps() bool {
 
 // RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
 // current segments as pending for the compaction/cleanup transformer to rewrite.
-// It flushes the active memtable first so pre-existing in-memory data is captured.
-// Idempotent: an already-registered op (resume) is a no-op and skips the flush.
+// It flushes the active memtable first so in-memory data is captured. Idempotent:
+// an op that already has a snapshot (resume) is a no-op and skips the flush.
 func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
 	}
-	registered, err := b.disk.editOps.IsRegistered(opID)
+	snapshotted, err := b.disk.editOps.HasPendingSnapshot(opID)
 	if err != nil {
 		return err
 	}
-	if registered {
+	if snapshotted {
 		return nil
 	}
 	if err := b.FlushAndSwitch(); err != nil {

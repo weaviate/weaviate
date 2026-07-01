@@ -34,9 +34,11 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 		}
 		existP, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			return fmt.Errorf(
-				"in-flight drop-vector task %q has an unparseable payload; cannot verify conflict: %w",
-				task.ID, err)
+			// Skip a corrupt payload rather than fail closed: erroring here would block
+			// every new drop cluster-wide on one bad task. Deterministic across nodes.
+			p.logger.WithField("task", task.ID).
+				Warnf("drop-vector: skipping active task with unparseable payload in conflict check: %v", err)
+			continue
 		}
 		if !strings.EqualFold(existP.Collection, newP.Collection) {
 			continue
@@ -78,9 +80,11 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 		}
 		existP, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			return fmt.Errorf(
-				"in-flight drop-vector task %q has an unparseable payload; cannot verify tenant mutation on %s/%v: %w",
-				task.ID, className, tenants, err)
+			// Skip a corrupt payload rather than block every tenant mutation
+			// cluster-wide on one bad task. Deterministic across nodes.
+			p.logger.WithField("task", task.ID).
+				Warnf("drop-vector: skipping active task with unparseable payload in tenant-mutation check: %v", err)
+			continue
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
