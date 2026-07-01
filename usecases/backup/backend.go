@@ -343,9 +343,7 @@ Loop:
 		}
 		desc.UserBackups = descrp
 	} else if len(u.users) > 0 {
-		// includeUsers was set but no sourcer is wired on this participant,
-		// fail rather than ship a missing UserBackups blob
-		return fmt.Errorf("includeUsers requested but no dynamic-user sourcer is configured on this node")
+		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
 	u.setStatus(backup.Transferred)
@@ -773,13 +771,12 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 	if materializedName != desc.Name {
 		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(desc.Name))
 		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
-		if oldIndexDir != newIndexDir {
-			if _, err := os.Stat(oldIndexDir); err == nil {
-				if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
-					return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
-				}
+		if _, err := os.Stat(oldIndexDir); err == nil {
+			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
+				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
 			}
 		}
+
 	}
 
 	if fw.migrator != nil {
