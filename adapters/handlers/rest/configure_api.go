@@ -1590,7 +1590,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	monitoring.InitConfig(serverConfig.Config.Monitoring)
 
-	if serverConfig.Config.DisableGraphQL {
+	if serverConfig.Config.DisableGraphQL.Get() {
 		logger.WithFields(logrus.Fields{
 			"action":          "startup",
 			"disable_graphql": true,
@@ -2621,6 +2621,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2686,6 +2687,17 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 					appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
 				}
 			}, appState.Logger)
+			return nil
+		}
+		// GraphQL is loaded lazily on toggle: makeUpdateSchemaCall skips the build
+		// while disabled, so on enable rebuild from the current schema, and on
+		// disable drop the graph (it's no longer served).
+		hooks["DisableGraphQL"] = func() error {
+			if appState.ServerConfig.Config.DisableGraphQL.Get() {
+				appState.SetGraphQL(nil)
+			} else {
+				rebuildGraphQLOnEnable(appState)
+			}
 			return nil
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())

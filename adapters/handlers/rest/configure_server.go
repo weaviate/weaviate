@@ -49,27 +49,61 @@ var configureServer func(*http.Server, string, string)
 
 func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithAliases) {
 	return func(updatedSchema schema.SchemaWithAliases) {
-		if appState.ServerConfig.Config.DisableGraphQL {
+		cfg := appState.ServerConfig.Config
+
+		// Namespaces can't be modeled in the GraphQL schema, and a disabled GraphQL
+		// isn't served, so in both cases skip the build. When DISABLE_GRAPHQL is
+		// toggled back on at runtime the graph is rebuilt lazily by the
+		// DisableGraphQL hook (postInitRuntimeOverrides -> rebuildGraphQLOnEnable).
+		if cfg.Namespaces.Enabled || cfg.DisableGraphQL.Get() {
 			return
 		}
 
-		// Note that this is thread safe; we're running in a single go-routine, because the event
-		// handlers are called when the SchemaLock is still held.
-
+		// Only producer on the RAFT apply goroutine, which raft drives serially, so
+		// the authoritative SetGraphQL always lands the newest committed schema.
 		gql, err := rebuildGraphQL(
 			updatedSchema,
 			appState.Logger,
-			appState.ServerConfig.Config,
+			cfg,
 			appState.Traverser,
 			appState.Modules,
 			appState.Authorizer,
 		)
 		if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
 			appState.Logger.WithField("action", "graphql_rebuild").
-				WithError(err).Error("could not (re)build graphql provider")
+				Errorf("could not (re)build graphql provider: %v", err)
 		}
 		appState.SetGraphQL(gql)
 	}
+}
+
+// rebuildGraphQLOnEnable rebuilds the graph from the current schema when
+// DISABLE_GRAPHQL is toggled off at runtime (makeUpdateSchemaCall skips the build
+// while disabled). It runs on the runtime-config reload goroutine, off the RAFT
+// apply path, so it stores through SetGraphQLIfCurrent: if a concurrent schema
+// apply produced a newer graph during the lock-free build, this result is dropped.
+func rebuildGraphQLOnEnable(appState *state.State) {
+	cfg := appState.ServerConfig.Config
+	// ClusterService may be unset if the reload loop ticks before startup finishes;
+	// the boot-time schema load then builds the graph once the flag is enabled.
+	if cfg.Namespaces.Enabled || appState.ClusterService == nil {
+		return
+	}
+
+	gen := appState.GraphQLGeneration()
+	sr := appState.ClusterService.SchemaReader()
+	s := sr.ReadOnlySchema()
+	updated := schema.SchemaWithAliases{
+		Schema:  schema.Schema{Objects: &s},
+		Aliases: sr.Aliases(),
+	}
+	gql, err := rebuildGraphQL(updated, appState.Logger, cfg,
+		appState.Traverser, appState.Modules, appState.Authorizer)
+	if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
+		appState.Logger.WithField("action", "graphql_rebuild").
+			Errorf("could not rebuild graphql provider on enable: %v", err)
+	}
+	appState.SetGraphQLIfCurrent(gql, gen)
 }
 
 func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldLogger,

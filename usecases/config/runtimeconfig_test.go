@@ -147,6 +147,73 @@ autoschema_enabled: true`)
 	})
 }
 
+func TestDisableGraphQLRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+
+	t.Run("parses disable_graphql from the overrides file", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		assert.Equal(t, true, cfg.DisableGraphQL.Get())
+	})
+
+	t.Run("override wins over the env default, then removal reverts (env default false)", func(t *testing.T) {
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(false),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+	})
+
+	t.Run("removal reverts to the env default, not a hardcoded false", func(t *testing.T) {
+		// Seed def=true (the DISABLE_GRAPHQL=true-at-boot operator). This is the case
+		// that discriminates a correct Reset() — which reverts to def — from one that
+		// zeroes the value: pushing a transient disable_graphql=false and then removing
+		// the key must land back on true, not false.
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(true),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: false"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
+	})
+
+	t.Run("hook keyed on the DisableGraphQL field fires only on change", func(t *testing.T) {
+		// The lazy GraphQL rebuild relies on this hook firing when the flag flips;
+		// the key must match the struct field name, and a no-op reload must not fire.
+		source := &WeaviateRuntimeConfig{DisableGraphQL: runtime.NewDynamicValue(false)}
+		var calls int
+		hooks := map[string]func() error{"DisableGraphQL": func() error { calls++; return nil }}
+
+		apply := func(yaml string) {
+			parsed, err := ParseRuntimeConfig([]byte(yaml))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, hooks))
+		}
+
+		apply("disable_graphql: true")
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: true") // unchanged
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: false")
+		assert.Equal(t, 2, calls)
+	})
+}
+
 func TestUpdateRuntimeConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
