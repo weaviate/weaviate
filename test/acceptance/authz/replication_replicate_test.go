@@ -116,7 +116,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 			_, err := helper.Client(t).Replication.
 				CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
 			// Don't care about the error type here, as it can be either CancelReplicationNoContent or CancelReplicationConflict depending on the state of the replication.
-			require.IsNotType(ct, replication.NewCancelReplicationForbidden(), err, "request should be permissioned but got different error type than expected: %s", err.Error())
+			require.IsNotType(ct, replication.NewCancelReplicationForbidden(), err, "request should be permissioned but got different error type than expected: %s", err)
 		}, 10*time.Second, 500*time.Millisecond, "op should be canceled but got error")
 	})
 
@@ -152,7 +152,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 			_, err := helper.Client(t).Replication.
 				DeleteReplication(replication.NewDeleteReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
 			// Don't care about the error type here, as it can be either DeleteReplicationNoContent or DeleteReplicationConflict depending on the state of the replication.
-			require.IsNotType(ct, replication.NewDeleteReplicationForbidden(), err, "request should be permissioned but got different error type than expected: %s", err.Error())
+			require.IsNotType(ct, replication.NewDeleteReplicationForbidden(), err, "request should be permissioned but got different error type than expected: %s", err)
 		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error")
 	})
 }
