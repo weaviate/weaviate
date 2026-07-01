@@ -1533,7 +1533,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	// nil when dynamic DB users are disabled, in which case includeUsers
 	// requests are rejected with a clear error rather than panicking.
 	var userLister backup.UserLister
-	if appState.APIKey != nil && appState.APIKey.Dynamic != nil {
+	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
 		userLister = appState.APIKey.Dynamic
 	}
 	backupScheduler := backup.NewScheduler(
