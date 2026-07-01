@@ -973,7 +973,7 @@ func (h *authZHandlers) getGroups(params authz.GetGroupsParams, principal *model
 
 	groups, err := h.controller.GetUsersOrGroupsWithRoles(true, groupType)
 	if err != nil {
-		return nil
+		return authz.NewGetGroupsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
 
 	// Filter roles based on authorization
