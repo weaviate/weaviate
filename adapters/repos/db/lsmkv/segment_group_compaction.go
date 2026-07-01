@@ -566,8 +566,8 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 	var lastWarn time.Time
 	t := time.NewTicker(tickerInterval)
 	for {
-		sg.segmentRefCounterLock.Lock()
-
+		// these segments are already swapped out of the active set, so their refs
+		// only decrease; an atomic read per segment is sufficient.
 		allZero := true
 		var pos, count int
 		for i, seg := range segments {
@@ -578,8 +578,6 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 				break
 			}
 		}
-
-		sg.segmentRefCounterLock.Unlock()
 
 		if allZero {
 			return
@@ -637,33 +635,30 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 	var maxWaitingSegment Segment
 	var maxWaitingRefs int
 
+	// segmentsAwaitingDrop is only touched by the (serial) compaction/cleanup
+	// cycle, and getRefs is an atomic read, so no lock is needed here.
 	toDrop := []Segment{}
-	func() {
-		sg.segmentRefCounterLock.Lock()
-		defer sg.segmentRefCounterLock.Unlock()
+	i := 0
+	for _, st := range sg.segmentsAwaitingDrop {
+		if refs := st.seg.getRefs(); refs == 0 {
+			toDrop = append(toDrop, st.seg)
+		} else {
+			sg.segmentsAwaitingDrop[i] = st
+			i++
 
-		i := 0
-		for _, st := range sg.segmentsAwaitingDrop {
-			if refs := st.seg.getRefs(); refs == 0 {
-				toDrop = append(toDrop, st.seg)
-			} else {
-				sg.segmentsAwaitingDrop[i] = st
-				i++
-
-				if !skipWarning {
-					if d := now.Sub(st.time); d >= warnThreshold {
-						waitingCount++
-						if d > maxWaitingDuration {
-							maxWaitingDuration = d
-							maxWaitingSegment = st.seg
-							maxWaitingRefs = refs
-						}
+			if !skipWarning {
+				if d := now.Sub(st.time); d >= warnThreshold {
+					waitingCount++
+					if d > maxWaitingDuration {
+						maxWaitingDuration = d
+						maxWaitingSegment = st.seg
+						maxWaitingRefs = refs
 					}
 				}
 			}
 		}
-		sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
-	}()
+	}
+	sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
 
 	if !skipWarning && maxWaitingDuration > 0 {
 		sg.segmentsAwaitingLastWarn = now
