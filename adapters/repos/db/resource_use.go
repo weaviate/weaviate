@@ -158,7 +158,7 @@ func (db *DB) memUseReadonly(mon *memwatch.Monitor) {
 func (db *DB) setShardsReadOnly(reason string) {
 	db.indexLock.Lock()
 	for _, index := range db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			// Don't overwrite the reason of an already read-only shard: it may be
 			// read-only for a non-resource reason (e.g. a vector-index config
 			// update), and relabeling it would let setShardsReady flip it back to

@@ -1015,6 +1015,37 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
+	config.Replication.SelfRecoveryEnabled = entcfg.Enabled(os.Getenv("SELF_RECOVERY_ENABLED"))
+	if err := parseIntVerify(
+		"SELF_RECOVERY_CONCURRENCY",
+		DefaultSelfRecoveryConcurrency,
+		func(val int) {
+			config.Replication.SelfRecoveryConcurrency = val
+		},
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxSelfRecoveryConcurrency {
+				return fmt.Errorf("%s must be <= %d, got %d", envName, MaxSelfRecoveryConcurrency, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if v := os.Getenv("SELF_RECOVERY_BARRIER_TIMEOUT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse SELF_RECOVERY_BARRIER_TIMEOUT as time.Duration: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("SELF_RECOVERY_BARRIER_TIMEOUT must be a positive duration")
+		}
+		config.Replication.SelfRecoveryBarrierTimeout = duration
+	}
+
 	if err := parseIntVerify(
 		"ASYNC_REPLICATION_SCHEDULER_WORKERS",
 		DefaultAsyncReplicationSchedulerWorkers,
@@ -1407,6 +1438,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
+	if config.Replication.SelfRecoveryEnabled && !config.ReplicaMovementEnabled {
+		logrus.Warn("SELF_RECOVERY_ENABLED requires REPLICA_MOVEMENT_ENABLED=true; disabling " +
+			"self-recovery to avoid shards stuck in RECOVERING (the replication engine that " +
+			"processes recovery copy ops only runs when replica movement is enabled)")
+		config.Replication.SelfRecoveryEnabled = false
+	}
 
 	return nil
 }
@@ -1841,6 +1879,8 @@ const (
 	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	DefaultSelfRecoveryConcurrency                 = 10
+	MaxSelfRecoveryConcurrency                     = 32
 )
 
 const VectorizerModuleNone = "none"

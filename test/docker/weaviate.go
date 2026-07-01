@@ -38,7 +38,7 @@ func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string, netOctet int,
 	weaviateImage, hostname string,
-	exposeGRPCPort, exposeDebugPort bool,
+	exposeGRPCPort, exposeDebugPort, tmpfsData bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
 ) (*DockerContainer, error) {
@@ -139,6 +139,11 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
+	// Opt-in tmpfs at /data: stop unmounts it, start gets a fresh empty one.
+	var tmpfs map[string]string
+	if tmpfsData {
+		tmpfs = map[string]string{"/data": ""}
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -151,6 +156,7 @@ func startWeaviate(ctx context.Context,
 		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
 		Files:        files,
+		Tmpfs:        tmpfs,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
