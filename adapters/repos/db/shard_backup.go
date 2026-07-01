@@ -31,6 +31,9 @@ import (
 // a zeroed `inactivityTimeout` implies no timeout.
 // If inactivity timeout is reached it will resume maintenance cycle independently on how many halt request has been made.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
+	ctx, cancel := haltForTransferContext(ctx, s.index.Config.HaltForTransferTimeout)
+	defer cancel()
+
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
@@ -97,6 +100,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return err
 	}
 	return nil
+}
+
+func haltForTransferContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, timeout)
 }
 
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
