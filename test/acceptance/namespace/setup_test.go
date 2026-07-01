@@ -75,6 +75,12 @@ const (
 	gTarget, gTargetKey = "gtarget", "gtarget-key"
 )
 
+// gAdmin is a global static-key operator that is NOT a root (only adminUser is,
+// via WithRbacRoots). TestNamespaceGlobalAdminDeniedGroupOps grants it the
+// built-in admin role at runtime to prove the narrowed admin cannot manage
+// groups; a dedicated identity keeps that grant from leaking into other tests.
+const gAdmin, gAdminKey = "gadmin", "gadmin-key"
+
 var sharedCompose *docker.DockerCompose
 
 func TestMain(m *testing.M) {
@@ -92,6 +98,7 @@ func TestMain(m *testing.M) {
 		WithUserApiKey(adminUser, adminKey).
 		WithUserApiKey(gCaller, gCallerKey).
 		WithUserApiKey(gTarget, gTargetKey).
+		WithUserApiKey(gAdmin, gAdminKey).
 		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
