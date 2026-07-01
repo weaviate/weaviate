@@ -316,8 +316,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
       - name: Error on change
@@ -338,8 +336,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Archive code coverage results
@@ -362,8 +358,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Cache vector datasets
         if: matrix.name == 'with vectors'
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
@@ -406,8 +400,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         uses: ./.github/actions/docker-login
@@ -484,8 +476,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -519,8 +509,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -603,8 +591,6 @@ jobs:
       - name: Set up Go
         if: ${{ env.run_pipeline == 'true' }}
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: configure gcp
         if: ${{ env.run_pipeline == 'true' }}
         id: creds-gcp
@@ -686,8 +672,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -730,8 +714,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -778,8 +760,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -837,8 +817,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7
         with:
@@ -891,8 +869,6 @@ jobs:
           name: binaries-windows-amd64
       - name: Set up Go
         uses: ./.github/actions/setup-go
-        with:
-          go-version: '1.26'
       - name: start weaviate
         shell: bash
         # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
