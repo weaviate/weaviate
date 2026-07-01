@@ -2504,28 +2504,3 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 	}
 	return segmentsBloom.ApproximatedSize(), nil
 }
-
-func (b *Bucket) GetExactKeysCount() (uint32, error) {
-	exactKeys, err := b.disk.GetExactKeys()
-	if err != nil {
-		return 0, err
-	}
-	if exactKeys == nil {
-		return 0, nil
-	}
-
-	for _, mem := range []memtable{b.active, b.flushing} {
-		m, ok := mem.(*Memtable)
-		if !ok || m == nil {
-			continue
-		}
-		keys, err := m.GetKeys()
-		if err != nil {
-			return 0, err
-		}
-		for _, key := range keys {
-			exactKeys[string(key)] = struct{}{}
-		}
-	}
-	return uint32(len(exactKeys)), nil
-}

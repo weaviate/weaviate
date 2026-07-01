@@ -1099,30 +1099,3 @@ func (sg *SegmentGroup) GetKeysBloomFilter() (*bloom.BloomFilter, error) {
 
 	return bloomFilter, nil
 }
-
-func (sg *SegmentGroup) GetExactKeys() (map[string]struct{}, error) {
-	segments, release := sg.getConsistentViewOfSegments()
-	defer release()
-
-	// No flushed disk segments yet (data still in the memtable) — nothing the
-	// bloom filters can estimate.
-	if len(segments) == 0 {
-		return nil, nil
-	}
-	result := make(map[string]struct{})
-	for _, seg := range segments {
-		s, ok := seg.(*segment)
-		if !ok {
-			continue
-		}
-		keys, err := s.index.AllKeys()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get keys from segment %s: %w", s.getPath(), err)
-		}
-		for _, k := range keys {
-			result[string(k)] = struct{}{}
-		}
-	}
-
-	return result, nil
-}
