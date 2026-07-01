@@ -182,6 +182,11 @@ func HybridCombiner(ctx context.Context,
 		return nil, fmt.Errorf("hybrid search perform fusion: %w", err)
 	}
 	if params.SelectionFn != nil {
+		// autoCut must run before diversity selection as it relies on a monotonic
+		// relevance sequence
+		if params.Autocut > 0 {
+			fused = performAutocut(fused, params.Autocut)
+		}
 		fused, err = params.SelectionFn(ctx, fused)
 		if err != nil {
 			return nil, fmt.Errorf("hybrid search selection: %w", err)
@@ -194,7 +199,7 @@ func HybridCombiner(ctx context.Context,
 		}
 		fused = sr
 	}
-	if params.Autocut > 0 {
+	if params.SelectionFn == nil && params.Autocut > 0 {
 		fused = performAutocut(fused, params.Autocut)
 	}
 	return fused, nil
