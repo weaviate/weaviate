@@ -37,12 +37,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestVectorSelectionPagination: MMR pages must tile a single stable diversified
-// ordering. Query Limit = candidate pool; MMR.Limit = page size; Offset pages the pool.
+// TestVectorSelectionPagination: MMR diversifies the [offset:offset+limit] relevance
+// window and returns its top MMR.Limit. Query Limit = window size; MMR.Limit = page size;
+// Offset advances by Limit, so windows are disjoint and deep pages return real,
+// duplicate-free results.
 func TestVectorSelectionPagination(t *testing.T) {
 	className := "VectorSelectionPaging"
 	const total = 20
-	const pool = 20
+	const windowSize = 10
 	const pageSize = 5
 
 	dirName := t.TempDir()
@@ -101,31 +103,39 @@ func TestVectorSelectionPagination(t *testing.T) {
 
 	queryVec := []float32{0.1, 0.9, 0.25}
 
-	// Compose the same two repo calls the traverser makes: fetch an offset-independent
-	// pool, diversify, then paginate.
-	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 0, Balance: 0.5}}
-	runSearch := func(offset int, mmrLimit uint32) []search.Result {
+	// Compose the same steps the traverser makes for a per-window MMR page: fetch deep
+	// enough to reach offset+windowSize, diversify only the [offset:offset+windowSize]
+	// window, then keep its top MMR.Limit.
+	sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: uint32(pageSize), Balance: 0.5}}
+	window := func(res []search.Result, offset, size int) []search.Result {
+		if offset < 0 {
+			offset = 0
+		}
+		if offset >= len(res) {
+			return []search.Result{}
+		}
+		end := offset + size
+		if end > len(res) {
+			end = len(res)
+		}
+		return res[offset:end]
+	}
+	runSearch := func(offset int) []search.Result {
 		candidates, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
-				Limit:  pool,
+				Limit:  offset + windowSize,
 			},
 			AdditionalProperties: additional.Properties{Vector: true},
 		}, []string{""}, []models.Vector{queryVec})
 		require.Nil(t, err)
 
-		diversified, err := repo.DiversifyResults(context.Background(), sel, className, "", candidates, true)
+		diversified, err := repo.DiversifyResults(context.Background(), sel, className, "",
+			window(candidates, offset, windowSize), true)
 		require.Nil(t, err)
 
-		if offset >= len(diversified) {
-			return []search.Result{}
-		}
-		end := offset + int(mmrLimit)
-		if end > len(diversified) {
-			end = len(diversified)
-		}
-		return diversified[offset:end]
+		return window(diversified, 0, pageSize)
 	}
 
 	ids := func(res []search.Result) []string {
@@ -136,17 +146,15 @@ func TestVectorSelectionPagination(t *testing.T) {
 		return out
 	}
 
-	page1 := runSearch(0, pageSize)
-	page2 := runSearch(pageSize, pageSize)
-	full := runSearch(0, 2*pageSize)
+	page1 := runSearch(0)
+	page2 := runSearch(windowSize)
 
 	require.Len(t, page1, pageSize, "page1 should return MMR.Limit results")
-	require.Len(t, page2, pageSize, "page2 should return MMR.Limit results")
-	require.Len(t, full, 2*pageSize)
+	require.Len(t, page2, pageSize, "deep page should return real results, not empty")
 
-	ids1, ids2, idsFull := ids(page1), ids(page2), ids(full)
+	ids1, ids2 := ids(page1), ids(page2)
 
-	// No overlap between consecutive pages.
+	// Disjoint windows ⇒ no overlap between pages.
 	seen := map[string]bool{}
 	for _, id := range ids1 {
 		seen[id] = true
@@ -155,13 +163,9 @@ func TestVectorSelectionPagination(t *testing.T) {
 		require.Falsef(t, seen[id], "id %s appears on both page1 and page2", id)
 	}
 
-	// Pages tile a single stable diversified ordering.
-	require.Equal(t, idsFull[:pageSize], ids1, "page1 must equal full[:pageSize]")
-	require.Equal(t, idsFull[pageSize:2*pageSize], ids2, "page2 must equal full[pageSize:2*pageSize]")
+	// Same offset is deterministic.
+	require.Equal(t, ids1, ids(runSearch(0)), "same offset must return the same page")
 
-	// Regression: paging past the pool must return empty, never duplicates.
-	big := runSearch(0, total*2)
-	beyond := runSearch(total*2, total*2)
-	require.Len(t, big, total, "page size > pool returns the whole pool once")
-	require.Empty(t, beyond, "paging beyond the pool returns empty, not duplicates")
+	// Paging past the dataset (no data, not an artificial cap) returns empty.
+	require.Empty(t, runSearch(total), "a window past the dataset returns empty")
 }

@@ -277,8 +277,9 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 
-	// MMR is terminal: fetch a Boost.Depth-deep pool, boost re-ranks it, MMR
-	// diversifies the top `mmrPool` (query Limit), then paginate by MMR.Limit.
+	// MMR is terminal and per-window: fetch deep enough to reach offset+limit, boost
+	// re-ranks it, MMR diversifies the [offset:offset+limit] relevance window, then
+	// returns its top MMR.Limit. offset advances by limit, so windows are disjoint.
 	mmr := params.Selection != nil && params.Selection.MMR != nil
 	var (
 		mmrTargetVector     string
@@ -297,7 +298,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 		pool := *params.Pagination
 		pool.Offset = 0
-		pool.Limit = e.mmrFetchDepth(params.Boost, mmrPool)
+		pool.Limit = e.mmrFetchDepth(params.Boost, mmrOffset+mmrPool)
 		params.Pagination = &pool
 
 		if mmrTargetVector == "" {
@@ -315,15 +316,15 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	}
 
 	if mmr {
-		if mmrPool > 0 && len(res) > mmrPool {
-			res = res[:mmrPool]
-		}
+		// Diversify only the [offset:offset+limit] relevance window, then keep its top
+		// MMR.Limit. The window already consumes the offset, so the page is the prefix.
+		res = paginateResults(res, mmrOffset, mmrPool)
 		relevanceFromDist := params.Boost == nil || params.Boost.Weight <= 0
 		res, err = e.searcher.DiversifyResults(ctx, params.Selection, params.ClassName, mmrTargetVector, res, relevanceFromDist)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "explorer: get class: diversify results")
 		}
-		res = paginateResults(res, mmrOffset, mmrLimit)
+		res = paginateResults(res, 0, mmrLimit)
 		if stripDefaultVector || stripVector != "" {
 			for i := range res {
 				if stripDefaultVector {
@@ -342,11 +343,12 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, nil
 }
 
-// mmrFetchDepth returns the candidate pool to fetch before MMR: Boost.Depth when
-// boost is active (so it re-ranks that deep), else the MMR pool itself.
-func (e *Explorer) mmrFetchDepth(boost *filters.Boost, mmrPool int) int {
+// mmrFetchDepth returns how deep to fetch before MMR. It must reach at least windowEnd
+// (offset+limit) so the [offset:offset+limit] window is populated; when boost is active it
+// fetches Boost.Depth deep (so boost re-ranks that deep), floored at windowEnd.
+func (e *Explorer) mmrFetchDepth(boost *filters.Boost, windowEnd int) int {
 	if boost == nil || boost.Weight <= 0 {
-		return mmrPool
+		return windowEnd
 	}
 	depth := boost.Depth
 	if depth == 0 {
@@ -355,8 +357,8 @@ func (e *Explorer) mmrFetchDepth(boost *filters.Boost, mmrPool int) int {
 	if depth > int(e.config.QueryMaximumResults) {
 		depth = int(e.config.QueryMaximumResults)
 	}
-	if depth < mmrPool {
-		depth = mmrPool
+	if depth < windowEnd {
+		depth = windowEnd
 	}
 	return depth
 }

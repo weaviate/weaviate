@@ -92,12 +92,14 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 			"post-fusion selection did not reorder+paginate results: %v", names)
 	})
 
-	t.Run("MMR pagination tiles the diversified pool", func(t *testing.T) {
-		// Pages must tile one stable ordering with no overlap.
+	t.Run("MMR pagination diversifies disjoint windows", func(t *testing.T) {
+		// offset advances by the query Limit (window size), so consecutive pages
+		// diversify disjoint relevance windows: no overlap, and deep pages return
+		// real results rather than paging off the end of a fixed pool.
 		newExplorer := func() (*Explorer, *fakeVectorSearcher) {
 			searcher := &fakeVectorSearcher{}
 			searcher.On("VectorSearch", mock.Anything, mock.Anything).
-				Return(makeHybridVectorResults(10), nil)
+				Return(makeHybridVectorResults(20), nil)
 			searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, results []search.Result) ([]search.Result, error) {
 				reversed := make([]search.Result, len(results))
 				for i := range results {
@@ -120,11 +122,13 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 			return idsFromResponse(res)
 		}
 
+		// Window [0:10] reversed → top 3; window [10:20] reversed → top 3.
 		page1 := page(0)
-		page2 := page(3)
+		page2 := page(10)
 		require.Equal(t, []string{"Item 09", "Item 08", "Item 07"}, page1)
-		require.Equal(t, []string{"Item 06", "Item 05", "Item 04"}, page2)
-		// No overlap between consecutive pages.
+		require.Equal(t, []string{"Item 19", "Item 18", "Item 17"}, page2,
+			"deep page must diversify its own window, not return empty")
+		// No overlap between disjoint windows.
 		for _, n := range page1 {
 			assert.NotContains(t, page2, n)
 		}

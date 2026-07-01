@@ -229,9 +229,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
 		subSearchLimit = params.Boost.OriginalLimit
 	}
-	// Under MMR, fetch Boost.Depth deep per leg so boost re-ranks that deep.
+	// Under MMR, fetch deep enough to reach the [offset:offset+limit] window (and
+	// Boost.Depth deep when boost is active so it re-ranks that deep).
 	if origParams.Selection != nil && origParams.Selection.MMR != nil {
-		if d := e.mmrFetchDepth(origParams.Boost, params.Pagination.Limit); d > subSearchLimit {
+		windowEnd := origParams.Pagination.Offset + params.Pagination.Limit
+		if d := e.mmrFetchDepth(origParams.Boost, windowEnd); d > subSearchLimit {
 			subSearchLimit = d
 		}
 	}
@@ -277,10 +279,15 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			keywordParams.AdditionalProperties.Vectors = withVectorTarget(keywordParams.AdditionalProperties.Vectors, targetVector)
 		}
 
-		// Query Limit is the MMR candidate pool; MMR.Limit is the page size.
+		// Query Limit is the MMR window size; MMR.Limit is the page size. offset advances
+		// by Limit, so each page diversifies the disjoint [offset:offset+Limit] window.
 		pool := origParams.Pagination.Limit
 		if pool <= 0 {
 			pool = int(e.config.QueryHybridMaximumResults)
+		}
+		offset := origParams.Pagination.Offset
+		if offset < 0 {
+			offset = 0
 		}
 		selTargetVector := targetVector
 		boost := origParams.Boost
@@ -288,9 +295,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			if boost != nil && boost.Weight > 0 {
 				fused = boostScoreAndSort(fused, boost)
 			}
-			if len(fused) > pool {
-				fused = fused[:pool]
-			}
+			fused = paginateResults(fused, offset, pool)
 			return e.searcher.DiversifyResults(ctx, origParams.Selection, origParams.ClassName, selTargetVector, fused, false)
 		}
 	}
@@ -498,10 +503,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		offset = 0
 	}
 
-	// Under MMR the query Limit was the candidate pool, so MMR.Limit is the page size.
+	// Under MMR the query Limit was the window size, so MMR.Limit is the page size, and
+	// the [offset:offset+Limit] window was already applied before diversify — so the page
+	// is the diversified prefix (offset 0 here).
 	pageLimit := origParams.Pagination.Limit
 	if origParams.Selection != nil && origParams.Selection.MMR != nil {
 		pageLimit = int(origParams.Selection.MMR.Limit)
+		offset = 0
 	}
 	if pageLimit <= 0 {
 		pageLimit = int(e.config.QueryHybridMaximumResults)
