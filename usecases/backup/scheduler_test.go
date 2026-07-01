@@ -1653,46 +1653,10 @@ func TestSchedulerCreateBackupIncludeUsers(t *testing.T) {
 
 	var (
 		cls         = "Class-A"
-		node        = "Node-A"
 		backendName = "gcs"
 		backupID    = "1"
-		any         = mock.Anything
 		ctx         = context.Background()
-		path        = "dst/path"
-		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq        = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
-		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
-
-	t.Run("resolves includeUsers and returns them in the response", func(t *testing.T) {
-		req := BackupRequest{
-			ID:           backupID,
-			Include:      []string{cls},
-			Backend:      backendName,
-			IncludeUsers: []string{"ns1:*"},
-		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		fs.userLister.users = []string{"ns1:alice", "ns1:bob", "ns2:carol"}
-		fs.selector.On("ListClasses", ctx).Return([]string{cls})
-		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
-		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
-		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
-		fs.client.On("CanCommit", any, node, any).Return(cresp, nil)
-		fs.client.On("Commit", any, node, sReq).Return(nil)
-		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
-		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
-		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
-
-		resp, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
-		require.Nil(t, err)
-		// ns2:carol must not leak in: only ns1:* was requested.
-		assert.ElementsMatch(t, []string{"ns1:alice", "ns1:bob"}, resp.Users)
-		assert.Equal(t, []string{cls}, resp.Classes)
-	})
 
 	t.Run("duplicate includeUsers selector is rejected", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
@@ -1795,10 +1759,8 @@ func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
 		fs.userLister.users = []string{"ns1:alice", "ns1:bob", "ns2:carol"}
 		setup(fs, &req)
 
-		resp, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
 		require.Nil(t, err)
-		assert.ElementsMatch(t, []string{"ns1:alice", "ns1:bob"}, resp.Users)
-		// ns2:carol must not leak in: only ns1:* was requested.
 		assert.ElementsMatch(t, []string{"ns1:alice", "ns1:bob"}, fs.backend.glMeta.UserList())
 	})
 
@@ -1811,9 +1773,8 @@ func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		setup(fs, &req)
 
-		resp, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
 		require.Nil(t, err)
-		assert.Empty(t, resp.Users)
 		assert.Nil(t, fs.backend.glMeta.Users)
 	})
 }

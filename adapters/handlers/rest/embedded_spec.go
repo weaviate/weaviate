@@ -7257,13 +7257,6 @@ func init() {
             "CANCELLING",
             "CANCELED"
           ]
-        },
-        "users": {
-          "description": "The list of dynamic DB users included in the backup, resolved from the request's ` + "`" + `includeUsers` + "`" + ` selectors. Empty unless ` + "`" + `includeUsers` + "`" + ` was supplied.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       }
     },
@@ -18337,13 +18330,6 @@ func init() {
             "CANCELLING",
             "CANCELED"
           ]
-        },
-        "users": {
-          "description": "The list of dynamic DB users included in the backup, resolved from the request's ` + "`" + `includeUsers` + "`" + ` selectors. Empty unless ` + "`" + `includeUsers` + "`" + ` was supplied.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       }
     },

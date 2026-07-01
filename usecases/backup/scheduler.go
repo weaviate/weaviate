@@ -186,7 +186,6 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		status := string(st.Status)
 		return &models.BackupCreateResponse{
 			Classes: classes,
-			Users:   users,
 			ID:      req.ID,
 			Backend: req.Backend,
 			Status:  &status,
