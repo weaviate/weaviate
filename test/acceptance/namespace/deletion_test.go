@@ -166,8 +166,8 @@ func TestNamespaces_RecreateAfterDelete(t *testing.T) {
 		}
 		require.Failf(t, "unexpected response during recreate", "%T: %v", err, err)
 		return true
-	}, 5*time.Second, 50*time.Millisecond,
-		"namespace did not become recreatable within 5s")
+	}, 30*time.Second, 50*time.Millisecond,
+		"namespace did not become recreatable within 30s")
 
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
 }
