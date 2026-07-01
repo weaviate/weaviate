@@ -28,7 +28,9 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	termCount, minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) (*priorityqueue.Queue[[]*terms.DocPointerWithScore], error) {
 	var docInfos []*terms.DocPointerWithScore
-	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
+	// limit+1: InsertAndPop holds limit+1 items between insert and pop, so an
+	// exact-limit capacity forces one slice regrow per query.
+	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit + 1)
 	worstDist := float64(-10000) // tf score can be negative
 	results.sortByID()
 	iterations := 0
@@ -36,8 +38,18 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	pivotID := uint64(0)
 	var pivotPoint int
 	upperBound := float32(0)
+	// needFullSort tracks whether shallow advances have run since the last full
+	// sortByID. Shallow advances move idPointers (and can exhaust terms) in place,
+	// so the slice may hold inversions or mis-placed exhausted sentinels that only
+	// a full sort repairs. While false, the matched branch can restore order with
+	// a per-advanced-term re-insertion instead of re-sorting all terms — matched
+	// iterations themselves never shallow-advance (their live prefix is already
+	// aligned, so currentBlockMaxId >= pivotID), so matched-dense queries stay on
+	// the cheap path.
+	needFullSort := false
 
-	// nil for a non-cancellable ctx; guard below then skips the select.
+	// a nil ctx is tolerated (some callers pass none): a nil done channel never
+	// selects, so cancellation is simply disabled rather than panicking.
 	var done <-chan struct{}
 	if ctx != nil {
 		done = ctx.Done()
@@ -116,47 +128,82 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 		}
 
 		upperBound = float32(0)
-		for i := 0; i <= pivotPoint; i++ {
-			// No exhausted guard: shallow-advance no-ops and impact is 0 when
-			// exhausted; and currentBlockMaxId isn't an exhausted sentinel (can be 0).
-			t := results[i]
+		// reslice to [0,pivotPoint] (pivotPoint < len, guaranteed by the pivotID
+		// check above) so the compiler drops the per-iteration bounds check.
+		candidates := results[:pivotPoint+1]
+		for i := range candidates {
+			// exhausted terms carry currentBlockMaxId==MaxUint64 (so the shallow
+			// advance is skipped) and currentBlockImpact==0 (so the add is a no-op),
+			// so no explicit exhausted guard is needed here.
+			t := candidates[i]
 			if t.currentBlockMaxId < pivotID {
+				// a real shallow advance moves idPointer without re-sorting (and may
+				// even exhaust mid-array), so the slice may then hold inversions that
+				// only a full sortByID repairs — see the matched branch. blockEntryIdx
+				// changes on every actual move/exhaust but not on the early-return
+				// no-op (docCount==1 terms never initialize currentBlockMaxId, so the
+				// guard over-fires for them; the no-op must not defeat the fast path).
+				prevBlockIdx := t.blockEntryIdx
 				t.AdvanceAtLeastShallow(pivotID)
+				if t.blockEntryIdx != prevBlockIdx {
+					needFullSort = true
+				}
 			}
 			upperBound += t.currentBlockImpact
 		}
 
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
-			if additionalExplanations {
-				docInfos = make([]*terms.DocPointerWithScore, termCount)
-			}
-			if pivotID == results[firstNonExhausted].idPointer {
-				score := 0.0
-				termsMatched := 0
-				for _, term := range results {
-					if term.idPointer != pivotID {
-						break
-					}
-					termsMatched++
-					_, s, d := term.Score(averagePropLength, additionalExplanations)
-					score += s
-
+			firstTerm := results[firstNonExhausted]
+			if pivotID == firstTerm.idPointer {
+				// a deferred tombstone hit: advance the aligned terms past the pivot
+				// (below) but skip scoring/enqueue. See deferTombstoneToScore.
+				pivotTombstoned := deferTombstoneToScore && firstTerm.tombstoned(pivotID)
+				if !pivotTombstoned {
 					if additionalExplanations {
-						docInfos[term.QueryTermIndex()] = d
+						docInfos = make([]*terms.DocPointerWithScore, termCount)
 					}
+					score := 0.0
+					termsMatched := 0
+					for _, term := range results {
+						if term.idPointer != pivotID {
+							break
+						}
+						termsMatched++
+						_, s, d := term.Score(averagePropLength, additionalExplanations)
+						score += s
 
+						if additionalExplanations {
+							docInfos[term.QueryTermIndex()] = d
+						}
+
+					}
+					if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumOrTokensMatch {
+						topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+					}
 				}
+				advanced := 0
 				for _, term := range results {
 					if !term.exhausted && term.idPointer != pivotID {
 						break
 					}
 					term.Advance()
-				}
-				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumOrTokensMatch {
-					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+					advanced++
 				}
 
-				results.sortByID()
+				if needFullSort {
+					results.sortByID()
+					needFullSort = false
+				} else {
+					// only the advanced prefix moved (each idPointer increased) and the
+					// suffix is inversion-free, so re-inserting the prefix right-to-left
+					// yields the exact permutation a full stable sortByID would: at each
+					// step the suffix is already sorted, and reinsertRight's strict `<`
+					// settles equal ids in original index order, matching insertion-sort
+					// stability.
+					for i := advanced - 1; i >= 0; i-- {
+						results.reinsertRight(i)
+					}
+				}
 
 			} else {
 				nextList := pivotPoint
@@ -174,13 +221,15 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			maxWeight := results[nextList].idf
 			next := uint64(math.MaxUint64) // max uint
 
-			for i := 0; i <= pivotPoint; i++ {
-				if i < pivotPoint && results[i].idf > maxWeight {
+			candidates := results[:pivotPoint+1]
+			for i := range candidates {
+				t := candidates[i]
+				if i < pivotPoint && t.idf > maxWeight {
 					nextList = i
-					maxWeight = results[i].idf
+					maxWeight = t.idf
 				}
-				if results[i].currentBlockMaxId < next {
-					next = results[i].currentBlockMaxId
+				if t.currentBlockMaxId < next {
+					next = t.currentBlockMaxId
 				}
 			}
 
@@ -215,7 +264,9 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	results := TermsBySize(resultsByTerm)
 	var docInfos []*terms.DocPointerWithScore
-	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
+	// limit+1: InsertAndPop holds limit+1 items between insert and pop, so an
+	// exact-limit capacity forces one slice regrow per query.
+	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit + 1)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	iterations := 0
@@ -226,40 +277,41 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 		return topKHeap
 	}
 
+	ctxCheck := 0
 	for {
 		iterations++
 
-		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
-			segmentPath := ""
-			terms := ""
-			filterCardinality := -1
-			for _, r := range results {
-				if r == nil {
-					continue
-				}
-				if r.segment != nil {
-					segmentPath = r.segment.path
-					if r.filterDocIds != nil {
-						filterCardinality = r.filterDocIds.Len()
+		// periodic cancellation check; countdown instead of a 64-bit modulo on the
+		// hot loop (same change as DoBlockMaxWand), same every-100000 cadence.
+		ctxCheck++
+		if ctxCheck == 100000 {
+			ctxCheck = 0
+			if ctx != nil && ctx.Err() != nil {
+				segmentPath := ""
+				terms := ""
+				filterCardinality := -1
+				for _, r := range results {
+					if r == nil {
+						continue
 					}
+					if r.segment != nil {
+						segmentPath = r.segment.path
+						if r.filterDocIds != nil {
+							filterCardinality = r.filterDocIds.Len()
+						}
+					}
+					terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
 				}
-				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
-			}
-			logger.WithFields(logrus.Fields{
-				"segment":           segmentPath,
-				"iterations":        iterations,
-				"pivotID":           pivotID,
-				"lenResults":        len(results),
-				"upperBound":        upperBound,
-				"terms":             terms,
-				"filterCardinality": filterCardinality,
-				"limit":             limit,
-			}).Warnf("DoBlockMaxAnd: search timed out, returning partial results")
-			return topKHeap
-		}
-
-		for i := 0; i < len(results); i++ {
-			if results[i].exhausted {
+				logger.WithFields(logrus.Fields{
+					"segment":           segmentPath,
+					"iterations":        iterations,
+					"pivotID":           pivotID,
+					"lenResults":        len(results),
+					"upperBound":        upperBound,
+					"terms":             terms,
+					"filterCardinality": filterCardinality,
+					"limit":             limit,
+				}).Warnf("DoBlockMaxAnd: search timed out, returning partial results")
 				return topKHeap
 			}
 		}
@@ -272,12 +324,17 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 
 		pivotID = results[0].idPointer
 
+		// AND is terminal the instant any term exhausts: no higher doc id can align
+		// across every term, so the heap is frozen and we return at the advance site
+		// rather than rescanning all terms at the top of each iteration. results[0]
+		// is covered just above; the others can only exhaust here or in the
+		// candidate-advance loop below.
+		upperBound = results[0].currentBlockImpact
 		for i := 1; i < len(results); i++ {
 			results[i].AdvanceAtLeastShallow(pivotID)
-		}
-
-		upperBound = float32(0)
-		for i := 0; i < len(results); i++ {
+			if results[i].exhausted {
+				return topKHeap
+			}
 			upperBound += results[i].currentBlockImpact
 		}
 
@@ -285,26 +342,37 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 			isCandidate := true
 			for i := 1; i < len(results); i++ {
 				results[i].AdvanceAtLeast(pivotID)
+				if results[i].exhausted {
+					return topKHeap
+				}
 				if results[i].idPointer != pivotID {
 					isCandidate = false
 					break
 				}
 			}
 			if isCandidate {
-				score := 0.0
-				if additionalExplanations {
-					docInfos = make([]*terms.DocPointerWithScore, termCount)
-				}
-				for _, term := range results {
-					_, s, d := term.Score(averagePropLength, additionalExplanations)
-					score += s
-					if additionalExplanations {
-						docInfos[term.QueryTermIndex()] = d
+				// deferred tombstone hit (see deferTombstoneToScore): advance past the
+				// candidate without scoring it.
+				if deferTombstoneToScore && results[0].tombstoned(pivotID) {
+					for _, term := range results {
+						term.Advance()
 					}
-					term.Advance()
-				}
-				if topKHeap.ShouldEnqueue(float32(score), limit) {
-					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+				} else {
+					score := 0.0
+					if additionalExplanations {
+						docInfos = make([]*terms.DocPointerWithScore, termCount)
+					}
+					for _, term := range results {
+						_, s, d := term.Score(averagePropLength, additionalExplanations)
+						score += s
+						if additionalExplanations {
+							docInfos[term.QueryTermIndex()] = d
+						}
+						term.Advance()
+					}
+					if topKHeap.ShouldEnqueue(float32(score), limit) {
+						topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+					}
 				}
 			} else {
 				pivotID += 1
@@ -328,7 +396,9 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 func DoWand(ctx context.Context, limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
 	minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
-	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
+	// limit+1: InsertAndPop holds limit+1 items between insert and pop, so an
+	// exact-limit capacity forces one slice regrow per query.
+	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit + 1)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	iterations := 0

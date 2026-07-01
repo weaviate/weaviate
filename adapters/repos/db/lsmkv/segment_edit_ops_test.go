@@ -15,54 +15,29 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
-	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	bolt "go.etcd.io/bbolt"
 )
-
-// openSegmentEditOps opens (creating if necessary) the edit-ops store for the
-// segment group rooted at dir. buildTransformer is the injected, storobj-opaque
-// builder used by BuildCurrentTransformer; pass nil when no transformation is
-// needed (the store is then used only for op bookkeeping).
-//
-// It lives in the test file because on this branch the facility has no
-// production caller yet — the wiring (newSegmentGroup opening it via the bucket
-// option) lands in a later stacked PR, which reintroduces a production
-// constructor.
-func openSegmentEditOps(dir string, buildTransformer transformerBuilder) (*SegmentEditOps, error) {
-	// One handle per segment group is the invariant. A non-zero Timeout turns a
-	// would-be-forever hang on an accidental second open into a fast, debuggable
-	// error; it never affects the single-open path (the file lock is uncontended).
-	db, err := bolt.Open(filepath.Join(dir, segmentEditOpsFileName), 0o600,
-		&bolt.Options{Timeout: 5 * time.Second})
-	if err != nil {
-		return nil, fmt.Errorf("open segment edit ops db: %w", err)
-	}
-
-	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, name := range [][]byte{editOpsBucketOperations, editOpsBucketPending, editOpsBucketQuarantine} {
-			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("init segment edit ops buckets: %w", err)
-	}
-
-	return &SegmentEditOps{db: db, buildTransformer: buildTransformer}, nil
-}
 
 func newTestEditOps(t *testing.T) *SegmentEditOps {
 	t.Helper()
-	s, err := openSegmentEditOps(t.TempDir(), nil)
-	require.NoError(t, err)
+	s := newSegmentEditOps(t.TempDir(), "")
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return s
+}
+
+// staticResolver builds a transformerResolver from a fixed op-type→factory map,
+// so tests can inject fakes (including op types absent from the real registry).
+func staticResolver(m map[OpType]OpTransformerFactory) transformerResolver {
+	return func(opType OpType) (OpTransformerFactory, bool) {
+		f, ok := m[opType]
+		return f, ok
+	}
 }
 
 func set(ids ...string) map[string]struct{} {
@@ -272,15 +247,13 @@ func TestSegmentEditOps_ReconcileDeletesOrphanedOps(t *testing.T) {
 func TestSegmentEditOps_PersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 
-	s, err := openSegmentEditOps(dir, nil)
-	require.NoError(t, err)
+	s := newSegmentEditOps(dir, "")
 	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
 	require.NoError(t, s.SnapshotSegments("op1", []string{"seg1", "seg2"}))
 	require.NoError(t, s.BumpAttempt("op1", "seg1", errors.New("boom")))
 	require.NoError(t, s.Close())
 
-	reopened, err := openSegmentEditOps(dir, nil)
-	require.NoError(t, err)
+	reopened := newSegmentEditOps(dir, "")
 	defer reopened.Close()
 
 	ops, err := reopened.LoadOps()
@@ -323,4 +296,225 @@ func TestSegmentEditOps_SnapshotSegmentsRequiresRegisteredOp(t *testing.T) {
 	p, err := s.Pending("unregistered")
 	require.NoError(t, err)
 	assert.Empty(t, p)
+}
+
+// TestSegmentEditOps_BuildCurrentTransformerDispatchesByOpType pins the design
+// Dirk asked for: the persisted ops — via their OpType — drive which transformer
+// runs. The resolver maps a type to its factory; BuildCurrentTransformer selects
+// only the resolvable types present in the sidecar and chains them in CreatedAt
+// order. Op types with no factory are silently skipped.
+func TestSegmentEditOps_BuildCurrentTransformerDispatchesByOpType(t *testing.T) {
+	const (
+		opA OpType = "op_a"
+		opB OpType = "op_b"
+	)
+	// Each factory appends a tag so the output reveals which transformers ran and
+	// in what order.
+	tagFactory := func(tag string) OpTransformerFactory {
+		return func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
+			return func(v []byte) ([]byte, error) { return append(v, tag...), nil }
+		}
+	}
+	newStore := func(t *testing.T, transformers map[OpType]OpTransformerFactory) *SegmentEditOps {
+		s := newSegmentEditOpsWithLookup(t.TempDir(), "", staticResolver(transformers))
+		t.Cleanup(func() { require.NoError(t, s.Close()) })
+		return s
+	}
+
+	t.Run("only registered op types contribute", func(t *testing.T) {
+		s := newStore(t, map[OpType]OpTransformerFactory{opA: tagFactory("A")})
+		require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 1}))
+		require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 2})) // no factory
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		require.NotNil(t, transformer)
+		out, err := transformer([]byte("v:"))
+		require.NoError(t, err)
+		assert.Equal(t, "v:A", string(out))
+		require.Len(t, applied, 1)
+		assert.Equal(t, "a1", applied[0].ID)
+	})
+
+	t.Run("multiple types chain in CreatedAt order", func(t *testing.T) {
+		s := newStore(t, map[OpType]OpTransformerFactory{opA: tagFactory("A"), opB: tagFactory("B")})
+		require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 1}))
+		require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 2}))
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		out, err := transformer([]byte("v:"))
+		require.NoError(t, err)
+		assert.Equal(t, "v:BA", string(out), "opB (CreatedAt 1) must apply before opA (CreatedAt 2)")
+		require.Len(t, applied, 2)
+	})
+
+	t.Run("no registered type present yields nil transformer", func(t *testing.T) {
+		s := newStore(t, map[OpType]OpTransformerFactory{opA: tagFactory("A")})
+		require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 1}))
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		assert.Nil(t, transformer)
+		assert.Nil(t, applied)
+	})
+
+	t.Run("empty registry yields nil transformer", func(t *testing.T) {
+		s := newStore(t, nil)
+		require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 1}))
+
+		transformer, applied, err := s.BuildCurrentTransformer()
+		require.NoError(t, err)
+		assert.Nil(t, transformer)
+		assert.Nil(t, applied)
+	})
+}
+
+// TestSegmentEditOps_WarnsOnMissingTransformer pins the observability guard: when
+// the sidecar holds an op whose type has no registered transformer (a forgotten
+// registry entry, or a leftover after downgrade), BuildCurrentTransformer skips it
+// safely but logs a warning — once per type, not once per pass — so the stalled
+// operation is visible instead of silently never completing.
+func TestSegmentEditOps_WarnsOnMissingTransformer(t *testing.T) {
+	const (
+		opA OpType = "op_a"
+		opB OpType = "op_b" // no factory registered for this type
+	)
+	logger, hook := test.NewNullLogger()
+	s := newSegmentEditOpsWithLookup(t.TempDir(), "", staticResolver(map[OpType]OpTransformerFactory{
+		opA: func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
+			return func(v []byte) ([]byte, error) { return v, nil }
+		},
+	}))
+	s.logger = logger
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("a1", OpDescriptor{Type: opA, CreatedAt: 1}))
+	require.NoError(t, s.RegisterOp("b1", OpDescriptor{Type: opB, CreatedAt: 2}))
+
+	_, applied, err := s.BuildCurrentTransformer()
+	require.NoError(t, err)
+	require.Len(t, applied, 1, "only the op with a registered transformer is applied")
+
+	warns := warnEntries(hook)
+	require.Len(t, warns, 1, "exactly one warning for the unsupported op type")
+	assert.Equal(t, opB, warns[0].Data["op_type"])
+	assert.Equal(t, "b1", warns[0].Data["op_id"])
+
+	// Deduped: re-running the pass over the same unsupported type does not re-log.
+	_, _, err = s.BuildCurrentTransformer()
+	require.NoError(t, err)
+	require.Len(t, warnEntries(hook), 1, "the warning is emitted once per op type, not once per pass")
+}
+
+func warnEntries(hook *test.Hook) []*logrus.Entry {
+	var out []*logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// TestSegmentEditOps_ReadPathsNeverCreateSidecar pins the headline lazy-open
+// invariant: every read/bookkeeping path is a clean no-op on a store that has
+// never seen an op, and crucially none of them materializes the bolt file. The
+// constantly-running compaction/cleanup/reconcile cycles call these on every
+// idle objects bucket; a single ensureOpen slip here would litter the data
+// directory with empty sidecars (breaking backups and disk accounting). Each
+// case runs against a fresh store so a leak in one method can't be masked by
+// another.
+func TestSegmentEditOps_ReadPathsNeverCreateSidecar(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(t *testing.T, s *SegmentEditOps)
+	}{
+		{"LoadOps", func(t *testing.T, s *SegmentEditOps) {
+			ops, err := s.LoadOps()
+			require.NoError(t, err)
+			assert.Empty(t, ops)
+		}},
+		{"Pending", func(t *testing.T, s *SegmentEditOps) {
+			p, err := s.Pending("op1")
+			require.NoError(t, err)
+			assert.Empty(t, p)
+		}},
+		{"AllPending", func(t *testing.T, s *SegmentEditOps) {
+			p, err := s.AllPending()
+			require.NoError(t, err)
+			assert.Empty(t, p)
+		}},
+		{"Quarantined", func(t *testing.T, s *SegmentEditOps) {
+			q, err := s.Quarantined()
+			require.NoError(t, err)
+			assert.Empty(t, q)
+		}},
+		{"MarkSegmentDone", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.MarkSegmentDone("op1", "seg1"))
+		}},
+		{"BumpAttempt", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.BumpAttempt("op1", "seg1", errors.New("boom")))
+		}},
+		{"Quarantine", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.Quarantine("op1", "seg1"))
+		}},
+		{"DeleteOp", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.DeleteOp("op1"))
+		}},
+		{"Reconcile", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.Reconcile(set("seg1"), set("op1")))
+		}},
+		{"RecordCompaction", func(t *testing.T, s *SegmentEditOps) {
+			require.NoError(t, s.RecordCompaction("a", "b", nil))
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s := newSegmentEditOps(dir, "")
+			t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+			tt.call(t, s)
+
+			require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName),
+				"%s must not materialize the sidecar on an idle store", tt.name)
+		})
+	}
+}
+
+// TestSegmentEditOps_ConcurrentOpenIsSafe exercises the mu-guarded one-time open
+// under -race: many goroutines racing to register the first op must converge on
+// a single bolt handle with no torn open and no lost write.
+func TestSegmentEditOps_ConcurrentOpenIsSafe(t *testing.T) {
+	s := newTestEditOps(t)
+
+	const n = 16
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = s.RegisterOp(fmt.Sprintf("op%d", i), removeOp("foo"))
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	ops, err := s.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, n)
+}
+
+// TestSegmentEditOps_CloseWithoutOpenIsNoop pins that Close on a never-opened
+// store (the common idle-bucket shutdown) is a clean no-op and creates nothing.
+func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	s := newSegmentEditOps(dir, "")
+	require.NoError(t, s.Close())
+	require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName))
 }

@@ -1325,6 +1325,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
+		appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger,
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {

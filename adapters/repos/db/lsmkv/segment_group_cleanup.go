@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +29,22 @@ const (
 	cleanupDbFileName     = "cleanup.db.bolt"
 	emptyIdx              = -1
 	minCleanupSizePercent = 10
+	// cleanupAllocCheckBytes is the headroom required before starting a rewrite;
+	// matches the heuristic cleanup path's guard.
+	cleanupAllocCheckBytes = 100 * 1024 * 1024
 )
+
+// errCleanupPaused signals an edit-ops cleanup pass to stop without counting the
+// segment as a failed attempt (a pause under memory pressure, not a
+// quarantine-eligible error).
+var errCleanupPaused = errors.New("cleanup paused due to memory pressure")
+
+// errCleanupAborted is returned by the segment rewrite when shouldAbort fires
+// mid-pass (e.g. shutdown). Like errCleanupPaused it is NOT a quarantine-eligible
+// failure: an interrupted-but-otherwise-healthy segment must not be bumped toward
+// quarantine just because a shutdown or a frequently-firing abort cut the rewrite
+// short. Matches the heuristic path, which persists no attempt counter at all.
+var errCleanupAborted = errors.New("cleanup aborted")
 
 var (
 	cleanupDbBucketSegments       = []byte("segments")
@@ -421,6 +437,17 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		return false, nil
 	}
 
+	// While any edit operation has pending segments, cleanup is driven by the
+	// pending set (every pending segment must be rewritten through the
+	// transformer), bypassing the time/size heuristic and the cleanupInterval.
+	// Normal cleanup resumes once there are no pending segments.
+	if c.sg.editOps != nil && c.sg.strategy == StrategyReplace {
+		cleaned, handled, err := c.cleanupOnceEditOps(shouldAbort)
+		if handled || err != nil {
+			return cleaned, err
+		}
+	}
+
 	var candidateIdx, startIdx, lastIdx int
 	var onCompleted onCompletedFunc
 	var tmpSegmentPath string
@@ -440,7 +467,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		if c.sg.allocChecker != nil {
 			// allocChecker is optional
-			if err := c.sg.allocChecker.CheckAlloc(100 * 1024 * 1024); err != nil {
+			if err := c.sg.allocChecker.CheckAlloc(cleanupAllocCheckBytes); err != nil {
 				// if we don't have at least 100MB to spare, don't start a cleanup. A
 				// cleanup does not actually need a 100MB, but it will create garbage
 				// that needs to be cleaned up. If we're so close to the memory limit, we
@@ -468,13 +495,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 		oldSegment := segments[candidateIdx]
 		segmentId := segmentID(oldSegment.getPath())
-		var filename string
-		if c.sg.writeSegmentInfoIntoFileName {
-			filename = "segment-" + segmentId + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy()) + ".db.tmp"
-		} else {
-			filename = "segment-" + segmentId + ".db.tmp"
-		}
-		tmpSegmentPath = filepath.Join(c.sg.dir, filename)
+		tmpSegmentPath = c.sg.tmpSegmentPath(oldSegment, segmentId)
 		start := time.Now()
 		c.sg.logger.WithFields(logrus.Fields{
 			"action":       "lsm_cleanup",
@@ -507,16 +528,10 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		case StrategyReplace:
 			var transformer valueTransformer
 			if c.sg.editOps != nil {
-				// This is the heuristic (tombstone) cleanup path, which picks its
-				// own candidate rather than draining the edit-ops pending set, so it
-				// neither re-queues (no merge) nor marks anything done. That is safe
-				// because a single-segment cleanup keeps the segment ID
-				// (replaceSegment -> switchOnDisk strips .tmp back to the same
-				// segment-<id>.db): any edit-ops pending row for this segment still
-				// points at a live, now-stripped segment, so the edit-ops cleanup
-				// driver re-cleans it idempotently and then marks it done. The ID
-				// never changes here, so a pending row can never be orphaned onto a
-				// missing segment.
+				// Heuristic cleanup applies the transformer but neither re-queues nor
+				// marks done. Safe because it keeps the segment ID, so any edit-ops
+				// pending row still points at the live, now-stripped segment and the
+				// edit-ops driver re-cleans it idempotently — never orphaned.
 				transformer, _, err = c.sg.editOps.BuildCurrentTransformer()
 				if err != nil {
 					return false, err
@@ -561,6 +576,214 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	}
 
 	return true, nil
+}
+
+// maxCleanupAttempts caps per-segment rewrite retries before quarantine (C6), so
+// a permanently-failing segment can't retry forever.
+const maxCleanupAttempts = 5
+
+// cleanupOnceEditOps drives cleanup from the edit-ops pending set, rewriting ONE
+// pending segment per pass through the transformer, marking it done on success
+// and bumping/quarantining on failure. handled is false (so the caller falls back
+// to the default heuristic) only when there are no pending segments.
+//
+// One-segment-per-pass is deliberate: compaction and cleanup share this segment
+// group's single compact-or-cleanup goroutine, so draining the whole pending set
+// in one pass would starve compaction. Returning after one segment (cleaned=true
+// re-runs the cycle promptly while work remains) lets the two interleave.
+//
+// Marking an op done is sound: every op in the pending snapshot was registered
+// before BuildCurrentTransformer read the live ops, so the transformer strips its
+// target — we never clear a row whose data wasn't actually stripped. The
+// rewrite -> replaceSegment -> markRowsDone sequence is not one transaction, but
+// it is crash-safe: cleanup keeps the segment ID, so a crash after replaceSegment
+// leaves a stripped segment under the same ID with stale pending rows that the
+// next pass re-cleans idempotently (no S8-style orphaning onto a renamed output).
+func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.ShouldAbortCallback,
+) (cleaned bool, handled bool, err error) {
+	pending, err := c.sg.editOps.AllPending()
+	if err != nil {
+		return false, true, fmt.Errorf("load pending edit-op segments: %w", err)
+	}
+	if len(pending) == 0 {
+		return false, false, nil
+	}
+
+	transformer, _, err := c.sg.editOps.BuildCurrentTransformer()
+	if err != nil {
+		return false, true, err
+	}
+	if transformer == nil {
+		// Pending rows but no transformer to apply. Not a normal path: it means
+		// orphan rows (an op deleted between AllPending and the build, before
+		// Reconcile pruned them) or no builder wired. Skip rather than
+		// passthrough-rewrite + markRowsDone, which would silently complete a drop
+		// without stripping; Reconcile / a later pass resolves it. Logged because
+		// it is unexpected.
+		c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+			Warn("edit-ops cleanup: pending rows but no active transformer; skipping pass")
+		return false, true, nil
+	}
+
+	if shouldAbort() {
+		return false, true, nil
+	}
+
+	// Take the first pending segment; group its rows so it is rewritten once even
+	// when several ops have it pending (the transformer already covers all ops).
+	segID := pending[0].SegmentID
+	var rows []PendingSegment
+	for _, p := range pending {
+		if p.SegmentID == segID {
+			rows = append(rows, p)
+		}
+	}
+
+	idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
+	if cerr != nil {
+		if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
+			// Memory pressure (pause) or a cycle-manager abort (e.g. shutdown):
+			// stop without bumping attempts so a transient pause/abort can't push a
+			// healthy segment toward quarantine. The heuristic path keeps no attempt
+			// counter, so this matches its free-retry behaviour.
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("edit-ops cleanup interrupted before completing segment %q (not counted as a failed attempt): %v", segID, cerr)
+			return false, true, nil
+		}
+		if e := c.bumpOrQuarantine(rows, cerr); e != nil {
+			return false, true, e
+		}
+		return false, true, nil
+	}
+	if !found {
+		// No longer in the live segment set (merged away by a concurrent
+		// compaction); drop the stale rows.
+		if e := c.markRowsDone(rows); e != nil {
+			return false, true, e
+		}
+		return true, true, nil
+	}
+
+	// idx still points at segID. Safe today only because compaction and cleanup
+	// are serialized on this segment group's single goroutine and flush is
+	// append-only, so no index-shifting op interleaves between the consistent view
+	// in cleanPendingSegmentToTmp and this swap. Re-validate by ID so a future
+	// scheduling change (e.g. moving cleanup to its own cycle) fails loudly here
+	// instead of swapping the wrong segment.
+	if !c.sg.segmentAtPositionHasID(idx, segID) {
+		return false, true, fmt.Errorf(
+			"edit-ops cleanup: segment at position %d is no longer %q; aborting swap", idx, segID)
+	}
+	if _, e := c.sg.replaceSegment(idx, tmpPath); e != nil {
+		return false, true, fmt.Errorf("replace cleaned segment: %w", e)
+	}
+	if e := c.markRowsDone(rows); e != nil {
+		return true, true, e
+	}
+	return true, true, nil
+}
+
+// cleanPendingSegmentToTmp locates the segment by id and rewrites it (minus keys
+// shadowed by newer segments, transformer applied) into a .tmp file. found is
+// false when the segment is no longer in the live segment set (merged away by a
+// concurrent compaction); idx is consumed by replaceSegment. Returns
+// errCleanupPaused if memory pressure should pause the pass before the rewrite.
+func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
+	transformer valueTransformer, shouldAbort cyclemanager.ShouldAbortCallback,
+) (idx int, tmpPath string, found bool, err error) {
+	segments, release := c.sg.getConsistentViewOfSegments()
+	defer release()
+
+	idx = emptyIdx
+	for i, seg := range segments {
+		if segmentID(seg.getPath()) == segID {
+			idx = i
+			break
+		}
+	}
+	if idx == emptyIdx {
+		return emptyIdx, "", false, nil
+	}
+
+	// Mirror the heuristic path's OOM guard: a rewrite produces a full copy of the
+	// segment, so under memory pressure pause the pass (errCleanupPaused) rather
+	// than push the system further. A pause must not count as a failed attempt.
+	if c.sg.allocChecker != nil {
+		if err := c.sg.allocChecker.CheckAlloc(cleanupAllocCheckBytes); err != nil {
+			return emptyIdx, "", false, errCleanupPaused
+		}
+	}
+
+	oldSegment := segments[idx]
+	tmpPath = c.sg.tmpSegmentPath(oldSegment, segID)
+
+	file, err := os.Create(tmpPath)
+	if err != nil {
+		return emptyIdx, "", false, err
+	}
+
+	// The last segment has no newer segments to shadow it; it is rewritten
+	// purely to apply the transformer.
+	var keyExists keyExistsOnUpperSegmentsFunc
+	if idx >= len(segments)-1 {
+		keyExists = func([]byte) (bool, error) { return false, nil }
+	} else {
+		keyExists = c.sg.makeKeyExistsOnUpperSegments(segments, idx+1, len(segments)-1)
+	}
+
+	cleaner := newSegmentCleanerReplace(file, oldSegment.newCursor(), keyExists,
+		oldSegment.getLevel(), oldSegment.getSecondaryIndexCount(),
+		c.sg.enableChecksumValidation, transformer)
+	if err := cleaner.do(shouldAbort); err != nil {
+		file.Close()
+		return emptyIdx, "", false, err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return emptyIdx, "", false, fmt.Errorf("fsync cleaned segment file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return emptyIdx, "", false, fmt.Errorf("close cleaned segment file: %w", err)
+	}
+
+	return idx, tmpPath, true, nil
+}
+
+// tmpSegmentPath returns the .tmp path a cleaned/rewritten segment with the given
+// id writes to, before replaceSegment's stripTmpExtensions renames it to its final
+// name. Both cleanup paths (heuristic and edit-ops) MUST derive this identically —
+// any divergence makes the rename silently mismatch — so they share this helper.
+func (sg *SegmentGroup) tmpSegmentPath(seg Segment, id string) string {
+	filename := "segment-" + id + ".db.tmp"
+	if sg.writeSegmentInfoIntoFileName {
+		filename = "segment-" + id + segmentExtraInfo(seg.getLevel(), seg.getStrategy()) + ".db.tmp"
+	}
+	return filepath.Join(sg.dir, filename)
+}
+
+func (c *segmentCleanerCommon) markRowsDone(rows []PendingSegment) error {
+	for _, p := range rows {
+		if err := c.sg.editOps.MarkSegmentDone(p.OpID, p.SegmentID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// bumpOrQuarantine records a failed rewrite for each op that had the segment
+// pending, quarantining it once it has failed maxCleanupAttempts times (C6).
+func (c *segmentCleanerCommon) bumpOrQuarantine(rows []PendingSegment, cause error) error {
+	for _, p := range rows {
+		if err := c.sg.editOps.BumpAttempt(p.OpID, p.SegmentID, cause); err != nil {
+			return err
+		}
+		if p.Attempts+1 >= maxCleanupAttempts {
+			if err := c.sg.editOps.Quarantine(p.OpID, p.SegmentID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 type onCompletedFunc func(size int64) error
