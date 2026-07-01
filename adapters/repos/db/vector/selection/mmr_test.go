@@ -19,7 +19,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
+
+func TestNew_MMRBalanceValidation(t *testing.T) {
+	provider := distancer.NewL2SquaredProvider()
+	distFn := provider.SingleDist
+	vecForID := makeVecForID(nil)
+
+	tests := []struct {
+		name    string
+		balance float32
+		wantErr bool
+	}{
+		{"below range", -0.1, true},
+		{"above range", 1.1, true},
+		{"lower bound", 0, false},
+		{"upper bound", 1, false},
+		{"midpoint", 0.5, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 5, Balance: tt.balance}}
+			s, err := New(sel, distFn, vecForID, 5)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, s)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, s)
+			}
+		})
+	}
+}
 
 // makeVecForID builds a simple vecForID backed by an in-memory map.
 func makeVecForID(vecs map[uint64][]float32) func(ctx context.Context, id uint64) ([]float32, error) {

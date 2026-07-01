@@ -37,10 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestVectorSelectionPagination: MMR diversifies the [offset:offset+limit] relevance
-// window and returns its top MMR.Limit. Query Limit = window size; MMR.Limit = page size;
-// Offset advances by Limit, so windows are disjoint and deep pages return real,
-// duplicate-free results.
 func TestVectorSelectionPagination(t *testing.T) {
 	className := "VectorSelectionPaging"
 	const total = 20
@@ -168,4 +164,107 @@ func TestVectorSelectionPagination(t *testing.T) {
 
 	// Paging past the dataset (no data, not an artificial cap) returns empty.
 	require.Empty(t, runSearch(total), "a window past the dataset returns empty")
+}
+
+func TestVectorSelectionMultiShardGlobalDiversity(t *testing.T) {
+	className := "VectorSelectionMultiShard"
+	const total = 30
+	const window = 20
+	const pageSize = 5
+
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	shardState := multiShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger, "node1")
+
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
+	require.Nil(t, migrator.AddClass(context.Background(), class))
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+
+	require.Greater(t, len(shardState.AllPhysicalShards()), 1, "test requires more than one shard")
+
+	perShard := map[string]int{}
+	for i := 0; i < total; i++ {
+		vec := []float32{float32(i) / float32(total), 1 - float32(i)/float32(total), 0.25}
+		id := strfmt.UUID(uuid.Must(uuid.NewRandom()).String())
+		obj := &models.Object{ID: id, Class: className}
+		require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0))
+		perShard[shardState.PhysicalShard([]byte(id))]++
+	}
+	require.Greater(t, len(perShard), 1, "objects must be spread across multiple shards")
+
+	queryVec := []float32{0.1, 0.9, 0.25}
+
+	candidates, err := repo.VectorSearch(context.Background(), dto.GetParams{
+		ClassName:            className,
+		Pagination:           &filters.Pagination{Offset: 0, Limit: window},
+		AdditionalProperties: additional.Properties{Vector: true},
+	}, []string{""}, []models.Vector{queryVec})
+	require.Nil(t, err)
+	require.Len(t, candidates, window)
+
+	for i := 1; i < len(candidates); i++ {
+		require.LessOrEqualf(t, candidates[i-1].Dist, candidates[i].Dist,
+			"merged candidates must be globally distance-sorted across shards")
+	}
+
+	ids := func(res []search.Result) []string {
+		out := make([]string, len(res))
+		for i := range res {
+			out[i] = res[i].ID.String()
+		}
+		return out
+	}
+
+	pureRel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: pageSize, Balance: 1}}
+	diversified, err := repo.DiversifyResults(context.Background(), pureRel, className, "", candidates, true)
+	require.Nil(t, err)
+	require.Equal(t, ids(candidates[:pageSize]), ids(diversified[:pageSize]))
+
+	diverse := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: pageSize, Balance: 0.3}}
+	page, err := repo.DiversifyResults(context.Background(), diverse, className, "", candidates, true)
+	require.Nil(t, err)
+	require.GreaterOrEqual(t, len(page), pageSize)
+	require.Equal(t, candidates[0].ID, page[0].ID, "MMR seed must be the globally most relevant result")
+
+	seen := map[string]bool{}
+	for _, id := range ids(page[:pageSize]) {
+		require.Falsef(t, seen[id], "id %s selected twice", id)
+		seen[id] = true
+	}
 }

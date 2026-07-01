@@ -77,6 +77,7 @@ type fakeVectorSearcher struct {
 
 	diversifyFn                      func(selection *searchparams.Selection, className, targetVector string, results []search.Result) ([]search.Result, error)
 	diversifyCalledSel               *searchparams.Selection
+	diversifyCalledTarget            string
 	diversifyCalledRelevanceFromDist bool
 }
 
@@ -143,6 +144,7 @@ func (f *fakeVectorSearcher) DiversifyResults(ctx context.Context, selection *se
 	className, targetVector string, results []search.Result, relevanceFromDist bool,
 ) ([]search.Result, error) {
 	f.diversifyCalledSel = selection
+	f.diversifyCalledTarget = targetVector
 	f.diversifyCalledRelevanceFromDist = relevanceFromDist
 	if f.diversifyFn != nil {
 		return f.diversifyFn(selection, className, targetVector, results)
