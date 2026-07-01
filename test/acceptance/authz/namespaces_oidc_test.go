@@ -505,6 +505,48 @@ func TestNamespacesOIDC(t *testing.T) {
 			require.True(t, errors.As(delErr, &delForbidden), "got %T: %v", delErr, delErr)
 		})
 	})
+
+	// Reading one's OWN group's roles surfaces an operator-reserved role bound to
+	// that group (the own-group relaxation in visibleRolesForSubject), though the
+	// same caller cannot see it via getRole/getRoles.
+	t.Run("own-group self-read surfaces a reserved role that getRole/getRoles hide", func(t *testing.T) {
+		const groupName = "AllUsers"
+		const reserved = "operator_grpselfread"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: authorization.String(reserved),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().
+					WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, reserved)
+		helper.AssignRoleToGroup(t, adminKey, reserved, groupName)
+		defer helper.RevokeRoleFromGroup(t, adminKey, reserved, groupName)
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-customer1-group-member")
+
+		hasRole := func(roles []*models.Role, name string) bool {
+			for _, r := range roles {
+				if r.Name != nil && *r.Name == name {
+					return true
+				}
+			}
+			return false
+		}
+
+		// Self-read of the member's own group lists the reserved role.
+		require.True(t, hasRole(helper.GetRolesForGroup(t, token, groupName, false), reserved),
+			"own-group self-read must surface the reserved role bound to the caller's group")
+
+		// The same member cannot see that reserved role directly: getRole 404s and
+		// getRoles omits it — proof the visibility comes from the own-group relaxation.
+		_, err := helper.Client(t).Authz.GetRole(
+			clauthz.NewGetRoleParams().WithID(reserved), helper.CreateAuth(token))
+		var notFound *clauthz.GetRoleNotFound
+		require.True(t, errors.As(err, &notFound), "reserved role must be hidden from getRole; got %T: %v", err, err)
+		require.False(t, hasRole(helper.GetRoles(t, token), reserved),
+			"reserved role must not appear in the member's getRoles list")
+	})
 }
 
 // collectionNames returns each collections permission's collection.
