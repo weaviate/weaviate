@@ -483,6 +483,22 @@ func TestNamespaceAwareMatcherGate(t *testing.T) {
 		"NS-enabled: users/.* specializes to the caller's namespace")
 	assert.False(t, call(true, "users/customer2:bob", "users/.*", "customer1"),
 		"NS-enabled: cross-namespace user access denied")
+
+	// Operator-only domains are denied to namespaced callers (ns != "") even
+	// when a delegated role's wildcard policy would otherwise match, but stay
+	// reachable for the global caller (ns == "").
+	for _, dom := range []string{"backups", "nodes", "replicate", "cluster", "namespaces"} {
+		req := dom + "/anything"
+		assert.False(t, namespaceAwareMatcher(req, dom+"/.*", "customer1"),
+			"namespaced caller must be denied operator-only domain %q", dom)
+		assert.True(t, namespaceAwareMatcher(req, dom+"/.*", ""),
+			"global caller must reach operator-only domain %q", dom)
+	}
+
+	// roles/groups are namespace-bearing via qualified names, so the gate must
+	// not blanket-deny them for namespaced callers.
+	assert.True(t, call(true, "roles/customer1:editor", "roles/.*", "customer1"),
+		"namespaced caller keeps access to its own qualified role")
 }
 
 // TestRewriteSegment locks the contract of the per-segment rewriter directly,
