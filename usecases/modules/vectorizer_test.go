@@ -322,11 +322,8 @@ func newUUID() strfmt.UUID {
 	return strfmt.UUID(uuid.NewString())
 }
 
-// countingText2VecModule / countingText2ColBERTModule record how many objects
-// would actually be sent to the embedding model. They count in BOTH the
-// single-object path (VectorizeObject) and the batch path (VectorizeBatch, where
-// objects flagged in skipObject are NOT sent to the model), so a single counter
-// works for every journey under test.
+// countingText2VecModule / countingText2ColBERTModule count embedding-model calls in
+// both the single-object and batch (honoring skipObject) paths.
 
 type countingText2VecModule struct {
 	dummyText2VecModuleNoCapabilities
@@ -378,8 +375,6 @@ func (m *countingText2ColBERTModule) VectorizeBatch(ctx context.Context,
 	return vecs, nil, map[int]error{}
 }
 
-// newCountingProvider returns a Provider with a call-counting vectorizer module
-// registered under moduleName, plus a pointer to its embedding-call counter.
 func newCountingProvider(moduleName string, multiVector, revectorizeCheckDisabled bool) (*Provider, *int) {
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{
@@ -400,8 +395,6 @@ func newCountingProvider(moduleName string, multiVector, revectorizeCheckDisable
 	return p, &calls
 }
 
-// newSourcePropsTestClass builds a "Products" class with one named vector backed
-// by moduleName and the given source_properties config value.
 func newSourcePropsTestClass(moduleName, targetVector string, sourceProperties any) *models.Class {
 	return &models.Class{
 		Class:      "Products",
@@ -412,8 +405,8 @@ func newSourcePropsTestClass(moduleName, targetVector string, sourceProperties a
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			targetVector: {
-				Vectorizer: map[string]interface{}{
-					moduleName: map[string]interface{}{
+				Vectorizer: map[string]any{
+					moduleName: map[string]any{
 						"vectorizeClassName": false,
 						"properties":         sourceProperties,
 					},
@@ -425,9 +418,7 @@ func newSourcePropsTestClass(moduleName, targetVector string, sourceProperties a
 	}
 }
 
-// staticFindObject returns a FindObjectFn that yields the same old props and
-// vector for every id.
-func staticFindObject(targetVector string, oldProps map[string]interface{}, oldVector models.Vector) modulecapabilities.FindObjectFn {
+func staticFindObject(targetVector string, oldProps map[string]any, oldVector models.Vector) modulecapabilities.FindObjectFn {
 	return func(ctx context.Context, className string, oid strfmt.UUID,
 		props search.SelectProperties, adds additional.Properties, tenant string,
 	) (*search.Result, error) {
@@ -438,9 +429,6 @@ func staticFindObject(targetVector string, oldProps map[string]interface{}, oldV
 	}
 }
 
-// sourcePropsTestVectors returns the previously-stored vector and the freshly
-// recomputed sentinel for a journey, matching the vectorizer's type (single
-// []float32 vs multi [][]float32).
 func sourcePropsTestVectors(multiVector bool) (stored, recomputed models.Vector) {
 	if multiVector {
 		return [][]float32{{1, 2, 3}, {1, 2, 3}}, [][]float32{{9, 9, 9}, {9, 9, 9}}
@@ -448,10 +436,8 @@ func sourcePropsTestVectors(multiVector bool) (stored, recomputed models.Vector)
 	return []float32{1, 2, 3}, []float32{9, 9, 9}
 }
 
-// mergedPropsForChange returns the merged property set for an update that changes
-// exactly one property (the PATCH/merge result).
-func mergedPropsForChange(changedProp string) map[string]interface{} {
-	props := map[string]interface{}{"vector_input": "embed me", "delivery_label": "1 day"}
+func mergedPropsForChange(changedProp string) map[string]any {
+	props := map[string]any{"vector_input": "embed me", "delivery_label": "1 day"}
 	switch changedProp {
 	case "delivery_label":
 		props["delivery_label"] = "2 days"
@@ -461,7 +447,6 @@ func mergedPropsForChange(changedProp string) map[string]interface{} {
 	return props
 }
 
-// runUpdateVector runs the single-object or batch update path and asserts success.
 func runUpdateVector(t *testing.T, p *Provider, class *models.Class, obj *models.Object,
 	findObject modulecapabilities.FindObjectFn, batch bool,
 ) {
@@ -476,8 +461,6 @@ func runUpdateVector(t *testing.T, p *Provider, class *models.Class, obj *models
 	require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
 }
 
-// assertStoredVector checks that the object kept the preserved old vector when
-// re-vectorization was skipped, or the freshly computed sentinel when it ran.
 func assertStoredVector(t *testing.T, obj *models.Object, targetVector string, multiVector, revectorized bool) {
 	t.Helper()
 	stored, recomputed := sourcePropsTestVectors(multiVector)
@@ -489,19 +472,8 @@ func assertStoredVector(t *testing.T, obj *models.Object, targetVector string, m
 }
 
 // TestUpdateVector_RespectsNamedVectorSourceProperties is a regression test for
-// https://github.com/weaviate/weaviate/issues/11781
-//
-// A partial update (single-object PATCH/merge, or batch) must only re-vectorize a
-// named vector when one of its configured source_properties actually changed.
-//
-// The bug: Provider.vectorize() / batchUpdateVector() failed to read the source
-// properties — vectorize() used a `properties.([]string)` assertion that never
-// matched the []interface{} a schema config is deserialized into, and the batch
-// path passed a hardcoded nil. With the source-property list dropped,
-// reVectorizeEmbeddings compared every text property, so any changed text
-// property forced an embedding call.
-//
-// Covered journeys: {single-object, batch} x {regular vector, multi-vector}.
+// https://github.com/weaviate/weaviate/issues/11781: a partial update must only
+// re-vectorize when a configured source_property actually changed.
 func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 	const targetVector = "vector_input"
 	const moduleName = "my-module"
@@ -519,19 +491,19 @@ func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 
 	cases := []struct {
 		name               string
-		sourceProperties   interface{}
+		sourceProperties   any
 		changedProp        string
 		wantVectorizeCalls int
 	}{
 		{
 			name:               "[]interface{} source props; change NON-source prop -> skip",
-			sourceProperties:   []interface{}{"vector_input"},
+			sourceProperties:   []any{"vector_input"},
 			changedProp:        "delivery_label",
 			wantVectorizeCalls: 0,
 		},
 		{
 			name:               "[]interface{} source props; change SOURCE prop -> re-vectorize",
-			sourceProperties:   []interface{}{"vector_input"},
+			sourceProperties:   []any{"vector_input"},
 			changedProp:        "vector_input",
 			wantVectorizeCalls: 1,
 		},
@@ -542,10 +514,9 @@ func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 			wantVectorizeCalls: 0,
 		},
 		{
-			// empty source props => no explicit list => fall back to comparing all
-			// text props, so changing any text prop re-vectorizes.
+			// empty source props => no explicit list => all text props compared.
 			name:               "empty source props; change a text prop -> re-vectorize",
-			sourceProperties:   []interface{}{},
+			sourceProperties:   []any{},
 			changedProp:        "delivery_label",
 			wantVectorizeCalls: 1,
 		},
@@ -556,11 +527,9 @@ func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 			t.Run(j.name+"/"+tc.name, func(t *testing.T) {
 				p, calls := newCountingProvider(moduleName, j.multiVector, false)
 				class := newSourcePropsTestClass(moduleName, targetVector, tc.sourceProperties)
-				oldProps := map[string]interface{}{"vector_input": "embed me", "delivery_label": "1 day"}
+				oldProps := map[string]any{"vector_input": "embed me", "delivery_label": "1 day"}
 				storedVector, _ := sourcePropsTestVectors(j.multiVector)
 
-				// Merged object as produced by the PATCH/merge path: previous props
-				// overlaid with the single updated property and no vector supplied.
 				obj := &models.Object{
 					Class:      class.Class,
 					ID:         newUUID(),
@@ -573,31 +542,27 @@ func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 
 				require.Equalf(t, tc.wantVectorizeCalls, *calls,
 					"unexpected number of embedding-model invocations")
-				// The stored vector must also be correct: the old vector is
-				// preserved on skip, the freshly computed sentinel on re-vectorize.
 				assertStoredVector(t, obj, targetVector, j.multiVector, tc.wantVectorizeCalls > 0)
 			})
 		}
 	}
 }
 
-// TestBatchUpdateVector_MixedSkipAndRevectorize exercises the batch-specific
-// per-object skip decision and the mapping of VectorizeBatch results back to the
-// right objects: in a single batch, an object whose source property changed must
-// be re-vectorized while an object whose non-source property changed must keep
-// its stored vector. A single-object batch cannot catch a mis-indexed result.
+// TestBatchUpdateVector_MixedSkipAndRevectorize: in one batch, the changed-source
+// object must re-vectorize while the unchanged one keeps its vector — checks the
+// per-object skip and result-to-object mapping (a 1-object batch can't catch this).
 func TestBatchUpdateVector_MixedSkipAndRevectorize(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	const targetVector = "vector_input"
 	const moduleName = "my-module"
 
 	p, calls := newCountingProvider(moduleName, false, false)
-	class := newSourcePropsTestClass(moduleName, targetVector, []interface{}{"vector_input"})
+	class := newSourcePropsTestClass(moduleName, targetVector, []any{"vector_input"})
 
 	changedID := newUUID()   // source property changes -> must re-vectorize
 	unchangedID := newUUID() // only a non-source property changes -> must skip
 
-	oldProps := map[strfmt.UUID]map[string]interface{}{
+	oldProps := map[strfmt.UUID]map[string]any{
 		changedID:   {"vector_input": "A old", "delivery_label": "x"},
 		unchangedID: {"vector_input": "B keep", "delivery_label": "x"},
 	}
@@ -616,11 +581,11 @@ func TestBatchUpdateVector_MixedSkipAndRevectorize(t *testing.T) {
 
 	objChanged := &models.Object{
 		Class: class.Class, ID: changedID, Vectors: models.Vectors{},
-		Properties: map[string]interface{}{"vector_input": "A NEW", "delivery_label": "x"},
+		Properties: map[string]any{"vector_input": "A NEW", "delivery_label": "x"},
 	}
 	objUnchanged := &models.Object{
 		Class: class.Class, ID: unchangedID, Vectors: models.Vectors{},
-		Properties: map[string]interface{}{"vector_input": "B keep", "delivery_label": "y changed"},
+		Properties: map[string]any{"vector_input": "B keep", "delivery_label": "y changed"},
 	}
 
 	vecErrors, err := p.BatchUpdateVector(context.Background(), class,
@@ -636,27 +601,23 @@ func TestBatchUpdateVector_MixedSkipAndRevectorize(t *testing.T) {
 		"unchanged-source object must keep its stored vector (correct result-to-object mapping)")
 }
 
-// TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes verifies that when
-// the re-vectorize check is globally disabled, an update re-vectorizes
-// unconditionally — even when only a non-source property changed — i.e. the
-// source-property skip path is bypassed.
+// TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes: with the check
+// disabled, an update re-vectorizes even when only a non-source property changed.
 func TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	const targetVector = "vector_input"
 	const moduleName = "my-module"
 
 	p, calls := newCountingProvider(moduleName, false, true)
-	class := newSourcePropsTestClass(moduleName, targetVector, []interface{}{"vector_input"})
+	class := newSourcePropsTestClass(moduleName, targetVector, []any{"vector_input"})
 
 	findObject := staticFindObject(targetVector,
-		map[string]interface{}{"vector_input": "embed me", "delivery_label": "1 day"},
+		map[string]any{"vector_input": "embed me", "delivery_label": "1 day"},
 		[]float32{1, 2, 3})
 
-	// Only the non-source property changes; with the check disabled this must
-	// still re-vectorize.
 	obj := &models.Object{
 		Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
-		Properties: map[string]interface{}{"vector_input": "embed me", "delivery_label": "2 days"},
+		Properties: map[string]any{"vector_input": "embed me", "delivery_label": "2 days"},
 	}
 
 	require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
@@ -664,10 +625,8 @@ func TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes(t *testing.T) {
 		"with RevectorizeCheckDisabled=true, updates must always re-vectorize")
 }
 
-// TestUpdateVector_NonTextSourcePropertyEndToEnd is the end-to-end counterpart of
-// the compare_test stale-vector coverage: through Provider.UpdateVector (which
-// runs the source-property extraction), changing only a numeric source property
-// must re-vectorize, while changing a non-source property must not.
+// TestUpdateVector_NonTextSourcePropertyEndToEnd: through Provider.UpdateVector,
+// a changed numeric source property re-vectorizes; a non-source change does not.
 func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	const targetVector = "vec"
@@ -683,10 +642,10 @@ func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
 			},
 			VectorConfig: map[string]models.VectorConfig{
 				targetVector: {
-					Vectorizer: map[string]interface{}{
-						moduleName: map[string]interface{}{
+					Vectorizer: map[string]any{
+						moduleName: map[string]any{
 							"vectorizeClassName": false,
-							"properties":         []interface{}{"price"},
+							"properties":         []any{"price"},
 						},
 					},
 					VectorIndexConfig: hnsw.UserConfig{},
@@ -698,18 +657,18 @@ func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
 
 	cases := []struct {
 		name      string
-		merged    map[string]interface{}
+		merged    map[string]any
 		wantCalls int
 	}{
-		{name: "source (price) changed -> re-vectorize", merged: map[string]interface{}{"price": 19.99, "label": "x"}, wantCalls: 1},
-		{name: "non-source (label) changed -> skip", merged: map[string]interface{}{"price": 9.99, "label": "y"}, wantCalls: 0},
+		{name: "source (price) changed -> re-vectorize", merged: map[string]any{"price": 19.99, "label": "x"}, wantCalls: 1},
+		{name: "non-source (label) changed -> skip", merged: map[string]any{"price": 9.99, "label": "y"}, wantCalls: 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p, calls := newCountingProvider(moduleName, false, false)
 			class := newClass()
 			findObject := staticFindObject(targetVector,
-				map[string]interface{}{"price": 9.99, "label": "x"}, []float32{1, 2, 3})
+				map[string]any{"price": 9.99, "label": "x"}, []float32{1, 2, 3})
 			obj := &models.Object{
 				Class: class.Class, ID: newUUID(), Properties: tc.merged, Vectors: models.Vectors{},
 			}
@@ -719,10 +678,8 @@ func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
 	}
 }
 
-// TestBatchUpdateVector_SubSecondDateSourceProperty pins the sub-second date bug on
-// the batch path: disk holds an RFC3339Nano string, the update supplies time.Time.
-// The corpus uses RFC3339, so the same instant must not re-vectorize at any
-// sub-second precision; a second-level change still must.
+// TestBatchUpdateVector_SubSecondDateSourceProperty: on the batch path a date stored
+// as an RFC3339Nano string vs supplied as time.Time must not re-vectorize the same instant.
 func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	const targetVector = "vec"
@@ -738,10 +695,10 @@ func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
 			},
 			VectorConfig: map[string]models.VectorConfig{
 				targetVector: {
-					Vectorizer: map[string]interface{}{
-						moduleName: map[string]interface{}{
+					Vectorizer: map[string]any{
+						moduleName: map[string]any{
 							"vectorizeClassName": false,
-							"properties":         []interface{}{"released"},
+							"properties":         []any{"released"},
 						},
 					},
 					VectorIndexConfig: hnsw.UserConfig{},
@@ -753,8 +710,8 @@ func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
 
 	cases := []struct {
 		name      string
-		diskDate  interface{} // RFC3339(Nano) string, as read from disk
-		newDate   interface{} // time.Time, as produced by validation on the update
+		diskDate  any // RFC3339(Nano) string, as read from disk
+		newDate   any // time.Time, as produced by validation on the update
 		wantCalls int
 	}{
 		{name: "same instant, microsecond string vs time.Time -> skip", diskDate: "2024-01-01T12:30:45.123456Z", newDate: time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC), wantCalls: 0},
@@ -766,10 +723,10 @@ func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
 			p, calls := newCountingProvider(moduleName, false, false)
 			class := newClass()
 			findObject := staticFindObject(targetVector,
-				map[string]interface{}{"released": tc.diskDate, "label": "x"}, []float32{1, 2, 3})
+				map[string]any{"released": tc.diskDate, "label": "x"}, []float32{1, 2, 3})
 			obj := &models.Object{
 				Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
-				Properties: map[string]interface{}{"released": tc.newDate, "label": "x"},
+				Properties: map[string]any{"released": tc.newDate, "label": "x"},
 			}
 			vecErrors, err := p.BatchUpdateVector(context.Background(), class, []*models.Object{obj}, findObject, logger)
 			require.NoError(t, err)

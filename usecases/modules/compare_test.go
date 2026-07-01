@@ -204,10 +204,8 @@ func TestCompareRevectorizeDisabled(t *testing.T) {
 	require.Equal(t, different, true)
 }
 
-// TestCompareRevectorize_NonTextSourceProperties pins the stale-vector bug: a
-// non-text source property (number/int/date/bool or an array variant) IS vectorized
-// when source properties are set, so changing it must re-vectorize. The comparator
-// previously diffed only text/text[]/media, leaving a stale vector.
+// TestCompareRevectorize_NonTextSourceProperties: a non-text source property is
+// vectorized when source properties are set, so changing it must re-vectorize.
 func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 	class := &models.Class{
 		Class: "MyClass",
@@ -222,8 +220,8 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			"v": {
-				Vectorizer: map[string]interface{}{
-					"my-module": map[string]interface{}{"vectorizeClassName": false},
+				Vectorizer: map[string]any{
+					"my-module": map[string]any{"vectorizeClassName": false},
 				},
 				VectorIndexType: "hnsw",
 			},
@@ -235,33 +233,31 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 	cases := []struct {
 		name        string
 		sourceProps []string
-		oldProps    map[string]interface{}
-		newProps    map[string]interface{}
+		oldProps    map[string]any
+		newProps    map[string]any
 		different   bool
 	}{
-		{name: "number unchanged", sourceProps: []string{"price"}, oldProps: map[string]interface{}{"price": 9.99}, newProps: map[string]interface{}{"price": 9.99}, different: false},
-		{name: "number changed", sourceProps: []string{"price"}, oldProps: map[string]interface{}{"price": 9.99}, newProps: map[string]interface{}{"price": 19.99}, different: true},
-		{name: "int unchanged", sourceProps: []string{"qty"}, oldProps: map[string]interface{}{"qty": 1}, newProps: map[string]interface{}{"qty": 1}, different: false},
-		{name: "int changed", sourceProps: []string{"qty"}, oldProps: map[string]interface{}{"qty": 1}, newProps: map[string]interface{}{"qty": 2}, different: true},
-		{name: "date changed", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T00:00:00Z"}, newProps: map[string]interface{}{"released": "2025-01-01T00:00:00Z"}, different: true},
-		{name: "bool changed", sourceProps: []string{"active"}, oldProps: map[string]interface{}{"active": true}, newProps: map[string]interface{}{"active": false}, different: true},
-		{name: "number array unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]interface{}{"sizes": []float64{1, 2}}, newProps: map[string]interface{}{"sizes": []float64{1, 2}}, different: false},
-		{name: "number array changed", sourceProps: []string{"sizes"}, oldProps: map[string]interface{}{"sizes": []float64{1, 2}}, newProps: map[string]interface{}{"sizes": []float64{1, 3}}, different: true},
-		{name: "mixed text+number source, only number changed", sourceProps: []string{"title", "price"}, oldProps: map[string]interface{}{"title": "a", "price": 9.99}, newProps: map[string]interface{}{"title": "a", "price": 19.99}, different: true},
-		{name: "non-source number changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]interface{}{"title": "a", "price": 9.99}, newProps: map[string]interface{}{"title": "a", "price": 19.99}, different: false},
-		// representation drift: the same logical value stored vs supplied with
-		// different Go types must NOT re-vectorize (rendered corpus form is equal).
-		{name: "date drift time.Time vs RFC3339 string, unchanged", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}, newProps: map[string]interface{}{"released": "2024-01-01T00:00:00Z"}, different: false},
-		// sub-second precision: disk holds an RFC3339Nano string, the update a time.Time;
-		// the corpus uses RFC3339 (no sub-seconds), so the same instant must not re-vectorize.
-		{name: "date sub-second drift string(micros) vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC)}, different: false},
-		{name: "date millisecond drift string vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T12:30:45.123Z"}, newProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC)}, different: false},
-		{name: "date changed at seconds despite sub-second noise", sourceProps: []string{"released"}, oldProps: map[string]interface{}{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]interface{}{"released": time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC)}, different: true},
-		{name: "int drift int64 vs float64, unchanged", sourceProps: []string{"qty"}, oldProps: map[string]interface{}{"qty": int64(5)}, newProps: map[string]interface{}{"qty": float64(5)}, different: false},
-		{name: "empty array drift []interface{} vs []float64, unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]interface{}{"sizes": []interface{}{}}, newProps: map[string]interface{}{"sizes": []float64{}}, different: false},
-		{name: "presence change (source prop removed)", sourceProps: []string{"price"}, oldProps: map[string]interface{}{"price": 9.99}, newProps: map[string]interface{}{}, different: true},
-		{name: "object source prop unchanged", sourceProps: []string{"meta"}, oldProps: map[string]interface{}{"meta": map[string]interface{}{"a": "b"}}, newProps: map[string]interface{}{"meta": map[string]interface{}{"a": "b"}}, different: false},
-		{name: "object source prop changed", sourceProps: []string{"meta"}, oldProps: map[string]interface{}{"meta": map[string]interface{}{"a": "b"}}, newProps: map[string]interface{}{"meta": map[string]interface{}{"a": "c"}}, different: true},
+		{name: "number unchanged", sourceProps: []string{"price"}, oldProps: map[string]any{"price": 9.99}, newProps: map[string]any{"price": 9.99}, different: false},
+		{name: "number changed", sourceProps: []string{"price"}, oldProps: map[string]any{"price": 9.99}, newProps: map[string]any{"price": 19.99}, different: true},
+		{name: "int unchanged", sourceProps: []string{"qty"}, oldProps: map[string]any{"qty": 1}, newProps: map[string]any{"qty": 1}, different: false},
+		{name: "int changed", sourceProps: []string{"qty"}, oldProps: map[string]any{"qty": 1}, newProps: map[string]any{"qty": 2}, different: true},
+		{name: "date changed", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T00:00:00Z"}, newProps: map[string]any{"released": "2025-01-01T00:00:00Z"}, different: true},
+		{name: "bool changed", sourceProps: []string{"active"}, oldProps: map[string]any{"active": true}, newProps: map[string]any{"active": false}, different: true},
+		{name: "number array unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]any{"sizes": []float64{1, 2}}, newProps: map[string]any{"sizes": []float64{1, 2}}, different: false},
+		{name: "number array changed", sourceProps: []string{"sizes"}, oldProps: map[string]any{"sizes": []float64{1, 2}}, newProps: map[string]any{"sizes": []float64{1, 3}}, different: true},
+		{name: "mixed text+number source, only number changed", sourceProps: []string{"title", "price"}, oldProps: map[string]any{"title": "a", "price": 9.99}, newProps: map[string]any{"title": "a", "price": 19.99}, different: true},
+		{name: "non-source number changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]any{"title": "a", "price": 9.99}, newProps: map[string]any{"title": "a", "price": 19.99}, different: false},
+		// representation drift: same logical value, different Go types -> must not re-vectorize.
+		{name: "date drift time.Time vs RFC3339 string, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}, newProps: map[string]any{"released": "2024-01-01T00:00:00Z"}, different: false},
+		// sub-second precision is dropped by the corpus, so the same instant must not re-vectorize.
+		{name: "date sub-second drift string(micros) vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC)}, different: false},
+		{name: "date millisecond drift string vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC)}, different: false},
+		{name: "date changed at seconds despite sub-second noise", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC)}, different: true},
+		{name: "int drift int64 vs float64, unchanged", sourceProps: []string{"qty"}, oldProps: map[string]any{"qty": int64(5)}, newProps: map[string]any{"qty": float64(5)}, different: false},
+		{name: "empty array drift []interface{} vs []float64, unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]any{"sizes": []any{}}, newProps: map[string]any{"sizes": []float64{}}, different: false},
+		{name: "presence change (source prop removed)", sourceProps: []string{"price"}, oldProps: map[string]any{"price": 9.99}, newProps: map[string]any{}, different: true},
+		{name: "object source prop unchanged", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": map[string]any{"a": "b"}}, newProps: map[string]any{"meta": map[string]any{"a": "b"}}, different: false},
+		{name: "object source prop changed", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": map[string]any{"a": "b"}}, newProps: map[string]any{"meta": map[string]any{"a": "c"}}, different: true},
 	}
 
 	for _, tt := range cases {
@@ -277,10 +273,8 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 	}
 }
 
-// TestCompareRevectorize_SkipIgnoredWithSourceProperties pins the skip+source stale
-// path: with source_properties set, a listed property is vectorized even with
-// skip:true (PropertyIndexed ignores skip), so the comparator must compare it. It
-// previously honored skip and never diffed it -> stale vector.
+// TestCompareRevectorize_SkipIgnoredWithSourceProperties: with source_properties set,
+// a listed skip:true property is still vectorized, so the comparator must compare it.
 func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
 	class := &models.Class{
 		Class:      "MyClass",
@@ -290,12 +284,12 @@ func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
 			{
 				Name:         "price",
 				DataType:     []string{schema.DataTypeNumber.String()},
-				ModuleConfig: map[string]interface{}{"my-module": map[string]interface{}{"skip": true}},
+				ModuleConfig: map[string]any{"my-module": map[string]any{"skip": true}},
 			},
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			"v": {
-				Vectorizer:      map[string]interface{}{"my-module": map[string]interface{}{"vectorizeClassName": false}},
+				Vectorizer:      map[string]any{"my-module": map[string]any{"vectorizeClassName": false}},
 				VectorIndexType: "hnsw",
 			},
 		},
@@ -305,22 +299,19 @@ func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
 
 	uid, _ := uuid.NewUUID()
 	uidfmt := strfmt.UUID(uid.String())
-	objsToReturn[uid.String()] = map[string]interface{}{"title": "a", "price": 9.99}
+	objsToReturn[uid.String()] = map[string]any{"title": "a", "price": 9.99}
 	objNew := &models.Object{
 		Class:      class.Class,
-		Properties: map[string]interface{}{"title": "a", "price": 19.99},
+		Properties: map[string]any{"title": "a", "price": 19.99},
 		ID:         uidfmt,
 	}
-	// price is in source_properties AND marked skip:true; it is still vectorized,
-	// so a change to it must re-vectorize despite the skip flag.
 	different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, []string{"price"}, "", findObject, false)
 	require.NoError(t, err)
 	require.True(t, different)
 }
 
-// TestCompareRevectorize_BlobSourceProperty pins the blob stale-vector case: a blob
-// is a base64 string and the corpus vectorizes any indexed string, so a changed blob
-// must re-vectorize. The comparator previously excluded blob -> stale vector.
+// TestCompareRevectorize_BlobSourceProperty: a blob is a base64 string the corpus
+// vectorizes like text, so a changed blob must re-vectorize.
 func TestCompareRevectorize_BlobSourceProperty(t *testing.T) {
 	class := &models.Class{
 		Class: "MyClass",
@@ -330,7 +321,7 @@ func TestCompareRevectorize_BlobSourceProperty(t *testing.T) {
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			"v": {
-				Vectorizer:      map[string]interface{}{"my-module": map[string]interface{}{"vectorizeClassName": false}},
+				Vectorizer:      map[string]any{"my-module": map[string]any{"vectorizeClassName": false}},
 				VectorIndexType: "hnsw",
 			},
 		},
@@ -341,17 +332,14 @@ func TestCompareRevectorize_BlobSourceProperty(t *testing.T) {
 	cases := []struct {
 		name        string
 		sourceProps []string
-		oldProps    map[string]interface{}
-		newProps    map[string]interface{}
+		oldProps    map[string]any
+		newProps    map[string]any
 		different   bool
 	}{
-		{name: "blob source prop changed", sourceProps: []string{"thumbnail"}, oldProps: map[string]interface{}{"thumbnail": "QQ=="}, newProps: map[string]interface{}{"thumbnail": "Qg=="}, different: true},
-		{name: "blob source prop unchanged", sourceProps: []string{"thumbnail"}, oldProps: map[string]interface{}{"thumbnail": "QQ=="}, newProps: map[string]interface{}{"thumbnail": "QQ=="}, different: false},
-		// no explicit source properties: a blob is still indexed/vectorized, so a
-		// change to it must re-vectorize (the fix is not gated on source props).
-		{name: "blob changed, no source props", sourceProps: nil, oldProps: map[string]interface{}{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]interface{}{"title": "a", "thumbnail": "Qg=="}, different: true},
-		// blob not listed as a source property: not vectorized -> must not re-vectorize.
-		{name: "non-source blob changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]interface{}{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]interface{}{"title": "a", "thumbnail": "Qg=="}, different: false},
+		{name: "blob source prop changed", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": "QQ=="}, newProps: map[string]any{"thumbnail": "Qg=="}, different: true},
+		{name: "blob source prop unchanged", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": "QQ=="}, newProps: map[string]any{"thumbnail": "QQ=="}, different: false},
+		{name: "blob changed, no source props", sourceProps: nil, oldProps: map[string]any{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]any{"title": "a", "thumbnail": "Qg=="}, different: true},
+		{name: "non-source blob changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]any{"title": "a", "thumbnail": "QQ=="}, newProps: map[string]any{"title": "a", "thumbnail": "Qg=="}, different: false},
 	}
 
 	for _, tt := range cases {
