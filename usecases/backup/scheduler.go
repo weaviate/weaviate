@@ -55,6 +55,9 @@ type Scheduler struct {
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
+	// nil when dynamic DB users are not enabled.
+	userLister UserLister
+	schema     schemaManger
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -62,6 +65,7 @@ func NewScheduler(
 	authorizer authorization.Authorizer,
 	client client,
 	sourcer Selector,
+	userLister UserLister,
 	backends BackupBackendProvider,
 	nodeResolver NodeResolver,
 	schema schemaManger,
@@ -71,6 +75,8 @@ func NewScheduler(
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
+		userLister: userLister,
+		schema:     schema,
 		backupper: newCoordinator(
 			sourcer,
 			client,
@@ -147,7 +153,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	classes, err := s.validateBackupRequest(ctx, store, req)
+	classes, users, err := s.validateBackupRequest(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
@@ -167,6 +173,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		ID:           req.ID,
 		Backend:      req.Backend,
 		Classes:      classes,
+		Users:        users,
 		Compression:  req.Compression,
 		Bucket:       req.Bucket,
 		Path:         req.Path,
@@ -622,34 +629,36 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	return cs, nil
 }
 
-func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
+// validateBackupRequest resolves the request into concrete classes and
+// users. users is empty unless includeUsers was supplied.
+func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (classes, users []string, err error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendDBRO
+		return nil, nil, errLocalBackendDBRO
 	}
 
 	if err := validateID(req.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if req.BaseBackupID != "" {
 		if err := validateID(req.BaseBackupID); err != nil {
-			return nil, fmt.Errorf("base backup id: %w", err)
+			return nil, nil, fmt.Errorf("base backup id: %w", err)
 		}
 		if req.ID == req.BaseBackupID {
-			return nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
+			return nil, nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
 		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, errIncludeExclude
+		return nil, nil, errIncludeExclude
 	}
 
 	if dup := findDuplicate(req.Include); dup != "" {
-		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+		return nil, nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 
 	// Get all available classes first for wildcard expansion
 	allClasses := s.backupper.selector.ListClasses(ctx)
 	if len(allClasses) == 0 {
-		return nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
+		return nil, nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
 	}
 
 	// Expand wildcards in Include list
@@ -658,31 +667,74 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	// Expand wildcards in Exclude list
 	exclude := expandWildcards(req.Exclude, allClasses)
 
-	classes := include
+	classes = include
 	if len(classes) == 0 {
 		classes = allClasses
 	}
 	if classes = filterClasses(classes, exclude); len(classes) == 0 {
-		return nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
+		return nil, nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
 	}
 
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	users, err = s.resolveUsers(req.IncludeUsers)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// validate base backup chain
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
-		return nil, fmt.Errorf("get compression type: %w", err)
+		return nil, nil, fmt.Errorf("get compression type: %w", err)
 	}
 	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
-		return nil, fmt.Errorf("resolve base backup chain: %w", err)
+		return nil, nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
-	return classes, nil
+	return classes, users, nil
+}
+
+// resolveUsers expands includeUsers selectors. Empty input → nil (ordinary
+// backup; whole-cluster snapshot is the participant's default).
+func (s *Scheduler) resolveUsers(includeUsers []string) ([]string, error) {
+	if len(includeUsers) == 0 {
+		return nil, nil
+	}
+	if s.userLister == nil {
+		return nil, errors.New("'includeUsers' was set but dynamic DB users are not enabled")
+	}
+	return resolveUserSelectors(includeUsers, s.userLister.ListAllUsers())
+}
+
+// resolveUserSelectors mirrors class-selector semantics: '*'/'?' wildcards,
+// dedup, exact selectors must exist, and a non-empty list matching nothing
+// errors. Absent includeUsers is the caller's job — not equivalent to "all".
+func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
+	if dup := findDuplicate(includeUsers); dup != "" {
+		return nil, fmt.Errorf("user list 'includeUsers' contains duplicate: %s", dup)
+	}
+
+	users := expandWildcards(includeUsers, allUsers)
+
+	known := make(map[string]struct{}, len(allUsers))
+	for _, u := range allUsers {
+		known[u] = struct{}{}
+	}
+	for _, u := range users {
+		if _, ok := known[u]; !ok {
+			return nil, fmt.Errorf("user %q in 'includeUsers' does not exist", u)
+		}
+	}
+	if len(users) == 0 {
+		return nil, fmt.Errorf("no dynamic users match 'includeUsers' %v", includeUsers)
+	}
+	return users, nil
 }
 
 func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, req *BackupRequest) error {
