@@ -112,10 +112,12 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 	helper.AddPermissions(t, adminKey, testRoleName, updateReplication)
 
 	t.Run("Cancel a replication of a shard with permissions", func(t *testing.T) {
-		_, err := helper.Client(t).Replication.
-			CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
-		// Don't care about the error type here, as it can be either CancelReplicationNoContent or CancelReplicationConflict depending on the state of the replication.
-		require.IsNotType(t, replication.NewCancelReplicationForbidden(), err)
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.
+				CancelReplication(replication.NewCancelReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
+			// Don't care about the error type here, as it can be either CancelReplicationNoContent or CancelReplicationConflict depending on the state of the replication.
+			require.IsNotType(ct, replication.NewCancelReplicationForbidden(), err)
+		}, 10*time.Second, 500*time.Millisecond, "op should be canceled but got error")
 	})
 
 	t.Run("Fail to read a replication of a shard without READ permissions", func(t *testing.T) {
@@ -146,10 +148,12 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 	helper.AddPermissions(t, adminKey, testRoleName, deleteReplication)
 
 	t.Run("Delete a replication of a shard with permissions", func(t *testing.T) {
-		_, err := helper.Client(t).Replication.
-			DeleteReplication(replication.NewDeleteReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
-		// Don't care about the error type here, as it can be either DeleteReplicationNoContent or DeleteReplicationConflict depending on the state of the replication.
-		require.IsNotType(t, replication.NewDeleteReplicationForbidden(), err)
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.
+				DeleteReplication(replication.NewDeleteReplicationParams().WithID(replicationId), helper.CreateAuth(customKey))
+			// Don't care about the error type here, as it can be either DeleteReplicationNoContent or DeleteReplicationConflict depending on the state of the replication.
+			require.IsNotType(ct, replication.NewDeleteReplicationForbidden(), err)
+		}, 10*time.Second, 500*time.Millisecond, "op should be deleted but got error")
 	})
 }
 
