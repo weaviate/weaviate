@@ -2680,6 +2680,59 @@ func TestRestoreClass_StripNamespaces(t *testing.T) {
 	assert.Equal(t, []string{"Directors", "Movies"}, byName["related"], "every entry of a multi-target ref stripped")
 }
 
+// TestRestoreClass_StripNamespaces_StripsAlias pins the alias-strip branch of
+// RestoreClass: a graduated restore must create the alias under its bare name,
+// not the namespaced name carried in the backup artefact. Without the strip the
+// alias would be created as "ns1:MoviesAlias" and dangle against the now-bare
+// class on the target.
+func TestRestoreClass_StripNamespaces_StripsAlias(t *testing.T) {
+	t.Parallel()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+	classRaw := &models.Class{Class: "ns1:Movies", Vectorizer: "none"}
+	schemaBytes, err := json.Marshal(classRaw)
+	require.Nil(t, err)
+
+	shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
+	require.Nil(t, err)
+	nodes := mocks.NewMockNodeSelector("node1", "node2")
+	shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+	require.Nil(t, err)
+	shardingBytes, err := shardingState.JSON()
+	require.Nil(t, err)
+
+	aliasBytes, err := json.Marshal([]*models.Alias{{Alias: "ns1:MoviesAlias", Class: "ns1:Movies"}})
+	require.Nil(t, err)
+
+	fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
+	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
+
+	// ResolveAlias returns "" (fake default), so restore takes the create path.
+	var createdAlias string
+	var aliasClass *models.Class
+	fakeSchemaManager.On("CreateAlias", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			createdAlias = args.Get(1).(string)
+			aliasClass = args.Get(2).(*models.Class)
+		}).
+		Return(nil)
+
+	descriptor := backup.ClassDescriptor{
+		Name:            classRaw.Class,
+		Schema:          schemaBytes,
+		ShardingState:   shardingBytes,
+		AliasesIncluded: true,
+		Aliases:         aliasBytes,
+	}
+	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, true)
+	require.NoError(t, err)
+	fakeSchemaManager.AssertExpectations(t)
+
+	assert.Equal(t, "MoviesAlias", createdAlias, "alias name must be stripped on graduation restore")
+	require.NotNil(t, aliasClass)
+	assert.Equal(t, "Movies", aliasClass.Class, "restored alias must target the stripped class")
+}
+
 func TestRestoreClass_WithNodeMapping(t *testing.T) {
 	classes := []*models.Class{{
 		Class:      "Class_A",
