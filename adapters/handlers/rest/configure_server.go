@@ -49,10 +49,19 @@ var configureServer func(*http.Server, string, string)
 
 func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithAliases) {
 	return func(updatedSchema schema.SchemaWithAliases) {
+		cfg := appState.ServerConfig.Config
+
 		// Namespaces can't be modeled in the GraphQL schema, so the graph is never
-		// built there. DISABLE_GRAPHQL gates serving only (handlers_graphql.go), not
-		// the build: the graph stays current so it can be toggled on without a restart.
-		if appState.ServerConfig.Config.Namespaces.Enabled {
+		// built there. Otherwise DISABLE_GRAPHQL gates serving only (handlers_graphql.go),
+		// not the build: the graph is kept current so it can be toggled on at runtime
+		// without a restart.
+		if cfg.Namespaces.Enabled {
+			return
+		}
+		// A runtime toggle is only possible with overrides enabled; when they're off the
+		// flag is fixed for the process lifetime, so a statically-disabled cluster skips
+		// the build entirely (no point keeping a graph current it can never serve).
+		if cfg.DisableGraphQL.Get() && !cfg.RuntimeOverrides.Enabled {
 			return
 		}
 
@@ -62,14 +71,20 @@ func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithA
 		gql, err := rebuildGraphQL(
 			updatedSchema,
 			appState.Logger,
-			appState.ServerConfig.Config,
+			cfg,
 			appState.Traverser,
 			appState.Modules,
 			appState.Authorizer,
 		)
 		if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
-			appState.Logger.WithField("action", "graphql_rebuild").
-				WithError(err).Error("could not (re)build graphql provider")
+			// While GraphQL is disabled the graph isn't served, so a build failure is not
+			// user-visible; don't emit Error on every schema change.
+			l := appState.Logger.WithField("action", "graphql_rebuild")
+			if cfg.DisableGraphQL.Get() {
+				l.Warnf("could not (re)build graphql provider while disabled: %v", err)
+			} else {
+				l.Errorf("could not (re)build graphql provider: %v", err)
+			}
 		}
 		appState.SetGraphQL(gql)
 	}
