@@ -653,6 +653,62 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	return nil
 }
 
+// repairGlobalEntrypoint attempts to repair a broken global entrypoint during insert.
+// It is called from the insert path when the global entrypoint is unusable (e.g., under
+// maintenance or vector unavailable). The function finds a new valid entrypoint and
+// atomically updates it using CAS semantics.
+//
+// Parameters:
+//   - oldEntrypoint: the entrypoint that was found to be unusable
+//   - localDeny: nodes already tried and rejected during local fallback
+//
+// Returns the new entrypoint ID, or an error if no valid entrypoint can be found.
+// If another goroutine already repaired the entrypoint (CAS fails), returns the
+// current entrypoint value.
+func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, localDeny helpers.AllowList) (uint64, error) {
+	// Build denyList: exclude oldEntrypoint + known-bad local nodes
+	denyList := localDeny.WrapOnWrite()
+	denyList.Insert(oldEntrypoint)
+
+	// Get the old entrypoint's level (best effort - may be nil if already deleted)
+	var targetLevel int
+	if node := h.nodeByID(oldEntrypoint); node != nil {
+		node.Lock()
+		targetLevel = node.level
+		node.Unlock()
+	}
+
+	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, targetLevel, oldEntrypoint)
+	if !ok {
+		// No change: either graph is empty, or entrypoint was already changed by concurrent op
+		currentEp := h.getEntrypoint()
+		if currentEp == oldEntrypoint {
+			// Graph is empty or only unusable nodes remain
+			return 0, fmt.Errorf("no valid entrypoint available")
+		}
+		// Someone else already repaired it
+		return currentEp, nil
+	}
+
+	// CAS: only update if entrypoint hasn't changed since we started
+	h.Lock()
+	if h.entryPointID == oldEntrypoint {
+		// CAS success: update in-memory first, then persist (matches deleteEntrypoint)
+		h.entryPointID = newEntrypoint
+		h.currentMaximumLayer = level
+		if err := h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level); err != nil {
+			h.Unlock()
+			return 0, fmt.Errorf("persist entrypoint: %w", err)
+		}
+		h.Unlock()
+		return newEntrypoint, nil
+	}
+	// CAS failed: concurrent op already changed the entrypoint
+	currentEp := h.entryPointID
+	h.Unlock()
+	return currentEp, nil
+}
+
 // returns entryPointID, level and whether a change occurred
 func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel int,
 	oldEntrypoint uint64,
