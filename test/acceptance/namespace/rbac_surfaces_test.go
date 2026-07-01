@@ -37,6 +37,29 @@ import (
 // setup_test.go; the same MinIO bucket also backs export.
 const s3Backend = "s3"
 
+// waitBackupCreated issues root's backup-create for a class, retrying only
+// while the coordinator's local precheck transiently 422s during cluster
+// bring-up (the 422 rejects before any staging, so the same ID is safe to
+// resend). Any other error fails the test immediately.
+func waitBackupCreated(t *testing.T, className, backupID string) *backups.BackupsCreateOK {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		okResp, err := helper.CreateBackupWithAuthz(
+			t, helper.DefaultBackupConfig(), className, s3Backend, backupID,
+			helper.CreateAuth(adminKey))
+		if err == nil {
+			return okResp
+		}
+		var unproc *backups.BackupsCreateUnprocessableEntity
+		require.Truef(t, errors.As(err, &unproc),
+			"root backup-create failed with non-transient error: %T: %v", err, err)
+		require.Falsef(t, time.Now().After(deadline),
+			"root backup-create still 422 after 30s: %v", err)
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // TestNamespaces_RBACSurfaces locks the contract that a namespaced user holding
 // the built-in admin role (granted in createNamespacedUser) is denied every
 // cluster-wide operator surface, because the narrowed admin covers only
@@ -126,10 +149,7 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		// reaches SUCCESS — a real, completed operator action. The ID carries a
 		// unique suffix so reruns against the shared, persisted bucket don't collide.
 		backupID := fmt.Sprintf("ns-root-backup-%s-%d", ns1, time.Now().UnixNano())
-		okResp, err := helper.CreateBackupWithAuthz(
-			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
-			helper.CreateAuth(adminKey))
-		require.NoError(t, err)
+		okResp := waitBackupCreated(t, qualified, backupID)
 		// Root sees qualified Classes; backup endpoints are operator-only.
 		require.NotNil(t, okResp.Payload)
 		assert.Contains(t, okResp.Payload.Classes, qualified,
