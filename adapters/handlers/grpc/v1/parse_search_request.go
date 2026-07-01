@@ -431,7 +431,11 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
 	if out.Selection != nil {
-		for _, tv := range targetVectors {
+		selectionTargets := targetVectors
+		if len(selectionTargets) == 0 {
+			selectionTargets = []string{""}
+		}
+		for _, tv := range selectionTargets {
 			if isTargetVectorMultiVector(class, tv) {
 				return dto.GetParams{}, fmt.Errorf("MMR selection is not supported with multi-vector indexes (target vector %q)", tv)
 			}

@@ -88,3 +88,53 @@ func TestParseHybridSelection(t *testing.T) {
 		require.Nil(t, out.Selection)
 	})
 }
+
+func TestParseSelectionMultiVectorRejected(t *testing.T) {
+	parser := NewParser(false, getClass, nil, false)
+	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
+
+	mmr := func() *pb.Selection {
+		return &pb.Selection{Selection: &pb.Selection_Mmr{
+			Mmr: &pb.Selection_MMR{Limit: ptr(uint32(3)), Balance: ptr(float32(0))},
+		}}
+	}
+
+	t.Run("named multi-vector target errors", func(t *testing.T) {
+		_, err := parser.Search(&pb.SearchRequest{
+			Collection: multiVecClassWithColBERT,
+			NearVector: &pb.NearVector{
+				Vectors: []*pb.Vectors{
+					{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
+				},
+				TargetVectors: []string{"custom_colbert"},
+				Selection:     mmr(),
+			},
+		}, cfg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "multi-vector")
+	})
+
+	t.Run("default (unnamed) multi-vector target errors", func(t *testing.T) {
+		_, err := parser.Search(&pb.SearchRequest{
+			Collection: legacyMultiVecClass,
+			HybridSearch: &pb.Hybrid{
+				Query:     "q",
+				Selection: mmr(),
+			},
+		}, cfg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "multi-vector")
+	})
+
+	t.Run("default single-vector target is allowed", func(t *testing.T) {
+		out, err := parser.Search(&pb.SearchRequest{
+			Collection: classname,
+			HybridSearch: &pb.Hybrid{
+				Query:     "q",
+				Selection: mmr(),
+			},
+		}, cfg)
+		require.NoError(t, err)
+		require.NotNil(t, out.Selection)
+	})
+}
