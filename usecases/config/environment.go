@@ -178,11 +178,12 @@ func FromEnv(config *Config) error {
 		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
 	}
 
-	if err := parsePositiveDuration(
+	err := parsePositiveDuration(
 		"HALT_FOR_TRANSFER_TIMEOUT",
 		func(val time.Duration) { config.HaltForTransferTimeout = val },
 		DefaultHaltForTransferTimeout,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 
