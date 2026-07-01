@@ -66,7 +66,7 @@ func TestBucketPropertyCardinality(t *testing.T) {
 		assertWithinPct(t, 2000, float64(est), 10)
 	})
 
-	t.Run("different-sized segments: merge fails, compaction restores it", func(t *testing.T) {
+	t.Run("different-sized segments: keeps higher-cardinality estimate, compaction unions", func(t *testing.T) {
 		b := newCardinalityBucket(ctx, t, t.TempDir())
 		defer b.Shutdown(ctx)
 
@@ -76,16 +76,19 @@ func TestBucketPropertyCardinality(t *testing.T) {
 		require.NoError(t, b.FlushAndSwitch())
 		require.Equal(t, 2, b.disk.Len())
 
-		// Mismatched geometry => bloom Merge errors out.
-		_, err := b.GetKeysCount()
-		require.Error(t, err)
+		// Mismatched geometry => can't merge; instead of failing it keeps the
+		// higher-cardinality filter, i.e. the larger segment's estimate (~1000),
+		// which is a lower bound on the true 1500 distinct keys.
+		est, err := b.GetKeysCount()
+		require.NoError(t, err)
+		assertWithinPct(t, 1000, float64(est), 5)
 
-		// Compacting into a single segment gives the estimate a consistent
-		// geometry again.
+		// Compacting into a single segment gives a consistent geometry again, so
+		// the estimate covers the full union.
 		compactAll(t, ctx, b)
 		require.Equal(t, 1, b.disk.Len())
 
-		est, err := b.GetKeysCount()
+		est, err = b.GetKeysCount()
 		require.NoError(t, err)
 		assertWithinPct(t, 1500, float64(est), 5)
 	})

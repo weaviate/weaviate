@@ -813,6 +813,7 @@ func setupDebugHandlers(appState *state.State) {
 		type agg struct {
 			strategy string
 			maxEst   uint32
+			maxExact uint32
 			maxShard string
 			found    bool
 			lastErr  string
@@ -889,6 +890,12 @@ func setupDebugHandlers(appState *state.State) {
 						a.lastErr = err.Error()
 						continue
 					}
+					exact, err := bucket.GetExactKeysCount()
+					if err != nil {
+						a.lastErr = err.Error()
+						continue
+					}
+					a.maxExact = exact
 					if !a.found || est > a.maxEst {
 						a.found = true
 						a.maxEst = est
@@ -904,6 +911,7 @@ func setupDebugHandlers(appState *state.State) {
 			Bucket      string  `json:"bucket"`
 			Strategy    string  `json:"strategy,omitempty"`
 			MaxEstimate *uint32 `json:"maxEstimate,omitempty"`
+			MaxExact    *uint32 `json:"maxExact,omitempty"`
 			MaxShard    string  `json:"maxShard,omitempty"`
 			Error       string  `json:"error,omitempty"`
 		}
@@ -922,6 +930,8 @@ func setupDebugHandlers(appState *state.State) {
 			if a.found {
 				est := a.maxEst
 				ps.MaxEstimate = &est
+				exact := a.maxExact
+				ps.MaxExact = &exact
 				ps.MaxShard = a.maxShard
 			} else {
 				ps.Error = a.lastErr

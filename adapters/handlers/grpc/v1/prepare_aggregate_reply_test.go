@@ -48,6 +48,38 @@ func TestGRPCAggregateReply(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "approximate cardinality only property",
+			res: &aggregation.Result{
+				Groups: []aggregation.Group{
+					{
+						Count: 5,
+						Properties: map[string]aggregation.Property{
+							"first": {ApproximateCardinality: ptr(uint32(42))},
+						},
+					},
+				},
+			},
+			outRes: &pb.AggregateReply{
+				Result: &pb.AggregateReply_GroupedResults{
+					GroupedResults: &pb.AggregateReply_Grouped{
+						Groups: []*pb.AggregateReply_Group{
+							{
+								ObjectsCount: ptInt64(5),
+								Aggregations: &pb.AggregateReply_Aggregations{
+									Aggregations: []*pb.AggregateReply_Aggregations_Aggregation{
+										{
+											Property:               "first",
+											ApproximateCardinality: ptInt64(42),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

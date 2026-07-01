@@ -66,6 +66,10 @@ message AggregateRequest {
       Date date = 6;
       Reference reference = 7;
     }
+    // Bloom-filter-based estimate of the number of distinct values of this
+    // property. Type-agnostic and computed over the whole bucket (ignores
+    // filters/search). Cheap alternative to an exact distinct count.
+    bool approximate_cardinality = 8;
   }
   message GroupBy {
     string collection = 1;
@@ -167,6 +171,9 @@ message AggregateReply {
         Date date = 6;
         Reference reference = 7;
       }
+      // Bloom-filter-based estimate of distinct values of this property,
+      // set when approximate_cardinality was requested.
+      optional int64 approximate_cardinality = 8;
     }
     repeated Aggregation aggregations = 1;
   }

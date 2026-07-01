@@ -239,6 +239,54 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "approximate cardinality only",
+			req: &pb.AggregateRequest{
+				Collection: mixedVectorsClass,
+				Aggregations: []*pb.AggregateRequest_Aggregation{
+					{
+						Property:               "first",
+						ApproximateCardinality: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName: schema.ClassName(mixedVectorsClass),
+				Properties: []aggregation.ParamProperty{
+					{
+						Name:                   "first",
+						ApproximateCardinality: true,
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "approximate cardinality alongside count",
+			req: &pb.AggregateRequest{
+				Collection: mixedVectorsClass,
+				Aggregations: []*pb.AggregateRequest_Aggregation{
+					{
+						Property: "first",
+						Aggregation: &pb.AggregateRequest_Aggregation_Text_{
+							Text: &pb.AggregateRequest_Aggregation_Text{Count: true},
+						},
+						ApproximateCardinality: true,
+					},
+				},
+			},
+			out: &aggregation.Params{
+				ClassName: schema.ClassName(mixedVectorsClass),
+				Properties: []aggregation.ParamProperty{
+					{
+						Name:                   "first",
+						Aggregators:            []aggregation.Aggregator{{Type: "count"}},
+						ApproximateCardinality: true,
+					},
+				},
+			},
+			error: false,
+		},
 	}
 
 	parser := NewAggregateParser(getClass)

@@ -1057,7 +1057,10 @@ func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
 	return float64(sum) / float64(count), count
 }
 
-func (sg *SegmentGroup) GetBloomFilter() (*bloom.BloomFilter, error) {
+// Gets a combined bloom filter for all segments in the segment group.
+// If the segments have different bloom filter geometries,
+// the largest bloom filter is returned instead of merging them.
+func (sg *SegmentGroup) GetKeysBloomFilter() (*bloom.BloomFilter, error) {
 	if !sg.useBloomFilter {
 		return nil, fmt.Errorf("bloom filter not enabled")
 	}
@@ -1079,9 +1082,6 @@ func (sg *SegmentGroup) GetBloomFilter() (*bloom.BloomFilter, error) {
 		return nil, fmt.Errorf("bloom filter not found in segment")
 	}
 
-	// Merge requires identical geometry (m, k); per-segment filters are sized
-	// to each segment's key count, so this fails on a bucket whose segments
-	// differ in size and has not been compacted into one.
 	bloomFilter := first.bloomFilter.Copy()
 	for _, seg := range segments[1:] {
 		s, ok := seg.(*segment)
@@ -1089,9 +1089,40 @@ func (sg *SegmentGroup) GetBloomFilter() (*bloom.BloomFilter, error) {
 			continue
 		}
 		if err := bloomFilter.Merge(s.bloomFilter); err != nil {
-			return nil, err
+			// merge failed, likely due to different geometry (m, k). Keep the larger of the two filters,
+			// so that the result is at least the largest single segment's distinct-key count.
+			if s.bloomFilter.ApproximatedSize() > bloomFilter.ApproximatedSize() {
+				bloomFilter = s.bloomFilter.Copy()
+			}
 		}
 	}
 
 	return bloomFilter, nil
+}
+
+func (sg *SegmentGroup) GetExactKeys() (map[string]struct{}, error) {
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	// No flushed disk segments yet (data still in the memtable) — nothing the
+	// bloom filters can estimate.
+	if len(segments) == 0 {
+		return nil, nil
+	}
+	result := make(map[string]struct{})
+	for _, seg := range segments {
+		s, ok := seg.(*segment)
+		if !ok {
+			continue
+		}
+		keys, err := s.index.AllKeys()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get keys from segment %s: %w", s.getPath(), err)
+		}
+		for _, k := range keys {
+			result[string(k)] = struct{}{}
+		}
+	}
+
+	return result, nil
 }

@@ -2477,7 +2477,7 @@ func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) e
 }
 
 func (b *Bucket) GetKeysCount() (uint32, error) {
-	segmentsBloom, err := b.disk.GetBloomFilter()
+	segmentsBloom, err := b.disk.GetKeysBloomFilter()
 	if err != nil {
 		return 0, err
 	}
@@ -2491,13 +2491,41 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 		if !ok || m == nil {
 			continue
 		}
-		keys, err := m.GetBloomFilter()
+		keys, err := m.GetKeys()
 		if err != nil {
 			return 0, err
 		}
-		// Best-effort: the memtable filter is sized independently of the disk
-		// segments, so Merge is a no-op on geometry mismatch.
-		_ = segmentsBloom.Merge(keys)
+		// The memtable filter is sized independently of the disk segments, so a
+		// merge conflict is expected; on conflict keep whichever filter
+		// estimates the larger cardinality.
+		for _, key := range keys {
+			segmentsBloom.Add(key)
+		}
 	}
 	return segmentsBloom.ApproximatedSize(), nil
+}
+
+func (b *Bucket) GetExactKeysCount() (uint32, error) {
+	exactKeys, err := b.disk.GetExactKeys()
+	if err != nil {
+		return 0, err
+	}
+	if exactKeys == nil {
+		return 0, nil
+	}
+
+	for _, mem := range []memtable{b.active, b.flushing} {
+		m, ok := mem.(*Memtable)
+		if !ok || m == nil {
+			continue
+		}
+		keys, err := m.GetKeys()
+		if err != nil {
+			return 0, err
+		}
+		for _, key := range keys {
+			exactKeys[string(key)] = struct{}{}
+		}
+	}
+	return uint32(len(exactKeys)), nil
 }

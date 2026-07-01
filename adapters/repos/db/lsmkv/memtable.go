@@ -22,7 +22,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/pkg/errors"
@@ -744,27 +743,41 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 	return result
 }
 
-func (m *Memtable) GetBloomFilter() (*bloom.BloomFilter, error) {
-	filter := bloom.NewWithEstimates(uint(m.size), 0.01)
+func (m *Memtable) GetKeys() ([][]byte, error) {
 	m.RLock()
 	defer m.RUnlock()
-	if m.key != nil {
-		for _, node := range m.key.flattenInOrder() {
-			filter.Add(node.key)
+	if m.primaryIndex != nil && m.primaryIndex.root != nil {
+		iterator := m.primaryIndex.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
 		}
-		return filter, nil
+		return keys, nil
 	}
-	if m.keyMulti != nil {
-		for _, node := range m.keyMulti.flattenInOrder() {
-			filter.Add(node.key)
+	if m.key != nil && m.key.root != nil {
+		iterator := m.key.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
 		}
-		return filter, nil
+		return keys, nil
 	}
-	if m.keyMap != nil {
-		for _, node := range m.keyMap.flattenInOrder() {
-			filter.Add(node.key)
+	if m.keyMulti != nil && m.keyMulti.root != nil {
+		iterator := m.keyMulti.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
 		}
-		return filter, nil
+		return keys, nil
 	}
-	return nil, fmt.Errorf("no bloom filter available")
+	if m.keyMap != nil && m.keyMap.root != nil {
+		iterator := m.keyMap.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
+		}
+		return keys, nil
+	}
+
+	return [][]byte{}, nil
 }
