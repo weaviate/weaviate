@@ -423,7 +423,7 @@ func (c *DBUser) ListAllUsers() []string {
 
 	out := make([]string, 0, len(c.data.Users))
 	for id := range c.data.Users {
-		out = append(out, id)
+		out = append(out, fmt.Sprintf("%s:%s", c.data.Users[id].Namespace, id))
 	}
 	return out
 }

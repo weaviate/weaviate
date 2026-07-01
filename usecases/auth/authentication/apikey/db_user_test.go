@@ -1022,3 +1022,23 @@ func TestRestoreIncompleteData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, user[userId].Id, userId)
 }
+
+func TestListAllUsers(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+
+	// create users in different namespaces
+	_, hash1, identifier1, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+	require.NoError(t, dynUsers.CreateUser("user1", hash1, identifier1, "", "ns1", time.Now()))
+
+	_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+	require.NoError(t, dynUsers.CreateUser("user2", hash2, identifier2, "", "ns2", time.Now()))
+
+	users := dynUsers.ListAllUsers()
+	t.Log(users)
+	require.Len(t, users, 2)
+	require.Contains(t, users, "ns1:user1")
+	require.Contains(t, users, "ns2:user2")
+}
