@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -46,6 +47,7 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -169,6 +171,52 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+// StartupLoadingProgress reports how many eagerly-loaded local shards have
+// finished loading (loaded) against how many are expected to load eagerly
+// (total), for the repeated "waiting for database to be restored" startup log.
+func (db *DB) StartupLoadingProgress() (loaded, total int64) {
+	// Start from every HOT local shard known to the schema (eager and lazy).
+	s := db.schemaGetter.GetSchemaSkipAuth()
+	if s.Objects != nil {
+		for _, class := range s.Objects.Classes {
+			n, err := db.localShardsToLoad(class)
+			if err != nil {
+				continue
+			}
+			total += int64(n)
+		}
+	}
+
+	db.indexLock.RLock()
+	for _, idx := range db.indices {
+		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
+			if _, ok := shard.(*LazyLoadShard); ok {
+				total--
+				return nil
+			}
+			loaded++
+			return nil
+		})
+	}
+	db.indexLock.RUnlock()
+
+	return loaded, total
+}
+
+// localShardsToLoad returns the number of HOT local shards for the given class
+// (active local tenants for multi-tenant classes, all local physical shards
+// otherwise), mirroring the filter used by the index loader.
+func (db *DB) localShardsToLoad(class *models.Class) (int, error) {
+	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
+		return db.schemaReader.LocalActiveShardsCount(class.Class)
+	}
+	shards, err := db.schemaReader.LocalShards(class.Class)
+	if err != nil {
+		return 0, err
+	}
+	return len(shards), nil
+}
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
 // This allows for better testability by using interfaces instead of concrete types

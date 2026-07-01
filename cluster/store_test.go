@@ -1382,6 +1382,56 @@ func TestStoreMetrics(t *testing.T) {
 	})
 }
 
+func TestStoreDBLoadProgressFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress func() (loaded, total int64)
+		want     logrus.Fields
+	}{
+		{
+			name:     "no progress source returns nil",
+			progress: nil,
+			want:     nil,
+		},
+		{
+			name:     "no shards to load returns nil",
+			progress: func() (int64, int64) { return 0, 0 },
+			want:     nil,
+		},
+		{
+			name:     "negative total returns nil",
+			progress: func() (int64, int64) { return 0, -1 },
+			want:     nil,
+		},
+		{
+			name:     "nothing loaded yet",
+			progress: func() (int64, int64) { return 0, 10 },
+			want:     logrus.Fields{"shards_loaded": int64(0), "shards_total": int64(10), "progress": "0%"},
+		},
+		{
+			name:     "partial progress rounds to whole percent",
+			progress: func() (int64, int64) { return 1, 3 },
+			want:     logrus.Fields{"shards_loaded": int64(1), "shards_total": int64(3), "progress": "33%"},
+		},
+		{
+			name:     "partial progress",
+			progress: func() (int64, int64) { return 3, 10 },
+			want:     logrus.Fields{"shards_loaded": int64(3), "shards_total": int64(10), "progress": "30%"},
+		},
+		{
+			name:     "fully loaded",
+			progress: func() (int64, int64) { return 10, 10 },
+			want:     logrus.Fields{"shards_loaded": int64(10), "shards_total": int64(10), "progress": "100%"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &Store{cfg: Config{DBLoadProgress: tt.progress}}
+			assert.Equal(t, tt.want, st.dbLoadProgressFields())
+		})
+	}
+}
+
 type MockStore struct {
 	indexer        *fakes.MockSchemaExecutor
 	parser         *fakes.MockParser
