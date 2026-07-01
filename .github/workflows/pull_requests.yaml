@@ -315,10 +315,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
       - name: Error on change
@@ -338,10 +345,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Archive code coverage results
@@ -363,10 +377,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Cache vector datasets
         if: matrix.name == 'with vectors'
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
@@ -404,10 +425,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         uses: ./.github/actions/docker-login
@@ -483,10 +511,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -519,10 +554,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -591,10 +633,17 @@ jobs:
         with:
           fetch-depth: 2
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: check
         env:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
@@ -676,10 +725,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -715,10 +771,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -750,6 +813,119 @@ jobs:
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+<<<<<<< Updated upstream
+||||||| Stash base
+  Acceptance-Reindex-Tests:
+    name: reindex (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "multinode"
+            test: "--acceptance-reindex-multinode"
+          - name: "multinode-aj"
+            test: "--acceptance-reindex-multinode-aj"
+          - name: "multinode-rm"
+            test: "--acceptance-reindex-multinode-rm"
+          - name: "multinode-restart-a"
+            test: "--acceptance-reindex-multinode-restart-a"
+          - name: "multinode-restart-b"
+            test: "--acceptance-reindex-multinode-restart-b"
+          - name: "multinode-scale"
+            test: "--acceptance-reindex-multinode-scale"
+          - name: "multinode-changetok"
+            test: "--acceptance-reindex-multinode-changetok"
+          - name: "singlenode-a"
+            test: "--acceptance-reindex-singlenode-a"
+          - name: "singlenode-b"
+            test: "--acceptance-reindex-singlenode-b"
+          - name: "concurrent"
+            test: "--acceptance-reindex-concurrent"
+          - name: "mt"
+            test: "--acceptance-reindex-mt"
+          - name: "backup"
+            test: "--acceptance-reindex-backup"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests reindex
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          # Flat 45-minute timeout for every reindex matrix entry — these are
+          # multi-node testcontainer suites that occasionally need the full
+          # window. Avoids the per-test if-chain Acceptance-Tests-4-cores
+          # carried before the split.
+          timeout_minutes: 45
+          max_attempts: 1
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+=======
+  Acceptance-Reindex-Tests:
+    name: reindex (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "multinode"
+            test: "--acceptance-reindex-multinode"
+          - name: "multinode-aj"
+            test: "--acceptance-reindex-multinode-aj"
+          - name: "multinode-rm"
+            test: "--acceptance-reindex-multinode-rm"
+          - name: "multinode-restart-a"
+            test: "--acceptance-reindex-multinode-restart-a"
+          - name: "multinode-restart-b"
+            test: "--acceptance-reindex-multinode-restart-b"
+          - name: "multinode-scale"
+            test: "--acceptance-reindex-multinode-scale"
+          - name: "multinode-changetok"
+            test: "--acceptance-reindex-multinode-changetok"
+          - name: "singlenode-a"
+            test: "--acceptance-reindex-singlenode-a"
+          - name: "singlenode-b"
+            test: "--acceptance-reindex-singlenode-b"
+          - name: "concurrent"
+            test: "--acceptance-reindex-concurrent"
+          - name: "mt"
+            test: "--acceptance-reindex-mt"
+          - name: "backup"
+            test: "--acceptance-reindex-backup"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '1.26'
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests reindex
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          # Flat 45-minute timeout for every reindex matrix entry — these are
+          # multi-node testcontainer suites that occasionally need the full
+          # window. Avoids the per-test if-chain Acceptance-Tests-4-cores
+          # carried before the split.
+          timeout_minutes: 45
+          max_attempts: 1
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+>>>>>>> Stashed changes
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
@@ -762,10 +938,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
           go-version: '1.25'
-          cache: true
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -822,10 +997,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7
         with:
@@ -877,10 +1059,17 @@ jobs:
         with:
           name: binaries-windows-amd64
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: ./.github/actions/setup-go
         with:
+<<<<<<< Updated upstream
           go-version: '1.25'
           cache: true
+||||||| Stash base
+          go-version: '1.26'
+          cache: true
+=======
+          go-version: '1.26'
+>>>>>>> Stashed changes
       - name: start weaviate
         shell: bash
         # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
