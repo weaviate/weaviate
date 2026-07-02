@@ -564,10 +564,6 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
-	// WaitForStartup samples eager shard-loading progress, which reads local
-	// shard counts from the schema; allow those calls (see createTestDb).
-	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	repo.Shutdown(ctx)

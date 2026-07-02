@@ -47,7 +47,6 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -238,11 +237,7 @@ func (db *DB) scanStartupProgress() (loaded, total int64) {
 	s := db.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects != nil {
 		for _, class := range s.Objects.Classes {
-			n, err := db.localShardsToLoad(class)
-			if err != nil {
-				continue
-			}
-			total += int64(n)
+			total += db.localShardsToLoad(class.Class)
 		}
 	}
 
@@ -267,18 +262,23 @@ func (db *DB) scanStartupProgress() (loaded, total int64) {
 	return loaded, total
 }
 
-// localShardsToLoad returns the number of HOT local shards for the given class
-// (active local tenants for multi-tenant classes, all local physical shards
-// otherwise), mirroring the filter used by the index loader.
-func (db *DB) localShardsToLoad(class *models.Class) (int, error) {
-	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
-		return db.schemaReader.LocalActiveShardsCount(class.Class)
-	}
-	shards, err := db.schemaReader.LocalShards(class.Class)
-	if err != nil {
-		return 0, err
-	}
-	return len(shards), nil
+// localShardsToLoad returns the number of local shards that count toward eager
+// startup loading for the given class: local physical shards whose activity
+// status is HOT (empty status counts as HOT)
+func (db *DB) localShardsToLoad(className string) int64 {
+	var count int64
+	_ = db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		for name, physical := range state.Physical {
+			if state.IsLocalShard(name) && physical.ActivityStatus() == models.TenantActivityStatusHOT {
+				count++
+			}
+		}
+		return nil
+	})
+	return count
 }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
