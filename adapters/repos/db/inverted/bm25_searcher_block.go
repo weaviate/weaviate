@@ -161,9 +161,32 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, false, fmt.Errorf("after createBlockTerm: %w", ctx.Err())
 	}
 
-	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
-	internalLimit := limit
-	if limit == 0 {
+	// Cross-property AND: when enabled and all searched properties fall under a
+	// single tokenization group, every query token must appear in at least one of
+	// the searched properties (tokens may be spread across them) rather than all
+	// tokens within one property. A single non-empty group guarantees one shared
+	// queryTerms list / index space; otherwise we fall back to per-property AND.
+	crossPropAnd := false
+	var crossPropQueryTerms []string
+	if params.SearchOperator == common_filters.SearchOperatorAnd && params.MatchTokensAcrossProperties {
+		nonEmptyGroups := 0
+		var groupKey string
+		for tok, propNames := range propNamesByTokenization {
+			if len(propNames) > 0 {
+				nonEmptyGroups++
+				groupKey = tok
+			}
+		}
+		if nonEmptyGroups == 1 && len(queryTermsByTokenization[groupKey]) > 0 {
+			crossPropAnd = true
+			crossPropQueryTerms = queryTermsByTokenization[groupKey]
+		}
+	}
+
+	// For unlimited queries, inflate the limit to the total candidate count so the
+	// top-K heap can hold every match.
+	unlimited := limit == 0
+	if unlimited {
 		for _, perProperty := range allResults {
 			for _, perSegment := range perProperty {
 				for _, perTerm := range perSegment {
@@ -173,9 +196,18 @@ func (b *BM25Searcher) wandBlock(
 				}
 			}
 		}
-		internalLimit = limit
+	}
 
-	} else {
+	// The cross-property pass produces the final global top-K in one shot, so it
+	// uses the true limit and skips combineResults' per-property merge.
+	if crossPropAnd {
+		objects, scores, err := b.wandBlockCrossPropAnd(ctx, allResults, crossPropQueryTerms, averagePropLength, limit, params, additional)
+		return objects, scores, false, err
+	}
+
+	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
+	internalLimit := limit
+	if !unlimited {
 		// TODO: the limit is increased by 10 to make sure candidates that are on the edge of the limit are not missed for multi-property search
 		// the proper fix is to either make sure that the limit is always high enough, or force a rerank of the top results from all properties
 		defaultLimit := int(math.Max(float64(limit)*1.1, float64(limit+10)))
@@ -306,6 +338,37 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 		return nil, nil
 	}
 	return combinedObjects, combinedScores
+}
+
+// wandBlockCrossPropAnd runs a single cross-property AND intersection: a document
+// is returned only if every query token is present in at least one of the searched
+// properties. It groups the per-property/per-segment terms by query-term index into
+// MergedTerms, intersects them in one pass, and returns the final ranked objects
+// directly (bypassing combineResults, whose per-property max + cross-property sum is
+// folded into MergedTerm.Score).
+func (b *BM25Searcher) wandBlockCrossPropAnd(ctx context.Context, allResults [][][]*lsmkv.SegmentBlockMax, queryTerms []string, averagePropLength float64, limit int, params searchparams.KeywordRanking, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	mergedTerms, ok := lsmkv.BuildCrossPropMergedTerms(allResults, len(queryTerms))
+	if !ok {
+		// at least one query token is absent from every property — AND can't match
+		return []*storobj.Object{}, []float32{}, nil
+	}
+
+	topKHeap := lsmkv.DoBlockMaxAndCrossProp(ctx, limit, mergedTerms, averagePropLength, params.AdditionalExplanations, len(queryTerms), b.logger)
+
+	ids, scores, explanations, err := b.getTopKIds(topKHeap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// getTopKIds returns an empty (not per-id) explanations slice when explanations
+	// were not requested; downstream indexing is positional, so collapse it to nil.
+	if len(explanations) != len(ids) {
+		explanations = nil
+	}
+
+	ids, scores, explanations = b.sortResultsByScore(ids, scores, explanations)
+	objLimit := int(math.Min(float64(limit), float64(len(ids))))
+	return b.getObjectsAndScores(ids, scores, explanations, queryTerms, additional, objLimit)
 }
 
 type aggregate func(float32, float32) float32
