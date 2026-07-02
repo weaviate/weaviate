@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -198,7 +199,7 @@ type Config struct {
 
 	// DBLoadProgress reports local shard-loading progress (loaded,
 	// total) while the DB is being restored on startup.
-	DBLoadProgress func() (loaded, total int64)
+	DBLoadProgress func() *db.StartupProgressSnapshot
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -634,15 +635,19 @@ func (st *Store) dbLoadProgressFields() logrus.Fields {
 		return nil
 	}
 
-	loaded, total := st.cfg.DBLoadProgress()
-	if total <= 0 {
+	snapshot := st.cfg.DBLoadProgress()
+	if snapshot == nil {
+		return nil
+	}
+
+	if snapshot.Total <= 0 {
 		return nil
 	}
 
 	return logrus.Fields{
-		"shards_loaded": loaded,
-		"shards_total":  total,
-		"progress":      fmt.Sprintf("%.0f%%", float64(loaded)/float64(total)*100),
+		"shards_loaded": snapshot.Loaded,
+		"shards_total":  snapshot.Total,
+		"progress":      fmt.Sprintf("%.0f%%", float64(snapshot.Loaded)/float64(snapshot.Total)*100),
 	}
 }
 
