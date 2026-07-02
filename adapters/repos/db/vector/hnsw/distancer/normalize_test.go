@@ -38,6 +38,21 @@ func TestNormalize(t *testing.T) {
 		result := Normalize(v)
 		assert.Equal(t, []float32{0, 0, 0}, result)
 	})
+
+	t.Run("large magnitude vector does not overflow to zero", func(t *testing.T) {
+		// Regression for #11671: a valid but large float32 vector squares to a
+		// value above the float32 max (1e20*1e20 = 1e40 > ~3.4e38). A float32
+		// sum-of-squares overflows to +Inf, so dividing by it collapses the
+		// vector to zeros and every cosine distance becomes 1.
+		v := []float32{1e20, 1e20, 1e20, 1e20}
+		result := Normalize(v)
+
+		var mag float64
+		for _, x := range result {
+			mag += float64(x) * float64(x)
+		}
+		assert.InDelta(t, 1.0, mag, 0.0001)
+	})
 }
 
 func TestNormalizeInPlace(t *testing.T) {
@@ -95,5 +110,17 @@ func TestNormalizeInPlace(t *testing.T) {
 		v := []float32{}
 		NormalizeInPlace(v)
 		assert.Equal(t, []float32{}, v)
+	})
+
+	t.Run("large magnitude vector does not overflow to zero", func(t *testing.T) {
+		// Regression for #11671, in-place variant.
+		v := []float32{1e20, 1e20, 1e20, 1e20}
+		NormalizeInPlace(v)
+
+		var mag float64
+		for _, x := range v {
+			mag += float64(x) * float64(x)
+		}
+		assert.InDelta(t, 1.0, mag, 0.0001)
 	})
 }
