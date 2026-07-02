@@ -85,6 +85,8 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -211,6 +213,8 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(className).Return(len(shardingState.Physical), nil)
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
@@ -560,6 +564,10 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	// WaitForStartup samples eager shard-loading progress, which reads local
+	// shard counts from the schema; allow those calls (see createTestDb).
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	repo.Shutdown(ctx)
