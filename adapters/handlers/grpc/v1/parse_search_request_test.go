@@ -63,6 +63,7 @@ var (
 	regularWithColBERTClass  = "RegularWithColBERTClass"
 	mixedVectorsClass        = "MixedVectorsClass"
 	boostClass               = "BoostClass"
+	legacyMultiVecClass      = "LegacyMultiVecClass"
 
 	scheme = schema.Schema{
 		Objects: &models.Schema{
@@ -251,6 +252,15 @@ var (
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 					},
+				},
+				{
+					Class: legacyMultiVecClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					Vectorizer:        "text2vec-contextionary",
+					VectorIndexType:   "hnsw",
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine, Multivector: hnsw.MultivectorConfig{Enabled: true}},
 				},
 				{
 					Class: mixedVectorsClass,

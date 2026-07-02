@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -108,6 +109,8 @@ type hybridSearcher interface {
 	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
+	DiversifyResults(ctx context.Context, selection *searchparams.Selection,
+		className, targetVector string, results []search.Result, relevanceFromDist bool) ([]search.Result, error)
 }
 
 // NewExplorer with search and connector repo
@@ -153,8 +156,9 @@ func (e *Explorer) GetClass(ctx context.Context,
 	// a default of QueryBoostDefaultDepth. Capped at QueryMaximumResults.
 	// We also zero the offset so boost sees all top candidates from position 0;
 	// the original offset/limit are stored on the Boost struct and applied
-	// after boost re-sorts.
-	if params.Boost != nil && params.Boost.Weight > 0 {
+	// after boost re-sorts. Under MMR the fetch/overfetch is owned by the MMR path.
+	mmrActive := params.Selection != nil && params.Selection.MMR != nil
+	if params.Boost != nil && params.Boost.Weight > 0 && !mmrActive {
 		params.Boost.OriginalOffset = params.Pagination.Offset
 		params.Boost.OriginalLimit = params.Pagination.Limit
 
@@ -273,15 +277,107 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 
+	// MMR is terminal and per-window: fetch deep enough to reach offset+limit, boost
+	// re-ranks it, MMR diversifies the [offset:offset+limit] relevance window, then
+	// returns its top MMR.Limit. offset advances by limit, so windows are disjoint.
+	mmr := params.Selection != nil && params.Selection.MMR != nil
+	var (
+		mmrTargetVector     string
+		mmrOffset, mmrLimit int
+		mmrPool             int
+		stripVector         string
+		stripDefaultVector  bool
+	)
+	if mmr {
+		if len(targetVectors) > 0 {
+			mmrTargetVector = targetVectors[0]
+		}
+		mmrOffset = params.Pagination.Offset
+		mmrLimit = int(params.Selection.MMR.Limit)
+		mmrPool = params.Pagination.Limit
+
+		pool := *params.Pagination
+		pool.Offset = 0
+		pool.Limit = e.mmrFetchDepth(params.Boost, mmrOffset+mmrPool)
+		params.Pagination = &pool
+
+		if mmrTargetVector == "" {
+			stripDefaultVector = !params.AdditionalProperties.Vector
+			params.AdditionalProperties.Vector = true
+		} else if !slices.Contains(params.AdditionalProperties.Vectors, mmrTargetVector) {
+			stripVector = mmrTargetVector
+			params.AdditionalProperties.Vectors = withVectorTarget(params.AdditionalProperties.Vectors, mmrTargetVector)
+		}
+	}
+
 	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
+	}
+
+	if mmr {
+		// Diversify only the [offset:offset+limit] relevance window, then keep its top
+		// MMR.Limit. The window already consumes the offset, so the page is the prefix.
+		res = paginateResults(res, mmrOffset, mmrPool)
+		relevanceFromDist := params.Boost == nil || params.Boost.Weight <= 0
+		res, err = e.searcher.DiversifyResults(ctx, params.Selection, params.ClassName, mmrTargetVector, res, relevanceFromDist)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "explorer: get class: diversify results")
+		}
+		res = paginateResults(res, 0, mmrLimit)
+		if stripDefaultVector || stripVector != "" {
+			for i := range res {
+				if stripDefaultVector {
+					res[i].Vector = nil
+				}
+				if stripVector != "" {
+					delete(res[i].Vectors, stripVector)
+				}
+			}
+		}
 	}
 
 	if len(searchVectors) > 0 {
 		return res, searchVectors[0], nil
 	}
 	return res, []float32{}, nil
+}
+
+// mmrFetchDepth returns how deep to fetch before MMR. It must reach at least windowEnd
+// (offset+limit) so the [offset:offset+limit] window is populated; when boost is active it
+// fetches Boost.Depth deep (so boost re-ranks that deep), floored at windowEnd.
+func (e *Explorer) mmrFetchDepth(boost *filters.Boost, windowEnd int) int {
+	if boost == nil || boost.Weight <= 0 {
+		return windowEnd
+	}
+	depth := boost.Depth
+	if depth == 0 {
+		depth = e.config.QueryBoostDefaultDepth
+	}
+	if depth > int(e.config.QueryMaximumResults) {
+		depth = int(e.config.QueryMaximumResults)
+	}
+	if depth < windowEnd {
+		depth = windowEnd
+	}
+	return depth
+}
+
+func paginateResults(res []search.Result, offset, limit int) []search.Result {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(res) {
+		return []search.Result{}
+	}
+	if limit <= 0 {
+		return res[offset:]
+	}
+	end := offset + limit
+	if end > len(res) {
+		end = len(res)
+	}
+	return res[offset:end]
 }
 
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
@@ -444,7 +540,11 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
-	res = e.applyBoostIfNeeded(res, params.Boost, false)
+	// Under hybrid + MMR, boost already ran inside the selection fn before MMR.
+	hybridMMR := params.HybridSearch != nil && params.Selection != nil && params.Selection.MMR != nil
+	if !hybridMMR {
+		res = e.applyBoostIfNeeded(res, params.Boost, false)
+	}
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,

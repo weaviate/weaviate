@@ -19,7 +19,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
+
+func TestNew_MMRBalanceValidation(t *testing.T) {
+	provider := distancer.NewL2SquaredProvider()
+	distFn := provider.SingleDist
+	vecForID := makeVecForID(nil)
+
+	tests := []struct {
+		name    string
+		balance float32
+		wantErr bool
+	}{
+		{"below range", -0.1, true},
+		{"above range", 1.1, true},
+		{"lower bound", 0, false},
+		{"upper bound", 1, false},
+		{"midpoint", 0.5, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sel := &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 5, Balance: tt.balance}}
+			s, err := New(sel, distFn, vecForID, 5)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, s)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, s)
+			}
+		})
+	}
+}
 
 // makeVecForID builds a simple vecForID backed by an in-memory map.
 func makeVecForID(vecs map[uint64][]float32) func(ctx context.Context, id uint64) ([]float32, error) {
@@ -83,6 +115,41 @@ func TestMMR_KEqualsN(t *testing.T) {
 	// First selected must be most relevant (lowest query distance).
 	assert.Equal(t, uint64(1), ids[0])
 	assert.Equal(t, float32(0.1), dists[0])
+}
+
+// TestMMR_NilVectorsExcluded: candidates with an empty vector must be excluded, not crash.
+func TestMMR_NilVectorsExcluded(t *testing.T) {
+	provider := distancer.NewL2SquaredProvider()
+
+	t.Run("some candidates have no vector", func(t *testing.T) {
+		vecs := map[uint64][]float32{
+			1: {1, 0},
+			2: nil, // missing object
+			3: {0, 1},
+			4: {}, // empty vector
+		}
+		ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2, 3, 4}, []float32{0.1, 0.2, 0.3, 0.4}, 4, 0)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []uint64{1, 3}, ids)
+		assert.Len(t, dists, 2)
+	})
+
+	t.Run("all candidates have no vector", func(t *testing.T) {
+		vecs := map[uint64][]float32{1: nil, 2: {}}
+		ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2}, []float32{0.1, 0.2}, 2, 0.5)
+		require.NoError(t, err)
+		assert.Nil(t, ids)
+		assert.Nil(t, dists)
+	})
+
+	t.Run("most relevant candidate has no vector", func(t *testing.T) {
+		// id 1 is most relevant but has no vector — must not become the seed.
+		vecs := map[uint64][]float32{1: nil, 2: {1, 0}, 3: {0, 1}}
+		ids, _, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, []float32{0.1, 0.2, 0.3}, 3, 0.5)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []uint64{2, 3}, ids)
+		assert.NotContains(t, ids, uint64(1))
+	})
 }
 
 func TestMMR_KGreaterThanN(t *testing.T) {
