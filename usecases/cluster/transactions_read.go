@@ -13,12 +13,9 @@ package cluster
 
 import (
 	"context"
-	"time"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func (c *TxManager) CloseReadTransaction(ctx context.Context,
@@ -38,15 +35,6 @@ func (c *TxManager) CloseReadTransaction(ctx context.Context,
 	defer func() {
 		c.Lock()
 		c.currentTransaction = nil
-		monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
-			"ownership": "coordinator",
-			"status":    "close_read",
-		}).Inc()
-		took := time.Since(c.currentTransactionBegin)
-		monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
-			"ownership": "coordinator",
-			"status":    "close_read",
-		}).Observe(took.Seconds())
 		c.slowLog.Close("closed_read")
 		c.Unlock()
 	}()
