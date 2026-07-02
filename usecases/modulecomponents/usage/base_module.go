@@ -128,9 +128,10 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 			b.shardConcurrency = shardConcurrency
 		}
 	}
-	// SetUsageService runs during MakeAppState, before module Init parses env/config,
-	// so the service was seeded with the constructor default. Push the parsed value —
-	// reloadConfig won't, because it only reacts to values differing from b.shardConcurrency.
+	// During startup SetUsageService runs after module Init (postInitModules) and pushes
+	// b.shardConcurrency itself. Push here too so the parsed value reaches the service
+	// regardless of wiring order — reloadConfig won't, because it only reacts to values
+	// differing from b.shardConcurrency.
 	if b.usageService != nil {
 		b.usageService.SetShardConcurrency(b.shardConcurrency)
 	}
