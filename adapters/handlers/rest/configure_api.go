@@ -689,7 +689,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace: db.ExtractReindexTaskCollection,
+			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
 		},
 		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -839,6 +840,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
 	repo.SetReindexer(reindexer)
 
+	// Install the drop-vector live-op lookup BEFORE ClusterService.Open: Open drives
+	// RAFT restore → shard load → recoverEditOps, which consults the lookup to sweep
+	// orphaned edit ops; installing it later would silently skip the sweep for every
+	// shard loaded during restore. A pre-restore lookup error just skips the sweep
+	// for that shard (re-arm, the safe fallback).
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, repo)
+	repo.SetDropVectorLiveOpsLookup(dropVectorEnqueuer.LiveOpIDs)
+
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
@@ -979,7 +988,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1136,6 +1145,7 @@ func initReindexAndDistributedTasks(
 	recoveredReindexes []db.RecoveredReindex,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
+	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
 		repo, appState.SchemaManager, appState.Logger,
@@ -1149,6 +1159,26 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Drop-vector-index distributed-task provider. Added to the providers map so the
+	// conflict/schema-mutation detector loops below auto-register it.
+	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
+		repo,
+		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		appState.Logger,
+		appState.Cluster.LocalName(),
+		serverShutdownCtx,
+	)
+	// Lets the schema drop path enqueue the cleanup task that strips dropped vectors.
+	// (The enqueuer itself is created before ClusterService.Open so its live-op
+	// lookup is installed ahead of restore-time shard loads.)
+	appState.SchemaManager.SetDropVectorIndexEnqueuer(dropVectorEnqueuer)
+	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
+	// is missing (crash, upgrade, or restore).
+	enterrors.GoWrapper(func() {
+		runDropVectorIndexReconciliationAtStartup(
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger)
+	}, appState.Logger)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,

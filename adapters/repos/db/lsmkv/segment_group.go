@@ -101,6 +101,10 @@ type SegmentGroup struct {
 	// BuildCurrentTransformer). nil unless edit ops are enabled for this segment
 	// group.
 	editOps *SegmentEditOps
+	// editOpLiveness returns the set of edit-op IDs that still have a live task.
+	// Used by recoverEditOps to sweep an orphaned op on shard load instead of
+	// re-arming it. nil disables the sweep (Reconcile then only prunes segments).
+	editOpLiveness EditOpLivenessProvider
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
@@ -141,6 +145,7 @@ type sgConfig struct {
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 	className                    string
+	editOpLiveness               EditOpLivenessProvider
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -550,6 +555,10 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	if cfg.className != "" && cfg.strategy == StrategyReplace {
 		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
 		sg.editOps.logger = sg.logger
+		sg.editOpLiveness = cfg.editOpLiveness
+		if err := sg.recoverEditOps(ctx); err != nil {
+			return nil, fmt.Errorf("recover segment edit ops: %w", err)
+		}
 	}
 
 	id := "segmentgroup/compaction/" + sg.dir
@@ -621,6 +630,105 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
+}
+
+// recoverEditOps runs startup recovery for the edit-ops sidecar: sweep ops whose
+// task is gone (Reconcile with the liveness provider's live-op set — load-bearing:
+// re-arming an orphaned op would strip a re-created same-name vector), prune rows
+// for segments gone from disk, then re-snapshot every surviving op over the
+// current segments. The re-snapshot is the only recovery for the crash window
+// where a compaction renamed its merged output but died before recording it as
+// pending for an op that was not part of that compaction's transformer;
+// re-cleaning already-clean segments is a no-op because the transformer is
+// idempotent. Runs before the compaction cycle registers, so no pass races the
+// segment-set read.
+func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
+	if sg.editOps == nil {
+		return nil
+	}
+	ops, err := sg.editOps.LoadOps()
+	if err != nil {
+		return err
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+
+	sg.maintenanceLock.RLock()
+	ids := sg.currentSegmentIDsLocked()
+	sg.maintenanceLock.RUnlock()
+
+	existing := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		existing[id] = struct{}{}
+	}
+
+	// Sweep orphaned ops (no live task) instead of re-arming them; a lookup error
+	// (or no provider) falls back to no sweep. Reconcile drops swept ops, so reload
+	// afterwards and only re-snapshot what survives.
+	liveOpIDs := sg.liveEditOpIDs(ctx)
+	if err := sg.editOps.Reconcile(existing, liveOpIDs); err != nil {
+		return err
+	}
+	if liveOpIDs != nil {
+		if ops, err = sg.editOps.LoadOps(); err != nil {
+			return err
+		}
+	}
+	for _, op := range ops {
+		if err := sg.editOps.SnapshotSegments(op.ID, ids); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// liveEditOpIDs resolves the live-op set for the orphan sweep, or nil to skip it
+// (no provider, or a lookup failure — sweeping on a bad read could drop a still-live
+// op, so we prefer to re-arm and let a later load reconcile).
+func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context) map[string]struct{} {
+	if sg.editOpLiveness == nil {
+		return nil
+	}
+	live, err := sg.editOpLiveness(ctx)
+	if err != nil {
+		sg.logger.Warnf("drop-vector: live edit-op lookup failed; skipping orphan sweep this load: %v", err)
+		return nil
+	}
+	return live
+}
+
+// registerEditOpAndSnapshot registers opID and snapshots the current on-disk
+// segments in one write. Idempotent via the snapshot guard (not the descriptor),
+// so a resume completes an interrupted register rather than skipping it, and one
+// that already snapshotted does not re-queue completed segments. The segment IDs
+// are read and written under maintenanceLock so the snapshot stays coherent with
+// the in-memory segment set.
+func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor) error {
+	if sg.editOps == nil {
+		return fmt.Errorf("edit ops not enabled for this segment group")
+	}
+	snapshotted, err := sg.editOps.HasPendingSnapshot(opID)
+	if err != nil {
+		return err
+	}
+	if snapshotted {
+		return nil
+	}
+
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	return sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+}
+
+// currentSegmentIDsLocked snapshots the in-memory segment IDs. Caller must hold
+// maintenanceLock (read).
+func (sg *SegmentGroup) currentSegmentIDsLocked() []string {
+	ids := make([]string, len(sg.segments))
+	for i, seg := range sg.segments {
+		ids[i] = segmentID(seg.getPath())
+	}
+	return ids
 }
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {

@@ -197,6 +197,10 @@ type Bucket struct {
 	// never call ClassName() in the first place.
 	className string
 
+	// editOpLiveness lets the objects bucket sweep orphaned edit ops on load (see
+	// SegmentGroup.recoverEditOps). Set via WithEditOpLivenessProvider; nil disables.
+	editOpLiveness EditOpLivenessProvider
+
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
 	// without discontinuities in segment levels.
@@ -360,6 +364,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
 			className:                    b.className,
+			editOpLiveness:               b.editOpLiveness,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -395,6 +400,54 @@ func (b *Bucket) GetDir() string {
 
 func (b *Bucket) GetRootDir() string {
 	return b.rootDir
+}
+
+// HasEditOps reports whether this bucket has an edit-ops sidecar (wired via
+// WithClassName on a replace bucket, i.e. the objects bucket).
+func (b *Bucket) HasEditOps() bool {
+	return b.disk != nil && b.disk.editOps != nil
+}
+
+// RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
+// current segments as pending for the compaction/cleanup transformer to rewrite.
+// It flushes the active memtable first so in-memory data is captured. Idempotent:
+// an op that already has a snapshot (resume) is a no-op and skips the flush.
+func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
+	if !b.HasEditOps() {
+		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	snapshotted, err := b.disk.editOps.HasPendingSnapshot(opID)
+	if err != nil {
+		return err
+	}
+	if snapshotted {
+		return nil
+	}
+	if err := b.FlushAndSwitch(); err != nil {
+		return fmt.Errorf("flush before edit-op snapshot: %w", err)
+	}
+	return b.disk.registerEditOpAndSnapshot(opID, desc)
+}
+
+// EditOpPending returns the segment IDs still awaiting rewrite for opID. An empty
+// result means the operation has been fully applied on this bucket.
+func (b *Bucket) EditOpPending(opID string) ([]string, error) {
+	if !b.HasEditOps() {
+		return nil, fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.Pending(opID)
+}
+
+// DeleteEditOp removes opID and its bookkeeping from the sidecar once the cleanup
+// task has finished, so the op stops driving the compaction/cleanup transformer.
+// A lingering op would re-decode every object on every future compaction, force a
+// full re-clean on each restart (via recoverEditOps), and — once the dropped name
+// is freed for re-creation — strip the re-created vector. Idempotent.
+func (b *Bucket) DeleteEditOp(opID string) error {
+	if !b.HasEditOps() {
+		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	return b.disk.editOps.DeleteOp(opID)
 }
 
 func (b *Bucket) GetStrategy() string {

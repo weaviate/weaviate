@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,6 +81,14 @@ type SegmentEditOps struct {
 // transformerResolver maps an op type to its transformer factory, reporting
 // whether one is registered. Production uses transformers.Lookup; tests inject.
 type transformerResolver func(OpType) (OpTransformerFactory, bool)
+
+// EditOpLivenessProvider returns the set of edit-op IDs that still have a live
+// (non-terminal) task. recoverEditOps passes it to Reconcile so an op whose task
+// has finished/gone is swept on shard load rather than re-armed — closing the
+// window where a completed op lingers on a shard that was unloaded at finalize
+// time and later strips a re-created same-name vector. A nil provider (or a lookup
+// error) disables the sweep, keeping the pre-existing re-arm behavior.
+type EditOpLivenessProvider func(ctx context.Context) (map[string]struct{}, error)
 
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
 
@@ -350,8 +359,8 @@ func chainTransformers(transformers []valueTransformer) valueTransformer {
 // Crash window: if the process dies after switchOnDisk but before this commit,
 // the merge inputs are gone from disk but the merged output never got a pending
 // row for an op absent from builtOps. Reconcile only prunes missing-segment rows,
-// so it can't recover this — the leader-startup re-snapshot (S14, not yet built)
-// must re-queue the merged output. Until then such a crash can retain a dropped target.
+// so it can't recover this; the re-snapshot on shard load (recoverEditOps) re-queues
+// every current segment for each live op, which covers the merged output.
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	mergedID := leftID + "_" + rightID
 
@@ -401,6 +410,62 @@ func (s *SegmentEditOps) RegisterOp(opID string, op OpDescriptor) error {
 		}
 		return b.Put([]byte(opID), enc)
 	})
+}
+
+// RegisterOpWithSnapshot writes the op descriptor and the pending rows for segIDs
+// in one transaction, so the descriptor is never durable without its snapshot (a
+// resume would otherwise skip a drop that stripped nothing). Idempotent: an
+// existing descriptor keeps its CreatedAt and already-pending segments are left
+// untouched. Callers must derive segIDs under maintenanceLock (see
+// SnapshotSegments' invariant) and hold it across this call.
+func (s *SegmentEditOps) RegisterOpWithSnapshot(opID string, op OpDescriptor, segIDs []string) error {
+	return s.withWriteTx(true, func(tx *bolt.Tx) error {
+		ops := tx.Bucket(editOpsBucketOperations)
+		if ops.Get([]byte(opID)) == nil {
+			enc, err := json.Marshal(op)
+			if err != nil {
+				return err
+			}
+			if err := ops.Put([]byte(opID), enc); err != nil {
+				return err
+			}
+		}
+		sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+		if err != nil {
+			return err
+		}
+		for _, segID := range segIDs {
+			if sub.Get([]byte(segID)) != nil {
+				continue
+			}
+			enc, err := json.Marshal(PendingSegment{})
+			if err != nil {
+				return err
+			}
+			if err := sub.Put([]byte(segID), enc); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// HasPendingSnapshot reports whether opID's segments have been snapshotted (its
+// pending sub-bucket exists, even if now empty). Only a snapshot creates that
+// sub-bucket, so this — not descriptor presence — is the correct "resume may skip
+// the snapshot" signal.
+func (s *SegmentEditOps) HasPendingSnapshot(opID string) (bool, error) {
+	if ok, err := s.openIfExists(); err != nil || !ok {
+		return false, err
+	}
+	exists := false
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		exists = tx.Bucket(editOpsBucketPending).Bucket([]byte(opID)) != nil
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // LoadOps returns all active operations sorted by CreatedAt (ties broken by ID)
