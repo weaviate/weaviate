@@ -141,24 +141,22 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.haltForTransferCancel = cancel
 
-	s.haltForTransferInactivityTimer = time.NewTimer(s.haltForTransferInactivityTimeout)
+	timer := time.NewTimer(s.haltForTransferInactivityTimeout)
+	s.haltForTransferInactivityTimer = timer
 
 	enterrors.GoWrapper(func() {
-		// this goroutine will release maintenance cycles if no file activity
-		// is detected in the specified inactivity timeout
-		defer func() {
-			s.haltForTransferMux.Lock()
-			s.haltForTransferInactivityTimer.Stop()
-			s.haltForTransferCancel = nil
-			s.haltForTransferMux.Unlock()
-		}()
+		// releases maintenance cycles if no file activity is seen within the inactivity timeout.
+		// stops its own captured timer, not the shared field, so a successor monitor's timer survives.
+		defer timer.Stop()
 
 		select {
 		case <-ctx.Done():
 			return
-		case <-s.haltForTransferInactivityTimer.C:
+		case <-timer.C:
 			s.haltForTransferMux.Lock()
-			s.mayForceResumeMaintenanceCycles(context.Background(), true)
+			if err := s.mayForceResumeMaintenanceCycles(context.Background(), true); err != nil {
+				s.index.logger.Error(err)
+			}
 			s.haltForTransferMux.Unlock()
 			return
 		}
@@ -303,8 +301,10 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	}
 
 	if s.haltForTransferCancel != nil {
-		// terminate background goroutine checking for inactivity timeout
+		// terminate the inactivity monitor and clear the sentinel synchronously under the mux,
+		// so a subsequent HaltForTransfer reliably starts a new monitor.
 		s.haltForTransferCancel()
+		s.haltForTransferCancel = nil
 	}
 
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
