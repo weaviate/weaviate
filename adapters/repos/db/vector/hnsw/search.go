@@ -720,27 +720,29 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		return nil, nil, fmt.Errorf("k must be greater than zero")
 	}
 
-	h.RLock()
-	entryPointID := h.entryPointID
-	maxLayer := h.currentMaximumLayer
-	h.RUnlock()
-
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		var returnFn compressionhelpers.ReturnDistancerFn
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+
+	// Resolve a valid entrypoint (may use fallback and trigger async repair)
+	resolved, ok, err := h.resolveEntrypoint(compressorDistancer, searchVec)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "knnSearchByVector")
-			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-		}
-		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
+		return nil, nil, errors.Wrap(err, "knn search: resolve entrypoint")
 	}
+	if !ok {
+		// No valid nodes in graph (empty or all under maintenance)
+		return nil, nil, nil
+	}
+
+	entryPointID := resolved.id
+	entryPointDistance := resolved.distance
+
+	h.RLock()
+	maxLayer := h.currentMaximumLayer
+	h.RUnlock()
 
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {
