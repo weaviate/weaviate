@@ -169,119 +169,105 @@ func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCall
 }
 
 func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
+	// snapshot the due callbacks under a single lock, then dispatch without it,
+	// so the scan does not serialize Register/execution
+	dueIds := c.collectDueCallbacks()
 	// spawn no workers when nothing is due; callbacks becoming due right after
-	// this check are picked up on the next tick.
-	if c.countDueCallbacks() == 0 {
+	// the snapshot are picked up on the next tick
+	if len(dueIds) == 0 {
 		return false
 	}
 
 	anyExecuted := false
-	ch := make(chan uint32)
 	lock := new(sync.Mutex)
 	wg := new(sync.WaitGroup)
-	wg.Add(routinesLimit)
+	ch := make(chan uint32)
 
-	i := 0
-	for r := 0; r < routinesLimit; r++ {
-		f := func() {
-			defer wg.Done()
-			for callbackId := range ch {
-				if shouldAbort() {
-					// keep reading from channel until it is closed
-					continue
-				}
-
-				c.Lock()
-				meta, ok := c.callbacks[callbackId]
-				// callback missing or deactivated, proceed to the next one
-				if !ok || !meta.active {
-					c.Unlock()
-					continue
-				}
-				now := time.Now()
-				// not enough time passed since previous execution
-				if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
-					c.Unlock()
-					continue
-				}
-				// callback active, mark as running
-				runningCtx, cancel := context.WithCancel(context.Background())
-				meta.runningCtx = runningCtx
-				meta.started = now
-				c.Unlock()
-
-				func() {
-					// cancel called in recover, regardless of panic occurred or not
-					defer c.recover(meta.customId, cancel)
-					executed := meta.cycleCallback(func() bool {
-						if shouldAbort() {
-							return true
-						}
-
-						c.Lock()
-						defer c.Unlock()
-
-						return meta.shouldAbort
-					})
-
-					if executed {
-						lock.Lock()
-						anyExecuted = true
-						lock.Unlock()
-					}
-					if meta.intervals != nil {
-						if executed {
-							meta.intervals.Reset()
-						} else {
-							meta.intervals.Advance()
-						}
-					}
-				}()
+	worker := func() {
+		defer wg.Done()
+		for callbackId := range ch {
+			if shouldAbort() {
+				// keep reading from channel until it is closed
+				continue
 			}
+
+			c.Lock()
+			meta, ok := c.callbacks[callbackId]
+			// callback missing or deactivated, proceed to the next one
+			if !ok || !meta.active {
+				c.Unlock()
+				continue
+			}
+			now := time.Now()
+			// not enough time passed since previous execution
+			if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
+				c.Unlock()
+				continue
+			}
+			// callback active, mark as running
+			runningCtx, cancel := context.WithCancel(context.Background())
+			meta.runningCtx = runningCtx
+			meta.started = now
+			c.Unlock()
+
+			func() {
+				// cancel called in recover, regardless of panic occurred or not
+				defer c.recover(meta.customId, cancel)
+				executed := meta.cycleCallback(func() bool {
+					if shouldAbort() {
+						return true
+					}
+
+					c.Lock()
+					defer c.Unlock()
+
+					return meta.shouldAbort
+				})
+
+				if executed {
+					lock.Lock()
+					anyExecuted = true
+					lock.Unlock()
+				}
+				if meta.intervals != nil {
+					if executed {
+						meta.intervals.Reset()
+					} else {
+						meta.intervals.Advance()
+					}
+				}
+			}()
 		}
-		enterrors.GoWrapper(f, c.logger)
 	}
 
-	for {
+	wg.Add(routinesLimit)
+	for r := 0; r < routinesLimit; r++ {
+		enterrors.GoWrapper(worker, c.logger)
+	}
+
+	// dispatch only due ids, so workers re-lock per due id rather than per
+	// registered callback
+	for _, callbackId := range dueIds {
 		if shouldAbort() {
-			close(ch)
 			break
 		}
-
-		c.Lock()
-		// no more callbacks left, exit the loop
-		if i >= len(c.callbackIds) {
-			c.Unlock()
-			close(ch)
-			break
-		}
-
-		callbackId := c.callbackIds[i]
-		_, ok := c.callbacks[callbackId]
-		// callback deleted in the meantime, remove its id
-		// and proceed to the next one (no "i" increment required)
-		if !ok {
-			c.callbackIds = append(c.callbackIds[:i], c.callbackIds[i+1:]...)
-			c.Unlock()
-			continue
-		}
-		c.Unlock()
 		ch <- callbackId
-		i++
 	}
-
+	close(ch)
 	wg.Wait()
 	return anyExecuted
 }
 
-// countDueCallbacks prunes ids of deleted callbacks and counts callbacks that
-// are active and whose interval has elapsed, so an idle tick can skip spawning
-// workers entirely. Workers re-verify each callback under lock before executing.
-func (c *cycleCallbackGroup) countDueCallbacks() int {
+// collectDueCallbacks prunes ids of deleted callbacks and returns a snapshot of
+// the ids that are active and whose interval has elapsed. Workers re-verify each
+// under lock before executing, so ids deactivated or unregistered after the
+// snapshot are skipped. Callbacks registered after the snapshot run on the next
+// tick rather than the current one.
+func (c *cycleCallbackGroup) collectDueCallbacks() []uint32 {
 	c.Lock()
 	defer c.Unlock()
 
-	due := 0
+	var dueIds []uint32
 	now := time.Now()
 	i := 0
 	for _, callbackId := range c.callbackIds {
@@ -300,10 +286,10 @@ func (c *cycleCallbackGroup) countDueCallbacks() int {
 		if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
 			continue
 		}
-		due++
+		dueIds = append(dueIds, callbackId)
 	}
 	c.callbackIds = c.callbackIds[:i]
-	return due
+	return dueIds
 }
 
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
