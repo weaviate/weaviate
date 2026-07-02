@@ -31,9 +31,12 @@ import (
 // the exact stored map that compaction round-trips to disk.
 func TestSegmentPropertyLengthsRepresentations(t *testing.T) {
 	tests := []struct {
-		name      string
-		docIDs    func() []uint64
-		wantDense bool
+		name string
+		// docIDs returns the docIDs to store; wantNarrow is only meaningful when
+		// !wantDense (pairs), where max docID <= MaxUint32 selects uint32 ids.
+		docIDs     func() []uint64
+		wantDense  bool
+		wantNarrow bool
 	}{
 		{
 			// contiguous ids: span == count -> dense array
@@ -48,7 +51,8 @@ func TestSegmentPropertyLengthsRepresentations(t *testing.T) {
 			wantDense: true,
 		},
 		{
-			// stride 10: span ~10x count, far below 1/3 occupancy -> sorted pairs
+			// stride 10: span ~10x count, far below 1/3 occupancy -> sorted pairs;
+			// max docID 4990 fits uint32 -> narrow ids
 			name: "sparse_strided",
 			docIDs: func() []uint64 {
 				ids := make([]uint64, 500)
@@ -57,7 +61,17 @@ func TestSegmentPropertyLengthsRepresentations(t *testing.T) {
 				}
 				return ids
 			},
-			wantDense: false,
+			wantDense:  false,
+			wantNarrow: true,
+		},
+		{
+			// sparse with a max docID beyond uint32 -> pairs must keep uint64 ids
+			name: "sparse_wide_id",
+			docIDs: func() []uint64 {
+				return []uint64{0, 10, 20, 30, 1 << 33}
+			},
+			wantDense:  false,
+			wantNarrow: false,
 		},
 		{
 			// exactly at the gate: span == 3*count keeps dense
@@ -105,7 +119,21 @@ func TestSegmentPropertyLengthsRepresentations(t *testing.T) {
 			plView, err := seg.propLengthsView()
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantDense, plView.dense != nil, "representation choice")
-			assert.Equal(t, tc.wantDense, plView.ids == nil, "exactly one representation populated")
+			switch {
+			case tc.wantDense:
+				assert.Nil(t, plView.ids, "dense: no uint64 pairs")
+				assert.Nil(t, plView.ids32, "dense: no uint32 pairs")
+			case tc.wantNarrow:
+				assert.NotNil(t, plView.ids32, "max docID fits uint32: narrow ids")
+				assert.Nil(t, plView.ids, "narrow ids: no uint64 pairs")
+				require.Len(t, plView.ids32, len(docIDs))
+				// 4B ids32 + 4B lens = 8B/entry (vs 12B with uint64 ids)
+				assert.Equal(t, 8, (4*len(plView.ids32)+4*len(plView.lens))/len(plView.ids32),
+					"uint32-ids pairs entry is 8B")
+			default:
+				assert.NotNil(t, plView.ids, "max docID exceeds uint32: uint64 fallback")
+				assert.Nil(t, plView.ids32, "wide ids: no uint32 pairs")
+			}
 
 			// ascending scan (the production access pattern)
 			for _, docID := range docIDs {
@@ -179,7 +207,8 @@ func TestSegmentPropertyLengthsSpanOverflow(t *testing.T) {
 	plView, err := seg.propLengthsView()
 	require.NoError(t, err)
 	assert.Nil(t, plView.dense, "overflowing span must not select dense")
-	assert.NotNil(t, plView.ids, "must fall back to sorted pairs")
+	assert.NotNil(t, plView.ids, "must fall back to sorted pairs (uint64 ids: max docID > uint32)")
+	assert.Nil(t, plView.ids32, "MaxUint64 docID can't use uint32 ids")
 	assert.Equal(t, uint32(3), plView.get(0))
 	assert.Equal(t, uint32(7), plView.get(math.MaxUint64))
 
@@ -217,7 +246,7 @@ func TestSegmentPropertyLengthsZeroLengthForcesPairs(t *testing.T) {
 	plView, err := seg.propLengthsView()
 	require.NoError(t, err)
 	assert.Nil(t, plView.dense, "a stored 0-length must force the pairs layout")
-	assert.NotNil(t, plView.ids)
+	assert.NotNil(t, plView.ids32, "max docID 3 fits uint32: narrow ids")
 
 	got, err := seg.getPropertyLengths()
 	require.NoError(t, err)
@@ -332,7 +361,8 @@ func TestInvertedCompactionPropertyLengthsSparsePairs(t *testing.T) {
 	plView, err := seg.propLengthsView()
 	require.NoError(t, err)
 	assert.Nil(t, plView.dense, "sparse docIDs must keep the merged segment on the pairs layout")
-	assert.NotNil(t, plView.ids, "pairs layout expected")
+	assert.NotNil(t, plView.ids32, "max docID 20000 fits uint32: narrow ids after the merge round-trip")
+	assert.Nil(t, plView.ids, "narrow ids: no uint64 pairs")
 	for id, l := range want {
 		require.Equal(t, l, plView.get(id), "view docID %d", id)
 	}
