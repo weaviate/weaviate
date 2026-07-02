@@ -13,6 +13,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -22,6 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 )
+
+func ptrTo[T any](v T) *T { return &v }
 
 // T-FIELDS-1: curated extraction - mixed RF, MT, named-vector, hnsw/flat/dynamic.
 func TestCuratedFields_Extraction(t *testing.T) {
@@ -68,12 +71,18 @@ func TestCuratedFields_Extraction(t *testing.T) {
 	payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
 	require.NoError(t, err)
 
-	assert.Equal(t, 3, payload.NodeCount)
-	assert.Equal(t, 3, payload.MaxReplicationFactor)
-	assert.True(t, payload.ReplicationEnabled, "RF>1 → replicationEnabled=true")
-	assert.Equal(t, 2, payload.MTCollectionCount)
-	assert.Equal(t, 1, payload.NamedVectorCollectionCount, "only class C has VectorConfig")
-	assert.True(t, payload.AsyncIndexingEnabled)
+	require.NotNil(t, payload.NodeCount)
+	assert.Equal(t, 3, *payload.NodeCount)
+	require.NotNil(t, payload.MaxReplicationFactor)
+	assert.Equal(t, 3, *payload.MaxReplicationFactor)
+	require.NotNil(t, payload.ReplicationEnabled)
+	assert.True(t, *payload.ReplicationEnabled, "RF>1 → replicationEnabled=true")
+	require.NotNil(t, payload.MTCollectionCount)
+	assert.Equal(t, 2, *payload.MTCollectionCount)
+	require.NotNil(t, payload.NamedVectorCollectionCount)
+	assert.Equal(t, 1, *payload.NamedVectorCollectionCount, "only class C has VectorConfig")
+	require.NotNil(t, payload.AsyncIndexingEnabled)
+	assert.True(t, *payload.AsyncIndexingEnabled)
 	require.NotNil(t, payload.VectorIndexTypeCounts)
 	// class A → hnsw, class B → flat, class C → dynamic(1)+flat(1)
 	assert.Equal(t, 1, payload.VectorIndexTypeCounts["hnsw"])
@@ -143,7 +152,54 @@ func TestCuratedFields_NodeCount(t *testing.T) {
 
 	payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
 	require.NoError(t, err)
-	assert.Equal(t, 2, payload.NodeCount)
+	require.NotNil(t, payload.NodeCount)
+	assert.Equal(t, 2, *payload.NodeCount)
+}
+
+// T-FIELDS-5: pointer fields serialize a measured zero/false rather than being
+// dropped by omitempty, and a nil field is omitted. This is the guard Marcin
+// asked for: with the old value-type fields, nodeCount:0 / replicationEnabled:false
+// were silently dropped and unknown was indistinguishable from known-zero.
+func TestPayload_PointerSemantics_JSON(t *testing.T) {
+	t.Run("measured zero/false serialize; unknown clusterCreatedAt omitted", func(t *testing.T) {
+		p := Payload{
+			NodeCount:                  ptrTo(0),
+			MaxReplicationFactor:       ptrTo(0),
+			ReplicationEnabled:         ptrTo(false),
+			MTCollectionCount:          ptrTo(0),
+			NamedVectorCollectionCount: ptrTo(0),
+			AsyncIndexingEnabled:       ptrTo(false),
+			// ClusterCreatedAt nil: cluster identity not committed.
+		}
+		b, err := json.Marshal(p)
+		require.NoError(t, err)
+		s := string(b)
+
+		assert.Contains(t, s, `"nodeCount":0`)
+		assert.Contains(t, s, `"maxReplicationFactor":0`)
+		assert.Contains(t, s, `"replicationEnabled":false`)
+		assert.Contains(t, s, `"mtCollectionCount":0`)
+		assert.Contains(t, s, `"namedVectorCollectionCount":0`)
+		assert.Contains(t, s, `"asyncIndexingEnabled":false`)
+		assert.NotContains(t, s, "clusterCreatedAt", "nil clusterCreatedAt must be omitted")
+	})
+
+	t.Run("nil curated fields omitted; known clusterCreatedAt present", func(t *testing.T) {
+		p := Payload{
+			ClusterID:        "00000000-0000-7000-0000-000000000001",
+			ClusterCreatedAt: ptrTo(int64(1717171717000)),
+			// all curated pointers nil: not measured.
+		}
+		b, err := json.Marshal(p)
+		require.NoError(t, err)
+		s := string(b)
+
+		assert.Contains(t, s, `"clusterCreatedAt":1717171717000`)
+		assert.NotContains(t, s, "nodeCount")
+		assert.NotContains(t, s, "replicationEnabled")
+		assert.NotContains(t, s, "asyncIndexingEnabled")
+		assert.NotContains(t, s, "mtCollectionCount")
+	})
 }
 
 // T-FIELDS-4: VectorIndexType defaults to "hnsw" when empty string.

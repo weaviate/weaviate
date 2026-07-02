@@ -334,8 +334,20 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
-	// Curated signal fields - one pass over the schema.
+	// Curated signal fields - one pass over the schema. These are always measured,
+	// so they map to non-nil pointers and a measured 0/false serializes rather than
+	// being dropped by omitempty.
 	nodeCount, maxRF, mtCount, namedVecCount, vectorIndexTypeCounts := tel.getCuratedSchemaFields()
+	replicationEnabled := maxRF > 1
+	asyncIndexingEnabled := tel.asyncIndexingEnabled
+
+	// clusterCreatedAt is only known when the raft cluster identity was committed;
+	// it is set atomically with clusterID in Start(), so gate the pointer on that.
+	var clusterCreatedAt *int64
+	if tel.clusterID != "" {
+		createdAt := tel.clusterCreatedAt
+		clusterCreatedAt = &createdAt
+	}
 
 	return &Payload{
 		MachineID:              tel.machineID,
@@ -353,14 +365,14 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		// stable identity
 		NodeID:           tel.nodeID,
 		ClusterID:        tel.clusterID,
-		ClusterCreatedAt: tel.clusterCreatedAt,
+		ClusterCreatedAt: clusterCreatedAt,
 		// curated signal
-		NodeCount:                  nodeCount,
-		MaxReplicationFactor:       maxRF,
-		ReplicationEnabled:         maxRF > 1,
-		MTCollectionCount:          mtCount,
-		NamedVectorCollectionCount: namedVecCount,
-		AsyncIndexingEnabled:       tel.asyncIndexingEnabled,
+		NodeCount:                  &nodeCount,
+		MaxReplicationFactor:       &maxRF,
+		ReplicationEnabled:         &replicationEnabled,
+		MTCollectionCount:          &mtCount,
+		NamedVectorCollectionCount: &namedVecCount,
+		AsyncIndexingEnabled:       &asyncIndexingEnabled,
 		VectorIndexTypeCounts:      vectorIndexTypeCounts,
 	}, nil
 }
