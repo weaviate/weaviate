@@ -68,6 +68,10 @@ func (i *Index) usageForCollection(ctx context.Context, shardConcurrency int, ex
 		ReplicationFactor: int(i.Config.ReplicationFactor),
 	}
 
+	if shardConcurrency < 1 {
+		shardConcurrency = 1
+	}
+
 	localShards := map[string]struct{}{}
 
 	// We need a consistent view of the sharding state and the locals shards. At the same time, we do not want to lock
@@ -89,15 +93,14 @@ func (i *Index) usageForCollection(ctx context.Context, shardConcurrency int, ex
 		return nil, fmt.Errorf("schemareader: %w", err)
 	}
 
-	i.logger.WithField("class", i.Config.ClassName.String()).Debugf("creating usage report with %d shards", len(localShards))
+	i.logger.
+		WithField("class", i.Config.ClassName.String()).
+		WithField("concurrency", shardConcurrency).
+		Infof("creating usage report with %d shards", len(localShards))
 
 	shardNames := make([]string, 0, len(localShards))
 	for shardName := range localShards {
 		shardNames = append(shardNames, shardName)
-	}
-
-	if shardConcurrency < 1 {
-		shardConcurrency = 1
 	}
 
 	// There is an important distinction between the state of the shard in the schema (in schemaReader) and the local

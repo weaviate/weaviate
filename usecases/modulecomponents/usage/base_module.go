@@ -34,9 +34,10 @@ const (
 	// DefaultShardJitterInterval short for shard-level operations and can be configurable later on
 	DefaultShardJitterInterval = 100 * time.Millisecond
 	DefaultRuntimeLoadInterval = 2 * time.Minute
-	// DefaultShardConcurrency is the number of shards processed concurrently during collection.
-	DefaultShardConcurrency = clusterusage.DefaultShardConcurrency
 )
+
+// DefaultShardConcurrency is the number of shards processed concurrently during collection.
+var DefaultShardConcurrency = clusterusage.DefaultShardConcurrency
 
 // BaseModule contains the common logic for usage collection modules
 type BaseModule struct {

@@ -25,6 +25,7 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -33,7 +34,7 @@ import (
 
 // DefaultShardConcurrency is the default number of shards processed concurrently while collecting
 // usage. It bounds disk/CPU pressure on big clusters and can be overridden at runtime.
-const DefaultShardConcurrency = 8
+var DefaultShardConcurrency = concurrency.GOMAXPROCSx2
 
 type Service interface {
 	// SetJitterInterval is deprecated and a no-op. Per-shard jitter was replaced by bounded
@@ -60,7 +61,7 @@ func NewService(schemaManager schema.SchemaGetter, db *db.DB, backups backup.Bac
 		backups:       backups,
 		logger:        logger,
 	}
-	s.shardConcurrency.Store(DefaultShardConcurrency)
+	s.shardConcurrency.Store(int64(DefaultShardConcurrency))
 	return s
 }
 
