@@ -337,9 +337,18 @@ type PQDistancer struct {
 	pq         *ProductQuantizer
 	lut        *DistanceLookUpTable
 	compressed []byte
+	err        error
 }
 
 func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {
+	if len(a) != pq.dimensions {
+		return &PQDistancer{
+			x:  a,
+			pq: pq,
+			err: fmt.Errorf("%w: %d vs %d", distancer.ErrVectorLength,
+				len(a), pq.dimensions),
+		}
+	}
 	lut := pq.CenterAt(a)
 	return &PQDistancer{
 		x:          a,
@@ -359,10 +368,16 @@ func (pq *ProductQuantizer) NewCompressedQuantizerDistancer(a []byte) quantizerD
 }
 
 func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
+	if d.lut == nil {
+		return
+	}
 	pq.dlutPool.Return(d.lut)
 }
 
 func (d *PQDistancer) Distance(x []byte) (float32, error) {
+	if d.err != nil {
+		return 0, d.err
+	}
 	if d.lut == nil {
 		return d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
 	}
@@ -373,6 +388,9 @@ func (d *PQDistancer) Distance(x []byte) (float32, error) {
 }
 
 func (d *PQDistancer) DistanceToFloat(x []float32) (float32, error) {
+	if d.err != nil {
+		return 0, d.err
+	}
 	if d.lut != nil {
 		return d.pq.distance.SingleDist(x, d.lut.flatCenter)
 	}
