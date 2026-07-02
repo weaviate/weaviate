@@ -28,6 +28,7 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
+	// --- existing fields, UNCHANGED ---
 	MachineID              strfmt.UUID                     `json:"machineId"`
 	Type                   string                          `json:"type"`
 	Version                string                          `json:"version"`
@@ -40,4 +41,34 @@ type Payload struct {
 	ClientIntegrationUsage map[string]map[string]int64     `json:"clientIntegrationUsage,omitempty"`
 	CloudProvider          *string                         `json:"cloudProvider,omitempty"`
 	UniqueID               *string                         `json:"uniqueID,omitempty"`
+
+	// --- NEW: stable identity ---
+	// NodeID is a persisted UUID tied to the data volume. Stable across restarts;
+	// resets only on data-volume wipe. NOT the hostname. Empty means unknown; it
+	// has no meaningful set-but-empty value, so a value type with omitempty is
+	// sufficient (no unknown-vs-known-empty ambiguity).
+	NodeID string `json:"nodeId,omitempty"`
+	// ClusterID is a UUIDv7 committed once per cluster lifetime via raft, including
+	// single-node deployments (the sole leader still commits it). Empty means the
+	// identity was not yet committed at push time (best-effort; times out after
+	// 30s in Start()); there is no known-empty clusterId, so string+omitempty is
+	// sufficient.
+	ClusterID string `json:"clusterId,omitempty"`
+	// ClusterCreatedAt is unix-millis of cluster inception. Stored explicitly so
+	// consumers never decode UUIDv7 timestamp bits. Pointer so nil distinguishes
+	// "cluster identity not committed" from a (never-legitimate) createdAt of 0.
+	ClusterCreatedAt *int64 `json:"clusterCreatedAt,omitempty"`
+
+	// --- NEW: curated signal ---
+	// These are pointers so a successfully-measured zero/false serializes (e.g.
+	// nodeCount:0, replicationEnabled:false) instead of being dropped by omitempty.
+	// A nil pointer means the value could not be determined; the schema-derived
+	// fields below are always measured, so they are always non-nil in practice.
+	NodeCount                  *int           `json:"nodeCount,omitempty"`
+	MaxReplicationFactor       *int           `json:"maxReplicationFactor,omitempty"`
+	ReplicationEnabled         *bool          `json:"replicationEnabled,omitempty"`
+	MTCollectionCount          *int           `json:"mtCollectionCount,omitempty"`
+	NamedVectorCollectionCount *int           `json:"namedVectorCollectionCount,omitempty"`
+	AsyncIndexingEnabled       *bool          `json:"asyncIndexingEnabled,omitempty"`
+	VectorIndexTypeCounts      map[string]int `json:"vectorIndexTypeCounts,omitempty"`
 }

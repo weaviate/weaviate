@@ -36,6 +36,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
+	"github.com/google/uuid"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
@@ -1378,13 +1379,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 
+	persistedNodeID, err := telemetry.ReadOrCreateNodeID(appState.ServerConfig.Config.Persistence.DataPath)
+	if err != nil {
+		appState.Logger.Warnf("persist node-id failed, using ephemeral id: %v", err)
+		persistedNodeID = uuid.NewString()
+	}
+
 	telemeter := telemetry.New(
 		appState.DB,
 		appState.SchemaManager,
 		appState.Logger,
-		getTelemetryURL(appState),
-		appState.ServerConfig.Config.TelemetryPushInterval,
-		telemetryEnabled(appState),
+		telemetry.Config{
+			ConsumerURL:          getTelemetryURL(appState),
+			PushInterval:         appState.ServerConfig.Config.TelemetryPushInterval,
+			Enabled:              telemetryEnabled(appState),
+			NodeID:               persistedNodeID,
+			AsyncIndexingEnabled: appState.ServerConfig.Config.AsyncIndexingEnabled,
+		},
+		appState.ClusterService.WaitForClusterID,
 	)
 
 	var grpcInstrument []grpc.ServerOption
