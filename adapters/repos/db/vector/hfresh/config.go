@@ -50,7 +50,8 @@ type Config struct {
 	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
-	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"` // Function to get a vector by index ID
+	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
+	MultiVectorForIDThunk     common.VectorForID[[]float32]   `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
 }
 
 type StoreConfig struct {
@@ -117,6 +118,10 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 		{
 			name:     "replicas",
 			accessor: func(c ent.UserConfig) interface{} { return c.Replicas },
+		},
+		{
+			name:     "multivector.muvera.enabled",
+			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
 		},
 	}
 
