@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -1094,4 +1095,47 @@ func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
 	}
 	sum := sg.averagePropSum.Load()
 	return float64(sum) / float64(count), count
+}
+
+// Gets a combined bloom filter for all segments in the segment group.
+// If the segments have different bloom filter geometries,
+// the largest bloom filter is returned instead of merging them.
+func (sg *SegmentGroup) GetKeysBloomFilter() (*bloom.BloomFilter, error) {
+	if !sg.useBloomFilter {
+		return nil, fmt.Errorf("bloom filter not enabled")
+	}
+
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	// No flushed disk segments yet (data still in the memtable) — nothing the
+	// bloom filters can estimate.
+	if len(segments) == 0 {
+		return nil, nil
+	}
+
+	first, ok := segments[0].(*segment)
+	if !ok {
+		return nil, fmt.Errorf("unexpected segment type")
+	}
+	if first.bloomFilter == nil {
+		return nil, fmt.Errorf("bloom filter not found in segment")
+	}
+
+	bloomFilter := first.bloomFilter.Copy()
+	for _, seg := range segments[1:] {
+		s, ok := seg.(*segment)
+		if !ok || s.bloomFilter == nil {
+			continue
+		}
+		if err := bloomFilter.Merge(s.bloomFilter); err != nil {
+			// merge failed, likely due to different geometry (m, k). Keep the larger of the two filters,
+			// so that the result is at least the largest single segment's distinct-key count.
+			if s.bloomFilter.ApproximatedSize() > bloomFilter.ApproximatedSize() {
+				bloomFilter = s.bloomFilter.Copy()
+			}
+		}
+	}
+
+	return bloomFilter, nil
 }

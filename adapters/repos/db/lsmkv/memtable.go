@@ -744,3 +744,50 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 	result := m.roaringSetRange
 	return result
 }
+
+func (m *Memtable) GetKeys() ([][]byte, error) {
+	m.RLock()
+	defer m.RUnlock()
+	if m.primaryIndex != nil && m.primaryIndex.root != nil {
+		iterator := m.primaryIndex.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
+		}
+		return keys, nil
+	}
+	if m.key != nil && m.key.root != nil {
+		iterator := m.key.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
+		}
+		return keys, nil
+	}
+	if m.keyMulti != nil && m.keyMulti.root != nil {
+		iterator := m.keyMulti.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
+		}
+		return keys, nil
+	}
+	if m.keyMap != nil && m.keyMap.root != nil {
+		iterator := m.keyMap.flattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.key)
+		}
+		return keys, nil
+	}
+	if m.roaringSet != nil {
+		iterator := m.roaringSet.FlattenInOrder()
+		keys := make([][]byte, 0, len(iterator))
+		for _, node := range iterator {
+			keys = append(keys, node.Key)
+		}
+		return keys, nil
+	}
+
+	return [][]byte{}, nil
+}

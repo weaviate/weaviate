@@ -106,20 +106,128 @@ func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 }
 
 func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
-	if a.params.GroupBy != nil {
-		return newGroupedAggregator(a).Do(ctx)
+	wantsCardinality := false
+	for _, p := range a.params.Properties {
+		if p.ApproximateCardinality {
+			wantsCardinality = true
+			break
+		}
 	}
 
-	isVectorEmpty, err := dto.IsVectorEmpty(a.params.SearchVector)
+	if !wantsCardinality {
+		return a.dispatch(ctx, a.params.Properties)
+	}
+
+	// Approximate cardinality is a whole-bucket bloom estimate that does not
+	// need the per-type object scan, so run the normal aggregation only for
+	// properties that also request other aggregators. This keeps a
+	// cardinality-only property cheap.
+	normal := make([]aggregation.ParamProperty, 0, len(a.params.Properties))
+	for _, p := range a.params.Properties {
+		if len(p.Aggregators) > 0 {
+			normal = append(normal, p)
+		}
+	}
+
+	res, err := a.dispatch(ctx, normal)
+	if err != nil {
+		return nil, err
+	}
+	a.addApproximateCardinalities(res)
+	return res, nil
+}
+
+func (a *Aggregator) dispatch(ctx context.Context, props []aggregation.ParamProperty) (*aggregation.Result, error) {
+	agg := a
+	if len(props) != len(a.params.Properties) {
+		cp := *a
+		cp.params.Properties = props
+		agg = &cp
+	}
+
+	if agg.params.GroupBy != nil {
+		return newGroupedAggregator(agg).Do(ctx)
+	}
+
+	isVectorEmpty, err := dto.IsVectorEmpty(agg.params.SearchVector)
 	if err != nil {
 		return nil, fmt.Errorf("aggregator: %w", err)
 	}
 
-	if a.params.Filters != nil || !isVectorEmpty || a.params.Hybrid != nil {
-		return newFilteredAggregator(a).Do(ctx)
+	if agg.params.Filters != nil || !isVectorEmpty || agg.params.Hybrid != nil {
+		return newFilteredAggregator(agg).Do(ctx)
 	}
 
-	return newUnfilteredAggregator(a).Do(ctx)
+	return newUnfilteredAggregator(agg).Do(ctx)
+}
+
+// addApproximateCardinalities attaches a bloom-filter distinct-value estimate
+// to every property that requested it. It is best-effort: a property whose
+// bucket is missing or whose bloom filters can't be merged (geometry mismatch
+// on an uncompacted multi-segment bucket) is left without an estimate rather
+// than failing the whole aggregation.
+func (a *Aggregator) addApproximateCardinalities(res *aggregation.Result) {
+	for _, p := range a.params.Properties {
+		if !p.ApproximateCardinality {
+			continue
+		}
+		est, err := a.approximateCardinality(p.Name)
+		if err != nil {
+			a.logger.WithField("action", "aggregate_approximate_cardinality").
+				WithField("property", p.Name.String()).Error(err)
+			continue
+		}
+		if est == nil {
+			continue
+		}
+		name := p.Name.String()
+		for gi := range res.Groups {
+			if res.Groups[gi].Properties == nil {
+				res.Groups[gi].Properties = map[string]aggregation.Property{}
+			}
+			prop := res.Groups[gi].Properties[name]
+			v := *est
+			prop.ApproximateCardinality = &v
+			res.Groups[gi].Properties[name] = prop
+		}
+	}
+}
+
+// approximateCardinality returns the bloom-filter distinct-key estimate for a
+// property, taking the highest estimate across its inverted-index buckets
+// (filterable and searchable), or nil if the property has neither on this shard.
+// A bucket that errors is skipped; an error is only returned if every existing
+// bucket errored.
+func (a *Aggregator) approximateCardinality(name schema.PropertyName) (*uint32, error) {
+	bucketNames := []string{
+		helpers.BucketFromPropNameLSM(name.String()),
+		helpers.BucketSearchableFromPropNameLSM(name.String()),
+	}
+
+	var (
+		best    uint32
+		found   bool
+		lastErr error
+	)
+	for _, bn := range bucketNames {
+		b := a.store.Bucket(bn)
+		if b == nil {
+			continue
+		}
+		est, err := b.GetKeysCount()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !found || est > best {
+			best = est
+			found = true
+		}
+	}
+	if !found {
+		return nil, lastErr
+	}
+	return &best, nil
 }
 
 func (a *Aggregator) aggTypeOfProperty(

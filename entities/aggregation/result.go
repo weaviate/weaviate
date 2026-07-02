@@ -29,6 +29,10 @@ type Property struct {
 	SchemaType            string                 `json:"schemaType"`
 	ReferenceAggregation  Reference              `json:"referenceAggregation"`
 	DateAggregations      map[string]interface{} `json:"dateAggregation"`
+	// ApproximateCardinality is a bloom-filter estimate of the number of
+	// distinct values of this property across the whole bucket (ignores
+	// filters/search). nil unless requested.
+	ApproximateCardinality *uint32 `json:"approximateCardinality,omitempty"`
 }
 
 type Text struct {

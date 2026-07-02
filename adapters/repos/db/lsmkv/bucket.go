@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -2608,4 +2609,36 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 // for full semantics and preconditions.
 func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
+}
+
+func (b *Bucket) GetKeysCount() (uint32, error) {
+	segmentsBloom, err := b.disk.GetKeysBloomFilter()
+	if err != nil {
+		return 0, err
+	}
+
+	// iterate all keys in memtable. b.flushing is a nil interface at rest, so a
+	// single-value type assertion would panic — use the comma-ok form.
+	for _, mem := range []memtable{b.active, b.flushing} {
+		m, ok := mem.(*Memtable)
+		if !ok || m == nil {
+			continue
+		}
+		keys, err := m.GetKeys()
+		if err != nil {
+			return 0, err
+		}
+		// If the disk segments have no keys, we need to create a new bloom filter to
+		// combine the memtable keys with. The bloom filter is sized to 1.5x the number of
+		if segmentsBloom == nil {
+			segmentsBloom = bloom.NewWithEstimates(uint(len(keys)*3/2), 0.001)
+		}
+		// The memtable filter is sized independently of the disk segments, so a
+		// merge conflict is expected; on conflict keep whichever filter
+		// estimates the larger cardinality.
+		for _, key := range keys {
+			segmentsBloom.Add(key)
+		}
+	}
+	return segmentsBloom.ApproximatedSize(), nil
 }

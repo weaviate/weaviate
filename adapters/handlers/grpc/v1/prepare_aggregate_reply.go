@@ -197,9 +197,20 @@ func (r *AggregateReplier) parseAggregatedProperties(in map[string]aggregation.P
 	if len(in) > 0 {
 		propertyAggregations := []*pb.AggregateReply_Aggregations_Aggregation{}
 		for name, property := range in {
-			aggregationResult, err := r.parseAggregationResult(name, property)
-			if err != nil {
-				return nil, fmt.Errorf("parse aggregation property: %w", err)
+			var aggregationResult *pb.AggregateReply_Aggregations_Aggregation
+			if property.Type == "" {
+				// approximate-cardinality-only property: no per-type aggregation
+				aggregationResult = &pb.AggregateReply_Aggregations_Aggregation{Property: name}
+			} else {
+				var err error
+				aggregationResult, err = r.parseAggregationResult(name, property)
+				if err != nil {
+					return nil, fmt.Errorf("parse aggregation property: %w", err)
+				}
+			}
+			if property.ApproximateCardinality != nil {
+				v := int64(*property.ApproximateCardinality)
+				aggregationResult.ApproximateCardinality = &v
 			}
 			propertyAggregations = append(propertyAggregations, aggregationResult)
 		}
