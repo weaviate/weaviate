@@ -272,6 +272,8 @@ func TestEntrypointRepair_ConcurrentRepairAlreadyChanged(t *testing.T) {
 	index.entryPointID = newEntrypointID
 	index.Unlock()
 
+	prevMaxLayer := index.currentMaximumLayer
+
 	// Now perform an insert - should use the already-repaired entrypoint
 	insertDone := make(chan error, 1)
 	newVector := []float32{0.5, 0.5, 0.5}
@@ -285,9 +287,19 @@ func TestEntrypointRepair_ConcurrentRepairAlreadyChanged(t *testing.T) {
 	case err := <-insertDone:
 		assert.NoError(t, err, "insert should succeed using the concurrently-repaired entrypoint")
 
-		// Verify the entrypoint is still the one set by concurrent repair
-		assert.Equal(t, newEntrypointID, index.entryPointID,
-			"entrypoint should remain the one set by concurrent repair")
+		// EP stays as set by concurrent repair, unless the new node drew a
+		// level above the previous max layer and legitimately promoted itself
+		finalEntrypoint := index.entryPointID
+		assert.NotEqual(t, originalEntrypoint, finalEntrypoint,
+			"entrypoint must not revert to the under-maintenance original")
+		if finalEntrypoint != newEntrypointID {
+			require.Equal(t, newID, finalEntrypoint,
+				"entrypoint may only differ from the concurrent repair value via promotion of the new node")
+			newNode := index.nodeByID(newID)
+			require.NotNil(t, newNode)
+			assert.Greater(t, newNode.level, prevMaxLayer,
+				"new node may only become entrypoint if it was promoted to a higher layer")
+		}
 
 	case <-time.After(5 * time.Second):
 		t.Fatal("insert did not terminate — spinning in pickEntrypoint")
@@ -408,11 +420,21 @@ func TestEntrypointRepair_ConcurrentInserts(t *testing.T) {
 		assert.False(t, finalNode.isUnderMaintenance(),
 			"final entrypoint should not be under maintenance")
 
-		// Verify exactly one repair SetEntryPointWithMaxLayer call was made
-		// (CAS ensures only one goroutine performs the actual persist)
+		// one CAS repair persist, plus one per node that may have promoted
+		// itself (repair can lower currentMaximumLayer, so any level > 0 counts)
+		promotionCandidates := int32(0)
+		for i := 0; i < numConcurrentInserts; i++ {
+			node := index.nodeByID(uint64(len(vectors) + i))
+			require.NotNil(t, node, "inserted node should exist in the index")
+			if node.level > 0 {
+				promotionCandidates++
+			}
+		}
 		repairCalls := commitLogger.setEntrypointCalls.Load() - baselineCalls
-		assert.Equal(t, int32(1), repairCalls,
-			"exactly one SetEntryPointWithMaxLayer should be called for repair (CAS)")
+		assert.GreaterOrEqual(t, repairCalls, int32(1),
+			"the broken entrypoint should have been repaired and persisted")
+		assert.LessOrEqual(t, repairCalls, 1+promotionCandidates,
+			"SetEntryPointWithMaxLayer calls should be explained by one CAS repair plus level promotions")
 
 		// Verify entrypoint changed from original
 		assert.NotEqual(t, originalEntrypoint, finalEntrypoint,

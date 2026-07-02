@@ -709,6 +709,36 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
+// entrypointDistWithRepair returns a usable search entrypoint and its distance
+// to the query vector, repairing the global entrypoint if its object was
+// deleted from the object store. Terminates: repair never selects tombstoned
+// nodes, so each iteration either succeeds or tombstones another dead node.
+// Returns errNoUsableEntrypoint if no usable node remains.
+func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
+	distancer compressionhelpers.CompressorDistancer, entryPointID uint64,
+	searchVec []float32,
+) (uint64, float32, error) {
+	for {
+		dist, err := h.distToNode(distancer, entryPointID, searchVec)
+		if err == nil {
+			return entryPointID, dist, nil
+		}
+		var e storobj.ErrNotFound
+		if !errors.As(err, &e) {
+			return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
+		}
+		// distToNode has already flagged the deleted node with a tombstone
+		if err := ctx.Err(); err != nil {
+			return 0, 0, err
+		}
+		newEp, err := h.repairGlobalEntrypoint(entryPointID, helpers.NewAllowList())
+		if err != nil {
+			return 0, 0, err
+		}
+		entryPointID = newEp
+	}
+}
+
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
@@ -731,15 +761,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+	entryPointID, entryPointDistance, err := h.entrypointDistWithRepair(ctx, compressorDistancer,
+		entryPointID, searchVec)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "knnSearchByVector")
-			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		if errors.Is(err, errNoUsableEntrypoint) {
+			return nil, nil, nil
 		}
-		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
+		return nil, nil, errors.Wrap(err, "knn search")
 	}
 
 	// stop at layer 1, not 0!
