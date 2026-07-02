@@ -48,9 +48,11 @@ type Payload struct {
 	// has no meaningful set-but-empty value, so a value type with omitempty is
 	// sufficient (no unknown-vs-known-empty ambiguity).
 	NodeID string `json:"nodeId,omitempty"`
-	// ClusterID is a UUIDv7 committed once per cluster lifetime via raft. Empty
-	// means the identity was not committed yet (best-effort failed / single-node);
-	// there is no known-empty clusterId, so string+omitempty is sufficient.
+	// ClusterID is a UUIDv7 committed once per cluster lifetime via raft, including
+	// single-node deployments (the sole leader still commits it). Empty means the
+	// identity was not yet committed at push time (best-effort; times out after
+	// 30s in Start()); there is no known-empty clusterId, so string+omitempty is
+	// sufficient.
 	ClusterID string `json:"clusterId,omitempty"`
 	// ClusterCreatedAt is unix-millis of cluster inception. Stored explicitly so
 	// consumers never decode UUIDv7 timestamp bits. Pointer so nil distinguishes

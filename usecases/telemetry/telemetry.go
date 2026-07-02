@@ -94,7 +94,7 @@ type Config struct {
 
 // New creates a new Telemeter instance.
 // waitForClusterID blocks until the raft leader commits the cluster identity; may be nil
-// (e.g. in single-node mode) in which case clusterId is omitted from payloads.
+// (only in tests) in which case clusterId is omitted from payloads.
 func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	logger logrus.FieldLogger, cfg Config,
 	waitForClusterID func(ctx context.Context) (string, int64, error),
