@@ -300,11 +300,12 @@ type Shard struct {
 	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
 	asyncReplicationStatsMux sync.RWMutex
 
-	haltForTransferMux               sync.Mutex
-	haltForTransferInactivityTimeout time.Duration
-	haltForTransferInactivityTimer   *time.Timer
-	haltForTransferCount             int
-	haltForTransferCancel            func()
+	haltForTransferMux                sync.Mutex
+	haltForTransferInactivityTimeout  time.Duration
+	haltForTransferInactivityDeadline time.Time
+	haltForTransferGen                uint64
+	haltForTransferCount              int
+	haltForTransferCancel             func()
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

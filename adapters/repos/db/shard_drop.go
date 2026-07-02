@@ -51,6 +51,7 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	s.haltForTransferMux.Lock()
 	if s.haltForTransferCancel != nil {
 		s.haltForTransferCancel()
+		s.haltForTransferCancel = nil
 	}
 	s.haltForTransferMux.Unlock()
 
