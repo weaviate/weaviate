@@ -13,7 +13,9 @@ package modules
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -106,6 +108,28 @@ func getMultiVector(v models.Vector) ([][]float32, error) {
 	}
 }
 
+// renderSourceValue renders a value the way the corpus builder does, so equal
+// logical values in different Go representations compare equal.
+func renderSourceValue(v any) string {
+	switch val := v.(type) {
+	case time.Time:
+		return val.Format(time.RFC3339)
+	case string:
+		// Normalize a date to RFC3339 (the corpus form) so the same instant compares
+		// equal whether stored as a string or supplied as time.Time, ignoring sub-seconds.
+		if t, err := time.Parse(time.RFC3339, val); err == nil {
+			return t.Format(time.RFC3339)
+		}
+		return val
+	case map[string]any, []any, []map[string]any, []float64, []int, []int64, []bool, []string:
+		// Composites: JSON is deterministic and matches the corpus builder.
+		if b, err := json.Marshal(val); err == nil {
+			return string(b)
+		}
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	cfg moduletools.ClassConfig,
 	mod modulecapabilities.Vectorizer[T],
@@ -122,6 +146,8 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	type compareProps struct {
 		Name    string
 		IsArray bool
+		// Generic: a non-text source property compared via its corpus string form.
+		Generic bool
 	}
 	propsToCompare := make([]compareProps, 0)
 
@@ -149,7 +175,9 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 			}
 		}
 
-		if prop.ModuleConfig != nil {
+		// Honor the per-property skip flag only without source properties; with them
+		// membership decides vectorization (PropertyIndexed ignores skip), so must we.
+		if sourcePropsSet == nil && prop.ModuleConfig != nil {
 			if modConfig, ok := prop.ModuleConfig.(map[string]interface{})[class.Vectorizer]; ok {
 				if skip, ok2 := modConfig.(map[string]interface{})["skip"]; ok2 && skip == true {
 					continue
@@ -170,6 +198,26 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		if _, ok := mediaPropsSet[prop.Name]; ok {
 			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
 			continue
+		}
+
+		// A blob is a base64 string, which the corpus vectorizes like any indexed
+		// string, so a changed blob must re-vectorize. Compare as a string.
+		// TODO: also handle schema.DataTypeBlobHash when syncing forward to versions with it.
+		if schema.DataType(prop.DataType[0]) == schema.DataTypeBlob {
+			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name})
+			continue
+		}
+
+		// With source properties set, the corpus also vectorizes non-text types
+		// (number/int/bool/date/object + array variants); compare those generically.
+		if sourcePropsSet != nil {
+			switch schema.DataType(prop.DataType[0]) {
+			case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate,
+				schema.DataTypeIntArray, schema.DataTypeNumberArray, schema.DataTypeBooleanArray, schema.DataTypeDateArray,
+				schema.DataTypeObject, schema.DataTypeObjectArray:
+				propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, Generic: true})
+			default:
+			}
 		}
 	}
 
@@ -206,6 +254,14 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if !isPresentNew {
+			continue
+		}
+
+		if propStruct.Generic {
+			// Compare via the corpus rendering, not the raw Go value (see renderSourceValue).
+			if renderSourceValue(valOld) != renderSourceValue(valNew) {
+				return true, nil
+			}
 			continue
 		}
 
