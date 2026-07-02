@@ -27,6 +27,10 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
+// errNotFirstAnymore is returned by insertInitialElement when another goroutine
+// has already set up an entrypoint. The caller should fall through to normal path.
+var errNotFirstAnymore = errors.New("not first anymore")
+
 const (
 	// bytesPerFloat32 represents the number of bytes used by a float32 value.
 	bytesPerFloat32 = 4
@@ -441,6 +445,18 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 		return nil
 	}
 
+	// Check if graph is "effectively empty" (all nodes tombstoned/under maintenance).
+	// This can happen after initial insert but before tombstone cleanup.
+	// Route to first-node path: new node becomes the entrypoint.
+	if h.isEffectivelyEmpty() {
+		err := h.insertInitialElement(node, vector)
+		if errors.Is(err, errNotFirstAnymore) {
+			// Another goroutine already set up an entrypoint; fall through to normal path
+		} else {
+			return err
+		}
+	}
+
 	node.markAsMaintenance()
 	defer node.unmarkAsMaintenance()
 
@@ -544,6 +560,21 @@ func (h *hnsw) AddMulti(ctx context.Context, id uint64, vector [][]float32) erro
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
+
+	// Re-check under exclusive lock: another goroutine may have already set up
+	// a usable entrypoint while we were waiting for the lock.
+	if !h.isEmptyUnlocked() {
+		ep := h.entryPointID
+		if !h.hasTombstone(ep) {
+			if ep < uint64(len(h.nodes)) {
+				epNode := h.nodes[ep]
+				if epNode != nil && !epNode.isUnderMaintenance() {
+					// Entrypoint is now usable - not first anymore
+					return errNotFirstAnymore
+				}
+			}
+		}
+	}
 
 	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
 		return err

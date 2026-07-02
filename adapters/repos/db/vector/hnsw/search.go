@@ -745,7 +745,9 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	if h.isEmpty() {
+	// Check if graph is effectively empty (no usable entrypoint).
+	// This catches: literal empty, entrypoint tombstoned, or entrypoint under maintenance.
+	if h.isEffectivelyEmpty() {
 		return nil, nil, nil
 	}
 

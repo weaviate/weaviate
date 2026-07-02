@@ -135,7 +135,8 @@ func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
 }
 
 // TestEntrypointRepair_RepairSelectsAlsoUnusableNode tests Case B:
-// repair selects a node that is also unusable → insert ends in clean error, no hang.
+// All nodes are under maintenance → graph is effectively empty →
+// insert routes to first-node path, new node becomes entrypoint.
 func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
 	ctx := context.Background()
 	vectors := vectorsForEntrypointRepairTest()
@@ -171,7 +172,9 @@ func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Mark ALL nodes as under maintenance - repair cannot find any usable node
+	t.Logf("entrypoint before %d", index.getEntrypoint())
+
+	// Mark ALL nodes as under maintenance
 	for i := 0; i < len(vectors); i++ {
 		node := index.nodeByID(uint64(i))
 		if node != nil {
@@ -179,26 +182,20 @@ func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
 		}
 	}
 
-	// Perform an insert - should fail with clean error, not hang
-	insertDone := make(chan error, 1)
+	// Graph is effectively empty (all nodes under maintenance = no usable nodes)
+	assert.True(t, index.isEffectivelyEmpty(), "graph should be effectively empty when all nodes are under maintenance")
+
+	// Perform an insert - should succeed via first-node path
 	newVector := []float32{0.5, 0.5, 0.5}
 	newID := uint64(len(vectors))
 
-	go func() {
-		insertDone <- index.Add(ctx, newID, newVector)
-	}()
+	err = index.Add(ctx, newID, newVector)
+	require.NoError(t, err, "insert should succeed via first-node path")
 
-	select {
-	case err := <-insertDone:
-		// Should get a clean error, not success (no usable entrypoint)
-		assert.Error(t, err, "expected error when all nodes are under maintenance")
-		// The error should indicate no usable entrypoint, not a timeout
-		assert.NotContains(t, err.Error(), "context deadline exceeded",
-			"should fail with entrypoint error, not timeout")
-
-	case <-time.After(5 * time.Second):
-		t.Fatal("insert did not terminate — spinning in pickEntrypoint")
-	}
+	// New node should be the entrypoint
+	newEP := index.getEntrypoint()
+	t.Logf("entrypoint after %d", newEP)
+	assert.Equal(t, newID, newEP, "new node should become entrypoint")
 
 	// Cleanup
 	for i := 0; i < len(vectors); i++ {
@@ -457,4 +454,115 @@ func vectorsForEntrypointRepairTest() [][]float32 {
 		{0.2, 0.3, 0.4},
 		{0.5, 0.6, 0.7},
 	}
+}
+
+// TestEntrypointRepair_ConcurrentInsertsIntoAllTombstoned tests that concurrent
+// inserts into an all-tombstoned graph produce ONE connected graph, not N
+// disconnected nodes. This verifies that the first-node path has proper
+// concurrency guards.
+func TestEntrypointRepair_ConcurrentInsertsIntoAllTombstoned(t *testing.T) {
+	ctx := context.Background()
+	const numInitialNodes = 5
+	const numConcurrentInserts = 50 // Use more to increase race probability
+
+	// Pre-create vectors for all nodes (initial + new inserts)
+	vectors := make([][]float32, numInitialNodes+numConcurrentInserts)
+	for i := range vectors {
+		vectors[i] = []float32{float32(i) * 0.1, float32(i) * 0.2, float32(i) * 0.3}
+	}
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(ctx)
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "concurrent-all-tombstoned-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if int(id) < len(vectors) {
+				return vectors[id], nil
+			}
+			return vectors[0], nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	defer index.Drop(ctx, false)
+
+	// Insert initial nodes
+	for i := 0; i < numInitialNodes; i++ {
+		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	// Tombstone ALL nodes - graph becomes "effectively empty"
+	for i := 0; i < numInitialNodes; i++ {
+		index.addTombstone(uint64(i))
+	}
+
+	// Verify graph is effectively empty
+	assert.True(t, index.isEffectivelyEmpty(), "graph should be effectively empty after all tombstoned")
+
+	// Launch concurrent inserts with a start barrier
+	var wg sync.WaitGroup
+	var successCount atomic.Int32
+	startBarrier := make(chan struct{})
+
+	for i := 0; i < numConcurrentInserts; i++ {
+		wg.Add(1)
+		go func(insertNum int) {
+			defer wg.Done()
+			<-startBarrier // Wait for start signal
+
+			newID := uint64(numInitialNodes + insertNum)
+			err := index.Add(ctx, newID, vectors[newID])
+			if err == nil {
+				successCount.Add(1)
+			}
+		}(i)
+	}
+
+	// Release all goroutines simultaneously
+	close(startBarrier)
+	wg.Wait()
+
+	t.Logf("Concurrent inserts completed: %d successes", successCount.Load())
+
+	// All inserts should succeed
+	assert.Equal(t, int32(numConcurrentInserts), successCount.Load(),
+		"all concurrent inserts should succeed")
+
+	// Verify ONE entrypoint exists
+	finalEntrypoint := index.getEntrypoint()
+	entrypointNode := index.nodeByID(finalEntrypoint)
+	require.NotNil(t, entrypointNode, "entrypoint node should exist")
+	assert.False(t, index.hasTombstone(finalEntrypoint), "entrypoint should not be tombstoned")
+	t.Logf("Final entrypoint: %d", finalEntrypoint)
+
+	// Verify all new nodes are connected (reachable from entrypoint)
+	// A disconnected node would have empty connections AND not be the entrypoint
+	disconnectedCount := 0
+	for i := 0; i < numConcurrentInserts; i++ {
+		nodeID := uint64(numInitialNodes + i)
+		node := index.nodeByID(nodeID)
+		require.NotNil(t, node, "inserted node %d should exist", nodeID)
+
+		conns := node.connections.GetLayer(0)
+
+		// A node is disconnected if: it's not the entrypoint AND has no connections
+		if nodeID != finalEntrypoint && len(conns) == 0 {
+			disconnectedCount++
+			t.Logf("Node %d is DISCONNECTED (no connections, not entrypoint)", nodeID)
+		}
+	}
+
+	// Assert NO disconnected nodes - this proves the first-node path has proper guards
+	assert.Equal(t, 0, disconnectedCount,
+		"all inserted nodes should be connected (no disconnected nodes from concurrent insertInitialElement calls)")
 }
