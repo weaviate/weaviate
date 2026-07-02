@@ -2146,6 +2146,7 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
 				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})

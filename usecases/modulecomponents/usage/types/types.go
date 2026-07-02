@@ -27,6 +27,7 @@ type UsageConfig struct {
 
 	ScrapeInterval      *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
 	ShardJitterInterval *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
+	ShardConcurrency    *runtime.DynamicValue[int]           `json:"usage_shard_concurrency" yaml:"usage_shard_concurrency"`
 	PolicyVersion       *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 	VerifyPermissions   *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 }

@@ -36,18 +36,22 @@ const (
 	DefaultRuntimeLoadInterval = 2 * time.Minute
 )
 
+// DefaultShardConcurrency is the number of shards processed concurrently during collection.
+var DefaultShardConcurrency = clusterusage.DefaultShardConcurrency
+
 // BaseModule contains the common logic for usage collection modules
 type BaseModule struct {
-	nodeID        string
-	policyVersion string
-	moduleName    string
-	config        *config.Config
-	storage       StorageBackend
-	interval      time.Duration
-	shardJitter   time.Duration
-	stopChan      chan struct{}
-	metrics       *Metrics
-	usageService  clusterusage.Service
+	nodeID           string
+	policyVersion    string
+	moduleName       string
+	config           *config.Config
+	storage          StorageBackend
+	interval         time.Duration
+	shardJitter      time.Duration
+	shardConcurrency int
+	stopChan         chan struct{}
+	metrics          *Metrics
+	usageService     clusterusage.Service
 	// support for resuming push after a restart
 	initialIntervalDefined bool
 	initialInterval        time.Duration
@@ -61,18 +65,19 @@ type BaseModule struct {
 // NewBaseModule creates a new base module instance
 func NewBaseModule(moduleName string, storage StorageBackend) *BaseModule {
 	return &BaseModule{
-		interval:    DefaultCollectionInterval,
-		shardJitter: DefaultShardJitterInterval,
-		stopChan:    make(chan struct{}),
-		storage:     storage,
-		moduleName:  moduleName,
+		interval:         DefaultCollectionInterval,
+		shardJitter:      DefaultShardJitterInterval,
+		shardConcurrency: DefaultShardConcurrency,
+		stopChan:         make(chan struct{}),
+		storage:          storage,
+		moduleName:       moduleName,
 	}
 }
 
 func (b *BaseModule) SetUsageService(usageService any) {
 	if service, ok := usageService.(clusterusage.Service); ok {
 		b.usageService = service
-		service.SetJitterInterval(b.shardJitter)
+		service.SetShardConcurrency(b.shardConcurrency)
 	}
 }
 
@@ -115,6 +120,20 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 		if jitterInterval := b.config.Usage.ShardJitterInterval.Get(); jitterInterval > 0 {
 			b.shardJitter = jitterInterval
 		}
+	}
+
+	// Initialize shard concurrency
+	if b.config.Usage.ShardConcurrency != nil {
+		if shardConcurrency := b.config.Usage.ShardConcurrency.Get(); shardConcurrency > 0 {
+			b.shardConcurrency = shardConcurrency
+		}
+	}
+	// During startup SetUsageService runs after module Init (postInitModules) and pushes
+	// b.shardConcurrency itself. Push here too so the parsed value reaches the service
+	// regardless of wiring order — reloadConfig won't, because it only reacts to values
+	// differing from b.shardConcurrency.
+	if b.usageService != nil {
+		b.usageService.SetShardConcurrency(b.shardConcurrency)
 	}
 
 	// Verify storage permissions (opt-in)
@@ -165,10 +184,9 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	}
 
 	b.logger.WithFields(logrus.Fields{
-		"base_interval":        b.interval.String(),
-		"load_interval":        loadInterval.String(),
-		"shard_jitter":         b.shardJitter.String(),
-		"default_shard_jitter": DefaultShardJitterInterval.String(),
+		"base_interval":     b.interval.String(),
+		"load_interval":     loadInterval.String(),
+		"shard_concurrency": b.shardConcurrency,
 	}).Debug("starting periodic collection with ticker")
 
 	// Create ticker with base interval
@@ -309,15 +327,16 @@ func (b *BaseModule) reloadConfig(ticker *time.Ticker) {
 		ticker.Reset(b.interval)
 	}
 
-	// Check for shard jitter interval updates
-	// Note: we allow 0 as a valid value for the shard jitter interval
-	if jitterInterval := b.config.Usage.ShardJitterInterval.Get(); jitterInterval >= 0 && b.shardJitter != jitterInterval {
-		b.logger.WithFields(logrus.Fields{
-			"old_jitter": b.shardJitter.String(),
-			"new_jitter": jitterInterval.String(),
-		}).Info("shard jitter interval updated")
-		b.shardJitter = jitterInterval
-		b.usageService.SetJitterInterval(b.shardJitter)
+	// Check for shard concurrency updates
+	if b.config.Usage.ShardConcurrency != nil {
+		if shardConcurrency := b.config.Usage.ShardConcurrency.Get(); shardConcurrency > 0 && b.shardConcurrency != shardConcurrency {
+			b.logger.WithFields(logrus.Fields{
+				"old_shard_concurrency": b.shardConcurrency,
+				"new_shard_concurrency": shardConcurrency,
+			}).Info("usage shard concurrency updated")
+			b.shardConcurrency = shardConcurrency
+			b.usageService.SetShardConcurrency(b.shardConcurrency)
+		}
 	}
 
 	// Build common storage config
