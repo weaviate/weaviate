@@ -383,16 +383,18 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 		exists bool
 	)
 	// TODO-RAFT remove backoff. Eventual consistency handled by versioning
-	backoff.Retry(func() error {
+	if err := backoff.Retry(func() error {
 		db.indexLock.RLock()
 		defer db.indexLock.RUnlock()
 
 		index, exists = db.indices[indexID(className)]
 		if !exists {
-			return fmt.Errorf("index for class %v not found locally", index)
+			return fmt.Errorf("index for class %s not found locally", className)
 		}
 		return nil
-	}, utils.NewBackoff())
+	}, utils.NewBackoff()); err != nil {
+		db.logger.WithField("action", "get_index").WithField("class", className).Info(err)
+	}
 
 	return index
 }
