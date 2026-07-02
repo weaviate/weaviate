@@ -101,6 +101,7 @@ type fakeShards struct {
 	bucketErr error
 	mu        sync.Mutex
 	removed   []removedCall
+	removeErr map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
 }
 
 func (f *fakeShards) EditOpBucketForShard(collection, shard string) (editOpBucket, error) {
@@ -113,6 +114,9 @@ func (f *fakeShards) EditOpBucketForShard(collection, shard string) (editOpBucke
 func (f *fakeShards) EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.removeErr[shard]; err != nil {
+		return err
+	}
 	f.removed = append(f.removed, removedCall{collection, shard, targets})
 	return nil
 }
@@ -383,49 +387,97 @@ func TestOnGroupCompleted_PerTenantIndexFilesRemoved(t *testing.T) {
 	require.Equal(t, removedCall{collection: "Collection", shard: "shard1", targets: []string{"v1"}}, shards.removed[0])
 }
 
+// TestOnGroupCompleted_OneFailingShardDoesNotBlockOthers: removal errors are
+// accumulated, so a persistently failing shard can't block the file cleanup of
+// every other tenant in the group; the joined error still surfaces for retry.
+func TestOnGroupCompleted_OneFailingShardDoesNotBlockOthers(t *testing.T) {
+	shards := &fakeShards{removeErr: map[string]error{"shard1": errors.New("busy")}}
+	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
+
+	payload := &DropVectorIndexTaskPayload{
+		Collection: "Collection", Targets: []string{"v1"}, OpID: "op1",
+		UnitToNode:  map[string]string{"u1": "node1", "u2": "node1"},
+		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
+	}
+	enc, _ := payload.encode()
+	task := &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+		Payload:        enc,
+		Status:         distributedtask.TaskStatusStarted,
+	}
+
+	err := p.OnGroupCompleted(task, "g", []string{"u1", "u2"})
+	require.Error(t, err, "the failing shard's error must surface for retry")
+	require.Len(t, shards.removed, 1, "the healthy shard must still be cleaned")
+	require.Equal(t, "shard2", shards.removed[0].shard)
+}
+
 // --- OnTaskCompleted ---
 
-func TestOnTaskCompleted_FAILED_DoesNotMutateSchemaOrDeleteOp(t *testing.T) {
-	bucket := &fakeEditOpBucket{}
-	fin := &fakeFinalizer{}
-	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+// TestOnTaskCompleted_TerminalTasks_DoNotMutateSchemaOrDeleteOp: FAILED/CANCELLED
+// leave both the schema marker (operator retry) and the edit op (a resumed task
+// picks it back up) untouched.
+func TestOnTaskCompleted_TerminalTasks_DoNotMutateSchemaOrDeleteOp(t *testing.T) {
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusCancelled,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			bucket := &fakeEditOpBucket{}
+			fin := &fakeFinalizer{}
+			p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, nil))
-	require.False(t, fin.called, "FAILED task must not mutate schema")
-	require.Empty(t, bucket.deleted, "FAILED task must not delete the edit op (a retry resumes it)")
+			p.OnTaskCompleted(dropTask(status, nil))
+			require.False(t, fin.called, "%s task must not mutate schema", status)
+			require.Empty(t, bucket.deleted, "%s task must not delete the edit op", status)
+		})
+	}
 }
 
-func TestOnTaskCompleted_FINISHED_DeletesEditOpThenRemovesVectorConfig(t *testing.T) {
-	bucket := &fakeEditOpBucket{}
-	fin := &fakeFinalizer{}
-	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+// TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig: success is
+// delivered as SWAPPING (a non-barrier task never reaches OnTaskCompleted as
+// FINISHED on its own node — the scheduler finalizes only after this callback) or
+// as FINISHED (a node first observing the task after a peer finalized). Both must
+// run the cleanup; gating on FINISHED alone would make Phase 2 a permanent no-op.
+func TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig(t *testing.T) {
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusSwapping,
+		distributedtask.TaskStatusFinished,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			bucket := &fakeEditOpBucket{}
+			fin := &fakeFinalizer{}
+			p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+			p.OnTaskCompleted(dropTask(status, nil))
 
-	require.Equal(t, []string{"op1"}, bucket.deleted, "FINISHED must delete the completed op on the local shard")
-	require.True(t, fin.called)
-	require.Equal(t, "Collection", fin.collection)
-	require.Equal(t, []string{"v1"}, fin.targets)
+			require.Equal(t, []string{"op1"}, bucket.deleted, "must delete the completed op on the local shard")
+			require.True(t, fin.called)
+			require.Equal(t, "Collection", fin.collection)
+			require.Equal(t, []string{"v1"}, fin.targets)
+		})
+	}
 }
 
-func TestOnTaskCompleted_FINISHED_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {
+func TestOnTaskCompleted_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {
 	bucket := &fakeEditOpBucket{deleteErr: errors.New("bolt busy")}
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 
 	require.False(t, fin.called, "schema removal must be deferred when op deletion fails on a loaded shard")
 }
 
-// TestOnTaskCompleted_FINISHED_UnloadedShard_DefersFinalize: if a local shard's op
-// can't be deleted (shard unloaded), the schema marker must NOT be removed —
-// otherwise a re-created same-name vector would later be stripped by the lingering op.
-func TestOnTaskCompleted_FINISHED_UnloadedShard_DefersFinalize(t *testing.T) {
+// TestOnTaskCompleted_UnloadedShard_DefersFinalize: if a local shard's op can't be
+// deleted (shard unloaded), the schema marker must NOT be removed — otherwise a
+// re-created same-name vector would later be stripped by the lingering op.
+func TestOnTaskCompleted_UnloadedShard_DefersFinalize(t *testing.T) {
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucketErr: errors.New("shard not loaded")}, fin, newFakeRecorder())
 
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 	require.False(t, fin.called, "schema removal must be deferred when an op can't be deleted on an unloaded shard")
 }
 

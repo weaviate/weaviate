@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -284,6 +285,45 @@ func TestBucket_RecoverEditOps_KeepsLiveOpOnReopen(t *testing.T) {
 	pending, err := reopened.EditOpPending("op1")
 	require.NoError(t, err)
 	require.ElementsMatch(t, segs, pending, "a live op must be re-armed, not swept")
+}
+
+// TestBucket_RecoverEditOps_ProviderErrorSkipsSweep pins the data-safety fallback:
+// when the liveness lookup errors, recovery must NOT sweep (an "empty set on
+// error" refactor would silently drop live ops) — the op is re-armed instead.
+func TestBucket_RecoverEditOps_ProviderErrorSkipsSweep(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	open := func(live EditOpLivenessProvider) *Bucket {
+		opts := []BucketOption{WithStrategy(StrategyReplace), WithClassName("MyClass")}
+		if live != nil {
+			opts = append(opts, WithEditOpLivenessProvider(live))
+		}
+		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	bucket := open(nil)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.NoError(t, bucket.disk.editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+	require.NoError(t, bucket.disk.editOps.SnapshotSegments("op1", segs))
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	reopened := open(func(context.Context) (map[string]struct{}, error) {
+		return nil, errors.New("dtm not reachable")
+	})
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+
+	pending, err := reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, segs, pending, "a lookup error must skip the sweep and re-arm the op")
 }
 
 // TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment pins the startup

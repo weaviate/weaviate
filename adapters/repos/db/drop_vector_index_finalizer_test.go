@@ -69,6 +69,17 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		require.Contains(t, up.updated.VectorConfig, "keep")
 	})
 
+	t.Run("removal matches case-insensitively (aligned with conflict checks)", func(t *testing.T) {
+		up := &fakeClassUpdater{class: &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"Drop": droppedCfg(),
+		}}}
+		f := &schemaVectorConfigFinalizer{mgr: up}
+
+		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}))
+		require.Equal(t, 1, up.updateCalls)
+		require.NotContains(t, up.updated.VectorConfig, "Drop")
+	})
+
 	t.Run("no-change is an idempotent no-op (entry already gone)", func(t *testing.T) {
 		up := &fakeClassUpdater{class: &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
 			"keep": {VectorIndexType: "hnsw"},

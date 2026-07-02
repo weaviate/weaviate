@@ -299,7 +299,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return err
 	}
 
-	// Phase 2: enqueue the distributed cleanup task that strips the dropped
+	// Enqueue the distributed cleanup task that strips the dropped
 	// vector from stored objects and finalizes the schema removal.
 	return h.enqueueDropVectorIndexCleanup(ctx, className, vectorIndexName)
 }

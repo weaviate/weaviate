@@ -61,10 +61,10 @@ func (p *DropVectorIndexProvider) CheckPropertyUpdate(className, propertyName st
 
 // CheckClassMutation does NOT block DeleteClass for an in-flight drop: deleting
 // the class supersedes the drop (the whole objects bucket is going away, so there
-// is no half-stripped state to protect — unlike a reindex migration). The schema
-// FSM's DeleteClass apply cascade-deletes the namespace's tasks via
-// DeleteTasksForCollection, so the in-flight task is cleaned up rather than left
-// blocking the delete. Always returns nil.
+// is no half-stripped state to protect). The schema FSM's DeleteClass apply
+// cascade-deletes the namespace's tasks via DeleteTasksForCollection, so the
+// in-flight task is cleaned up rather than left blocking the delete. Always
+// returns nil.
 func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	return nil
 }

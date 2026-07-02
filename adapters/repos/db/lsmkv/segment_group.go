@@ -632,14 +632,16 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
 }
 
-// recoverEditOps runs startup recovery for the edit-ops sidecar: prune rows for
-// segments gone from disk (Reconcile; nil liveOpIDs — op lifecycle is the DTM
-// provider's concern), then re-snapshot every live op over the current segments.
-// The re-snapshot is the only recovery for the crash window where a compaction
-// renamed its merged output but died before recording it as pending for an op that
-// was not part of that compaction's transformer; re-cleaning already-clean segments
-// is a no-op because the transformer is idempotent. Runs before the compaction
-// cycle registers, so no pass races the segment-set read.
+// recoverEditOps runs startup recovery for the edit-ops sidecar: sweep ops whose
+// task is gone (Reconcile with the liveness provider's live-op set — load-bearing:
+// re-arming an orphaned op would strip a re-created same-name vector), prune rows
+// for segments gone from disk, then re-snapshot every surviving op over the
+// current segments. The re-snapshot is the only recovery for the crash window
+// where a compaction renamed its merged output but died before recording it as
+// pending for an op that was not part of that compaction's transformer;
+// re-cleaning already-clean segments is a no-op because the transformer is
+// idempotent. Runs before the compaction cycle registers, so no pass races the
+// segment-set read.
 func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	if sg.editOps == nil {
 		return nil
@@ -653,10 +655,7 @@ func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	}
 
 	sg.maintenanceLock.RLock()
-	ids := make([]string, len(sg.segments))
-	for i, seg := range sg.segments {
-		ids[i] = segmentID(seg.getPath())
-	}
+	ids := sg.currentSegmentIDsLocked()
 	sg.maintenanceLock.RUnlock()
 
 	existing := make(map[string]struct{}, len(ids))
@@ -719,11 +718,17 @@ func (sg *SegmentGroup) registerEditOpAndSnapshot(opID string, desc OpDescriptor
 
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
+	return sg.editOps.RegisterOpWithSnapshot(opID, desc, sg.currentSegmentIDsLocked())
+}
+
+// currentSegmentIDsLocked snapshots the in-memory segment IDs. Caller must hold
+// maintenanceLock (read).
+func (sg *SegmentGroup) currentSegmentIDsLocked() []string {
 	ids := make([]string, len(sg.segments))
 	for i, seg := range sg.segments {
 		ids[i] = segmentID(seg.getPath())
 	}
-	return sg.editOps.RegisterOpWithSnapshot(opID, desc, ids)
+	return ids
 }
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {

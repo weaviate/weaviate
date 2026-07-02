@@ -162,7 +162,7 @@ type Handler struct {
 	schemaManager SchemaManager
 	schemaReader  SchemaReader
 
-	// dropVectorEnqueuer submits the Phase-2 cleanup task when a named vector is
+	// dropVectorEnqueuer submits the background cleanup task when a named vector is
 	// dropped. nil when the distributed-task machinery is not wired.
 	dropVectorEnqueuer DropVectorIndexEnqueuer
 
@@ -410,7 +410,7 @@ func (h *Handler) Statistics() map[string]any {
 	return h.schemaManager.Stats()
 }
 
-// DropVectorIndexEnqueuer submits the Phase-2 cleanup distributed task for a
+// DropVectorIndexEnqueuer submits the background cleanup distributed task for a
 // dropped named vector and reports whether one is already in flight, so a re-issued
 // drop can be handled (no-op while a cleanup runs, re-enqueue if it failed). It is
 // implemented in the cluster wiring layer (which owns the DTM client and sharding

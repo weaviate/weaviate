@@ -40,6 +40,12 @@ func (p *DropVectorIndexTaskPayload) encode() ([]byte, error) {
 	return json.Marshal(p)
 }
 
+// DecodeDropVectorIndexTaskPayload decodes and validates a drop-vector task
+// payload; the single decode path for out-of-package callers (REST enqueuer).
+func DecodeDropVectorIndexTaskPayload(data []byte) (*DropVectorIndexTaskPayload, error) {
+	return decodeDropVectorIndexPayload(data)
+}
+
 func decodeDropVectorIndexPayload(data []byte) (*DropVectorIndexTaskPayload, error) {
 	var p DropVectorIndexTaskPayload
 	if err := json.Unmarshal(data, &p); err != nil {

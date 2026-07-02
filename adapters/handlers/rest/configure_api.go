@@ -840,6 +840,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
 	repo.SetReindexer(reindexer)
 
+	// Install the drop-vector live-op lookup BEFORE ClusterService.Open: Open drives
+	// RAFT restore → shard load → recoverEditOps, which consults the lookup to sweep
+	// orphaned edit ops; installing it later would silently skip the sweep for every
+	// shard loaded during restore. A pre-restore lookup error just skips the sweep
+	// for that shard (re-arm, the safe fallback).
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, repo)
+	repo.SetDropVectorLiveOpsLookup(dropVectorEnqueuer.LiveOpIDs)
+
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
@@ -980,7 +988,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1137,6 +1145,7 @@ func initReindexAndDistributedTasks(
 	recoveredReindexes []db.RecoveredReindex,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
+	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
 		repo, appState.SchemaManager, appState.Logger,
@@ -1161,10 +1170,9 @@ func initReindexAndDistributedTasks(
 		serverShutdownCtx,
 	)
 	// Lets the schema drop path enqueue the cleanup task that strips dropped vectors.
-	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, repo)
+	// (The enqueuer itself is created before ClusterService.Open so its live-op
+	// lookup is installed ahead of restore-time shard loads.)
 	appState.SchemaManager.SetDropVectorIndexEnqueuer(dropVectorEnqueuer)
-	// Lets a shard load sweep an orphaned edit op (its task is gone) instead of re-arming it.
-	repo.SetDropVectorLiveOpsLookup(dropVectorEnqueuer.LiveOpIDs)
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {

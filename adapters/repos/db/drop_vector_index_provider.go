@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -60,7 +61,7 @@ type dropVectorSchemaFinalizer interface {
 // local unit registers a remove_target_vectors edit op on its shard's objects
 // bucket and waits for the compaction/cleanup transformer to strip the dropped
 // vectors from every segment; on task completion the named vectors are removed
-// from the schema. It mirrors ReindexProvider's structure.
+// from the schema.
 type DropVectorIndexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
@@ -222,37 +223,29 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 	ctx context.Context, bucket editOpBucket, task *distributedtask.Task,
 	unitID, opID string,
 ) error {
-	pending, err := bucket.EditOpPending(opID)
-	if err != nil {
-		return err
-	}
-	total := len(pending)
-	if total == 0 {
-		return nil
-	}
-
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
+
+	total := 0 // baseline from the first successful read; drives progress only
 	consecutiveErrors := 0
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			pending, err := bucket.EditOpPending(opID)
-			if err != nil {
-				// Tolerate a few consecutive blips; only persistent errors fail the unit.
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutivePollErrors {
-					return fmt.Errorf("read pending after %d consecutive errors: %w", consecutiveErrors, err)
-				}
-				p.unitLogger(task, nil, unitID).Warnf("drop-vector: pending read failed (%d/%d), retrying: %v",
-					consecutiveErrors, maxConsecutivePollErrors, err)
-				continue
+		pending, err := bucket.EditOpPending(opID)
+		switch {
+		case err != nil:
+			// Tolerate a few consecutive blips (incl. the first read); only
+			// persistent errors fail the unit.
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutivePollErrors {
+				return fmt.Errorf("read pending after %d consecutive errors: %w", consecutiveErrors, err)
 			}
+			p.unitLogger(task, nil, unitID).Warnf("drop-vector: pending read failed (%d/%d), retrying: %v",
+				consecutiveErrors, maxConsecutivePollErrors, err)
+		case len(pending) == 0:
+			return nil
+		default:
 			consecutiveErrors = 0
-			if len(pending) == 0 {
-				return nil
+			if total == 0 {
+				total = len(pending)
 			}
 			// pending can transiently grow (re-queue), so clamp; completion is gated
 			// on len==0, not on this value.
@@ -265,6 +258,12 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 				task.ID, task.Version, p.localNode, unitID, progress); err != nil {
 				p.unitLogger(task, nil, unitID).Warnf("drop-vector: progress update failed: %v", err)
 			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
 		}
 	}
 }
@@ -281,9 +280,9 @@ func (p *DropVectorIndexProvider) failUnit(
 
 // --- distributedtask.UnitAwareProvider ---
 
-// OnGroupCompleted is the per-tenant file-removal safety net: Phase 1 already
-// removes a dropped index's files on marker apply for active shards; this catches
-// shards unavailable then (e.g. a later-activated frozen tenant). Idempotent.
+// OnGroupCompleted is the per-tenant file-removal safety net: the marker apply
+// already removes a dropped index's files on active shards; this catches shards
+// unavailable then (e.g. a later-activated frozen tenant). Idempotent.
 func (p *DropVectorIndexProvider) OnGroupCompleted(
 	task *distributedtask.Task, groupID string, localGroupUnitIDs []string,
 ) error {
@@ -291,13 +290,16 @@ func (p *DropVectorIndexProvider) OnGroupCompleted(
 	if err != nil {
 		return err
 	}
+	// Accumulate instead of aborting so one failing shard can't block the file
+	// cleanup of every other tenant in the group; the scheduler retries on error.
+	var errs []error
 	for _, unitID := range localGroupUnitIDs {
 		shardName := payload.UnitToShard[unitID]
 		if err := p.shards.EnsureDroppedVectorFilesRemoved(payload.Collection, shardName, payload.Targets); err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("shard %q: %w", shardName, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // OnSwapRequested is a no-op: drop-vector does not use the PREP/SWAP barrier
@@ -308,9 +310,13 @@ func (p *DropVectorIndexProvider) OnSwapRequested(
 	return nil
 }
 
-// OnTaskCompleted removes the dropped named vectors from the schema once the task
-// FINISHED on every node. FAILED/CANCELLED do NOT mutate the schema (the marker
-// stays so an operator can retry). It must be safe to invoke more than once:
+// OnTaskCompleted deletes the local edit ops and removes the dropped named
+// vectors from the schema once the task succeeded on every node. Success is
+// delivered as SWAPPING — a non-barrier task jumps there when its last unit
+// completes, and the scheduler finalizes SWAPPING→FINISHED only after this
+// callback — or as FINISHED on a node that first observes the task after a peer
+// finalized. FAILED/CANCELLED do NOT mutate the schema (the marker stays so an
+// operator can retry). It must be safe to invoke more than once:
 // LocalCallbacksDone returns false, so the scheduler may replay this after a
 // restart. Both steps are idempotent — deleting an absent op and removing
 // already-gone schema entries are no-ops.
@@ -322,9 +328,12 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	}
 	logger := p.logger.WithField("task", task.ID).WithField("collection", payload.Collection)
 
-	if task.Status != distributedtask.TaskStatusFinished {
+	switch task.Status {
+	case distributedtask.TaskStatusSwapping, distributedtask.TaskStatusFinished:
+		// Success — proceed.
+	default:
 		logger.WithField("status", task.Status).
-			Info("drop-vector: task-completion: not FINISHED, leaving schema marker for operator")
+			Info("drop-vector: task-completion: task did not succeed, leaving schema marker for operator")
 		return
 	}
 

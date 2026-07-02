@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -29,7 +28,7 @@ import (
 )
 
 // dropVectorIndexEnqueuer implements schema.DropVectorIndexEnqueuer. It submits
-// the Phase-2 cleanup distributed task and reports whether one is in flight,
+// the background cleanup distributed task and reports whether one is in flight,
 // using the cluster DTM client + sharding state. Lives in the REST wiring layer
 // so it can reuse buildUnitMaps/buildUnitSpecs.
 type dropVectorIndexEnqueuer struct {
@@ -69,8 +68,8 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 		if !task.Status.IsActive() {
 			continue
 		}
-		var p db.DropVectorIndexTaskPayload
-		if err := json.Unmarshal(task.Payload, &p); err != nil {
+		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
+		if err != nil {
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -140,13 +139,11 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 		if !task.Status.IsActive() {
 			continue
 		}
-		var p db.DropVectorIndexTaskPayload
-		if err := json.Unmarshal(task.Payload, &p); err != nil {
+		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
+		if err != nil {
 			continue
 		}
-		if p.OpID != "" {
-			live[p.OpID] = struct{}{}
-		}
+		live[p.OpID] = struct{}{}
 	}
 	return live, nil
 }

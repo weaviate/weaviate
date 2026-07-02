@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -110,8 +111,10 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		next.VectorConfig = make(map[string]models.VectorConfig, len(orig.VectorConfig))
 		changed := false
 		for name, cfg := range orig.VectorConfig {
-			// Only remove an entry still marked dropped; keep a live same-name re-creation.
-			if slices.Contains(targets, name) && modelsext.IsVectorIndexDropped(cfg) {
+			// Case-insensitive to match the conflict/preflight checks; only remove an
+			// entry still marked dropped (keep a live same-name re-creation).
+			isTarget := slices.ContainsFunc(targets, func(t string) bool { return strings.EqualFold(t, name) })
+			if isTarget && modelsext.IsVectorIndexDropped(cfg) {
 				changed = true
 				continue
 			}
