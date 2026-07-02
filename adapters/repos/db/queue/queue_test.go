@@ -14,6 +14,7 @@ package queue
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"os"
@@ -801,6 +802,36 @@ func TestListFilesExcludesTombstoned(t *testing.T) {
 	for _, f := range files {
 		require.False(t, strings.HasSuffix(f, ".processed"), "tombstone should not appear in list")
 	}
+}
+
+func TestPrepareForBackupReturnsWaitError(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	taskStarted := make(chan struct{})
+	releaseTask := make(chan struct{})
+	defer close(releaseTask)
+
+	q := makeQueue(t, s, &mockTaskDecoder{
+		execFn: func(ctx context.Context, t *mockTask) error {
+			close(taskStarted)
+			<-releaseTask
+			return nil
+		},
+	})
+
+	err := q.Push(makeRecord(1, 100))
+	require.NoError(t, err)
+	require.NoError(t, q.Flush())
+
+	<-taskStarted
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err = q.PrepareForBackup(ctx)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestQueueForceSwitch(t *testing.T) {

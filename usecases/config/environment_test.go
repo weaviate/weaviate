@@ -357,6 +357,37 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	}
 }
 
+func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{name: "default", expected: DefaultHaltForTransferTimeout},
+		{name: "configured", value: "30m", expected: 30 * time.Minute},
+		{name: "invalid", value: "not-a-duration", expectedErr: true},
+		{name: "zero", value: "0s", expectedErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HALT_FOR_TRANSFER_TIMEOUT", tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, conf.HaltForTransferTimeout)
+		})
+	}
+}
+
 func TestEnvironmentParseClusterConfig(t *testing.T) {
 	hostname, _ := os.Hostname()
 	tests := []struct {
