@@ -14,6 +14,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -322,11 +323,10 @@ func TestShard_InactivityFireResumesWhenIdle(t *testing.T) {
 	defer timer.Stop()
 
 	s.haltForTransferMux.Lock()
-	gen := s.haltForTransferGen
 	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
 	s.haltForTransferMux.Unlock()
 
-	keepWatching := s.handleInactivityFire(gen, timer)
+	keepWatching := s.handleInactivityFire(context.Background(), timer)
 
 	s.haltForTransferMux.Lock()
 	countAfterFire := s.haltForTransferCount
@@ -447,13 +447,14 @@ func TestShard_StaleMonitorFireIsDropped(t *testing.T) {
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 
+	staleCtx, cancelStale := context.WithCancel(context.Background())
+	cancelStale()
+
 	s.haltForTransferMux.Lock()
-	staleGen := s.haltForTransferGen
-	s.haltForTransferGen++
 	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
 	s.haltForTransferMux.Unlock()
 
-	keepWatching := s.handleInactivityFire(staleGen, timer)
+	keepWatching := s.handleInactivityFire(staleCtx, timer)
 
 	s.haltForTransferMux.Lock()
 	countAfterStaleFire := s.haltForTransferCount
@@ -487,11 +488,10 @@ func TestShard_FutureDeadlinePreventsResumeOnFire(t *testing.T) {
 	defer timer.Stop()
 
 	s.haltForTransferMux.Lock()
-	gen := s.haltForTransferGen
 	s.haltForTransferInactivityDeadline = time.Now().Add(time.Hour)
 	s.haltForTransferMux.Unlock()
 
-	keepWatching := s.handleInactivityFire(gen, timer)
+	keepWatching := s.handleInactivityFire(context.Background(), timer)
 
 	s.haltForTransferMux.Lock()
 	countAfterFire := s.haltForTransferCount

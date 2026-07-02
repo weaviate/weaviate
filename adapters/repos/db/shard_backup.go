@@ -142,15 +142,12 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.haltForTransferCancel = cancel
 
-	s.haltForTransferGen++
-	gen := s.haltForTransferGen
 	s.haltForTransferInactivityDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
 
 	timer := time.NewTimer(s.haltForTransferInactivityTimeout)
 
 	enterrors.GoWrapper(func() {
-		// owns its timer; re-arms against the shared deadline on activity, and a generation guard
-		// drops a fire already superseded by a resume+re-halt. closes the reset-vs-fire/stale-fire races.
+		// supersession and teardown cancel this ctx before any successor, so a stale fire is dropped.
 		defer timer.Stop()
 
 		for {
@@ -158,7 +155,7 @@ func (s *Shard) mayInitInactivityMonitoring() {
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				if !s.handleInactivityFire(gen, timer) {
+				if !s.handleInactivityFire(ctx, timer) {
 					return
 				}
 			}
@@ -166,15 +163,14 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	}, s.index.logger)
 }
 
-// handleInactivityFire resolves an inactivity-timer fire. It returns true if the monitor should
-// keep watching (activity pushed the deadline forward, so the timer was re-armed) and false if it
-// should stop: either a resume+re-halt superseded this generation, or the shard was resumed.
-func (s *Shard) handleInactivityFire(gen uint64, timer *time.Timer) (keepWatching bool) {
+// handleInactivityFire resolves an inactivity-timer fire, returning true to keep watching
+// (activity re-armed the timer) or false to stop (ctx cancelled, or the shard was resumed).
+func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (keepWatching bool) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	if gen != s.haltForTransferGen {
-		// a newer monitor superseded this one (resume + re-halt); stop.
+	if ctx.Err() != nil {
+		// superseded or torn down while this fire waited on the mux; stop without resuming.
 		return false
 	}
 	if remaining := time.Until(s.haltForTransferInactivityDeadline); remaining > 0 {
