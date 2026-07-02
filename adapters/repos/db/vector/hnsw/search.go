@@ -727,7 +727,10 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 		if !errors.As(err, &e) {
 			return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
 		}
-		// distToNode has already flagged the deleted node with a tombstone
+		// Tombstone the dead node. On uncompressed indexes, distToNode already
+		// did this, but on compressed indexes it doesn't - so we do it here to
+		// ensure the repair loop makes progress and terminates.
+		h.handleDeletedNode(e.DocID, "entrypointDistWithRepair")
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
 		}
@@ -742,7 +745,9 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	if h.isEmpty() {
+	// Check if graph is effectively empty (no usable entrypoint).
+	// This catches: literal empty, entrypoint tombstoned, or entrypoint under maintenance.
+	if h.isEffectivelyEmpty() {
 		return nil, nil, nil
 	}
 

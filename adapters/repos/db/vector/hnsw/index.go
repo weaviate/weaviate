@@ -712,6 +712,63 @@ func (h *hnsw) isEmptyUnlocked() bool {
 	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
 }
 
+// isEffectivelyEmpty returns true if the graph has no usable nodes.
+// This is true when:
+// - The graph is literally empty (isEmpty() returns true), OR
+// - Every node is either tombstoned or under maintenance
+//
+// This function scans nodes with early exit on the first usable node found.
+// Cost: O(n) worst case, but typically O(1) when there's a usable entrypoint.
+//
+// This is separate from isEmpty() to preserve isEmpty()'s literal "zero nodes"
+// semantics for other callers. Only insert and search should use this function
+// to route to their existing empty-graph paths when the graph is unusable.
+//
+// Concurrent inserts into an effectively-empty graph are safe because
+// insertInitialElement serializes on h.Lock() and updates the entrypoint,
+// causing subsequent isEffectivelyEmpty() calls to return false.
+func (h *hnsw) isEffectivelyEmpty() bool {
+	if h.isEmpty() {
+		return true
+	}
+
+	// Fast path: check if entrypoint is usable
+	ep := h.getEntrypoint()
+	if !h.hasTombstone(ep) {
+		h.shardedNodeLocks.RLock(ep)
+		node := h.nodes[ep]
+		h.shardedNodeLocks.RUnlock(ep)
+		if node != nil && !node.isUnderMaintenance() {
+			return false // Entrypoint is usable
+		}
+	}
+
+	// Slow path: scan all nodes to find any usable node
+	h.RLock()
+	nodeCount := len(h.nodes)
+	h.RUnlock()
+
+	for i := 0; i < nodeCount; i++ {
+		nodeID := uint64(i)
+
+		// Skip tombstoned nodes
+		if h.hasTombstone(nodeID) {
+			continue
+		}
+
+		// Check if node exists and is not under maintenance
+		h.shardedNodeLocks.RLock(nodeID)
+		node := h.nodes[nodeID]
+		h.shardedNodeLocks.RUnlock(nodeID)
+
+		if node != nil && !node.isUnderMaintenance() {
+			return false // Found a usable node
+		}
+	}
+
+	return true // No usable nodes found
+}
+
 func (h *hnsw) nodeByID(id uint64) *vertex {
 	h.RLock()
 	defer h.RUnlock()
