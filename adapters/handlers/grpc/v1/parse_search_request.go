@@ -292,6 +292,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			}
 		}
 
+		if req.HybridSearch.NearText != nil && req.HybridSearch.NearText.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_text sub-search")
+		}
+		if req.HybridSearch.NearVector != nil && req.HybridSearch.NearVector.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_vector sub-search")
+		}
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -431,6 +438,9 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
 	if out.Selection != nil {
+		if out.Selection.MMR != nil && out.Selection.MMR.Limit == 0 {
+			return dto.GetParams{}, errors.New("MMR limit must be at least 1")
+		}
 		selectionTargets := targetVectors
 		if len(selectionTargets) == 0 {
 			selectionTargets = []string{""}

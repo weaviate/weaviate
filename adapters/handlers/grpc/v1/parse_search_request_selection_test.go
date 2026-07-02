@@ -22,7 +22,6 @@ import (
 )
 
 // TestParseHybridSelection: hybrid diversity is carried on the top-level
-// Hybrid.selection field; selection on a near sub-query is ignored.
 func TestParseHybridSelection(t *testing.T) {
 	parser := NewParser(false, getClass, nil, false)
 	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
@@ -49,8 +48,8 @@ func TestParseHybridSelection(t *testing.T) {
 		require.Equal(t, float32(0), out.Selection.MMR.Balance)
 	})
 
-	t.Run("selection on hybrid near_vector sub-query is ignored", func(t *testing.T) {
-		out, err := parser.Search(&pb.SearchRequest{
+	t.Run("selection on hybrid near_vector sub-query is rejected", func(t *testing.T) {
+		_, err := parser.Search(&pb.SearchRequest{
 			Collection: classname,
 			HybridSearch: &pb.Hybrid{
 				Query: "q",
@@ -60,12 +59,13 @@ func TestParseHybridSelection(t *testing.T) {
 				},
 			},
 		}, cfg)
-		require.NoError(t, err)
-		require.Nil(t, out.Selection, "nested near_vector selection must not drive hybrid diversity")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "top-level hybrid search")
+		require.Contains(t, err.Error(), "near_vector")
 	})
 
-	t.Run("selection on hybrid near_text sub-query is ignored", func(t *testing.T) {
-		out, err := parser.Search(&pb.SearchRequest{
+	t.Run("selection on hybrid near_text sub-query is rejected", func(t *testing.T) {
+		_, err := parser.Search(&pb.SearchRequest{
 			Collection: classname,
 			HybridSearch: &pb.Hybrid{
 				Query: "q",
@@ -75,8 +75,9 @@ func TestParseHybridSelection(t *testing.T) {
 				},
 			},
 		}, cfg)
-		require.NoError(t, err)
-		require.Nil(t, out.Selection, "nested near_text selection must not drive hybrid diversity")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "top-level hybrid search")
+		require.Contains(t, err.Error(), "near_text")
 	})
 
 	t.Run("no selection leaves GetParams.Selection nil", func(t *testing.T) {
@@ -87,6 +88,59 @@ func TestParseHybridSelection(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, out.Selection)
 	})
+}
+
+func TestParseSelectionLimitValidation(t *testing.T) {
+	parser := NewParser(false, getClass, nil, false)
+	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
+
+	mmr := func(limit *uint32) *pb.Selection {
+		return &pb.Selection{Selection: &pb.Selection_Mmr{
+			Mmr: &pb.Selection_MMR{Limit: limit, Balance: ptr(float32(0.5))},
+		}}
+	}
+
+	tests := []struct {
+		name    string
+		limit   *uint32
+		wantErr bool
+	}{
+		{"unset limit errors", nil, true},
+		{"zero limit errors", ptr(uint32(0)), true},
+		{"limit of 1 is allowed", ptr(uint32(1)), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" on near_vector", func(t *testing.T) {
+			_, err := parser.Search(&pb.SearchRequest{
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteops.Fp32SliceToBytes([]float32{1, 2, 3}),
+					Selection:   mmr(tt.limit),
+				},
+			}, cfg)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "MMR limit")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+		t.Run(tt.name+" on hybrid", func(t *testing.T) {
+			_, err := parser.Search(&pb.SearchRequest{
+				Collection: classname,
+				HybridSearch: &pb.Hybrid{
+					Query:     "q",
+					Selection: mmr(tt.limit),
+				},
+			}, cfg)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "MMR limit")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestParseSelectionMultiVectorRejected(t *testing.T) {
