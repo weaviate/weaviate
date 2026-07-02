@@ -1624,6 +1624,21 @@ type objectToPropagate struct {
 	remoteStaleUpdateTime int64
 }
 
+// propagationScratch holds buffers reused across all diff ranges of a hashBeat, allocating them per-beat not per-range.
+type propagationScratch struct {
+	filteredDigests    []types.RepairResponse
+	localDigestsByUUID map[uuid.UUID]int64
+	objectsToPropagate []objectToPropagate
+}
+
+func newPropagationScratch(diffBatchSize int) *propagationScratch {
+	return &propagationScratch{
+		filteredDigests:    make([]types.RepairResponse, 0, diffBatchSize),
+		localDigestsByUUID: make(map[uuid.UUID]int64, diffBatchSize),
+		objectsToPropagate: make([]objectToPropagate, 0, diffBatchSize),
+	}
+}
+
 // collectObjectsToPropagate scans the hashtree diff ranges and returns the local
 // objects that must be propagated. It owns a single reusable objects-bucket
 // cursor for the whole scan (released before propagation begins) so the cursor,
@@ -1650,6 +1665,8 @@ func (s *Shard) collectObjectsToPropagate(
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
 	defer cursor.Close()
 
+	scratch := newPropagationScratch(config.diffBatchSize)
+
 	for len(localObjectsToPropagate) < config.propagationLimit {
 		initialLeaf, finalLeaf, rangeErr := rangeReader.Next()
 		if rangeErr != nil {
@@ -1663,6 +1680,7 @@ func (s *Shard) collectObjectsToPropagate(
 			ctx,
 			config,
 			cursor,
+			scratch,
 			targetNodeAddress,
 			targetNodeName,
 			initialLeaf,
@@ -1702,11 +1720,12 @@ func (s *Shard) collectObjectsToPropagate(
 // returned entry is queued; tombstone resolution is left to the post-Overwrite
 // resolveObjectConflict path.
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
-	cursor *lsmkv.CursorReplace,
+	cursor *lsmkv.CursorReplace, scratch *propagationScratch,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
 ) (localObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
-	objectsToPropagate = make([]objectToPropagate, 0, min(limit, config.diffBatchSize))
+	// Returned buffer must start empty; caller copies it out before the next range reuses it.
+	objectsToPropagate = scratch.objectsToPropagate[:0]
 
 	hashtreeHeight := config.hashtreeHeight
 
@@ -1721,9 +1740,9 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))
 
-	// Reused (reset) each iteration to avoid per-batch allocations.
-	filteredDigests := make([]types.RepairResponse, 0, config.diffBatchSize)
-	localDigestsByUUID := make(map[uuid.UUID]int64, config.diffBatchSize)
+	// From scratch: reset before use each batch (below), so per-beat not per-range.
+	filteredDigests := scratch.filteredDigests
+	localDigestsByUUID := scratch.localDigestsByUUID
 
 	for limit > 0 && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
