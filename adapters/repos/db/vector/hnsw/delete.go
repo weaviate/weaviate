@@ -653,6 +653,9 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	return nil
 }
 
+// errNoUsableEntrypoint: every candidate is denied, tombstoned, or under maintenance
+var errNoUsableEntrypoint = errors.New("no valid entrypoint available")
+
 // repairGlobalEntrypoint attempts to repair a broken global entrypoint during insert.
 // It is called from the insert path when the global entrypoint is unusable (e.g., under
 // maintenance or vector unavailable). The function finds a new valid entrypoint and
@@ -684,7 +687,7 @@ func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, localDeny helpers.Al
 		currentEp := h.getEntrypoint()
 		if currentEp == oldEntrypoint {
 			// Graph is empty or only unusable nodes remain
-			return 0, fmt.Errorf("no valid entrypoint available")
+			return 0, errNoUsableEntrypoint
 		}
 		// Someone else already repaired it
 		return currentEp, nil
@@ -756,31 +759,26 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		candidateLevel := candidate.level
 		candidate.Unlock()
 
-		if candidateLevel > bestLevel {
-			bestCandidate = uint64(i)
-			bestLevel = candidateLevel
-			foundCandidate = true
+		if candidateLevel <= bestLevel {
+			continue
 		}
+
+		// tombstoned or under-maintenance nodes would immediately be found broken again
+		if candidate.isUnderMaintenance() || h.hasTombstone(uint64(i)) {
+			continue
+		}
+
+		bestCandidate = uint64(i)
+		bestLevel = candidateLevel
+		foundCandidate = true
 	}
 
 	if foundCandidate {
 		return bestCandidate, bestLevel, true
 	}
 
-	if h.isEmpty() {
-		return 0, 0, false
-	}
-
-	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
-		return 0, 0, false
-	}
-
-	// we made it through the entire graph and didn't find a new entrypoint all
-	// the way down to level 0. This can only mean the graph is empty, which is
-	// unexpected. This situation should have been prevented by the deleteLock.
-	panic(fmt.Sprintf(
-		"class %s: shard %s: findNewEntrypoint called on an empty hnsw graph",
-		h.className, h.shardName))
+	// no usable candidate (graph empty or all nodes denied/tombstoned/under maintenance)
+	return 0, 0, false
 }
 
 // returns entryPointID, level and whether a change occurred
