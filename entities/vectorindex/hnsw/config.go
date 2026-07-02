@@ -284,6 +284,37 @@ func (u *UserConfig) validate() error {
 		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
 	}
 
+	// Numeric range validation for fields that previously silently accepted
+	// negative or otherwise-invalid values. EF is intentionally excluded as -1
+	// is the documented "let Weaviate pick" value (see DefaultEF). Listed in a
+	// fixed order so error messages stay deterministic.
+	nonNegative := []struct {
+		name  string
+		value int
+	}{
+		{"dynamicEfMin", u.DynamicEFMin},
+		{"dynamicEfMax", u.DynamicEFMax},
+		{"dynamicEfFactor", u.DynamicEFFactor},
+		{"flatSearchCutoff", u.FlatSearchCutoff},
+		{"cleanupIntervalSeconds", u.CleanupIntervalSeconds},
+		{"vectorCacheMaxObjects", u.VectorCacheMaxObjects},
+	}
+	for _, f := range nonNegative {
+		if f.value < 0 {
+			errMsgs = append(errMsgs, f.name+" must not be negative")
+		}
+	}
+
+	// Cross-field invariant: efMin must not exceed efMax. Only enforced when
+	// both are non-negative so the per-field messages above remain the primary
+	// signal when the user supplied a clearly bogus value.
+	if u.DynamicEFMin >= 0 && u.DynamicEFMax >= 0 && u.DynamicEFMin > u.DynamicEFMax {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"dynamicEfMin (%d) must be less than or equal to dynamicEfMax (%d)",
+			u.DynamicEFMin, u.DynamicEFMax,
+		))
+	}
+
 	if len(errMsgs) > 0 {
 		return fmt.Errorf("invalid hnsw config: %s",
 			strings.Join(errMsgs, ", "))
