@@ -20,11 +20,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go/middleware"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/usecases/build"
 	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
 )
 
@@ -36,7 +39,15 @@ type S3Storage struct {
 
 // NewS3Storage creates a new S3 storage backend
 func NewS3Storage(ctx context.Context, logger logrus.FieldLogger, metrics *common.Metrics) (*S3Storage, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	version := build.Version
+	if version == "" {
+		version = "dev"
+	}
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithAPIOptions([]func(*middleware.Stack) error{
+			awsmiddleware.AddUserAgentKeyValue(build.AppName, version),
+		}),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}

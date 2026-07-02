@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -65,7 +66,16 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
+	client.SetAppInfo(build.AppName, productVersion())
 	return &s3Client{client, config, logger, dataPath, region}, nil
+}
+
+// productVersion returns the build version, or "dev" for unstamped builds.
+func productVersion() string {
+	if build.Version != "" {
+		return build.Version
+	}
+	return "dev"
 }
 
 func resolveCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
@@ -191,11 +201,16 @@ func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
 	xAwsSecretKey := modulecomponents.GetValueFromContext(ctx, "X-AWS-SECRET-KEY")
 	xAwsSessionToken := modulecomponents.GetValueFromContext(ctx, "X-AWS-SESSION-TOKEN")
 	if xAwsAccessKey != "" && xAwsSecretKey != "" && xAwsSessionToken != "" {
-		return minio.New(s.config.Endpoint, &minio.Options{
+		client, err := minio.New(s.config.Endpoint, &minio.Options{
 			Creds:  credentials.NewStaticV4(xAwsAccessKey, xAwsSecretKey, xAwsSessionToken),
 			Region: s.region,
 			Secure: s.config.UseSSL,
 		})
+		if err != nil {
+			return nil, err
+		}
+		client.SetAppInfo(build.AppName, productVersion())
+		return client, nil
 	}
 	return s.client, nil
 }
