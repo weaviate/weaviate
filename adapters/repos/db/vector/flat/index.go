@@ -423,7 +423,12 @@ func (index *flat) searchTimeRescore(k int) int {
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	case CompressionBQ:
+		if index.distancerProvider.Type() == "manhattan" {
+			return index.searchByVector(ctx, vector, k, allow)
+		}
+		return index.searchByVectorQuantized(ctx, vector, k, allow)
+	case CompressionRQ1, CompressionRQ8:
 		return index.searchByVectorQuantized(ctx, vector, k, allow)
 	default:
 		return index.searchByVector(ctx, vector, k, allow)
