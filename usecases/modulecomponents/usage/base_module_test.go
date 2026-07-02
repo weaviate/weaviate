@@ -12,10 +12,17 @@
 package usage
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	clusterusage "github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestBaseModule_ShardJitterConfiguration(t *testing.T) {
@@ -38,4 +45,35 @@ func TestBaseModule_ShardJitterConfiguration(t *testing.T) {
 	// Test 5: Test that negative jitter is handled gracefully
 	module.shardJitter = -1 * time.Millisecond
 	assert.Equal(t, -1*time.Millisecond, module.shardJitter, "module should allow negative jitter")
+}
+
+// TestBaseModule_EnvShardConcurrencyReachesService reproduces the real startup order:
+// SetUsageService is called during MakeAppState (postInitModules), before module Init
+// parses USAGE_SHARD_CONCURRENCY (initModules). The env value must still reach the
+// usage service — reloadConfig alone won't push it, because after InitializeCommon the
+// config value and b.shardConcurrency are already equal.
+func TestBaseModule_EnvShardConcurrencyReachesService(t *testing.T) {
+	// 3 cannot collide with the default (GOMAXPROCSx2 is always even)
+	t.Setenv("USAGE_SHARD_CONCURRENCY", "3")
+
+	mockStorage := NewMockStorageBackend(t)
+	mockService := clusterusage.NewMockService(t)
+	// seeded with the constructor default when the service is wired
+	mockService.EXPECT().SetShardConcurrency(DefaultShardConcurrency).Return().Once()
+	// env value pushed once Init has parsed it
+	mockService.EXPECT().SetShardConcurrency(3).Return().Once()
+
+	module := NewBaseModule("test-module", mockStorage)
+	module.SetUsageService(mockService)
+
+	cfg := &config.Config{}
+	cfg.Cluster.Hostname = "test-node"
+	cfg.Persistence.DataPath = t.TempDir()
+	require.NoError(t, ParseCommonUsageConfig(cfg))
+
+	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logrus.New(),
+		NewMetrics(prometheus.NewRegistry(), "test-module")))
+	close(module.stopChan)
+
+	assert.Equal(t, 3, module.shardConcurrency)
 }
