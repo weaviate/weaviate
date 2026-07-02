@@ -50,7 +50,9 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 
 	s.haltForTransferMux.Lock()
 	if s.haltForTransferCancel != nil {
+		// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 		s.haltForTransferCancel()
+		s.haltForTransferCancel = nil
 	}
 	s.haltForTransferMux.Unlock()
 
