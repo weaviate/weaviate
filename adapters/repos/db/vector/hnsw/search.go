@@ -727,7 +727,10 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 		if !errors.As(err, &e) {
 			return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
 		}
-		// distToNode has already flagged the deleted node with a tombstone
+		// Tombstone the dead node. On uncompressed indexes, distToNode already
+		// did this, but on compressed indexes it doesn't - so we do it here to
+		// ensure the repair loop makes progress and terminates.
+		h.handleDeletedNode(e.DocID, "entrypointDistWithRepair")
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
 		}
