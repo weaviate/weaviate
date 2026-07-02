@@ -674,3 +674,273 @@ func TestReview_SearchPassesNonNilAllowList(t *testing.T) {
 	t.Logf("repairGlobalEntrypoint with helpers.NewAllowList(): err=%v", err)
 	t.Log("VERIFIED: search.go:734 passes non-nil AllowList (helpers.NewAllowList())")
 }
+
+// ============================================================================
+// PRIORITY C: NON-EMPTY ALL-TOMBSTONED cases for each findNewGlobalEntrypoint caller
+//
+// The user correctly noted: isEmpty() guards only protect against empty graphs,
+// NOT against non-empty graphs where all nodes are tombstoned/denied.
+// The removed panic fired on "scanned all nodes, found no valid candidate"
+// which includes the non-empty-all-tombstoned case.
+// ============================================================================
+
+// TestReview_PC_Caller1_DeleteEntrypoint_AllTombstoned tests deleteEntrypoint
+// when called from tombstone cleanup (delete.go:90) with ALL nodes tombstoned.
+//
+// Call site: delete.go:90 (inside cleanUpTombstonedNodesUnlocked)
+// Guard: resetIfOnlyNode is called FIRST at line 87
+// Expected: resetIfOnlyNode returns onlyNode=true, resets graph, deleteEntrypoint skipped
+func TestReview_PC_Caller1_DeleteEntrypoint_AllTombstoned(t *testing.T) {
+	ctx := context.Background()
+	const numNodes = 5
+
+	vectors := make([][]float32, numNodes)
+	for i := 0; i < numNodes; i++ {
+		vectors[i] = []float32{float32(i), float32(i + 1), float32(i + 2)}
+	}
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(ctx)
+
+	vectorForIDThunk := func(ctx context.Context, id uint64) ([]float32, error) {
+		if int(id) < len(vectors) && vectors[id] != nil {
+			return vectors[id], nil
+		}
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+
+	tempVectorThunk := func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		if int(id) < len(vectors) && vectors[id] != nil {
+			copy(container.Slice, vectors[id])
+			return vectors[id], nil
+		}
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+
+	index, err := New(Config{
+		RootPath:                     "doesnt-matter",
+		ID:                           "caller1-all-tombstoned-test",
+		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:             vectorForIDThunk,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: tempVectorThunk,
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	defer index.Drop(ctx, false)
+
+	// Insert nodes
+	for i := 0; i < numNodes; i++ {
+		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	ep := index.getEntrypoint()
+	t.Logf("Initial entrypoint: %d", ep)
+
+	// Tombstone ALL nodes
+	for i := 0; i < numNodes; i++ {
+		require.NoError(t, index.addTombstone(uint64(i)))
+	}
+
+	// Create denyList with ALL tombstones (matches delete.go:86)
+	denyList := index.tombstonesAsDenyList()
+	t.Logf("denyList contains %d tombstones", denyList.Len())
+
+	// Get the entrypoint node
+	node := index.nodeByID(ep)
+	require.NotNil(t, node)
+
+	// Call resetIfOnlyNode - this is what delete.go:87 does BEFORE deleteEntrypoint
+	onlyNode, err := index.resetIfOnlyNode(node, denyList)
+	require.NoError(t, err)
+
+	// With all nodes tombstoned and in denyList, this SHOULD return true
+	assert.True(t, onlyNode, "resetIfOnlyNode should return true when all other nodes are in denyList")
+
+	t.Log("VERIFIED: Caller 1 (delete.go:90) is SAFE - resetIfOnlyNode handles all-tombstoned case")
+}
+
+// TestReview_PC_Caller2_ReplaceDeletedEntrypoint_PartialTombstones tests
+// deleteEntrypoint when called from replaceDeletedEntrypoint (delete.go:411)
+// with a PARTIAL deleteList (some tombstoned nodes not in deleteList).
+//
+// Call site: delete.go:411 (inside replaceDeletedEntrypoint)
+// Guard: NONE - does not call resetIfOnlyNode
+// Bug: When remaining nodes are tombstoned but NOT in deleteList, findNewGlobalEntrypoint
+//
+//	skips them (hasTombstone check) but isOnlyNode doesn't (no tombstone check).
+//	Result: found=false but deleteEntrypoint returns nil without changing EP.
+func TestReview_PC_Caller2_ReplaceDeletedEntrypoint_PartialTombstones(t *testing.T) {
+	ctx := context.Background()
+	const numNodes = 5
+
+	vectors := make([][]float32, numNodes)
+	for i := 0; i < numNodes; i++ {
+		vectors[i] = []float32{float32(i), float32(i + 1), float32(i + 2)}
+	}
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(ctx)
+
+	vectorForIDThunk := func(ctx context.Context, id uint64) ([]float32, error) {
+		if int(id) < len(vectors) && vectors[id] != nil {
+			return vectors[id], nil
+		}
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+
+	tempVectorThunk := func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		if int(id) < len(vectors) && vectors[id] != nil {
+			copy(container.Slice, vectors[id])
+			return vectors[id], nil
+		}
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+
+	index, err := New(Config{
+		RootPath:                     "doesnt-matter",
+		ID:                           "caller2-partial-tombstones-test",
+		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:             vectorForIDThunk,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: tempVectorThunk,
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	defer index.Drop(ctx, false)
+
+	// Insert nodes
+	for i := 0; i < numNodes; i++ {
+		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	ep := index.getEntrypoint()
+	t.Logf("Initial entrypoint: %d", ep)
+
+	// Tombstone ALL nodes
+	for i := 0; i < numNodes; i++ {
+		require.NoError(t, index.addTombstone(uint64(i)))
+	}
+
+	// Create PARTIAL deleteList (simulating maxTombstonesPerCycle limit)
+	// Only include entrypoint, NOT the other tombstoned nodes
+	partialDeleteList := helpers.NewAllowList()
+	partialDeleteList.Insert(ep)
+	t.Logf("Partial deleteList contains only entrypoint %d (other tombstones NOT in list)", ep)
+
+	// Get the entrypoint node
+	node := index.nodeByID(ep)
+	require.NotNil(t, node)
+
+	// isOnlyNode with partial list: other nodes NOT in list, so returns false
+	// (even though they're all tombstoned)
+	isOnly := index.isOnlyNode(node, partialDeleteList)
+	assert.False(t, isOnly, "isOnlyNode should return false - other nodes exist (even if tombstoned)")
+
+	// Call deleteEntrypoint with partial list (matches delete.go:411)
+	err = index.deleteEntrypoint(node, partialDeleteList)
+	require.NoError(t, err, "deleteEntrypoint returns nil")
+
+	// Check the entrypoint AFTER deleteEntrypoint
+	newEP := index.getEntrypoint()
+	t.Logf("Entrypoint after deleteEntrypoint: %d (was: %d)", newEP, ep)
+
+	// BUG CHECK: If entrypoint is unchanged AND points to a tombstoned node,
+	// subsequent searches will fail because EP is unusable.
+	if newEP == ep {
+		// The entrypoint wasn't changed - this is the bug!
+		hasTomb := index.hasTombstone(newEP)
+		if hasTomb {
+			t.Errorf("BUG DETECTED: deleteEntrypoint left EP=%d pointing at tombstoned node!\n"+
+				"Call site: delete.go:411 (replaceDeletedEntrypoint)\n"+
+				"Cause: deleteList is partial, remaining tombstoned nodes pass isOnlyNode but fail findNewGlobalEntrypoint", newEP)
+		}
+	}
+
+	// For a valid entrypoint, it should NOT be tombstoned
+	newEPTombstoned := index.hasTombstone(newEP)
+	assert.False(t, newEPTombstoned, "new entrypoint should NOT be tombstoned")
+}
+
+// TestReview_PC_Caller3_RepairGlobalEntrypoint_AllTombstoned tests
+// repairGlobalEntrypoint when all nodes are tombstoned.
+//
+// Call site: delete.go:684 (repairGlobalEntrypoint)
+// Handling: delete.go:685-693 - returns errNoUsableEntrypoint if EP unchanged
+func TestReview_PC_Caller3_RepairGlobalEntrypoint_AllTombstoned(t *testing.T) {
+	ctx := context.Background()
+	const numNodes = 5
+
+	vectors := make([][]float32, numNodes)
+	for i := 0; i < numNodes; i++ {
+		vectors[i] = []float32{float32(i), float32(i + 1), float32(i + 2)}
+	}
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(ctx)
+
+	vectorForIDThunk := func(ctx context.Context, id uint64) ([]float32, error) {
+		if int(id) < len(vectors) && vectors[id] != nil {
+			return vectors[id], nil
+		}
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+
+	tempVectorThunk := func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		if int(id) < len(vectors) && vectors[id] != nil {
+			copy(container.Slice, vectors[id])
+			return vectors[id], nil
+		}
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+
+	index, err := New(Config{
+		RootPath:                     "doesnt-matter",
+		ID:                           "caller3-all-tombstoned-test",
+		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:             vectorForIDThunk,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: tempVectorThunk,
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	defer index.Drop(ctx, false)
+
+	// Insert nodes
+	for i := 0; i < numNodes; i++ {
+		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	ep := index.getEntrypoint()
+	t.Logf("Initial entrypoint: %d", ep)
+
+	// Tombstone ALL nodes
+	for i := 0; i < numNodes; i++ {
+		require.NoError(t, index.addTombstone(uint64(i)))
+	}
+
+	// Call repairGlobalEntrypoint - should return errNoUsableEntrypoint
+	_, err = index.repairGlobalEntrypoint(ep, helpers.NewAllowList())
+
+	// Should get errNoUsableEntrypoint since all nodes are tombstoned
+	assert.ErrorIs(t, err, errNoUsableEntrypoint,
+		"repairGlobalEntrypoint should return errNoUsableEntrypoint when all nodes tombstoned")
+
+	t.Logf("repairGlobalEntrypoint with all tombstoned: err=%v", err)
+	t.Log("VERIFIED: Caller 3 (delete.go:684) is SAFE - returns errNoUsableEntrypoint")
+}
