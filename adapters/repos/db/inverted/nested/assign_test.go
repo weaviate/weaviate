@@ -73,22 +73,24 @@ func topLevelObjectArray(name string, nested ...*models.NestedProperty) *models.
 	}
 }
 
-// positions builds encoded position uint64s for given root and leaf indices, with docID=0.
-func positions(root uint16, leaves ...uint16) []uint64 {
-	out := make([]uint64, len(leaves))
-	for i, l := range leaves {
-		out[i] = Encode(root, l, 0)
+// positions builds a []ElemIdx from the given globally-monotone element
+// indices (1-based). The expected values in assertions are always raw indices;
+// callers expand them for bitmap operations via PositionsWithDocID.
+func positions(elems ...uint32) []ElemIdx {
+	out := make([]ElemIdx, len(elems))
+	for i, e := range elems {
+		out[i] = ElemIdx(e)
 	}
 	return out
 }
 
 // assertValue checks that a value at the given path with the given raw value
 // and expected positions exists. Matches on path+value+positions to handle
-// duplicate values across different roots (e.g. float64(18) in r1 and r2).
-func assertValue(t *testing.T, result *AssignResult, path string, value any, expected []uint64) {
+// duplicate values across different elements (e.g. float64(18) in e1 and e18).
+func assertValue(t *testing.T, result *AssignResult, path string, value any, expected []ElemIdx) {
 	t.Helper()
 	for _, v := range result.Values {
-		if v.Path == path && v.Value == value && assert.ObjectsAreEqual(expected, v.Positions) {
+		if v.Path == path && v.Value == value && assert.ObjectsAreEqual(expected, result.Positions(v.Pos)) {
 			return
 		}
 	}
@@ -98,12 +100,12 @@ func assertValue(t *testing.T, result *AssignResult, path string, value any, exp
 // assertIdx checks the aggregated positions for _idx entries at a given path
 // and index. Multiple raw entries for the same path+index (from different
 // parent array elements) are merged, matching what the write path does.
-func assertIdx(t *testing.T, result *AssignResult, path string, index int, expected []uint64) {
+func assertIdx(t *testing.T, result *AssignResult, path string, index int, expected []ElemIdx) {
 	t.Helper()
-	var actual []uint64
+	var actual []ElemIdx
 	for _, idx := range result.Idx {
 		if idx.Path == path && idx.Index == index {
-			actual = append(actual, idx.Positions...)
+			actual = append(actual, result.Positions(idx.Pos)...)
 		}
 	}
 	if len(actual) == 0 {
@@ -116,12 +118,12 @@ func assertIdx(t *testing.T, result *AssignResult, path string, index int, expec
 // assertExists checks the aggregated positions for _exists entries at a given
 // path. Multiple raw entries for the same path (from different parent array
 // elements) are merged, matching what the write path does.
-func assertExists(t *testing.T, result *AssignResult, path string, expected []uint64) {
+func assertExists(t *testing.T, result *AssignResult, path string, expected []ElemIdx) {
 	t.Helper()
-	var actual []uint64
+	var actual []ElemIdx
 	for _, e := range result.Exists {
 		if e.Path == path {
-			actual = append(actual, e.Positions...)
+			actual = append(actual, result.Positions(e.Pos)...)
 		}
 	}
 	if len(actual) == 0 {
@@ -131,15 +133,15 @@ func assertExists(t *testing.T, result *AssignResult, path string, expected []ui
 	assert.ElementsMatch(t, expected, actual, "_exists.%s", path)
 }
 
-// assertAnchor checks the aggregated marker positions for _anchor entries at
+// assertAnchor checks the aggregated marker indices for _anchor entries at
 // a given path. Multiple raw entries (one per element instance) are merged,
 // matching what the write path does.
-func assertAnchor(t *testing.T, result *AssignResult, path string, expected []uint64) {
+func assertAnchor(t *testing.T, result *AssignResult, path string, expected []ElemIdx) {
 	t.Helper()
-	var actual []uint64
+	var actual []ElemIdx
 	for _, a := range result.Anchors {
 		if a.Path == path {
-			actual = append(actual, a.Positions...)
+			actual = append(actual, a.Position)
 		}
 	}
 	if len(actual) == 0 {
@@ -149,9 +151,9 @@ func assertAnchor(t *testing.T, result *AssignResult, path string, expected []ui
 	assert.ElementsMatch(t, expected, actual, "_anchor.%s", path)
 }
 
-// findValues returns all PositionedValues for a given path
-func findValues(result *AssignResult, path string) []PositionedValue {
-	var out []PositionedValue
+// findValues returns all ValueEntries for a given path.
+func findValues(result *AssignResult, path string) []ValueEntry {
+	var out []ValueEntry
 	for _, v := range result.Values {
 		if v.Path == path {
 			out = append(out, v)
@@ -212,7 +214,7 @@ func TestAssignPositions_EmptyObjectArray(t *testing.T) {
 
 func TestAssignPositions_SimpleScalar(t *testing.T) {
 	// Object with a single scalar property — root element has no nested
-	// children, so its self marker (l1) is the only position. Scalar `name`
+	// children, so its self marker (e1) is the only position. Scalar `name`
 	// inherits the element's positions.
 	prop := topLevelObject("nested", textProp("name"))
 	value := map[string]any{"name": "hello"}
@@ -224,24 +226,24 @@ func TestAssignPositions_SimpleScalar(t *testing.T) {
 	assert.Equal(t, "name", result.Values[0].Path)
 	assert.Equal(t, "hello", result.Values[0].Value)
 	assert.Equal(t, schema.DataTypeText, result.Values[0].DataType)
-	assert.Equal(t, positions(1, 1), result.Values[0].Positions)
+	assert.Equal(t, positions(1), result.Positions(result.Values[0].Pos))
 
 	// _exists.name and root _exists
 	nameExists := findExists(result, "name")
 	require.NotNil(t, nameExists)
-	assert.Equal(t, positions(1, 1), nameExists.Positions)
+	assert.Equal(t, positions(1), result.Positions(nameExists.Pos))
 
 	rootExists := findExists(result, "")
 	require.NotNil(t, rootExists)
-	assert.Equal(t, positions(1, 1), rootExists.Positions)
+	assert.Equal(t, positions(1), result.Positions(rootExists.Pos))
 
 	// _anchor.""  = root element's self marker
-	assertAnchor(t, result, "", positions(1, 1))
+	assertAnchor(t, result, "", positions(1))
 }
 
 func TestAssignPositions_ScalarArray(t *testing.T) {
 	// Object with scalar array: tags=["german", "premium"]. Root marker
-	// takes l1; each scalar-array element gets its own marker (l2, l3) and
+	// takes e1; each scalar-array element gets its own marker (e2, e3) and
 	// inherits the root marker as its ancestor chain. Anchor entries are
 	// exact (self markers only, no chain).
 	prop := topLevelObject("nested", textArrayProp("tags"))
@@ -255,39 +257,39 @@ func TestAssignPositions_ScalarArray(t *testing.T) {
 	tags := findValues(result, "tags")
 	require.Len(t, tags, 2)
 	assert.Equal(t, "german", tags[0].Value)
-	assert.Equal(t, positions(1, 1, 2), tags[0].Positions)
+	assert.Equal(t, positions(1, 2), result.Positions(tags[0].Pos))
 	assert.Equal(t, "premium", tags[1].Value)
-	assert.Equal(t, positions(1, 1, 3), tags[1].Positions)
+	assert.Equal(t, positions(1, 3), result.Positions(tags[1].Pos))
 
 	// _idx for each element (chain + self)
 	idx0 := findIdx(result, "tags", 0)
 	require.NotNil(t, idx0)
-	assert.Equal(t, positions(1, 1, 2), idx0.Positions)
+	assert.Equal(t, positions(1, 2), result.Positions(idx0.Pos))
 
 	idx1 := findIdx(result, "tags", 1)
 	require.NotNil(t, idx1)
-	assert.Equal(t, positions(1, 1, 3), idx1.Positions)
+	assert.Equal(t, positions(1, 3), result.Positions(idx1.Pos))
 
 	// _exists.tags — chain + every element's self marker
 	tagsExists := findExists(result, "tags")
 	require.NotNil(t, tagsExists)
-	assert.Equal(t, positions(1, 1, 2, 3), tagsExists.Positions)
+	assert.Equal(t, positions(1, 2, 3), result.Positions(tagsExists.Pos))
 
 	// _anchor — exact: root marker, plus per-tag-element markers (no chain)
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "tags", positions(1, 2, 3))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "tags", positions(2, 3))
 }
 
 // TestAssignPositions_OwnerDoc123 tests position assignment for doc123's
 // owner section. Each element's positions = ancestor chain + self +
 // descendant selves; anchors are exact (self-only).
 //
-//	root (chain=∅, self=l1, desc={l2..l4}) → {l1, l2, l3, l4}
-//	owner (chain={l1}, self=l2, desc={l3, l4}) → {l1, l2, l3, l4}
-//	├─ firstname="Marsha"          inherits owner → {l1, l2, l3, l4}
-//	├─ lastname="Mallow"           inherits owner → {l1, l2, l3, l4}
-//	├─ nicknames[0]="Marshmallow"  chain={l1, l2}, self=l3 → {l1, l2, l3}
-//	└─ nicknames[1]="M&M"          chain={l1, l2}, self=l4 → {l1, l2, l4}
+//	root (chain=∅, self=e1, desc={e2..e4}) → {e1, e2, e3, e4}
+//	owner (chain={e1}, self=e2, desc={e3, e4}) → {e1, e2, e3, e4}
+//	├─ firstname="Marsha"          inherits owner → {e1, e2, e3, e4}
+//	├─ lastname="Mallow"           inherits owner → {e1, e2, e3, e4}
+//	├─ nicknames[0]="Marshmallow"  chain={e1, e2}, self=e3 → {e1, e2, e3}
+//	└─ nicknames[1]="M&M"          chain={e1, e2}, self=e4 → {e1, e2, e4}
 func TestAssignPositions_OwnerDoc123(t *testing.T) {
 	prop := topLevelObject("nested",
 		objectProp("owner",
@@ -312,49 +314,49 @@ func TestAssignPositions_OwnerDoc123(t *testing.T) {
 	nicknames := findValues(result, "owner.nicknames")
 	require.Len(t, nicknames, 2)
 	assert.Equal(t, "Marshmallow", nicknames[0].Value)
-	assert.Equal(t, positions(1, 1, 2, 3), nicknames[0].Positions)
+	assert.Equal(t, positions(1, 2, 3), result.Positions(nicknames[0].Pos))
 	assert.Equal(t, "M&M", nicknames[1].Value)
-	assert.Equal(t, positions(1, 1, 2, 4), nicknames[1].Positions)
+	assert.Equal(t, positions(1, 2, 4), result.Positions(nicknames[1].Pos))
 
 	// firstname / lastname inherit owner's full elementPositions.
 	firstnames := findValues(result, "owner.firstname")
 	require.Len(t, firstnames, 1)
 	assert.Equal(t, "Marsha", firstnames[0].Value)
-	assert.Equal(t, positions(1, 1, 2, 3, 4), firstnames[0].Positions)
+	assert.Equal(t, positions(1, 2, 3, 4), result.Positions(firstnames[0].Pos))
 
 	lastnames := findValues(result, "owner.lastname")
 	require.Len(t, lastnames, 1)
 	assert.Equal(t, "Mallow", lastnames[0].Value)
-	assert.Equal(t, positions(1, 1, 2, 3, 4), lastnames[0].Positions)
+	assert.Equal(t, positions(1, 2, 3, 4), result.Positions(lastnames[0].Pos))
 
 	// _exists.owner — owner's chain + owner self + descendants.
 	ownerExists := findExists(result, "owner")
 	require.NotNil(t, ownerExists)
-	assert.Equal(t, positions(1, 1, 2, 3, 4), ownerExists.Positions)
+	assert.Equal(t, positions(1, 2, 3, 4), result.Positions(ownerExists.Pos))
 
 	// _exists.owner.nicknames — chain (root + owner) + every nickname self.
 	nickExists := findExists(result, "owner.nicknames")
 	require.NotNil(t, nickExists)
-	assert.Equal(t, positions(1, 1, 2, 3, 4), nickExists.Positions)
+	assert.Equal(t, positions(1, 2, 3, 4), result.Positions(nickExists.Pos))
 
 	// _idx.owner.nicknames[K] — chain + self of the K-th element.
-	assert.Equal(t, positions(1, 1, 2, 3), findIdx(result, "owner.nicknames", 0).Positions)
-	assert.Equal(t, positions(1, 1, 2, 4), findIdx(result, "owner.nicknames", 1).Positions)
+	assert.Equal(t, positions(1, 2, 3), result.Positions(findIdx(result, "owner.nicknames", 0).Pos))
+	assert.Equal(t, positions(1, 2, 4), result.Positions(findIdx(result, "owner.nicknames", 1).Pos))
 
 	// _anchor — exact, self-only at every level.
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "owner", positions(1, 2))
-	assertAnchor(t, result, "owner.nicknames", positions(1, 3, 4))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "owner", positions(2))
+	assertAnchor(t, result, "owner.nicknames", positions(3, 4))
 }
 
 // TestAssignPositions_OwnerDoc125LeafNode tests owner with no nicknames in
 // data. Owner still owns its self marker even without descendants; positions
 // reflect chain + self.
 //
-//	root (chain=∅, self=l1, desc={l2}) → {l1, l2}
-//	owner (chain={l1}, self=l2, desc=∅)  → {l1, l2}
-//	├─ firstname="Anna"  inherits owner → {l1, l2}
-//	└─ lastname="Wanna"  inherits owner → {l1, l2}
+//	root (chain=∅, self=e1, desc={e2}) → {e1, e2}
+//	owner (chain={e1}, self=e2, desc=∅)  → {e1, e2}
+//	├─ firstname="Anna"  inherits owner → {e1, e2}
+//	└─ lastname="Wanna"  inherits owner → {e1, e2}
 func TestAssignPositions_OwnerDoc125LeafNode(t *testing.T) {
 	prop := topLevelObject("nested",
 		objectProp("owner",
@@ -368,7 +370,7 @@ func TestAssignPositions_OwnerDoc125LeafNode(t *testing.T) {
 		"owner": map[string]any{
 			"firstname": "Anna",
 			"lastname":  "Wanna",
-			// no nicknames in data; owner still owns its self marker l2
+			// no nicknames in data; owner still owns its self marker e2
 		},
 	}
 
@@ -377,23 +379,23 @@ func TestAssignPositions_OwnerDoc125LeafNode(t *testing.T) {
 
 	firstnames := findValues(result, "owner.firstname")
 	require.Len(t, firstnames, 1)
-	assert.Equal(t, positions(1, 1, 2), firstnames[0].Positions)
+	assert.Equal(t, positions(1, 2), result.Positions(firstnames[0].Pos))
 
 	lastnames := findValues(result, "owner.lastname")
 	require.Len(t, lastnames, 1)
-	assert.Equal(t, positions(1, 1, 2), lastnames[0].Positions)
+	assert.Equal(t, positions(1, 2), result.Positions(lastnames[0].Pos))
 
 	// _exists.owner — chain + owner self (no descendants in data).
 	ownerExists := findExists(result, "owner")
 	require.NotNil(t, ownerExists)
-	assert.Equal(t, positions(1, 1, 2), ownerExists.Positions)
+	assert.Equal(t, positions(1, 2), result.Positions(ownerExists.Pos))
 
 	// No _exists.owner.nicknames (nicknames not present in data)
 	assert.Nil(t, findExists(result, "owner.nicknames"))
 
 	// _anchor — exact, self-only; no nicknames anchor since nicknames absent.
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "owner", positions(1, 2))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "owner", positions(2))
 	assert.Nil(t, findAnchor(result, "owner.nicknames"))
 }
 
@@ -401,16 +403,16 @@ func TestAssignPositions_OwnerDoc125LeafNode(t *testing.T) {
 // without scalar-array descendants. Each element's positions = chain +
 // self + descendants; anchors are exact.
 //
-//	root           (chain=∅,        self=l1, desc={l2..l6}) → {l1..l6}
-//	owner          (chain={l1},     self=l2, desc={l3})     → {l1, l2, l3}
-//	├─ nicknames[0]="watch"   chain={l1,l2}, self=l3        → {l1, l2, l3}
-//	addresses[0]   (chain={l1},     self=l4, desc={l5})     → {l1, l4, l5}
-//	├─ city="Madrid"          inherits addr[0]              → {l1, l4, l5}
-//	├─ postcode="28001"       inherits addr[0]              → {l1, l4, l5}
-//	└─ numbers[0]=124         chain={l1,l4}, self=l5        → {l1, l4, l5}
-//	addresses[1]   (chain={l1},     self=l6, desc=∅)        → {l1, l6}
-//	├─ city="London"          inherits addr[1]              → {l1, l6}
-//	└─ postcode="SW1"         inherits addr[1]              → {l1, l6}
+//	root           (chain=∅,        self=e1, desc={e2..e6}) → {e1..e6}
+//	owner          (chain={e1},     self=e2, desc={e3})     → {e1, e2, e3}
+//	├─ nicknames[0]="watch"   chain={e1,e2}, self=e3        → {e1, e2, e3}
+//	addresses[0]   (chain={e1},     self=e4, desc={e5})     → {e1, e4, e5}
+//	├─ city="Madrid"          inherits addr[0]              → {e1, e4, e5}
+//	├─ postcode="28001"       inherits addr[0]              → {e1, e4, e5}
+//	└─ numbers[0]=124         chain={e1,e4}, self=e5        → {e1, e4, e5}
+//	addresses[1]   (chain={e1},     self=e6, desc=∅)        → {e1, e6}
+//	├─ city="London"          inherits addr[1]              → {e1, e6}
+//	└─ postcode="SW1"         inherits addr[1]              → {e1, e6}
 func TestAssignPositions_Doc124Addresses(t *testing.T) {
 	prop := topLevelObject("nested",
 		objectProp("owner",
@@ -451,51 +453,51 @@ func TestAssignPositions_Doc124Addresses(t *testing.T) {
 	// owner.nicknames[0]="watch" — chain (root + owner) + self.
 	nicknames := findValues(result, "owner.nicknames")
 	require.Len(t, nicknames, 1)
-	assert.Equal(t, positions(1, 1, 2, 3), nicknames[0].Positions)
+	assert.Equal(t, positions(1, 2, 3), result.Positions(nicknames[0].Pos))
 
 	// addresses[0].numbers[0]=124 — chain (root + addr[0]) + self.
 	numbers := findValues(result, "addresses.numbers")
 	require.Len(t, numbers, 1)
 	assert.Equal(t, float64(124), numbers[0].Value)
-	assert.Equal(t, positions(1, 1, 4, 5), numbers[0].Positions)
+	assert.Equal(t, positions(1, 4, 5), result.Positions(numbers[0].Pos))
 
 	// addr[0] city/postcode inherit addr[0]'s elementPositions = chain + self + desc.
 	cities := findValues(result, "addresses.city")
 	require.Len(t, cities, 2)
 	assert.Equal(t, "Madrid", cities[0].Value)
-	assert.Equal(t, positions(1, 1, 4, 5), cities[0].Positions)
+	assert.Equal(t, positions(1, 4, 5), result.Positions(cities[0].Pos))
 
 	// addr[1] has no descendants; city/postcode inherit chain + self.
 	assert.Equal(t, "London", cities[1].Value)
-	assert.Equal(t, positions(1, 1, 6), cities[1].Positions)
+	assert.Equal(t, positions(1, 6), result.Positions(cities[1].Pos))
 
 	postcodes := findValues(result, "addresses.postcode")
 	require.Len(t, postcodes, 2)
 	assert.Equal(t, "28001", postcodes[0].Value)
-	assert.Equal(t, positions(1, 1, 4, 5), postcodes[0].Positions)
+	assert.Equal(t, positions(1, 4, 5), result.Positions(postcodes[0].Pos))
 	assert.Equal(t, "SW1", postcodes[1].Value)
-	assert.Equal(t, positions(1, 1, 6), postcodes[1].Positions)
+	assert.Equal(t, positions(1, 6), result.Positions(postcodes[1].Pos))
 
 	// _idx.addresses[K] — chain + K-th element's self + descendants.
-	assert.Equal(t, positions(1, 1, 4, 5), findIdx(result, "addresses", 0).Positions)
-	assert.Equal(t, positions(1, 1, 6), findIdx(result, "addresses", 1).Positions)
+	assert.Equal(t, positions(1, 4, 5), result.Positions(findIdx(result, "addresses", 0).Pos))
+	assert.Equal(t, positions(1, 6), result.Positions(findIdx(result, "addresses", 1).Pos))
 
 	// _exists.addresses — chain + union of every addr element's subtree selves.
 	addrExists := findExists(result, "addresses")
 	require.NotNil(t, addrExists)
-	assert.Equal(t, positions(1, 1, 4, 5, 6), addrExists.Positions)
+	assert.Equal(t, positions(1, 4, 5, 6), result.Positions(addrExists.Pos))
 
 	// _exists.addresses.numbers — chain (root + addr[0]) + numbers[0] self.
 	numExists := findExists(result, "addresses.numbers")
 	require.NotNil(t, numExists)
-	assert.Equal(t, positions(1, 1, 4, 5), numExists.Positions)
+	assert.Equal(t, positions(1, 4, 5), result.Positions(numExists.Pos))
 
 	// _anchor — exact, self-only at every level.
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "owner", positions(1, 2))
-	assertAnchor(t, result, "owner.nicknames", positions(1, 3))
-	assertAnchor(t, result, "addresses", positions(1, 4, 6))
-	assertAnchor(t, result, "addresses.numbers", positions(1, 5))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "owner", positions(2))
+	assertAnchor(t, result, "owner.nicknames", positions(3))
+	assertAnchor(t, result, "addresses", positions(4, 6))
+	assertAnchor(t, result, "addresses.numbers", positions(5))
 }
 
 // TestAssignPositions_EmptyScalarArray tests that an empty scalar array
@@ -520,17 +522,17 @@ func TestAssignPositions_EmptyScalarArray(t *testing.T) {
 	require.NoError(t, err)
 
 	// Empty nicknames produce no descendants; owner's elementPositions
-	// reduce to chain + self = {l1, l2}. firstname inherits them.
+	// reduce to chain + self = {e1, e2}. firstname inherits them.
 	firstnames := findValues(result, "owner.firstname")
 	require.Len(t, firstnames, 1)
-	assert.Equal(t, positions(1, 1, 2), firstnames[0].Positions)
+	assert.Equal(t, positions(1, 2), result.Positions(firstnames[0].Pos))
 
 	// No nicknames values
 	assert.Empty(t, findValues(result, "owner.nicknames"))
 
 	// _anchor — exact, self-only; no nicknames anchor since no elements emitted
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "owner", positions(1, 2))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "owner", positions(2))
 	assert.Nil(t, findAnchor(result, "owner.nicknames"))
 }
 
@@ -544,25 +546,42 @@ func TestAssignPositions_NotNestedType(t *testing.T) {
 	assert.Contains(t, err.Error(), "not a nested type")
 }
 
+// TestNextElem_OverflowReturnsError pins the overflow guard in nextElem.
+// Valid indices are 1..MaxElems-1; once elemIdx reaches MaxElems the guard
+// fires and an error is returned instead of silently clipping or panicking.
+func TestNextElem_OverflowReturnsError(t *testing.T) {
+	w := &walker{elemIdx: uint32(MaxElems), result: &AssignResult{}}
+	_, err := w.nextElem()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds maximum")
+}
+
+// TestAssignPositions_OverflowReturnsError pins the full error chain:
+// nextElem → walkObject → AssignPositions. Each object element consumes
+// exactly one slot (its Phase 0 self marker). MaxElems elements exhaust
+// all valid indices (1..MaxElems-1); the final element tries to claim
+// slot MaxElems and AssignPositions must return a non-nil error.
+func TestAssignPositions_OverflowReturnsError(t *testing.T) {
+	prop := topLevelObjectArray("data", textProp("v"))
+	value := make([]any, MaxElems)
+	for i := range value {
+		value[i] = map[string]any{"v": "x"}
+	}
+	_, err := AssignPositions(prop, value)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds maximum")
+}
+
 // TestAssignPositions_ElementPositionsIncludeAncestorChain pins the encoding
 // rule that an element's positions must contain the full ancestor chain
 // (every enclosing element's self marker), not just self+descendants.
 //
-// Under per-element-anchor encoding an element at depth N owns positions
-// {M_ancestor_1, …, M_ancestor_{N-1}, M_self, descendant markers}. Without
-// the ancestor chain, a positive-leaf result lives at child scope and has no
-// overlap with its owner's _anchor — so any owner-scope computation (pin-lift,
-// child-AND-ancestor merge, …) yields the empty bitmap and silently produces
-// false negatives.
-//
 // Single-chain country → garage → car → year=2020:
 //
-//	Phase 0 allocations (DFS): l1=M_country, l2=M_garage, l3=M_car.
+//	Phase 0 allocations (DFS): e1=M_country, e2=M_garage, e3=M_car.
 //	The car has no array descendants, so year inherits car's elementPositions.
 //
-// Per the encoding rule, year=2020 must carry {l1, l2, l3}. The walker today
-// emits {l3} alone — the chain markers are never pushed down through
-// walkObject calls.
+// Per the encoding rule, year=2020 must carry {e1, e2, e3}.
 func TestAssignPositions_ElementPositionsIncludeAncestorChain(t *testing.T) {
 	prop := topLevelObjectArray("countries",
 		objectArrayProp("garages",
@@ -586,7 +605,7 @@ func TestAssignPositions_ElementPositionsIncludeAncestorChain(t *testing.T) {
 	// year=2020 lives on the car (Phase 3 scalar). Its positions are the
 	// car's elementPositions, which must contain the country and garage
 	// markers from the ancestor chain in addition to the car self marker.
-	assertValue(t, result, "garages.cars.year", 2020, positions(1, 1, 2, 3))
+	assertValue(t, result, "garages.cars.year", 2020, positions(1, 2, 3))
 }
 
 // TestAssignPositions_DeepChainPropagatesThroughFiveLevels exercises the
@@ -595,15 +614,12 @@ func TestAssignPositions_ElementPositionsIncludeAncestorChain(t *testing.T) {
 // bottom verifies that the chain accumulates correctly through every
 // Phase 0 allocation and lands at the deepest emission.
 //
-//	countries[0]         (chain=∅,                  self=l1) → {l1, l2, l3, l4, l5}
-//	└── regions[0]       (chain={l1},               self=l2) → {l1, l2, l3, l4, l5}
-//	    └── cities[0]    (chain={l1, l2},           self=l3) → {l1, l2, l3, l4, l5}
-//	        └── streets[0]   (chain={l1, l2, l3},   self=l4) → {l1, l2, l3, l4, l5}
-//	            └── buildings[0]  (chain={l1..l4},  self=l5) → {l1, l2, l3, l4, l5}
-//	                └── year=1999  inherits building            → {l1, l2, l3, l4, l5}
-//
-// Both the leaf Value's positions and every level's Idx / Exists / Anchor
-// are asserted so a regression at any depth surfaces.
+//	countries[0]         (chain=∅,                  self=e1) → {e1, e2, e3, e4, e5}
+//	└── regions[0]       (chain={e1},               self=e2) → {e1, e2, e3, e4, e5}
+//	    └── cities[0]    (chain={e1, e2},           self=e3) → {e1, e2, e3, e4, e5}
+//	        └── streets[0]   (chain={e1, e2, e3},   self=e4) → {e1, e2, e3, e4, e5}
+//	            └── buildings[0]  (chain={e1..e4},  self=e5) → {e1, e2, e3, e4, e5}
+//	                └── year=1999  inherits building            → {e1, e2, e3, e4, e5}
 func TestAssignPositions_DeepChainPropagatesThroughFiveLevels(t *testing.T) {
 	prop := topLevelObjectArray("countries",
 		objectArrayProp("regions",
@@ -633,33 +649,33 @@ func TestAssignPositions_DeepChainPropagatesThroughFiveLevels(t *testing.T) {
 	require.NoError(t, err)
 
 	// Leaf scalar inherits the full chain from country down to building.
-	assertValue(t, result, "regions.cities.streets.buildings.year", 1999, positions(1, 1, 2, 3, 4, 5))
+	assertValue(t, result, "regions.cities.streets.buildings.year", 1999, positions(1, 2, 3, 4, 5))
 
 	// _idx entries: each level's K-th element's elementPositions =
 	// chain + self + descendants. The single chain means every level's
-	// Idx[0] sees the full {l1..l5}.
-	assertIdx(t, result, "regions", 0, positions(1, 1, 2, 3, 4, 5))
-	assertIdx(t, result, "regions.cities", 0, positions(1, 1, 2, 3, 4, 5))
-	assertIdx(t, result, "regions.cities.streets", 0, positions(1, 1, 2, 3, 4, 5))
-	assertIdx(t, result, "regions.cities.streets.buildings", 0, positions(1, 1, 2, 3, 4, 5))
+	// Idx[0] sees the full {e1..e5}.
+	assertIdx(t, result, "regions", 0, positions(1, 2, 3, 4, 5))
+	assertIdx(t, result, "regions.cities", 0, positions(1, 2, 3, 4, 5))
+	assertIdx(t, result, "regions.cities.streets", 0, positions(1, 2, 3, 4, 5))
+	assertIdx(t, result, "regions.cities.streets.buildings", 0, positions(1, 2, 3, 4, 5))
 	// Root-level Idx: chain ∅, subtree = all leaves.
-	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5))
+	assertIdx(t, result, "", 0, positions(1, 2, 3, 4, 5))
 
 	// _exists at each level — same shape because there's a single chain.
-	assertExists(t, result, "", positions(1, 1, 2, 3, 4, 5))
-	assertExists(t, result, "regions", positions(1, 1, 2, 3, 4, 5))
-	assertExists(t, result, "regions.cities", positions(1, 1, 2, 3, 4, 5))
-	assertExists(t, result, "regions.cities.streets", positions(1, 1, 2, 3, 4, 5))
-	assertExists(t, result, "regions.cities.streets.buildings", positions(1, 1, 2, 3, 4, 5))
-	assertExists(t, result, "regions.cities.streets.buildings.year", positions(1, 1, 2, 3, 4, 5))
+	assertExists(t, result, "", positions(1, 2, 3, 4, 5))
+	assertExists(t, result, "regions", positions(1, 2, 3, 4, 5))
+	assertExists(t, result, "regions.cities", positions(1, 2, 3, 4, 5))
+	assertExists(t, result, "regions.cities.streets", positions(1, 2, 3, 4, 5))
+	assertExists(t, result, "regions.cities.streets.buildings", positions(1, 2, 3, 4, 5))
+	assertExists(t, result, "regions.cities.streets.buildings.year", positions(1, 2, 3, 4, 5))
 
 	// _anchor — exact, self-only at every level. The five anchors should
-	// land on l1..l5 with no chain bits.
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "regions", positions(1, 2))
-	assertAnchor(t, result, "regions.cities", positions(1, 3))
-	assertAnchor(t, result, "regions.cities.streets", positions(1, 4))
-	assertAnchor(t, result, "regions.cities.streets.buildings", positions(1, 5))
+	// land on e1..e5 with no chain bits.
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "regions", positions(2))
+	assertAnchor(t, result, "regions.cities", positions(3))
+	assertAnchor(t, result, "regions.cities.streets", positions(4))
+	assertAnchor(t, result, "regions.cities.streets.buildings", positions(5))
 }
 
 // ---------------------------------------------------------------------------
@@ -785,32 +801,32 @@ func doc125Schema() []*models.NestedProperty {
 
 // TestAssignPositions_Doc123Full tests complete doc123 (Marsha). Every
 // element's positions = chain + self + descendant selves; anchors are
-// exact. 15 leaves total. Runs with both full shared schema and minimal
-// doc123-only schema to verify that extra properties in the schema don't
-// affect position assignment.
+// exact. 15 elements total (e1..e15). Runs with both full shared schema and
+// minimal doc123-only schema to verify that extra properties in the schema
+// don't affect position assignment.
 //
-//	root           (chain=∅,           self=l1,  desc={l2..l15}) → {l1..l15}
-//	owner          (chain={l1},        self=l2,  desc={l3, l4})  → {l1, l2, l3, l4}
-//	├─ firstname="Marsha"               inherits owner            → {l1, l2, l3, l4}
-//	├─ lastname="Mallow"                inherits owner            → {l1, l2, l3, l4}
-//	├─ nicknames[0]="Marshmallow"   chain={l1, l2}, self=l3       → {l1, l2, l3}
-//	└─ nicknames[1]="M&M"           chain={l1, l2}, self=l4       → {l1, l2, l4}
-//	addresses[0]   (chain={l1},        self=l5,  desc={l6, l7})   → {l1, l5, l6, l7}
-//	├─ city="Berlin"                    inherits addr[0]          → {l1, l5, l6, l7}
-//	├─ postcode="10115"                 inherits addr[0]          → {l1, l5, l6, l7}
-//	├─ numbers[0]=123               chain={l1, l5}, self=l6       → {l1, l5, l6}
-//	└─ numbers[1]=1123              chain={l1, l5}, self=l7       → {l1, l5, l7}
-//	tags[0]="german"                chain={l1},     self=l8       → {l1, l8}
-//	tags[1]="premium"               chain={l1},     self=l9       → {l1, l9}
-//	cars[0]        (chain={l1},        self=l10, desc={l11..l15}) → {l1, l10..l15}
-//	├─ make="BMW"                       inherits car[0]           → {l1, l10..l15}
-//	├─ tires[0]    (chain={l1, l10},   self=l11, desc={l12, l13}) → {l1, l10..l13}
-//	│  ├─ width=225                     inherits tire[0]          → {l1, l10..l13}
-//	│  ├─ radiuses[0]=18            chain={l1, l10, l11}, self=l12 → {l1, l10, l11, l12}
-//	│  └─ radiuses[1]=19            chain={l1, l10, l11}, self=l13 → {l1, l10, l11, l13}
-//	├─ colors[0]="black"            chain={l1, l10}, self=l14      → {l1, l10, l14}
-//	└─ colors[1]="orange"           chain={l1, l10}, self=l15      → {l1, l10, l15}
-//	name="subdoc_123"                   inherits root              → {l1..l15}
+//	root           (chain=∅,           self=e1,  desc={e2..e15}) → {e1..e15}
+//	owner          (chain={e1},        self=e2,  desc={e3, e4})  → {e1, e2, e3, e4}
+//	├─ firstname="Marsha"               inherits owner            → {e1, e2, e3, e4}
+//	├─ lastname="Mallow"                inherits owner            → {e1, e2, e3, e4}
+//	├─ nicknames[0]="Marshmallow"   chain={e1, e2}, self=e3       → {e1, e2, e3}
+//	└─ nicknames[1]="M&M"           chain={e1, e2}, self=e4       → {e1, e2, e4}
+//	addresses[0]   (chain={e1},        self=e5,  desc={e6, e7})   → {e1, e5, e6, e7}
+//	├─ city="Berlin"                    inherits addr[0]          → {e1, e5, e6, e7}
+//	├─ postcode="10115"                 inherits addr[0]          → {e1, e5, e6, e7}
+//	├─ numbers[0]=123               chain={e1, e5}, self=e6       → {e1, e5, e6}
+//	└─ numbers[1]=1123              chain={e1, e5}, self=e7       → {e1, e5, e7}
+//	tags[0]="german"                chain={e1},     self=e8       → {e1, e8}
+//	tags[1]="premium"               chain={e1},     self=e9       → {e1, e9}
+//	cars[0]        (chain={e1},        self=e10, desc={e11..e15}) → {e1, e10..e15}
+//	├─ make="BMW"                       inherits car[0]           → {e1, e10..e15}
+//	├─ tires[0]    (chain={e1, e10},   self=e11, desc={e12, e13}) → {e1, e10..e13}
+//	│  ├─ width=225                     inherits tire[0]          → {e1, e10..e13}
+//	│  ├─ radiuses[0]=18            chain={e1, e10, e11}, self=e12 → {e1, e10, e11, e12}
+//	│  └─ radiuses[1]=19            chain={e1, e10, e11}, self=e13 → {e1, e10, e11, e13}
+//	├─ colors[0]="black"            chain={e1, e10}, self=e14      → {e1, e10, e14}
+//	└─ colors[1]="orange"           chain={e1, e10}, self=e15      → {e1, e10, e15}
+//	name="subdoc_123"                   inherits root              → {e1..e15}
 func TestAssignPositions_Doc123Full(t *testing.T) {
 	schemas := map[string][]*models.NestedProperty{
 		"full_schema":    fullNestedSchema(),
@@ -861,107 +877,107 @@ func assertDoc123(t *testing.T, schema []*models.NestedProperty) {
 
 	// Values: 17 entries
 	require.Len(t, result.Values, 17)
-	assertValue(t, result, "owner.nicknames", "Marshmallow", positions(1, 1, 2, 3))
-	assertValue(t, result, "owner.nicknames", "M&M", positions(1, 1, 2, 4))
-	assertValue(t, result, "owner.firstname", "Marsha", positions(1, 1, 2, 3, 4))
-	assertValue(t, result, "owner.lastname", "Mallow", positions(1, 1, 2, 3, 4))
-	assertValue(t, result, "addresses.numbers", float64(123), positions(1, 1, 5, 6))
-	assertValue(t, result, "addresses.numbers", float64(1123), positions(1, 1, 5, 7))
-	assertValue(t, result, "addresses.city", "Berlin", positions(1, 1, 5, 6, 7))
-	assertValue(t, result, "addresses.postcode", "10115", positions(1, 1, 5, 6, 7))
-	assertValue(t, result, "tags", "german", positions(1, 1, 8))
-	assertValue(t, result, "tags", "premium", positions(1, 1, 9))
-	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 1, 10, 11, 12))
-	assertValue(t, result, "cars.tires.radiuses", float64(19), positions(1, 1, 10, 11, 13))
-	assertValue(t, result, "cars.tires.width", float64(225), positions(1, 1, 10, 11, 12, 13))
-	assertValue(t, result, "cars.make", "BMW", positions(1, 1, 10, 11, 12, 13, 14, 15))
-	assertValue(t, result, "cars.colors", "black", positions(1, 1, 10, 14))
-	assertValue(t, result, "cars.colors", "orange", positions(1, 1, 10, 15))
-	assertValue(t, result, "name", "subdoc_123", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
+	assertValue(t, result, "owner.nicknames", "Marshmallow", positions(1, 2, 3))
+	assertValue(t, result, "owner.nicknames", "M&M", positions(1, 2, 4))
+	assertValue(t, result, "owner.firstname", "Marsha", positions(1, 2, 3, 4))
+	assertValue(t, result, "owner.lastname", "Mallow", positions(1, 2, 3, 4))
+	assertValue(t, result, "addresses.numbers", float64(123), positions(1, 5, 6))
+	assertValue(t, result, "addresses.numbers", float64(1123), positions(1, 5, 7))
+	assertValue(t, result, "addresses.city", "Berlin", positions(1, 5, 6, 7))
+	assertValue(t, result, "addresses.postcode", "10115", positions(1, 5, 6, 7))
+	assertValue(t, result, "tags", "german", positions(1, 8))
+	assertValue(t, result, "tags", "premium", positions(1, 9))
+	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 10, 11, 12))
+	assertValue(t, result, "cars.tires.radiuses", float64(19), positions(1, 10, 11, 13))
+	assertValue(t, result, "cars.tires.width", float64(225), positions(1, 10, 11, 12, 13))
+	assertValue(t, result, "cars.make", "BMW", positions(1, 10, 11, 12, 13, 14, 15))
+	assertValue(t, result, "cars.colors", "black", positions(1, 10, 14))
+	assertValue(t, result, "cars.colors", "orange", positions(1, 10, 15))
+	assertValue(t, result, "name", "subdoc_123", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
 
 	// Idx: 15 entries (14 sub-array + 1 root). Each IdxEntry = chain + the
 	// K-th element's self + descendant selves.
 	require.Len(t, result.Idx, 15)
-	assertIdx(t, result, "owner", 0, positions(1, 1, 2, 3, 4))
-	assertIdx(t, result, "owner.nicknames", 0, positions(1, 1, 2, 3))
-	assertIdx(t, result, "owner.nicknames", 1, positions(1, 1, 2, 4))
-	assertIdx(t, result, "addresses", 0, positions(1, 1, 5, 6, 7))
-	assertIdx(t, result, "addresses.numbers", 0, positions(1, 1, 5, 6))
-	assertIdx(t, result, "addresses.numbers", 1, positions(1, 1, 5, 7))
-	assertIdx(t, result, "tags", 0, positions(1, 1, 8))
-	assertIdx(t, result, "tags", 1, positions(1, 1, 9))
-	assertIdx(t, result, "cars", 0, positions(1, 1, 10, 11, 12, 13, 14, 15))
-	assertIdx(t, result, "cars.tires", 0, positions(1, 1, 10, 11, 12, 13))
-	assertIdx(t, result, "cars.tires.radiuses", 0, positions(1, 1, 10, 11, 12))
-	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 1, 10, 11, 13))
-	assertIdx(t, result, "cars.colors", 0, positions(1, 1, 10, 14))
-	assertIdx(t, result, "cars.colors", 1, positions(1, 1, 10, 15))
+	assertIdx(t, result, "owner", 0, positions(1, 2, 3, 4))
+	assertIdx(t, result, "owner.nicknames", 0, positions(1, 2, 3))
+	assertIdx(t, result, "owner.nicknames", 1, positions(1, 2, 4))
+	assertIdx(t, result, "addresses", 0, positions(1, 5, 6, 7))
+	assertIdx(t, result, "addresses.numbers", 0, positions(1, 5, 6))
+	assertIdx(t, result, "addresses.numbers", 1, positions(1, 5, 7))
+	assertIdx(t, result, "tags", 0, positions(1, 8))
+	assertIdx(t, result, "tags", 1, positions(1, 9))
+	assertIdx(t, result, "cars", 0, positions(1, 10, 11, 12, 13, 14, 15))
+	assertIdx(t, result, "cars.tires", 0, positions(1, 10, 11, 12, 13))
+	assertIdx(t, result, "cars.tires.radiuses", 0, positions(1, 10, 11, 12))
+	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 10, 11, 13))
+	assertIdx(t, result, "cars.colors", 0, positions(1, 10, 14))
+	assertIdx(t, result, "cars.colors", 1, positions(1, 10, 15))
 	// root-level _idx entry for arr[N] positional filtering; chain is ∅ at root.
-	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
+	assertIdx(t, result, "", 0, positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
 
 	// Exists: 17 entries. Each ExistsEntry = chain + union of all subtree selves.
 	require.Len(t, result.Exists, 17)
-	assertExists(t, result, "", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
-	assertExists(t, result, "name", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
-	assertExists(t, result, "owner", positions(1, 1, 2, 3, 4))
-	assertExists(t, result, "owner.firstname", positions(1, 1, 2, 3, 4))
-	assertExists(t, result, "owner.lastname", positions(1, 1, 2, 3, 4))
-	assertExists(t, result, "owner.nicknames", positions(1, 1, 2, 3, 4))
-	assertExists(t, result, "addresses", positions(1, 1, 5, 6, 7))
-	assertExists(t, result, "addresses.city", positions(1, 1, 5, 6, 7))
-	assertExists(t, result, "addresses.postcode", positions(1, 1, 5, 6, 7))
-	assertExists(t, result, "addresses.numbers", positions(1, 1, 5, 6, 7))
-	assertExists(t, result, "tags", positions(1, 1, 8, 9))
-	assertExists(t, result, "cars", positions(1, 1, 10, 11, 12, 13, 14, 15))
-	assertExists(t, result, "cars.make", positions(1, 1, 10, 11, 12, 13, 14, 15))
-	assertExists(t, result, "cars.tires", positions(1, 1, 10, 11, 12, 13))
-	assertExists(t, result, "cars.tires.width", positions(1, 1, 10, 11, 12, 13))
-	assertExists(t, result, "cars.tires.radiuses", positions(1, 1, 10, 11, 12, 13))
-	assertExists(t, result, "cars.colors", positions(1, 1, 10, 14, 15))
+	assertExists(t, result, "", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
+	assertExists(t, result, "name", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
+	assertExists(t, result, "owner", positions(1, 2, 3, 4))
+	assertExists(t, result, "owner.firstname", positions(1, 2, 3, 4))
+	assertExists(t, result, "owner.lastname", positions(1, 2, 3, 4))
+	assertExists(t, result, "owner.nicknames", positions(1, 2, 3, 4))
+	assertExists(t, result, "addresses", positions(1, 5, 6, 7))
+	assertExists(t, result, "addresses.city", positions(1, 5, 6, 7))
+	assertExists(t, result, "addresses.postcode", positions(1, 5, 6, 7))
+	assertExists(t, result, "addresses.numbers", positions(1, 5, 6, 7))
+	assertExists(t, result, "tags", positions(1, 8, 9))
+	assertExists(t, result, "cars", positions(1, 10, 11, 12, 13, 14, 15))
+	assertExists(t, result, "cars.make", positions(1, 10, 11, 12, 13, 14, 15))
+	assertExists(t, result, "cars.tires", positions(1, 10, 11, 12, 13))
+	assertExists(t, result, "cars.tires.width", positions(1, 10, 11, 12, 13))
+	assertExists(t, result, "cars.tires.radiuses", positions(1, 10, 11, 12, 13))
+	assertExists(t, result, "cars.colors", positions(1, 10, 14, 15))
 
 	// Anchors: 15 entries (10 distinct paths)
 	require.Len(t, result.Anchors, 15)
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "owner", positions(1, 2))
-	assertAnchor(t, result, "owner.nicknames", positions(1, 3, 4))
-	assertAnchor(t, result, "addresses", positions(1, 5))
-	assertAnchor(t, result, "addresses.numbers", positions(1, 6, 7))
-	assertAnchor(t, result, "tags", positions(1, 8, 9))
-	assertAnchor(t, result, "cars", positions(1, 10))
-	assertAnchor(t, result, "cars.tires", positions(1, 11))
-	assertAnchor(t, result, "cars.tires.radiuses", positions(1, 12, 13))
-	assertAnchor(t, result, "cars.colors", positions(1, 14, 15))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "owner", positions(2))
+	assertAnchor(t, result, "owner.nicknames", positions(3, 4))
+	assertAnchor(t, result, "addresses", positions(5))
+	assertAnchor(t, result, "addresses.numbers", positions(6, 7))
+	assertAnchor(t, result, "tags", positions(8, 9))
+	assertAnchor(t, result, "cars", positions(10))
+	assertAnchor(t, result, "cars.tires", positions(11))
+	assertAnchor(t, result, "cars.tires.radiuses", positions(12, 13))
+	assertAnchor(t, result, "cars.colors", positions(14, 15))
 }
 
 // TestAssignPositions_Doc124Full tests complete doc124 (Justin). Every
 // element's positions = chain + self + descendant selves; anchors are
-// exact. 17 leaves total. Covers tires[1] without radiuses and Kia
-// tires[0] with radiuses=[].
+// exact. 17 elements total (e1..e17). Covers tires[1] without radiuses and
+// Kia tires[0] with radiuses=[].
 //
-//	root            (chain=∅,                 self=l1,  desc={l2..l17}) → {l1..l17}
-//	owner           (chain={l1},              self=l2,  desc={l3})       → {l1, l2, l3}
-//	├─ firstname/lastname            inherits owner                       → {l1, l2, l3}
-//	└─ nicknames[0]="watch"        chain={l1, l2},     self=l3            → {l1, l2, l3}
-//	addresses[0]    (chain={l1},              self=l4,  desc={l5})        → {l1, l4, l5}
-//	├─ city/postcode (Madrid/28001) inherits addr[0]                       → {l1, l4, l5}
-//	└─ numbers[0]=124              chain={l1, l4},     self=l5            → {l1, l4, l5}
-//	addresses[1]    (chain={l1},              self=l6,  desc=∅)           → {l1, l6}
-//	├─ city/postcode (London/SW1)    inherits addr[1]                      → {l1, l6}
-//	tags[0..2]                      chain={l1},         self=l7/l8/l9     → {l1, l7|l8|l9}
-//	cars[0] Audi    (chain={l1},              self=l10, desc={l11..l14})  → {l1, l10..l14}
-//	├─ make="Audi"                  inherits car[0]                        → {l1, l10..l14}
-//	├─ tires[0]     (chain={l1, l10},         self=l11, desc={l12, l13})  → {l1, l10..l13}
-//	│  ├─ width=205                 inherits tire[0]                       → {l1, l10..l13}
-//	│  ├─ radiuses[0]=17            chain={l1, l10, l11}, self=l12         → {l1, l10, l11, l12}
-//	│  └─ radiuses[1]=18            chain={l1, l10, l11}, self=l13         → {l1, l10, l11, l13}
-//	└─ tires[1]     (chain={l1, l10},         self=l14, desc=∅)           → {l1, l10, l14}
-//	    └─ width=225                inherits tire[1]                       → {l1, l10, l14}
-//	cars[1] Kia     (chain={l1},              self=l15, desc={l16, l17})  → {l1, l15, l16, l17}
-//	├─ make="Kia"                   inherits car[1]                        → {l1, l15, l16, l17}
-//	├─ tires[0]     (chain={l1, l15},         self=l16, desc=∅, radiuses=[]) → {l1, l15, l16}
-//	│  └─ width=195                 inherits tire                          → {l1, l15, l16}
-//	└─ colors[0]="white"           chain={l1, l15},    self=l17            → {l1, l15, l17}
-//	name="subdoc_124"               inherits root                          → {l1..l17}
+//	root            (chain=∅,                 self=e1,  desc={e2..e17}) → {e1..e17}
+//	owner           (chain={e1},              self=e2,  desc={e3})       → {e1, e2, e3}
+//	├─ firstname/lastname            inherits owner                       → {e1, e2, e3}
+//	└─ nicknames[0]="watch"        chain={e1, e2},     self=e3            → {e1, e2, e3}
+//	addresses[0]    (chain={e1},              self=e4,  desc={e5})        → {e1, e4, e5}
+//	├─ city/postcode (Madrid/28001) inherits addr[0]                       → {e1, e4, e5}
+//	└─ numbers[0]=124              chain={e1, e4},     self=e5            → {e1, e4, e5}
+//	addresses[1]    (chain={e1},              self=e6,  desc=∅)           → {e1, e6}
+//	├─ city/postcode (London/SW1)    inherits addr[1]                      → {e1, e6}
+//	tags[0..2]                      chain={e1},         self=e7/e8/e9     → {e1, e7|e8|e9}
+//	cars[0] Audi    (chain={e1},              self=e10, desc={e11..e14})  → {e1, e10..e14}
+//	├─ make="Audi"                  inherits car[0]                        → {e1, e10..e14}
+//	├─ tires[0]     (chain={e1, e10},         self=e11, desc={e12, e13})  → {e1, e10..e13}
+//	│  ├─ width=205                 inherits tire[0]                       → {e1, e10..e13}
+//	│  ├─ radiuses[0]=17            chain={e1, e10, e11}, self=e12         → {e1, e10, e11, e12}
+//	│  └─ radiuses[1]=18            chain={e1, e10, e11}, self=e13         → {e1, e10, e11, e13}
+//	└─ tires[1]     (chain={e1, e10},         self=e14, desc=∅)           → {e1, e10, e14}
+//	    └─ width=225                inherits tire[1]                       → {e1, e10, e14}
+//	cars[1] Kia     (chain={e1},              self=e15, desc={e16, e17})  → {e1, e15, e16, e17}
+//	├─ make="Kia"                   inherits car[1]                        → {e1, e15, e16, e17}
+//	├─ tires[0]     (chain={e1, e15},         self=e16, desc=∅, radiuses=[]) → {e1, e15, e16}
+//	│  └─ width=195                 inherits tire                          → {e1, e15, e16}
+//	└─ colors[0]="white"           chain={e1, e15},    self=e17            → {e1, e15, e17}
+//	name="subdoc_124"               inherits root                          → {e1..e17}
 func TestAssignPositions_Doc124Full(t *testing.T) {
 	schemas := map[string][]*models.NestedProperty{
 		"full_schema":    fullNestedSchema(),
@@ -1028,117 +1044,118 @@ func assertDoc124(t *testing.T, schema []*models.NestedProperty) {
 
 	// Values: 20 entries
 	require.Len(t, result.Values, 20)
-	assertValue(t, result, "owner.nicknames", "watch", positions(1, 1, 2, 3))
-	assertValue(t, result, "owner.firstname", "Justin", positions(1, 1, 2, 3))
-	assertValue(t, result, "owner.lastname", "Time", positions(1, 1, 2, 3))
-	assertValue(t, result, "addresses.numbers", float64(124), positions(1, 1, 4, 5))
-	assertValue(t, result, "addresses.city", "Madrid", positions(1, 1, 4, 5))
-	assertValue(t, result, "addresses.postcode", "28001", positions(1, 1, 4, 5))
-	assertValue(t, result, "addresses.city", "London", positions(1, 1, 6))
-	assertValue(t, result, "addresses.postcode", "SW1", positions(1, 1, 6))
-	assertValue(t, result, "tags", "german", positions(1, 1, 7))
-	assertValue(t, result, "tags", "japanese", positions(1, 1, 8))
-	assertValue(t, result, "tags", "sedan", positions(1, 1, 9))
-	assertValue(t, result, "cars.tires.radiuses", float64(17), positions(1, 1, 10, 11, 12))
-	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 1, 10, 11, 13))
-	assertValue(t, result, "cars.tires.width", float64(205), positions(1, 1, 10, 11, 12, 13))
-	assertValue(t, result, "cars.tires.width", float64(225), positions(1, 1, 10, 14))
-	assertValue(t, result, "cars.tires.width", float64(195), positions(1, 1, 15, 16))
-	assertValue(t, result, "cars.make", "Audi", positions(1, 1, 10, 11, 12, 13, 14))
-	assertValue(t, result, "cars.make", "Kia", positions(1, 1, 15, 16, 17))
-	assertValue(t, result, "cars.colors", "white", positions(1, 1, 15, 17))
-	assertValue(t, result, "name", "subdoc_124", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
+	assertValue(t, result, "owner.nicknames", "watch", positions(1, 2, 3))
+	assertValue(t, result, "owner.firstname", "Justin", positions(1, 2, 3))
+	assertValue(t, result, "owner.lastname", "Time", positions(1, 2, 3))
+	assertValue(t, result, "addresses.numbers", float64(124), positions(1, 4, 5))
+	assertValue(t, result, "addresses.city", "Madrid", positions(1, 4, 5))
+	assertValue(t, result, "addresses.postcode", "28001", positions(1, 4, 5))
+	assertValue(t, result, "addresses.city", "London", positions(1, 6))
+	assertValue(t, result, "addresses.postcode", "SW1", positions(1, 6))
+	assertValue(t, result, "tags", "german", positions(1, 7))
+	assertValue(t, result, "tags", "japanese", positions(1, 8))
+	assertValue(t, result, "tags", "sedan", positions(1, 9))
+	assertValue(t, result, "cars.tires.radiuses", float64(17), positions(1, 10, 11, 12))
+	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 10, 11, 13))
+	assertValue(t, result, "cars.tires.width", float64(205), positions(1, 10, 11, 12, 13))
+	assertValue(t, result, "cars.tires.width", float64(225), positions(1, 10, 14))
+	assertValue(t, result, "cars.tires.width", float64(195), positions(1, 15, 16))
+	assertValue(t, result, "cars.make", "Audi", positions(1, 10, 11, 12, 13, 14))
+	assertValue(t, result, "cars.make", "Kia", positions(1, 15, 16, 17))
+	assertValue(t, result, "cars.colors", "white", positions(1, 15, 17))
+	assertValue(t, result, "name", "subdoc_124", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
 
 	// Idx: 17 entries (16 sub-array + 1 root, aggregated by path+index).
-	// _idx.cars.tires[0] aggregates Audi t0 (chain {l1, l10}, subtree
-	// {l11, l12, l13}) with Kia t0 (chain {l1, l15}, subtree {l16}).
+	// _idx.cars.tires[0] aggregates Audi t0 (chain {e1, e10}, subtree
+	// {e11, e12, e13}) with Kia t0 (chain {e1, e15}, subtree {e16}).
+	// Chain bit e1 appears twice in the aggregate.
 	require.Len(t, result.Idx, 17)
-	assertIdx(t, result, "owner", 0, positions(1, 1, 2, 3))
-	assertIdx(t, result, "owner.nicknames", 0, positions(1, 1, 2, 3))
-	assertIdx(t, result, "addresses", 0, positions(1, 1, 4, 5))
-	assertIdx(t, result, "addresses", 1, positions(1, 1, 6))
-	assertIdx(t, result, "addresses.numbers", 0, positions(1, 1, 4, 5))
-	assertIdx(t, result, "tags", 0, positions(1, 1, 7))
-	assertIdx(t, result, "tags", 1, positions(1, 1, 8))
-	assertIdx(t, result, "tags", 2, positions(1, 1, 9))
-	assertIdx(t, result, "cars", 0, positions(1, 1, 10, 11, 12, 13, 14))
-	assertIdx(t, result, "cars", 1, positions(1, 1, 15, 16, 17))
-	// Two emissions (Audi t0 + Kia t0): chain bits l1 appear twice in the aggregate.
-	assertIdx(t, result, "cars.tires", 0, positions(1, 1, 1, 10, 11, 12, 13, 15, 16))
-	assertIdx(t, result, "cars.tires", 1, positions(1, 1, 10, 14)) // Audi t1 only
-	assertIdx(t, result, "cars.tires.radiuses", 0, positions(1, 1, 10, 11, 12))
-	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 1, 10, 11, 13))
-	assertIdx(t, result, "cars.colors", 0, positions(1, 1, 15, 17))
+	assertIdx(t, result, "owner", 0, positions(1, 2, 3))
+	assertIdx(t, result, "owner.nicknames", 0, positions(1, 2, 3))
+	assertIdx(t, result, "addresses", 0, positions(1, 4, 5))
+	assertIdx(t, result, "addresses", 1, positions(1, 6))
+	assertIdx(t, result, "addresses.numbers", 0, positions(1, 4, 5))
+	assertIdx(t, result, "tags", 0, positions(1, 7))
+	assertIdx(t, result, "tags", 1, positions(1, 8))
+	assertIdx(t, result, "tags", 2, positions(1, 9))
+	assertIdx(t, result, "cars", 0, positions(1, 10, 11, 12, 13, 14))
+	assertIdx(t, result, "cars", 1, positions(1, 15, 16, 17))
+	// Two emissions (Audi t0 + Kia t0): chain bit e1 appears twice in the aggregate.
+	assertIdx(t, result, "cars.tires", 0, positions(1, 1, 10, 11, 12, 13, 15, 16))
+	assertIdx(t, result, "cars.tires", 1, positions(1, 10, 14)) // Audi t1 only
+	assertIdx(t, result, "cars.tires.radiuses", 0, positions(1, 10, 11, 12))
+	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 10, 11, 13))
+	assertIdx(t, result, "cars.colors", 0, positions(1, 15, 17))
 	// root-level _idx — chain ∅, subtree = all leaves
-	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
+	assertIdx(t, result, "", 0, positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
 
 	// Exists: 23 raw entries, 17 unique paths (aggregated).
-	// _exists.cars.tires aggregates Audi's call ({l1, l10} + {l11..l14})
-	// with Kia's call ({l1, l15} + {l16}).
+	// _exists.cars.tires aggregates Audi's call ({e1, e10} + {e11..e14})
+	// with Kia's call ({e1, e15} + {e16}).
 	require.Len(t, result.Exists, 23)
-	assertExists(t, result, "", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
-	assertExists(t, result, "name", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
-	assertExists(t, result, "owner", positions(1, 1, 2, 3))
-	assertExists(t, result, "owner.firstname", positions(1, 1, 2, 3))
-	assertExists(t, result, "owner.lastname", positions(1, 1, 2, 3))
-	assertExists(t, result, "owner.nicknames", positions(1, 1, 2, 3))
-	assertExists(t, result, "addresses", positions(1, 1, 4, 5, 6))
+	assertExists(t, result, "", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
+	assertExists(t, result, "name", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
+	assertExists(t, result, "owner", positions(1, 2, 3))
+	assertExists(t, result, "owner.firstname", positions(1, 2, 3))
+	assertExists(t, result, "owner.lastname", positions(1, 2, 3))
+	assertExists(t, result, "owner.nicknames", positions(1, 2, 3))
+	assertExists(t, result, "addresses", positions(1, 4, 5, 6))
 	// city/postcode emit once per address (Phase 3 inside each addr element).
-	// Two emissions → chain bit l1 appears twice in the aggregate.
-	assertExists(t, result, "addresses.city", positions(1, 1, 1, 4, 5, 6))
-	assertExists(t, result, "addresses.postcode", positions(1, 1, 1, 4, 5, 6))
-	assertExists(t, result, "addresses.numbers", positions(1, 1, 4, 5))
-	assertExists(t, result, "tags", positions(1, 1, 7, 8, 9))
-	assertExists(t, result, "cars", positions(1, 1, 10, 11, 12, 13, 14, 15, 16, 17))
-	// make emits once per car (2 cars) → chain bit l1 twice.
-	assertExists(t, result, "cars.make", positions(1, 1, 1, 10, 11, 12, 13, 14, 15, 16, 17))
-	// walkNestedArray for tires is called once per car (2 cars) → chain bit l1 twice.
-	assertExists(t, result, "cars.tires", positions(1, 1, 1, 10, 11, 12, 13, 14, 15, 16))
-	// width emits once per tire (Audi t0, Audi t1, Kia t0 = 3 tires) → chain bit l1 thrice;
-	// chain bit l10 appears in both Audi tires.
-	assertExists(t, result, "cars.tires.width", positions(1, 1, 1, 1, 10, 10, 11, 12, 13, 14, 15, 16))
-	assertExists(t, result, "cars.tires.radiuses", positions(1, 1, 10, 11, 12, 13))
-	assertExists(t, result, "cars.colors", positions(1, 1, 15, 17))
+	// Two emissions → chain bit e1 appears twice in the aggregate.
+	assertExists(t, result, "addresses.city", positions(1, 1, 4, 5, 6))
+	assertExists(t, result, "addresses.postcode", positions(1, 1, 4, 5, 6))
+	assertExists(t, result, "addresses.numbers", positions(1, 4, 5))
+	assertExists(t, result, "tags", positions(1, 7, 8, 9))
+	assertExists(t, result, "cars", positions(1, 10, 11, 12, 13, 14, 15, 16, 17))
+	// make emits once per car (2 cars) → chain bit e1 twice.
+	assertExists(t, result, "cars.make", positions(1, 1, 10, 11, 12, 13, 14, 15, 16, 17))
+	// walkNestedArray for tires is called once per car (2 cars) → chain bit e1 twice.
+	assertExists(t, result, "cars.tires", positions(1, 1, 10, 11, 12, 13, 14, 15, 16))
+	// width emits once per tire (Audi t0, Audi t1, Kia t0 = 3 tires) → chain bit e1 thrice;
+	// chain bit e10 appears in both Audi tires.
+	assertExists(t, result, "cars.tires.width", positions(1, 1, 1, 10, 10, 11, 12, 13, 14, 15, 16))
+	assertExists(t, result, "cars.tires.radiuses", positions(1, 10, 11, 12, 13))
+	assertExists(t, result, "cars.colors", positions(1, 15, 17))
 
 	// Anchors: 17 entries (10 distinct paths)
 	require.Len(t, result.Anchors, 17)
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "owner", positions(1, 2))
-	assertAnchor(t, result, "owner.nicknames", positions(1, 3))
-	assertAnchor(t, result, "addresses", positions(1, 4, 6))
-	assertAnchor(t, result, "addresses.numbers", positions(1, 5))
-	assertAnchor(t, result, "tags", positions(1, 7, 8, 9))
-	assertAnchor(t, result, "cars", positions(1, 10, 15))
-	assertAnchor(t, result, "cars.tires", positions(1, 11, 14, 16))
-	assertAnchor(t, result, "cars.tires.radiuses", positions(1, 12, 13))
-	assertAnchor(t, result, "cars.colors", positions(1, 17))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "owner", positions(2))
+	assertAnchor(t, result, "owner.nicknames", positions(3))
+	assertAnchor(t, result, "addresses", positions(4, 6))
+	assertAnchor(t, result, "addresses.numbers", positions(5))
+	assertAnchor(t, result, "tags", positions(7, 8, 9))
+	assertAnchor(t, result, "cars", positions(10, 15))
+	assertAnchor(t, result, "cars.tires", positions(11, 14, 16))
+	assertAnchor(t, result, "cars.tires.radiuses", positions(12, 13))
+	assertAnchor(t, result, "cars.colors", positions(17))
 }
 
 // TestAssignPositions_Doc125Full tests complete doc125 (Anna). Every
 // element's positions = chain + self + descendant selves; anchors are
-// exact. 13 leaves total. Owner has no nicknames so its positions reduce
-// to chain + self.
+// exact. 13 elements total (e1..e13). Owner has no nicknames so its
+// positions reduce to chain + self.
 //
-//	root              (chain=∅,             self=l1,  desc={l2..l13}) → {l1..l13}
-//	owner             (chain={l1},          self=l2,  desc=∅)         → {l1, l2}
-//	├─ firstname/lastname              inherits owner                  → {l1, l2}
-//	addresses[0]      (chain={l1},          self=l3,  desc={l4})       → {l1, l3, l4}
-//	├─ city/postcode                   inherits addr[0]                → {l1, l3, l4}
-//	└─ numbers[0]=125               chain={l1, l3},  self=l4           → {l1, l3, l4}
-//	tags[0]="electric"              chain={l1},      self=l5           → {l1, l5}
-//	cars[0] Tesla     (chain={l1},          self=l6,  desc={l7..l13})  → {l1, l6..l13}
-//	├─ make="Tesla"                    inherits car[0]                  → {l1, l6..l13}
-//	├─ tires[0]       (chain={l1, l6},     self=l7,  desc={l8..l10})  → {l1, l6, l7..l10}
-//	│  ├─ width=245                    inherits tire[0]                 → {l1, l6, l7..l10}
-//	│  ├─ radiuses[0]=18           chain={l1, l6, l7}, self=l8         → {l1, l6, l7, l8}
-//	│  ├─ radiuses[1]=19           chain={l1, l6, l7}, self=l9         → {l1, l6, l7, l9}
-//	│  └─ radiuses[2]=20           chain={l1, l6, l7}, self=l10        → {l1, l6, l7, l10}
-//	├─ accessories[0] charger (chain={l1, l6}, self=l11, desc=∅)        → {l1, l6, l11}
-//	│  └─ type="charger"               inherits acc[0]                  → {l1, l6, l11}
-//	├─ accessories[1] mats    (chain={l1, l6}, self=l12, desc=∅)        → {l1, l6, l12}
-//	│  └─ type="mats"                  inherits acc[1]                  → {l1, l6, l12}
-//	└─ colors[0]="yellow"          chain={l1, l6},  self=l13           → {l1, l6, l13}
-//	name="subdoc_125"                  inherits root                    → {l1..l13}
+//	root              (chain=∅,             self=e1,  desc={e2..e13}) → {e1..e13}
+//	owner             (chain={e1},          self=e2,  desc=∅)         → {e1, e2}
+//	├─ firstname/lastname              inherits owner                  → {e1, e2}
+//	addresses[0]      (chain={e1},          self=e3,  desc={e4})       → {e1, e3, e4}
+//	├─ city/postcode                   inherits addr[0]                → {e1, e3, e4}
+//	└─ numbers[0]=125               chain={e1, e3},  self=e4           → {e1, e3, e4}
+//	tags[0]="electric"              chain={e1},      self=e5           → {e1, e5}
+//	cars[0] Tesla     (chain={e1},          self=e6,  desc={e7..e13})  → {e1, e6..e13}
+//	├─ make="Tesla"                    inherits car[0]                  → {e1, e6..e13}
+//	├─ tires[0]       (chain={e1, e6},     self=e7,  desc={e8..e10})  → {e1, e6, e7..e10}
+//	│  ├─ width=245                    inherits tire[0]                 → {e1, e6, e7..e10}
+//	│  ├─ radiuses[0]=18           chain={e1, e6, e7}, self=e8         → {e1, e6, e7, e8}
+//	│  ├─ radiuses[1]=19           chain={e1, e6, e7}, self=e9         → {e1, e6, e7, e9}
+//	│  └─ radiuses[2]=20           chain={e1, e6, e7}, self=e10        → {e1, e6, e7, e10}
+//	├─ accessories[0] charger (chain={e1, e6}, self=e11, desc=∅)        → {e1, e6, e11}
+//	│  └─ type="charger"               inherits acc[0]                  → {e1, e6, e11}
+//	├─ accessories[1] mats    (chain={e1, e6}, self=e12, desc=∅)        → {e1, e6, e12}
+//	│  └─ type="mats"                  inherits acc[1]                  → {e1, e6, e12}
+//	└─ colors[0]="yellow"          chain={e1, e6},  self=e13           → {e1, e6, e13}
+//	name="subdoc_125"                  inherits root                    → {e1..e13}
 func TestAssignPositions_Doc125Full(t *testing.T) {
 	schemas := map[string][]*models.NestedProperty{
 		"full_schema":    fullNestedSchema(),
@@ -1192,135 +1209,95 @@ func assertDoc125(t *testing.T, schema []*models.NestedProperty) {
 
 	// Values: 15 entries
 	require.Len(t, result.Values, 15)
-	assertValue(t, result, "owner.firstname", "Anna", positions(1, 1, 2))
-	assertValue(t, result, "owner.lastname", "Wanna", positions(1, 1, 2))
-	assertValue(t, result, "addresses.numbers", float64(125), positions(1, 1, 3, 4))
-	assertValue(t, result, "addresses.city", "Paris", positions(1, 1, 3, 4))
-	assertValue(t, result, "addresses.postcode", "75001", positions(1, 1, 3, 4))
-	assertValue(t, result, "tags", "electric", positions(1, 1, 5))
-	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 1, 6, 7, 8))
-	assertValue(t, result, "cars.tires.radiuses", float64(19), positions(1, 1, 6, 7, 9))
-	assertValue(t, result, "cars.tires.radiuses", float64(20), positions(1, 1, 6, 7, 10))
-	assertValue(t, result, "cars.tires.width", float64(245), positions(1, 1, 6, 7, 8, 9, 10))
-	assertValue(t, result, "cars.accessories.type", "charger", positions(1, 1, 6, 11))
-	assertValue(t, result, "cars.accessories.type", "mats", positions(1, 1, 6, 12))
-	assertValue(t, result, "cars.colors", "yellow", positions(1, 1, 6, 13))
-	assertValue(t, result, "cars.make", "Tesla", positions(1, 1, 6, 7, 8, 9, 10, 11, 12, 13))
-	assertValue(t, result, "name", "subdoc_125", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertValue(t, result, "owner.firstname", "Anna", positions(1, 2))
+	assertValue(t, result, "owner.lastname", "Wanna", positions(1, 2))
+	assertValue(t, result, "addresses.numbers", float64(125), positions(1, 3, 4))
+	assertValue(t, result, "addresses.city", "Paris", positions(1, 3, 4))
+	assertValue(t, result, "addresses.postcode", "75001", positions(1, 3, 4))
+	assertValue(t, result, "tags", "electric", positions(1, 5))
+	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 6, 7, 8))
+	assertValue(t, result, "cars.tires.radiuses", float64(19), positions(1, 6, 7, 9))
+	assertValue(t, result, "cars.tires.radiuses", float64(20), positions(1, 6, 7, 10))
+	assertValue(t, result, "cars.tires.width", float64(245), positions(1, 6, 7, 8, 9, 10))
+	assertValue(t, result, "cars.accessories.type", "charger", positions(1, 6, 11))
+	assertValue(t, result, "cars.accessories.type", "mats", positions(1, 6, 12))
+	assertValue(t, result, "cars.colors", "yellow", positions(1, 6, 13))
+	assertValue(t, result, "cars.make", "Tesla", positions(1, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertValue(t, result, "name", "subdoc_125", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
 
 	// Idx: 13 entries (12 sub-array + 1 root; no owner.nicknames — Anna has no nicknames)
 	require.Len(t, result.Idx, 13)
-	assertIdx(t, result, "owner", 0, positions(1, 1, 2))
-	assertIdx(t, result, "addresses", 0, positions(1, 1, 3, 4))
-	assertIdx(t, result, "addresses.numbers", 0, positions(1, 1, 3, 4))
-	assertIdx(t, result, "tags", 0, positions(1, 1, 5))
-	assertIdx(t, result, "cars", 0, positions(1, 1, 6, 7, 8, 9, 10, 11, 12, 13))
-	assertIdx(t, result, "cars.tires", 0, positions(1, 1, 6, 7, 8, 9, 10))
-	assertIdx(t, result, "cars.tires.radiuses", 0, positions(1, 1, 6, 7, 8))
-	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 1, 6, 7, 9))
-	assertIdx(t, result, "cars.tires.radiuses", 2, positions(1, 1, 6, 7, 10))
-	assertIdx(t, result, "cars.accessories", 0, positions(1, 1, 6, 11))
-	assertIdx(t, result, "cars.accessories", 1, positions(1, 1, 6, 12))
-	assertIdx(t, result, "cars.colors", 0, positions(1, 1, 6, 13))
+	assertIdx(t, result, "owner", 0, positions(1, 2))
+	assertIdx(t, result, "addresses", 0, positions(1, 3, 4))
+	assertIdx(t, result, "addresses.numbers", 0, positions(1, 3, 4))
+	assertIdx(t, result, "tags", 0, positions(1, 5))
+	assertIdx(t, result, "cars", 0, positions(1, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertIdx(t, result, "cars.tires", 0, positions(1, 6, 7, 8, 9, 10))
+	assertIdx(t, result, "cars.tires.radiuses", 0, positions(1, 6, 7, 8))
+	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 6, 7, 9))
+	assertIdx(t, result, "cars.tires.radiuses", 2, positions(1, 6, 7, 10))
+	assertIdx(t, result, "cars.accessories", 0, positions(1, 6, 11))
+	assertIdx(t, result, "cars.accessories", 1, positions(1, 6, 12))
+	assertIdx(t, result, "cars.colors", 0, positions(1, 6, 13))
 	// root-level _idx — chain ∅, subtree = all leaves.
-	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertIdx(t, result, "", 0, positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
 
 	// Exists: 19 raw entries, 17 unique paths (no owner.nicknames).
-	// accessories.type emits twice (one Phase 3 per acc element) — chain bits l1, l6 each appear twice.
+	// accessories.type emits twice (one Phase 3 per acc element) — chain bits e1, e6 each appear twice.
 	require.Len(t, result.Exists, 19)
-	assertExists(t, result, "", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
-	assertExists(t, result, "name", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
-	assertExists(t, result, "owner", positions(1, 1, 2))
-	assertExists(t, result, "owner.firstname", positions(1, 1, 2))
-	assertExists(t, result, "owner.lastname", positions(1, 1, 2))
-	assertExists(t, result, "addresses", positions(1, 1, 3, 4))
-	assertExists(t, result, "addresses.city", positions(1, 1, 3, 4))
-	assertExists(t, result, "addresses.postcode", positions(1, 1, 3, 4))
-	assertExists(t, result, "addresses.numbers", positions(1, 1, 3, 4))
-	assertExists(t, result, "tags", positions(1, 1, 5))
-	assertExists(t, result, "cars", positions(1, 1, 6, 7, 8, 9, 10, 11, 12, 13))
-	assertExists(t, result, "cars.make", positions(1, 1, 6, 7, 8, 9, 10, 11, 12, 13))
-	assertExists(t, result, "cars.tires", positions(1, 1, 6, 7, 8, 9, 10))
-	assertExists(t, result, "cars.tires.width", positions(1, 1, 6, 7, 8, 9, 10))
-	assertExists(t, result, "cars.tires.radiuses", positions(1, 1, 6, 7, 8, 9, 10))
-	assertExists(t, result, "cars.accessories", positions(1, 1, 6, 11, 12))
-	assertExists(t, result, "cars.accessories.type", positions(1, 1, 1, 6, 6, 11, 12))
-	assertExists(t, result, "cars.colors", positions(1, 1, 6, 13))
+	assertExists(t, result, "", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertExists(t, result, "name", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertExists(t, result, "owner", positions(1, 2))
+	assertExists(t, result, "owner.firstname", positions(1, 2))
+	assertExists(t, result, "owner.lastname", positions(1, 2))
+	assertExists(t, result, "addresses", positions(1, 3, 4))
+	assertExists(t, result, "addresses.city", positions(1, 3, 4))
+	assertExists(t, result, "addresses.postcode", positions(1, 3, 4))
+	assertExists(t, result, "addresses.numbers", positions(1, 3, 4))
+	assertExists(t, result, "tags", positions(1, 5))
+	assertExists(t, result, "cars", positions(1, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertExists(t, result, "cars.make", positions(1, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertExists(t, result, "cars.tires", positions(1, 6, 7, 8, 9, 10))
+	assertExists(t, result, "cars.tires.width", positions(1, 6, 7, 8, 9, 10))
+	assertExists(t, result, "cars.tires.radiuses", positions(1, 6, 7, 8, 9, 10))
+	assertExists(t, result, "cars.accessories", positions(1, 6, 11, 12))
+	assertExists(t, result, "cars.accessories.type", positions(1, 1, 6, 6, 11, 12))
+	assertExists(t, result, "cars.colors", positions(1, 6, 13))
 
 	// Anchors: 13 entries (10 distinct paths; no owner.nicknames anchor)
 	require.Len(t, result.Anchors, 13)
-	assertAnchor(t, result, "", positions(1, 1))
-	assertAnchor(t, result, "owner", positions(1, 2))
-	assertAnchor(t, result, "addresses", positions(1, 3))
-	assertAnchor(t, result, "addresses.numbers", positions(1, 4))
-	assertAnchor(t, result, "tags", positions(1, 5))
-	assertAnchor(t, result, "cars", positions(1, 6))
-	assertAnchor(t, result, "cars.tires", positions(1, 7))
-	assertAnchor(t, result, "cars.tires.radiuses", positions(1, 8, 9, 10))
-	assertAnchor(t, result, "cars.accessories", positions(1, 11, 12))
-	assertAnchor(t, result, "cars.colors", positions(1, 13))
+	assertAnchor(t, result, "", positions(1))
+	assertAnchor(t, result, "owner", positions(2))
+	assertAnchor(t, result, "addresses", positions(3))
+	assertAnchor(t, result, "addresses.numbers", positions(4))
+	assertAnchor(t, result, "tags", positions(5))
+	assertAnchor(t, result, "cars", positions(6))
+	assertAnchor(t, result, "cars.tires", positions(7))
+	assertAnchor(t, result, "cars.tires.radiuses", positions(8, 9, 10))
+	assertAnchor(t, result, "cars.accessories", positions(11, 12))
+	assertAnchor(t, result, "cars.colors", positions(13))
 }
 
 // TestAssignPositions_Doc999ObjectArray tests the object[] case at the top
-// level: two root elements (Justin=r1 with 17 leaves, Anna=r2 with 13).
-// Each root has its own root_idx and an independent leaf-index space
-// starting at l1, and each root's walkObject is called with chain=nil —
-// so chains are per-root and never cross. Roots interact only via
-// aggregation at shared paths.
+// level: two root elements (Justin=elem[0] with 17 positions, Anna=elem[1]
+// with 13). A single walker persists across both elements, so Anna's
+// elemIdx counter continues from where Justin's left off (e18..e30) rather
+// than resetting to e1. Roots interact only via aggregation at shared paths.
 //
-// Root 1 (Justin) — r1, 17 leaves (mirrors Doc124):
+// elem[0] (Justin) — e1..e17 (mirrors Doc124):
 //
-//	root            (chain=∅,                 self=r1|l1,  desc={r1|l2..l17}) → {r1|l1..l17}
-//	owner           (chain={r1|l1},           self=r1|l2,  desc={r1|l3})       → {r1|l1, r1|l2, r1|l3}
-//	├─ firstname/lastname             inherits owner                            → {r1|l1, r1|l2, r1|l3}
-//	└─ nicknames[0]="watch"        chain={r1|l1, r1|l2}, self=r1|l3            → {r1|l1, r1|l2, r1|l3}
-//	addresses[0]    (chain={r1|l1},           self=r1|l4,  desc={r1|l5})        → {r1|l1, r1|l4, r1|l5}
-//	├─ city/postcode (Madrid/28001) inherits addr[0]                            → {r1|l1, r1|l4, r1|l5}
-//	└─ numbers[0]=124              chain={r1|l1, r1|l4}, self=r1|l5            → {r1|l1, r1|l4, r1|l5}
-//	addresses[1]    (chain={r1|l1},           self=r1|l6,  desc=∅)             → {r1|l1, r1|l6}
-//	├─ city/postcode (London/SW1)    inherits addr[1]                            → {r1|l1, r1|l6}
-//	tags[0..2]                      chain={r1|l1},         self=r1|l7/l8/l9     → {r1|l1, r1|l7|l8|l9}
-//	cars[0] Audi    (chain={r1|l1},           self=r1|l10, desc={r1|l11..l14})  → {r1|l1, r1|l10..l14}
-//	├─ make="Audi"                  inherits car[0]                              → {r1|l1, r1|l10..l14}
-//	├─ tires[0]     (chain={r1|l1, r1|l10},   self=r1|l11, desc={r1|l12, r1|l13}) → {r1|l1, r1|l10..l13}
-//	│  ├─ width=205                 inherits tire[0]                             → {r1|l1, r1|l10..l13}
-//	│  ├─ radiuses[0]=17            chain={r1|l1, r1|l10, r1|l11}, self=r1|l12   → {r1|l1, r1|l10, r1|l11, r1|l12}
-//	│  └─ radiuses[1]=18            chain={r1|l1, r1|l10, r1|l11}, self=r1|l13   → {r1|l1, r1|l10, r1|l11, r1|l13}
-//	└─ tires[1]     (chain={r1|l1, r1|l10},   self=r1|l14, desc=∅)             → {r1|l1, r1|l10, r1|l14}
-//	    └─ width=225                inherits tire[1]                             → {r1|l1, r1|l10, r1|l14}
-//	cars[1] Kia     (chain={r1|l1},           self=r1|l15, desc={r1|l16, r1|l17}) → {r1|l1, r1|l15, r1|l16, r1|l17}
-//	├─ make="Kia"                   inherits car[1]                              → {r1|l1, r1|l15, r1|l16, r1|l17}
-//	├─ tires[0]     (chain={r1|l1, r1|l15},   self=r1|l16, desc=∅, radiuses=[]) → {r1|l1, r1|l15, r1|l16}
-//	│  └─ width=195                 inherits tire                                → {r1|l1, r1|l15, r1|l16}
-//	└─ colors[0]="white"           chain={r1|l1, r1|l15}, self=r1|l17           → {r1|l1, r1|l15, r1|l17}
-//	name="subdoc_124"               inherits root                                → {r1|l1..l17}
+//	root (chain=∅, self=e1, desc={e2..e17}) → {e1..e17}
+//	owner (chain={e1}, self=e2, desc={e3}) → {e1, e2, e3}
+//	…same structure as Doc124 with e1..e17…
 //
-// Root 2 (Anna) — r2, 13 leaves (mirrors Doc125):
+// elem[1] (Anna) — e18..e30 (mirrors Doc125, but counter continues):
 //
-//	root              (chain=∅,             self=r2|l1,  desc={r2|l2..l13})    → {r2|l1..l13}
-//	owner             (chain={r2|l1},       self=r2|l2,  desc=∅)               → {r2|l1, r2|l2}
-//	├─ firstname/lastname              inherits owner                            → {r2|l1, r2|l2}
-//	addresses[0]      (chain={r2|l1},       self=r2|l3,  desc={r2|l4})          → {r2|l1, r2|l3, r2|l4}
-//	├─ city/postcode                   inherits addr[0]                          → {r2|l1, r2|l3, r2|l4}
-//	└─ numbers[0]=125               chain={r2|l1, r2|l3}, self=r2|l4            → {r2|l1, r2|l3, r2|l4}
-//	tags[0]="electric"              chain={r2|l1},        self=r2|l5            → {r2|l1, r2|l5}
-//	cars[0] Tesla     (chain={r2|l1},       self=r2|l6,  desc={r2|l7..l13})    → {r2|l1, r2|l6..l13}
-//	├─ make="Tesla"                    inherits car[0]                           → {r2|l1, r2|l6..l13}
-//	├─ tires[0]       (chain={r2|l1, r2|l6}, self=r2|l7,  desc={r2|l8..l10})   → {r2|l1, r2|l6, r2|l7..l10}
-//	│  ├─ width=245                    inherits tire[0]                          → {r2|l1, r2|l6, r2|l7..l10}
-//	│  ├─ radiuses[0]=18           chain={r2|l1, r2|l6, r2|l7}, self=r2|l8     → {r2|l1, r2|l6, r2|l7, r2|l8}
-//	│  ├─ radiuses[1]=19           chain={r2|l1, r2|l6, r2|l7}, self=r2|l9     → {r2|l1, r2|l6, r2|l7, r2|l9}
-//	│  └─ radiuses[2]=20           chain={r2|l1, r2|l6, r2|l7}, self=r2|l10    → {r2|l1, r2|l6, r2|l7, r2|l10}
-//	├─ accessories[0] charger (chain={r2|l1, r2|l6}, self=r2|l11, desc=∅)       → {r2|l1, r2|l6, r2|l11}
-//	│  └─ type="charger"               inherits acc[0]                           → {r2|l1, r2|l6, r2|l11}
-//	├─ accessories[1] mats    (chain={r2|l1, r2|l6}, self=r2|l12, desc=∅)       → {r2|l1, r2|l6, r2|l12}
-//	│  └─ type="mats"                  inherits acc[1]                           → {r2|l1, r2|l6, r2|l12}
-//	└─ colors[0]="yellow"          chain={r2|l1, r2|l6}, self=r2|l13            → {r2|l1, r2|l6, r2|l13}
-//	name="subdoc_125"                  inherits root                             → {r2|l1..l13}
-//
-// In aggregated assertions (assertIdx / assertExists), entries from r1 and
-// r2 land in the same result slice and are matched as a multiset. Chain
-// bits within a root repeat once per emission at that path.
+//	root (chain=∅, self=e18, desc={e19..e30}) → {e18..e30}
+//	owner (chain={e18}, self=e19, desc=∅) → {e18, e19}
+//	addresses[0] (chain={e18}, self=e20, desc={e21}) → {e18, e20, e21}
+//	tags[0]="electric" chain={e18}, self=e22 → {e18, e22}
+//	cars[0] Tesla (chain={e18}, self=e23, desc={e24..e30}) → {e18, e23..e30}
+//	…tires[0] self=e24, radiuses e25/e26/e27, accessories e28/e29, colors e30…
 func TestAssignPositions_Doc999ObjectArray(t *testing.T) {
 	// doc999 is object[] containing doc124+doc125 data, so the full schema
 	// is the union of both. The minimal schema for doc999 is also the full
@@ -1341,7 +1318,7 @@ func assertDoc999(t *testing.T, schema []*models.NestedProperty) {
 	prop := topLevelObjectArray("nestedArray", schema...)
 
 	value := []any{
-		// Root 1: Justin (same data as doc124)
+		// elem[0]: Justin (same data as doc124)
 		map[string]any{
 			"name": "subdoc_124",
 			"owner": map[string]any{
@@ -1376,7 +1353,7 @@ func assertDoc999(t *testing.T, schema []*models.NestedProperty) {
 				},
 			},
 		},
-		// Root 2: Anna (same data as doc125)
+		// elem[1]: Anna (same data as doc125; elemIdx continues from e18)
 		map[string]any{
 			"name": "subdoc_125",
 			"owner": map[string]any{
@@ -1409,149 +1386,265 @@ func assertDoc999(t *testing.T, schema []*models.NestedProperty) {
 	result, err := AssignPositions(prop, value)
 	require.NoError(t, err)
 
-	// Values: 35 (20 from r1/Justin + 15 from r2/Anna).
+	// Values: 35 (20 from elem[0]/Justin + 15 from elem[1]/Anna).
 	// assertValue matches a single Value entry by (Path, Value, Positions);
 	// no aggregation. Per-entry positions = chain + self + descendants of
 	// the owning element.
 	require.Len(t, result.Values, 35)
-	// r1 (Justin) — mirrors Doc124 with r=1
-	assertValue(t, result, "owner.nicknames", "watch", positions(1, 1, 2, 3))
-	assertValue(t, result, "owner.firstname", "Justin", positions(1, 1, 2, 3))
-	assertValue(t, result, "owner.lastname", "Time", positions(1, 1, 2, 3))
-	assertValue(t, result, "addresses.numbers", float64(124), positions(1, 1, 4, 5))
-	assertValue(t, result, "addresses.city", "Madrid", positions(1, 1, 4, 5))
-	assertValue(t, result, "addresses.postcode", "28001", positions(1, 1, 4, 5))
-	assertValue(t, result, "addresses.city", "London", positions(1, 1, 6))
-	assertValue(t, result, "addresses.postcode", "SW1", positions(1, 1, 6))
-	assertValue(t, result, "tags", "german", positions(1, 1, 7))
-	assertValue(t, result, "tags", "japanese", positions(1, 1, 8))
-	assertValue(t, result, "tags", "sedan", positions(1, 1, 9))
-	assertValue(t, result, "cars.tires.radiuses", float64(17), positions(1, 1, 10, 11, 12))
-	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 1, 10, 11, 13))
-	assertValue(t, result, "cars.tires.width", float64(205), positions(1, 1, 10, 11, 12, 13))
-	assertValue(t, result, "cars.tires.width", float64(225), positions(1, 1, 10, 14))
-	assertValue(t, result, "cars.tires.width", float64(195), positions(1, 1, 15, 16))
-	assertValue(t, result, "cars.make", "Audi", positions(1, 1, 10, 11, 12, 13, 14))
-	assertValue(t, result, "cars.make", "Kia", positions(1, 1, 15, 16, 17))
-	assertValue(t, result, "cars.colors", "white", positions(1, 1, 15, 17))
-	assertValue(t, result, "name", "subdoc_124", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
-	// r2 (Anna) — mirrors Doc125 with r=2
-	assertValue(t, result, "owner.firstname", "Anna", positions(2, 1, 2))
-	assertValue(t, result, "owner.lastname", "Wanna", positions(2, 1, 2))
-	assertValue(t, result, "addresses.numbers", float64(125), positions(2, 1, 3, 4))
-	assertValue(t, result, "addresses.city", "Paris", positions(2, 1, 3, 4))
-	assertValue(t, result, "addresses.postcode", "75001", positions(2, 1, 3, 4))
-	assertValue(t, result, "tags", "electric", positions(2, 1, 5))
-	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(2, 1, 6, 7, 8))
-	assertValue(t, result, "cars.tires.radiuses", float64(19), positions(2, 1, 6, 7, 9))
-	assertValue(t, result, "cars.tires.radiuses", float64(20), positions(2, 1, 6, 7, 10))
-	assertValue(t, result, "cars.tires.width", float64(245), positions(2, 1, 6, 7, 8, 9, 10))
-	assertValue(t, result, "cars.accessories.type", "charger", positions(2, 1, 6, 11))
-	assertValue(t, result, "cars.accessories.type", "mats", positions(2, 1, 6, 12))
-	assertValue(t, result, "cars.colors", "yellow", positions(2, 1, 6, 13))
-	assertValue(t, result, "cars.make", "Tesla", positions(2, 1, 6, 7, 8, 9, 10, 11, 12, 13))
-	assertValue(t, result, "name", "subdoc_125", positions(2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
+	// elem[0] (Justin) — mirrors Doc124 (e1..e17)
+	assertValue(t, result, "owner.nicknames", "watch", positions(1, 2, 3))
+	assertValue(t, result, "owner.firstname", "Justin", positions(1, 2, 3))
+	assertValue(t, result, "owner.lastname", "Time", positions(1, 2, 3))
+	assertValue(t, result, "addresses.numbers", float64(124), positions(1, 4, 5))
+	assertValue(t, result, "addresses.city", "Madrid", positions(1, 4, 5))
+	assertValue(t, result, "addresses.postcode", "28001", positions(1, 4, 5))
+	assertValue(t, result, "addresses.city", "London", positions(1, 6))
+	assertValue(t, result, "addresses.postcode", "SW1", positions(1, 6))
+	assertValue(t, result, "tags", "german", positions(1, 7))
+	assertValue(t, result, "tags", "japanese", positions(1, 8))
+	assertValue(t, result, "tags", "sedan", positions(1, 9))
+	assertValue(t, result, "cars.tires.radiuses", float64(17), positions(1, 10, 11, 12))
+	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(1, 10, 11, 13))
+	assertValue(t, result, "cars.tires.width", float64(205), positions(1, 10, 11, 12, 13))
+	assertValue(t, result, "cars.tires.width", float64(225), positions(1, 10, 14))
+	assertValue(t, result, "cars.tires.width", float64(195), positions(1, 15, 16))
+	assertValue(t, result, "cars.make", "Audi", positions(1, 10, 11, 12, 13, 14))
+	assertValue(t, result, "cars.make", "Kia", positions(1, 15, 16, 17))
+	assertValue(t, result, "cars.colors", "white", positions(1, 15, 17))
+	assertValue(t, result, "name", "subdoc_124", positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
+	// elem[1] (Anna) — mirrors Doc125 but elemIdx continues from e18
+	assertValue(t, result, "owner.firstname", "Anna", positions(18, 19))
+	assertValue(t, result, "owner.lastname", "Wanna", positions(18, 19))
+	assertValue(t, result, "addresses.numbers", float64(125), positions(18, 20, 21))
+	assertValue(t, result, "addresses.city", "Paris", positions(18, 20, 21))
+	assertValue(t, result, "addresses.postcode", "75001", positions(18, 20, 21))
+	assertValue(t, result, "tags", "electric", positions(18, 22))
+	assertValue(t, result, "cars.tires.radiuses", float64(18), positions(18, 23, 24, 25))
+	assertValue(t, result, "cars.tires.radiuses", float64(19), positions(18, 23, 24, 26))
+	assertValue(t, result, "cars.tires.radiuses", float64(20), positions(18, 23, 24, 27))
+	assertValue(t, result, "cars.tires.width", float64(245), positions(18, 23, 24, 25, 26, 27))
+	assertValue(t, result, "cars.accessories.type", "charger", positions(18, 23, 28))
+	assertValue(t, result, "cars.accessories.type", "mats", positions(18, 23, 29))
+	assertValue(t, result, "cars.colors", "yellow", positions(18, 23, 30))
+	assertValue(t, result, "cars.make", "Tesla", positions(18, 23, 24, 25, 26, 27, 28, 29, 30))
+	assertValue(t, result, "name", "subdoc_125", positions(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30))
 
-	// Idx: 30 (17 from r1/Justin + 13 from r2/Anna). Per-(path,index)
-	// entries from r1 and r2 aggregate; chain bits within a root repeat
-	// once per emission (e.g. cars.tires[0] has Audi t0 + Kia t0 + Tesla t0).
+	// Idx: 30 (17 from elem[0]/Justin + 13 from elem[1]/Anna). Per-(path,index)
+	// entries from elem[0] and elem[1] aggregate; chain bits within an element
+	// repeat once per emission.
 	require.Len(t, result.Idx, 30)
-	assertIdx(t, result, "owner", 0, append(positions(1, 1, 2, 3), positions(2, 1, 2)...))
-	assertIdx(t, result, "owner.nicknames", 0, positions(1, 1, 2, 3))
-	assertIdx(t, result, "addresses", 0, append(positions(1, 1, 4, 5), positions(2, 1, 3, 4)...))
-	assertIdx(t, result, "addresses", 1, positions(1, 1, 6))
-	assertIdx(t, result, "addresses.numbers", 0, append(positions(1, 1, 4, 5), positions(2, 1, 3, 4)...))
-	assertIdx(t, result, "tags", 0, append(positions(1, 1, 7), positions(2, 1, 5)...))
-	assertIdx(t, result, "tags", 1, positions(1, 1, 8))
-	assertIdx(t, result, "tags", 2, positions(1, 1, 9))
-	assertIdx(t, result, "cars", 0, append(positions(1, 1, 10, 11, 12, 13, 14), positions(2, 1, 6, 7, 8, 9, 10, 11, 12, 13)...))
-	assertIdx(t, result, "cars", 1, positions(1, 1, 15, 16, 17))
-	// cars.tires[0]: r1 Audi (chain {l1,l10}) + r1 Kia (chain {l1,l15}) + r2 Tesla (chain {l1,l6}).
+	assertIdx(t, result, "owner", 0, append(positions(1, 2, 3), positions(18, 19)...))
+	assertIdx(t, result, "owner.nicknames", 0, positions(1, 2, 3))
+	assertIdx(t, result, "addresses", 0, append(positions(1, 4, 5), positions(18, 20, 21)...))
+	assertIdx(t, result, "addresses", 1, positions(1, 6))
+	assertIdx(t, result, "addresses.numbers", 0, append(positions(1, 4, 5), positions(18, 20, 21)...))
+	assertIdx(t, result, "tags", 0, append(positions(1, 7), positions(18, 22)...))
+	assertIdx(t, result, "tags", 1, positions(1, 8))
+	assertIdx(t, result, "tags", 2, positions(1, 9))
+	assertIdx(t, result, "cars", 0, append(positions(1, 10, 11, 12, 13, 14), positions(18, 23, 24, 25, 26, 27, 28, 29, 30)...))
+	assertIdx(t, result, "cars", 1, positions(1, 15, 16, 17))
+	// cars.tires[0]: elem[0] Audi (chain {e1,e10}) + elem[0] Kia (chain {e1,e15}) + elem[1] Tesla (chain {e18,e23}).
 	assertIdx(t, result, "cars.tires", 0,
-		append(append(positions(1, 1, 10, 11, 12, 13), positions(1, 1, 15, 16)...),
-			positions(2, 1, 6, 7, 8, 9, 10)...))
-	assertIdx(t, result, "cars.tires", 1, positions(1, 1, 10, 14))
-	assertIdx(t, result, "cars.tires.radiuses", 0, append(positions(1, 1, 10, 11, 12), positions(2, 1, 6, 7, 8)...))
-	assertIdx(t, result, "cars.tires.radiuses", 1, append(positions(1, 1, 10, 11, 13), positions(2, 1, 6, 7, 9)...))
-	assertIdx(t, result, "cars.tires.radiuses", 2, positions(2, 1, 6, 7, 10))
-	assertIdx(t, result, "cars.accessories", 0, positions(2, 1, 6, 11))
-	assertIdx(t, result, "cars.accessories", 1, positions(2, 1, 6, 12))
-	assertIdx(t, result, "cars.colors", 0, append(positions(1, 1, 15, 17), positions(2, 1, 6, 13)...))
+		append(append(positions(1, 10, 11, 12, 13), positions(1, 15, 16)...),
+			positions(18, 23, 24, 25, 26, 27)...))
+	assertIdx(t, result, "cars.tires", 1, positions(1, 10, 14))
+	assertIdx(t, result, "cars.tires.radiuses", 0, append(positions(1, 10, 11, 12), positions(18, 23, 24, 25)...))
+	assertIdx(t, result, "cars.tires.radiuses", 1, append(positions(1, 10, 11, 13), positions(18, 23, 24, 26)...))
+	assertIdx(t, result, "cars.tires.radiuses", 2, positions(18, 23, 24, 27))
+	assertIdx(t, result, "cars.accessories", 0, positions(18, 23, 28))
+	assertIdx(t, result, "cars.accessories", 1, positions(18, 23, 29))
+	assertIdx(t, result, "cars.colors", 0, append(positions(1, 15, 17), positions(18, 23, 30)...))
 	// root-level _idx entries for arr[N] positional filtering; chain ∅ at root.
-	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
-	assertIdx(t, result, "", 1, positions(2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
+	assertIdx(t, result, "", 0, positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
+	assertIdx(t, result, "", 1, positions(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30))
 
-	// Exists: 41 raw entries (23 from r1 + 17 from r2 + 1 root-level).
+	// Exists: 41 raw entries (23 from elem[0] + 17 from elem[1] + 1 root-level).
 	// Each emission contributes its own chain bits to the aggregated slice,
-	// so paths emitted multiple times within a root see that root's chain
-	// repeated.
+	// so paths emitted multiple times within an element see that element's
+	// chain repeated.
 	require.Len(t, result.Exists, 41)
 	allPositions := append(
-		positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17),
-		positions(2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)...,
+		positions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17),
+		positions(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)...,
 	)
 	// "" emitted once at the AssignPositions root level (union of root subtreeSelves).
 	assertExists(t, result, "", allPositions)
 	// "name" emitted in Phase 3 of each root walkObject — two emissions, same union.
 	assertExists(t, result, "name", allPositions)
 	// owner / owner.firstname / owner.lastname: one emission per root.
-	assertExists(t, result, "owner", append(positions(1, 1, 2, 3), positions(2, 1, 2)...))
-	assertExists(t, result, "owner.firstname", append(positions(1, 1, 2, 3), positions(2, 1, 2)...))
-	assertExists(t, result, "owner.lastname", append(positions(1, 1, 2, 3), positions(2, 1, 2)...))
-	// nicknames: only r1 has them (1 emission).
-	assertExists(t, result, "owner.nicknames", positions(1, 1, 2, 3))
+	assertExists(t, result, "owner", append(positions(1, 2, 3), positions(18, 19)...))
+	assertExists(t, result, "owner.firstname", append(positions(1, 2, 3), positions(18, 19)...))
+	assertExists(t, result, "owner.lastname", append(positions(1, 2, 3), positions(18, 19)...))
+	// nicknames: only elem[0] has them (1 emission).
+	assertExists(t, result, "owner.nicknames", positions(1, 2, 3))
 	// addresses: one walkNestedArray emission per root.
-	assertExists(t, result, "addresses", append(positions(1, 1, 4, 5, 6), positions(2, 1, 3, 4)...))
-	// addresses.city / postcode: Phase 3 per addr — r1 has 2 addrs, r2 has 1.
-	// r1's chain bit l1 appears twice; r2's appears once.
+	assertExists(t, result, "addresses", append(positions(1, 4, 5, 6), positions(18, 20, 21)...))
+	// addresses.city / postcode: Phase 3 per addr — elem[0] has 2 addrs, elem[1] has 1.
+	// elem[0]'s chain bit e1 appears twice; elem[1]'s e18 appears once.
 	assertExists(t, result, "addresses.city",
-		append(positions(1, 1, 1, 4, 5, 6), positions(2, 1, 3, 4)...))
+		append(positions(1, 1, 4, 5, 6), positions(18, 20, 21)...))
 	assertExists(t, result, "addresses.postcode",
-		append(positions(1, 1, 1, 4, 5, 6), positions(2, 1, 3, 4)...))
-	// addresses.numbers: r1's addr[0] emits, r1's addr[1] doesn't (no numbers); r2's addr[0] emits.
+		append(positions(1, 1, 4, 5, 6), positions(18, 20, 21)...))
+	// addresses.numbers: elem[0]'s addr[0] emits; addr[1] doesn't (no numbers); elem[1]'s addr[0] emits.
 	assertExists(t, result, "addresses.numbers",
-		append(positions(1, 1, 4, 5), positions(2, 1, 3, 4)...))
+		append(positions(1, 4, 5), positions(18, 20, 21)...))
 	// tags: one walkScalarArray emission per root.
-	assertExists(t, result, "tags", append(positions(1, 1, 7, 8, 9), positions(2, 1, 5)...))
+	assertExists(t, result, "tags", append(positions(1, 7, 8, 9), positions(18, 22)...))
 	// cars: one walkNestedArray emission per root.
 	assertExists(t, result, "cars",
-		append(positions(1, 1, 10, 11, 12, 13, 14, 15, 16, 17), positions(2, 1, 6, 7, 8, 9, 10, 11, 12, 13)...))
-	// cars.make: Phase 3 per car — r1 has 2 cars (Audi+Kia), r2 has 1 (Tesla).
-	// r1's chain bit l1 appears twice; r2's once.
+		append(positions(1, 10, 11, 12, 13, 14, 15, 16, 17), positions(18, 23, 24, 25, 26, 27, 28, 29, 30)...))
+	// cars.make: Phase 3 per car — elem[0] has 2 cars (Audi+Kia), elem[1] has 1 (Tesla).
+	// elem[0]'s chain bit e1 appears twice; elem[1]'s once.
 	assertExists(t, result, "cars.make",
-		append(positions(1, 1, 1, 10, 11, 12, 13, 14, 15, 16, 17), positions(2, 1, 6, 7, 8, 9, 10, 11, 12, 13)...))
-	// cars.tires: walkNestedArray per car — r1 has 2 cars, r2 has 1.
-	// r1's chain bit l1 appears twice; r2's once.
+		append(positions(1, 1, 10, 11, 12, 13, 14, 15, 16, 17), positions(18, 23, 24, 25, 26, 27, 28, 29, 30)...))
+	// cars.tires: walkNestedArray per car — elem[0] has 2 cars, elem[1] has 1.
+	// elem[0]'s chain bit e1 appears twice; elem[1]'s once.
 	assertExists(t, result, "cars.tires",
-		append(positions(1, 1, 1, 10, 11, 12, 13, 14, 15, 16), positions(2, 1, 6, 7, 8, 9, 10)...))
-	// cars.tires.width: Phase 3 per tire — r1 has 3 tires (Audi t0, Audi t1, Kia t0), r2 has 1.
-	// r1's l1 ×3, l10 ×2 (Audi's two tires share it); r2's l1 ×1, l6 ×1.
+		append(positions(1, 1, 10, 11, 12, 13, 14, 15, 16), positions(18, 23, 24, 25, 26, 27)...))
+	// cars.tires.width: Phase 3 per tire — elem[0] has 3 tires (Audi t0, Audi t1, Kia t0), elem[1] has 1.
+	// elem[0]'s e1 ×3, e10 ×2 (Audi's two tires share it); elem[1]'s e18 ×1, e23 ×1.
 	assertExists(t, result, "cars.tires.width",
-		append(positions(1, 1, 1, 1, 10, 10, 11, 12, 13, 14, 15, 16), positions(2, 1, 6, 7, 8, 9, 10)...))
+		append(positions(1, 1, 1, 10, 10, 11, 12, 13, 14, 15, 16), positions(18, 23, 24, 25, 26, 27)...))
 	// cars.tires.radiuses: walkScalarArray emits only when array non-empty.
-	// r1: Audi t0 emits; Audi t1 (no radiuses) and Kia t0 (radiuses=[]) don't.
-	// r2: Tesla t0 emits.
+	// elem[0]: Audi t0 emits; Audi t1 (no radiuses) and Kia t0 (radiuses=[]) don't.
+	// elem[1]: Tesla t0 emits.
 	assertExists(t, result, "cars.tires.radiuses",
-		append(positions(1, 1, 10, 11, 12, 13), positions(2, 1, 6, 7, 8, 9, 10)...))
-	// cars.accessories: only r2 has accessories.
-	assertExists(t, result, "cars.accessories", positions(2, 1, 6, 11, 12))
-	// cars.accessories.type: Phase 3 per acc — only r2 has 2 acc elements.
-	// r2's chain bits l1, l6 each appear twice.
-	assertExists(t, result, "cars.accessories.type", positions(2, 1, 1, 6, 6, 11, 12))
-	// cars.colors: walkScalarArray per car with colors — r1 Kia, r2 Tesla.
-	assertExists(t, result, "cars.colors", append(positions(1, 1, 15, 17), positions(2, 1, 6, 13)...))
+		append(positions(1, 10, 11, 12, 13), positions(18, 23, 24, 25, 26, 27)...))
+	// cars.accessories: only elem[1] has accessories.
+	assertExists(t, result, "cars.accessories", positions(18, 23, 28, 29))
+	// cars.accessories.type: Phase 3 per acc — only elem[1] has 2 acc elements.
+	// elem[1]'s chain bits e18, e23 each appear twice.
+	assertExists(t, result, "cars.accessories.type", positions(18, 18, 23, 23, 28, 29))
+	// cars.colors: walkScalarArray per car with colors — elem[0] Kia, elem[1] Tesla.
+	assertExists(t, result, "cars.colors", append(positions(1, 15, 17), positions(18, 23, 30)...))
 
-	// Anchors: 30 entries (17 from r1 + 13 from r2)
+	// Anchors: 30 entries (17 from elem[0] + 13 from elem[1])
 	require.Len(t, result.Anchors, 30)
-	assertAnchor(t, result, "", append(positions(1, 1), positions(2, 1)...))
-	assertAnchor(t, result, "owner", append(positions(1, 2), positions(2, 2)...))
-	assertAnchor(t, result, "owner.nicknames", positions(1, 3))
-	assertAnchor(t, result, "addresses", append(positions(1, 4, 6), positions(2, 3)...))
-	assertAnchor(t, result, "addresses.numbers", append(positions(1, 5), positions(2, 4)...))
-	assertAnchor(t, result, "tags", append(positions(1, 7, 8, 9), positions(2, 5)...))
-	assertAnchor(t, result, "cars", append(positions(1, 10, 15), positions(2, 6)...))
-	assertAnchor(t, result, "cars.tires", append(positions(1, 11, 14, 16), positions(2, 7)...))
-	assertAnchor(t, result, "cars.tires.radiuses", append(positions(1, 12, 13), positions(2, 8, 9, 10)...))
-	assertAnchor(t, result, "cars.accessories", positions(2, 11, 12))
-	assertAnchor(t, result, "cars.colors", append(positions(1, 17), positions(2, 13)...))
+	assertAnchor(t, result, "", append(positions(1), positions(18)...))
+	assertAnchor(t, result, "owner", append(positions(2), positions(19)...))
+	assertAnchor(t, result, "owner.nicknames", positions(3))
+	assertAnchor(t, result, "addresses", append(positions(4, 6), positions(20)...))
+	assertAnchor(t, result, "addresses.numbers", append(positions(5), positions(21)...))
+	assertAnchor(t, result, "tags", append(positions(7, 8, 9), positions(22)...))
+	assertAnchor(t, result, "cars", append(positions(10, 15), positions(23)...))
+	assertAnchor(t, result, "cars.tires", append(positions(11, 14, 16), positions(24)...))
+	assertAnchor(t, result, "cars.tires.radiuses", append(positions(12, 13), positions(25, 26, 27)...))
+	assertAnchor(t, result, "cars.accessories", positions(28, 29))
+	assertAnchor(t, result, "cars.colors", append(positions(17), positions(30)...))
+}
+
+// TestAssignPositions_MultiRootElemIdxContinuous pins that the element
+// index counter advances globally across all top-level elements and never
+// resets per root. Two root elements share the same walker:
+//
+//	elem[0]: self=e1, tags[0]="x"→e2, tags[1]="y"→e3, name="a" inherits {e1,e2,e3}
+//	elem[1]: self=e4 (NOT e1), tags[0]="z"→e5, name="b" inherits {e4,e5}
+//
+// If the counter reset per root, elem[1]'s self would be e1 and tags[0]
+// would be e2, producing positions(1, 2) instead of positions(4, 5) for
+// name="b". That would also corrupt LiftToAncestor: elem[1]'s self at e4
+// must be strictly greater than Justin's subtree (e1..e3) for the
+// predecessor scan to find elem[1] rather than Justin's nodes.
+func TestAssignPositions_MultiRootElemIdxContinuous(t *testing.T) {
+	prop := topLevelObjectArray("objects",
+		textProp("name"),
+		textArrayProp("tags"),
+	)
+
+	value := []any{
+		map[string]any{"name": "a", "tags": []any{"x", "y"}},
+		map[string]any{"name": "b", "tags": []any{"z"}},
+	}
+
+	result, err := AssignPositions(prop, value)
+	require.NoError(t, err)
+
+	// elem[0]: name="a" inherits elementPositions={e1, e2, e3}
+	assertValue(t, result, "name", "a", positions(1, 2, 3))
+	assertValue(t, result, "tags", "x", positions(1, 2))
+	assertValue(t, result, "tags", "y", positions(1, 3))
+
+	// elem[1]: self marker must be e4 (counter continues, not reset).
+	// If counter reset, name="b" would carry positions(1, 2) = {e1, e2}.
+	assertValue(t, result, "name", "b", positions(4, 5))
+	assertValue(t, result, "tags", "z", positions(4, 5))
+
+	// Root-level _idx: each element's subtree selves.
+	assertIdx(t, result, "", 0, positions(1, 2, 3))
+	assertIdx(t, result, "", 1, positions(4, 5))
+
+	// Anchor markers span both roots without collision.
+	assertAnchor(t, result, "", positions(1, 4))
+	assertAnchor(t, result, "tags", positions(2, 3, 5))
+}
+
+// TestBuildLevelSchema_PreservesOrder verifies that buildLevelSchema splits
+// properties into the two sub-slices while preserving their original relative
+// order within each group. Correct ordering is load-bearing: the walker
+// iterates arrayOrNested in Phase 1 (claiming elemIdx) then scalars in
+// Phase 3, so any reordering would corrupt LiftToAncestor predecessor scans.
+//
+// Schema: text=a, text[]=b, object=c(text=x), int=d, int[]=e
+// Expected split:
+//
+//	arrayOrNested: [b, c, e]  — scalar-arrays and nested in original relative order
+//	scalars:       [a, d]     — plain scalars in original relative order
+func TestBuildLevelSchema_PreservesOrder(t *testing.T) {
+	nestedProps := []*models.NestedProperty{
+		textProp("a"),
+		textArrayProp("b"),
+		objectProp("c", textProp("x")),
+		intProp("d"),
+		intArrayProp("e"),
+	}
+	ls := buildLevelSchema("", nestedProps)
+
+	// arrayOrNested: b (scalarArray), c (nested), e (scalarArray) in original order
+	require.Len(t, ls.arrayOrNested, 3)
+
+	assert.Equal(t, "b", ls.arrayOrNested[0].name)
+	assert.Equal(t, propKindScalarArray, ls.arrayOrNested[0].kind)
+	assert.Equal(t, "b", ls.arrayOrNested[0].path)
+
+	assert.Equal(t, "c", ls.arrayOrNested[1].name)
+	assert.Equal(t, propKindNested, ls.arrayOrNested[1].kind)
+	assert.Equal(t, "c", ls.arrayOrNested[1].path)
+
+	assert.Equal(t, "e", ls.arrayOrNested[2].name)
+	assert.Equal(t, propKindScalarArray, ls.arrayOrNested[2].kind)
+	assert.Equal(t, "e", ls.arrayOrNested[2].path)
+
+	// scalars: a (scalar), d (scalar) in original order
+	require.Len(t, ls.scalars, 2)
+
+	assert.Equal(t, "a", ls.scalars[0].name)
+	assert.Equal(t, propKindScalar, ls.scalars[0].kind)
+	assert.Equal(t, "a", ls.scalars[0].path)
+
+	assert.Equal(t, "d", ls.scalars[1].name)
+	assert.Equal(t, propKindScalar, ls.scalars[1].kind)
+	assert.Equal(t, "d", ls.scalars[1].path)
+
+	// Children of "c" must be built recursively; "x" is a plain scalar.
+	require.Len(t, ls.arrayOrNested[1].children.scalars, 1)
+	assert.Empty(t, ls.arrayOrNested[1].children.arrayOrNested)
+	assert.Equal(t, "x", ls.arrayOrNested[1].children.scalars[0].name)
+	assert.Equal(t, "c.x", ls.arrayOrNested[1].children.scalars[0].path)
+
+	// maxDepth recurrence:
+	//   c.children has only scalars → maxDepth=0 (no arrayOrNested in loop).
+	//   Root loop:
+	//     b (scalarArray): conservative branch fires, depth→1.
+	//     c (nested): d = 0+1 = 1; not > depth(1), no update.
+	//     e (scalarArray): 1 > depth(1) is false, no update.
+	//   Root ls.maxDepth = 1.
+	assert.Equal(t, 0, ls.arrayOrNested[1].children.maxDepth, "c's children are all scalars — maxDepth must be 0")
+	assert.Equal(t, 1, ls.maxDepth, "scalar-array b and nested c both contribute depth 1 — root maxDepth must be 1")
+
+	// With a prefix, paths include the prefix via joinPath.
+	ls2 := buildLevelSchema("root", nestedProps)
+	assert.Equal(t, "root.b", ls2.arrayOrNested[0].path)
+	assert.Equal(t, "root.c", ls2.arrayOrNested[1].path)
+	assert.Equal(t, "root.c.x", ls2.arrayOrNested[1].children.scalars[0].path)
+	assert.Equal(t, "root.a", ls2.scalars[0].path)
 }

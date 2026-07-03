@@ -19,7 +19,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	nested2 "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested2"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/tokenizer"
@@ -47,65 +47,33 @@ type NilProperty struct {
 	AddToPropertyLength bool
 }
 
-// NestedValue is a single analyzed value from a nested property.
-// The Has*Index flags indicate which buckets this value should be written to.
+// NestedValue is one analyzed term from a nested value leaf in the v2
+// pipeline. Pos refers into the owning NestedProperty's posArena (via
+// NestedProperty.Positions); the arena must outlive the bucket-write that
+// expands it via nested.PositionsWithDocID.
 type NestedValue struct {
-	Path               string   // dot-notation path, e.g. "addresses.city"
-	Data               []byte   // analyzed value bytes
-	Positions          []uint64 // positions with docID=0
-	HasFilterableIndex bool
-	HasSearchableIndex bool
-	HasRangeableIndex  bool
-}
-
-// NestedProperty holds all analyzed values and metadata from position
-// assignment of a single nested property.
-type NestedProperty struct {
-	Name               string        // top-level property name (for bucket naming)
-	Values             []NestedValue // analyzed values for the value bucket
-	Idx                []NestedMeta  // _idx metadata entries
-	Exists             []NestedMeta  // _exists metadata entries
-	Anchors            []NestedMeta  // _anchor metadata entries (per-element self markers)
-	HasFilterableIndex bool          // any value needs the filterable bucket
-	HasSearchableIndex bool          // any value needs the searchable bucket
-	HasRangeableIndex  bool          // any value needs the rangeable bucket
-}
-
-// NestedMeta is an _idx, _exists, or _anchor metadata entry from position
-// assignment.
-type NestedMeta struct {
-	Path      string   // e.g. "addresses" for _idx, "owner.firstname" for _exists
-	Index     int      // 0-based element index (only used for _idx; -1 for _exists / _anchor)
-	Positions []uint64 // positions with docID=0
-}
-
-// NestedValue2 is one analyzed term from a nested value leaf in the v2
-// pipeline. Pos refers into the owning NestedProperty2's posArena (via
-// NestedProperty2.Positions); the arena must outlive the bucket-write that
-// expands it via nested2.PositionsWithDocID.
-type NestedValue2 struct {
 	Path               string
 	Data               []byte
-	Pos                nested2.PosRange
+	Pos                nested.PosRange
 	HasFilterableIndex bool
 	HasSearchableIndex bool
 	HasRangeableIndex  bool
 }
 
-// NestedProperty2 is the thin output of analyzeNestedProp2. It carries a
+// NestedProperty is the thin output of analyzeNestedProp. It carries a
 // reference to the full AssignResult (arena + raw Idx/Exists/Anchors) and the
 // tokenized+gated values slice. Idx/Exists/Anchor entries are NOT copied into
 // this struct: Idx is iterated via Idx() (ungated); Exists and Anchors are
 // iterated via gated methods. No []uint64 positions are held anywhere.
 //
 // Lifetime: result (and therefore posArena) must remain live until after both
-// nestedFilterableEntries2 and nestedMetaEntries2 complete. Once those calls
+// nestedFilterableEntries and nestedMetaEntries complete. Once those calls
 // return, every RoaringSetBatchEntry.Values is a fresh []uint64 that no longer
 // references the arena.
-type NestedProperty2 struct {
+type NestedProperty struct {
 	Name               string
-	values             []NestedValue2
-	result             *nested2.AssignResult
+	values             []NestedValue
+	result             *nested.AssignResult
 	configs            map[string]nestedIndexConfig // drives Exists/Anchors gating
 	numFilterable      int
 	HasFilterableIndex bool
@@ -113,7 +81,7 @@ type NestedProperty2 struct {
 	HasRangeableIndex  bool
 }
 
-// ValueView is yielded by NestedProperty2.Values(). It carries the filterable/
+// ValueView is yielded by NestedProperty.Values(). It carries the filterable/
 // searchable/rangeable flags and the pre-resolved arena subslice.
 type ValueView struct {
 	Path               string
@@ -123,39 +91,39 @@ type ValueView struct {
 	HasRangeableIndex  bool
 	// Positions is the pre-resolved arena subslice for this value entry. It
 	// aliases posArena and must not be mutated by the consumer.
-	Positions []nested2.ElemIdx
+	Positions []nested.ElemIdx
 }
 
-// IdxView is yielded by NestedProperty2.Idx().
+// IdxView is yielded by NestedProperty.Idx().
 type IdxView struct {
 	Path  string
 	Index int
 	// Positions is the pre-resolved arena subslice for this Idx entry. It
 	// aliases posArena and must not be mutated by the consumer.
-	Positions []nested2.ElemIdx
+	Positions []nested.ElemIdx
 }
 
-// ExistsView is yielded by NestedProperty2.Exists().
+// ExistsView is yielded by NestedProperty.Exists().
 type ExistsView struct {
 	Path string
 	// Positions is the pre-resolved arena subslice for this Exists entry. It
 	// aliases posArena and must not be mutated by the consumer.
-	Positions []nested2.ElemIdx
+	Positions []nested.ElemIdx
 }
 
-// AnchorView is yielded by NestedProperty2.Anchors(). It carries only a scalar
+// AnchorView is yielded by NestedProperty.Anchors(). It carries only a scalar
 // ElemIdx: anchor entries need a single Encode(Position, docID) call at write
 // time, not a full position-set materialisation. Exposing Positions() here would
 // hide this direct-encode fast path behind needless arena overhead.
 type AnchorView struct {
 	Path     string
-	Position nested2.ElemIdx
+	Position nested.ElemIdx
 }
 
 // Values returns an iterator over the tokenized+gated value entries. No
 // additional gating is applied here; values are already gated at analyze time
 // (entries for disabled leaves are not included in np.values).
-func (np *NestedProperty2) Values() iter.Seq[ValueView] {
+func (np *NestedProperty) Values() iter.Seq[ValueView] {
 	return func(yield func(ValueView) bool) {
 		for _, v := range np.values {
 			if !yield(ValueView{
@@ -175,7 +143,7 @@ func (np *NestedProperty2) Values() iter.Seq[ValueView] {
 // Idx returns an iterator over the raw (ungated) IdxEntry values from the
 // AssignResult. Idx is never gated: every entry is written to the meta bucket
 // regardless of per-leaf index flags.
-func (np *NestedProperty2) Idx() iter.Seq[IdxView] {
+func (np *NestedProperty) Idx() iter.Seq[IdxView] {
 	return func(yield func(IdxView) bool) {
 		for _, idx := range np.result.Idx {
 			if !yield(IdxView{Path: idx.Path, Index: idx.Index, Positions: np.result.Positions(idx.Pos)}) {
@@ -186,19 +154,19 @@ func (np *NestedProperty2) Idx() iter.Seq[IdxView] {
 }
 
 // NumIdx returns the exact count of Idx entries. Used to size the _idx key slab
-// in nestedMetaEntries2 (must be exactly NumIdx()*IdxKeySize bytes).
-func (np *NestedProperty2) NumIdx() int { return len(np.result.Idx) }
+// in nestedMetaEntries (must be exactly NumIdx()*IdxKeySize bytes).
+func (np *NestedProperty) NumIdx() int { return len(np.result.Idx) }
 
 // NumFilterable returns the exact count of filterable value entries. Precomputed
-// during analyze so nestedFilterableEntries2 can pre-allocate the result slice
+// during analyze so nestedFilterableEntries can pre-allocate the result slice
 // without a scan.
-func (np *NestedProperty2) NumFilterable() int { return np.numFilterable }
+func (np *NestedProperty) NumFilterable() int { return np.numFilterable }
 
 // NumMetaHint returns an over-bound estimate of the total meta entry count
 // (Idx + Exists + Anchors, all ungated). Used as an initial capacity hint for
-// nestedMetaEntries2; the actual written count may be lower after Exists/Anchors
+// nestedMetaEntries; the actual written count may be lower after Exists/Anchors
 // gating, but never higher.
-func (np *NestedProperty2) NumMetaHint() int {
+func (np *NestedProperty) NumMetaHint() int {
 	return len(np.result.Idx) + len(np.result.Exists) + len(np.result.Anchors)
 }
 
@@ -207,7 +175,7 @@ func (np *NestedProperty2) NumMetaHint() int {
 // are skipped. The root sentinel (Path="") and intermediate array paths not in
 // configs are always yielded — they back IS NULL on the array property itself,
 // independent of leaf-level index flags.
-func (np *NestedProperty2) Exists() iter.Seq[ExistsView] {
+func (np *NestedProperty) Exists() iter.Seq[ExistsView] {
 	return func(yield func(ExistsView) bool) {
 		for _, e := range np.result.Exists {
 			if e.Path != "" {
@@ -224,7 +192,7 @@ func (np *NestedProperty2) Exists() iter.Seq[ExistsView] {
 
 // Anchors returns an iterator over AssignResult.Anchors entries that pass the
 // same per-leaf gating rule as Exists.
-func (np *NestedProperty2) Anchors() iter.Seq[AnchorView] {
+func (np *NestedProperty) Anchors() iter.Seq[AnchorView] {
 	return func(yield func(AnchorView) bool) {
 		for _, a := range np.result.Anchors {
 			if a.Path != "" {
@@ -242,13 +210,13 @@ func (np *NestedProperty2) Anchors() iter.Seq[AnchorView] {
 // HasFilterableEntries reports whether at least one value in np.values has
 // HasFilterableIndex == true. This is a per-document predicate: a non-nil np
 // can have meta entries but no filterable values (e.g., all leaves are
-// non-filterable). Precomputed in analyzeNestedProp2 — no scan at call time.
-func (np *NestedProperty2) HasFilterableEntries() bool { return np.numFilterable > 0 }
+// non-filterable). Precomputed in analyzeNestedProp — no scan at call time.
+func (np *NestedProperty) HasFilterableEntries() bool { return np.numFilterable > 0 }
 
 // HasMetaEntries reports whether there is anything to write to the meta
 // bucket. Uses ungated result slice lengths — the root sentinel (Path="")
 // bypasses the leaf-drop rule, so ungated-empty implies gated-empty.
-func (np *NestedProperty2) HasMetaEntries() bool {
+func (np *NestedProperty) HasMetaEntries() bool {
 	return len(np.result.Idx) > 0 || len(np.result.Exists) > 0 || len(np.result.Anchors) > 0
 }
 
@@ -256,11 +224,11 @@ func (np *NestedProperty2) HasMetaEntries() bool {
 // filterable and meta buckets; searchable bucket support is a future addition.
 // This method exists so the write-path predicate surface is stable: adding
 // searchable support changes only this method body, not any call sites.
-func (np *NestedProperty2) HasSearchableEntries() bool { return false }
+func (np *NestedProperty) HasSearchableEntries() bool { return false }
 
 // HasRangeableEntries always returns false. Same rationale as
 // HasSearchableEntries.
-func (np *NestedProperty2) HasRangeableEntries() bool { return false }
+func (np *NestedProperty) HasRangeableEntries() bool { return false }
 
 func DedupItems(props []Property) []Property {
 	for i := range props {

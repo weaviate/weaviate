@@ -14,12 +14,12 @@ package inverted
 import (
 	"testing"
 
-	nested2 "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested2"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// BenchmarkAnalyzeNestedProp2_Flat measures the full analyzeNestedProp2
+// BenchmarkAnalyzeNestedProp2_Flat measures the full analyzeNestedProp
 // pipeline for a flat document (10 scalar text properties + 1 text array with
 // 5 elements). LevelSchema is built once before the timer; only the per-call
 // cost of analyze + value tokenization is measured.
@@ -58,7 +58,7 @@ func BenchmarkAnalyzeNestedProp2_Flat(b *testing.B) {
 		"tags": []any{"a", "b", "c", "d", "e"},
 	}
 
-	ls, err := nested2.BuildSchema(prop)
+	ls, err := nested.BuildSchema(prop)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func BenchmarkAnalyzeNestedProp2_Flat(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		np, err := a.analyzeNestedProp2(ls, prop, value)
+		np, err := a.analyzeNestedProp(ls, prop, value)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -75,14 +75,14 @@ func BenchmarkAnalyzeNestedProp2_Flat(b *testing.B) {
 	}
 }
 
-// BenchmarkAnalyzeNestedProp2_Deep measures the full analyzeNestedProp2
+// BenchmarkAnalyzeNestedProp2_Deep measures the full analyzeNestedProp
 // pipeline for a deep 3-level nested document (10 countries × 5 garages ×
 // 20 cars, each car with make/model/color text scalars and a 3-element
 // features text array). LevelSchema is built once before the timer.
 //
 // With 1000 cars × 4 leaf properties the configs map and Values slice
 // construction dominate; the allocs/op here is the baseline above which
-// nestedMetaEntries2 adds its entry-building cost.
+// nestedMetaEntries adds its entry-building cost.
 func BenchmarkAnalyzeNestedProp2_Deep(b *testing.B) {
 	prop := &models.Property{
 		Name:     "countries",
@@ -128,7 +128,7 @@ func BenchmarkAnalyzeNestedProp2_Deep(b *testing.B) {
 		countries[i] = country
 	}
 
-	ls, err := nested2.BuildSchema(prop)
+	ls, err := nested.BuildSchema(prop)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func BenchmarkAnalyzeNestedProp2_Deep(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		np, err := a.analyzeNestedProp2(ls, prop, countries)
+		np, err := a.analyzeNestedProp(ls, prop, countries)
 		if err != nil {
 			b.Fatal(err)
 		}

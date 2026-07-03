@@ -16,7 +16,7 @@ import (
 	"maps"
 	"slices"
 
-	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -112,122 +112,93 @@ func collectNestedIndexConfig(prefix string, props []*models.NestedProperty) map
 	return configs
 }
 
-// analyzeNestedProp runs position assignment on a nested property value,
-// then analyzes each leaf value into bytes suitable for indexing.
-func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedProperty, error) {
+// analyzeNestedProp is the v2 counterpart to analyzeNestedProp. It calls
+// nested.AssignPositionsFromSchema (which requires a pre-built LevelSchema)
+// and builds a NestedProperty whose Values hold PosRange references into the
+// posArena rather than materialised []uint64 positions.
+//
+// Gating is identical to the v1 path:
+//   - Values: gated at analyze time; entries with !cfg.hasAny() are dropped.
+//   - Idx: ungated; all Result.Idx entries are read by the bucket-builder.
+//   - Exists/Anchors: gated at build time via the iterator methods on
+//     NestedProperty; leaf paths with no index are skipped; root ("") and
+//     intermediate array paths are always kept.
+//
+// Returns (nil, nil) for nil value, no-index schema, or an empty assign result
+// (e.g. object[] with an empty array). Callers skip bucket-writes for nil.
+func (a *Analyzer) analyzeNestedProp(
+	ls nested.LevelSchema,
+	prop *models.Property,
+	value any,
+) (*NestedProperty, error) {
 	if value == nil {
 		return nil, nil
 	}
 
-	// Skip analysis entirely when no descendant has any index enabled — no
-	// buckets were created for this property, so writing would hit a nil bucket.
 	if !HasAnyNestedInvertedIndex(prop) {
 		return nil, nil
 	}
 
-	assignResult, err := invnested.AssignPositions(prop, value)
+	result, err := nested.AssignPositionsFromSchema(ls, prop, value)
 	if err != nil {
 		return nil, err
 	}
 
-	// Only reachable for DataTypeObjectArray with an empty array value: AssignPositions
-	// returns early before appending the root _exists entry, leaving all slices empty.
-	// DataTypeObject always wraps the value in a 1-element slice so this cannot fire.
-	if len(assignResult.Values) == 0 && len(assignResult.Idx) == 0 &&
-		len(assignResult.Exists) == 0 && len(assignResult.Anchors) == 0 {
+	// Only reachable for object[] with an empty array: AssignPositionsFromSchema
+	// returns early and leaves all slices empty. object always wraps the value in
+	// a 1-element slice, so this guard cannot fire for non-array types.
+	if len(result.Values) == 0 && len(result.Idx) == 0 &&
+		len(result.Exists) == 0 && len(result.Anchors) == 0 {
 		return nil, nil
 	}
 
-	indexConfigs := collectNestedIndexConfig("", prop.NestedProperties)
+	configs := collectNestedIndexConfig("", prop.NestedProperties)
 
 	var hasFilterable, hasSearchable, hasRangeable bool
-	for _, cfg := range indexConfigs {
+	for _, cfg := range configs {
 		hasFilterable = hasFilterable || cfg.filterable
 		hasSearchable = hasSearchable || cfg.searchable
 		hasRangeable = hasRangeable || cfg.rangeable
 	}
 
-	values := make([]NestedValue, 0, len(assignResult.Values))
-	for _, pv := range assignResult.Values {
-		cfg := indexConfigs[pv.Path]
+	var numFilterable int
+	values := make([]NestedValue, 0, len(result.Values))
+	for _, ve := range result.Values {
+		cfg := configs[ve.Path]
 		if !cfg.hasAny() {
 			continue
 		}
-		analyzed, err := a.analyzeNestedValue(pv, cfg)
+		analyzed, err := a.analyzeNestedValue(ve, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("analyze value at %q: %w", pv.Path, err)
+			return nil, fmt.Errorf("analyze value at %q: %w", ve.Path, err)
+		}
+		if cfg.filterable {
+			numFilterable += len(analyzed)
 		}
 		values = append(values, analyzed...)
 	}
 
-	idx := make([]NestedMeta, len(assignResult.Idx))
-	for i, entry := range assignResult.Idx {
-		idx[i] = NestedMeta{
-			Path:      entry.Path,
-			Index:     entry.Index,
-			Positions: entry.Positions,
-		}
-	}
-
-	// _exists entries are gated by the same per-leaf config as values:
-	// a leaf with no inverted index can't be filtered on (the validator
-	// rejects IS NULL on non-filterable leaves), so writing its _exists
-	// is pure waste. The root sentinel (Path="") and intermediate
-	// object-array paths (e.g. "cars" or "cars.tires") are not in
-	// indexConfigs and stay — they back IS NULL on the array property
-	// itself, which is a doc-level / element-level question independent
-	// of any leaf flag.
-	exists := make([]NestedMeta, 0, len(assignResult.Exists))
-	for _, entry := range assignResult.Exists {
-		if entry.Path != "" {
-			if cfg, isLeaf := indexConfigs[entry.Path]; isLeaf && !cfg.hasAny() {
-				continue
-			}
-		}
-		exists = append(exists, NestedMeta{
-			Path:      entry.Path,
-			Index:     -1,
-			Positions: entry.Positions,
-		})
-	}
-
-	// _anchor entries follow the same per-leaf gating as _exists: leaf
-	// paths with no inverted index are dropped; root and intermediate
-	// object-array paths stay.
-	anchors := make([]NestedMeta, 0, len(assignResult.Anchors))
-	for _, entry := range assignResult.Anchors {
-		if entry.Path != "" {
-			if cfg, isLeaf := indexConfigs[entry.Path]; isLeaf && !cfg.hasAny() {
-				continue
-			}
-		}
-		anchors = append(anchors, NestedMeta{
-			Path:      entry.Path,
-			Index:     -1,
-			Positions: entry.Positions,
-		})
-	}
-
 	return &NestedProperty{
 		Name:               prop.Name,
-		Values:             values,
-		Idx:                idx,
-		Exists:             exists,
-		Anchors:            anchors,
+		result:             result,
+		values:             values,
+		configs:            configs,
+		numFilterable:      numFilterable,
 		HasFilterableIndex: hasFilterable,
 		HasSearchableIndex: hasSearchable,
 		HasRangeableIndex:  hasRangeable,
 	}, nil
 }
 
-// analyzeNestedValue converts a raw positioned value into one or more
+// analyzeNestedValue converts a raw nested.ValueEntry into one or more
 // NestedValue entries with analyzed byte representations. Text values
-// may produce multiple entries (one per token).
-func (a *Analyzer) analyzeNestedValue(pv invnested.PositionedValue, cfg nestedIndexConfig) ([]NestedValue, error) {
-	// TODO aliszka:nested_filtering verify whether pv.PropName (leaf nested property
-	// name, e.g. "city") is the correct identifier for the text analyzer lookup,
-	// or whether the top-level property name (e.g. "addresses") should be used instead.
-	items, err := a.analyzeValue(pv.DataType, pv.Tokenization, pv.PropName, pv.TextAnalyzer, pv.Value)
+// may produce multiple entries (one per token); all entries carry the same Pos
+// — a 2×uint32 copy per entry, semantically identical to the v1 path's alias.
+func (a *Analyzer) analyzeNestedValue(ve nested.ValueEntry, cfg nestedIndexConfig) ([]NestedValue, error) {
+	// TODO aliszka:nested_filtering verify whether ve.PropName (leaf nested
+	// property name, e.g. "city") is the correct identifier for the text analyzer
+	// lookup, or whether the top-level property name should be used instead.
+	items, err := a.analyzeValue(ve.DataType, ve.Tokenization, ve.PropName, ve.TextAnalyzer, ve.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -238,9 +209,9 @@ func (a *Analyzer) analyzeNestedValue(pv invnested.PositionedValue, cfg nestedIn
 	out := make([]NestedValue, len(items))
 	for i, item := range items {
 		out[i] = NestedValue{
-			Path:               pv.Path,
+			Path:               ve.Path,
 			Data:               item.Data,
-			Positions:          pv.Positions,
+			Pos:                ve.Pos,
 			HasFilterableIndex: cfg.filterable,
 			HasSearchableIndex: cfg.searchable,
 			HasRangeableIndex:  cfg.rangeable,

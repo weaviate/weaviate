@@ -17,7 +17,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
-	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nestedlegacy"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )

@@ -11,22 +11,22 @@
 
 package inverted
 
-import nested2 "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested2"
+import "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 
-// NewNestedProperty2ForTest constructs a NestedProperty2 with a caller-supplied
+// NewNestedPropertyForTest constructs a NestedProperty with a caller-supplied
 // *AssignResult and Values slice for use in tests outside the inverted package.
 // The unexported result field is set here via the package-internal struct
 // literal; configs is left nil so all Exists/Anchors entries pass the gate.
 // This constructor exists solely to let db-package oracle tests supply a real
 // AssignResult without re-exposing the result field on the public struct.
-func NewNestedProperty2ForTest(name string, result *nested2.AssignResult, values []NestedValue2) *NestedProperty2 {
+func NewNestedPropertyForTest(name string, result *nested.AssignResult, values []NestedValue) *NestedProperty {
 	var numFilterable int
 	for _, v := range values {
 		if v.HasFilterableIndex {
 			numFilterable++
 		}
 	}
-	return &NestedProperty2{
+	return &NestedProperty{
 		Name:          name,
 		result:        result,
 		values:        values,

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package nested2
+package nested
 
 import (
 	"testing"

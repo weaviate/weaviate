@@ -15,20 +15,20 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	nested2 "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested2"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // BenchmarkNestedMetaEntries2_Flat measures the write-path pipeline for a flat
 // document (10 scalar properties + 1 scalar array with 5 elements):
-// AssignPositionsFromSchema → nestedMetaEntries2. The schema is built once
+// AssignPositionsFromSchema → nestedMetaEntries. The schema is built once
 // before the timer so only the per-call cost is measured.
 //
-// Note: the intended pipeline is analyzeNestedProp2 → nestedMetaEntries2, but
-// analyzeNestedProp2 is unexported on *inverted.Analyzer and cannot be called
+// Note: the intended pipeline is analyzeNestedProp → nestedMetaEntries, but
+// analyzeNestedProp is unexported on *inverted.Analyzer and cannot be called
 // from this package. AssignPositionsFromSchema is the allocation-heavy inner
-// step that analyzeNestedProp2 delegates to, so this approximation captures
+// step that analyzeNestedProp delegates to, so this approximation captures
 // the same yield-closure heap-allocation signal.
 func BenchmarkNestedMetaEntries2_Flat(b *testing.B) {
 	prop := &models.Property{
@@ -62,7 +62,7 @@ func BenchmarkNestedMetaEntries2_Flat(b *testing.B) {
 		"tags": []any{"a", "b", "c", "d", "e"},
 	}
 
-	ls, err := nested2.BuildSchema(prop)
+	ls, err := nested.BuildSchema(prop)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -70,19 +70,19 @@ func BenchmarkNestedMetaEntries2_Flat(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result, err := nested2.AssignPositionsFromSchema(ls, prop, value)
+		result, err := nested.AssignPositionsFromSchema(ls, prop, value)
 		if err != nil {
 			b.Fatal(err)
 		}
-		np := inverted.NewNestedProperty2ForTest("obj", result, nil)
-		_ = nestedMetaEntries2(*np, 1)
+		np := inverted.NewNestedPropertyForTest("obj", result, nil)
+		_ = nestedMetaEntries(*np, 1)
 	}
 }
 
 // BenchmarkNestedMetaEntries2_Deep measures the write-path pipeline for a deep
 // 3-level nested document (10 countries × 5 garages × 20 cars): same pipeline
-// as BenchmarkNestedMetaEntries2_Flat (AssignPositionsFromSchema → nestedMetaEntries2).
-// analyzeNestedProp2 is unexported; see BenchmarkNestedMetaEntries2_Flat for the
+// as BenchmarkNestedMetaEntries2_Flat (AssignPositionsFromSchema → nestedMetaEntries).
+// analyzeNestedProp is unexported; see BenchmarkNestedMetaEntries2_Flat for the
 // deviation rationale. Document is large enough that per-element closure
 // heap-allocations produce a clearly visible allocs/op increase.
 func BenchmarkNestedMetaEntries2_Deep(b *testing.B) {
@@ -130,7 +130,7 @@ func BenchmarkNestedMetaEntries2_Deep(b *testing.B) {
 		countries[i] = country
 	}
 
-	ls, err := nested2.BuildSchema(prop)
+	ls, err := nested.BuildSchema(prop)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -138,11 +138,11 @@ func BenchmarkNestedMetaEntries2_Deep(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result, err := nested2.AssignPositionsFromSchema(ls, prop, countries)
+		result, err := nested.AssignPositionsFromSchema(ls, prop, countries)
 		if err != nil {
 			b.Fatal(err)
 		}
-		np := inverted.NewNestedProperty2ForTest("countries", result, nil)
-		_ = nestedMetaEntries2(*np, 1)
+		np := inverted.NewNestedPropertyForTest("countries", result, nil)
+		_ = nestedMetaEntries(*np, 1)
 	}
 }

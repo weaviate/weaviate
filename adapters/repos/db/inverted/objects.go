@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -87,7 +88,14 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			// these are ignored — the nested write path bypasses HasAnyInvertedIndex
 			// and always indexes. The interaction between the top-level setting and
 			// per-nested-property settings needs design discussion before implementing.
-			nr, err := a.analyzeNestedProp(prop, input[key])
+
+			// BuildSchema is O(schema depth), called once per nested property per
+			// write. Caching LevelSchema per collection is a deferred optimization.
+			ls, err := nested.BuildSchema(prop)
+			if err != nil {
+				return nil, nil, fmt.Errorf("build nested schema for prop %q: %w", key, err)
+			}
+			nr, err := a.analyzeNestedProp(ls, prop, input[key])
 			if err != nil {
 				return nil, nil, fmt.Errorf("analyze nested prop %q: %w", key, err)
 			}

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package nested2
+package nestedlegacy
 
 import (
 	"encoding/binary"

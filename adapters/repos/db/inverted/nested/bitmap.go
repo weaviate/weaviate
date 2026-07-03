@@ -18,59 +18,46 @@ import (
 
 // Position encoding layout (64 bits total):
 //
-//	| root_idx (14 bits) | leaf_idx (14 bits) | docID (36 bits) |
-//	| bits 63-50         | bits 49-36         | bits 35-0       |
+//	| elemIdx (16 bits) | docID (48 bits) |
+//	| bits 63-48        | bits 47-0       |
 //
-// root_idx: 1-based index into top-level object array. Always 1 for
-// standalone objects (treated as implicit 1-element array).
+// elemIdx: 1-based counter assigned depth-first across the entire document.
+// Never resets per top-level element; each object node or scalar-array slot
+// gets exactly one index globally within the document.
 //
-// leaf_idx: 1-based counter assigned depth-first within a root element.
-// Resets per root. Scalar array elements each get their own leaf_idx.
-// Object elements with descendant leaves are intermediate (inherit
-// descendants' positions); those without get their own leaf_idx.
-//
-// docID: 36-bit internal document identifier.
+// docID: 48-bit internal document identifier.
 const (
-	rootBits = 14
-	leafBits = 14
-	docBits  = 36
+	elemBits = 16
+	docBits  = 48
 
-	rootShift = leafBits + docBits // 50
-	leafShift = docBits            // 36
+	elemShift = docBits             // 48
+	elemMask  = (1 << elemBits) - 1 // 0xFFFF
+	docMask   = (1 << docBits) - 1  // 0x0000_FFFF_FFFF_FFFF
 
-	rootMask = (1 << rootBits) - 1 // 0x3FFF
-	leafMask = (1 << leafBits) - 1 // 0x3FFF
-	docMask  = (1 << docBits) - 1  // 0x0000000FFFFFFFFF
+	// zeroElemBits zeroes elem bits (63-48), keeping only docID.
+	// It is also used as the bucket mask in LiftToAncestor: sroar requires
+	// mask & 0xFFFF == 0xFFFF, and zeroElemBits = 0x0000_FFFF_FFFF_FFFF
+	// satisfies that constraint.
+	zeroElemBits = ^(uint64(elemMask) << elemShift)
 
-	// Bitmasks for Masked() operations on sroar bitmaps.
-	// zeroRootBits zeroes root bits (63-50), keeping leaf+docID.
-	zeroRootBits = ^(uint64(rootMask) << rootShift)
-	// zeroLeafBits zeroes leaf bits (49-36), keeping root+docID.
-	zeroLeafBits = ^(uint64(leafMask) << leafShift)
-
-	MaxRoots         = 1 << rootBits      // 16384
-	MaxLeavesPerRoot = 1 << leafBits      // 16384
-	MaxDocID         = (1 << docBits) - 1 // 68719476735; 68.7B
+	MaxElems = 1 << elemBits      // 65536; indices 1..65535 are valid
+	MaxDocID = (1 << docBits) - 1 // 281474976710655
 )
 
-// Encode packs root index, leaf index, and document ID into a single uint64
-// position value. Root and leaf indices are 1-based (0 is reserved/invalid).
-// All three fields are masked to their declared widths (rootMask, leafMask,
-// docMask) before packing, so out-of-range inputs are silently clipped.
-func Encode(rootIdx, leafIdx uint16, docID uint64) uint64 {
-	return (uint64(rootIdx)&rootMask)<<rootShift |
-		(uint64(leafIdx)&leafMask)<<leafShift |
-		(docID & docMask)
+// Encode packs an element index and document ID into a single uint64 position
+// value. elemIdx is 1-based (0 is reserved/invalid). Both fields are masked to
+// their declared widths before packing, so out-of-range inputs are silently
+// clipped.
+//
+// elemIdx is uint32 to leave headroom for future widening without an API
+// break. Only the low elemBits bits are used; upper bits are masked away.
+func Encode(elemIdx uint32, docID uint64) uint64 {
+	return (uint64(elemIdx)&elemMask)<<elemShift | (docID & docMask)
 }
 
-// DecodeRootIdx extracts the root index from an encoded position.
-func DecodeRootIdx(pos uint64) uint16 {
-	return uint16((pos >> rootShift) & rootMask)
-}
-
-// DecodeLeafIdx extracts the leaf index from an encoded position.
-func DecodeLeafIdx(pos uint64) uint16 {
-	return uint16((pos >> leafShift) & leafMask)
+// DecodeElemIdx extracts the element index from an encoded position.
+func DecodeElemIdx(pos uint64) uint32 {
+	return uint32((pos >> elemShift) & elemMask)
 }
 
 // DecodeDocID extracts the document ID from an encoded position.
@@ -78,13 +65,21 @@ func DecodeDocID(pos uint64) uint64 {
 	return pos & docMask
 }
 
-// OrDocID ORs a real docID into position templates that have docID=0.
-// Returns a new slice; does not modify the input.
-func OrDocID(positions []uint64, docID uint64) []uint64 {
-	masked := docID & docMask
-	out := make([]uint64, len(positions))
-	for i, p := range positions {
-		out[i] = p | masked
+// Compile-time guard: posArena and walk-phase scratch hold ElemIdx (uint32).
+// Safe as long as elemBits ≤ 32. A negative shift count in a constant expression
+// is a compile error in Go, so this fires if elemBits is widened past 32.
+const _ = ElemIdx(0) + ElemIdx(1<<(32-elemBits)-1)
+
+// PositionsWithDocID encodes raw element indices into full uint64 positions by
+// merging each index with docID via Encode. This is the sole site where ElemIdx
+// crosses the boundary into encoded uint64 for bitmap operations. Returns a new
+// slice; does not retain or modify the input. Variadic so callers can pass an
+// existing posArena subslice with a spread (`idxs...`) or a single scalar marker
+// (e.g. an anchor's self-marker) without materialising a one-element slice.
+func PositionsWithDocID(docID uint64, idxs ...ElemIdx) []uint64 {
+	out := make([]uint64, len(idxs))
+	for i, idx := range idxs {
+		out[i] = Encode(uint32(idx), docID)
 	}
 	return out
 }
@@ -115,60 +110,50 @@ func (o *BitmapOps) NewEmpty(minCap int) (result *sroar.Bitmap, release func()) 
 	return sroar.NewBitmapToBuf(buf), release
 }
 
-// MaskLeaf zeroes the leaf bits of raw and returns the rootDoc bitmap in a
-// pool buffer. The caller must invoke release() when the result is no longer
-// needed.
-func (o *BitmapOps) MaskLeaf(raw *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
+// MaskElem zeroes the elem bits of raw and returns the doc bitmap in a pool
+// buffer. The caller must invoke release() when the result is no longer needed.
+//
+// Deduplicates: multiple positions with different elemIdx values but the same
+// docID collapse to a single value with elemIdx=0.
+func (o *BitmapOps) MaskElem(raw *sroar.Bitmap) (doc *sroar.Bitmap, release func()) {
 	buf, release := o.pool.Get(raw.LenInBytes())
-	return raw.MaskedToBuf(zeroLeafBits, buf), release
-}
-
-// MaskRootLeaf zeroes both root and leaf bits of positions, returning only
-// docIDs in a pool buffer. Use as the final step to extract plain document
-// IDs. positions may be raw or rootDoc.
-func (o *BitmapOps) MaskRootLeaf(positions *sroar.Bitmap) (doc *sroar.Bitmap, release func()) {
-	buf, release := o.pool.Get(positions.LenInBytes())
-	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf), release
+	return raw.MaskedToBuf(zeroElemBits, buf), release
 }
 
 // LiftToAncestor projects child markers to their nearest ancestor markers in
-// parentAnchor by predecessor scan within the same (root_idx, docID) bucket.
+// parentAnchor by predecessor scan within the same docID bucket.
 //
 // parentAnchor does not have to be the immediately enclosing collection — any
-// ancestor anchor works. With `_anchor(garages)`, child cars lift to their
-// owning garage. With `_anchor(countries)`, the same cars lift directly to
-// their owning country, skipping the intermediate garage level. The result is
-// equivalent to a chain of single-level lifts; the direct call is cheaper.
+// ancestor anchor works. With _anchor(garages), child cars lift to their owning
+// garage. With _anchor(countries), the same cars lift directly to their owning
+// country, skipping the intermediate garage level. The result is equivalent to
+// a chain of single-level lifts; the direct call is cheaper.
 //
 // children must contain positions that sit strictly below the target ancestor
 // scope — the intended use is exact child self markers such as
-// `m_pinned_match = value ∩ _idx ∩ _anchor(childPath)`.
+// m_pinned_match = value ∩ _idx ∩ _anchor(childPath).
 //
 // For each child position c the method delegates to sroar.FloorMaskedToBuf,
-// which emits the greatest parent marker p ≤ c sharing the same
-// (root_idx, docID) bucket (same key under zeroLeafBits masking). The ≤
-// predicate is behaviorally identical to strict < here: DFS pre-order
-// assignment in assign.go guarantees a parent's self-marker always has a
-// strictly lower leaf_idx than any descendant, so a parent and child position
-// never share the same 64-bit value.
+// which emits the greatest parent marker p ≤ c sharing the same docID bucket
+// (same key under zeroElemBits masking). The ≤ predicate is behaviorally
+// identical to strict < here: DFS pre-order assignment in assign.go guarantees
+// a parent's self-marker always has a strictly lower elemIdx than any
+// descendant, so a parent and child position never share the same 64-bit value.
 //
 // Multiple children may lift to the same ancestor; the bitmap naturally
 // deduplicates.
 //
-// Load-bearing assumptions (see assign.go):
-//   - the walker emits leaf_idx in strict DFS order via nextLeaf();
-//   - distinct top-level array elements get distinct root_idx values, so the
-//     (root_idx, docID) bucket key separates per-root subtrees.
-//
-// If either contract changes, multi-level lifts can silently return wrong
-// ancestors. Single-level lifts remain correct as long as parentAnchor is the
-// immediate parent.
+// Load-bearing assumption (see assign.go): the walker emits elemIdx in strict
+// DFS order via nextElem() across all top-level elements without resetting per
+// root. The DFS guarantee ensures a parent's self-marker always has a strictly
+// lower elemIdx than any descendant, making the predecessor scan correct for
+// both single-level and multi-level lifts.
 func (o *BitmapOps) LiftToAncestor(children, parentAnchor *sroar.Bitmap) (parent *sroar.Bitmap, release func()) {
 	if children.IsEmpty() || parentAnchor.IsEmpty() {
 		return sroar.NewBitmap(), func() {}
 	}
 	buf, release := o.pool.Get(parentAnchor.LenInBytes())
-	return sroar.FloorMaskedToBuf(children, parentAnchor, zeroLeafBits, buf), release
+	return sroar.FloorMaskedToBuf(children, parentAnchor, zeroElemBits, buf), release
 }
 
 // AndAll returns the intersection of all raw position bitmaps in a pool
@@ -197,43 +182,6 @@ func (o *BitmapOps) AndNot(base, subtract *sroar.Bitmap, maxConcurrency int) (ra
 	raw, release = o.pool.CloneToBuf(base)
 	raw.AndNotConc(subtract, maxConcurrency)
 	return raw, release
-}
-
-// AndAllMaskLeaf zeroes the leaf bits of each raw bitmap, ANDs them all, and
-// returns the rootDoc bitmap in a pool buffer. Returns an empty (non-pooled)
-// bitmap when raws is empty. The loop exits early when the running
-// intersection becomes empty — further ANDs cannot change the result.
-func (o *BitmapOps) AndAllMaskLeaf(raws []*sroar.Bitmap, maxConcurrency int) (rootDoc *sroar.Bitmap, release func()) {
-	if len(raws) == 0 {
-		return sroar.NewBitmap(), func() {}
-	}
-	buf, release := o.pool.Get(raws[0].LenInBytes())
-	rootDoc = raws[0].MaskedToBuf(zeroLeafBits, buf)
-	for _, bm := range raws[1:] {
-		rootDoc.AndMaskedConc(bm, zeroLeafBits, maxConcurrency)
-		if rootDoc.IsEmpty() {
-			return rootDoc, release
-		}
-	}
-	return rootDoc, release
-}
-
-// MaskLeafAnd intersects rawA and rawB on raw positions, zeroes the leaf bits
-// of the result, and returns the rootDoc bitmap in a pool buffer. Equivalent
-// to MaskLeaf(sroar.And(rawA, rawB)) but uses a single fused operation.
-//
-// Both inputs must be raw position bitmaps (non-zero leaf bits).
-func (o *BitmapOps) MaskLeafAnd(rawA, rawB *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
-	buf, release := o.pool.Get(min(rawA.LenInBytes(), rawB.LenInBytes()))
-	return sroar.MaskedAndToBuf(rawA, rawB, zeroLeafBits, buf), release
-}
-
-// IntersectsMaskedLeaf reports whether rootDoc and raw share at least one
-// position after zeroing raw's leaf bits. rootDoc must already be leaf-masked.
-// No allocation is performed — use this for cheap element pre-checks before
-// running the full per-element intersection.
-func (o *BitmapOps) IntersectsMaskedLeaf(rootDoc, raw *sroar.Bitmap) bool {
-	return rootDoc.IntersectsMasked(raw, zeroLeafBits)
 }
 
 // OrAll returns the union of all raw position bitmaps in a pool buffer.
@@ -273,38 +221,4 @@ func (o *BitmapOps) OrAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar.
 		raw.OrConc(bm, maxConcurrency)
 	}
 	return raw, release
-}
-
-// CrossLeafCopresenceAll returns the union of values from all input
-// bitmaps whose (root, docID) projection appears in every input — leaf
-// differences across inputs are tolerated. Equivalent to
-// sroar.CopresenceByMask with mask=zeroLeafBits. Result is allocated in
-// a pool buffer sized to the largest input. Returns an empty
-// (non-pooled) bitmap when raws is empty.
-//
-// Use case: cross-disjoint-leaf AND under position-level evaluation.
-// When operands sit at different leaves of the same element (sibling
-// sub-arrays without a Phase 3 scalar bridge), raw AndAll gives ∅ even
-// when the same physical element satisfies every operand. This op keeps
-// the contributing leaf positions while filtering by (root, doc)
-// co-presence, so the result composes raw with further within-root
-// operations.
-//
-// TODO aliszka:nested_filtering: revisit buffer sizing. max(LenInBytes)
-// is usually adequate since the AND step at the heart of copresence can
-// only shrink contributions, but heavy overlap with disjoint groupings
-// could still grow the result above max. Sum of input sizes is the safe
-// upper bound. Profile to pick the sweet spot.
-func (o *BitmapOps) CrossLeafCopresenceAll(raws []*sroar.Bitmap) (raw *sroar.Bitmap, release func()) {
-	if len(raws) == 0 {
-		return sroar.NewBitmap(), func() {}
-	}
-	maxLen := 0
-	for _, bm := range raws {
-		if l := bm.LenInBytes(); l > maxLen {
-			maxLen = l
-		}
-	}
-	buf, release := o.pool.Get(maxLen)
-	return sroar.CopresenceByMaskToBuf(raws, zeroLeafBits, buf), release
 }
