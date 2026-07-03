@@ -413,6 +413,7 @@ func (c *cycleCallbackGroup) isActive(callbackId uint32, callbackCustomId string
 }
 
 type cycleCallbackMeta struct {
+	callbackId    uint32
 	customId      string
 	cycleCallback CycleCallback
 	active        bool
@@ -424,6 +425,50 @@ type cycleCallbackMeta struct {
 	intervals  CycleIntervals
 	// true if deactivate or unregister were requested to abort callback when running
 	shouldAbort bool
+	// next-due time ordering the heap, cached from started (+ intervals.Get()) and
+	// recomputed on every state change
+	nextDue time.Time
+	// position in the group's dueHeap, or -1 when not queued
+	heapIndex int
+}
+
+// computeNextDue returns the time the callback is next eligible to run. A nil
+// interval means "always due", so its next-due time is simply started.
+func computeNextDue(meta *cycleCallbackMeta) time.Time {
+	if meta.intervals == nil {
+		return meta.started
+	}
+	return meta.started.Add(meta.intervals.Get())
+}
+
+// dueHeap is a min-heap of callbacks ordered by nextDue (earliest first). Each
+// meta appears at most once; heapIndex tracks its slot for O(log n) heap.Remove.
+type dueHeap []*cycleCallbackMeta
+
+func (h dueHeap) Len() int { return len(h) }
+
+func (h dueHeap) Less(i, j int) bool { return h[i].nextDue.Before(h[j].nextDue) }
+
+func (h dueHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].heapIndex = i
+	h[j].heapIndex = j
+}
+
+func (h *dueHeap) Push(x any) {
+	meta := x.(*cycleCallbackMeta)
+	meta.heapIndex = len(*h)
+	*h = append(*h, meta)
+}
+
+func (h *dueHeap) Pop() any {
+	old := *h
+	n := len(old)
+	meta := old[n-1]
+	old[n-1] = nil
+	*h = old[:n-1]
+	meta.heapIndex = -1
+	return meta
 }
 
 type cycleCallbackGroupNoop struct{}
