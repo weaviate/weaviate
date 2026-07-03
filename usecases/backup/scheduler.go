@@ -678,7 +678,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return nil, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
 		return nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
@@ -735,7 +735,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	// Base backups are only read mid-restore, after users and RBAC are already
 	// overwritten. Resolve the chain upfront so a missing or invalid base is
 	// rejected before any side effects begin.
-	if _, err := resolveBaseBackupChain(ctx, meta.BaseBackupID, req.Bucket, req.Path, meta.GetCompressionType(), store.MetaForBackupID); err != nil {
+	if _, err := resolveBaseBackupChain(ctx, meta.BaseBackupID, meta.StartedAt, req.Bucket, req.Path, meta.GetCompressionType(), store.MetaForBackupID); err != nil {
 		return nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 

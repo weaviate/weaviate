@@ -131,7 +131,8 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path, "routine_pool_size": provider.GoPoolSize}
 
 		baseBackupID := req.BaseBackupID
-		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, store.bucket, store.path, compressionType, store.MetaForBackupID)
+		startedAt := time.Now().UTC()
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, startedAt, store.bucket, store.path, compressionType, store.MetaForBackupID)
 		if err != nil {
 			if !errors.As(err, &backup.ErrNotFound{}) {
 				b.logger.WithFields(logFields).Error(err)
@@ -148,7 +149,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		}
 
 		result := backup.BackupDescriptor{
-			StartedAt:       time.Now().UTC(),
+			StartedAt:       startedAt,
 			ID:              id,
 			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
 			Version:         Version,
@@ -175,19 +176,26 @@ type ChainDescriptor interface {
 	GetBaseBackupID() string
 	GetCompressionType() backup.CompressionType
 	GetStatus() backup.Status
+	GetStartedAt() time.Time
 }
 
 // resolveBaseBackupChain follows the chain of base backups and validates them.
 // It returns all base backup descriptors in the chain, ordered from the most recent
 // (the requested baseBackupID) to the oldest (the full backup).
+// childStartedAt is the StartedAt of the backup that references baseBackupID.
 // It validates:
-// - No circular references in the backup chain
-// - All backups in the chain exist
-// - All backups have compression type set
-// - All backups have the same compression type as requested
+//   - No circular references in the backup chain
+//   - All backups in the chain exist
+//   - All backups have compression type set
+//   - All backups have the same compression type as requested
+//   - Each base started strictly before the backup that depends on it. A base whose
+//     StartedAt is not older was re-created after its dependent (backup ids reuse the
+//     same object paths), so the dependent no longer points at the bytes it was built
+//     from and restoring it would silently return the wrong data.
 func resolveBaseBackupChain[T ChainDescriptor](
 	ctx context.Context,
 	baseBackupID string,
+	childStartedAt time.Time,
 	bucket, path string,
 	compression backup.CompressionType,
 	fetchMeta func(ctx context.Context, backupID, bucket, path string) (T, error),
@@ -221,12 +229,19 @@ func resolveBaseBackupChain[T ChainDescriptor](
 			return nil, fmt.Errorf("backup %q has status %q, expected %q", nextID, baseDescr.GetStatus(), backup.Success)
 		}
 
+		startedAt := baseDescr.GetStartedAt()
+		if !startedAt.Before(childStartedAt) {
+			return nil, fmt.Errorf("base backup %q started at %s is not older than the backup that depends on it (started at %s): the base was re-created and the chain is no longer valid",
+				nextID, startedAt.UTC().Format(time.RFC3339), childStartedAt.UTC().Format(time.RFC3339))
+		}
+
 		baseDescrs = append(baseDescrs, baseDescr)
 
 		// Check if we've reached the end of the chain
 		if baseDescr.GetBaseBackupID() == "" {
 			break
 		}
+		childStartedAt = startedAt
 		nextID = baseDescr.GetBaseBackupID()
 	}
 
