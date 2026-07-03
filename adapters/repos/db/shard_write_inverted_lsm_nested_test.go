@@ -13,6 +13,7 @@ package db
 
 import (
 	"bytes"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,13 +22,17 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nestedlegacy"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// ownerDocProp returns a topLevelObject "nested" with an owner sub-object
-// containing firstname/lastname (text) and nicknames (text[]). Mirrors the
-// fixture used by TestAssignPositions_OwnerDoc123 in nested/assign_test.go.
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
+
+// ownerDocProp returns a top-level object "nested" with an owner sub-object
+// containing firstname/lastname (text) and nicknames (text[]). Position
+// assignments mirror TestAssignPositions_OwnerDoc123 in nested/assign_test.go;
+// word tokenization is set on all leaves so that value analysis produces tokens.
 func ownerDocProp() *models.Property {
 	return &models.Property{
 		Name:     "nested",
@@ -37,9 +42,32 @@ func ownerDocProp() *models.Property {
 				Name:     "owner",
 				DataType: []string{string(schema.DataTypeObject)},
 				NestedProperties: []*models.NestedProperty{
-					{Name: "firstname", DataType: []string{string(schema.DataTypeText)}},
-					{Name: "lastname", DataType: []string{string(schema.DataTypeText)}},
-					{Name: "nicknames", DataType: []string{string(schema.DataTypeTextArray)}},
+					{Name: "firstname", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+					{Name: "lastname", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+					{Name: "nicknames", DataType: []string{string(schema.DataTypeTextArray)}, Tokenization: models.NestedPropertyTokenizationWord},
+				},
+			},
+		},
+	}
+}
+
+// ownerDocPropGated returns the same structure as ownerDocProp with
+// nicknames and lastname explicitly marked non-filterable. Used by
+// TestNestedFilterableEntries_Gating to verify that nestedFilterableEntries
+// skips Values whose HasFilterableIndex is false while nestedMetaEntries
+// still emits the Idx entries for those paths.
+func ownerDocPropGated() *models.Property {
+	return &models.Property{
+		Name:     "nested",
+		DataType: []string{string(schema.DataTypeObject)},
+		NestedProperties: []*models.NestedProperty{
+			{
+				Name:     "owner",
+				DataType: []string{string(schema.DataTypeObject)},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "firstname", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+					{Name: "lastname", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: boolPtr(false)},
+					{Name: "nicknames", DataType: []string{string(schema.DataTypeTextArray)}, Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: boolPtr(false)},
 				},
 			},
 		},
@@ -70,6 +98,23 @@ func allValuesForKey(entries []lsmkv.RoaringSetBatchEntry, key []byte) []uint64 
 		}
 	}
 	return out
+}
+
+// analyzeNestedPropForTest runs the full production analyze path for a single
+// nested property and returns the resulting NestedProperty. The caller must
+// pass a single object or object[] property so exactly one NestedProperty is
+// produced; the test fails if that invariant is violated.
+func analyzeNestedPropForTest(t *testing.T, prop *models.Property, value any) inverted.NestedProperty {
+	t.Helper()
+	a := inverted.NewAnalyzer(nil, "")
+	_, nestedProps, err := a.Object(
+		map[string]any{prop.Name: value},
+		[]*models.Property{prop},
+		"00000000-0000-0000-0000-000000000001",
+	)
+	require.NoError(t, err)
+	require.Len(t, nestedProps, 1, "expected exactly one NestedProperty from test fixture")
+	return nestedProps[0]
 }
 
 // TestNestedBuilderKeys_KeySchemeMatchesV1 asserts that the nested key
@@ -110,15 +155,8 @@ func TestNestedBuilderKeys_KeySchemeMatchesV1(t *testing.T) {
 func TestNestedMetaEntries_AnchorPositions_OwnerDoc(t *testing.T) {
 	const docID = uint64(42)
 
-	prop := ownerDocProp()
-	ls, err := nested.BuildSchema(prop)
-	require.NoError(t, err)
-
-	result, err := nested.AssignPositionsFromSchema(ls, prop, ownerDocValue())
-	require.NoError(t, err)
-
-	np := inverted.NewNestedPropertyForTest("nested", result, nil)
-	entries := nestedMetaEntries(*np, docID)
+	np := analyzeNestedPropForTest(t, ownerDocProp(), ownerDocValue())
+	entries := nestedMetaEntries(np, docID)
 
 	enc := func(elemIdx uint32) uint64 { return nested.Encode(elemIdx, docID) }
 
@@ -150,15 +188,8 @@ func TestNestedMetaEntries_AnchorPositions_OwnerDoc(t *testing.T) {
 func TestNestedMetaEntries_IdxPositions_OwnerDoc(t *testing.T) {
 	const docID = uint64(42)
 
-	prop := ownerDocProp()
-	ls, err := nested.BuildSchema(prop)
-	require.NoError(t, err)
-
-	result, err := nested.AssignPositionsFromSchema(ls, prop, ownerDocValue())
-	require.NoError(t, err)
-
-	np := inverted.NewNestedPropertyForTest("nested", result, nil)
-	entries := nestedMetaEntries(*np, docID)
+	np := analyzeNestedPropForTest(t, ownerDocProp(), ownerDocValue())
+	entries := nestedMetaEntries(np, docID)
 
 	enc := func(elemIdx uint32) uint64 { return nested.Encode(elemIdx, docID) }
 
@@ -202,15 +233,8 @@ func TestNestedMetaEntries_IdxPositions_OwnerDoc(t *testing.T) {
 func TestNestedMetaEntries_ExistsPositions_OwnerDoc(t *testing.T) {
 	const docID = uint64(42)
 
-	prop := ownerDocProp()
-	ls, err := nested.BuildSchema(prop)
-	require.NoError(t, err)
-
-	result, err := nested.AssignPositionsFromSchema(ls, prop, ownerDocValue())
-	require.NoError(t, err)
-
-	np := inverted.NewNestedPropertyForTest("nested", result, nil)
-	entries := nestedMetaEntries(*np, docID)
+	np := analyzeNestedPropForTest(t, ownerDocProp(), ownerDocValue())
+	entries := nestedMetaEntries(np, docID)
 
 	enc := func(elemIdx uint32) uint64 { return nested.Encode(elemIdx, docID) }
 	want := []uint64{enc(1), enc(2), enc(3), enc(4)}
@@ -234,60 +258,36 @@ func encAll(enc func(uint32) uint64, elems ...uint32) []uint64 {
 }
 
 // TestNestedFilterableEntries_RealPositions_OwnerDoc pins the
-// nestedFilterableEntries code path through v.Positions (ValueView.Positions field)
-// → PositionsWithDocID with a non-zero Pos. The gating test uses a zero Pos so
-// its Values are always empty; a wrong Pos field would silently emit empty
-// positions and pass the gating test. This test copies the real Pos for
-// "owner.firstname" from AssignPositionsFromSchema so that a wrong Pos would
-// produce wrong, not just empty, Values.
+// nestedFilterableEntries code path through the full production analyze
+// pipeline. It verifies that the Pos field for each filterable value is wired
+// through correctly: a wrong Pos would produce wrong (not just empty) Values,
+// caught by the hand-computed oracle below.
 //
-// Fixture: OwnerDoc (e1=root, e2=owner, e3=nicknames[0], e4=nicknames[1]).
-// owner.firstname "Marsha" carries elementPositions {e1,e2,e3,e4}.
+// Fixture: OwnerDoc with word tokenization (e1=root, e2=owner,
+// e3=nicknames[0], e4=nicknames[1]). With word tokenization ownerDocValue
+// produces 4 filterable entries; owner.firstname "Marsha" → "marsha" carries
+// elementPositions {e1,e2,e3,e4}.
 func TestNestedFilterableEntries_RealPositions_OwnerDoc(t *testing.T) {
 	const docID = uint64(42)
 
-	prop := ownerDocProp()
-	ls, err := nested.BuildSchema(prop)
-	require.NoError(t, err)
-
-	result, err := nested.AssignPositionsFromSchema(ls, prop, ownerDocValue())
-	require.NoError(t, err)
-
-	// Capture the ValueEntry for "owner.firstname" by value to reuse its Pos
-	// when constructing the NestedValue fixture. Pos fields are unexported on
-	// PosRange; copying the whole ValueEntry avoids naming the PosRange type.
-	var firstEntry nested.ValueEntry
-	var found bool
-	for _, ve := range result.Values {
-		if ve.Path == "owner.firstname" {
-			firstEntry = ve
-			found = true
-			break
-		}
-	}
-	require.True(t, found, "owner.firstname ValueEntry not found in assign result")
-
-	np := inverted.NewNestedPropertyForTest("nested", result, []inverted.NestedValue{
-		{Path: "owner.firstname", Data: []byte("marsha"), Pos: firstEntry.Pos, HasFilterableIndex: true},
-	})
-
-	entries := nestedFilterableEntries(*np, docID)
-	require.Len(t, entries, 1)
+	np := analyzeNestedPropForTest(t, ownerDocProp(), ownerDocValue())
+	entries := nestedFilterableEntries(np, docID)
 
 	enc := func(n uint32) uint64 { return nested.Encode(n, docID) }
 
-	// Pipeline-consistency: Values must equal PositionsWithDocID on the same
-	// PosRange that was handed to the builder, not a zero-value fallback.
-	assert.Equal(t,
-		nested.PositionsWithDocID(docID, result.Positions(firstEntry.Pos)...),
-		entries[0].Values,
-		"Values must equal PositionsWithDocID applied to the real PosRange")
+	// ownerDocValue with word tokenization produces 4 filterable entries:
+	// owner.firstname → "marsha", owner.lastname → "mallow",
+	// owner.nicknames → "marshmallow", owner.nicknames → "m".
+	require.Len(t, entries, 4, "word-tokenized ownerDocValue produces 4 filterable entries")
 
-	// Hand-computed oracle: owner.firstname inherits owner's elementPositions
-	// (chain={e1}, self=e2, desc={e3,e4}) → {e1,e2,e3,e4}.
+	// owner.firstname inherits owner's elementPositions (chain={e1}, self=e2,
+	// desc={e3,e4}) → {e1,e2,e3,e4}. Non-zero positions confirm the Pos field
+	// is wired through the full pipeline, not defaulted to a zero-value range.
+	marshEntry := findEntryByKey(entries, nested.ValueKey("owner.firstname", []byte("marsha")))
+	require.NotNil(t, marshEntry, "owner.firstname 'marsha' entry not found")
 	assert.ElementsMatch(t,
 		[]uint64{enc(1), enc(2), enc(3), enc(4)},
-		entries[0].Values,
+		marshEntry.Values,
 		"owner.firstname positions for OwnerDoc are {e1,e2,e3,e4}")
 }
 
@@ -366,13 +366,8 @@ func TestNestedMetaEntries_Doc124Full(t *testing.T) {
 		},
 	}
 
-	ls, err := nested.BuildSchema(prop)
-	require.NoError(t, err)
-	result, err := nested.AssignPositionsFromSchema(ls, prop, value)
-	require.NoError(t, err)
-
-	np := inverted.NewNestedPropertyForTest("nestedObject", result, nil)
-	entries := nestedMetaEntries(*np, docID)
+	np := analyzeNestedPropForTest(t, prop, value)
+	entries := nestedMetaEntries(np, docID)
 
 	enc := func(n uint32) uint64 { return nested.Encode(n, docID) }
 
@@ -521,13 +516,8 @@ func TestNestedMetaEntries_Doc999MultiRoot(t *testing.T) {
 		},
 	}
 
-	ls, err := nested.BuildSchema(prop)
-	require.NoError(t, err)
-	result, err := nested.AssignPositionsFromSchema(ls, prop, value)
-	require.NoError(t, err)
-
-	np := inverted.NewNestedPropertyForTest("nestedArray", result, nil)
-	entries := nestedMetaEntries(*np, docID)
+	np := analyzeNestedPropForTest(t, prop, value)
+	entries := nestedMetaEntries(np, docID)
 
 	enc := func(n uint32) uint64 { return nested.Encode(n, docID) }
 
@@ -581,20 +571,14 @@ func TestNestedMetaEntries_Doc999MultiRoot(t *testing.T) {
 // AnchorKey(p) and ExistsKey(p) are distinct keys that both survive as
 // independently addressable entries in the batch.
 //
-// Fixture: ownerDocProp + ownerDocValue with configs=nil (no per-leaf
-// gating). Expected counts derived from the existing oracle tests:
+// Fixture: ownerDocProp + ownerDocValue (all leaves filterable by default).
+// Expected counts derived from the existing oracle tests:
 // 4 Idx + 5 Exists + 4 Anchors = 13 total batch entries.
 func TestNestedMetaEntries_FamilyCoexistence(t *testing.T) {
 	const docID = uint64(42)
 
-	ls, err := nested.BuildSchema(ownerDocProp())
-	require.NoError(t, err)
-
-	result, err := nested.AssignPositionsFromSchema(ls, ownerDocProp(), ownerDocValue())
-	require.NoError(t, err)
-
-	np := inverted.NewNestedPropertyForTest("nested", result, nil)
-	entries := nestedMetaEntries(*np, docID)
+	np := analyzeNestedPropForTest(t, ownerDocProp(), ownerDocValue())
+	entries := nestedMetaEntries(np, docID)
 
 	// 4 Idx + 5 Exists + 4 Anchors; derived from
 	// TestNestedMetaEntries_IdxPositions_OwnerDoc (4 keys),
@@ -634,14 +618,8 @@ func TestNestedMetaEntries_FamilyCoexistence(t *testing.T) {
 func TestNestedMetaEntries_ValuesNotSharedAliasing(t *testing.T) {
 	const docID = uint64(42)
 
-	ls, err := nested.BuildSchema(ownerDocProp())
-	require.NoError(t, err)
-
-	result, err := nested.AssignPositionsFromSchema(ls, ownerDocProp(), ownerDocValue())
-	require.NoError(t, err)
-
-	np := inverted.NewNestedPropertyForTest("nested", result, nil)
-	entries := nestedMetaEntries(*np, docID)
+	np := analyzeNestedPropForTest(t, ownerDocProp(), ownerDocValue())
+	entries := nestedMetaEntries(np, docID)
 
 	// Both "owner" exists and "owner" anchor entries must be present.
 	anchorEntry := findEntryByKey(entries, nested.AnchorKey("owner"))
@@ -658,84 +636,42 @@ func TestNestedMetaEntries_ValuesNotSharedAliasing(t *testing.T) {
 		"anchor and exists entries at \"owner\" share a backing array")
 }
 
-// TestNestedMetaEntries_GuardInvariants pins two properties of the predicate
-// dispatch:
-//
-// (a) A non-nil NestedProperty from AssignPositionsFromSchema always has
-// HasMetaEntries()==true, and nestedMetaEntries returns a non-empty batch.
-// The root sentinel (ExistsEntry at Path="") is always appended by the walker,
-// so no non-nil result can be meta-empty.
-//
-// (b) a NestedProperty constructed with an AssignResult that has only Anchors
-// (no Idx or Exists entries) still reports HasMetaEntries()==true, and
-// nestedMetaEntries produces entries for those Anchors — confirming that the
-// predicate guards do not short-circuit around anchor-only batches.
+// TestNestedMetaEntries_GuardInvariants pins the HasMetaEntries predicate for
+// a NestedProperty produced by the real analyze path. A non-nil result always
+// has HasMetaEntries()==true because the walker always emits at least one
+// ExistsEntry (the root sentinel at Path=""). The Anchors branch of
+// HasMetaEntries is pinned separately by
+// TestNestedProperty_HasMetaEntries_AnchorOnly in package inverted.
 func TestNestedMetaEntries_GuardInvariants(t *testing.T) {
 	t.Run("non_nil_np_always_has_meta", func(t *testing.T) {
-		ls, err := nested.BuildSchema(ownerDocProp())
-		require.NoError(t, err)
-
-		result, err := nested.AssignPositionsFromSchema(ls, ownerDocProp(), ownerDocValue())
-		require.NoError(t, err)
-
-		np := inverted.NewNestedPropertyForTest("nested", result, nil)
+		np := analyzeNestedPropForTest(t, ownerDocProp(), ownerDocValue())
 
 		assert.True(t, np.HasMetaEntries(), "non-nil NestedProperty must have meta entries")
-		entries := nestedMetaEntries(*np, 1)
+		entries := nestedMetaEntries(np, 1)
 		assert.NotEmpty(t, entries, "nestedMetaEntries must return a non-empty batch for non-nil np")
-	})
-
-	t.Run("anchors_only_result_is_non_empty", func(t *testing.T) {
-		// Construct a minimal AssignResult with one Anchor entry and no Idx/Exists
-		// entries. Keyed struct literal; posArena stays nil because AnchorEntries
-		// carry a scalar Position that nestedMetaEntries encodes directly without
-		// calling Positions(). NewNestedPropertyForTest sets configs=nil so the
-		// Anchors gate always passes.
-		result := &nested.AssignResult{
-			Anchors: []nested.AnchorEntry{
-				{Path: "addresses", Position: nested.ElemIdx(4)},
-			},
-		}
-
-		np := inverted.NewNestedPropertyForTest("nested", result, nil)
-
-		assert.True(t, np.HasMetaEntries(), "Anchors-only AssignResult must report HasMetaEntries=true")
-		entries := nestedMetaEntries(*np, 7)
-		require.Len(t, entries, 1, "one Anchor entry → one batch entry")
-		assert.Equal(t, nested.AnchorKey("addresses"), []byte(entries[0].Key))
 	})
 }
 
 // TestNestedFilterableEntries_Gating verifies that nestedFilterableEntries
 // skips Values whose HasFilterableIndex is false, while nestedMetaEntries
 // still emits the Idx entry for that path (Idx is always ungated).
+// ownerDocPropGated marks nicknames and lastname non-filterable at the schema
+// level so the gating distinction comes from the real analyze path.
 func TestNestedFilterableEntries_Gating(t *testing.T) {
 	const docID = uint64(7)
 
-	prop := ownerDocProp()
-	ls, err := nested.BuildSchema(prop)
-	require.NoError(t, err)
+	np := analyzeNestedPropForTest(t, ownerDocPropGated(), ownerDocValue())
 
-	result, err := nested.AssignPositionsFromSchema(ls, prop, ownerDocValue())
-	require.NoError(t, err)
-
-	// Build Values with firstname filterable and nicknames non-filterable.
-	// PosRange is zero (posArena[0:0] = empty slice) — the key oracle is about
-	// presence/absence of keys, not position values.
-	np := inverted.NewNestedPropertyForTest("nested", result, []inverted.NestedValue{
-		{Path: "owner.firstname", Data: []byte("marsha"), HasFilterableIndex: true},
-		{Path: "owner.nicknames", Data: []byte("marshmallow"), HasFilterableIndex: false},
-	})
-
-	// Filterable entries: only firstname should appear.
-	fEntries := nestedFilterableEntries(*np, docID)
+	// Filterable entries: only firstname should appear (lastname and nicknames
+	// are marked non-filterable in ownerDocPropGated).
+	fEntries := nestedFilterableEntries(np, docID)
 	require.Len(t, fEntries, 1)
 	assert.Equal(t,
 		nested.ValueKey("owner.firstname", []byte("marsha")),
 		[]byte(fEntries[0].Key))
 
 	// Meta entries: Idx for owner.nicknames must still be present (Idx is ungated).
-	mEntries := nestedMetaEntries(*np, docID)
+	mEntries := nestedMetaEntries(np, docID)
 	nick0Key := nested.IdxKey("owner.nicknames", 0)
 	nick1Key := nested.IdxKey("owner.nicknames", 1)
 	assert.NotEmpty(t, allValuesForKey(mEntries, nick0Key),

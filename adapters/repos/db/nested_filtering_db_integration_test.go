@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
-	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nestedlegacy"
 	"github.com/weaviate/weaviate/entities/additional"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -61,7 +60,6 @@ func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 //     doc998 = [doc123Data] (one root), doc999 = [doc124Data, doc125Data]
 //     (two roots) — verifies object[] behaves identically to object.
 func TestNestedFilteringViaShardWritePath(t *testing.T) {
-	t.Skip("nested filtering read path pending nested2 encoding migration")
 	const nestedClass = "Article"
 	vTrue := true
 
@@ -642,26 +640,29 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			require.NoError(t, db.PutObject(ctx, &docs[i], nil, nil, nil, nil, 0))
 		}
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{
-				ClassName:  nestedClass,
-				Pagination: &filters.Pagination{Limit: 100},
-				Filters:    f,
-			})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{
+					ClassName:  nestedClass,
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    f,
+				})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesObjectAdd, search(t, tc.filter("nestedObject")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesObjectAdd, search(t, tc.filter("nestedObject")))
+				})
+			}
+		})
 	})
 
 	// Both doc998 and doc999 use nestedArray: object[].
@@ -690,26 +691,29 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			require.NoError(t, db.PutObject(ctx, &docs[i], nil, nil, nil, nil, 0))
 		}
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{
-				ClassName:  nestedClass,
-				Pagination: &filters.Pagination{Limit: 100},
-				Filters:    f,
-			})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{
+					ClassName:  nestedClass,
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    f,
+				})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesArrayAdd, search(t, tc.filter("nestedArray")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesArrayAdd, search(t, tc.filter("nestedArray")))
+				})
+			}
+		})
 	})
 
 	// After deleting doc123, all filters that previously matched it must now
@@ -739,22 +743,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 
 		assertNoGhostEntries(t, db, nestedClass, "nestedObject", deletedDocID)
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesObjectDel, search(t, tc.filter("nestedObject")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesObjectDel, search(t, tc.filter("nestedObject")))
+				})
+			}
+		})
 	})
 
 	// After deleting doc998, filters must return only doc999 — verifying the
@@ -782,22 +789,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 
 		assertNoGhostEntries(t, db, nestedClass, "nestedArray", deletedDocID)
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesArrayDel, search(t, tc.filter("nestedArray")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesArrayDel, search(t, tc.filter("nestedArray")))
+				})
+			}
+		})
 	})
 
 	// Update test: id201 is written with doc123Data, id200 with doc124Data, then
@@ -824,22 +834,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 		// Update id201: replace doc123Data with doc125Data.
 		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id201, Properties: map[string]any{"nestedObject": doc125Data}}, nil, nil, nil, nil, 0))
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesObjectUpd, search(t, tc.filter("nestedObject")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesObjectUpd, search(t, tc.filter("nestedObject")))
+				})
+			}
+		})
 	})
 
 	// Update test for the array type: id300 is written with [doc123Data] (same
@@ -864,22 +877,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 		// Update id300: replace with [doc124Data, doc125Data] (doc999 equivalent).
 		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id300, Properties: map[string]any{"nestedArray": []any{doc124Data, doc125Data}}}, nil, nil, nil, nil, 0))
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesArrayUpd, search(t, tc.filter("nestedArray")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesArrayUpd, search(t, tc.filter("nestedArray")))
+				})
+			}
+		})
 	})
 
 	// Update test with vector change (object type): using a different vector forces
@@ -912,22 +928,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 
 		assertNoGhostEntries(t, db, nestedClass, "nestedObject", oldDocID)
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesObjectUpd, search(t, tc.filter("nestedObject")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesObjectUpd, search(t, tc.filter("nestedObject")))
+				})
+			}
+		})
 	})
 
 	// Update test with vector change (array type): same rationale as the object
@@ -955,22 +974,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 
 		assertNoGhostEntries(t, db, nestedClass, "nestedArray", oldDocID)
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesArrayUpd, search(t, tc.filter("nestedArray")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesArrayUpd, search(t, tc.filter("nestedArray")))
+				})
+			}
+		})
 	})
 
 	makeBatch := func(objs ...models.Object) objects.BatchObjects {
@@ -1010,22 +1032,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			models.Object{Class: nestedClass, ID: id125, Properties: map[string]any{"nestedObject": doc125Data}},
 		))
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesObjectAdd, search(t, tc.filter("nestedObject")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesObjectAdd, search(t, tc.filter("nestedObject")))
+				})
+			}
+		})
 	})
 
 	t.Run("batch write doc998/999 array type", func(t *testing.T) {
@@ -1044,22 +1069,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			models.Object{Class: nestedClass, ID: id999, Properties: map[string]any{"nestedArray": []any{doc124Data, doc125Data}}},
 		))
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesArrayAdd, search(t, tc.filter("nestedArray")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesArrayAdd, search(t, tc.filter("nestedArray")))
+				})
+			}
+		})
 	})
 
 	// Batch update: a second BatchPutObjects call with the same UUID overwrites
@@ -1084,22 +1112,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			models.Object{Class: nestedClass, ID: id201, Properties: map[string]any{"nestedObject": doc125Data}},
 		))
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesObjectUpd, search(t, tc.filter("nestedObject")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesObjectUpd, search(t, tc.filter("nestedObject")))
+				})
+			}
+		})
 	})
 
 	t.Run("batch update doc998→doc999 array type", func(t *testing.T) {
@@ -1120,22 +1151,25 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			models.Object{Class: nestedClass, ID: id300, Properties: map[string]any{"nestedArray": []any{doc124Data, doc125Data}}},
 		))
 
-		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
-			t.Helper()
-			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
-			require.NoError(t, err)
-			ids := make([]strfmt.UUID, len(res))
-			for i, r := range res {
-				ids[i] = r.ID
+		t.Run("filter", func(t *testing.T) {
+			t.Skip("nested filtering read path pending nested2 encoding migration")
+			search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					ids[i] = r.ID
+				}
+				return ids
 			}
-			return ids
-		}
 
-		for _, tc := range filterCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.ElementsMatch(t, tc.matchesArrayUpd, search(t, tc.filter("nestedArray")))
-			})
-		}
+			for _, tc := range filterCases {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.ElementsMatch(t, tc.matchesArrayUpd, search(t, tc.filter("nestedArray")))
+				})
+			}
+		})
 	})
 }
 
@@ -1186,7 +1220,7 @@ func assertNoGhostEntries(t *testing.T, db *DB, className, propName string, dele
 				defer c.Close()
 				for k, bm := c.First(); k != nil; k, bm = c.Next() {
 					for _, pos := range bm.ToArray() {
-						if invnested.DecodeDocID(pos) == deletedDocID {
+						if nested.DecodeDocID(pos) == deletedDocID {
 							t.Errorf("ghost entry in bucket %q: position %d references deleted docID %d",
 								bucketName, pos, deletedDocID)
 						}

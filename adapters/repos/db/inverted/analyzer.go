@@ -47,8 +47,8 @@ type NilProperty struct {
 	AddToPropertyLength bool
 }
 
-// NestedValue is one analyzed term from a nested value leaf in the v2
-// pipeline. Pos refers into the owning NestedProperty's posArena (via
+// NestedValue is one analyzed term from a nested value leaf. Pos refers into
+// the owning NestedProperty's posArena (via
 // NestedProperty.Positions); the arena must outlive the bucket-write that
 // expands it via nested.PositionsWithDocID.
 type NestedValue struct {
@@ -220,7 +220,7 @@ func (np *NestedProperty) HasMetaEntries() bool {
 	return len(np.result.Idx) > 0 || len(np.result.Exists) > 0 || len(np.result.Anchors) > 0
 }
 
-// HasSearchableEntries always returns false. The v2 path writes only
+// HasSearchableEntries always returns false. Nested property writes cover only
 // filterable and meta buckets; searchable bucket support is a future addition.
 // This method exists so the write-path predicate surface is stable: adding
 // searchable support changes only this method body, not any call sites.

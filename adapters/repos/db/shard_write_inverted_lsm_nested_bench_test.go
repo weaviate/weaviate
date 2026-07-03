@@ -15,37 +15,30 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// BenchmarkNestedMetaEntries2_Flat measures the write-path pipeline for a flat
-// document (10 scalar properties + 1 scalar array with 5 elements):
-// AssignPositionsFromSchema → nestedMetaEntries. The schema is built once
-// before the timer so only the per-call cost is measured.
-//
-// Note: the intended pipeline is analyzeNestedProp → nestedMetaEntries, but
-// analyzeNestedProp is unexported on *inverted.Analyzer and cannot be called
-// from this package. AssignPositionsFromSchema is the allocation-heavy inner
-// step that analyzeNestedProp delegates to, so this approximation captures
-// the same yield-closure heap-allocation signal.
+// BenchmarkNestedMetaEntries2_Flat measures the full production write-path
+// pipeline for a flat document (10 scalar text properties + 1 text array with
+// 5 elements): Analyzer.Object → nestedMetaEntries. The analyzer and prop
+// slice are built once before the timer so only the per-call cost is measured.
 func BenchmarkNestedMetaEntries2_Flat(b *testing.B) {
 	prop := &models.Property{
 		Name:     "obj",
 		DataType: []string{string(schema.DataTypeObject)},
 		NestedProperties: []*models.NestedProperty{
-			{Name: "f1", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f2", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f3", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f4", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f5", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f6", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f7", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f8", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f9", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "f10", DataType: []string{string(schema.DataTypeText)}},
-			{Name: "tags", DataType: []string{string(schema.DataTypeTextArray)}},
+			{Name: "f1", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f2", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f3", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f4", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f5", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f6", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f7", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f8", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f9", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "f10", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+			{Name: "tags", DataType: []string{string(schema.DataTypeTextArray)}, Tokenization: models.NestedPropertyTokenizationWord},
 		},
 	}
 	value := map[string]any{
@@ -62,29 +55,28 @@ func BenchmarkNestedMetaEntries2_Flat(b *testing.B) {
 		"tags": []any{"a", "b", "c", "d", "e"},
 	}
 
-	ls, err := nested.BuildSchema(prop)
-	if err != nil {
-		b.Fatal(err)
-	}
+	a := inverted.NewAnalyzer(nil, "")
+	propSlice := []*models.Property{prop}
+	input := map[string]any{prop.Name: value}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result, err := nested.AssignPositionsFromSchema(ls, prop, value)
+		_, nestedProps, err := a.Object(input, propSlice, "00000000-0000-0000-0000-000000000001")
 		if err != nil {
 			b.Fatal(err)
 		}
-		np := inverted.NewNestedPropertyForTest("obj", result, nil)
-		_ = nestedMetaEntries(*np, 1)
+		if len(nestedProps) != 1 {
+			b.Fatalf("expected 1 nested prop, got %d", len(nestedProps))
+		}
+		_ = nestedMetaEntries(nestedProps[0], 1)
 	}
 }
 
-// BenchmarkNestedMetaEntries2_Deep measures the write-path pipeline for a deep
-// 3-level nested document (10 countries × 5 garages × 20 cars): same pipeline
-// as BenchmarkNestedMetaEntries2_Flat (AssignPositionsFromSchema → nestedMetaEntries).
-// analyzeNestedProp is unexported; see BenchmarkNestedMetaEntries2_Flat for the
-// deviation rationale. Document is large enough that per-element closure
-// heap-allocations produce a clearly visible allocs/op increase.
+// BenchmarkNestedMetaEntries2_Deep measures the full production write-path
+// pipeline for a deep 3-level nested document (10 countries × 5 garages ×
+// 20 cars): Analyzer.Object → nestedMetaEntries. Document is large enough
+// that per-element allocation costs produce a clearly visible allocs/op signal.
 func BenchmarkNestedMetaEntries2_Deep(b *testing.B) {
 	prop := &models.Property{
 		Name:     "countries",
@@ -98,10 +90,10 @@ func BenchmarkNestedMetaEntries2_Deep(b *testing.B) {
 						Name:     "cars",
 						DataType: []string{string(schema.DataTypeObjectArray)},
 						NestedProperties: []*models.NestedProperty{
-							{Name: "make", DataType: []string{string(schema.DataTypeText)}},
-							{Name: "model", DataType: []string{string(schema.DataTypeText)}},
-							{Name: "color", DataType: []string{string(schema.DataTypeText)}},
-							{Name: "features", DataType: []string{string(schema.DataTypeTextArray)}},
+							{Name: "make", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+							{Name: "model", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+							{Name: "color", DataType: []string{string(schema.DataTypeText)}, Tokenization: models.NestedPropertyTokenizationWord},
+							{Name: "features", DataType: []string{string(schema.DataTypeTextArray)}, Tokenization: models.NestedPropertyTokenizationWord},
 						},
 					},
 				},
@@ -130,19 +122,20 @@ func BenchmarkNestedMetaEntries2_Deep(b *testing.B) {
 		countries[i] = country
 	}
 
-	ls, err := nested.BuildSchema(prop)
-	if err != nil {
-		b.Fatal(err)
-	}
+	a := inverted.NewAnalyzer(nil, "")
+	propSlice := []*models.Property{prop}
+	input := map[string]any{prop.Name: countries}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result, err := nested.AssignPositionsFromSchema(ls, prop, countries)
+		_, nestedProps, err := a.Object(input, propSlice, "00000000-0000-0000-0000-000000000001")
 		if err != nil {
 			b.Fatal(err)
 		}
-		np := inverted.NewNestedPropertyForTest("countries", result, nil)
-		_ = nestedMetaEntries(*np, 1)
+		if len(nestedProps) != 1 {
+			b.Fatalf("expected 1 nested prop, got %d", len(nestedProps))
+		}
+		_ = nestedMetaEntries(nestedProps[0], 1)
 	}
 }

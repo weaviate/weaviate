@@ -28,7 +28,7 @@ func (s *Shard) deleteNestedInvertedIndicesLSM(nestedProps []inverted.NestedProp
 			}
 		}
 		// HasSearchableEntries() and HasRangeableEntries() return false today;
-		// their branches are inert until v2 adds those bucket types.
+		// their branches are inert until nested searchable/rangeable bucket types are implemented.
 		if np.HasMetaEntries() {
 			if err := s.deleteNestedMetaIndex(np, docID); err != nil {
 				return err
@@ -68,7 +68,7 @@ func (s *Shard) extendNestedInvertedIndicesLSM(nestedProps []inverted.NestedProp
 			}
 		}
 		// HasSearchableEntries() and HasRangeableEntries() return false today;
-		// their branches are inert until v2 adds those bucket types.
+		// their branches are inert until nested searchable/rangeable bucket types are implemented.
 		if np.HasMetaEntries() {
 			if err := s.extendNestedMetaIndex(np, docID); err != nil {
 				return err

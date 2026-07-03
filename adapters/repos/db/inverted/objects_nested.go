@@ -112,12 +112,12 @@ func collectNestedIndexConfig(prefix string, props []*models.NestedProperty) map
 	return configs
 }
 
-// analyzeNestedProp is the v2 counterpart to analyzeNestedProp. It calls
-// nested.AssignPositionsFromSchema (which requires a pre-built LevelSchema)
-// and builds a NestedProperty whose Values hold PosRange references into the
-// posArena rather than materialised []uint64 positions.
+// analyzeNestedProp calls nested.AssignPositionsFromSchema (which requires a
+// pre-built LevelSchema) and builds a NestedProperty whose Values hold
+// PosRange references into the posArena rather than materialised []uint64
+// positions.
 //
-// Gating is identical to the v1 path:
+// Gating:
 //   - Values: gated at analyze time; entries with !cfg.hasAny() are dropped.
 //   - Idx: ungated; all Result.Idx entries are read by the bucket-builder.
 //   - Exists/Anchors: gated at build time via the iterator methods on
@@ -193,7 +193,7 @@ func (a *Analyzer) analyzeNestedProp(
 // analyzeNestedValue converts a raw nested.ValueEntry into one or more
 // NestedValue entries with analyzed byte representations. Text values
 // may produce multiple entries (one per token); all entries carry the same Pos
-// — a 2×uint32 copy per entry, semantically identical to the v1 path's alias.
+// — each is a 2×uint32 copy of the position range from the owner ValueEntry.
 func (a *Analyzer) analyzeNestedValue(ve nested.ValueEntry, cfg nestedIndexConfig) ([]NestedValue, error) {
 	// TODO aliszka:nested_filtering verify whether ve.PropName (leaf nested
 	// property name, e.g. "city") is the correct identifier for the text analyzer
