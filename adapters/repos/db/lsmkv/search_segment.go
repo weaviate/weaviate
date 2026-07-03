@@ -244,14 +244,14 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 			results[nextList].AdvanceAtLeast(next)
 
-			// Full pass, not reinsertRight: AdvanceAtLeastShallow above de-sorts the
-			// whole prefix, not just nextList; repairing one element hangs long queries.
-			for i := nextList + 1; i < len(results); i++ {
-				if results[i].idPointer < results[i-1].idPointer {
-					results[i], results[i-1] = results[i-1], results[i]
-				} else if results[i].exhausted && i < len(results)-1 {
-					results[i], results[i+1] = results[i+1], results[i]
-				}
+			// A shallow advance in the upper-bound loop (needFullSort) can de-sort the
+			// whole prefix, not just nextList; the full sort repairs it and keeps long
+			// many-term queries (many terms sharing the pivot) from spinning forever.
+			if needFullSort {
+				results.sortByID()
+				needFullSort = false
+			} else {
+				results.reinsertRight(nextList)
 			}
 
 		}

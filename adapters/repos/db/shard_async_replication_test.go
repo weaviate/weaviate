@@ -200,7 +200,8 @@ func (s *Shard) propagateWithinRangeForTest(t *testing.T, ctx context.Context,
 	t.Helper()
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
 	defer cursor.Close()
-	return s.objectsToPropagateWithinRange(ctx, cfg, cursor, addr, node, initialLeaf, finalLeaf, limit, overrides, asyncCheckpointCutoff)
+	scratch := newPropagationScratch(cfg.diffBatchSize)
+	return s.objectsToPropagateWithinRange(ctx, cfg, cursor, scratch, addr, node, initialLeaf, finalLeaf, limit, overrides, asyncCheckpointCutoff)
 }
 
 // ─── objectsToPropagateWithinRange ───────────────────────────────────────────
@@ -390,6 +391,33 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		assert.Contains(t, err.Error(), "simulated rpc unavailable",
 			"original error must be preserved via %w wrapping")
 		assert.Empty(t, objs, "no objects must be queued when CompareDigests fails")
+		_ = idx
+	})
+
+	// ScratchReusedAcrossRanges guards the per-beat buffer reuse: a second call on the same scratch must not leak the first's queued objects.
+	t.Run("ScratchReusedAcrossRanges", func(t *testing.T) {
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{}))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
+
+		s := concreteShard(t, sl)
+		require.NoError(t, s.store.FlushMemtables(ctx))
+		cfg := fullRangeConfig(100)
+
+		cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+		defer cursor.Close()
+		scratch := newPropagationScratch(cfg.diffBatchSize)
+
+		local1, objs1, err := s.objectsToPropagateWithinRange(ctx, cfg, cursor, scratch, "http://fake", "node2", 0, 1, 100, nil, 0)
+		require.NoError(t, err)
+		require.Len(t, objs1, 2)
+		want := []strfmt.UUID{objs1[0].uuid, objs1[1].uuid}
+
+		local2, objs2, err := s.objectsToPropagateWithinRange(ctx, cfg, cursor, scratch, "http://fake", "node2", 0, 1, 100, nil, 0)
+		require.NoError(t, err)
+		require.Len(t, objs2, 2, "reused scratch must not leak the prior range's queued objects")
+		assert.Equal(t, local1, local2)
+		assert.Equal(t, want, []strfmt.UUID{objs2[0].uuid, objs2[1].uuid})
 		_ = idx
 	})
 }

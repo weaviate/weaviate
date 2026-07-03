@@ -285,6 +285,13 @@ var (
 	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
 	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
 	usersPrefix              = authorization.UsersDomain + "/"
+
+	// Operator-only domain prefixes; see operatorOnlyResource.
+	backupsPrefix    = authorization.BackupsDomain + "/"
+	nodesPrefix      = authorization.NodesDomain + "/"
+	replicatePrefix  = authorization.ReplicateDomain + "/"
+	clusterPrefix    = authorization.ClusterDomain + "/"
+	namespacesPrefix = authorization.NamespacesDomain + "/"
 )
 
 const (
@@ -398,6 +405,19 @@ func globalCallerNeedsNoWidening(reqObj string) bool {
 	return strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) < 0
 }
 
+// operatorOnlyResource reports whether path addresses an operator-only domain
+// (backups, nodes, replicate, cluster, namespaces). A namespaced caller is
+// denied these regardless of any role granting them. roles and groups are
+// excluded: their resources are namespace-bearing via qualified names, so a
+// blanket prefix-deny would be wrong for them.
+func operatorOnlyResource(path string) bool {
+	return strings.HasPrefix(path, backupsPrefix) ||
+		strings.HasPrefix(path, nodesPrefix) ||
+		strings.HasPrefix(path, replicatePrefix) ||
+		strings.HasPrefix(path, clusterPrefix) ||
+		strings.HasPrefix(path, namespacesPrefix)
+}
+
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
 // KeyMatch5: a collection-level request must not match a per-tenant policy.
 func weaviateKeyMatch(reqObj, polObj string) bool {
@@ -417,7 +437,15 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 //     widen with anyNamespacePattern; qualified segments stay fixed.
 //   - ns == "" with an unqualified request, a users/<id> resource, or a
 //     non-namespaceable shape: no rewrite.
+//
+// Namespaced callers are denied the operator-only domains (backups, nodes,
+// replicate, cluster, namespaces) outright.
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
+	// Namespaced callers have no access to operator-only domains, whatever the policy.
+	if ns != "" && operatorOnlyResource(reqObj) {
+		return false
+	}
+
 	// Trivial passthrough (see globalCallerNeedsNoWidening). Only
 	// collection/data/aliases segments treat ':' as a namespace boundary.
 	if ns == "" && globalCallerNeedsNoWidening(reqObj) {
