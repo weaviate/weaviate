@@ -22,6 +22,7 @@ Weaviate offers multiple installation and deployment options:
 - [Docker](https://docs.weaviate.io/deploy/installation-guides/docker-installation)
 - [Kubernetes](https://docs.weaviate.io/deploy/installation-guides/k8s-installation)
 - [Weaviate Cloud](https://console.weaviate.cloud)
+- [Zenith](https://zenith.hosting/host/weaviate?ref=gh)
 
 See the [installation docs](https://docs.weaviate.io/deploy) for more deployment options, such as [AWS](https://docs.weaviate.io/deploy/installation-guides/aws-marketplace) and [GCP](https://docs.weaviate.io/deploy/installation-guides/gcp-marketplace).
 
