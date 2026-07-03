@@ -194,6 +194,14 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 	return index.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
+func (db *DB) CompareHashTreeRoots(ctx context.Context, className string, roots map[string]hashtree.Digest) ([]string, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.CompareHashTreeRoots(ctx, roots)
+}
+
 func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
 	index, pr := db.replicatedIndex(indexName)
 	if pr != nil {
@@ -955,6 +963,40 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+// CompareHashTreeRoots returns the subset of the requested shards whose local
+// hashtree root differs from the provided one. A shard is reported diverging if
+// it is missing locally, not fully initialised, or its root differs — so the
+// source never wrongly skips a shard. GetShard uses ensureInit=false, so cold
+// shards are not force-loaded (they surface as diverging).
+func (i *Index) CompareHashTreeRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	diverging := make([]string, 0, len(roots))
+	for shardName, sourceRoot := range roots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		localRoot, ok := func() (hashtree.Digest, bool) {
+			shard, release, err := i.GetShard(ctx, shardName)
+			if err != nil || shard == nil {
+				return hashtree.Digest{}, false
+			}
+			defer release()
+			return shard.HashTreeRoot()
+		}()
+		if !ok || localRoot != sourceRoot {
+			diverging = append(diverging, shardName)
+		}
+	}
+	return diverging, nil
+}
+
+func (i *Index) IncomingCompareHashTreeRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return i.CompareHashTreeRoots(ctx, roots)
 }
 
 func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error) {

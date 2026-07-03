@@ -1253,6 +1253,21 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	return digests[:n], nil
 }
 
+// HashTreeRoot returns the shard's async-replication hashtree root digest. ok is
+// false when the hashtree is not yet fully initialised; callers treat that as
+// "diverging" so the full per-shard path resolves it. The root is computed the
+// same way as HashTreeLevel(level=0), so batched equality matches the level-0
+// compare bit-for-bit.
+func (s *Shard) HashTreeRoot() (root hashtree.Digest, ok bool) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if !s.hashtreeFullyInitialized {
+		return hashtree.Digest{}, false
+	}
+	return s.hashtree.Root(), true
+}
+
 // runHashbeatCycle runs one full hashbeat cycle and is called by a scheduler
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).

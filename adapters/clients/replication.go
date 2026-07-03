@@ -328,6 +328,45 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	return result, err
 }
 
+func (c *replicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	body, err := json.Marshal(replica.CompareHashTreeRootsReq{Roots: roots})
+	if err != nil {
+		return nil, fmt.Errorf("marshal compare hashtree roots request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
+	defer cancel()
+
+	req, err := newHttpReplicaIndexRequest(ctx, http.MethodPost, host, index,
+		"_compareHashTreeRoots", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusNotFound {
+		// Older peers don't expose this route; fall back to the per-shard path.
+		return nil, replica.ErrCompareHashTreeRootsUnsupported
+	}
+	if code := res.StatusCode; !successCode(code) {
+		errBody, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
+	}
+
+	var resp replica.CompareHashTreeRootsResp
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode compare hashtree roots response: %w", err)
+	}
+	return resp.DivergingShards, nil
+}
+
 func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
 	var resp int
 	req, err := newHttpReplicaRequest(
@@ -597,6 +636,17 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 	}
 	u.RawQuery = urlValues.Encode()
 
+	return http.NewRequestWithContext(ctx, method, u.String(), body)
+}
+
+// newHttpReplicaIndexRequest builds an index-level (shard-less) replica request,
+// e.g. the batched CompareHashTreeRoots pre-filter.
+func newHttpReplicaIndexRequest(ctx context.Context, method, host, index, suffix string, body io.Reader) (*http.Request, error) {
+	u := url.URL{
+		Scheme: "http",
+		Host:   host,
+		Path:   fmt.Sprintf("/replicas/indices/%s/objects/%s", index, suffix),
+	}
 	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }
 

@@ -12,15 +12,20 @@
 package grpc
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -72,5 +77,49 @@ func TestLocalIndexNotReady(t *testing.T) {
 			},
 		}
 		assert.True(t, shared.LocalIndexNotReady(resp))
+	})
+}
+
+func TestCompareHashTreeRootsRoundTrip(t *testing.T) {
+	const index = "MyClass"
+
+	t.Run("converts proto to map and returns diverging shards", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		mockReplicator.EXPECT().
+			CompareHashTreeRoots(mock.Anything, index, map[string]hashtree.Digest{
+				"shard-a": {1, 2},
+				"shard-b": {3, 4},
+			}).
+			Return([]string{"shard-b"}, nil)
+
+		resp, err := svc.CompareHashTreeRoots(context.Background(), &pb.CompareHashTreeRootsRequest{
+			Index: index,
+			Shards: []*pb.ShardRootDigest{
+				{Shard: "shard-a", RootH1: 1, RootH2: 2},
+				{Shard: "shard-b", RootH1: 3, RootH2: 4},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"shard-b"}, resp.GetDivergingShards())
+	})
+
+	t.Run("propagates replicator error as gRPC error", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		mockReplicator.EXPECT().
+			CompareHashTreeRoots(mock.Anything, index, mock.Anything).
+			Return(nil, errors.New("boom"))
+
+		_, err := svc.CompareHashTreeRoots(context.Background(), &pb.CompareHashTreeRootsRequest{
+			Index:  index,
+			Shards: []*pb.ShardRootDigest{{Shard: "shard-a", RootH1: 1, RootH2: 2}},
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Internal, st.Code())
 	})
 }

@@ -15,6 +15,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1584,3 +1586,225 @@ func TestSchedulerClose_BoundedAndCancelsContextsWhenShardsStillRegistered(t *te
 
 // durationPtr is a helper that returns a pointer to a time.Duration value.
 func durationPtr(d time.Duration) *time.Duration { return &d }
+
+// newBareScheduler builds a scheduler struct without starting any goroutines, so
+// dispatchDueLocked/effectiveBatchSize can be exercised deterministically.
+func newBareScheduler(mt, st, workChCap int) *AsyncReplicationScheduler {
+	s := &AsyncReplicationScheduler{
+		entries:                  make(map[*Shard]*asyncSchedulerEntry),
+		dispatchBuckets:          make(map[*Index][]*asyncSchedulerEntry),
+		workCh:                   make(chan *[]*asyncSchedulerEntry, workChCap),
+		asyncReplicationDisabled: configRuntime.NewDynamicValue(false),
+		rootPrefilterBatchSizeMT: configRuntime.NewDynamicValue(mt),
+		rootPrefilterBatchSizeST: configRuntime.NewDynamicValue(st),
+		logger:                   logrus.New(),
+	}
+	s.batchPool.New = func() any {
+		b := make([]*asyncSchedulerEntry, 0, 64)
+		return &b
+	}
+	heap.Init(&s.h)
+	return s
+}
+
+func drainBatchSizes(ch chan *[]*asyncSchedulerEntry) []int {
+	var sizes []int
+	for {
+		select {
+		case bp := <-ch:
+			sizes = append(sizes, len(*bp))
+		default:
+			return sizes
+		}
+	}
+}
+
+// TestRunBatchEmitsOneResultPerEntry verifies that every entry in a multi-entry
+// batch produces exactly one result via runEntry — the invariant that keeps
+// asyncRepWg balanced (runEntry alone owns each entry's Done()+result).
+func TestRunBatchEmitsOneResultPerEntry(t *testing.T) {
+	sched := newBareScheduler(512, 512, 1)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+	entries := make([]*asyncSchedulerEntry, 3)
+	for i := range entries {
+		s := &Shard{class: &models.Class{Class: "C"}}
+		s.asyncRepWg.Add(1)
+		entries[i] = &asyncSchedulerEntry{shard: s}
+	}
+
+	sched.runBatch(&entries, newBatchScratch())
+
+	got := map[*asyncSchedulerEntry]int{}
+	for range entries {
+		select {
+		case r := <-sched.resultCh:
+			got[r.entry]++
+		case <-time.After(time.Second):
+			t.Fatal("missing result for a batch entry")
+		}
+	}
+	for _, e := range entries {
+		assert.Equal(t, 1, got[e], "each entry must yield exactly one result")
+		e.shard.asyncRepWg.Wait()
+	}
+}
+
+// TestAsyncSchedulerConcurrentBatchedDispatch drives the real scheduler's
+// multi-entry batched path (coalesce → pooled hand-off → runBatch → per-entry
+// runEntry, plus rollback and shutdown drain) while Register/Deregister race
+// against Close. Shards share one MT index so due entries coalesce into batches
+// of >1; uninitialised hashtrees keep classifyBatch from issuing RPCs. Run under
+// -race, it guards the §concurrency-safety invariants: no data race on the batch
+// machinery, no deadlock, and balanced asyncRepWg on every path.
+func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:         configRuntime.NewDynamicValue(4),
+		AsyncReplicationDisabled:                 configRuntime.NewDynamicValue(false),
+		AsyncReplicationRootPrefilterBatchSizeMT: configRuntime.NewDynamicValue(3),
+	}, nil, logger)
+	require.NoError(t, err)
+
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	shards := make([]*Shard, 30)
+	for i := range shards {
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%02d", i)}
+	}
+
+	var wg sync.WaitGroup
+	for _, s := range shards {
+		s := s
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = sched.Register(s)
+			time.Sleep(5 * time.Millisecond)
+			_ = sched.Deregister(s)
+		}()
+	}
+
+	time.Sleep(8 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		sched.Close()
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("scheduler did not terminate — possible deadlock in batched dispatch")
+	}
+
+	for _, s := range shards {
+		s.asyncRepWg.Wait()
+	}
+}
+
+// TestClassifyBatchExcludesIneligible verifies that shards with active
+// target-node overrides or an uninitialised hashtree are excluded from the
+// batched pre-filter (no RPC issued) and default to a full descent.
+func TestClassifyBatchExcludesIneligible(t *testing.T) {
+	sched := newBareScheduler(512, 512, 1)
+	sched.ctx = context.Background()
+
+	override := &Shard{class: &models.Class{Class: "C"}}
+	override.targetNodeOverrides = additional.AsyncReplicationTargetNodeOverrides{{TargetNode: "n2"}}
+	uninit := &Shard{class: &models.Class{Class: "C"}}
+
+	batch := []*asyncSchedulerEntry{{shard: override}, {shard: uninit}}
+	scratch := newBatchScratch()
+
+	sched.classifyBatch(batch, scratch)
+
+	assert.Empty(t, scratch.roots, "no eligible shard ⇒ no roots collected")
+	assert.Empty(t, scratch.eligible)
+	for _, e := range batch {
+		assert.False(t, scratch.skip[e], "ineligible shards must take the full descent")
+	}
+}
+
+func TestEffectiveBatchSize(t *testing.T) {
+	mtIdx := &Index{partitioningEnabled: true}
+	stIdx := &Index{partitioningEnabled: false}
+
+	t.Run("MT and ST pick their own value", func(t *testing.T) {
+		sched := newBareScheduler(256, 4, 1)
+		assert.Equal(t, 256, sched.effectiveBatchSize(mtIdx))
+		assert.Equal(t, 4, sched.effectiveBatchSize(stIdx))
+	})
+
+	t.Run("invalid falls back to default", func(t *testing.T) {
+		sched := newBareScheduler(0, -5, 1)
+		assert.Equal(t, fallbackRootPrefilterBatchSizeMT, sched.effectiveBatchSize(mtIdx))
+		assert.Equal(t, fallbackRootPrefilterBatchSizeST, sched.effectiveBatchSize(stIdx))
+	})
+
+	t.Run("over cap is clamped", func(t *testing.T) {
+		sched := newBareScheduler(maxRootPrefilterBatchSize+1000, 1, 1)
+		assert.Equal(t, maxRootPrefilterBatchSize, sched.effectiveBatchSize(mtIdx))
+	})
+}
+
+func TestDispatchDueCoalescing(t *testing.T) {
+	t.Run("MT coalesces up to batch size with a smaller final batch", func(t *testing.T) {
+		sched := newBareScheduler(3, 1, 16)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}, partitioningEnabled: true}
+		for range 7 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{3, 3, 1}, drainBatchSizes(sched.workCh))
+		assert.Empty(t, sched.h, "all due entries dispatched")
+	})
+
+	t.Run("ST dispatches singletons", func(t *testing.T) {
+		sched := newBareScheduler(512, 1, 16)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}, partitioningEnabled: false}
+		for range 4 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{1, 1, 1, 1}, drainBatchSizes(sched.workCh))
+	})
+
+	t.Run("distinct indexes are batched separately", func(t *testing.T) {
+		sched := newBareScheduler(512, 512, 16)
+		a := &Index{Config: IndexConfig{ClassName: "A"}, partitioningEnabled: true}
+		b := &Index{Config: IndexConfig{ClassName: "B"}, partitioningEnabled: true}
+		for range 3 {
+			sched.onAddLocked(&Shard{index: a, class: &models.Class{Class: "A"}})
+		}
+		for range 2 {
+			sched.onAddLocked(&Shard{index: b, class: &models.Class{Class: "B"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{3, 2}, drainBatchSizes(sched.workCh))
+	})
+
+	t.Run("full channel rolls unsent entries back into the heap", func(t *testing.T) {
+		sched := newBareScheduler(1, 1, 2)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}, partitioningEnabled: false}
+		for range 5 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.Len(t, drainBatchSizes(sched.workCh), 2, "channel capacity bounds dispatched batches")
+		assert.Len(t, sched.h, 3, "unsent entries rolled back into the heap")
+		for _, e := range sched.h {
+			assert.False(t, e.inFlight, "rolled-back entries must not be in-flight")
+		}
+	})
+}

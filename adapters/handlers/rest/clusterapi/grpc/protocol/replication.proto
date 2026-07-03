@@ -24,6 +24,7 @@ service ReplicationService {
   rpc OverwriteObjects (OverwriteObjectsRequest) returns (OverwriteObjectsResponse);
   rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
   rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
+  rpc CompareHashTreeRoots (CompareHashTreeRootsRequest) returns (CompareHashTreeRootsResponse);
   rpc CountObjects (CountObjectsRequest) returns (CountObjectsResponse);
 }
 
@@ -256,6 +257,25 @@ message HashTreeLevelRequest {
 // HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
 message HashTreeLevelResponse {
   bytes digests_data = 1; // JSON-encoded []hashtree.Digest
+}
+
+// CompareHashTreeRoots pre-filters shards by comparing hashtree roots in bulk.
+// The source sends its local root per shard; the target replies only with the
+// shards whose roots differ (or that it lacks / has not fully initialised), so
+// the source can skip the per-shard descent for the rest.
+message ShardRootDigest {
+  string shard = 1;
+  fixed64 root_h1 = 2; // Digest[0]
+  fixed64 root_h2 = 3; // Digest[1]
+}
+
+message CompareHashTreeRootsRequest {
+  string index = 1;
+  repeated ShardRootDigest shards = 2;
+}
+
+message CompareHashTreeRootsResponse {
+  repeated string diverging_shards = 1;
 }
 
 // CountObjects fetches hash tree level digests.

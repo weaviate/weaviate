@@ -43,6 +43,12 @@ type GlobalConfig struct {
 	AsyncReplicationPropagationConcurrency    *runtime.DynamicValue[int]           `json:"async_replication_propagation_concurrency" yaml:"async_replication_propagation_concurrency"`
 	AsyncReplicationPropagationBatchSize      *runtime.DynamicValue[int]           `json:"async_replication_propagation_batch_size" yaml:"async_replication_propagation_batch_size"`
 	AsyncReplicationPropagationDelay          *runtime.DynamicValue[time.Duration] `json:"async_replication_propagation_delay" yaml:"async_replication_propagation_delay"`
+	// Root pre-filter batch size: how many shards' hashtree roots are compared in
+	// one batched RPC before deciding which need a full descent. <=1 disables the
+	// pre-filter (per-shard path, today's behavior). MT and ST classes are tuned
+	// separately (MT defaults high, ST defaults to 1 = off).
+	AsyncReplicationRootPrefilterBatchSizeMT *runtime.DynamicValue[int] `json:"async_replication_root_prefilter_batch_size_mt" yaml:"async_replication_root_prefilter_batch_size_mt"`
+	AsyncReplicationRootPrefilterBatchSizeST *runtime.DynamicValue[int] `json:"async_replication_root_prefilter_batch_size_st" yaml:"async_replication_root_prefilter_batch_size_st"`
 	// MinimumFactor can enforce replication. For example, with MinimumFactor set
 	// to 2, users can no longer create classes with a factor of 1, therefore
 	// forcing them to have replicated classes.

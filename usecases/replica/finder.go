@@ -44,6 +44,11 @@ var (
 	ErrRead     = errors.New("read error")
 
 	ErrNoDiffFound = errors.New("no diff found")
+
+	// ErrCompareHashTreeRootsUnsupported is returned by the batched root-compare
+	// client when the target node is too old to serve the RPC (gRPC Unimplemented
+	// or REST 404). Callers fall back to the per-shard hashtree descent.
+	ErrCompareHashTreeRootsUnsupported = errors.New("CompareHashTreeRoots not supported by target node")
 )
 
 type (
@@ -472,6 +477,123 @@ func (f *Finder) CompareDigests(ctx context.Context,
 	shardName string, host string, digests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
+}
+
+// CompareShardRoots batches the level-0 hashtree-root compare for many shards of
+// this class against a single target host; see RClient.CompareHashTreeRoots.
+func (f *Finder) CompareShardRoots(ctx context.Context,
+	host string, roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return f.client.CompareHashTreeRoots(ctx, host, f.class, roots)
+}
+
+// targetHostAddrsForShard resolves a shard's remote replica host addresses
+// (excluding the local node), mirroring the routing in CollectShardDifferences.
+func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	if err != nil {
+		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
+	}
+
+	localNodeName := f.LocalNodeName()
+	localHostAddr, ok := f.nodeResolver.NodeHostname(localNodeName)
+	if !ok {
+		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
+	}
+
+	var hosts []string
+	for _, node := range routingPlan.NodeNames() {
+		if node == localNodeName {
+			continue
+		}
+		addr, ok := f.nodeResolver.NodeHostname(node)
+		if !ok || addr == localHostAddr {
+			continue
+		}
+		hosts = append(hosts, addr)
+	}
+	return hosts, nil
+}
+
+// prefilterMaxShardsPerRPC caps how many shards ride in one CompareHashTreeRoots
+// request so a large batch cannot build an oversized gRPC/REST message.
+const prefilterMaxShardsPerRPC = 1000
+
+// PrefilterStats reports the outcome of the per-host root-compare RPCs in one
+// PrefilterShardRoots call, for observability.
+type PrefilterStats struct {
+	OK          int
+	Errored     int
+	Unsupported int
+}
+
+// PrefilterShardRoots batches the level-0 hashtree-root compare for the given
+// shards (all of this class) against their replicas, returning the subset that
+// must take a full descent: shards that diverge on any replica, whose routing
+// cannot be resolved, or whose replica is too old to serve the batched RPC. A
+// shard absent from the result is confirmed in-sync on every replica. Requests
+// are chunked per host (prefilterMaxShardsPerRPC) and issued serially, so both
+// message size and concurrent fan-out stay bounded.
+func (f *Finder) PrefilterShardRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) (map[string]struct{}, PrefilterStats) {
+	needFull := make(map[string]struct{})
+	byHost := make(map[string]map[string]hashtree.Digest)
+
+	for shard, root := range roots {
+		hosts, err := f.targetHostAddrsForShard(shard)
+		if err != nil {
+			needFull[shard] = struct{}{}
+			continue
+		}
+		for _, h := range hosts {
+			sub := byHost[h]
+			if sub == nil {
+				sub = make(map[string]hashtree.Digest)
+				byHost[h] = sub
+			}
+			sub[shard] = root
+		}
+	}
+
+	var stats PrefilterStats
+	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	flush := func(host string) {
+		if len(chunk) == 0 {
+			return
+		}
+		diverging, err := f.client.CompareHashTreeRoots(ctx, host, f.class, chunk)
+		if err != nil {
+			// Unsupported peer or transport error: fall back to full descent for
+			// this chunk's shards; a later cycle retries the batched path.
+			if errors.Is(err, ErrCompareHashTreeRootsUnsupported) {
+				stats.Unsupported++
+			} else {
+				stats.Errored++
+			}
+			for s := range chunk {
+				needFull[s] = struct{}{}
+			}
+		} else {
+			stats.OK++
+			for _, s := range diverging {
+				needFull[s] = struct{}{}
+			}
+		}
+		clear(chunk)
+	}
+
+	for host, sub := range byHost {
+		for s, r := range sub {
+			chunk[s] = r
+			if len(chunk) >= prefilterMaxShardsPerRPC {
+				flush(host)
+			}
+		}
+		flush(host)
+	}
+	return needFull, stats
 }
 
 // Overwrite specified object with most recent contents
