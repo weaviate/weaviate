@@ -727,7 +727,10 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 		if !errors.As(err, &e) {
 			return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
 		}
-		// distToNode has already flagged the deleted node with a tombstone
+		// tombstone the dead node so repair never selects it again; the
+		// uncompressed distToNode path already did this, the compressed one
+		// does not, and without it repair could cycle between dead nodes
+		h.handleDeletedNode(e.DocID, "entrypointDistWithRepair")
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
 		}
