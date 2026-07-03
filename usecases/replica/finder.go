@@ -479,14 +479,6 @@ func (f *Finder) CompareDigests(ctx context.Context,
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
-// CompareShardRoots batches the level-0 hashtree-root compare for many shards of
-// this class against a single target host; see RClient.CompareHashTreeRoots.
-func (f *Finder) CompareShardRoots(ctx context.Context,
-	host string, roots map[string]hashtree.Digest,
-) ([]string, error) {
-	return f.client.CompareHashTreeRoots(ctx, host, f.class, roots)
-}
-
 // targetHostAddrsForShard resolves a shard's remote replica host addresses
 // (excluding the local node), mirroring the routing in CollectShardDifferences.
 func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {

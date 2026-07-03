@@ -27,6 +27,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -37,14 +38,14 @@ const (
 	defaultAsyncReplicationHashtreeInitConcurrency = 100
 	maxMaxWorkers                                  = 100
 
-	// Root pre-filter fallback batch size, used only when the runtime
-	// DynamicValue is nil (e.g. zero-valued config in tests); the real default
-	// is seeded from env. 1 disables the batched root compare (per-shard path);
-	// values <= 0 are invalid and fall back to the default.
-	fallbackRootPrefilterBatchSize = 512
-	// maxRootPrefilterBatchSize is the hard ceiling on shards per batch,
-	// bounding per-batch work and RPC message size regardless of runtime override.
-	maxRootPrefilterBatchSize = 4096
+	// Root pre-filter batch defaults/cap. usecases/config is the single source of
+	// truth (also the env-parse default); these are local aliases so the scheduler
+	// reads without repeating the literals. fallback is used only when the runtime
+	// DynamicValue is nil (e.g. zero-valued config in tests). 1 disables the
+	// batched root compare (per-shard path); values <= 0 fall back to the default;
+	// the cap bounds per-batch work / RPC message size regardless of override.
+	fallbackRootPrefilterBatchSize = config.DefaultAsyncReplicationRootPrefilterBatchSize
+	maxRootPrefilterBatchSize      = config.MaxAsyncReplicationRootPrefilterBatchSize
 
 	// asyncRepRebuildBaseBackoff is the wait after the first consecutive rebuild
 	// failure. Each subsequent failure doubles the wait up to asyncRepRebuildMaxBackoff.
