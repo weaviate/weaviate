@@ -1842,10 +1842,11 @@ const (
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
 	DefaultAsyncReplicationHashtreeInitConcurrency = 10
-	// Root pre-filter batch size: how many shards' hashtree roots are compared in
-	// one batched RPC. 1 disables the batched RPC (per-shard path); values <= 0
-	// are invalid and fall back to the default. The hard cap bounds message size /
-	// per-batch work regardless of runtime overrides.
+	// Root pre-filter batch size: a single cluster-wide setting applied to every
+	// collection (MT or ST), capping how many same-collection hashtree roots are
+	// compared in one batched RPC. 1 disables the batched RPC (per-shard path);
+	// values <= 0 are invalid and fall back to the default. The hard cap bounds
+	// message size / per-batch work regardless of runtime overrides.
 	DefaultAsyncReplicationRootPrefilterBatchSize = 512
 	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
 	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited

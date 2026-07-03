@@ -418,10 +418,11 @@ type AsyncReplicationScheduler struct {
 	// for 30 s so the dispatcher wakes up promptly once the flag is cleared.
 	asyncReplicationDisabled *configRuntime.DynamicValue[bool]
 
-	// rootPrefilterBatchSize drives how many same-index shards are batched into
-	// one hashtree-root pre-filter RPC. 1 disables the pre-filter (per-shard
-	// path). Read per dispatch; invalid values (<= 0) warn once and fall back to
-	// the default, over-cap values are clamped.
+	// rootPrefilterBatchSize is a single cluster-wide value driving how many
+	// same-index (same-collection) shards are batched into one hashtree-root
+	// pre-filter RPC. 1 disables the pre-filter (per-shard path). Read per
+	// dispatch; invalid values (<= 0) warn once and fall back to the default,
+	// over-cap values are clamped.
 	rootPrefilterBatchSize *configRuntime.DynamicValue[int]
 	warnedBatchSizeInvalid atomic.Bool
 	warnedBatchSizeClamp   atomic.Bool
@@ -1270,8 +1271,8 @@ func (sched *AsyncReplicationScheduler) effectiveConfig(s *Shard) AsyncReplicati
 	return cfg
 }
 
-// runBatch processes one dispatched batch. A single-entry batch (the common case
-// for ST or a lightly-loaded MT class) goes straight to the full per-shard path.
+// runBatch processes one dispatched batch. A single-entry batch (any collection
+// with just one due shard this cycle) goes straight to the full per-shard path.
 // For larger batches it runs the inline root pre-filter once for the whole batch
 // (Stage A, via classifyBatch), then handles each shard: in-sync shards
 // short-circuit inline with no network diff (runEntry with skip), while diverging
