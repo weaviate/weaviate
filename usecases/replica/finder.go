@@ -45,9 +45,8 @@ var (
 
 	ErrNoDiffFound = errors.New("no diff found")
 
-	// ErrCompareHashTreeRootsUnsupported is returned by the batched root-compare
-	// client when the target node is too old to serve the RPC (gRPC Unimplemented
-	// or REST 404). Callers fall back to the per-shard hashtree descent.
+	// ErrCompareHashTreeRootsUnsupported: target node too old to serve the RPC
+	// (gRPC Unimplemented or REST 404). Callers fall back to per-shard descent.
 	ErrCompareHashTreeRootsUnsupported = errors.New("CompareHashTreeRoots not supported by target node")
 )
 
@@ -480,7 +479,7 @@ func (f *Finder) CompareDigests(ctx context.Context,
 }
 
 // targetHostAddrsForShard resolves a shard's remote replica host addresses
-// (excluding the local node), mirroring the routing in CollectShardDifferences.
+// (excluding the local node), mirroring CollectShardDifferences.
 func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
 	routingPlan, err := f.router.BuildReadRoutingPlan(options)
@@ -508,25 +507,19 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 	return hosts, nil
 }
 
-// prefilterMaxShardsPerRPC caps how many shards ride in one CompareHashTreeRoots
-// request so a large batch cannot build an oversized gRPC/REST message.
+// prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
+// gRPC/REST message size.
 const prefilterMaxShardsPerRPC = 1000
 
-// PrefilterStats reports the outcome of the per-host root-compare RPCs in one
-// PrefilterShardRoots call, for observability.
+// PrefilterStats reports the per-host root-compare RPC outcomes for observability.
 type PrefilterStats struct {
 	OK          int
 	Errored     int
 	Unsupported int
 }
 
-// PrefilterShardRoots batches the level-0 hashtree-root compare for the given
-// shards (all of this class) against their replicas, returning the subset that
-// must take a full descent: shards that diverge on any replica, whose routing
-// cannot be resolved, or whose replica is too old to serve the batched RPC. A
-// shard absent from the result is confirmed in-sync on every replica. Requests
-// are chunked per host (prefilterMaxShardsPerRPC) and issued serially, so both
-// message size and concurrent fan-out stay bounded.
+// PrefilterShardRoots batches the level-0 root compare against replicas, returning
+// the subset needing a full descent (absent ⇒ in-sync). Chunked serially per host.
 func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	roots map[string]hashtree.Digest,
 ) (map[string]struct{}, PrefilterStats) {
@@ -557,8 +550,8 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 		}
 		diverging, err := f.client.CompareHashTreeRoots(ctx, host, f.class, chunk)
 		if err != nil {
-			// Unsupported peer or transport error: fall back to full descent for
-			// this chunk's shards; a later cycle retries the batched path.
+			// Unsupported peer or transport error: full descent for this chunk;
+			// a later cycle retries the batched path.
 			if errors.Is(err, ErrCompareHashTreeRootsUnsupported) {
 				stats.Unsupported++
 			} else {

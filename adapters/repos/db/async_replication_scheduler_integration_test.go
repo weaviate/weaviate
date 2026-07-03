@@ -131,10 +131,8 @@ func TestAsyncSchedulerRegistrationIdempotent(t *testing.T) {
 	s.asyncRepWg.Wait()
 }
 
-// TestIndexCompareHashTreeRoots exercises the target/server side of the batched
-// root pre-filter: a shard is reported diverging iff its local root differs, it
-// is missing locally, or its hashtree is not fully initialised; an equal,
-// initialised root is omitted.
+// TestIndexCompareHashTreeRoots: a shard diverges iff its local root differs, is
+// missing, or its hashtree is uninitialised; an equal initialised root is omitted.
 func TestIndexCompareHashTreeRoots(t *testing.T) {
 	ctx := context.Background()
 	_, idx := testShard(t, ctx, "CompareRootsClass")

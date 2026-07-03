@@ -31,13 +31,7 @@ import (
 )
 
 // TestAsyncRepairRootPrefilterManyTenants exercises the batched hashtree-root
-// pre-filter end-to-end. A multi-tenant class replicated across 3 nodes gets many
-// tenants; one node is taken down, every tenant is written on the survivors, then
-// the node is restarted. Because MT batching is on by default, the survivors'
-// schedulers compare all tenant-shard roots against the restarted node in batched
-// pre-filter RPCs and descend the diverging ones. The test asserts every tenant
-// fully reconciles on the restarted node — proving the batched compare + descent
-// path is correct across many shards.
+// pre-filter end-to-end: a node restarts and every MT tenant reconciles via it.
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants() {
 	t := suite.T()
 	mainCtx := context.Background()

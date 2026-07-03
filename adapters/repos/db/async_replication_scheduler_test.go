@@ -1587,8 +1587,7 @@ func TestSchedulerClose_BoundedAndCancelsContextsWhenShardsStillRegistered(t *te
 // durationPtr is a helper that returns a pointer to a time.Duration value.
 func durationPtr(d time.Duration) *time.Duration { return &d }
 
-// newBareScheduler builds a scheduler struct without starting any goroutines, so
-// dispatchDueLocked/effectiveBatchSize can be exercised deterministically.
+// newBareScheduler builds a scheduler struct without starting any goroutines.
 func newBareScheduler(batchSize, workChCap int) *AsyncReplicationScheduler {
 	s := &AsyncReplicationScheduler{
 		entries:                  make(map[*Shard]*asyncSchedulerEntry),
@@ -1642,9 +1641,7 @@ func drainResults(ch chan asyncSchedulerResult) []asyncSchedulerResult {
 	}
 }
 
-// TestRunBatchEmitsOneResultPerEntry verifies that every entry in a multi-entry
-// batch produces exactly one result via runEntry — the invariant that keeps
-// asyncRepWg balanced (runEntry alone owns each entry's Done()+result).
+// TestRunBatchEmitsOneResultPerEntry: every entry in a batch yields exactly one result.
 func TestRunBatchEmitsOneResultPerEntry(t *testing.T) {
 	sched := newBareScheduler(512, 1)
 	sched.ctx = context.Background()
@@ -1674,13 +1671,8 @@ func TestRunBatchEmitsOneResultPerEntry(t *testing.T) {
 	}
 }
 
-// TestAsyncSchedulerConcurrentBatchedDispatch drives the real scheduler's
-// multi-entry batched path (coalesce → pooled hand-off → runBatch → per-entry
-// runEntry, plus rollback and shutdown drain) while Register/Deregister race
-// against Close. Shards share one MT index so due entries coalesce into batches
-// of >1; uninitialised hashtrees keep classifyBatch from issuing RPCs. Run under
-// -race, it guards the §concurrency-safety invariants: no data race on the batch
-// machinery, no deadlock, and balanced asyncRepWg on every path.
+// TestAsyncSchedulerConcurrentBatchedDispatch races Register/Deregister against
+// Close over the batched path under -race: no race, no deadlock, balanced asyncRepWg.
 func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
@@ -1728,9 +1720,8 @@ func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
 	}
 }
 
-// TestOnResultDiscardsZombieEntryAfterReRegister covers a shard deregistered
-// then re-registered (same *Shard) while its cycle result is in flight: the
-// stale entry must be discarded, not re-pushed alongside the fresh one.
+// TestOnResultDiscardsZombieEntryAfterReRegister: a stale entry re-registered
+// mid-flight must be discarded, not re-pushed alongside the fresh one.
 func TestOnResultDiscardsZombieEntryAfterReRegister(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -1746,7 +1737,6 @@ func TestOnResultDiscardsZombieEntryAfterReRegister(t *testing.T) {
 			sched.onAddLocked(s)
 			e1 := sched.entries[s]
 
-			// Simulate dispatch (Add+inFlight+Pop) then the worker's pre-send Done().
 			s.asyncRepWg.Add(1)
 			e1.inFlight = true
 			heap.Pop(&sched.h)
@@ -1767,11 +1757,8 @@ func TestOnResultDiscardsZombieEntryAfterReRegister(t *testing.T) {
 	}
 }
 
-// TestAsyncSchedulerMassDivergenceDeferDescent stresses the mass-divergence path
-// (node-restart scenario): one batch larger than the resultCh buffer, all
-// diverging, so a single runBatch blocks mid-loop on resultCh while Deregister→
-// Register race the same shards. Under -race it guards against deadlock, data
-// races, duplicate heap entries, and asyncRepWg imbalance in the widened window.
+// TestAsyncSchedulerMassDivergenceDeferDescent stresses a batch larger than the
+// resultCh buffer, all diverging, while Deregister/Register race the same shards.
 func TestAsyncSchedulerMassDivergenceDeferDescent(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
@@ -1781,7 +1768,6 @@ func TestAsyncSchedulerMassDivergenceDeferDescent(t *testing.T) {
 	}, nil, logger)
 	require.NoError(t, err)
 
-	// n > resultCh buffer (maxMaxWorkers*2 = 200) so one runBatch overflows it.
 	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
 	const n = 256
 	shards := make([]*Shard, n)
@@ -1821,9 +1807,8 @@ func TestAsyncSchedulerMassDivergenceDeferDescent(t *testing.T) {
 	}
 }
 
-// TestClassifyBatchExcludesIneligible verifies that shards with active
-// target-node overrides or an uninitialised hashtree are excluded from the
-// batched pre-filter (no RPC issued) and default to a full descent.
+// TestClassifyBatchExcludesIneligible: override / uninitialised-hashtree shards are
+// excluded from the pre-filter and default to a full descent.
 func TestClassifyBatchExcludesIneligible(t *testing.T) {
 	sched := newBareScheduler(512, 1)
 	sched.ctx = context.Background()
@@ -1922,12 +1907,8 @@ func TestDispatchDueCoalescing(t *testing.T) {
 	})
 }
 
-// TestDeferDescentReDispatchesSingletons verifies the descent-spreading path:
-// a coalesced multi-entry batch of diverging shards is not descended inline;
-// each diverging entry is deferred back to the dispatcher (deferDescent) and
-// re-dispatched as a standalone singleton so descent spreads across the pool.
-// Uninitialised hashtrees make classifyBatch classify every shard as diverging
-// without issuing the pre-filter RPC.
+// TestDeferDescentReDispatchesSingletons: a coalesced batch of diverging shards is
+// deferred and re-dispatched as singletons so descent spreads across the pool.
 func TestDeferDescentReDispatchesSingletons(t *testing.T) {
 	sched := newBareScheduler(512, 16)
 	sched.ctx = context.Background()
@@ -1967,9 +1948,8 @@ func TestDeferDescentReDispatchesSingletons(t *testing.T) {
 	}
 }
 
-// TestDescendDirectSurvivesFullChannel verifies that when workCh fills mid-round,
-// unsent descendDirect entries roll back retaining the flag (so they retry as
-// singletons next round) and are never re-coalesced into a batch or lost.
+// TestDescendDirectSurvivesFullChannel: on a full workCh, unsent descendDirect
+// entries roll back retaining the flag and retry as singletons next round.
 func TestDescendDirectSurvivesFullChannel(t *testing.T) {
 	sched := newBareScheduler(512, 2)
 	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}

@@ -427,8 +427,7 @@ func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 		Shards: shards,
 	})
 	if err != nil {
-		// Older peers don't serve this RPC; surface a sentinel so the caller
-		// falls back to the per-shard path instead of failing the cycle.
+		// Older peers don't serve this RPC; sentinel lets the caller fall back.
 		if status.Code(err) == codes.Unimplemented {
 			return nil, replica.ErrCompareHashTreeRootsUnsupported
 		}

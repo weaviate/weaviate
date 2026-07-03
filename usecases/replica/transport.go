@@ -174,7 +174,7 @@ type DigestObjectsInRangeResp struct {
 }
 
 // CompareHashTreeRootsReq / Resp are the REST-transport payloads for the batched
-// root pre-filter. Each root is a hashtree.Digest ([2]uint64) keyed by shard.
+// root pre-filter, keyed by shard.
 type CompareHashTreeRootsReq struct {
 	Roots map[string]hashtree.Digest `json:"roots"`
 }
@@ -242,11 +242,8 @@ type RClient interface {
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
-	// CompareHashTreeRoots sends this node's local hashtree root per shard and
-	// returns the subset whose roots differ on the target (or that the target
-	// lacks / has not fully initialised). It batches the level-0 root compare of
-	// many shards into one request. Returns ErrCompareHashTreeRootsUnsupported
-	// when the target is too old to serve it, so the caller can fall back.
+	// CompareHashTreeRoots batches the level-0 root compare of many shards, returning
+	// the diverging subset. Returns ErrCompareHashTreeRootsUnsupported on too-old targets.
 	CompareHashTreeRoots(ctx context.Context, host, index string,
 		roots map[string]hashtree.Digest) (divergingShards []string, err error)
 

@@ -38,12 +38,8 @@ const (
 	defaultAsyncReplicationHashtreeInitConcurrency = 100
 	maxMaxWorkers                                  = 100
 
-	// Root pre-filter batch defaults/cap. usecases/config is the single source of
-	// truth (also the env-parse default); these are local aliases so the scheduler
-	// reads without repeating the literals. fallback is used only when the runtime
-	// DynamicValue is nil (e.g. zero-valued config in tests). 1 disables the
-	// batched root compare (per-shard path); values <= 0 fall back to the default;
-	// the cap bounds per-batch work / RPC message size regardless of override.
+	// Root pre-filter batch defaults/cap; aliases of the usecases/config source of
+	// truth. 1 disables the batched compare; <= 0 falls back to the default.
 	fallbackRootPrefilterBatchSize = config.DefaultAsyncReplicationRootPrefilterBatchSize
 	maxRootPrefilterBatchSize      = config.MaxAsyncReplicationRootPrefilterBatchSize
 
@@ -80,10 +76,8 @@ type asyncSchedulerEntry struct {
 	nextRunAt time.Time
 	inFlight  bool // true while a worker is executing runHashbeatCycle
 	heapIdx   int  // maintained by the heap for O(log n) Fix/Remove
-	// descendDirect marks an entry the batched pre-filter already classified as
-	// diverging: dispatchDueLocked ships it as a standalone singleton for descent
-	// (bypassing coalescing and the pre-filter) so mass-divergence descents spread
-	// across the pool instead of serializing in one worker. Guarded by sched.mu.
+	// descendDirect: pre-filter classified this as diverging; dispatch ships it as a
+	// standalone singleton so descents spread across the pool. Guarded by sched.mu.
 	descendDirect bool
 	// seq is a monotonically-increasing counter assigned every time the entry
 	// is pushed onto the heap. Entries with the same nextRunAt are served in
@@ -132,9 +126,8 @@ type asyncSchedulerResult struct {
 	entry      *asyncSchedulerEntry
 	propagated bool
 	err        error
-	// deferDescent is set by deferDescent: the batched pre-filter classified this
-	// entry as diverging, so onResultLocked re-enqueues it immediately with
-	// descendDirect set rather than scheduling the next cycle at frequency.
+	// deferDescent: entry diverges; onResultLocked re-enqueues it immediately with
+	// descendDirect instead of scheduling the next cycle.
 	deferDescent bool
 	// cfg is the effective config snapshot used for this cycle, pre-read in
 	// the worker. onResultLocked uses it to avoid acquiring
@@ -178,13 +171,11 @@ type asyncReplicationSchedulerMetrics struct {
 	queueDepth prometheus.Gauge
 	// workerPoolSize is the current target worker pool size.
 	workerPoolSize prometheus.Gauge
-	// rootPrefilterSkips counts shard cycles short-circuited as in-sync by the
-	// batched root pre-filter (the "root RPC storm eliminated" headline).
+	// rootPrefilterSkips counts shard cycles short-circuited as in-sync by the pre-filter.
 	rootPrefilterSkips prometheus.Counter
 	// rootPrefilterBatchSize observes the number of shards per pre-filter batch.
 	rootPrefilterBatchSize prometheus.Histogram
-	// rootCompareRPC counts batched root-compare RPCs by outcome
-	// (ok|error|unsupported).
+	// rootCompareRPC counts batched root-compare RPCs by outcome (ok|error|unsupported).
 	rootCompareRPC *prometheus.CounterVec
 }
 
@@ -395,12 +386,8 @@ type AsyncReplicationScheduler struct {
 	// limit 10k concurrent scans would thrash disk and spike RSS.
 	hashtreeInitSem *semaphore.Weighted
 
-	// workCh feeds batches to the worker pool. Buffered (maxMaxWorkers) so
-	// dispatchDueLocked sends in O(1) under sched.mu; a full buffer triggers
-	// "all workers busy" backpressure via the default branch. Each item is a
-	// pooled batch of same-index entries (usually 1); a worker root-prefilters
-	// the batch then descends only the diverging shards, then returns it to
-	// batchPool. The pointer indirection lets the worker recycle the exact slice.
+	// workCh feeds pooled batches of same-index entries (usually 1) to the pool.
+	// Buffered (maxMaxWorkers) so sends are O(1) under mu; a full buffer = backpressure.
 	workCh chan *[]*asyncSchedulerEntry
 
 	// resultCh receives results from workers. Buffer absorbs normal-operation
@@ -418,20 +405,15 @@ type AsyncReplicationScheduler struct {
 	// for 30 s so the dispatcher wakes up promptly once the flag is cleared.
 	asyncReplicationDisabled *configRuntime.DynamicValue[bool]
 
-	// rootPrefilterBatchSize is a single cluster-wide value driving how many
-	// same-index (same-collection) shards are batched into one hashtree-root
-	// pre-filter RPC. 1 disables the pre-filter (per-shard path). Read per
-	// dispatch; invalid values (<= 0) warn once and fall back to the default,
-	// over-cap values are clamped.
+	// rootPrefilterBatchSize: cluster-wide count of same-index shards batched into one
+	// pre-filter RPC. 1 disables it; <= 0 warns and defaults; over-cap is clamped.
 	rootPrefilterBatchSize *configRuntime.DynamicValue[int]
 	warnedBatchSizeInvalid atomic.Bool
 	warnedBatchSizeClamp   atomic.Bool
 
-	// batchPool recycles the []*asyncSchedulerEntry slices sent on workCh; the
-	// dispatcher acquires, the worker releases after emitting all results.
+	// batchPool recycles the []*asyncSchedulerEntry slices sent on workCh.
 	batchPool sync.Pool
-	// dispatchBuckets groups due entries by index during one dispatch pass.
-	// Dispatcher-owned (only touched under mu by the dispatcher goroutine).
+	// dispatchBuckets groups due entries by index during one dispatch pass; dispatcher-owned.
 	dispatchBuckets map[*Index][]*asyncSchedulerEntry
 
 	metrics asyncReplicationSchedulerMetrics
@@ -841,10 +823,8 @@ func (sched *AsyncReplicationScheduler) timeUntilNextLocked() time.Duration {
 	return d
 }
 
-// effectiveBatchSize returns the root pre-filter batch size, applying the
-// runtime override with warn-and-default on invalid values and a one-shot warn
-// when clamped to the hard cap. A value of 1 disables the pre-filter (per-shard
-// path); values <= 0 are invalid and fall back to the default. Called under mu.
+// effectiveBatchSize returns the root pre-filter batch size: 1 disables it, <= 0
+// warns and defaults, over-cap warns once and clamps. Called under mu.
 func (sched *AsyncReplicationScheduler) effectiveBatchSize() int {
 	def := fallbackRootPrefilterBatchSize
 
@@ -879,9 +859,8 @@ func (sched *AsyncReplicationScheduler) rollbackReservedLocked(entry *asyncSched
 	heap.Push(&sched.h, entry)
 }
 
-// trySendBatchLocked copies entries into a pooled batch and non-blockingly sends
-// it to the worker pool. Returns false (releasing the pooled slice) if the
-// channel is full; the caller then rolls the entries back. mu must be held.
+// trySendBatchLocked non-blockingly sends a pooled copy of entries to the pool;
+// returns false (releasing the slice) if the channel is full. mu must be held.
 func (sched *AsyncReplicationScheduler) trySendBatchLocked(entries []*asyncSchedulerEntry) bool {
 	bp := sched.batchPool.Get().(*[]*asyncSchedulerEntry)
 	*bp = append((*bp)[:0], entries...)
@@ -895,12 +874,8 @@ func (sched *AsyncReplicationScheduler) trySendBatchLocked(entries []*asyncSched
 	}
 }
 
-// dispatchDueLocked pops entries whose nextRunAt has passed, coalesces them by
-// index into batches (capped at the per-index effective batch size), and sends
-// each batch to the worker pool. It stops once the channel is full (all workers
-// busy), rolling any reserved-but-unsent entries back into the heap. mu must be
-// held. Per-entry accounting (Add/inFlight/Pop ↔ Done/re-push) is balanced on
-// every path.
+// dispatchDueLocked pops due entries, coalesces by index into capped batches, and
+// sends each to the pool; rolls reserved entries back on a full channel. Held under mu.
 func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 	if sched.asyncReplicationDisabled.Get() {
 		return
@@ -934,12 +909,8 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 		}
 
 		if entry.descendDirect {
-			// Pre-filter already classified this shard as diverging: ship it as a
-			// standalone singleton (bypassing coalescing and the pre-filter) so
-			// its descent runs on any free worker instead of serializing behind a
-			// full batch. Reserve, then clear the flag only on a successful send —
-			// on a full channel rollbackReservedLocked re-queues it with the flag
-			// intact so it retries as a singleton next tick (never re-coalesced).
+			// Diverging shard: ship as a standalone singleton so its descent runs on
+			// any free worker. Clear descendDirect only on a successful send.
 			entry.shard.asyncRepWg.Add(1)
 			entry.inFlight = true
 			heap.Pop(&sched.h)
@@ -954,8 +925,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 
 		idx := entry.shard.index
 
-		// Reserve: Add(1) before send so Deregister+asyncRepWg.Wait() catches
-		// the cycle; pop so the loop can advance to the next due entry.
+		// Add(1) before send so Deregister+asyncRepWg.Wait() catches the cycle; pop to advance.
 		entry.shard.asyncRepWg.Add(1)
 		entry.inFlight = true
 		heap.Pop(&sched.h)
@@ -972,8 +942,8 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 		}
 	}
 
-	// Flush partial buckets. Never wait to fill: a bucket below the cap ships as
-	// a smaller batch. If the channel is full, roll the entries back instead.
+	// Flush partial buckets: a bucket below the cap ships as a smaller batch, or
+	// rolls back on a full channel.
 	for idx, entries := range sched.dispatchBuckets {
 		if len(entries) == 0 {
 			continue
@@ -996,13 +966,8 @@ func (sched *AsyncReplicationScheduler) onResultLocked(result asyncSchedulerResu
 	entry := result.entry
 	entry.inFlight = false
 
-	// Discard the result if the shard was deregistered, or deregistered and
-	// then re-registered under a fresh entry while this cycle's result was in
-	// flight. Matching on entry identity (not just shard-key presence) is
-	// required: a same-*Shard re-register (rebuildHashtree, runtime enable/
-	// disable) installs a new entry, and re-pushing this stale one would create
-	// a duplicate heap entry for the shard, letting two workers run
-	// runHashbeatCycle concurrently.
+	// Match on entry identity, not just shard presence: a same-*Shard re-register
+	// installs a new entry, and re-pushing this stale one would let two workers run.
 	if cur, ok := sched.entries[entry.shard]; !ok || cur != entry {
 		return
 	}
@@ -1013,10 +978,8 @@ func (sched *AsyncReplicationScheduler) onResultLocked(result asyncSchedulerResu
 		return
 	}
 
-	// The batched pre-filter classified this shard as diverging: re-enqueue it
-	// immediately with descendDirect set so dispatchDueLocked ships it as a
-	// standalone singleton descent rather than waiting a full cycle. Bypasses the
-	// interval computation below.
+	// Diverging: re-enqueue immediately with descendDirect so it descends as a
+	// singleton rather than waiting a full cycle. Bypasses the interval below.
 	if result.deferDescent {
 		entry.descendDirect = true
 		entry.nextRunAt = time.Now()
@@ -1097,11 +1060,8 @@ func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	sched.metrics.setQueueDepth(len(sched.h))
 }
 
-// drainWorkChOnExit empties workCh after the dispatcher has returned, balancing
-// the Add(1) that dispatchDueLocked did before each batched send. Dispatcher is
-// the sole producer so a single non-blocking pass suffices; channel receives are
-// atomic so concurrent workers can't double-take any batch. Iterates each
-// batch's members so every reserved entry's Add(1) is balanced.
+// drainWorkChOnExit empties workCh after the dispatcher returned, balancing each
+// reserved entry's Add(1). Single non-blocking pass suffices (sole producer).
 func (sched *AsyncReplicationScheduler) drainWorkChOnExit() {
 	for {
 		select {
@@ -1121,9 +1081,8 @@ func (sched *AsyncReplicationScheduler) drainWorkChOnExit() {
 
 // ----- worker goroutines ----------------------------------------------------
 
-// batchScratch holds the reusable maps a worker uses to classify a batch. Each
-// worker owns one and resets it per batch, so the pre-filter allocates no
-// per-batch maps and there is no cross-worker sharing (hence no contention).
+// batchScratch holds a worker's reusable classify maps, reset per batch: no
+// per-batch allocs and no cross-worker sharing.
 type batchScratch struct {
 	roots    map[string]hashtree.Digest
 	eligible map[string]*asyncSchedulerEntry
@@ -1247,18 +1206,16 @@ func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 	}
 }
 
-// hasTargetNodeOverrides reports whether the shard has active target-node
-// overrides (tenant movement / manual push). Such shards are excluded from the
-// batched pre-filter and take the full per-shard path.
+// hasTargetNodeOverrides reports active target-node overrides (tenant movement /
+// manual push); such shards skip the pre-filter and take the full per-shard path.
 func (sched *AsyncReplicationScheduler) hasTargetNodeOverrides(s *Shard) bool {
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 	return len(s.targetNodeOverrides) > 0
 }
 
-// effectiveConfig snapshots a shard's async replication config, applying the
-// runtime global overrides the same way runEntry does. Used only to derive the
-// pre-filter RPC timeout for a batch.
+// effectiveConfig snapshots a shard's async replication config with runtime global
+// overrides applied, to derive the pre-filter RPC timeout for a batch.
 func (sched *AsyncReplicationScheduler) effectiveConfig(s *Shard) AsyncReplicationConfig {
 	s.asyncReplicationRWMux.RLock()
 	base := s.asyncReplicationConfig
@@ -1271,16 +1228,8 @@ func (sched *AsyncReplicationScheduler) effectiveConfig(s *Shard) AsyncReplicati
 	return cfg
 }
 
-// runBatch processes one dispatched batch. A single-entry batch (any collection
-// with just one due shard this cycle) goes straight to the full per-shard path.
-// For larger batches it runs the inline root pre-filter once for the whole batch
-// (Stage A, via classifyBatch), then handles each shard: in-sync shards
-// short-circuit inline with no network diff (runEntry with skip), while diverging
-// shards are handed back to the dispatcher (deferDescent) to be re-dispatched as
-// standalone singletons — so descent spreads across the whole pool instead of
-// serializing every diverging shard in this one worker. Exactly one result is
-// emitted per entry on every path, and the pooled slice is returned to batchPool
-// on exit. All entries in a batch share the same index (coalesced at dispatch).
+// runBatch pre-filters a batch once, short-circuits in-sync shards inline, and
+// defers diverging ones as singletons so descent spreads across the pool.
 func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scratch *batchScratch) {
 	batch := *bp
 	defer func() {
@@ -1295,46 +1244,33 @@ func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scr
 		return
 	}
 
-	// classifyBatch is panic-contained, so every entry is guaranteed to reach a
-	// runEntry call below — runEntry alone owns each entry's Done()+result, so
-	// asyncRepWg stays balanced even if the pre-filter blows up.
+	// classifyBatch is panic-contained, so every entry still reaches a runEntry
+	// call below — keeping each entry's Done()+result (asyncRepWg) balanced.
 	scratch.reset()
 	sched.classifyBatch(batch, scratch)
 	for _, entry := range batch {
 		if scratch.skip[entry] {
-			// In sync on every replica this cycle — short-circuit inline (cheap:
-			// no network descent, just the pending-rebuild check + skip metric).
+			// In sync this cycle — short-circuit inline (no network descent).
 			sched.runEntry(entry, true)
 			continue
 		}
-		// Diverging: don't descend inline (that would serialize the whole batch
-		// in this worker). Hand it back to the dispatcher for a standalone
-		// singleton descent spread across the pool.
+		// Diverging: hand back to the dispatcher for a singleton descent spread
+		// across the pool (descending inline would serialize the batch).
 		sched.deferDescent(entry)
 	}
 }
 
-// deferDescent releases a diverging batch entry back to the dispatcher without
-// descending it, so it is re-dispatched as a standalone singleton (see
-// dispatchDueLocked's descendDirect handling). It mirrors runEntry's wg/result
-// contract minimally — Done() before the send so the dispatcher's re-enqueue
-// sees a balanced asyncRepWg — but performs no runHashbeatCycle and touches no
-// workersActive metric (it never incremented one). Exactly one result per entry.
+// deferDescent releases a diverging entry back to the dispatcher (re-dispatched as
+// a singleton). Done() before the send so the re-enqueue sees a balanced asyncRepWg.
 func (sched *AsyncReplicationScheduler) deferDescent(entry *asyncSchedulerEntry) {
-	// Done() before the resultCh send, matching runEntry: inFlight (not
-	// asyncRepWg) enforces "at most one cycle per shard", and the buffered
-	// resultCh + Close()'s parallel drain keep this send non-blocking.
+	// Done() before the send, matching runEntry: inFlight (not asyncRepWg) enforces
+	// one cycle per shard; buffered resultCh + Close()'s drain keep the send non-blocking.
 	entry.shard.asyncRepWg.Done()
 	sched.resultCh <- asyncSchedulerResult{entry: entry, deferDescent: true}
 }
 
-// classifyBatch runs the inline root pre-filter for the batch, recording in
-// scratch.skip whether each entry's hashbeat descent can be skipped (confirmed
-// in sync on every replica). Ineligible shards (uninitialised hashtree or active
-// target-node overrides) and — on any pre-filter panic/failure — all shards are
-// classified "descend" (skip stays false), so correctness never depends on the
-// pre-filter succeeding. scratch is reset by the caller; its maps are reused
-// across batches. All entries share one index (coalesced at dispatch).
+// classifyBatch runs the root pre-filter, recording confirmed-in-sync entries in
+// scratch.skip; ineligible shards and any failure classify "descend" (conservative).
 func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEntry, scratch *batchScratch) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1365,9 +1301,8 @@ func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEnt
 	s0 := batch[0].shard
 	cfg := sched.effectiveConfig(s0)
 	ctx, cancel := context.WithTimeout(sched.ctx, cfg.diffPerNodeTimeout)
-	// defer so the timeout context/timer is released even if PrefilterShardRoots
-	// panics (the recover above catches it, but an inline cancel() would be
-	// skipped, leaking the timer until sched.ctx is done).
+	// defer so the timer is released even if PrefilterShardRoots panics (an inline
+	// cancel() would be skipped, leaking it until sched.ctx is done).
 	defer cancel()
 	needFull, stats := s0.index.replicator.PrefilterShardRoots(ctx, scratch.roots)
 	sched.metrics.observeRootPrefilterBatch(len(scratch.roots))
@@ -1474,9 +1409,8 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 	}
 
 	if skipHashbeat {
-		// The batched root pre-filter already confirmed this shard is in sync on
-		// every replica this cycle (equal roots ⇒ no diff), so skip the network
-		// descent. Still honor a pending height-change rebuild.
+		// Pre-filter confirmed in sync this cycle (equal roots ⇒ no diff): skip the
+		// network descent, but still honor a pending height-change rebuild.
 		needsRebuild = s.asyncRepNeedsRebuild.CompareAndSwap(true, false)
 		sched.metrics.incRootPrefilterSkips()
 		return

@@ -639,8 +639,7 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }
 
-// newHttpReplicaIndexRequest builds an index-level (shard-less) replica request,
-// e.g. the batched CompareHashTreeRoots pre-filter.
+// newHttpReplicaIndexRequest builds an index-level (shard-less) replica request.
 func newHttpReplicaIndexRequest(ctx context.Context, method, host, index, suffix string, body io.Reader) (*http.Request, error) {
 	u := url.URL{
 		Scheme: "http",
