@@ -304,7 +304,7 @@ type Shard struct {
 	haltForTransferInactivityTimeout  time.Duration
 	haltForTransferInactivityDeadline time.Time
 	haltForTransferCount              int
-	haltForTransferCancel             func()
+	haltForTransferCtxCancel          context.CancelFunc
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

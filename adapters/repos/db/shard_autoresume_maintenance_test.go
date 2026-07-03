@@ -330,7 +330,7 @@ func TestShard_InactivityFireResumesWhenIdle(t *testing.T) {
 
 	s.haltForTransferMux.Lock()
 	countAfterFire := s.haltForTransferCount
-	cancelAfterFire := s.haltForTransferCancel
+	cancelAfterFire := s.haltForTransferCtxCancel
 	s.haltForTransferMux.Unlock()
 
 	require.False(t, keepWatching)
@@ -359,9 +359,9 @@ func TestShard_ResumeClearsInactivityMonitorSentinel(t *testing.T) {
 	s := shd.(*Shard)
 
 	s.haltForTransferMux.Lock()
-	cancelBeforeResume := s.haltForTransferCancel
+	cancelBeforeResume := s.haltForTransferCtxCancel
 	resumeErr := s.mayForceResumeMaintenanceCycles(ctx, true)
-	cancelAfterResume := s.haltForTransferCancel
+	cancelAfterResume := s.haltForTransferCtxCancel
 	countAfterResume := s.haltForTransferCount
 	s.haltForTransferMux.Unlock()
 
@@ -395,7 +395,7 @@ func TestShard_DropClearsInactivityMonitorSentinel(t *testing.T) {
 	require.NoError(t, err)
 
 	s.haltForTransferMux.Lock()
-	cancelAfterDrop := s.haltForTransferCancel
+	cancelAfterDrop := s.haltForTransferCtxCancel
 	s.haltForTransferMux.Unlock()
 
 	require.Nil(t, cancelAfterDrop)
@@ -422,7 +422,7 @@ func TestShard_ShutdownClearsInactivityMonitorSentinel(t *testing.T) {
 	require.NoError(t, err)
 
 	s.haltForTransferMux.Lock()
-	cancelAfterShutdown := s.haltForTransferCancel
+	cancelAfterShutdown := s.haltForTransferCtxCancel
 	s.haltForTransferMux.Unlock()
 
 	require.Nil(t, cancelAfterShutdown)

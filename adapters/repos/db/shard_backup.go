@@ -119,9 +119,15 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 
 	// restart any running monitor so the shorter timeout takes effect; the immediately-following
 	// mayInitInactivityMonitoring respawns it. cancelling only stops the goroutine, not maintenance.
-	if s.haltForTransferCancel != nil {
-		s.haltForTransferCancel()
-		s.haltForTransferCancel = nil
+	s.mayStopInactivityMonitoring()
+}
+
+// mayStopInactivityMonitoring cancels the running inactivity monitor and clears the sentinel.
+// Caller must hold haltForTransferMux; must not lock here (callers hold it across a wider section).
+func (s *Shard) mayStopInactivityMonitoring() {
+	if s.haltForTransferCtxCancel != nil {
+		s.haltForTransferCtxCancel()
+		s.haltForTransferCtxCancel = nil
 	}
 }
 
@@ -135,12 +141,12 @@ func (s *Shard) mayResetInactivityDeadline() {
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {
-	if s.haltForTransferCancel != nil {
+	if s.haltForTransferCtxCancel != nil {
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	s.haltForTransferCancel = cancel
+	s.haltForTransferCtxCancel = cancel
 
 	s.haltForTransferInactivityDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
 
@@ -333,12 +339,9 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		}
 	}
 
-	if s.haltForTransferCancel != nil {
-		// terminate the inactivity monitor and clear the sentinel synchronously under the mux,
-		// so a subsequent HaltForTransfer reliably starts a new monitor.
-		s.haltForTransferCancel()
-		s.haltForTransferCancel = nil
-	}
+	// terminate the inactivity monitor synchronously under the mux, so a subsequent
+	// HaltForTransfer reliably starts a new monitor.
+	s.mayStopInactivityMonitoring()
 
 	// fully resumed: reset so the next halt cycle uses its own timeout, not the shortest ever seen.
 	s.haltForTransferInactivityTimeout = 0
