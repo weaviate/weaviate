@@ -447,44 +447,34 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 	candidate := n.entryPointID
 
-	// [1] Fast path: try the cached global entrypoint.
-	// ErrNotFound (deleted node) is treated as "not usable" and proceeds to repair,
-	// not returned as error - see tryEpCandidateIgnoreDeleted.
-	success, err := n.tryEpCandidateIgnoreDeleted(candidate)
+	// for our search we will need a copy of the current deny list, however, the
+	// cost of that copy can be significant. Let's first verify if the global
+	// entrypoint candidate is usable. If yes, we can return early and skip the
+	// copy.
+	success, err := n.tryEpCandidate(candidate)
 	if err != nil {
-		return err
+		var e storobj.ErrNotFound
+		if !errors.As(err, &e) {
+			return err
+		}
+
+		// node was deleted in the meantime
+		// ignore the error and move to the logic below which will try more candidates
 	}
+
 	if success {
+		// the global ep candidate is usable, let's skip the following logic (and
+		// therefore avoid the copy)
 		return nil
 	}
 
-	// [2] Global candidate failed → attempt global repair ONCE
+	// The global candidate is not usable, we need to find a new one.
 	localDeny := n.denyList.WrapOnWrite()
-	localDeny.Insert(candidate)
 
-	newEp, err := n.graph.repairGlobalEntrypoint(candidate, localDeny)
-	if err != nil {
-		return fmt.Errorf("global entrypoint repair: %w", err)
-	}
-
-	// [3] Try the repaired entrypoint (or concurrent repair's result).
-	// Note: newEp != candidate is always true when repair succeeds without error,
-	// because candidate (oldEntrypoint) is excluded via denyList. This guard is
-	// defensive documentation, not a reachable branch.
-	if newEp != candidate {
-		success, err = n.tryEpCandidateIgnoreDeleted(newEp)
-		if err != nil {
-			return err
-		}
-		if success {
-			return nil
-		}
-		localDeny.Insert(newEp)
-		candidate = newEp
-	}
-
-	// [4] Repaired entrypoint also failed → local fallback with no-progress backstop
-	// 60s timeout is last-resort safety net, not expected path
+	// make sure the loop cannot block forever. In most cases, results should be
+	// found within micro to milliseconds, this is just a last resort to handle
+	// the unknown somewhat gracefully, for example if there is a bug in the
+	// underlying object store and we cannot retrieve the vector in time, etc.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	n.graph.logger.WithFields(logrus.Fields{
@@ -497,43 +487,32 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 			return err
 		}
 
+		success, err := n.tryEpCandidate(candidate)
+		if err != nil {
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return err
+			}
+
+			// node was deleted in the meantime
+			// ignore the error and try the next candidate
+		}
+
+		if success {
+			return nil
+		}
+
+		// no success so far, we need to keep going and find a better candidate
+		// make sure we never visit this candidate again
+		localDeny.Insert(candidate)
+		// now find a new one
+
 		alternative, err := n.graph.findNewLocalEntrypoint(localDeny, candidate)
 		if err != nil {
 			return err
 		}
-
-		// No-progress detection: if we get the same candidate back or one already tried
-		if alternative == candidate || localDeny.Contains(alternative) {
-			return fmt.Errorf("no usable entrypoint: local fallback exhausted")
-		}
-
 		candidate = alternative
-
-		success, err = n.tryEpCandidateIgnoreDeleted(candidate)
-		if err != nil {
-			return err
-		}
-		if success {
-			return nil
-		}
-		localDeny.Insert(candidate)
 	}
-}
-
-// tryEpCandidateIgnoreDeleted wraps tryEpCandidate and handles the ErrNotFound case
-// consistently: deleted nodes are treated as "not usable" (returns false, nil),
-// while other errors are propagated.
-func (n *neighborFinderConnector) tryEpCandidateIgnoreDeleted(candidate uint64) (bool, error) {
-	success, err := n.tryEpCandidate(candidate)
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			// Node was deleted - treat as not usable, not as error
-			return false, nil
-		}
-		return false, err
-	}
-	return success, nil
 }
 
 func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
