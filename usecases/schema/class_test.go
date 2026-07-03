@@ -101,6 +101,31 @@ func Test_AddClass(t *testing.T) {
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
+	t.Run("rejects explicit empty tokenization from JSON", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		var class models.Class
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"class": "NewClass",
+			"vectorizer": "none",
+			"replicationConfig": {
+				"factor": 1
+			},
+			"properties": [
+				{
+					"name": "title",
+					"dataType": ["text"],
+					"tokenization": ""
+				}
+			]
+		}`), &class))
+
+		_, _, err := handler.AddClass(ctx, nil, &class)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "tokenization '' is not allowed for data type 'text'")
+		fakeSchemaManager.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+	})
+
 	t.Run("happy path, named vectors", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
@@ -1422,6 +1447,33 @@ func Test_UpdateClass(t *testing.T) {
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("clears explicit empty tokenization marker on early return", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		fakeSchemaManager.On("ReadOnlyClass", "NewClass", mock.Anything).Return(nil)
+
+		var updated models.Class
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"class": "NewClass",
+			"vectorizer": "none",
+			"replicationConfig": {
+				"factor": 1
+			},
+			"properties": [
+				{
+					"name": "title",
+					"dataType": ["text"],
+					"tokenization": ""
+				}
+			]
+		}`), &updated))
+		require.True(t, models.HasExplicitEmptyTokenization(updated.Properties[0]))
+
+		err := handler.UpdateClass(context.Background(), nil, "NewClass", &updated)
+		require.ErrorIs(t, err, ErrNotFound)
+		require.False(t, models.HasExplicitEmptyTokenization(updated.Properties[0]))
 		fakeSchemaManager.AssertExpectations(t)
 	})
 

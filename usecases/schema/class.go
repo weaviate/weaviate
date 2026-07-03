@@ -117,6 +117,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 ) (*models.Class, uint64, error) {
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+	defer models.ClearExplicitEmptyTokenizations(cls.Properties...)
 
 	// originalClassName must be passed to validateCanAddClass below: the
 	// qualified form ("<ns>:<Class>") fails ValidateClassName because
@@ -346,6 +347,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
 		return fmt.Errorf("unmarshal class schema: %w", err)
 	}
+	models.ClearExplicitEmptyTokenizations(class.Properties...)
 	var shardingState sharding.State
 	if d.ShardingState != nil {
 		err := json.Unmarshal(d.ShardingState, &shardingState)
@@ -448,6 +450,10 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
+	if updated != nil {
+		defer models.ClearExplicitEmptyTokenizations(updated.Properties...)
+	}
+
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
 		return err
@@ -495,6 +501,10 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 // bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
 ) error {
+	if updated != nil {
+		models.ClearExplicitEmptyTokenizations(updated.Properties...)
+	}
+
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
@@ -760,6 +770,10 @@ func setPropertyDefaults(props ...*models.Property) {
 
 func setPropertyDefaultTokenization(props ...*models.Property) {
 	for _, prop := range props {
+		if models.HasExplicitEmptyTokenization(prop) {
+			continue
+		}
+
 		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
 			// deprecated as of v1.19, default tokenization was word
@@ -944,6 +958,8 @@ func (h *Handler) validateProperty(
 	relaxCrossRefValidation bool, classGetterWithAuth func(string) (*models.Class, error), props ...*models.Property,
 ) error {
 	for _, property := range props {
+		defer models.ClearExplicitEmptyTokenization(property)
+
 		if _, err := schema.ValidatePropertyName(property.Name); err != nil {
 			return err
 		}
@@ -979,6 +995,12 @@ func (h *Handler) validateProperty(
 			}
 		}
 
+		if models.ConsumeExplicitEmptyTokenization(property) {
+			if err := explicitEmptyTokenizationError(propertyDataType); err != nil {
+				return err
+			}
+		}
+
 		if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
 			return err
 		}
@@ -997,6 +1019,19 @@ func (h *Handler) validateProperty(
 	}
 
 	return nil
+}
+
+func explicitEmptyTokenizationError(propertyDataType schema.PropertyDataType) error {
+	if !propertyDataType.IsPrimitive() {
+		return nil
+	}
+
+	switch primitiveDataType := propertyDataType.AsPrimitive(); primitiveDataType {
+	case schema.DataTypeString, schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+		return fmt.Errorf("tokenization '' is not allowed for data type '%s'", primitiveDataType)
+	default:
+		return nil
+	}
 }
 
 func setInvertedConfigDefaults(class *models.Class) {
