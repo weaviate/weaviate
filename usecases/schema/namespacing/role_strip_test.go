@@ -328,6 +328,98 @@ func TestStripRolesForCaller(t *testing.T) {
 			want:      makeStrippedRoles(),
 		},
 		{
+			name:      "foreign-namespace user-ref permission dropped from global role",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{{
+				Name: strPtr("support"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_users"), Users: &models.PermissionUsers{Users: strPtr("customer2:alice")}},
+				},
+			}},
+			want: []*models.Role{{Name: strPtr("support"), Permissions: []*models.Permission{}}},
+		},
+		{
+			name:      "own-namespace user-ref with extra colon in entity kept and stripped",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{{
+				Name: strPtr("svc"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_users"), Users: &models.PermissionUsers{Users: strPtr("customer1:svc:agent")}},
+				},
+			}},
+			want: []*models.Role{{
+				Name: strPtr("svc"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_users"), Users: &models.PermissionUsers{Users: strPtr("svc:agent")}},
+				},
+			}},
+		},
+		{
+			name:      "foreign-namespace role-ref permission dropped",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{{
+				Name: strPtr("support"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_roles"), Roles: &models.PermissionRoles{Role: strPtr("customer2:editor")}},
+				},
+			}},
+			want: []*models.Role{{Name: strPtr("support"), Permissions: []*models.Permission{}}},
+		},
+		{
+			name:      "foreign namespaces-domain permission dropped; own and wildcard kept",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{{
+				Name: strPtr("ops"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("manage_namespaces"), Namespaces: &models.PermissionNamespaces{Namespace: strPtr("customer2")}},
+					{Action: strPtr("manage_namespaces"), Namespaces: &models.PermissionNamespaces{Namespace: strPtr("customer1")}},
+					{Action: strPtr("manage_namespaces"), Namespaces: &models.PermissionNamespaces{Namespace: strPtr("*")}},
+					{Action: strPtr("manage_namespaces"), Namespaces: &models.PermissionNamespaces{Namespace: strPtr(".*")}},
+				},
+			}},
+			want: []*models.Role{{
+				Name: strPtr("ops"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("manage_namespaces"), Namespaces: &models.PermissionNamespaces{Namespace: strPtr("customer1")}},
+					{Action: strPtr("manage_namespaces"), Namespaces: &models.PermissionNamespaces{Namespace: strPtr("*")}},
+					{Action: strPtr("manage_namespaces"), Namespaces: &models.PermissionNamespaces{Namespace: strPtr(".*")}},
+				},
+			}},
+		},
+		{
+			name:      "mixed role: own-namespace permission kept and stripped, foreign dropped",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{{
+				Name: strPtr("mixed"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_collections"), Collections: &models.PermissionCollections{Collection: strPtr("customer1:Movies")}},
+					{Action: strPtr("read_collections"), Collections: &models.PermissionCollections{Collection: strPtr("customer2:Movies")}},
+				},
+			}},
+			want: []*models.Role{{
+				Name: strPtr("mixed"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_collections"), Collections: &models.PermissionCollections{Collection: strPtr("Movies")}},
+				},
+			}},
+		},
+		{
+			name:      "foreign-looking group-ref kept (groups are global, never namespace-bearing)",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{{
+				Name: strPtr("grp"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_groups"), Groups: &models.PermissionGroups{Group: strPtr("customer2:engineers")}},
+				},
+			}},
+			want: []*models.Role{{
+				Name: strPtr("grp"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("read_groups"), Groups: &models.PermissionGroups{Group: strPtr("customer2:engineers")}},
+				},
+			}},
+		},
+		{
 			name:      "nil role element among real roles: nil preserved, others stripped",
 			principal: stripNamespacedPrincipal,
 			in: []*models.Role{

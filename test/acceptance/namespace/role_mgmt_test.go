@@ -1522,3 +1522,74 @@ func TestNamespaceGlobalAdminDeniedGroupOps(t *testing.T) {
 	var revokeForbidden *authz.RevokeRoleFromGroupForbidden
 	require.True(t, errors.As(revokeErr, &revokeForbidden), "expected RevokeRoleFromGroupForbidden, got %T: %v", revokeErr, revokeErr)
 }
+
+// TestNamespaceForeignNamespaceDisclosure proves a confined caller's self-read
+// never reveals another namespace. An operator can attach a permission naming a
+// foreign namespace to a *global* role — a users/<ns>:<name> grant (a user id may
+// legitimately contain ':', so it passes create validation) or a namespaces/<ns>
+// grant — and assign that global role to a namespaced user. On self-read the
+// foreign permissions must be dropped so the caller cannot learn the namespace
+// exists, while a benign namespace-relative template permission survives.
+func TestNamespaceForeignNamespaceDisclosure(t *testing.T) {
+	t.Parallel()
+	ns1, ns2 := uniqueNS(), uniqueNS()
+	helper.CreateNamespace(t, ns1, adminKey)
+	helper.CreateNamespace(t, ns2, adminKey)
+	t.Cleanup(func() {
+		helper.DeleteNamespace(t, ns1, adminKey)
+		helper.DeleteNamespace(t, ns2, adminKey)
+	})
+
+	bobKey := createNamespacedUser(t, "discbob", ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns1+":discbob", adminKey) })
+
+	// A real foreign-namespace user for the leaking user-ref to name.
+	createNamespacedUser(t, "alice", ns2, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns2+":alice", adminKey) })
+
+	// Global role with two foreign-namespace permissions plus one benign
+	// own-relative template permission that must survive the self-read.
+	roleName := uniqueRole()
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: authorization.String(roleName),
+		Permissions: []*models.Permission{
+			{Action: authorization.String(authorization.ReadUsers), Users: &models.PermissionUsers{Users: authorization.String(ns2 + ":alice")}},
+			helper.NewNamespacesPermission().WithAction(authorization.ManageNamespaces).WithNamespace(ns2).Permission(),
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+		},
+	})
+	t.Cleanup(func() { helper.DeleteRole(t, adminKey, roleName) })
+
+	helper.AssignRoleToUser(t, adminKey, roleName, ns1+":discbob")
+
+	// Bob reads his own roles: the foreign permissions are gone, the benign
+	// template permission is preserved, and ns2 appears nowhere.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		full := true
+		resp, err := helper.Client(t).Authz.GetRolesForUser(
+			authz.NewGetRolesForUserParams().WithID("discbob").
+				WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&full),
+			helper.CreateAuth(bobKey))
+		if !assert.NoError(c, err) {
+			return
+		}
+		var role *models.Role
+		for _, r := range resp.Payload {
+			if *r.Name == roleName {
+				role = r
+			}
+		}
+		if !assert.NotNil(c, role, "assigned global role missing from self-read") {
+			return
+		}
+		hasTemplate := false
+		for _, p := range role.Permissions {
+			assert.Nil(c, p.Users, "foreign user-ref permission leaked")
+			assert.Nil(c, p.Namespaces, "foreign namespaces permission leaked")
+			if p.Collections != nil {
+				hasTemplate = true
+			}
+		}
+		assert.True(c, hasTemplate, "benign template permission dropped")
+	}, 15*time.Second, 100*time.Millisecond, "self-read foreign-namespace stripping did not converge")
+}

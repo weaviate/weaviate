@@ -15,11 +15,14 @@ import "github.com/weaviate/weaviate/entities/models"
 
 // StripRolesForCaller returns roles with the role name and each permission's
 // namespace-bearing resource string stripped of the caller's own namespace
-// prefix. It never mutates the input or its sub-structs in place: a permission's
+// prefix. Permissions that name a foreign namespace are dropped, so a confined
+// caller cannot learn another namespace exists via a global role assigned to it.
+// It never mutates the input or its sub-structs in place: a permission's
 // sub-structs may point at package-level singletons (authorization.AllCollections,
 // etc.), and mutating those would corrupt every other caller.
 func StripRolesForCaller(principal *models.Principal, roles []*models.Role) []*models.Role {
-	if ConfinedNamespace(principal) == "" || len(roles) == 0 {
+	ownNS := ConfinedNamespace(principal)
+	if ownNS == "" || len(roles) == 0 {
 		return roles
 	}
 	out := make([]*models.Role, len(roles))
@@ -33,15 +36,76 @@ func StripRolesForCaller(principal *models.Principal, roles []*models.Role) []*m
 			copied.Name = &stripped
 		}
 		if len(role.Permissions) > 0 {
-			perms := make([]*models.Permission, len(role.Permissions))
-			for j, p := range role.Permissions {
-				perms[j] = StripPermissionForCaller(principal, p)
+			perms := make([]*models.Permission, 0, len(role.Permissions))
+			for _, p := range role.Permissions {
+				if permissionNamesForeignNamespace(ownNS, p) {
+					continue
+				}
+				perms = append(perms, StripPermissionForCaller(principal, p))
 			}
 			copied.Permissions = perms
 		}
 		out[i] = &copied
 	}
 	return out
+}
+
+// permissionNamesForeignNamespace reports whether p references a namespace other
+// than ownNS. A collection/user/role/alias name qualified with a different
+// namespace (leading `<ns>:` segment), or a namespaces-domain grant naming one,
+// must be hidden from a confined caller so it cannot learn another namespace
+// exists. The field set mirrors StripPermissionForCaller's strip set; a new
+// namespace-bearing field must be added to both.
+func permissionNamesForeignNamespace(ownNS string, p *models.Permission) bool {
+	if p == nil {
+		return false
+	}
+	names := make([]*string, 0, 10)
+	if p.Collections != nil {
+		names = append(names, p.Collections.Collection)
+	}
+	if p.Data != nil {
+		names = append(names, p.Data.Collection)
+	}
+	if p.Nodes != nil {
+		names = append(names, p.Nodes.Collection)
+	}
+	if p.Tenants != nil {
+		names = append(names, p.Tenants.Collection)
+	}
+	if p.Backups != nil {
+		names = append(names, p.Backups.Collection)
+	}
+	if p.Replicate != nil {
+		names = append(names, p.Replicate.Collection)
+	}
+	if p.Aliases != nil {
+		names = append(names, p.Aliases.Collection, p.Aliases.Alias)
+	}
+	if p.Users != nil {
+		names = append(names, p.Users.Users)
+	}
+	if p.Roles != nil {
+		names = append(names, p.Roles.Role)
+	}
+	for _, n := range names {
+		if n == nil {
+			continue
+		}
+		// The leading segment is the namespace; a value with none, or with the
+		// caller's own, names no foreign namespace.
+		if ns := NamespaceFromQualified(*n); ns != "" && ns != ownNS {
+			return true
+		}
+	}
+	// The namespaces domain names a namespace directly. A specific foreign name
+	// leaks; the wildcard and the caller's own namespace do not.
+	if p.Namespaces != nil && p.Namespaces.Namespace != nil {
+		if ns := *p.Namespaces.Namespace; ns != "" && ns != "*" && ns != ".*" && ns != ownNS {
+			return true
+		}
+	}
+	return false
 }
 
 // StripPermissionForCaller returns a permission with its namespace-bearing
