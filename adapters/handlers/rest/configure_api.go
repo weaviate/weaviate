@@ -1287,9 +1287,10 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
 
-	// A qualified role, policy resource or grouping subject is normal on an NS
-	// cluster but inconsistent state with namespaces disabled, where it would be
-	// misinterpreted, so the RBAC rows are only inspected when disabling.
+	// Role names, policy resources (what a role's permissions grant access to)
+	// and grouping subjects (who a role assignment binds) may each be
+	// namespace-qualified when NAMESPACES_ENABLED=true. With namespaces disabled
+	// they would be misinterpreted, so the rows are only inspected in that case.
 	if !enabled {
 		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)

@@ -47,6 +47,11 @@ func GlobalCallerWidens(reqObj string) bool {
 // path is not namespaceable. hasAlias reports whether path also has a 2nd
 // namespace-bearing alias segment, located at
 // [end + len(AliasesMidSeg), len(path)).
+//
+// For "schema/collections/Foo/shards/s1" it returns start,end bounding "Foo"
+// with hasAlias false. For "aliases/collections/Foo/aliases/Bar" it bounds the
+// first "Foo" with hasAlias true, and the alias "Bar" runs from
+// end + len(AliasesMidSeg) to len(path).
 func FindNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	if rest, ok := strings.CutPrefix(path, SchemaCollectionsPrefix); ok {
 		idx := strings.Index(rest, ShardsMidSeg)
@@ -97,6 +102,10 @@ func FindNamespaceSegments(path string) (start, end int, hasAlias bool) {
 //
 // Callers supply only the per-segment decision via fn; the segment-location and
 // alias-offset arithmetic live here so every caller computes them identically.
+//
+// With fn prefixing "customer1:", "aliases/collections/Foo/aliases/Bar" becomes
+// "aliases/collections/customer1:Foo/aliases/customer1:Bar", while a path with
+// no namespace-bearing segment (e.g. "roles") is returned unchanged.
 func RewriteNamespaceSegments(path string, fn func(segment string) (string, error)) (string, error) {
 	start, end, hasAlias := FindNamespaceSegments(path)
 	if end == 0 {
