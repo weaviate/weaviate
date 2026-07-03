@@ -994,9 +994,14 @@ func (sched *AsyncReplicationScheduler) onResultLocked(result asyncSchedulerResu
 	entry := result.entry
 	entry.inFlight = false
 
-	// If the shard is no longer in the registry it was deregistered while
-	// the cycle was running — do not re-enqueue.
-	if _, ok := sched.entries[entry.shard]; !ok {
+	// Discard the result if the shard was deregistered, or deregistered and
+	// then re-registered under a fresh entry while this cycle's result was in
+	// flight. Matching on entry identity (not just shard-key presence) is
+	// required: a same-*Shard re-register (rebuildHashtree, runtime enable/
+	// disable) installs a new entry, and re-pushing this stale one would create
+	// a duplicate heap entry for the shard, letting two workers run
+	// runHashbeatCycle concurrently.
+	if cur, ok := sched.entries[entry.shard]; !ok || cur != entry {
 		return
 	}
 

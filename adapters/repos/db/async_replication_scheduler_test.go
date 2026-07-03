@@ -1728,6 +1728,99 @@ func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
 	}
 }
 
+// TestOnResultDiscardsZombieEntryAfterReRegister covers a shard deregistered
+// then re-registered (same *Shard) while its cycle result is in flight: the
+// stale entry must be discarded, not re-pushed alongside the fresh one.
+func TestOnResultDiscardsZombieEntryAfterReRegister(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		deferDescent bool
+	}{
+		{name: "normal re-push"},
+		{name: "deferDescent re-push", deferDescent: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+
+			s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+			sched.onAddLocked(s)
+			e1 := sched.entries[s]
+
+			// Simulate dispatch (Add+inFlight+Pop) then the worker's pre-send Done().
+			s.asyncRepWg.Add(1)
+			e1.inFlight = true
+			heap.Pop(&sched.h)
+			s.asyncRepWg.Done()
+
+			sched.onRemoveLocked(s)
+			sched.onAddLocked(s)
+			e2 := sched.entries[s]
+			require.NotSame(t, e1, e2)
+
+			sched.onResultLocked(asyncSchedulerResult{entry: e1, deferDescent: tc.deferDescent})
+
+			require.Len(t, sched.h, 1, "stale entry must not be re-pushed")
+			assert.Same(t, e2, sched.h[0])
+			assert.Equal(t, -1, e1.heapIdx, "stale entry stays out of the heap")
+			s.asyncRepWg.Wait()
+		})
+	}
+}
+
+// TestAsyncSchedulerMassDivergenceDeferDescent stresses the mass-divergence path
+// (node-restart scenario): one batch larger than the resultCh buffer, all
+// diverging, so a single runBatch blocks mid-loop on resultCh while Deregister→
+// Register race the same shards. Under -race it guards against deadlock, data
+// races, duplicate heap entries, and asyncRepWg imbalance in the widened window.
+func TestAsyncSchedulerMassDivergenceDeferDescent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:       configRuntime.NewDynamicValue(4),
+		AsyncReplicationDisabled:               configRuntime.NewDynamicValue(false),
+		AsyncReplicationRootPrefilterBatchSize: configRuntime.NewDynamicValue(512),
+	}, nil, logger)
+	require.NoError(t, err)
+
+	// n > resultCh buffer (maxMaxWorkers*2 = 200) so one runBatch overflows it.
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	const n = 256
+	shards := make([]*Shard, n)
+	for i := range shards {
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%03d", i)}
+		_ = sched.Register(shards[i])
+	}
+
+	var wg sync.WaitGroup
+	for _, s := range shards {
+		s := s
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 3 {
+				_ = sched.Deregister(s)
+				_ = sched.Register(s)
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		sched.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("scheduler did not terminate — possible deadlock in mass-divergence defer path")
+	}
+
+	for _, s := range shards {
+		s.asyncRepWg.Wait()
+	}
+}
+
 // TestClassifyBatchExcludesIneligible verifies that shards with active
 // target-node overrides or an uninitialised hashtree are excluded from the
 // batched pre-filter (no RPC issued) and default to a full descent.
