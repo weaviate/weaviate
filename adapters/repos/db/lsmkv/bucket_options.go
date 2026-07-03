@@ -59,16 +59,6 @@ func WithClassName(className string) BucketOption {
 	}
 }
 
-// WithEditOpLivenessProvider installs the live-op lookup used to sweep orphaned
-// edit ops on shard load (see SegmentGroup.recoverEditOps). Objects-bucket-only;
-// nil-safe (no provider disables the sweep).
-func WithEditOpLivenessProvider(p EditOpLivenessProvider) BucketOption {
-	return func(b *Bucket) error {
-		b.editOpLiveness = p
-		return nil
-	}
-}
-
 func WithMemtableThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.memtableThreshold = threshold

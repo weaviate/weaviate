@@ -269,6 +269,7 @@ func NewHandler(
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
 	namespacesExister namespaces.Exister,
+	dropVectorEnqueuer DropVectorIndexEnqueuer,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -287,6 +288,7 @@ func NewHandler(
 		cloud:                   cloud,
 		classGetter:             classGetter,
 		namespacesExister:       namespacesExister,
+		dropVectorEnqueuer:      dropVectorEnqueuer,
 
 		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
@@ -414,8 +416,8 @@ func (h *Handler) Statistics() map[string]any {
 // dropped named vector and reports whether one is already in flight, so a re-issued
 // drop can be handled (no-op while a cleanup runs, re-enqueue if it failed). It is
 // implemented in the cluster wiring layer (which owns the DTM client and sharding
-// state) and injected via SetDropVectorIndexEnqueuer. When nil — the distributed-task
-// machinery is not wired — a drop only sets the schema marker.
+// state) and injected at construction. When nil — the distributed-task machinery
+// is not wired — a drop only sets the schema marker.
 type DropVectorIndexEnqueuer interface {
 	// HasActiveDrop reports whether a non-terminal cleanup task already covers
 	// targetVector on collection.
@@ -423,12 +425,6 @@ type DropVectorIndexEnqueuer interface {
 	// EnqueueDropVectorIndex submits a fresh cleanup task (fresh task ID) for the
 	// given targets on collection.
 	EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error
-}
-
-// SetDropVectorIndexEnqueuer installs the cleanup-task enqueuer. Called once at
-// startup from the wiring layer, after the DTM client exists.
-func (h *Handler) SetDropVectorIndexEnqueuer(e DropVectorIndexEnqueuer) {
-	h.dropVectorEnqueuer = e
 }
 
 // enqueueDropVectorIndexCleanup submits the cleanup task for a freshly dropped

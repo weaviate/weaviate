@@ -197,10 +197,6 @@ type Bucket struct {
 	// never call ClassName() in the first place.
 	className string
 
-	// editOpLiveness lets the objects bucket sweep orphaned edit ops on load (see
-	// SegmentGroup.recoverEditOps). Set via WithEditOpLivenessProvider; nil disables.
-	editOpLiveness EditOpLivenessProvider
-
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
 	// without discontinuities in segment levels.
@@ -364,7 +360,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
 			className:                    b.className,
-			editOpLiveness:               b.editOpLiveness,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -402,8 +397,8 @@ func (b *Bucket) GetRootDir() string {
 	return b.rootDir
 }
 
-// HasEditOps reports whether this bucket has an edit-ops sidecar (wired via
-// WithClassName on a replace bucket, i.e. the objects bucket).
+// HasEditOps reports whether this bucket has an edit-ops sidecar (the objects
+// bucket).
 func (b *Bucket) HasEditOps() bool {
 	return b.disk != nil && b.disk.editOps != nil
 }

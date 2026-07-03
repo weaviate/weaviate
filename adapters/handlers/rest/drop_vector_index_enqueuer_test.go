@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeReconcileEnqueuer struct {
@@ -103,7 +104,7 @@ func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 		db.DropVectorIndexNamespace: {active},
 	}}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: &fakeOwnership{}}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster}
 
 	got, err := enq.HasActiveDrop(context.Background(), "c", "v1") // collection case-insensitive
 	require.NoError(t, err)
@@ -135,7 +136,7 @@ func TestLiveOpIDs_ReturnsActiveOpIDs(t *testing.T) {
 	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 		db.DropVectorIndexNamespace: {active, done},
 	}}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: &fakeOwnership{}}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster}
 
 	live, err := enq.LiveOpIDs(context.Background())
 	require.NoError(t, err)
@@ -156,38 +157,63 @@ func mustDropPayload(t *testing.T, collection string, targets ...string) []byte 
 	return b
 }
 
-type fakeOwnership struct {
-	m           map[string][]string
-	multiTenant bool
+// fakeShardingState returns a leader-consistent-shaped sharding state built from
+// shard -> (status, nodes).
+type fakeShardingState struct {
+	state *sharding.State
+	err   error
 }
 
-func (f *fakeOwnership) ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error) {
-	return f.m, nil
+func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, uint64, error) {
+	return f.state, 0, f.err
 }
 
-func (f *fakeOwnership) IsMultiTenant(ctx context.Context, className string) bool {
-	return f.multiTenant
+func shardingState(partitioning bool, shards map[string]sharding.Physical) *sharding.State {
+	return &sharding.State{PartitioningEnabled: partitioning, Physical: shards}
 }
 
-// TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp pins A1: an MT collection
-// whose tenants are all inactive yields an empty active-ownership map; the enqueuer
-// must treat that as a no-op success (cleanup deferred to activation), not error,
-// since the drop marker is already applied.
+func TestActiveShardOwnership_FiltersByTenantStatus(t *testing.T) {
+	t.Run("multi-tenant returns only HOT/ACTIVE tenants", func(t *testing.T) {
+		state := shardingState(true, map[string]sharding.Physical{
+			"hot":    {Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"n1"}},
+			"active": {Status: models.TenantActivityStatusACTIVE, BelongsToNodes: []string{"n2"}},
+			"cold":   {Status: models.TenantActivityStatusCOLD, BelongsToNodes: []string{"n1"}},
+			"frozen": {Status: "FROZEN", BelongsToNodes: []string{"n2"}},
+		})
+		require.Equal(t, map[string][]string{"n1": {"hot"}, "n2": {"active"}}, activeShardOwnership(state),
+			"COLD/FROZEN tenants must be excluded")
+	})
+
+	t.Run("non-multi-tenant returns all shards regardless of status", func(t *testing.T) {
+		state := shardingState(false, map[string]sharding.Physical{
+			"s1": {BelongsToNodes: []string{"n1"}},
+			"s2": {BelongsToNodes: []string{"n1", "n2"}},
+		})
+		require.Equal(t, map[string][]string{"n1": {"s1", "s2"}, "n2": {"s2"}}, activeShardOwnership(state))
+	})
+}
+
+// TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp: an MT collection whose
+// tenants are all inactive yields an empty active-ownership map; the enqueuer
+// must treat that as a no-op success (the drop marker is already applied), not
+// an error.
 func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
 	cluster := &fakeClusterDropClient{}
-	own := &fakeOwnership{m: map[string][]string{}, multiTenant: true}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: own}
+	state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{
+		"cold": {Status: models.TenantActivityStatusCOLD, BelongsToNodes: []string{"n1"}},
+	})}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, shardingState: state}
 
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 	require.Empty(t, cluster.gotTaskID, "no task should be enqueued when there are no active shards")
 }
 
-// TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors confirms the empty-map
+// TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors confirms the empty
 // no-op is scoped to MT: a non-MT collection with no shards is a real error.
 func TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors(t *testing.T) {
 	cluster := &fakeClusterDropClient{}
-	own := &fakeOwnership{m: map[string][]string{}, multiTenant: false}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: own}
+	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{})}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, shardingState: state}
 
 	require.Error(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 }
@@ -199,8 +225,10 @@ func TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors(t *testing.T) {
 // drop endpoint hit in e2e).
 func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	cluster := &fakeClusterDropClient{}
-	own := &fakeOwnership{m: map[string][]string{"node1": {"shard1"}}}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, ownership: own}
+	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+		"shard1": {BelongsToNodes: []string{"node1"}},
+	})}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, shardingState: state}
 
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 

@@ -128,9 +128,6 @@ type DB struct {
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 
-	dropVectorLiveOpsMu     sync.RWMutex
-	dropVectorLiveOpsLookup DropVectorLiveOpsLookup
-
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
 

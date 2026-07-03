@@ -172,7 +172,6 @@ func Test_Schema_Authorization(t *testing.T) {
 			switch method {
 			case "RegisterSchemaUpdateCallback",
 				// internal wiring setter, not user-facing (drop-vector-index Phase 2)
-				"SetDropVectorIndexEnqueuer",
 				// introduced by sync.Mutex in go 1.18
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
 				"TryLock", "RLocker", "TryRLock", "TxManager", "RestoreClass",

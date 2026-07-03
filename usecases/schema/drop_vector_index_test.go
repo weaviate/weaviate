@@ -44,7 +44,7 @@ func newDropVectorHandler(t *testing.T, cls *models.Class) (*Handler, *fakeSchem
 	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	h, sm := newTestHandler(t, nil)
 	enq := &fakeDropEnqueuer{}
-	h.SetDropVectorIndexEnqueuer(enq)
+	h.dropVectorEnqueuer = enq
 	sm.On("QueryReadOnlyClasses", []string{cls.Class}).
 		Return(map[string]versioned.Class{cls.Class: {Class: cls}}, nil)
 	return h, sm, enq

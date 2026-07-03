@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // defaultDropVectorPollInterval is how often a running unit polls the edit-ops
@@ -43,10 +45,10 @@ type editOpBucket interface {
 }
 
 // dropVectorShards is the slice of *DB the provider needs: locate the edit-ops
-// objects bucket for a shard, and (safety net) remove a dropped vector index's
-// on-disk files for a shard.
+// objects buckets for shards (one walk), and (safety net) remove a dropped
+// vector index's on-disk files for a shard.
 type dropVectorShards interface {
-	EditOpBucketForShard(collection, shard string) (editOpBucket, error)
+	EditOpBucketsForShards(collection string, shardNames []string) (map[string]editOpBucket, error)
 	EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error
 }
 
@@ -55,6 +57,13 @@ type dropVectorShards interface {
 // re-running after the entries are already gone is a no-op.
 type dropVectorSchemaFinalizer interface {
 	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
+}
+
+// dropVectorShardingReader returns the leader-consistent sharding state, so the
+// finalize path can tell whether this task covered every current shard/tenant.
+// cluster.Raft satisfies it.
+type dropVectorShardingReader interface {
+	QueryShardingState(class string) (*sharding.State, uint64, error)
 }
 
 // DropVectorIndexProvider executes drop-vector-index distributed tasks: each
@@ -68,6 +77,7 @@ type DropVectorIndexProvider struct {
 
 	shards    dropVectorShards
 	schema    dropVectorSchemaFinalizer
+	sharding  dropVectorShardingReader
 	logger    logrus.FieldLogger
 	localNode string
 
@@ -85,6 +95,7 @@ type DropVectorIndexProvider struct {
 func NewDropVectorIndexProvider(
 	shards dropVectorShards,
 	schema dropVectorSchemaFinalizer,
+	sharding dropVectorShardingReader,
 	logger logrus.FieldLogger,
 	localNode string,
 	serverCtx context.Context,
@@ -92,6 +103,7 @@ func NewDropVectorIndexProvider(
 	return &DropVectorIndexProvider{
 		shards:         shards,
 		schema:         schema,
+		sharding:       sharding,
 		logger:         logger,
 		localNode:      localNode,
 		serverCtx:      serverCtx,
@@ -161,6 +173,7 @@ func (p *DropVectorIndexProvider) processUnits(
 	ctx context.Context, task *distributedtask.Task,
 	payload *DropVectorIndexTaskPayload, localUnits []string,
 ) {
+	buckets := p.localBuckets(payload, localUnits)
 	for _, unitID := range localUnits {
 		if ctx.Err() != nil {
 			return // shutdown: leave units in place, the task resumes after restart
@@ -168,20 +181,36 @@ func (p *DropVectorIndexProvider) processUnits(
 		if unit, ok := task.Units[unitID]; ok && unit.Status == distributedtask.UnitStatusCompleted {
 			continue // already done in a prior run
 		}
-		p.processOneUnit(ctx, task, payload, unitID)
+		p.processOneUnit(ctx, task, payload, unitID, buckets[payload.UnitToShard[unitID]])
 	}
+}
+
+// localBuckets resolves the objects bucket for every local unit's shard in one
+// walk. Returns nil on a lookup error; per-unit handling then fails the units.
+func (p *DropVectorIndexProvider) localBuckets(
+	payload *DropVectorIndexTaskPayload, localUnits []string,
+) map[string]editOpBucket {
+	shardNames := make([]string, 0, len(localUnits))
+	for _, unitID := range localUnits {
+		shardNames = append(shardNames, payload.UnitToShard[unitID])
+	}
+	buckets, err := p.shards.EditOpBucketsForShards(payload.Collection, shardNames)
+	if err != nil {
+		p.logger.WithField("collection", payload.Collection).
+			Errorf("drop-vector: resolve objects buckets: %v", err)
+		return nil
+	}
+	return buckets
 }
 
 func (p *DropVectorIndexProvider) processOneUnit(
 	ctx context.Context, task *distributedtask.Task,
-	payload *DropVectorIndexTaskPayload, unitID string,
+	payload *DropVectorIndexTaskPayload, unitID string, bucket editOpBucket,
 ) {
 	logger := p.unitLogger(task, payload, unitID)
 
-	shardName := payload.UnitToShard[unitID]
-	bucket, err := p.shards.EditOpBucketForShard(payload.Collection, shardName)
-	if err != nil {
-		p.failUnit(ctx, task, unitID, "locate objects bucket: "+err.Error())
+	if bucket == nil {
+		p.failUnit(ctx, task, unitID, "objects bucket for shard "+payload.UnitToShard[unitID]+" not locally available")
 		return
 	}
 
@@ -345,6 +374,23 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 
+	// Only remove the schema entry once THIS task covered every current shard.
+	// A tenant that was inactive at enqueue (or created since) has no unit here;
+	// removing the marker would strand its data — the marker is what activation
+	// cleanup and re-enqueue key off — and free the name while stale files linger.
+	// The marker stays until a later task covers everyone.
+	uncovered, err := p.uncoveredShards(payload)
+	if err != nil {
+		logger.Errorf("drop-vector: task-completion: coverage check failed (leaving schema marker): %v", err)
+		return
+	}
+	if len(uncovered) > 0 {
+		logger.WithField("shards", uncovered).
+			Info("drop-vector: task-completion: shards not covered by this task (inactive at enqueue or created since); " +
+				"leaving schema marker — reconciliation re-enqueues once they are active")
+		return
+	}
+
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
 		// Leave the marker in place; startup reconciliation retries the removal.
 		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
@@ -353,20 +399,50 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	logger.Info("drop-vector: task-completion: dropped vector(s) removed from schema")
 }
 
+// uncoveredShards returns the collection's current shards (leader-consistent)
+// that had no unit in this task.
+func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPayload) ([]string, error) {
+	state, _, err := p.sharding.QueryShardingState(payload.Collection)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, fmt.Errorf("no sharding state for collection %q", payload.Collection)
+	}
+	covered := make(map[string]struct{}, len(payload.UnitToShard))
+	for _, shardName := range payload.UnitToShard {
+		covered[shardName] = struct{}{}
+	}
+	var uncovered []string
+	for shardName := range state.Physical {
+		if _, ok := covered[shardName]; !ok {
+			uncovered = append(uncovered, shardName)
+		}
+	}
+	sort.Strings(uncovered)
+	return uncovered, nil
+}
+
 // deleteLocalEditOps removes the finished op from each local shard's sidecar,
 // returning an error if any shard's op can't be deleted (delete failure, or an
 // unloaded shard). That defers the schema removal: freeing the name while an op
 // lingers in an unloaded shard would let a later reactivation re-arm it and strip
 // the re-created vector.
 func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTaskPayload) error {
+	var shardNames []string
 	for unitID, node := range payload.UnitToNode {
-		if node != p.localNode {
-			continue
+		if node == p.localNode {
+			shardNames = append(shardNames, payload.UnitToShard[unitID])
 		}
-		shardName := payload.UnitToShard[unitID]
-		bucket, err := p.shards.EditOpBucketForShard(payload.Collection, shardName)
-		if err != nil {
-			return fmt.Errorf("locate bucket for shard %q to delete edit op (deferring finalize): %w", shardName, err)
+	}
+	buckets, err := p.shards.EditOpBucketsForShards(payload.Collection, shardNames)
+	if err != nil {
+		return fmt.Errorf("resolve buckets to delete edit op (deferring finalize): %w", err)
+	}
+	for _, shardName := range shardNames {
+		bucket, ok := buckets[shardName]
+		if !ok {
+			return fmt.Errorf("shard %q not locally available to delete edit op (deferring finalize)", shardName)
 		}
 		if err := bucket.DeleteEditOp(payload.OpID); err != nil {
 			return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)

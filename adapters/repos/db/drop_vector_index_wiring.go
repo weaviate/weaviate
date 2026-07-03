@@ -25,27 +25,33 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// EditOpBucketForShard returns the edit-ops objects bucket for a local shard so
-// the drop-vector provider can register the op and poll its pending set. Mirrors
-// the reindex provider's ForEachShard lookup (loaded shards only).
-func (db *DB) EditOpBucketForShard(collection, shardName string) (editOpBucket, error) {
+// EditOpBucketsForShards resolves the edit-ops objects buckets for the given
+// local shards in a single walk, so the drop-vector provider can register ops and
+// poll pending sets without an O(shards) lookup per unit. A shard absent from the
+// result is not locally available (e.g. a deactivated tenant). Note: the walk
+// force-loads lazy-loaded shards — acceptable for a drop, which is a rare
+// operator-initiated action that must touch every shard once anyway.
+func (db *DB) EditOpBucketsForShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
 		return nil, fmt.Errorf("index for collection %q not found", collection)
 	}
-	var bucket editOpBucket
+	wanted := make(map[string]struct{}, len(shardNames))
+	for _, name := range shardNames {
+		wanted[name] = struct{}{}
+	}
+	buckets := make(map[string]editOpBucket, len(shardNames))
 	if err := idx.ForEachShard(func(name string, s ShardLike) error {
-		if name == shardName {
-			bucket = s.Store().Bucket(helpers.ObjectsBucketLSM)
+		if _, ok := wanted[name]; ok {
+			if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+				buckets[name] = b
+			}
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if bucket == nil {
-		return nil, fmt.Errorf("objects bucket for %q/%q not found", collection, shardName)
-	}
-	return bucket, nil
+	return buckets, nil
 }
 
 // EnsureDroppedVectorFilesRemoved removes the on-disk artifacts (LSM buckets +

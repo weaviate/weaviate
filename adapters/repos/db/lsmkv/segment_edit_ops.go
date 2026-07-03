@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,14 +80,6 @@ type SegmentEditOps struct {
 // transformerResolver maps an op type to its transformer factory, reporting
 // whether one is registered. Production uses transformers.Lookup; tests inject.
 type transformerResolver func(OpType) (OpTransformerFactory, bool)
-
-// EditOpLivenessProvider returns the set of edit-op IDs that still have a live
-// (non-terminal) task. recoverEditOps passes it to Reconcile so an op whose task
-// has finished/gone is swept on shard load rather than re-armed — closing the
-// window where a completed op lingers on a shard that was unloaded at finalize
-// time and later strips a re-created same-name vector. A nil provider (or a lookup
-// error) disables the sweep, keeping the pre-existing re-arm behavior.
-type EditOpLivenessProvider func(ctx context.Context) (map[string]struct{}, error)
 
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
 
@@ -716,6 +707,42 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 		}
 		return deleteSubBucket(tx.Bucket(editOpsBucketQuarantine), opID)
 	})
+}
+
+// Recover runs the load-time bookkeeping: sweep ops with no live task, prune rows
+// for segments gone from disk (Reconcile), then re-snapshot every surviving op
+// over segIDs. resolveLive is called only when ops exist (it may be a remote
+// lookup); a nil result skips the sweep. The reload between Reconcile and the
+// re-snapshot is load-bearing: the sweep mutates the op set, and re-snapshotting
+// a swept op would resurrect it.
+func (s *SegmentEditOps) Recover(segIDs []string, resolveLive func() map[string]struct{}) error {
+	ops, err := s.LoadOps()
+	if err != nil {
+		return err
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+
+	existing := make(map[string]struct{}, len(segIDs))
+	for _, id := range segIDs {
+		existing[id] = struct{}{}
+	}
+	liveOpIDs := resolveLive()
+	if err := s.Reconcile(existing, liveOpIDs); err != nil {
+		return err
+	}
+	if liveOpIDs != nil {
+		if ops, err = s.LoadOps(); err != nil {
+			return err
+		}
+	}
+	for _, op := range ops {
+		if err := s.SnapshotSegments(op.ID, segIDs); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Reconcile repairs the store against ground truth at open time (C1):

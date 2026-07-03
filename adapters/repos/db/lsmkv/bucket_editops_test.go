@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -215,13 +216,14 @@ func TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen(t *testing.T) {
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	open := func(live EditOpLivenessProvider) *Bucket {
-		opts := []BucketOption{WithStrategy(StrategyReplace), WithClassName("MyClass")}
-		if live != nil {
-			opts = append(opts, WithEditOpLivenessProvider(live))
-		}
+	// The liveness lookup is package-level (editops.SetLivenessProvider), like the
+	// transformers registry; install per phase and reset on cleanup.
+	open := func(live editops.LivenessProvider) *Bucket {
+		editops.SetLivenessProvider(live)
+		t.Cleanup(func() { editops.SetLivenessProvider(nil) })
 		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace), WithClassName("MyClass"))
 		require.NoError(t, err)
 		b.SetMemtableThreshold(1e9)
 		return b
@@ -256,13 +258,14 @@ func TestBucket_RecoverEditOps_KeepsLiveOpOnReopen(t *testing.T) {
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	open := func(live EditOpLivenessProvider) *Bucket {
-		opts := []BucketOption{WithStrategy(StrategyReplace), WithClassName("MyClass")}
-		if live != nil {
-			opts = append(opts, WithEditOpLivenessProvider(live))
-		}
+	// The liveness lookup is package-level (editops.SetLivenessProvider), like the
+	// transformers registry; install per phase and reset on cleanup.
+	open := func(live editops.LivenessProvider) *Bucket {
+		editops.SetLivenessProvider(live)
+		t.Cleanup(func() { editops.SetLivenessProvider(nil) })
 		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace), WithClassName("MyClass"))
 		require.NoError(t, err)
 		b.SetMemtableThreshold(1e9)
 		return b
@@ -295,13 +298,14 @@ func TestBucket_RecoverEditOps_ProviderErrorSkipsSweep(t *testing.T) {
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	open := func(live EditOpLivenessProvider) *Bucket {
-		opts := []BucketOption{WithStrategy(StrategyReplace), WithClassName("MyClass")}
-		if live != nil {
-			opts = append(opts, WithEditOpLivenessProvider(live))
-		}
+	// The liveness lookup is package-level (editops.SetLivenessProvider), like the
+	// transformers registry; install per phase and reset on cleanup.
+	open := func(live editops.LivenessProvider) *Bucket {
+		editops.SetLivenessProvider(live)
+		t.Cleanup(func() { editops.SetLivenessProvider(nil) })
 		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace), WithClassName("MyClass"))
 		require.NoError(t, err)
 		b.SetMemtableThreshold(1e9)
 		return b

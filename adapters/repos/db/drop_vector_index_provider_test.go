@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // --- fakes ---
@@ -104,11 +105,16 @@ type fakeShards struct {
 	removeErr map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
 }
 
-func (f *fakeShards) EditOpBucketForShard(collection, shard string) (editOpBucket, error) {
+func (f *fakeShards) EditOpBucketsForShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
 	if f.bucketErr != nil {
-		return nil, f.bucketErr
+		// Simulates "shard not locally available": absent from the result map.
+		return map[string]editOpBucket{}, nil
 	}
-	return f.bucket, nil
+	out := make(map[string]editOpBucket, len(shardNames))
+	for _, name := range shardNames {
+		out[name] = f.bucket
+	}
+	return out, nil
 }
 
 func (f *fakeShards) EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error {
@@ -169,13 +175,32 @@ func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, na
 
 // --- helpers ---
 
+// fakeShardingReader returns a sharding state whose Physical set is exactly
+// `shards`; the provider's coverage guard compares it against the task's units.
+type fakeShardingReader struct {
+	shards []string
+	err    error
+}
+
+func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, uint64, error) {
+	if f.err != nil {
+		return nil, 0, f.err
+	}
+	state := &sharding.State{Physical: map[string]sharding.Physical{}}
+	for _, name := range f.shards {
+		state.Physical[name] = sharding.Physical{}
+	}
+	return state, 0, nil
+}
+
 func newTestDropProvider(shards dropVectorShards, fin dropVectorSchemaFinalizer, rec distributedtask.TaskCompletionRecorder) *DropVectorIndexProvider {
 	return newTestDropProviderCtx(shards, fin, rec, context.Background())
 }
 
 func newTestDropProviderCtx(shards dropVectorShards, fin dropVectorSchemaFinalizer, rec distributedtask.TaskCompletionRecorder, serverCtx context.Context) *DropVectorIndexProvider {
 	logger, _ := test.NewNullLogger()
-	p := NewDropVectorIndexProvider(shards, fin, logger, "node1", serverCtx)
+	// Default sharding state: exactly the shard the default dropTask covers.
+	p := NewDropVectorIndexProvider(shards, fin, &fakeShardingReader{shards: []string{"shard1"}}, logger, "node1", serverCtx)
 	p.pollInterval = time.Millisecond
 	p.SetCompletionRecorder(rec)
 	return p
@@ -479,6 +504,34 @@ func TestOnTaskCompleted_UnloadedShard_DefersFinalize(t *testing.T) {
 
 	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 	require.False(t, fin.called, "schema removal must be deferred when an op can't be deleted on an unloaded shard")
+}
+
+// TestOnTaskCompleted_UncoveredTenant_DefersFinalize pins the cold-tenant guard:
+// when the collection has a shard this task carried no unit for (a tenant that was
+// inactive at enqueue, or created since), the schema marker must stay — removing
+// it would strand that tenant's data and stale index files under a re-creatable
+// name. The completed local ops are still deleted.
+func TestOnTaskCompleted_UncoveredTenant_DefersFinalize(t *testing.T) {
+	bucket := &fakeEditOpBucket{}
+	fin := &fakeFinalizer{}
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+	p.sharding = &fakeShardingReader{shards: []string{"shard1", "coldTenant"}}
+
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+
+	require.Equal(t, []string{"op1"}, bucket.deleted, "covered shards' ops are still deleted")
+	require.False(t, fin.called, "schema removal must be deferred while a shard is uncovered")
+}
+
+// TestOnTaskCompleted_CoverageCheckError_DefersFinalize: an unreadable sharding
+// state must defer the schema removal, not proceed on unknown coverage.
+func TestOnTaskCompleted_CoverageCheckError_DefersFinalize(t *testing.T) {
+	fin := &fakeFinalizer{}
+	p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
+	p.sharding = &fakeShardingReader{err: errors.New("no leader")}
+
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+	require.False(t, fin.called)
 }
 
 // --- detectors ---

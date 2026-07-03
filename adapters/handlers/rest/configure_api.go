@@ -65,6 +65,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
@@ -754,6 +755,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger,
 	)
 
+	// Created here (not in the DTM wiring) so it can be injected into the schema
+	// manager at construction, and so the edit-op liveness provider is installed
+	// before ClusterService.Open drives restore-time shard loads.
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft)
+	editops.SetLivenessProvider(dropVectorEnqueuer.LiveOpIDs)
+
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -764,6 +771,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
+		dropVectorEnqueuer,
 	)
 	if err != nil {
 		appState.Logger.
@@ -839,14 +847,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
 	repo.SetReindexer(reindexer)
-
-	// Install the drop-vector live-op lookup BEFORE ClusterService.Open: Open drives
-	// RAFT restore → shard load → recoverEditOps, which consults the lookup to sweep
-	// orphaned edit ops; installing it later would silently skip the sweep for every
-	// shard loaded during restore. A pre-restore lookup error just skips the sweep
-	// for that shard (re-arm, the safe fallback).
-	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, repo)
-	repo.SetDropVectorLiveOpsLookup(dropVectorEnqueuer.LiveOpIDs)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1165,14 +1165,11 @@ func initReindexAndDistributedTasks(
 	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
 		repo,
 		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		appState.ClusterService.Raft,
 		appState.Logger,
 		appState.Cluster.LocalName(),
 		serverShutdownCtx,
 	)
-	// Lets the schema drop path enqueue the cleanup task that strips dropped vectors.
-	// (The enqueuer itself is created before ClusterService.Open so its live-op
-	// lookup is installed ahead of restore-time shard loads.)
-	appState.SchemaManager.SetDropVectorIndexEnqueuer(dropVectorEnqueuer)
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {

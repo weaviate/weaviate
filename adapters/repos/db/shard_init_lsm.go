@@ -179,11 +179,6 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
 		lsmkv.WithClassName(s.index.Config.ClassName.String()),
-		// Sweep an orphaned drop-vector edit op on load (its task is gone) instead of
-		// re-arming it. Read through the DB so a lookup wired after startup still applies.
-		lsmkv.WithEditOpLivenessProvider(func(ctx context.Context) (map[string]struct{}, error) {
-			return s.index.db.dropVectorLiveOps(ctx)
-		}),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

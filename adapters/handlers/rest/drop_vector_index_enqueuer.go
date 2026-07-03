@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // dropVectorIndexEnqueuer implements schema.DropVectorIndexEnqueuer. It submits
@@ -33,7 +35,7 @@ import (
 // so it can reuse buildUnitMaps/buildUnitSpecs.
 type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
-	ownership      shardOwnershipLister
+	shardingState  shardingStateQuerier
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -43,18 +45,17 @@ type clusterDropTaskClient interface {
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
 
-// shardOwnershipLister returns node -> shard-names for a collection (non-HOT MT
-// tenants excluded — their cleanup is deferred to a later reconciliation once they
-// are active), and reports multi-tenancy so the enqueuer can tell an all-cold MT
-// collection (empty, expected) from a shard-less one (an error). *db.DB satisfies
-// it; narrowed for testability.
-type shardOwnershipLister interface {
-	ShardReplicaOwnershipActive(ctx context.Context, className string) (map[string][]string, error)
-	IsMultiTenant(ctx context.Context, className string) bool
+// shardingStateQuerier returns the leader-consistent sharding state for a
+// collection. Leader-consistent on purpose: units must be built from the current
+// tenant statuses, not this node's eventually-consistent local view (a tenant
+// activated moments ago could still read COLD locally and be skipped).
+// cluster.Raft satisfies it.
+type shardingStateQuerier interface {
+	QueryShardingState(class string) (*sharding.State, uint64, error)
 }
 
-func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, ownership shardOwnershipLister) *dropVectorIndexEnqueuer {
-	return &dropVectorIndexEnqueuer{clusterService: clusterService, ownership: ownership}
+func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, shardingState shardingStateQuerier) *dropVectorIndexEnqueuer {
+	return &dropVectorIndexEnqueuer{clusterService: clusterService, shardingState: shardingState}
 }
 
 // HasActiveDrop reports whether a non-terminal drop task already covers
@@ -89,16 +90,20 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 // one unit per (shard, replica) grouped by shard, so each replica node strips
 // its own objects bucket.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
-	shardOwnership, err := e.ownership.ShardReplicaOwnershipActive(ctx, collection)
+	state, _, err := e.shardingState.QueryShardingState(collection)
 	if err != nil {
-		return fmt.Errorf("drop-vector enqueue: shard ownership for %q: %w", collection, err)
+		return fmt.Errorf("drop-vector enqueue: sharding state for %q: %w", collection, err)
 	}
+	if state == nil {
+		return fmt.Errorf("drop-vector enqueue: no sharding state for collection %q", collection)
+	}
+	shardOwnership := activeShardOwnership(state)
 	if len(shardOwnership) == 0 {
 		// All-cold MT collection: no active shard to strip now, and the marker is
 		// already applied — a no-op success, not an error. Reconciliation re-enqueues
 		// once tenants are active. A non-MT collection always has shards, so an empty
 		// map there is a real problem.
-		if e.ownership.IsMultiTenant(ctx, collection) {
+		if state.PartitioningEnabled {
 			return nil
 		}
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
@@ -123,6 +128,35 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	// task, the backstop for the HasActiveDrop check race.
 	taskID := uuid.NewString()
 	return e.clusterService.AddDistributedTaskWithGroups(ctx, db.DropVectorIndexNamespace, taskID, payload, specs)
+}
+
+// activeShardOwnership builds node -> shard-names from a sharding state, limited
+// to shards with locally loaded data: for multi-tenant collections only HOT/ACTIVE
+// tenants (a cleanup unit on a deactivated tenant's shard would load it and
+// prematurely remove its files; such tenants are picked up by a later
+// reconciliation once active); for non-MT collections all shards. Shard lists are
+// sorted per node for determinism.
+func activeShardOwnership(state *sharding.State) map[string][]string {
+	result := make(map[string][]string)
+	for shardName, shard := range state.Physical {
+		if state.PartitioningEnabled {
+			switch entschema.ActivityStatus(shard.Status) {
+			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
+				// Loaded — include.
+			default:
+				continue
+			}
+		}
+		for _, node := range shard.BelongsToNodes {
+			if node != "" {
+				result[node] = append(result[node], shardName)
+			}
+		}
+	}
+	for _, shards := range result {
+		sort.Strings(shards)
+	}
+	return result
 }
 
 // LiveOpIDs returns the op IDs of drop-vector tasks that are still active
