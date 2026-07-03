@@ -1618,6 +1618,30 @@ func drainBatchSizes(ch chan *[]*asyncSchedulerEntry) []int {
 	}
 }
 
+func drainBatches(ch chan *[]*asyncSchedulerEntry) []*[]*asyncSchedulerEntry {
+	var batches []*[]*asyncSchedulerEntry
+	for {
+		select {
+		case bp := <-ch:
+			batches = append(batches, bp)
+		default:
+			return batches
+		}
+	}
+}
+
+func drainResults(ch chan asyncSchedulerResult) []asyncSchedulerResult {
+	var results []asyncSchedulerResult
+	for {
+		select {
+		case r := <-ch:
+			results = append(results, r)
+		default:
+			return results
+		}
+	}
+}
+
 // TestRunBatchEmitsOneResultPerEntry verifies that every entry in a multi-entry
 // batch produces exactly one result via runEntry — the invariant that keeps
 // asyncRepWg balanced (runEntry alone owns each entry's Done()+result).
@@ -1803,4 +1827,77 @@ func TestDispatchDueCoalescing(t *testing.T) {
 			assert.False(t, e.inFlight, "rolled-back entries must not be in-flight")
 		}
 	})
+}
+
+// TestDeferDescentReDispatchesSingletons verifies the descent-spreading path:
+// a coalesced multi-entry batch of diverging shards is not descended inline;
+// each diverging entry is deferred back to the dispatcher (deferDescent) and
+// re-dispatched as a standalone singleton so descent spreads across the pool.
+// Uninitialised hashtrees make classifyBatch classify every shard as diverging
+// without issuing the pre-filter RPC.
+func TestDeferDescentReDispatchesSingletons(t *testing.T) {
+	sched := newBareScheduler(512, 16)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 32)
+
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	const n = 5
+	for i := range n {
+		sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%d", i)})
+	}
+
+	sched.dispatchDueLocked()
+	batches := drainBatches(sched.workCh)
+	require.Len(t, batches, 1, "the due shards coalesce into a single pre-filter batch")
+	require.Len(t, *batches[0], n)
+
+	sched.runBatch(batches[0], newBatchScratch())
+
+	results := drainResults(sched.resultCh)
+	require.Len(t, results, n, "one result per entry")
+	for _, r := range results {
+		assert.True(t, r.deferDescent, "diverging entries are deferred, not descended inline")
+		assert.NoError(t, r.err)
+		sched.onResultLocked(r)
+	}
+
+	require.Len(t, sched.entries, n)
+	for _, e := range sched.entries {
+		assert.True(t, e.descendDirect, "deferred entries are marked for direct descent")
+	}
+
+	sched.dispatchDueLocked()
+	assert.ElementsMatch(t, []int{1, 1, 1, 1, 1}, drainBatchSizes(sched.workCh),
+		"diverging shards re-dispatch as singletons, never re-coalesced into one batch")
+	for _, e := range sched.entries {
+		assert.False(t, e.descendDirect, "descendDirect cleared once the singleton is sent")
+	}
+}
+
+// TestDescendDirectSurvivesFullChannel verifies that when workCh fills mid-round,
+// unsent descendDirect entries roll back retaining the flag (so they retry as
+// singletons next round) and are never re-coalesced into a batch or lost.
+func TestDescendDirectSurvivesFullChannel(t *testing.T) {
+	sched := newBareScheduler(512, 2)
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	const n = 5
+	for i := range n {
+		s := &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%d", i)}
+		sched.onAddLocked(s)
+		sched.entries[s].descendDirect = true
+	}
+
+	sched.dispatchDueLocked()
+
+	assert.ElementsMatch(t, []int{1, 1}, drainBatchSizes(sched.workCh),
+		"channel capacity bounds the singletons dispatched this round")
+	assert.Len(t, sched.h, n-2, "unsent divergers rolled back into the heap")
+	for _, e := range sched.h {
+		assert.True(t, e.descendDirect, "rolled-back divergers retain descendDirect")
+		assert.False(t, e.inFlight, "rolled-back divergers must not be in-flight")
+	}
+
+	sched.dispatchDueLocked()
+	assert.ElementsMatch(t, []int{1, 1}, drainBatchSizes(sched.workCh),
+		"remaining divergers keep dispatching as singletons")
 }

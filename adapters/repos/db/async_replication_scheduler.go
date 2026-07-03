@@ -78,6 +78,11 @@ type asyncSchedulerEntry struct {
 	nextRunAt time.Time
 	inFlight  bool // true while a worker is executing runHashbeatCycle
 	heapIdx   int  // maintained by the heap for O(log n) Fix/Remove
+	// descendDirect marks an entry the batched pre-filter already classified as
+	// diverging: dispatchDueLocked ships it as a standalone singleton for descent
+	// (bypassing coalescing and the pre-filter) so mass-divergence descents spread
+	// across the pool instead of serializing in one worker. Guarded by sched.mu.
+	descendDirect bool
 	// seq is a monotonically-increasing counter assigned every time the entry
 	// is pushed onto the heap. Entries with the same nextRunAt are served in
 	// the order they were enqueued (FIFO within a tie).
@@ -125,6 +130,10 @@ type asyncSchedulerResult struct {
 	entry      *asyncSchedulerEntry
 	propagated bool
 	err        error
+	// deferDescent is set by deferDescent: the batched pre-filter classified this
+	// entry as diverging, so onResultLocked re-enqueues it immediately with
+	// descendDirect set rather than scheduling the next cycle at frequency.
+	deferDescent bool
 	// cfg is the effective config snapshot used for this cycle, pre-read in
 	// the worker. onResultLocked uses it to avoid acquiring
 	// asyncReplicationRWMux.RLock() while sched.mu is held.
@@ -921,6 +930,25 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 			continue
 		}
 
+		if entry.descendDirect {
+			// Pre-filter already classified this shard as diverging: ship it as a
+			// standalone singleton (bypassing coalescing and the pre-filter) so
+			// its descent runs on any free worker instead of serializing behind a
+			// full batch. Reserve, then clear the flag only on a successful send —
+			// on a full channel rollbackReservedLocked re-queues it with the flag
+			// intact so it retries as a singleton next tick (never re-coalesced).
+			entry.shard.asyncRepWg.Add(1)
+			entry.inFlight = true
+			heap.Pop(&sched.h)
+			if sched.trySendBatchLocked([]*asyncSchedulerEntry{entry}) {
+				entry.descendDirect = false
+			} else {
+				sched.rollbackReservedLocked(entry)
+				full = true
+			}
+			continue
+		}
+
 		idx := entry.shard.index
 
 		// Reserve: Add(1) before send so Deregister+asyncRepWg.Wait() catches
@@ -974,6 +1002,20 @@ func (sched *AsyncReplicationScheduler) onResultLocked(result asyncSchedulerResu
 	// Skip re-push if dispatchDueLocked's invariant-violation recovery
 	// already re-queued this entry (heapIdx >= 0 ⇒ in heap).
 	if entry.heapIdx >= 0 {
+		return
+	}
+
+	// The batched pre-filter classified this shard as diverging: re-enqueue it
+	// immediately with descendDirect set so dispatchDueLocked ships it as a
+	// standalone singleton descent rather than waiting a full cycle. Bypasses the
+	// interval computation below.
+	if result.deferDescent {
+		entry.descendDirect = true
+		entry.nextRunAt = time.Now()
+		entry.seq = sched.nextSeq
+		sched.nextSeq++
+		heap.Push(&sched.h, entry)
+		sched.metrics.setQueueDepth(len(sched.h))
 		return
 	}
 
@@ -1224,11 +1266,13 @@ func (sched *AsyncReplicationScheduler) effectiveConfig(s *Shard) AsyncReplicati
 // runBatch processes one dispatched batch. A single-entry batch (the common case
 // for ST or a lightly-loaded MT class) goes straight to the full per-shard path.
 // For larger batches it runs the inline root pre-filter once for the whole batch
-// (Stage A, via classifyBatch), then descends (Stage B) only the shards that
-// diverge; in-sync shards short-circuit with no network diff. Exactly one result
-// is emitted per entry (via runEntry) on every path, and the pooled slice is
-// returned to batchPool on exit. All entries in a batch share the same index
-// (coalesced by index at dispatch).
+// (Stage A, via classifyBatch), then handles each shard: in-sync shards
+// short-circuit inline with no network diff (runEntry with skip), while diverging
+// shards are handed back to the dispatcher (deferDescent) to be re-dispatched as
+// standalone singletons — so descent spreads across the whole pool instead of
+// serializing every diverging shard in this one worker. Exactly one result is
+// emitted per entry on every path, and the pooled slice is returned to batchPool
+// on exit. All entries in a batch share the same index (coalesced at dispatch).
 func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scratch *batchScratch) {
 	batch := *bp
 	defer func() {
@@ -1249,8 +1293,31 @@ func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scr
 	scratch.reset()
 	sched.classifyBatch(batch, scratch)
 	for _, entry := range batch {
-		sched.runEntry(entry, scratch.skip[entry])
+		if scratch.skip[entry] {
+			// In sync on every replica this cycle — short-circuit inline (cheap:
+			// no network descent, just the pending-rebuild check + skip metric).
+			sched.runEntry(entry, true)
+			continue
+		}
+		// Diverging: don't descend inline (that would serialize the whole batch
+		// in this worker). Hand it back to the dispatcher for a standalone
+		// singleton descent spread across the pool.
+		sched.deferDescent(entry)
 	}
+}
+
+// deferDescent releases a diverging batch entry back to the dispatcher without
+// descending it, so it is re-dispatched as a standalone singleton (see
+// dispatchDueLocked's descendDirect handling). It mirrors runEntry's wg/result
+// contract minimally — Done() before the send so the dispatcher's re-enqueue
+// sees a balanced asyncRepWg — but performs no runHashbeatCycle and touches no
+// workersActive metric (it never incremented one). Exactly one result per entry.
+func (sched *AsyncReplicationScheduler) deferDescent(entry *asyncSchedulerEntry) {
+	// Done() before the resultCh send, matching runEntry: inFlight (not
+	// asyncRepWg) enforces "at most one cycle per shard", and the buffered
+	// resultCh + Close()'s parallel drain keep this send non-blocking.
+	entry.shard.asyncRepWg.Done()
+	sched.resultCh <- asyncSchedulerResult{entry: entry, deferDescent: true}
 }
 
 // classifyBatch runs the inline root pre-filter for the batch, recording in
@@ -1290,8 +1357,11 @@ func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEnt
 	s0 := batch[0].shard
 	cfg := sched.effectiveConfig(s0)
 	ctx, cancel := context.WithTimeout(sched.ctx, cfg.diffPerNodeTimeout)
+	// defer so the timeout context/timer is released even if PrefilterShardRoots
+	// panics (the recover above catches it, but an inline cancel() would be
+	// skipped, leaking the timer until sched.ctx is done).
+	defer cancel()
 	needFull, stats := s0.index.replicator.PrefilterShardRoots(ctx, scratch.roots)
-	cancel()
 	sched.metrics.observeRootPrefilterBatch(len(scratch.roots))
 	sched.metrics.addRootCompareRPC(stats.OK, stats.Errored, stats.Unsupported)
 
