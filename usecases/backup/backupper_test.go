@@ -242,6 +242,53 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		assert.Equal(t, "", errMsg)
 	})
 
+	t.Run("NodeMissingFromBaseBackupUploadsFull", func(t *testing.T) {
+		var (
+			sourcePath = t.TempDir()
+			sourcer    = &fakeSourcer{}
+			backend    = newFakeBackend()
+			baseID     = "base-1"
+			baseHome   = baseID + "/" + nodeName
+		)
+
+		// capture the base descriptors passed to the uploader to prove this
+		// node deduplicates against nothing (full upload)
+		var gotBaseDescrs []*backup.BackupDescriptor
+		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
+			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
+		})
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(sourcePath)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+		// this node has no descriptor in the base backup
+		backend.On("GetObject", any, baseHome, BackupFile).Return(nil, errNotFound)
+		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+		m := createManager(sourcer, nil, backend, nil)
+
+		req := req
+		req.Duration = time.Hour
+		req.BaseBackupID = baseID
+		got := m.OnCanCommit(ctx, &req)
+		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		assert.Equal(t, got, want)
+
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		assert.NoError(t, err)
+		m.backupper.waitForCompletion(20, 50)
+		status, errMsg := backend.getMetaStatus()
+		assert.Equal(t, backup.Success, status)
+		assert.Equal(t, "", errMsg)
+		assert.Empty(t, gotBaseDescrs)
+		// the descriptor must reflect the full backup we took, not advertise a base
+		assert.Empty(t, backend.getMetaBaseBackupID())
+	})
+
 	t.Run("AbortBeforeCommit", func(t *testing.T) {
 		var (
 			sourcePath = t.TempDir()

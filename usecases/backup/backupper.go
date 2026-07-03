@@ -133,9 +133,18 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		baseBackupID := req.BaseBackupID
 		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, store.bucket, store.path, compressionType, store.MetaForBackupID)
 		if err != nil {
-			b.logger.WithFields(logFields).Error(err)
-			b.lastAsyncError = err
-			return
+			if !errors.As(err, &backup.ErrNotFound{}) {
+				b.logger.WithFields(logFields).Error(err)
+				b.lastAsyncError = err
+				return
+			}
+			// This node was absent from the base backup (it joined the cluster
+			// since, or a shard landed on it after the base was taken), so it has
+			// no descriptor there: back it up in full instead of failing the whole backup.
+			b.logger.WithFields(logFields).Warn("node not present in base backup, uploading full backup for this node")
+			baseDescrs = nil
+			// Clear the base ID so the descriptor reflects the full backup we actually took.
+			baseBackupID = ""
 		}
 
 		result := backup.BackupDescriptor{
