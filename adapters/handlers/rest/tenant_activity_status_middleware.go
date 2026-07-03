@@ -66,7 +66,7 @@ func emptyTenantActivityStatusError(r *http.Request) (error, bool) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return err, true
+		return nil, false
 	}
 	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(body))
