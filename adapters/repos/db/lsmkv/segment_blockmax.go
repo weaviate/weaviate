@@ -32,13 +32,10 @@ var blockMaxBufferSize = 4096
 // free of the counter writes.
 var collectBlockMetrics = false
 
-// deferTombstoneToScore rejects tombstoned (deleted) docs in the DoBlockMax*
-// scoring branch rather than skipping them per advance. Filters stay at advance
-// time because they prune the WAND candidate space; a tombstone does not (the
-// deleted doc still occupies its posting slot and is still visited), so probing it
-// per advanced doc is pure overhead. Bit-identical either way — a doc dropped at
-// scoring affects neither other scores nor the heap threshold.
-var deferTombstoneToScore = true
+// deferTombstoneToScore rejects deleted docs during scoring instead of skipping
+// them per advance. Off by default: deferring walks each deleted pivot one-by-one,
+// a multi-x regression on update-heavy (high-tombstone) segments. Bit-identical either way.
+var deferTombstoneToScore = false
 
 // decodeFuncsFromCodecs resolves the stateless doc-id and tf decode functions for
 // a segment's codecs once, so per-term iterators carry func values instead of
