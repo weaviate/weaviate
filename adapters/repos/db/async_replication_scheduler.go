@@ -37,11 +37,10 @@ const (
 	defaultAsyncReplicationHashtreeInitConcurrency = 100
 	maxMaxWorkers                                  = 100
 
-	// Root pre-filter fallback batch sizes, used only when the runtime
-	// DynamicValue is nil (e.g. zero-valued config in tests); the real defaults
-	// are seeded from env. <=1 disables the batched root compare (per-shard path).
-	fallbackRootPrefilterBatchSizeMT = 512
-	fallbackRootPrefilterBatchSizeST = 1
+	// Root pre-filter fallback batch size, used only when the runtime
+	// DynamicValue is nil (e.g. zero-valued config in tests); the real default
+	// is seeded from env. <=1 disables the batched root compare (per-shard path).
+	fallbackRootPrefilterBatchSize = 512
 	// maxRootPrefilterBatchSize is the hard ceiling on shards per batch,
 	// bounding per-batch work and RPC message size regardless of runtime override.
 	maxRootPrefilterBatchSize = 4096
@@ -408,14 +407,13 @@ type AsyncReplicationScheduler struct {
 	// for 30 s so the dispatcher wakes up promptly once the flag is cleared.
 	asyncReplicationDisabled *configRuntime.DynamicValue[bool]
 
-	// rootPrefilterBatchSize{MT,ST} drive how many same-index shards are batched
-	// into one hashtree-root pre-filter RPC (MT vs ST tuned separately). <=1
-	// disables the pre-filter. Read per dispatch; invalid values warn once and
-	// fall back to the default, over-cap values are clamped.
-	rootPrefilterBatchSizeMT *configRuntime.DynamicValue[int]
-	rootPrefilterBatchSizeST *configRuntime.DynamicValue[int]
-	warnedBatchSizeInvalid   atomic.Bool
-	warnedBatchSizeClamp     atomic.Bool
+	// rootPrefilterBatchSize drives how many same-index shards are batched into
+	// one hashtree-root pre-filter RPC. <=1 disables the pre-filter. Read per
+	// dispatch; invalid values warn once and fall back to the default, over-cap
+	// values are clamped.
+	rootPrefilterBatchSize *configRuntime.DynamicValue[int]
+	warnedBatchSizeInvalid atomic.Bool
+	warnedBatchSizeClamp   atomic.Bool
 
 	// batchPool recycles the []*asyncSchedulerEntry slices sent on workCh; the
 	// dispatcher acquires, the worker releases after emitting all results.
@@ -481,13 +479,9 @@ func NewAsyncReplicationScheduler(
 		asyncReplicationDisabled = configRuntime.NewDynamicValue(false)
 	}
 
-	rootPrefilterBatchSizeMT := replicationCfg.AsyncReplicationRootPrefilterBatchSizeMT
-	if rootPrefilterBatchSizeMT == nil {
-		rootPrefilterBatchSizeMT = configRuntime.NewDynamicValue(fallbackRootPrefilterBatchSizeMT)
-	}
-	rootPrefilterBatchSizeST := replicationCfg.AsyncReplicationRootPrefilterBatchSizeST
-	if rootPrefilterBatchSizeST == nil {
-		rootPrefilterBatchSizeST = configRuntime.NewDynamicValue(fallbackRootPrefilterBatchSizeST)
+	rootPrefilterBatchSize := replicationCfg.AsyncReplicationRootPrefilterBatchSize
+	if rootPrefilterBatchSize == nil {
+		rootPrefilterBatchSize = configRuntime.NewDynamicValue(fallbackRootPrefilterBatchSize)
 	}
 
 	if logger == nil {
@@ -523,8 +517,7 @@ func NewAsyncReplicationScheduler(
 		addCh:                    make(chan addRequest),
 		removeCh:                 make(chan removeRequest),
 		asyncReplicationDisabled: asyncReplicationDisabled,
-		rootPrefilterBatchSizeMT: rootPrefilterBatchSizeMT,
-		rootPrefilterBatchSizeST: rootPrefilterBatchSizeST,
+		rootPrefilterBatchSize:   rootPrefilterBatchSize,
 		dispatchBuckets:          make(map[*Index][]*asyncSchedulerEntry),
 		hashtreeInitSem:          semaphore.NewWeighted(int64(hashtreeInitConcurrency)),
 		metrics:                  m,
@@ -836,21 +829,16 @@ func (sched *AsyncReplicationScheduler) timeUntilNextLocked() time.Duration {
 	return d
 }
 
-// effectiveBatchSize returns the root pre-filter batch size for idx's tenancy
-// (MT vs ST), applying the runtime override with warn-and-default on invalid
-// values and a one-shot warn when clamped to the hard cap. <=1 means the
-// pre-filter is disabled (per-shard path). Called under mu.
-func (sched *AsyncReplicationScheduler) effectiveBatchSize(idx *Index) int {
-	dv := sched.rootPrefilterBatchSizeST
-	def := fallbackRootPrefilterBatchSizeST
-	if idx != nil && idx.partitioningEnabled {
-		dv = sched.rootPrefilterBatchSizeMT
-		def = fallbackRootPrefilterBatchSizeMT
-	}
+// effectiveBatchSize returns the root pre-filter batch size, applying the
+// runtime override with warn-and-default on invalid values and a one-shot warn
+// when clamped to the hard cap. <=1 means the pre-filter is disabled (per-shard
+// path). Called under mu.
+func (sched *AsyncReplicationScheduler) effectiveBatchSize() int {
+	def := fallbackRootPrefilterBatchSize
 
 	n := def
-	if dv != nil {
-		n = dv.Get()
+	if sched.rootPrefilterBatchSize != nil {
+		n = sched.rootPrefilterBatchSize.Get()
 	}
 	if n <= 0 {
 		if sched.warnedBatchSizeInvalid.CompareAndSwap(false, true) {
@@ -942,7 +930,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 		heap.Pop(&sched.h)
 
 		sched.dispatchBuckets[idx] = append(sched.dispatchBuckets[idx], entry)
-		if len(sched.dispatchBuckets[idx]) >= sched.effectiveBatchSize(idx) {
+		if len(sched.dispatchBuckets[idx]) >= sched.effectiveBatchSize() {
 			if !sched.trySendBatchLocked(sched.dispatchBuckets[idx]) {
 				for _, e := range sched.dispatchBuckets[idx] {
 					sched.rollbackReservedLocked(e)

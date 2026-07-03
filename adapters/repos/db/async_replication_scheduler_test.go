@@ -1589,14 +1589,13 @@ func durationPtr(d time.Duration) *time.Duration { return &d }
 
 // newBareScheduler builds a scheduler struct without starting any goroutines, so
 // dispatchDueLocked/effectiveBatchSize can be exercised deterministically.
-func newBareScheduler(mt, st, workChCap int) *AsyncReplicationScheduler {
+func newBareScheduler(batchSize, workChCap int) *AsyncReplicationScheduler {
 	s := &AsyncReplicationScheduler{
 		entries:                  make(map[*Shard]*asyncSchedulerEntry),
 		dispatchBuckets:          make(map[*Index][]*asyncSchedulerEntry),
 		workCh:                   make(chan *[]*asyncSchedulerEntry, workChCap),
 		asyncReplicationDisabled: configRuntime.NewDynamicValue(false),
-		rootPrefilterBatchSizeMT: configRuntime.NewDynamicValue(mt),
-		rootPrefilterBatchSizeST: configRuntime.NewDynamicValue(st),
+		rootPrefilterBatchSize:   configRuntime.NewDynamicValue(batchSize),
 		logger:                   logrus.New(),
 	}
 	s.batchPool.New = func() any {
@@ -1623,7 +1622,7 @@ func drainBatchSizes(ch chan *[]*asyncSchedulerEntry) []int {
 // batch produces exactly one result via runEntry — the invariant that keeps
 // asyncRepWg balanced (runEntry alone owns each entry's Done()+result).
 func TestRunBatchEmitsOneResultPerEntry(t *testing.T) {
-	sched := newBareScheduler(512, 512, 1)
+	sched := newBareScheduler(512, 1)
 	sched.ctx = context.Background()
 	sched.resultCh = make(chan asyncSchedulerResult, 8)
 
@@ -1661,9 +1660,9 @@ func TestRunBatchEmitsOneResultPerEntry(t *testing.T) {
 func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
-		AsyncReplicationSchedulerWorkers:         configRuntime.NewDynamicValue(4),
-		AsyncReplicationDisabled:                 configRuntime.NewDynamicValue(false),
-		AsyncReplicationRootPrefilterBatchSizeMT: configRuntime.NewDynamicValue(3),
+		AsyncReplicationSchedulerWorkers:       configRuntime.NewDynamicValue(4),
+		AsyncReplicationDisabled:               configRuntime.NewDynamicValue(false),
+		AsyncReplicationRootPrefilterBatchSize: configRuntime.NewDynamicValue(3),
 	}, nil, logger)
 	require.NoError(t, err)
 
@@ -1709,7 +1708,7 @@ func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
 // target-node overrides or an uninitialised hashtree are excluded from the
 // batched pre-filter (no RPC issued) and default to a full descent.
 func TestClassifyBatchExcludesIneligible(t *testing.T) {
-	sched := newBareScheduler(512, 512, 1)
+	sched := newBareScheduler(512, 1)
 	sched.ctx = context.Background()
 
 	override := &Shard{class: &models.Class{Class: "C"}}
@@ -1729,31 +1728,28 @@ func TestClassifyBatchExcludesIneligible(t *testing.T) {
 }
 
 func TestEffectiveBatchSize(t *testing.T) {
-	mtIdx := &Index{partitioningEnabled: true}
-	stIdx := &Index{partitioningEnabled: false}
-
-	t.Run("MT and ST pick their own value", func(t *testing.T) {
-		sched := newBareScheduler(256, 4, 1)
-		assert.Equal(t, 256, sched.effectiveBatchSize(mtIdx))
-		assert.Equal(t, 4, sched.effectiveBatchSize(stIdx))
+	t.Run("configured value is used", func(t *testing.T) {
+		sched := newBareScheduler(256, 1)
+		assert.Equal(t, 256, sched.effectiveBatchSize())
 	})
 
 	t.Run("invalid falls back to default", func(t *testing.T) {
-		sched := newBareScheduler(0, -5, 1)
-		assert.Equal(t, fallbackRootPrefilterBatchSizeMT, sched.effectiveBatchSize(mtIdx))
-		assert.Equal(t, fallbackRootPrefilterBatchSizeST, sched.effectiveBatchSize(stIdx))
+		sched := newBareScheduler(0, 1)
+		assert.Equal(t, fallbackRootPrefilterBatchSize, sched.effectiveBatchSize())
+		sched = newBareScheduler(-5, 1)
+		assert.Equal(t, fallbackRootPrefilterBatchSize, sched.effectiveBatchSize())
 	})
 
 	t.Run("over cap is clamped", func(t *testing.T) {
-		sched := newBareScheduler(maxRootPrefilterBatchSize+1000, 1, 1)
-		assert.Equal(t, maxRootPrefilterBatchSize, sched.effectiveBatchSize(mtIdx))
+		sched := newBareScheduler(maxRootPrefilterBatchSize+1000, 1)
+		assert.Equal(t, maxRootPrefilterBatchSize, sched.effectiveBatchSize())
 	})
 }
 
 func TestDispatchDueCoalescing(t *testing.T) {
-	t.Run("MT coalesces up to batch size with a smaller final batch", func(t *testing.T) {
-		sched := newBareScheduler(3, 1, 16)
-		idx := &Index{Config: IndexConfig{ClassName: "C"}, partitioningEnabled: true}
+	t.Run("coalesces up to batch size with a smaller final batch", func(t *testing.T) {
+		sched := newBareScheduler(3, 16)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
 		for range 7 {
 			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
 		}
@@ -1764,9 +1760,9 @@ func TestDispatchDueCoalescing(t *testing.T) {
 		assert.Empty(t, sched.h, "all due entries dispatched")
 	})
 
-	t.Run("ST dispatches singletons", func(t *testing.T) {
-		sched := newBareScheduler(512, 1, 16)
-		idx := &Index{Config: IndexConfig{ClassName: "C"}, partitioningEnabled: false}
+	t.Run("batch size 1 dispatches singletons", func(t *testing.T) {
+		sched := newBareScheduler(1, 16)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
 		for range 4 {
 			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
 		}
@@ -1777,9 +1773,9 @@ func TestDispatchDueCoalescing(t *testing.T) {
 	})
 
 	t.Run("distinct indexes are batched separately", func(t *testing.T) {
-		sched := newBareScheduler(512, 512, 16)
-		a := &Index{Config: IndexConfig{ClassName: "A"}, partitioningEnabled: true}
-		b := &Index{Config: IndexConfig{ClassName: "B"}, partitioningEnabled: true}
+		sched := newBareScheduler(512, 16)
+		a := &Index{Config: IndexConfig{ClassName: "A"}}
+		b := &Index{Config: IndexConfig{ClassName: "B"}}
 		for range 3 {
 			sched.onAddLocked(&Shard{index: a, class: &models.Class{Class: "A"}})
 		}
@@ -1793,8 +1789,8 @@ func TestDispatchDueCoalescing(t *testing.T) {
 	})
 
 	t.Run("full channel rolls unsent entries back into the heap", func(t *testing.T) {
-		sched := newBareScheduler(1, 1, 2)
-		idx := &Index{Config: IndexConfig{ClassName: "C"}, partitioningEnabled: false}
+		sched := newBareScheduler(1, 2)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
 		for range 5 {
 			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
 		}

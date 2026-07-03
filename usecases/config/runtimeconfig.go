@@ -50,8 +50,7 @@ type WeaviateRuntimeConfig struct {
 	AsyncReplicationPropagationConcurrency    *runtime.DynamicValue[int]           `json:"async_replication_propagation_concurrency" yaml:"async_replication_propagation_concurrency"`
 	AsyncReplicationPropagationBatchSize      *runtime.DynamicValue[int]           `json:"async_replication_propagation_batch_size" yaml:"async_replication_propagation_batch_size"`
 	AsyncReplicationPropagationDelay          *runtime.DynamicValue[time.Duration] `json:"async_replication_propagation_delay" yaml:"async_replication_propagation_delay"`
-	AsyncReplicationRootPrefilterBatchSizeMT  *runtime.DynamicValue[int]           `json:"async_replication_root_prefilter_batch_size_mt" yaml:"async_replication_root_prefilter_batch_size_mt"`
-	AsyncReplicationRootPrefilterBatchSizeST  *runtime.DynamicValue[int]           `json:"async_replication_root_prefilter_batch_size_st" yaml:"async_replication_root_prefilter_batch_size_st"`
+	AsyncReplicationRootPrefilterBatchSize    *runtime.DynamicValue[int]           `json:"async_replication_root_prefilter_batch_size" yaml:"async_replication_root_prefilter_batch_size"`
 	RevectorizeCheckDisabled                  *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
 	ReplicaMovementMinimumAsyncWait           *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_async_wait" yaml:"replica_movement_minimum_async_wait"`
 	TenantActivityReadLogLevel                *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`

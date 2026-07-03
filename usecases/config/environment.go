@@ -1041,21 +1041,11 @@ func FromEnv(config *Config) error {
 	// Out-of-range values are clamped (and warned) by the scheduler on read, so
 	// only a non-numeric override fails here.
 	if err := parseInt(
-		"ASYNC_REPLICATION_ROOT_PREFILTER_BATCH_SIZE_MT",
+		"ASYNC_REPLICATION_ROOT_PREFILTER_BATCH_SIZE",
 		func(val int) {
-			config.Replication.AsyncReplicationRootPrefilterBatchSizeMT = configRuntime.NewDynamicValue(val)
+			config.Replication.AsyncReplicationRootPrefilterBatchSize = configRuntime.NewDynamicValue(val)
 		},
-		DefaultAsyncReplicationRootPrefilterBatchSizeMT,
-	); err != nil {
-		return err
-	}
-
-	if err := parseInt(
-		"ASYNC_REPLICATION_ROOT_PREFILTER_BATCH_SIZE_ST",
-		func(val int) {
-			config.Replication.AsyncReplicationRootPrefilterBatchSizeST = configRuntime.NewDynamicValue(val)
-		},
-		DefaultAsyncReplicationRootPrefilterBatchSizeST,
+		DefaultAsyncReplicationRootPrefilterBatchSize,
 	); err != nil {
 		return err
 	}
@@ -1852,18 +1842,17 @@ const (
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
 	DefaultAsyncReplicationHashtreeInitConcurrency = 10
-	// Root pre-filter batch sizes. MT classes batch aggressively (many tenants);
-	// ST defaults to 1, which disables the batched RPC (per-shard path). The hard
-	// cap bounds message size / per-batch work regardless of runtime overrides.
-	DefaultAsyncReplicationRootPrefilterBatchSizeMT = 512
-	DefaultAsyncReplicationRootPrefilterBatchSizeST = 1
-	MaxAsyncReplicationRootPrefilterBatchSize       = 4096
-	DefaultMaximumAllowedCollectionsCount           = -1 // unlimited
-	DefaultMaximumAllowedObjectsCount               = -1 // unlimited
-	DefaultMaximumAllowedTenantsPerCollection       = -1 // unlimited
-	DefaultMaximumAllowedShardsPerCollection        = -1 // unlimited
-	DefaultUsageLimitsErrorMessage                  = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
-	DefaultRestrictionsErrorMessage                 = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	// Root pre-filter batch size: how many shards' hashtree roots are compared in
+	// one batched RPC. <=1 disables the batched RPC (per-shard path). The hard cap
+	// bounds message size / per-batch work regardless of runtime overrides.
+	DefaultAsyncReplicationRootPrefilterBatchSize = 512
+	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
+	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
+	DefaultMaximumAllowedObjectsCount             = -1 // unlimited
+	DefaultMaximumAllowedTenantsPerCollection     = -1 // unlimited
+	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
+	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
