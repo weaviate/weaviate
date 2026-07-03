@@ -198,16 +198,10 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 				c.Unlock()
 				continue
 			}
-			now := time.Now()
-			// not enough time passed since previous execution
-			if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
-				c.Unlock()
-				continue
-			}
 			// callback active, mark as running
 			runningCtx, cancel := context.WithCancel(context.Background())
 			meta.runningCtx = runningCtx
-			meta.started = now
+			meta.started = time.Now()
 			c.Unlock()
 
 			func() {
@@ -238,6 +232,11 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 				}
 			}()
 		}
+	}
+
+	// no need for more workers than callbacks due
+	if routinesLimit > len(dueIds) {
+		routinesLimit = len(dueIds)
 	}
 
 	wg.Add(routinesLimit)
