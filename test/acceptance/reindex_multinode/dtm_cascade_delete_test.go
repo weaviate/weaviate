@@ -44,7 +44,7 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	uri := restURIOf(compose, 1)
 
 	trueVal := true
-	createCollection(t, uri, className, 3, 3, []*models.Property{
+	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
 		{
 			Name:            "text",
 			DataType:        []string{"text"},
@@ -82,7 +82,7 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	}
 
 	// Same-name recreate must not inherit FAILED / FINISHED pills.
-	createCollection(t, uri, className, 3, 3, []*models.Property{
+	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
 		{
 			Name:            "text",
 			DataType:        []string{"text"},

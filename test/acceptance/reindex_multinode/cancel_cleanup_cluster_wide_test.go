@@ -67,7 +67,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 
 	uri := restURIOf(compose, 1)
 	trueVal := true
-	createCollection(t, uri, className, 3, 3, []*models.Property{
+	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
 		{
 			Name:            propName,
 			DataType:        []string{"text"},

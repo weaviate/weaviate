@@ -74,7 +74,7 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 	const totalObjects = 10_000
 
 	trueVal := true
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:            "path",
 			DataType:        []string{"text"},
@@ -250,7 +250,7 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 	)
 
 	trueVal, falseVal := true, false
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:              "price",
 			DataType:          []string{"int"},
