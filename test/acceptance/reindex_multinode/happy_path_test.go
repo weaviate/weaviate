@@ -238,15 +238,10 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 }
 
-// waitForClassOnAllNodes blocks until className is visible in every node's
-// LOCAL schema view. The `consistency: false` header is load-bearing: without
-// it the GET defaults to consistency=true and is proxied to the leader, so
-// the poll would return 200 immediately after create regardless of the lagging
-// follower — exactly the follower whose local RAFT catch-up (e.g. one tied up
-// in a slow startup migration) trips a consistency=ALL write's schema-version
-// deadline (got=N want=N+k). Gating writes on local convergence avoids that
-// without retrying the write itself (objects get auto-UUIDs, so a retry would
-// duplicate).
+// waitForClassOnAllNodes blocks until className is in every node's LOCAL
+// schema view: a lagging follower otherwise fails consistency=ALL writes, and
+// the write can't simply be retried (auto-UUIDs would duplicate). The
+// consistency:false header is load-bearing — the default proxies to the leader.
 func waitForClassOnAllNodes(t *testing.T, compose *docker.DockerCompose, className string) {
 	t.Helper()
 	for i := 1; i <= 3; i++ {
@@ -279,7 +274,6 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 	})
 	defer deleteCollection(t, restURI, className)
 
-	// Gate the first consistency=ALL write on schema convergence across nodes.
 	waitForClassOnAllNodes(t, compose, className)
 
 	importObjects(t, restURI, className, testDocuments)

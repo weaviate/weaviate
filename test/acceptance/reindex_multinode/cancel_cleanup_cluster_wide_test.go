@@ -265,15 +265,9 @@ func scanClassDirAllNodes(
 }
 
 // createS3Backup posts to /v1/backups/s3 and waits for a SUCCESS terminal
-// status. The caller waits for completion (not just acceptance) because the
-// subsequent DELETE must not run while a backup is in progress — an in-flight
-// backup makes Index.drop take the keepFiles path (rename-aside, not remove),
-// which would defeat the post-delete "class dir removed" assertion. The budget
-// is generous (not 120s) to absorb the deliberately-weak soak VM's S3 upload
-// throughput under multi-worker contention: the backup completes on ~92% of
-// runs and is not stuck — only the completion *timing* spikes under load. (A
-// future failure where the backup shows no upload progress would be a real
-// bug, not this timing case.)
+// status. Completion (not just acceptance) is load-bearing: an in-flight
+// backup makes Index.drop take the rename-aside keepFiles path, defeating the
+// post-delete "class dir removed" assertion. Budget sized for a starved VM.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
 	body := map[string]interface{}{
