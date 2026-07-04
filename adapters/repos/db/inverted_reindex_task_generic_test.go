@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -335,9 +336,10 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 // cover the end-to-end multi-node convergence assertion.
 func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 	tests := []struct {
-		name     string
-		setupRT  func(rt reindexTracker)
-		wantPath string
+		name      string
+		setupRT   func(rt reindexTracker)
+		setupDisk func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric)
+		wantPath  string
 	}{
 		{
 			name: "IsTidied/idempotent",
@@ -362,6 +364,33 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			},
 			wantPath: "swapped",
 		},
+		{
+			// A rolling restart inside the FINALIZING window: runtimeSwap
+			// already flipped in-memory AND set the per-prop swapped
+			// sentinel, then the node restarted before markSwapped(). The
+			// disk renames converged pre-restart (main + backup both
+			// exist → recovery's rename switch no-ops), so the ONLY work
+			// left for recoverRuntimeSwapBuckets is the marking — which
+			// must tolerate the pre-existing sentinel (markSwappedProp
+			// creates with O_EXCL; an unguarded re-mark fails the unit
+			// with "file exists" and flips the whole task to FAILED —
+			// observed in CI as TestMultiNode_RollingRestartDuring
+			// Finalizing_PerReplicaConsistency, weaviate/weaviate run
+			// 28709084881 job 85139507951).
+			name: "IsMerged/prop_sentinel_preset/recovery_mark_idempotent",
+			setupRT: func(rt reindexTracker) {
+				require.NoError(t, rt.markStarted(time.Now()))
+				require.NoError(t, rt.markReindexed())
+				require.NoError(t, rt.markPrepended())
+				require.NoError(t, rt.markMerged())
+				require.NoError(t, rt.markSwappedProp("title"))
+			},
+			setupDisk: func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) {
+				backupDir := filepath.Join(shard.pathLSM(), task.backupBucketName("title"))
+				require.NoError(t, os.MkdirAll(backupDir, 0o777))
+			},
+			wantPath: "merged-recovery",
+		},
 	}
 
 	for _, tc := range tests {
@@ -383,6 +412,9 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, rt.saveProps([]string{"title"}))
 			tc.setupRT(rt)
+			if tc.setupDisk != nil {
+				tc.setupDisk(t, shard, task)
+			}
 
 			// Call RunSwapOnShard — the new dispatch must route through
 			// the recovery branch matching the sentinel state and
