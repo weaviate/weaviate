@@ -110,3 +110,53 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 		t.Fatal("Store.Shutdown did not complete after the pin was released")
 	}
 }
+
+// TestShutdownBucket_DoesNotWedgeStoreOnPinnedBucket pins the QA-found F1
+// deadlock: ShutdownBucket used to hold bucketAccessLock across the
+// drain-Shutdown, wedging the whole store against a pinned query that still
+// needed Store.Bucket (runtime-reachable via property-index DELETE). With the
+// remove-from-map-first protocol, a concurrent lookup completes while the
+// drain is parked, and ShutdownBucket finishes once the pin releases.
+func TestShutdownBucket_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStoreForDrain(t)
+	t.Cleanup(func() { _ = store.Shutdown(ctx) })
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, "pinned", WithStrategy(StrategyReplace)))
+	require.NoError(t, store.CreateOrLoadBucket(ctx, "other", WithStrategy(StrategyReplace)))
+
+	pinned, release := store.AcquireBucketForRead("pinned")
+	require.NotNil(t, pinned)
+
+	shutdownErrCh := make(chan error, 1)
+	go func() { shutdownErrCh <- store.ShutdownBucket(ctx, "pinned") }()
+
+	// While ShutdownBucket is parked in the drain, an unrelated lookup must
+	// complete promptly — pre-fix it blocked on bucketAccessLock forever.
+	lookupCh := make(chan *Bucket, 1)
+	go func() { lookupCh <- store.Bucket("other") }()
+	select {
+	case got := <-lookupCh:
+		require.NotNil(t, got, "unrelated bucket must remain fetchable during the drain")
+	case <-time.After(5 * time.Second):
+		release()
+		t.Fatal("DEADLOCK: Store.Bucket blocked while ShutdownBucket drained a pinned bucket under bucketAccessLock")
+	}
+
+	// The pinned name must already be deregistered (remove-first protocol).
+	require.Nil(t, store.Bucket("pinned"))
+
+	select {
+	case err := <-shutdownErrCh:
+		t.Fatalf("ShutdownBucket returned before the pin was released: %v", err)
+	default:
+	}
+
+	release()
+	select {
+	case err := <-shutdownErrCh:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("ShutdownBucket did not complete after the pin was released")
+	}
+}

@@ -175,6 +175,8 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 
 	var (
 		shutdownStartedAt time.Time
+		shutdownStarted   atomic.Bool
+		shutdownErr       error
 		shutdownAtPtr     atomic.Pointer[time.Time] // nil until Shutdown returns
 		shutdownWG        sync.WaitGroup
 	)
@@ -183,13 +185,18 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 		go func() {
 			defer shutdownWG.Done()
 			shutdownStartedAt = time.Now()
-			require.NoError(t, oldBucket.Shutdown(ctx))
+			shutdownStarted.Store(true)
+			shutdownErr = oldBucket.Shutdown(ctx)
 			now := time.Now()
 			shutdownAtPtr.Store(&now)
 		}()
 
 		// Head start so Shutdown is provably parked in the drain BEFORE we
 		// release the query — a broken drain would complete here instead.
+		// The started-flag check keeps the negative from passing vacuously
+		// if the goroutine never got scheduled.
+		require.Eventually(t, shutdownStarted.Load, 5*time.Second, time.Millisecond,
+			"Shutdown goroutine must have started")
 		time.Sleep(50 * time.Millisecond)
 		require.Nil(t, shutdownAtPtr.Load(),
 			"DRAIN VIOLATED: old bucket Shutdown completed while the query still held its pin")
@@ -202,6 +209,7 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 
 	if !forceRefetch {
 		shutdownWG.Wait()
+		require.NoError(t, shutdownErr, "old bucket Shutdown must succeed")
 	}
 
 	rp := releasedAt.Load()

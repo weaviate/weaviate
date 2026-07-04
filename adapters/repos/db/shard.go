@@ -774,6 +774,12 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 // (nil, nil)) — preserving the "re-establish the overlay on a resumed
 // swap" contract. Empty target = no overlay written (safe for
 // non-tokenization migrations routed through here).
+//
+// CONTRACT: flip must NOT call Bucket.Shutdown or acquire lifetimeLock —
+// a pinned query holds lifetimeLock.RLock and may take
+// tokenizationOverlayMu next (self-clear path); draining inside this
+// critical section would invert that order and deadlock. Phase-2b
+// teardown belongs strictly after this method returns.
 func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {

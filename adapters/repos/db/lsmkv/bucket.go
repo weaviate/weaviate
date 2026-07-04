@@ -1611,7 +1611,23 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	// Drain every in-flight read pin before tearing anything down — see the
 	// lifetimeLock field doc (incl. why there is deliberately no timeout).
+	// The heartbeat makes a wedged drain diagnosable.
+	drained := make(chan struct{})
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-drained:
+				return
+			case <-t.C:
+				b.logger.WithField("dir", b.dir).
+					Warn("bucket shutdown still draining in-flight read pins")
+			}
+		}
+	}()
 	b.lifetimeLock.Lock()
+	close(drained)
 	defer b.lifetimeLock.Unlock()
 
 	defer GlobalBucketRegistry.Remove(b.GetDir())
