@@ -525,9 +525,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.bucketsByName[bucketName] = replacementBucket
 	delete(s.bucketsByName, replacementBucketName)
 
-	var currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir string
-	var err error
-	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err = s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
+	_, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err := s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
 	if err != nil {
 		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
 	}
@@ -547,9 +545,9 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	replacementBucket.active = mt
 
-	if err := s.updateBucketDir(bucket, currBucketDir, newBucketDir); err != nil {
-		return err
-	}
+	// no updateBucketDir on the displaced bucket: its shutdown (inside
+	// replaceBucket) nil'd the segment list, so the path rewrite was always a
+	// no-op — and post-refusal it would error out the whole replace
 	if err := s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir); err != nil {
 		return err
 	}
