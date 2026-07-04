@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/weaviate/sroar"
@@ -74,10 +73,7 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	innerCursors, unlockSegmentGroup, err := b.disk.newRoaringSetCursors()
 	if err != nil {
 		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
-		// this legacy constructor has no error channel: fail loudly (recovered
-		// by the enterrors/HTTP layers) instead of serving a silently empty
-		// cursor over a bucket whose segments are being munmapped
-		panic(fmt.Errorf("lsmkv cursor: %w", err))
+		b.panicOnCursorRefusal(err)
 	}
 
 	// we hold a flush-lock during initialzation, but we release it before
