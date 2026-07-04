@@ -414,23 +414,11 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 // consistent with ongoing writes). Callbacks are disabled only at
 // the end of [runtimeSwap] after the atomic pointer flip.
 func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.enterDTMPhase(ctx, shard, "RunPrepareOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-
-	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().Config.ClassName.String(),
-		"shard":      concreteShard.Name(),
-		"method":     "RunPrepareOnShard",
-	})
-
-	// Guarded: PREP is DTM-scheduler-driven (never under closeLock) — same
-	// DELETE-race exposure as the worker drain path.
-	rt, err := t.newReindexTrackerGuarded(concreteShard)
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	// Idempotent fast-path: already merged means prep was already
 	// completed (either by an earlier call in this process or by a
@@ -438,27 +426,6 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	if rt.IsMerged() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
 		return nil
-	}
-
-	// Re-entry path: state-on-disk vs state-in-RAFT race (mirrors the
-	// same check in RunSwapOnShard). If we land here with state
-	// "started but not reindexed", resume the iteration before
-	// preparing.
-	if !rt.IsReindexed() {
-		if !rt.IsStarted() {
-			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
-		}
-		logger.Info("RunPrepareOnShard: state not yet reindexed on disk; resuming iteration before prep")
-		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
-			return fmt.Errorf("resume iteration before prep: %w", err)
-		}
-		rt, err = t.newReindexTrackerGuarded(concreteShard)
-		if err != nil {
-			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
-		}
-		if !rt.IsReindexed() {
-			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
-		}
 	}
 
 	props, err := t.readPropsToReindex(rt)
@@ -474,6 +441,64 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 
 	return t.runtimePrepare(ctx, logger, shard, rt, props)
+}
+
+// dtmPhaseEntry is the shared entry state of the DTM-scheduler-driven phase
+// callbacks (RunPrepareOnShard / RunSwapOnShard).
+type dtmPhaseEntry struct {
+	shard  *Shard
+	logger logrus.FieldLogger
+	rt     reindexTracker
+}
+
+// enterDTMPhase unwraps the shard and opens the guarded tracker (both phase
+// callbacks are DTM-scheduler-driven — never under closeLock — so they share
+// the worker drain path's DELETE-race exposure; see newReindexTrackerGuarded).
+//
+// It also handles the state-on-disk vs state-in-RAFT race: a rolling restart
+// inside the FINALIZING window can leave the unit's terminal state replicated
+// in RAFT while the on-disk markReindexed sentinel is lost (or the iteration
+// was still running when RAFT replicated another node's vote). Post-restart
+// recovery only loads buckets — it does not run the iteration. If the state
+// is "started but not reindexed", resume the iteration via
+// RunReindexOnlyOnShard and re-read the tracker.
+func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return nil, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+
+	logger := t.logger.WithFields(map[string]any{
+		"collection": concreteShard.Index().Config.ClassName.String(),
+		"shard":      concreteShard.Name(),
+		"method":     method,
+	})
+
+	rt, err := t.newReindexTrackerGuarded(concreteShard)
+	if err != nil {
+		return nil, fmt.Errorf("creating reindex tracker: %w", err)
+	}
+
+	if !rt.IsReindexed() {
+		if !rt.IsStarted() {
+			// Migration never started on this shard. Shouldn't happen via
+			// OnGroupCompleted (units are node-assigned); surface it cleanly.
+			return nil, fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
+		}
+		logger.Info(method + ": state not yet reindexed on disk; resuming iteration")
+		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
+			return nil, fmt.Errorf("resume iteration: %w", err)
+		}
+		rt, err = t.newReindexTrackerGuarded(concreteShard)
+		if err != nil {
+			return nil, fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
+		}
+		if !rt.IsReindexed() {
+			return nil, fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
+		}
+	}
+
+	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
 }
 
 // RunSwapOnShard runs the swap+tidy+OnMigrationComplete phase.
@@ -524,72 +549,11 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 // swapped their buckets — producing the cluster-wide schema↔bucket
 // inversion this dispatch is here to prevent.
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.enterDTMPhase(ctx, shard, "RunSwapOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-
-	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().Config.ClassName.String(),
-		"shard":      concreteShard.Name(),
-		"method":     "RunSwapOnShard",
-	})
-
-	// Guarded: SWAP is DTM-scheduler-driven (never under closeLock), same
-	// DELETE-race exposure as the worker drain path.
-	rt, err := t.newReindexTrackerGuarded(concreteShard)
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
-
-	// State-on-disk vs state-in-RAFT race: a rolling restart that
-	// landed inside the FINALIZING window can leave a node with the
-	// unit's terminal state replicated in RAFT (the unit-completion
-	// record landed before the crash) but the on-disk markReindexed
-	// sentinel lost (file write didn't persist before SIGTERM, or the
-	// race went the other way and the iteration was still running when
-	// RAFT replicated some OTHER node's vote that flipped the group to
-	// FINALIZING). The recovered task's [OnAfterLsmInit] (fired at
-	// shard init by [shardReindexerV3RecoveryOnly]) only loads buckets
-	// — it does NOT run the iteration. The iteration lives in
-	// [OnAfterLsmInitAsync], which the recovery-only reindexer
-	// intentionally no-ops.
-	//
-	// If we land here with state "started but not reindexed", we need
-	// to resume the iteration before swapping. Calling
-	// [RunReindexOnlyOnShard] is the right entry point: it runs
-	// OnAfterLsmInit (idempotent for already-loaded buckets) and then
-	// loops OnAfterLsmInitAsync until the iteration terminates and
-	// markReindexed fires. After the call returns, we re-read the
-	// tracker and continue with the sentinel-aware swap dispatch.
-	//
-	// This is the local repro path where the iteration didn't reach
-	// markReindexed but the scheduler still scheduled the swap (e.g.
-	// rolling restart caught the unit mid-iteration).
-	if !rt.IsReindexed() {
-		if !rt.IsStarted() {
-			// Migration never started on this shard. This shouldn't
-			// happen via OnGroupCompleted (the scheduler only invokes
-			// this for units that were assigned to this node), but
-			// surface it cleanly rather than silently completing.
-			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
-		}
-		logger.Info("RunSwapOnShard: state not yet reindexed on disk; resuming iteration before swap")
-		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
-			return fmt.Errorf("resume iteration before swap: %w", err)
-		}
-		// Re-read tracker. The iteration should have set IsReindexed
-		// (and possibly more — runtimeSwap MAY have run inline if
-		// skipSwapOnFinish was somehow not honored, though it's set in
-		// runShardLifecycle).
-		rt, err = t.newReindexTrackerGuarded(concreteShard)
-		if err != nil {
-			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
-		}
-		if !rt.IsReindexed() {
-			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
-		}
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
