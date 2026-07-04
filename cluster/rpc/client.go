@@ -97,19 +97,29 @@ type rpcAddressResolver interface {
 	Address(raftAddress string) (string, error)
 }
 
+// refConn pairs the leader conn with a reference count so that a leader change
+// can retire the conn without closing it underneath an in-flight RPC (closing
+// it mid-RPC surfaced as "grpc: the client connection is closing" errors on
+// leader-forwarded requests during rolling restarts).
+type refConn struct {
+	conn *grpc.ClientConn
+	// addr is the raft address this conn was dialed for
+	addr string
+	// refs counts in-flight RPCs holding this conn; guarded by Client.connLock
+	refs int
+	// retired means a newer leader conn replaced this one; the last release closes it
+	retired bool
+}
+
 // Client is used for communication with remote nodes in a RAFT cluster
 // It wraps the gRPC client to our gRPC server that is running on the raft port on each node
 type Client struct {
 	addrResolver rpcAddressResolver
-	// connLock is used to ensure that we are trying to establish/close the connection to the leader while no request
-	// are in progress
+	// connLock guards leaderRpcConn and its refcount state
 	connLock sync.Mutex
-	// leaderRaftAddr is the raft address of the current leader. It is updated at the same time as the leaderConn below
-	// when leader is changing
-	leaderRaftAddr string
-	// leaderConn is the gRPC client to the leader node of the RAFT cluster. It is used for queries that must be sent to
-	// the leader to have strong read consistency
-	leaderRpcConn *grpc.ClientConn
+	// leaderRpcConn is the refcounted gRPC conn to the current RAFT leader. It is used for queries that must be sent
+	// to the leader to have strong read consistency
+	leaderRpcConn *refConn
 	// rpcMessageMaxSize is the maximum size allows for gRPC call. As we re-instantiate the client when the leader
 	// change we store that setting to re-use it. We set a custom limit to ensure that big queries that would exceed the
 	// default maximum can still get through
@@ -120,6 +130,10 @@ type Client struct {
 
 	// logger is the logger to log client warns etc.
 	logger *logrus.Logger
+
+	// testOnConnAcquired runs between conn acquisition and the RPC call so tests
+	// can force a leader change into that window. Always nil in production.
+	testOnConnAcquired func()
 }
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
@@ -132,10 +146,11 @@ func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, 
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if joining the node fails
 func (cl *Client) Join(ctx context.Context, leaderRaftAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	conn, err := cl.getConn(ctx, leaderRaftAddr)
+	conn, release, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 
 	return cmd.NewClusterServiceClient(conn).JoinPeer(ctx, req)
 }
@@ -179,10 +194,11 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 // Returns the server response to the remove request
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 func (cl *Client) Remove(ctx context.Context, leaderRaftAddr string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
-	conn, err := cl.getConn(ctx, leaderRaftAddr)
+	conn, release, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 
 	return cmd.NewClusterServiceClient(conn).RemovePeer(ctx, req)
 }
@@ -192,10 +208,11 @@ func (cl *Client) Remove(ctx context.Context, leaderRaftAddr string, req *cmd.Re
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if the apply command fails
 func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	conn, err := cl.getConn(ctx, leaderRaftAddr)
+	conn, release, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 
 	return cmd.NewClusterServiceClient(conn).Apply(ctx, req)
 }
@@ -205,9 +222,14 @@ func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.App
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if the query command fails
 func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
-	conn, err := cl.getConn(ctx, leaderRaftAddr)
+	conn, release, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
+	}
+	defer release()
+
+	if cl.testOnConnAcquired != nil {
+		cl.testOnConnAcquired()
 	}
 
 	resp, err := cmd.NewClusterServiceClient(conn).Query(ctx, req)
@@ -216,47 +238,35 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 
 // Close the client and allocated resources
 func (cl *Client) Close() {
-	if cl.leaderRpcConn == nil {
-		return
-	}
-
-	if err := cl.leaderRpcConn.Close(); err != nil {
-		cl.logger.WithFields(
-			logrus.Fields{
-				"error":       err,
-				"leader_addr": cl.leaderRaftAddr,
-			},
-		).Warn("error closing the leader gRPC connection")
-	}
-}
-
-// getConn either returns the cached connection in the client to the leader or will instantiate a new one towards
-// leaderRaftAddr and close the old one
-// Returns the gRPC client connection to leaderRaftAddr
-// Returns an error if an RPC connection to leaderRaftAddr can't be established
-func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.ClientConn, error) {
 	cl.connLock.Lock()
 	defer cl.connLock.Unlock()
 
-	if cl.leaderRpcConn != nil && leaderRaftAddr == cl.leaderRaftAddr {
-		return cl.leaderRpcConn, nil
+	if cl.leaderRpcConn == nil {
+		return
+	}
+	cl.retireLocked()
+}
+
+// getConn either returns the cached connection in the client to the leader or will instantiate a new one towards
+// leaderRaftAddr and retire the old one
+// Returns the gRPC client connection to leaderRaftAddr and a release func the caller must invoke once its RPC is done
+// Returns an error if an RPC connection to leaderRaftAddr can't be established
+func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.ClientConn, func(), error) {
+	cl.connLock.Lock()
+	defer cl.connLock.Unlock()
+
+	if cl.leaderRpcConn != nil && leaderRaftAddr == cl.leaderRpcConn.addr {
+		conn, release := cl.acquireLocked()
+		return conn, release, nil
 	}
 
 	if cl.leaderRpcConn != nil {
-		if err := cl.leaderRpcConn.Close(); err != nil {
-			cl.logger.WithFields(
-				logrus.Fields{
-					"error":                  err,
-					"closing_on_leader_addr": cl.leaderRaftAddr,
-					"new_leader_addr":        leaderRaftAddr,
-				},
-			).Warn("error closing the leader gRPC connection")
-		}
+		cl.retireLocked()
 	}
 
 	addr, err := cl.addrResolver.Address(leaderRaftAddr)
 	if err != nil {
-		return nil, fmt.Errorf("resolve address: %w", err)
+		return nil, nil, fmt.Errorf("resolve address: %w", err)
 	}
 
 	options := []grpc.DialOption{
@@ -269,14 +279,56 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
 	}
 
-	cl.leaderRpcConn, err = grpc.NewClient(addr, options...)
+	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
+		return nil, nil, fmt.Errorf("dial: %w", err)
 	}
 
-	cl.leaderRaftAddr = leaderRaftAddr
+	cl.leaderRpcConn = &refConn{conn: conn, addr: leaderRaftAddr}
 
-	return cl.leaderRpcConn, nil
+	acquired, release := cl.acquireLocked()
+	return acquired, release, nil
+}
+
+// acquireLocked hands out the current conn plus a release func that closes it
+// only once it is both retired and idle, so a leader change observed by a
+// concurrent getConn never closes a conn with RPCs still in flight.
+// Callers must hold connLock.
+func (cl *Client) acquireLocked() (*grpc.ClientConn, func()) {
+	rc := cl.leaderRpcConn
+	rc.refs++
+	release := func() {
+		cl.connLock.Lock()
+		defer cl.connLock.Unlock()
+		rc.refs--
+		if rc.retired && rc.refs == 0 {
+			cl.closeRefConn(rc)
+		}
+	}
+	return rc.conn, release
+}
+
+// retireLocked detaches the current leader conn: idle conns close immediately,
+// busy ones close when the last in-flight RPC releases its reference.
+// Callers must hold connLock.
+func (cl *Client) retireLocked() {
+	rc := cl.leaderRpcConn
+	cl.leaderRpcConn = nil
+	rc.retired = true
+	if rc.refs == 0 {
+		cl.closeRefConn(rc)
+	}
+}
+
+func (cl *Client) closeRefConn(rc *refConn) {
+	if err := rc.conn.Close(); err != nil {
+		cl.logger.WithFields(
+			logrus.Fields{
+				"error":       err,
+				"leader_addr": rc.addr,
+			},
+		).Warn("error closing the leader gRPC connection")
+	}
 }
 
 // fromRPCError parses the error sent by rpc server
