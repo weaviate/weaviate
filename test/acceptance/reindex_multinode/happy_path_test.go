@@ -103,7 +103,7 @@ func testMapToBlockmaxMultiPropertyDefersFlip(t *testing.T, compose *docker.Dock
 	className := "MultiNodeBlockmaxMultiProp"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
 		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
 	})
@@ -156,7 +156,7 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeBlockmax"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
@@ -238,43 +238,14 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 }
 
-// waitForClassOnAllNodes blocks until className is in every node's LOCAL
-// schema view: a lagging follower otherwise fails consistency=ALL writes, and
-// the write can't simply be retried (auto-UUIDs would duplicate). The
-// consistency:false header is load-bearing — the default proxies to the leader.
-func waitForClassOnAllNodes(t *testing.T, compose *docker.DockerCompose, className string) {
-	t.Helper()
-	for i := 1; i <= 3; i++ {
-		nodeURI := compose.GetWeaviateNode(i).URI()
-		require.Eventuallyf(t, func() bool {
-			req, err := http.NewRequest(http.MethodGet,
-				fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className), nil)
-			if err != nil {
-				return false
-			}
-			req.Header.Set("consistency", "false")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return false
-			}
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-			return resp.StatusCode == http.StatusOK
-		}, 60*time.Second, 100*time.Millisecond,
-			"class %s must be locally visible on node %d before consistency=ALL writes", className, i)
-	}
-}
-
 func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeRoaringSet"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
-
-	waitForClassOnAllNodes(t, compose, className)
 
 	importObjects(t, restURI, className, testDocuments)
 
@@ -323,7 +294,7 @@ func testEnableRangeable(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeRangeable"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 		{Name: "score", DataType: []string{"int"}},
 	})
@@ -373,7 +344,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeTokenize"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
@@ -438,7 +409,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	className := "ConsistencyTest"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)

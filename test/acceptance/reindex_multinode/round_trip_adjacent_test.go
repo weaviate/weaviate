@@ -230,7 +230,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	const className = "RestartRoundTrip"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	// Use a closure so the URI is re-resolved at defer-time. The
@@ -376,7 +376,7 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	const className = "ConcurrentProps"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
 		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
 	})
@@ -474,7 +474,7 @@ func testRoundTripNRounds(
 	t.Helper()
 
 	restURI := compose.GetWeaviateNode(1).URI()
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: startTok},
 	})
 	defer deleteCollection(t, restURI, className)
@@ -514,7 +514,7 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	const className = "MultiProp"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
 		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
 	})
@@ -572,7 +572,7 @@ func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",
@@ -631,7 +631,7 @@ func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",
@@ -666,7 +666,7 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",
@@ -720,7 +720,7 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	trueVal, falseVal := true, false
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{
 			Name: "text", DataType: []string{"text"},
 			Tokenization:    "word",

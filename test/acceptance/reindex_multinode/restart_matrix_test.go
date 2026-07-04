@@ -117,7 +117,7 @@ func testR0_RestartThenMigrate(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RestartR0"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -156,7 +156,7 @@ func testR1_RestartAfter1Migration(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RestartR1"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -197,7 +197,7 @@ func testR1b_RestartAfter1MigrationThenMigrate(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RestartR1b"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -225,7 +225,7 @@ func testR2_RestartAfter2Migrations(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RestartR2"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -251,7 +251,7 @@ func testR2b_RestartAfter2MigrationsThenMigrate(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RestartR2b"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -289,7 +289,7 @@ func testR3_RestartAfter3Migrations(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RestartR3"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -317,7 +317,7 @@ func testR5_RestartAfterManyMigrations(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RestartR5"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -350,7 +350,7 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RollingMidMigration"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
@@ -396,7 +396,7 @@ func TestMultiNode_RollingRestartBetweenMigrations(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RollingBetweenMigrations"
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()

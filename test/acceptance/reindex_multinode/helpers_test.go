@@ -62,8 +62,10 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 }
 
 // createCollection creates a class with the given shard count and replication factor
-// via the REST API.
-func createCollection(t *testing.T, restURI, className string, shardCount, rf int, properties []*models.Property) {
+// via the REST API, then blocks until the class is in every node's LOCAL
+// schema view — a lagging follower otherwise fails consistency=ALL writes,
+// and the write can't simply be retried (auto-UUIDs would duplicate).
+func createCollection(t *testing.T, compose *docker.DockerCompose, restURI, className string, shardCount, rf int, properties []*models.Property) {
 	t.Helper()
 
 	class := map[string]interface{}{
@@ -91,6 +93,32 @@ func createCollection(t *testing.T, restURI, className string, shardCount, rf in
 
 	respBody, _ := io.ReadAll(resp.Body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "create class failed: %s", string(respBody))
+
+	// The consistency:false header is load-bearing — the default proxies the
+	// read to the leader, which would hide a follower whose local schema view
+	// still lags behind the CREATE_CLASS apply.
+	for _, node := range compose.Containers() {
+		if !strings.HasPrefix(node.Name(), "weaviate-") {
+			continue
+		}
+		nodeURI := node.URI()
+		require.Eventuallyf(t, func() bool {
+			req, err := http.NewRequest(http.MethodGet,
+				fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className), nil)
+			if err != nil {
+				return false
+			}
+			req.Header.Set("consistency", "false")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return resp.StatusCode == http.StatusOK
+		}, 60*time.Second, 100*time.Millisecond,
+			"class %s must be locally visible on node %s before consistency=ALL writes", className, node.Name())
+	}
 }
 
 // deleteCollection deletes a class via the REST API.
