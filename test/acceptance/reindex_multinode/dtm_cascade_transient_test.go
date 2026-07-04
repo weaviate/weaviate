@@ -21,14 +21,10 @@ import (
 )
 
 // Regression guard for the post-rolling-restart flake in
-// TestMultiNode_DeleteRecreateCleansReindexTasks: right after a node restarts,
-// its internal gRPC connection for ListDistributedTasks is briefly
-// reconnecting, so GET /v1/tasks transiently returns a non-200 ("the client
-// connection is closing"). assertTaskGone's Eventually is meant to ride that
-// out, but previously its inner read hard-asserted status==200 and so
-// FailNow'd from the Eventually condition goroutine on the first transient.
-// This drives assertTaskGone against a server that returns the transient for
-// the first few polls and then a clean empty task list; it must pass.
+// TestMultiNode_DeleteRecreateCleansReindexTasks: assertTaskGone's inner read
+// used to hard-assert status==200 and FailNow'd from the Eventually condition
+// goroutine on the first transient non-200 (gRPC reconnect after restart).
+// Drives assertTaskGone against a server replaying that transient; must pass.
 func TestAssertTaskGone_ToleratesTransientReadError(t *testing.T) {
 	var polls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
