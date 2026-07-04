@@ -70,10 +70,30 @@ func NewBaseModule(moduleName string, storage StorageBackend) *BaseModule {
 }
 
 func (b *BaseModule) SetUsageService(usageService any) {
-	if service, ok := usageService.(clusterusage.Service); ok {
-		b.usageService = service
-		service.SetJitterInterval(b.shardJitter)
+	service, ok := usageService.(clusterusage.Service)
+	if !ok {
+		return
 	}
+
+	alreadySet := func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.usageService != nil {
+			// already set, the collector is running
+			return true
+		}
+		b.usageService = service
+		return false
+	}()
+	if alreadySet {
+		return
+	}
+
+	service.SetJitterInterval(b.shardJitter)
+	// Start the collector only once the service it depends on is set.
+	enterrors.GoWrapper(func() {
+		b.collectAndUploadPeriodically(context.Background())
+	}, b.logger)
 }
 
 func (b *BaseModule) Name() string {
@@ -136,11 +156,6 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 	if err := b.adjustInitialInterval(config); err != nil {
 		b.logger.Errorf("cannot adjust initial interval, falling back to: %v: %v", b.interval, err)
 	}
-
-	// Start periodic collection and upload
-	enterrors.GoWrapper(func() {
-		b.collectAndUploadPeriodically(context.Background())
-	}, b.logger)
 
 	b.logger.Infof("%s module initialized successfully", b.moduleName)
 	return nil

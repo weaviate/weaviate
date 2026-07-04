@@ -16,6 +16,11 @@ type ReplicationFSMReader interface {
 	// It returns a tuple of readReplicas
 	FilterOneShardReplicasRead(collection string, shard string, shardReplicasLocation []string) []string
 	// FilterOneShardReplicasWrite returns the write replicas for a given shard
-	// It returns a tuple of (writeReplicas, additionalWriteReplicas)
-	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
+	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) []string
+	// HasActiveReplicationForShard reports whether a non-terminal replication op exists for
+	// collection/shard, independent of which node hosts the source or target replica.
+	HasActiveReplicationForShard(collection string, shard string) bool
+	// HasActiveTargetReplicationForShard reports whether the FSM currently tracks any
+	// replication op for (collection, shard, targetNode) whose state is non-terminal.
+	HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool
 }

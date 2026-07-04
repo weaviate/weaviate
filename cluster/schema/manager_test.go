@@ -491,8 +491,12 @@ func (f *fakeReplicationFSM) SetUnCancellable(id uint64) error {
 	return nil
 }
 
-func (f *fakeReplicationFSM) HasOngoingReplication(string, string, string) bool {
-	panic("unexpected HasOngoingReplication call")
+func (f *fakeReplicationFSM) HasActiveReplicationForShard(string, string) bool {
+	panic("unexpected HasActiveReplicationForShard call")
+}
+
+func (f *fakeReplicationFSM) HasActiveReplicationForCollection(string) bool {
+	panic("unexpected HasActiveReplicationForCollection call")
 }
 
 func (f *fakeReplicationFSM) DeleteReplicationsByCollection(string) error {
@@ -523,7 +527,9 @@ func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(
 		t.Helper()
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := NewSchemaManager("local-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		indexer := fakes.NewMockSchemaExecutor()
+		indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
+		sm := NewSchemaManager("local-node", indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetReplicationFSM(fsm)
 
 		ss := &sharding.State{Physical: map[string]sharding.Physical{

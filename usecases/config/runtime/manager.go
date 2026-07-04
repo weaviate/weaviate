@@ -36,12 +36,14 @@ var (
 	ErrUnregisteredConfigFound = errors.New("unregistered config found")
 )
 
-// Parser takes care of unmarshaling a config struct
-// from given raw bytes(e.g: YAML, JSON, etc).
-type Parser[T any] func([]byte) (*T, error)
+// Parser takes care of unmarshaling a config struct from given raw bytes (e.g:
+// YAML, JSON, etc). Keys that fail to decode are recorded in skipped so the
+// updater can leave those fields untouched instead of resetting them.
+type Parser[T any] func(buf []byte, skipped map[string]struct{}) (*T, error)
 
-// Updater try to update `source` config with newly `parsed` config.
-type Updater[T any] func(log logrus.FieldLogger, source, parsed *T, hooks map[string]func() error) error
+// Updater try to update `source` config with newly `parsed` config. Fields named
+// in skipped are left as-is (neither applied nor reset to default).
+type Updater[T any] func(log logrus.FieldLogger, source, parsed *T, skipped map[string]struct{}, hooks map[string]func() error) error
 
 // ConfigManager takes care of periodically loading the config from
 // given filepath for every interval period.
@@ -157,13 +159,14 @@ func (cm *ConfigManager[T]) reloadConfig(forceReloadOverrides bool) error {
 		return nil // same file. no change
 	}
 
-	cfg, err := cm.parse(b)
+	skipped := make(map[string]struct{})
+	cfg, err := cm.parse(b, skipped)
 	if err != nil {
 		cm.lastLoadSuccess.Set(0)
 		return errors.Join(ErrFailedToParseConfig, err)
 	}
 
-	if err := cm.update(cm.log, cm.currentConfig, cfg, cm.hooks); err != nil {
+	if err := cm.update(cm.log, cm.currentConfig, cfg, skipped, cm.hooks); err != nil {
 		return err
 	}
 

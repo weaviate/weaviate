@@ -36,12 +36,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type SegmentGroup struct {
-	segments              []Segment
-	segmentRefCounterLock sync.Mutex
+	segments []Segment
 
 	// Holds compacted / cleaned up segments meant to be closed and removed from disk
 	// after their's refs counter drops to 0.
@@ -96,9 +96,16 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
+	// editOps tracks in-place segment edit operations and the segments still
+	// pending rewrite. It also builds the per-pass value transformer (see
+	// BuildCurrentTransformer). nil unless edit ops are enabled for this segment
+	// group.
+	editOps *SegmentEditOps
+
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
+	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
 	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
@@ -128,10 +135,12 @@ type sgConfig struct {
 	keepSegmentsInMemory         bool
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
+	className                    string
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -164,6 +173,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
 		sequentialAccess:             cfg.sequentialAccess,
+		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
@@ -261,6 +271,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
 					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+					lazyPropertyLengths:      sg.lazyPropertyLengths,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -385,6 +396,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -527,6 +539,19 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 	}
 
+	// Construct the sidecar before registering the cycle below, so sg.editOps is
+	// published before any pass can read it (happens-before). The bolt file itself
+	// is opened lazily on the first registered op (see newSegmentEditOps), so an
+	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
+	//
+	// A non-empty className means the objects bucket (the only WithClassName caller);
+	// edit ops only apply to its replace-strategy store. Transformers are resolved
+	// per op type from the global registry; the persisted ops drive what runs.
+	if cfg.className != "" && cfg.strategy == StrategyReplace {
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
+		sg.editOps.logger = sg.logger
+	}
+
 	id := "segmentgroup/compaction/" + sg.dir
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
@@ -575,6 +600,7 @@ func (sg *SegmentGroup) add(path string) error {
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:      sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
@@ -587,24 +613,33 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
+// segmentAtPositionHasID reports, under maintenanceLock, whether the in-memory
+// segment at pos still has the given id. Used to re-validate a position-based
+// swap before it runs, so a wrong-segment swap fails loudly instead of corrupting
+// data if the compaction/cleanup serialization invariant is ever broken.
+func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
+}
+
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
-	sg.segmentRefCounterLock.Lock()
+	// incRef under the RLock so the refs are taken before any compaction (which
+	// holds the write lock) can swap these segments out. refCount is atomic, so no
+	// separate refcount lock is needed.
 	for _, seg := range segments {
 		seg.incRef()
 	}
-	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
 		}
-		sg.segmentRefCounterLock.Unlock()
 	}
 }
 
@@ -870,6 +905,11 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
+	}
+	if sg.editOps != nil {
+		if err := sg.editOps.Close(); err != nil {
+			return err
+		}
 	}
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point

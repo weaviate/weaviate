@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/replication/copier/internal/changelogdrain"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -74,6 +75,14 @@ func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) sharding
 	return r.idx
 }
 
+// bufconnFakeSchema satisfies the StartChangeCapture schema-version barrier;
+// these tests pass schemaVersion 0, so the barrier is always a no-op.
+type bufconnFakeSchema struct{}
+
+func (bufconnFakeSchema) ReadOnlyClassWithVersion(context.Context, string, uint64) (*models.Class, error) {
+	return nil, nil
+}
+
 // bufconnFixture wires a real FileReplicationService + *changelog.ChangeLog
 // over bufconn. tailAndApply bypasses Copier.TailAndApply (which would need a
 // real *db.Index) and runs the drain loop directly.
@@ -109,7 +118,7 @@ func newBufconnFixture(t *testing.T) *bufconnFixture {
 	require.NoError(t, err)
 
 	fakeIdx := &bufconnFakeIndex{log: log}
-	svc := grpchandlers.NewFileReplicationService(&bufconnFakeRepo{idx: fakeIdx}, nil, 64*1024)
+	svc := grpchandlers.NewFileReplicationService(&bufconnFakeRepo{idx: fakeIdx}, bufconnFakeSchema{}, 64*1024)
 
 	lis := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
@@ -174,7 +183,7 @@ func TestChangeCapture_SingleLogMovementFlow(t *testing.T) {
 	}
 
 	require.NoError(t, fx.copier.StartChangeCapture(context.Background(),
-		"source", "ClassOne", "shard1", "op1"))
+		"source", "ClassOne", "shard1", "op1", 0))
 
 	snap, err := fx.copier.SnapshotChangeLogLSN(context.Background(),
 		"source", "ClassOne", "shard1", "op1")
@@ -235,7 +244,7 @@ func TestChangeCapture_CappedDrainStopsAtCap(t *testing.T) {
 	}
 
 	require.NoError(t, fx.copier.StartChangeCapture(context.Background(),
-		"source", "ClassOne", "shard1", "op1"))
+		"source", "ClassOne", "shard1", "op1", 0))
 
 	const cap = 3
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -262,7 +271,7 @@ func TestChangeCapture_QuietShardSnapshotZeroCompletes(t *testing.T) {
 	fx := newBufconnFixture(t)
 
 	require.NoError(t, fx.copier.StartChangeCapture(context.Background(),
-		"source", "ClassOne", "shard1", "op1"))
+		"source", "ClassOne", "shard1", "op1", 0))
 
 	snap, err := fx.copier.SnapshotChangeLogLSN(context.Background(),
 		"source", "ClassOne", "shard1", "op1")

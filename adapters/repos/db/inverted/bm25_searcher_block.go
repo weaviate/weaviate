@@ -288,11 +288,23 @@ func (b *BM25Searcher) wandBlock(
 }
 
 func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {
+	// Preallocate by the real upper bound (total result rows across
+	// properties/segments), not limit*len(allIds): for unlimited (limit==0)
+	// queries the caller inflates limit to the sum of all term counts, which
+	// would over-allocate these slices by orders of magnitude.
+	totalRows, totalTerms := 0, 0
+	for i := range allIds {
+		for j := range allIds[i] {
+			totalRows += len(allIds[i][j])
+		}
+		totalTerms += len(queryTerms[i])
+	}
+
 	// combine all results
-	combinedIds := make([]uint64, 0, limit*len(allIds))
-	combinedScores := make([]float32, 0, limit*len(allIds))
-	combinedExplanations := make([][]*terms.DocPointerWithScore, 0, limit*len(allIds))
-	combinedTerms := make([]string, 0, limit*len(allIds))
+	combinedIds := make([]uint64, 0, totalRows)
+	combinedScores := make([]float32, 0, totalRows)
+	combinedExplanations := make([][]*terms.DocPointerWithScore, 0, totalRows)
+	combinedTerms := make([]string, 0, totalTerms)
 
 	// combine all results
 	for i := range allIds {

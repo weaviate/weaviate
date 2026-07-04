@@ -40,13 +40,12 @@ const s3Backend = "s3"
 // env-var root accessing it successfully, proving the denies are real auth
 // denials — narrowing, not a missing grant or a disabled endpoint.
 func TestNamespaces_RBACSurfaces(t *testing.T) {
-	user1Key, _ := twoNamespaces(t)
+	t.Parallel()
+	ns1, _, user1Key, _ := twoNamespaces(t)
 
-	const (
-		class     = "Surfaces"
-		qualified = "customer1:" + class
-	)
-	setupClassInNs1(t, class, user1Key)
+	const class = "Surfaces"
+	qualified := ns1 + ":" + class
+	setupClassInNs1(t, ns1, class, user1Key)
 
 	// Positive control for the namespaced admin itself: prove the admin grant is
 	// live with real data permissions. Without this, the operator-surface 403s
@@ -135,7 +134,7 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 
 	t.Run("create namespace: namespaced denied, root allowed", func(t *testing.T) {
 		// manage_namespaces is root-only; the narrowed admin lacks it.
-		const newNS = "ns-deny-create"
+		newNS := uniqueNS()
 		_, err := helper.Client(t).Namespaces.CreateNamespace(
 			clns.NewCreateNamespaceParams().WithNamespaceID(newNS),
 			helper.CreateAuth(user1Key))
@@ -149,8 +148,8 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 
 	t.Run("delete namespace: namespaced denied, root allowed", func(t *testing.T) {
 		// Throwaway target so a regression letting the call through cannot
-		// remove customer1 mid-test; authz runs before existence checks.
-		const throwaway = "ns-root-delete"
+		// remove a live namespace mid-test; authz runs before existence checks.
+		throwaway := uniqueNS()
 		helper.CreateNamespace(t, throwaway, adminKey)
 
 		_, err := helper.Client(t).Namespaces.DeleteNamespace(

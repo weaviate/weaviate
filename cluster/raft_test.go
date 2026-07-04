@@ -54,9 +54,13 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddReplicaToShard", Anything, Anything, Anything).Return(nil)
 	m.indexer.On("DeleteReplicaFromShard", Anything, Anything, Anything).Return(nil)
+	m.indexer.On("ReconcileAsyncReplicationForShard", Anything, Anything).Return(nil)
 
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
+
+	m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+	m.replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 
@@ -516,6 +520,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	m.indexer.On("DeleteClass", mock.Anything).Return(nil).Maybe()
 	m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddClass", mock.Anything).Return(nil)
 
