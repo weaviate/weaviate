@@ -412,7 +412,18 @@ func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, inde
 		return nil, err
 	}
 
-	vData, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
+	encoding := clusterapi.OverwriteEncodingJSON
+	var vData []byte
+	if isRawVObjectBatch(vobjects) {
+		vData, err = clusterapi.IndicesPayloads.VersionedObjectList.MarshalRaw(vobjects)
+		if err == nil {
+			// gRPC does not compress the body itself; zstd the raw payload.
+			vData = clusterapi.CompressOverwriteRaw(vData)
+			encoding = clusterapi.OverwriteEncodingRaw
+		}
+	} else {
+		vData, err = clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("marshal vobjects: %w", err)
 	}
@@ -424,6 +435,7 @@ func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, inde
 		Index:        index,
 		Shard:        shard,
 		VobjectsData: vData,
+		Encoding:     encoding,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gRPC OverwriteObjects: %w", err)

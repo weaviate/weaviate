@@ -210,8 +210,16 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				ClassName: distributedClass,
 			}, []string{""}, []models.Vector{query})
 			assert.Nil(t, err)
-			for i, obj := range res {
-				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
+			// Compare as a set, not by position: each shard runs its own
+			// approximate HNSW search and the merged result at the K-th
+			// boundary is not guaranteed to match the brute-force order.
+			expectedIDs := make(map[strfmt.UUID]struct{}, len(res))
+			for i := 0; i < len(res); i++ {
+				expectedIDs[groundTruth[i].ID] = struct{}{}
+			}
+			for _, obj := range res {
+				_, ok := expectedIDs[obj.ID]
+				assert.True(t, ok, fmt.Sprintf("unexpected id %s in results", obj.ID))
 			}
 		}
 

@@ -126,6 +126,10 @@ type PrometheusMetrics struct {
 	ShardsLoading   prometheus.Gauge
 	ShardsUnloading prometheus.Gauge
 
+	// ShardHaltForTransferForceResume: non-zero means a transfer was
+	// force-resumed mid-stream — compaction may have raced the transfer.
+	ShardHaltForTransferForceResume *prometheus.CounterVec
+
 	// RAFT-based schema metrics
 	SchemaWrites         *prometheus.SummaryVec
 	SchemaReadsLocal     *prometheus.SummaryVec
@@ -141,13 +145,6 @@ type PrometheusMetrics struct {
 	// Keeping metering to only the critical buckets (objects, vectors_compressed)
 	// helps cut down on noise when monitoring
 	LSMCriticalBucketsOnly bool
-
-	// Deprecated metrics, keeping around because the classification features
-	// seems to sill use the old logic. However, those metrics are not actually
-	// used for the schema anymore, but only for the classification features.
-	SchemaTxOpened   *prometheus.CounterVec
-	SchemaTxClosed   *prometheus.CounterVec
-	SchemaTxDuration *prometheus.SummaryVec
 
 	// Vectorization
 	T2VBatches            *prometheus.GaugeVec
@@ -768,19 +765,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of shards in process of unloading",
 		}),
 
-		// Schema TX-metrics. Can be removed when RAFT is ready
-		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "schema_tx_opened_total",
-			Help: "Total number of opened schema transactions",
-		}, []string{"ownership"}),
-		SchemaTxClosed: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "schema_tx_closed_total",
-			Help: "Total number of closed schema transactions. A close must be either successful or failed",
-		}, []string{"ownership", "status"}),
-		SchemaTxDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_tx_duration_seconds",
-			Help: "Mean duration of a tx by status",
-		}, []string{"ownership", "status"}),
+		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "shard_halt_for_transfer_force_resume_total",
+			Help: "Halt-for-transfer inactivity watchdog firings. Non-zero indicates a transfer was force-resumed mid-stream.",
+		}, []string{}),
 
 		// RAFT-based schema metrics
 		SchemaWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{

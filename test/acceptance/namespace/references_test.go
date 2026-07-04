@@ -40,13 +40,14 @@ import (
 //  3. update / delete resolve the same way add does
 //  4. global admin can address objects via qualified class names
 func TestNamespaces_References(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	t.Parallel()
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	// One Zoo and one Animal class per namespace. hasAnimals.DataType is
 	// submitted short (the schema validator rejects ":" in cross-ref data
 	// types from user input) but QualifyPropertyDataTypes mutates the slice
 	// to the qualified form before RAFT, and storage keeps it qualified —
-	// admin reads see ["customer1:Animal"] while namespaced reads strip
+	// admin reads see [ns1+":Animal"] while namespaced reads strip
 	// back to ["Animal"]. The reference handlers strip the stored
 	// qualified DataType at autodetect sites for beacon construction.
 	zooAnimal := func() (animal, zoo *models.Class) {
@@ -74,10 +75,10 @@ func TestNamespaces_References(t *testing.T) {
 	setup(t, user1Key)
 	setup(t, user2Key)
 	t.Cleanup(func() {
-		helper.DeleteClassAuth(t, "customer1:Zoo", adminKey)
-		helper.DeleteClassAuth(t, "customer1:Animal", adminKey)
-		helper.DeleteClassAuth(t, "customer2:Zoo", adminKey)
-		helper.DeleteClassAuth(t, "customer2:Animal", adminKey)
+		helper.DeleteClassAuth(t, ns1+":Zoo", adminKey)
+		helper.DeleteClassAuth(t, ns1+":Animal", adminKey)
+		helper.DeleteClassAuth(t, ns2+":Zoo", adminKey)
+		helper.DeleteClassAuth(t, ns2+":Animal", adminKey)
 	})
 
 	newID := func() strfmt.UUID { return strfmt.UUID(uuid.New().String()) }
@@ -102,7 +103,7 @@ func TestNamespaces_References(t *testing.T) {
 
 		// The object should now contain the reference (admin reads the
 		// qualified class to inspect raw storage).
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.True(t, ok, "hasAnimals should be a list, got %T", got.Properties.(map[string]any)["hasAnimals"])
@@ -125,11 +126,11 @@ func TestNamespaces_References(t *testing.T) {
 		// Admin addresses everything by qualified storage class. The handler
 		// must still write the beacon in short form so portability holds.
 		_, err := helper.AddReferenceReturn(t,
-			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer1:Animal/" + string(animalID))},
-			zooID, "customer1:Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + ns1 + ":Animal/" + string(animalID))},
+			zooID, ns1+":Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
 		require.NoError(t, err)
 
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1)
@@ -140,8 +141,8 @@ func TestNamespaces_References(t *testing.T) {
 	})
 
 	t.Run("source object in foreign namespace is invisible", func(t *testing.T) {
-		// Object lives only in customer2. user1 tries to add a reference on
-		// the same UUID via "Zoo" — that resolves to customer1:Zoo where the
+		// Object lives only in ns2. user1 tries to add a reference on
+		// the same UUID via "Zoo" — that resolves to ns1:Zoo where the
 		// object does not exist, so the call fails (404 from the source-object
 		// existence check, not a cross-namespace leak).
 		zooID, animalID := newID(), newID()
@@ -162,7 +163,7 @@ func TestNamespaces_References(t *testing.T) {
 		// Qualified target class — namespaced caller must not type "<ns>:" in
 		// the beacon. namespacing.Resolve rejects with 422.
 		_, err := helper.AddReferenceReturn(t,
-			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(animalID))},
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + ns2 + ":Animal/" + string(animalID))},
 			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
 		require.Error(t, err)
 		var unproc *objects.ObjectsClassReferencesCreateUnprocessableEntity
@@ -191,9 +192,9 @@ func TestNamespaces_References(t *testing.T) {
 		// Beacons must be short for the namespaced caller.
 		gotFrom := string(resp.Payload[0].From)
 		gotTo := string(resp.Payload[0].To)
-		assert.NotContains(t, gotFrom, "customer1:",
+		assert.NotContains(t, gotFrom, ns1+":",
 			"From beacon must not leak the caller's own namespace prefix: %s", gotFrom)
-		assert.NotContains(t, gotTo, "customer1:",
+		assert.NotContains(t, gotTo, ns1+":",
 			"To beacon must stay short for the caller's own namespace: %s", gotTo)
 		assert.Equal(t, "weaviate://localhost/Zoo/"+string(zooID)+"/hasAnimals", gotFrom)
 		assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), gotTo)
@@ -206,7 +207,7 @@ func TestNamespaces_References(t *testing.T) {
 
 		refs := []*models.BatchReference{{
 			From: strfmt.URI("weaviate://localhost/Zoo/" + string(zooID) + "/hasAnimals"),
-			To:   strfmt.URI("weaviate://localhost/customer2:Animal/" + string(badAnimalID)),
+			To:   strfmt.URI("weaviate://localhost/" + ns2 + ":Animal/" + string(badAnimalID)),
 		}}
 		resp, err := helper.Client(t).Batch.BatchReferencesCreate(
 			batch.NewBatchReferencesCreateParams().WithBody(refs),
@@ -236,14 +237,14 @@ func TestNamespaces_References(t *testing.T) {
 		require.NoError(t, err)
 
 		// DELETE the only remaining ref (passed in short form; the handler
-		// must resolve it to "customer1:Animal" so the stored qualified beacon
+		// must resolve it to ns1+":Animal" so the stored qualified beacon
 		// matches).
 		_, err = helper.DeleteReferenceReturn(t,
 			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(animalBID))},
 			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
 		require.NoError(t, err)
 
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		if ok {
@@ -256,7 +257,7 @@ func TestNamespaces_References(t *testing.T) {
 		// storage invariant. references_add normalises admin-submitted
 		// qualified beacons to short before storage; without the
 		// structural (Class, TargetID) compare in removeReference, an
-		// admin submitting "weaviate://localhost/customer1:Animal/<id>"
+		// admin submitting "weaviate://localhost/"+ns1+":Animal/<id>"
 		// would hit an exact-string compare against the stored short
 		// "weaviate://localhost/Animal/<id>", miss, and silently return
 		// 204 with the ref still present.
@@ -272,12 +273,12 @@ func TestNamespaces_References(t *testing.T) {
 
 		// Admin DELETE with the QUALIFIED beacon must remove the ref.
 		_, err = helper.DeleteReferenceReturn(t,
-			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer1:Animal/" + string(animalID))},
-			zooID, "customer1:Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + ns1 + ":Animal/" + string(animalID))},
+			zooID, ns1+":Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
 		require.NoError(t, err)
 
 		// Verify the ref is actually gone — admin reads via qualified class.
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		if ok {
@@ -291,7 +292,7 @@ func TestNamespaces_References(t *testing.T) {
 		// target via qualified beacon" but for the DELETE path. The
 		// ValidateNamespacePrefix gate in references_delete runs BEFORE
 		// any normalisation, so a namespaced user submitting
-		// "weaviate://localhost/customer2:Animal/<id>" is rejected with
+		// "weaviate://localhost/"+ns2+":Animal/<id>" is rejected with
 		// 422 — and the local ref is untouched.
 		zooID, animalID, foreignAnimalID := newID(), newID(), newID()
 		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-foreign-del"})
@@ -306,7 +307,7 @@ func TestNamespaces_References(t *testing.T) {
 
 		// Namespaced user DELETE with a foreign-NS qualified beacon: 422.
 		_, err = helper.DeleteReferenceReturn(t,
-			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(foreignAnimalID))},
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + ns2 + ":Animal/" + string(foreignAnimalID))},
 			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
 		require.Error(t, err)
 		var unproc *objects.ObjectsClassReferencesDeleteUnprocessableEntity
@@ -315,7 +316,7 @@ func TestNamespaces_References(t *testing.T) {
 
 		// The legitimate stored ref must still be present — the 422 path
 		// must NOT mutate state.
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1, "cross-NS delete must not remove the local ref")
@@ -328,9 +329,9 @@ func TestNamespaces_References(t *testing.T) {
 	t.Run("admin delete with foreign-NS qualified beacon must not silently match by short class", func(t *testing.T) {
 		// Defense against the admin foot-gun in removeReference: the
 		// short-class-on-both-sides match would otherwise accept
-		// "weaviate://localhost/customer2:Animal/<uuid>" against a stored
+		// "weaviate://localhost/"+ns2+":Animal/<uuid>" against a stored
 		// "weaviate://localhost/Animal/<uuid>" (both strip to "Animal")
-		// and delete the customer1:Animal ref. QualifyRefTarget enforces
+		// and delete the ns1:Animal ref. QualifyRefTarget enforces
 		// "admin's qualified prefix must match the source's namespace"
 		// for the same reason the four write paths do.
 		zooID, animalID, foreignAnimalID := newID(), newID(), newID()
@@ -338,24 +339,24 @@ func TestNamespaces_References(t *testing.T) {
 		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "local"})
 		createIn(t, user2Key, "Animal", foreignAnimalID, map[string]any{"name": "foreign"})
 
-		// Seed: customer1:Zoo → customer1:Animal/animalID
+		// Seed: ns1:Zoo → ns1:Animal/animalID
 		_, err := helper.AddReferenceReturn(t,
 			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(animalID))},
 			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
 		require.NoError(t, err)
 
-		// Admin DELETE on customer1:Zoo with a customer2-prefixed target
+		// Admin DELETE on ns1:Zoo with a ns2-prefixed target
 		// against the LOCAL animalID. Without the cross-NS gate, both
 		// classes strip to "Animal" and the UUID matches, so the local
 		// ref would silently be deleted. Expect 422.
 		_, err = helper.DeleteReferenceReturn(t,
-			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(animalID))},
-			zooID, "customer1:Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + ns2 + ":Animal/" + string(animalID))},
+			zooID, ns1+":Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
 		require.Error(t, err,
 			"admin foreign-NS delete must be rejected even when the short class + UUID would match locally")
 
 		// State unchanged: the local ref is still there.
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1, "admin foreign-NS delete must not have removed the local ref")
@@ -369,9 +370,9 @@ func TestNamespaces_References(t *testing.T) {
 		zooID := newID()
 		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "admin-view"})
 
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:Zoo", got.Class)
+		assert.Equal(t, ns1+":Zoo", got.Class)
 	})
 
 	t.Run("identical UUIDs in two namespaces stay isolated through refs", func(t *testing.T) {
@@ -394,7 +395,7 @@ func TestNamespaces_References(t *testing.T) {
 		}
 
 		// Both rows have the same short beacon on disk — portability check.
-		for _, ns := range []string{"customer1", "customer2"} {
+		for _, ns := range []string{ns1, ns2} {
 			got, err := helper.GetObjectAuth(t, ns+":Zoo", zooID, adminKey)
 			require.NoError(t, err)
 			refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
@@ -421,7 +422,7 @@ func TestNamespaces_References(t *testing.T) {
 
 		// user1 sends a gRPC search using the short class name and asks for
 		// hasAnimals to be ref-resolved inline. The parser must qualify the
-		// linked Animal class via customer1:, otherwise the multi-get misses
+		// linked Animal class via ns1:, otherwise the multi-get misses
 		// the qualified storage.
 		req := searchReq("Zoo", 10)
 		req.Properties = &pb.PropertiesRequest{
@@ -433,7 +434,7 @@ func TestNamespaces_References(t *testing.T) {
 		}
 		// Search may return Zoos from earlier subtests too; the assertion is
 		// that *the one we just created* has its hasAnimals ref resolved
-		// inline to the customer1:Animal target with the expected name.
+		// inline to the ns1:Animal target with the expected name.
 		req.Limit = 100
 		resp, err := grpcClient.Search(authCtx(user1Key), req)
 		require.NoError(t, err)
@@ -462,12 +463,12 @@ func TestNamespaces_References(t *testing.T) {
 			}
 		}
 		assert.True(t, foundResolved,
-			"gRPC ref-resolve should inline the customer1:Animal target via the source namespace; got name=%q", resolvedName)
+			"gRPC ref-resolve should inline the ns1:Animal target via the source namespace; got name=%q", resolvedName)
 		assert.Equal(t, "Animal", resolvedTargetCollection,
 			"nested-ref TargetCollection must be stripped of the caller's own namespace prefix")
 
 		// Admin sees the qualified form (Strip is a no-op for globals).
-		adminReq := searchReq("customer1:Zoo", 100)
+		adminReq := searchReq(ns1+":Zoo", 100)
 		adminReq.Properties = &pb.PropertiesRequest{
 			NonRefProperties: []string{"name"},
 			RefProperties: []*pb.RefPropertiesRequest{{
@@ -489,7 +490,7 @@ func TestNamespaces_References(t *testing.T) {
 				}
 			}
 		}
-		assert.Equal(t, "customer1:Animal", adminResolvedTargetCollection,
+		assert.Equal(t, ns1+":Animal", adminResolvedTargetCollection,
 			"admin must see the qualified nested-ref TargetCollection unchanged")
 	})
 
@@ -499,7 +500,7 @@ func TestNamespaces_References(t *testing.T) {
 		// path normalizes via crossref.NewLocalhost. The by-ref filter must
 		// strip the qualified prefix off the nested-search ClassName before
 		// building its lookup beacon — otherwise the lookup value carries
-		// "customer1:Animal" and never matches the stored short value.
+		// ns1+":Animal" and never matches the stored short value.
 		// Pre-fix this returned 0 rows; we now assert the actual matching
 		// row is returned, not just that the call doesn't crash.
 		zooTiger, zooLion := newID(), newID()
@@ -563,7 +564,7 @@ func TestNamespaces_References(t *testing.T) {
 	t.Run("REST ref-path where filter resolves target via source namespace", func(t *testing.T) {
 		// REST ingress (batch-delete → filterext.Parse), independent of the
 		// gRPC path above. The short inner class "Animal" must qualify to
-		// "customer1:Animal" or the ref sub-search matches nothing. dryRun
+		// ns1+":Animal" or the ref sub-search matches nothing. dryRun
 		// keeps the shared Zoo class intact.
 		tigerID, lionID := newID(), newID()
 		zooTigerID, zooLionID := newID(), newID()
@@ -624,7 +625,7 @@ func TestNamespaces_References(t *testing.T) {
 					Class: "Zoo",
 					Where: &models.WhereFilter{
 						Operator:  models.WhereFilterOperatorEqual,
-						Path:      []string{"hasAnimals", "customer2:Animal", "name"},
+						Path:      []string{"hasAnimals", ns2 + ":Animal", "name"},
 						ValueText: &anyName,
 					},
 				},
@@ -665,7 +666,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NoError(t, err, "creating an object with a ref property in Properties must succeed on NS clusters")
 
 		// Stored shape: still short.
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1)
@@ -677,7 +678,7 @@ func TestNamespaces_References(t *testing.T) {
 
 	t.Run("AddProperty adds a cross-ref property to an existing namespaced class", func(t *testing.T) {
 		// Pre-WS9: AddClassProperty would call ReadOnlyClass("Animal") (short)
-		// while storage has "customer1:Animal" (qualified), hitting
+		// while storage has ns1+":Animal" (qualified), hitting
 		// ErrRefToNonexistentClass at the use-case validator.
 		// WS9: classGetterWithAuth stitches parent's namespace onto the short
 		// class name before lookup, so the cross-ref data type resolves.
@@ -696,13 +697,13 @@ func TestNamespaces_References(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
-			helper.DeleteClassAuth(t, "customer1:PostHocAnimal", adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+class, adminKey)
+			helper.DeleteClassAuth(t, ns1+":PostHocAnimal", adminKey)
 		})
 
 		// Now add the cross-ref property — user submits short DataType
 		// ("PostHocAnimal"); QualifyPropertyDataTypes mutates the slice
-		// to ["customer1:PostHocAnimal"] before RAFT, and storage keeps
+		// to [ns1+":PostHocAnimal"] before RAFT, and storage keeps
 		// that qualified form.
 		_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(
 			schemaCli.NewSchemaObjectsPropertiesAddParams().
@@ -716,12 +717,12 @@ func TestNamespaces_References(t *testing.T) {
 		// the empty-namespace admin principal, so DataType comes back in
 		// the qualified storage form. Reading as user1Key would strip
 		// back to the short form — both views are exercised together.
-		got := helper.GetClassAuth(t, "customer1:"+class, adminKey)
+		got := helper.GetClassAuth(t, ns1+":"+class, adminKey)
 		var sawHasAnimals bool
 		for _, p := range got.Properties {
 			if p.Name == "hasAnimals" {
 				sawHasAnimals = true
-				assert.Equal(t, []string{"customer1:PostHocAnimal"}, p.DataType,
+				assert.Equal(t, []string{ns1 + ":PostHocAnimal"}, p.DataType,
 					"admin view: stored DataType is qualified")
 			}
 		}
@@ -752,7 +753,7 @@ func TestNamespaces_References(t *testing.T) {
 				{Name: "relatedTo", DataType: []string{class}},
 			},
 		}, user1Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+class, adminKey) })
 
 		// And the self-ref works end-to-end: two instances, one referencing
 		// the other.
@@ -785,9 +786,9 @@ func TestNamespaces_References(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:MultiRefSource", adminKey)
-			helper.DeleteClassAuth(t, "customer1:MultiRefAlpha", adminKey)
-			helper.DeleteClassAuth(t, "customer1:MultiRefBeta", adminKey)
+			helper.DeleteClassAuth(t, ns1+":MultiRefSource", adminKey)
+			helper.DeleteClassAuth(t, ns1+":MultiRefAlpha", adminKey)
+			helper.DeleteClassAuth(t, ns1+":MultiRefBeta", adminKey)
 		})
 
 		// Reference each multi-target via an explicit class in the beacon.
@@ -807,7 +808,7 @@ func TestNamespaces_References(t *testing.T) {
 		}
 
 		// Stored beacons stay short for both targets.
-		got, err := helper.GetObjectAuth(t, "customer1:MultiRefSource", srcID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":MultiRefSource", srcID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasOther"].([]interface{})
 		require.Len(t, refs, 2)
@@ -815,7 +816,7 @@ func TestNamespaces_References(t *testing.T) {
 			beaconStr, _ := r.(map[string]any)["beacon"].(string)
 			// Beacon format: weaviate://localhost/<class>/<uuid>. The class
 			// segment must not carry a namespace prefix.
-			assert.NotContains(t, beaconStr, "customer1:",
+			assert.NotContains(t, beaconStr, ns1+":",
 				"stored multi-target beacon must be short (no namespace prefix in the class segment): %s", beaconStr)
 		}
 	})
@@ -846,9 +847,9 @@ func TestNamespaces_References(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:MTFilterSource", adminKey)
-			helper.DeleteClassAuth(t, "customer1:MTFilterAlpha", adminKey)
-			helper.DeleteClassAuth(t, "customer1:MTFilterBeta", adminKey)
+			helper.DeleteClassAuth(t, ns1+":MTFilterSource", adminKey)
+			helper.DeleteClassAuth(t, ns1+":MTFilterAlpha", adminKey)
+			helper.DeleteClassAuth(t, ns1+":MTFilterBeta", adminKey)
 		})
 
 		alphaWanted, alphaOther := newID(), newID()
@@ -877,7 +878,7 @@ func TestNamespaces_References(t *testing.T) {
 				Target: &pb.FilterTarget_MultiTarget{
 					MultiTarget: &pb.FilterReferenceMultiTarget{
 						On:               "linkedTo",
-						TargetCollection: "MTFilterAlpha", // short — qualifier stitches customer1
+						TargetCollection: "MTFilterAlpha", // short — qualifier stitches ns1
 						Target: &pb.FilterTarget{
 							Target: &pb.FilterTarget_Property{Property: "name"},
 						},
@@ -909,7 +910,7 @@ func TestNamespaces_References(t *testing.T) {
 				Target: &pb.FilterTarget_MultiTarget{
 					MultiTarget: &pb.FilterReferenceMultiTarget{
 						On:               "hasAnimals",
-						TargetCollection: "customer2:Animal", // foreign namespace
+						TargetCollection: ns2 + ":Animal", // foreign namespace
 						Target: &pb.FilterTarget{
 							Target: &pb.FilterTarget_Property{Property: "name"},
 						},
@@ -926,7 +927,7 @@ func TestNamespaces_References(t *testing.T) {
 	t.Run("gRPC by_ref_count filter on NS cluster", func(t *testing.T) {
 		// by_ref_count goes through the SOURCE's `property_<name>__meta_count`
 		// inverted bucket — no beacon construction, no linked-class lookup.
-		// The bucket lives under the source's qualified shard (customer1:Src)
+		// The bucket lives under the source's qualified shard (ns1:Src)
 		// which is keyed normally, so the only thing that has to work is
 		// the source class qualification done upstream by namespacing.Resolve.
 		// This subtest is the negative control for the namespace-strip
@@ -948,8 +949,8 @@ func TestNamespaces_References(t *testing.T) {
 			InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: indexLen},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+tgt, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+class, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+tgt, adminKey)
 		})
 
 		t1ID, tID := newID(), newID()
@@ -1001,7 +1002,7 @@ func TestNamespaces_References(t *testing.T) {
 		// N source rows × N target rows, batched via /v1/batch/references.
 		// Each src[i] links to tgt[i]. After the batch returns, a gRPC
 		// search with return_references inlines the linked object — must
-		// resolve to the customer1:Animal target matching index i, which
+		// resolve to the ns1:Animal target matching index i, which
 		// confirms the batch path qualifies the target class for the
 		// existence check and strips it back to short for storage.
 		const n = 5
@@ -1089,8 +1090,8 @@ func TestNamespaces_References(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+tgt, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+class, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+tgt, adminKey)
 		})
 
 		tID, s1, s2 := newID(), newID(), newID()
@@ -1180,7 +1181,7 @@ func TestNamespaces_References(t *testing.T) {
 		// beacon from Property.DataType. DataType is qualified by
 		// QualifyPropertyDataTypes upstream, so without StripQualification
 		// at the beacon-build site the produced beacon reads
-		// "weaviate://localhost/customer1:Animal/<id>" and trips
+		// "weaviate://localhost/"+ns1+":Animal/<id>" and trips
 		// ValidateNamespacePrefix in properties_validation.go's
 		// parseAndValidateSingleRef — the whole object insert 422s with
 		// "is not a valid class name". Untested before this commit; the
@@ -1215,7 +1216,7 @@ func TestNamespaces_References(t *testing.T) {
 			resp.Errors)
 
 		// Stored beacon must be SHORT — admin reads via qualified class.
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.True(t, ok, "hasAnimals should be a list, got %T",
@@ -1234,8 +1235,8 @@ func TestNamespaces_References(t *testing.T) {
 		// Pre-unification, properties_validation built the qualified
 		// target as QualifiedName(NamespaceFromQualified(sourceClass),
 		// ref.Class) without stripping first. An admin POSTing to
-		// customer1:Zoo with beacon ".../customer1:Animal/<id>" would
-		// produce "customer1:customer1:Animal" — the existence check
+		// ns1:Zoo with beacon ".../ns1:Animal/<id>" would
+		// produce "ns1:ns1:Animal" — the existence check
 		// hit a non-existent class and the insert 422'd. Untested
 		// before: the existing inline-ref test only uses a namespaced
 		// caller with a short beacon.
@@ -1248,17 +1249,17 @@ func TestNamespaces_References(t *testing.T) {
 		// schema" against the double-qualified target.
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			ID:    zooID,
-			Class: "customer1:Zoo",
+			Class: ns1 + ":Zoo",
 			Properties: map[string]any{
 				"name": "z-admin-inline",
 				"hasAnimals": []any{
-					map[string]any{"beacon": "weaviate://localhost/customer1:Animal/" + string(animalID)},
+					map[string]any{"beacon": "weaviate://localhost/" + ns1 + ":Animal/" + string(animalID)},
 				},
 			},
 		}, adminKey)
 		require.NoError(t, err)
 
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1)
@@ -1274,7 +1275,7 @@ func TestNamespaces_References(t *testing.T) {
 		// (validateReferenceMultiTenancy in references_add.go:159 and
 		// batch_references_add.go:142), but no test ever lit a tenant on
 		// a ref. Two cases:
-		//   1. Happy path: MT Zoo → MT Animal in customer1, tenant=t1.
+		//   1. Happy path: MT Zoo → MT Animal in ns1, tenant=t1.
 		//      ref-add must succeed, stored beacon short, ref resolves
 		//      to the matching tenant.
 		//   2. Mismatch: MT Zoo → non-MT Animal must be rejected via
@@ -1304,9 +1305,9 @@ func TestNamespaces_References(t *testing.T) {
 			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+mtZoo, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+mtAnimal, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+plain, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+mtZoo, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+mtAnimal, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+plain, adminKey)
 		})
 
 		require.NoError(t, addTenantsAuth(t, mtZoo,
@@ -1340,7 +1341,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NoError(t, err, "MT ref-add same tenant on NS cluster must succeed")
 
 		// Stored beacon stays short.
-		got, err := helper.GetObjectAuthWithTenant(t, "customer1:"+mtZoo, zooID, tenantA, adminKey)
+		got, err := helper.GetObjectAuthWithTenant(t, ns1+":"+mtZoo, zooID, tenantA, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1)
@@ -1363,7 +1364,7 @@ func TestNamespaces_References(t *testing.T) {
 				{Name: "hasAnimals", DataType: []string{mtAnimal}},
 			},
 		}, user1Key)
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+plainZoo, adminKey) })
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+plainZoo, adminKey) })
 
 		plainZooID := newID()
 		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -1382,10 +1383,10 @@ func TestNamespaces_References(t *testing.T) {
 	t.Run("admin POST with inline foreign-NS target on NS cluster is rejected", func(t *testing.T) {
 		// Companion to the previous test: QualifyRefTarget centralises
 		// the cross-namespace policy, so an admin's attempt to point a
-		// customer1:Zoo at customer2:Animal via inline beacon must
+		// ns1:Zoo at ns2:Animal via inline beacon must
 		// 422. Pre-unification this silently succeeded
 		// (resolveNS-based path stripped the prefix), then later read
-		// paths would resolve the link back to customer1:Animal
+		// paths would resolve the link back to ns1:Animal
 		// — a cross-tenant write that read as same-tenant. Now
 		// rejected at validation.
 		zooID, animalID := newID(), newID()
@@ -1393,11 +1394,11 @@ func TestNamespaces_References(t *testing.T) {
 
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
 			ID:    zooID,
-			Class: "customer1:Zoo",
+			Class: ns1 + ":Zoo",
 			Properties: map[string]any{
 				"name": "z-admin-cross-ns",
 				"hasAnimals": []any{
-					map[string]any{"beacon": "weaviate://localhost/customer2:Animal/" + string(animalID)},
+					map[string]any{"beacon": "weaviate://localhost/" + ns2 + ":Animal/" + string(animalID)},
 				},
 			},
 		}, adminKey)
@@ -1426,11 +1427,11 @@ func TestNamespaces_References(t *testing.T) {
 		// 1. Admin PUT replaces with a qualified-target beacon and
 		//    storage normalizes back to short.
 		_, err = helper.ReplaceReferencesReturn(t,
-			[]*models.SingleRef{{Beacon: strfmt.URI("weaviate://localhost/customer1:Animal/" + string(a2))}},
-			zooID, "customer1:Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+			[]*models.SingleRef{{Beacon: strfmt.URI("weaviate://localhost/" + ns1 + ":Animal/" + string(a2))}},
+			zooID, ns1+":Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
 		require.NoError(t, err, "admin PUT with qualified-target beacon must succeed")
 
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1, "PUT must replace, not append")
@@ -1443,7 +1444,7 @@ func TestNamespaces_References(t *testing.T) {
 		//    QualifyRefTarget rejects qualified targets from namespaced
 		//    principals (422).
 		_, err = helper.ReplaceReferencesReturn(t,
-			[]*models.SingleRef{{Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(a1))}},
+			[]*models.SingleRef{{Beacon: strfmt.URI("weaviate://localhost/" + ns2 + ":Animal/" + string(a1))}},
 			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
 		require.Error(t, err,
 			"namespaced PUT with foreign-NS qualified target must be rejected")
@@ -1477,9 +1478,9 @@ func TestNamespaces_References(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+src, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+a, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+b, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+src, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+a, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+b, adminKey)
 		})
 
 		aID := newID()
@@ -1512,7 +1513,7 @@ func TestNamespaces_References(t *testing.T) {
 			"gRPC BatchObjects with MultiTargetRefProps must succeed on NS clusters; got %+v",
 			resp.Errors)
 
-		got, err := helper.GetObjectAuth(t, "customer1:"+src, srcID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":"+src, srcID, adminKey)
 		require.NoError(t, err)
 		refs, ok := got.Properties.(map[string]any)["linkedTo"].([]interface{})
 		require.True(t, ok, "linkedTo should be a list, got %T",
@@ -1558,7 +1559,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NoError(t, err, "PUT with inline short ref from namespaced user must succeed")
 
 		// Namespace-handling focus: every stored beacon must be SHORT
-		// (no customer1: prefix), and the new target must be present.
+		// (no ns1: prefix), and the new target must be present.
 		// PUT's ref-cardinality semantics (whether it appends or
 		// replaces inline refs vs the prior stored refs) are a
 		// separate concern from namespace handling.
@@ -1568,7 +1569,7 @@ func TestNamespaces_References(t *testing.T) {
 			var found bool
 			for _, r := range refs {
 				b, _ := r.(map[string]any)["beacon"].(string)
-				assert.NotContains(t, b, "customer",
+				assert.NotContains(t, b, ns1+":",
 					"stored beacon must be SHORT (no namespace prefix); got %q", b)
 				if b == want {
 					found = true
@@ -1578,7 +1579,7 @@ func TestNamespaces_References(t *testing.T) {
 				"expected SHORT beacon %q to be present in %v", want, refs)
 		}
 
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		assertShortBeaconPresent(t, refs, "Animal", string(a1))
@@ -1599,7 +1600,7 @@ func TestNamespaces_References(t *testing.T) {
 		_, err = helper.Client(t).Objects.ObjectsClassPatch(patchParams, helper.CreateAuth(user1Key))
 		require.NoError(t, err, "PATCH with inline short ref from namespaced user must succeed")
 
-		got, err = helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err = helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs = got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		assertShortBeaconPresent(t, refs, "Animal", string(a2))
@@ -1607,12 +1608,12 @@ func TestNamespaces_References(t *testing.T) {
 		// Admin PATCH with qualified-target inline beacon — must
 		// normalize via QualifyRefTarget without double-qualifying.
 		adminPatch := objects.NewObjectsClassPatchParams().
-			WithClassName("customer1:Zoo").WithID(zooID).WithBody(&models.Object{
+			WithClassName(ns1 + ":Zoo").WithID(zooID).WithBody(&models.Object{
 			ID:    zooID,
-			Class: "customer1:Zoo",
+			Class: ns1 + ":Zoo",
 			Properties: map[string]any{
 				"hasAnimals": []any{
-					map[string]any{"beacon": "weaviate://localhost/customer1:Animal/" + string(a1)},
+					map[string]any{"beacon": "weaviate://localhost/" + ns1 + ":Animal/" + string(a1)},
 				},
 			},
 		})
@@ -1620,7 +1621,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NoError(t, err,
 			"admin PATCH with qualified inline ref must succeed (no double-qualify)")
 
-		got, err = helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err = helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs = got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		assertShortBeaconPresent(t, refs, "Animal", string(a1))
@@ -1632,7 +1633,7 @@ func TestNamespaces_References(t *testing.T) {
 			Class: "Zoo",
 			Properties: map[string]any{
 				"hasAnimals": []any{
-					map[string]any{"beacon": "weaviate://localhost/customer2:Animal/" + string(a1)},
+					map[string]any{"beacon": "weaviate://localhost/" + ns2 + ":Animal/" + string(a1)},
 				},
 			},
 		})
@@ -1664,7 +1665,7 @@ func TestNamespaces_References(t *testing.T) {
 		defer conn.Close()
 
 		animalTarget := "Animal"
-		foreignTarget := "customer2:Animal"
+		foreignTarget := ns2 + ":Animal"
 		resp, err := grpcClient.BatchReferences(authCtx(user1Key), &pb.BatchReferencesRequest{
 			References: []*pb.BatchReference{
 				{
@@ -1689,7 +1690,7 @@ func TestNamespaces_References(t *testing.T) {
 
 		// Happy path: confirm the short-target row landed and is short
 		// in storage.
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.True(t, ok)
@@ -1699,10 +1700,10 @@ func TestNamespaces_References(t *testing.T) {
 			if beaconStr == "weaviate://localhost/Animal/"+string(animalID) {
 				foundShort = true
 			}
-			// Beacon class segment must not carry a customer namespace
-			// prefix — beacon scheme is "weaviate://" so a bare `:`
-			// check would always fail.
-			assert.NotContains(t, beaconStr, "customer",
+			// Beacon class segment must not carry the namespace prefix —
+			// beacon scheme is "weaviate://" so a bare `:` check would
+			// always fail.
+			assert.NotContains(t, beaconStr, ns1+":",
 				"no stored beacon should carry a namespace prefix; got %q", beaconStr)
 		}
 		assert.True(t, foundShort,
@@ -1717,7 +1718,7 @@ func TestNamespaces_References(t *testing.T) {
 		// QualifyRefTarget, so the inferred toClass goes through
 		// the same qualification flow. This subtest pins:
 		//   1. namespaced user can submit a classless beacon and
-		//      autodetect resolves to the customer1 Animal target.
+		//      autodetect resolves to the ns1 Animal target.
 		//   2. stored beacon is SHORT (autodetect inferred class
 		//      should not leak the qualified form into storage).
 		zooID, animalID := newID(), newID()
@@ -1730,7 +1731,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NoError(t, err,
 			"namespaced classless beacon autodetect must succeed")
 
-		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
 		require.NoError(t, err)
 		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
 		require.Len(t, refs, 1)
@@ -1764,8 +1765,8 @@ func TestNamespaces_References(t *testing.T) {
 			},
 		}, user1Key)
 		t.Cleanup(func() {
-			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
-			helper.DeleteClassAuth(t, "customer1:"+tgt, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+class, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+tgt, adminKey)
 		})
 
 		tID, srcWith, srcWithout := newID(), newID(), newID()

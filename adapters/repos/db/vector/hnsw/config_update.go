@@ -168,12 +168,14 @@ func (h *hnsw) Upgrade(callback func()) error {
 		return err
 	}
 
+	h.compressing.Store(true)
 	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
 }
 
 func (h *hnsw) compressThenCallback(callback func()) {
+	defer h.compressing.Store(false)
 	defer callback()
 
 	uc := ent.UserConfig{

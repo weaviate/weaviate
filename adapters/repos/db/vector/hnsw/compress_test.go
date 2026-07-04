@@ -260,8 +260,8 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 	return Config{
 		RootPath: tempDir,
 		ID:       correctedID,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(tempDir, correctedID, logger, cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(tempDir, correctedID, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 		DistanceProvider: distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -438,7 +438,7 @@ func Test_CompressRQWithSlowCachePrefill(t *testing.T) {
 
 	// Phase 1: build the index with 100 vectors, then shut down.
 	indexID := "slow_prefill_test"
-	makeCommitLogger := func() (CommitLogger, error) {
+	makeCommitLogger := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
 	}
 	cfg := Config{
@@ -544,7 +544,7 @@ func Test_CompressRQAfterCachePrefillCompletes(t *testing.T) {
 
 	// Phase 1: build the index with 100 vectors, then shut down.
 	indexID := "prefill_then_compress"
-	makeCommitLogger := func() (CommitLogger, error) {
+	makeCommitLogger := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
 	}
 	cfg := Config{
@@ -648,7 +648,7 @@ func Test_CompressRQInsertDuringSlowPrefillDoesNotTrigger(t *testing.T) {
 	uc.SetDefaults()
 
 	indexID := "slow_prefill_insert"
-	makeCommitLogger := func() (CommitLogger, error) {
+	makeCommitLogger := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
 	}
 
@@ -748,7 +748,7 @@ func Test_CompressRQInsertAfterPrefillTriggers(t *testing.T) {
 	uc.SetDefaults()
 
 	indexID := "prefill_insert_compress"
-	makeCommitLogger := func() (CommitLogger, error) {
+	makeCommitLogger := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
 	}
 
@@ -852,7 +852,7 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 
 	// Phase 1: build the index with 100 vectors, then shut down.
 	indexID := "slow_prefill_bq"
-	makeCommitLogger := func() (CommitLogger, error) {
+	makeCommitLogger := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
 	}
 	cfg := Config{

@@ -29,7 +29,7 @@ type Vertex struct {
 // HNSW commit logs or snapshots.
 //
 // This structure is designed to be shared between different HNSW implementations
-// (e.g., the main hnsw adapter and compactv2) to enable interoperability and
+// (e.g., the main hnsw adapter and compact) to enable interoperability and
 // migration between formats.
 //
 // It composes GraphState (graph structure) and compression.State (optional compression data)
@@ -67,6 +67,39 @@ func NewDeserializationResult(initialCapacity int) *DeserializationResult {
 	return &DeserializationResult{
 		Graph: NewGraphState(initialCapacity),
 	}
+}
+
+// IsEmpty returns true if no meaningful data has been loaded into this result.
+// A result is considered empty if all nodes are nil, no entrypoint has been set,
+// and there's no compression data.
+func (dr *DeserializationResult) IsEmpty() bool {
+	if dr == nil || dr.Graph == nil {
+		return true
+	}
+
+	// Check if entrypoint was explicitly set (EntrypointChanged tracks this)
+	if dr.Graph.EntrypointChanged {
+		return false
+	}
+
+	// Check for any compression data
+	if dr.Compression != nil {
+		return false
+	}
+
+	// Check if any nodes have data
+	for _, node := range dr.Graph.Nodes {
+		if node != nil {
+			return false
+		}
+	}
+
+	// Check for any tombstones
+	if len(dr.Graph.Tombstones) > 0 {
+		return false
+	}
+
+	return true
 }
 
 // Convenience accessors for backward compatibility.

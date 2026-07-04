@@ -268,6 +268,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false)
 			},
 		},
 		{
@@ -469,12 +470,12 @@ func TestStoreApply(t *testing.T) {
 			doAfter: func(ms *MockStore) error { return nil },
 		},
 		{
-			name: "UpdateTenant/HasOngoingReplication/true",
+			name: "UpdateTenant/HasActiveReplicationForShard/true",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
-			resp: Response{Error: nil},
+			resp: Response{Error: schema.ErrReplicaMovementInProgress},
 			doBefore: func(m *MockStore) {
 				doFirst(m)
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -486,7 +487,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(true)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(true)
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -505,7 +506,7 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "UpdateTenant/HasOngoingReplication/false",
+			name: "UpdateTenant/HasActiveReplicationForShard/false",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD},
@@ -522,7 +523,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
-				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(false)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(false)
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -569,7 +570,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				m.replicationFSM.EXPECT().HasOngoingReplication(Anything, Anything, Anything).Return(false)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard(Anything, Anything).Return(false)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {

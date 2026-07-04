@@ -40,7 +40,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("all roles", func(t *testing.T) {
@@ -143,11 +143,10 @@ func TestAuthzRolesForUsers(t *testing.T) {
 }
 
 func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
-	adminUser := "admin"
-	adminKey := "admin"
-	similar := "similarRoleKeyUserName"
+	adminKey := "admin-key"
+	similar := "custom-user"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{similar: similar}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	t.Run("create role with the same name of the user", func(t *testing.T) {
@@ -182,16 +181,13 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 }
 
 func TestUserPermissions(t *testing.T) {
-	// adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	//defer down()
-
-	helper.SetupClient("127.0.0.1:8081")
+	_, down := composeUpShared(t)
+	defer down()
 
 	// create roles for later
 	assignUserAction := authorization.AssignAndRevokeUsers
@@ -287,19 +283,16 @@ func TestUserPermissions(t *testing.T) {
 }
 
 func TestReadUserPermissions(t *testing.T) {
-	// adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	secondUser := "viewer-user"
-	secondKey := "viewer-key"
+	secondUser := "custom-user2"
+	secondKey := "custom-key2"
 
-	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey, secondUser: secondKey}, nil)
-	//defer down()
-
-	helper.SetupClient("127.0.0.1:8081")
+	_, down := composeUpShared(t)
+	defer down()
 
 	// create roles for later
 	readUserAction := authorization.ReadUsers
@@ -388,21 +381,11 @@ func TestReadUserPermissions(t *testing.T) {
 
 func TestUserEndpoint(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
 	customUser := "custom-user"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "customKey").WithDbUsers().
-		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
-	require.Nil(t, err)
+	_, down := composeUpShared(t)
+	defer down()
 
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	testUser := "test-user"
+	testUser := "endpoint-test-user"
 	helper.DeleteUser(t, testUser, adminKey)
 	testKey := helper.CreateUser(t, testUser, adminKey)
 
@@ -583,30 +566,12 @@ func TestUserEndpoint(t *testing.T) {
 
 func TestDynamicUsers(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
-
-	customUser := "custom-user"
-	customKey := "custom-key"
 
 	viewerUser := "viewer-user"
 	viewerKey := "viewer-key"
 
-	// match what is defined in the docker-compose file to allow switching between them
-	staticUsers := map[string]string{customUser: customKey, viewerUser: viewerKey, "editor-user": "editor-key"}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).WithUserApiKey("editor-user", "editor-key").
-		WithRBAC().WithRbacRoots(adminUser).
-		WithDbUsers().Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
+	_, down := composeUpShared(t)
+	defer down()
 
 	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
 	t.Run("List all users", func(t *testing.T) {
@@ -636,7 +601,7 @@ func TestDynamicUsers(t *testing.T) {
 		}()
 
 		allUsersAdmin := helper.ListAllUsers(t, adminKey)
-		require.Len(t, allUsersAdmin, len(userNames)+len(staticUsers)+1)
+		require.Equal(t, len(userNames), countDynamicUsers(allUsersAdmin))
 
 		for _, user := range allUsersAdmin {
 			name := *user.UserID
@@ -688,7 +653,7 @@ func TestDynamicUsers(t *testing.T) {
 		}()
 
 		allUsers := helper.ListAllUsers(t, adminKey)
-		require.Len(t, allUsers, len(userNames)+len(staticUsers)+1)
+		require.Equal(t, len(userNames), countDynamicUsers(allUsers))
 
 		for _, user := range allUsers {
 			name := *user.UserID
@@ -760,37 +725,38 @@ func TestDynamicUsers(t *testing.T) {
 	})
 
 	t.Run("import static user and check roles", func(t *testing.T) {
+		importUser := sharedImportUser
+		importKey := sharedImportKey
 		// add a role to ensure it is present after import
 		roleName := "testRole"
 		testRole := &models.Role{Name: &roleName, Permissions: []*models.Permission{{Action: &authorization.ReadUsers, Users: &models.PermissionUsers{Users: &roleName}}}}
 		helper.DeleteRole(t, adminKey, roleName)
 		helper.CreateRole(t, adminKey, testRole)
 		defer helper.DeleteRole(t, adminKey, roleName)
-		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
-		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
+		helper.AssignRoleToUser(t, adminKey, roleName, importUser)
+		roles := helper.GetRolesForUser(t, importUser, adminKey, false)
 		require.Len(t, roles, 1)
 		require.Equal(t, *testRole.Name, *roles[0].Name)
 
-		oldKey := helper.CreateUserWithApiKey(t, customUser, adminKey, nil)
-		require.Equal(t, oldKey, customKey)
+		oldKey := helper.CreateUserWithApiKey(t, importUser, adminKey, nil)
+		require.Equal(t, oldKey, importKey)
 
 		info := helper.GetInfoForOwnUser(t, oldKey)
-		require.Equal(t, customUser, *info.Username)
+		require.Equal(t, importUser, *info.Username)
 
-		rolesAfterImport := helper.GetRolesForUser(t, customUser, adminKey, false)
+		rolesAfterImport := helper.GetRolesForUser(t, importUser, adminKey, false)
 		require.Len(t, rolesAfterImport, 1)
 		require.Equal(t, *testRole.Name, *rolesAfterImport[0].Name)
 
-		helper.DeleteUser(t, customUser, adminKey)
+		helper.DeleteUser(t, importUser, adminKey)
 	})
 }
 
 func TestUserPermissionReturns(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	all := "*"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	roleName := "testingUserPermissionReturns"
@@ -815,19 +781,11 @@ func TestUserPermissionReturns(t *testing.T) {
 }
 
 func TestGetLastUsageMultinode(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 	ctx := context.Background()
-	compose, err := docker.New().
-		With3NodeCluster().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
-		Start(ctx)
 
-	require.NoError(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	compose, down := composeUpSharedCluster(t)
+	defer down()
 
 	t.Run("get last usage multinode", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())

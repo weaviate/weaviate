@@ -613,7 +613,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
+				controller.On("GetUsers", "testUser").Return(map[string]apikey.UserView{"testUser": {}}, nil)
 				controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, authentication.AuthType(tt.params.Body.UserType)), tt.params.Body.Roles[0]).Return(tt.revokeErr)
 			}
 
@@ -749,7 +749,7 @@ func TestRevokeRoleFromUser_Namespaces(t *testing.T) {
 			case *authz.RevokeRoleFromUserOK:
 				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(nil)
 				controller.On("GetRoles", roles[0]).Return(map[string][]authorization.Policy{roles[0]: {}}, nil)
-				controller.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {}}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
 				controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.authzKey, authentication.AuthType(userType)), roles[0]).Return(nil)
 			}
 

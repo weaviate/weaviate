@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -437,6 +436,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to false (debug surface closed) only when nothing set it.
+	if v, ok := os.LookupEnv("DEBUG_ENDPOINTS_ENABLED"); ok {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.Profiling.DebugEndpointsEnabled == nil {
+		config.Profiling.DebugEndpointsEnabled = configRuntime.NewDynamicValue(false)
+	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -535,38 +541,28 @@ func FromEnv(config *Config) error {
 	}
 
 	// ---- HNSW snapshots ----
-	config.Persistence.HNSWDisableSnapshots = DefaultHNSWSnapshotDisabled
-	if v := os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS"); v != "" {
-		config.Persistence.HNSWDisableSnapshots = entcfg.Enabled(v)
-	}
-
-	if err := parseNonNegativeInt(
+	//
+	// These variables were meaningful back when HNSW snapshots were an
+	// optional add-on layered on top of the commit log. In the compactv2
+	// world the compactor owns the full on-disk lifecycle — snapshots are
+	// first-class, not an optional speedup — and there is no safe or useful
+	// interpretation for "disable snapshots" or for the interval / delta
+	// thresholds that used to throttle their creation.
+	//
+	// The environment variables are still recognized so existing deployments
+	// parse without error. If any is set we emit a one-line warning so the
+	// operator is not silently misled into thinking their setting has an
+	// effect. Unset means no warning. See RFC / commit message for context.
+	for _, envVar := range []string{
+		"PERSISTENCE_HNSW_DISABLE_SNAPSHOTS",
 		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
-		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
-		DefaultHNSWSnapshotIntervalSeconds,
-	); err != nil {
-		return err
-	}
-
-	config.Persistence.HNSWSnapshotOnStartup = DefaultHNSWSnapshotOnStartup
-	if v := os.Getenv("PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP"); v != "" {
-		config.Persistence.HNSWSnapshotOnStartup = entcfg.Enabled(v)
-	}
-
-	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP",
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_NUMBER",
-		func(number int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber = number },
-		DefaultHNSWSnapshotMinDeltaCommitlogsNumber,
-	); err != nil {
-		return err
-	}
-
-	if err := parseNonNegativeInt(
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
-		func(percentage int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage = percentage },
-		DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage,
-	); err != nil {
-		return err
+	} {
+		if _, set := os.LookupEnv(envVar); set {
+			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+		}
 	}
 	// ---- HNSW snapshots ----
 
@@ -581,12 +577,13 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
 		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
 		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
-		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
-		if !slices.Contains(validTypes, defaultVectorIndexType) {
-			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
-		}
 	}
-	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+	defaultVectorIndexWithValidation, err := configRuntime.NewDynamicValueWithValidation(
+		defaultVectorIndexType, NewDefaultVectorIndexValidator())
+	if err != nil {
+		return err
+	}
+	config.DefaultVectorIndexType = defaultVectorIndexWithValidation
 
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
@@ -720,6 +717,10 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = parsed
 	} else {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
+	}
+
+	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
+		config.Backup.SkipAccessCheck = true
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -1381,6 +1382,9 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
 
+	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
+
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
 		operationalMode = v
@@ -1813,14 +1817,14 @@ const (
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
-	DefaultAsyncReplicationSchedulerWorkers    = 10
+	DefaultAsyncReplicationSchedulerWorkers    = 3
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
 	// scaleDownCh) are all sized relative to this value; exceeding it requires
 	// a code change, so we enforce it at config parse time rather than silently
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
-	DefaultAsyncReplicationHashtreeInitConcurrency = 100
+	DefaultAsyncReplicationHashtreeInitConcurrency = 10
 	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
 	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
 	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
@@ -1998,22 +2002,6 @@ func parseClusterConfig() (cluster.Config, error) {
 			}
 		}
 	}
-
-	requestQueueIsEnabled := entcfg.Enabled(os.Getenv("REPLICATED_INDICES_REQUEST_QUEUE_ENABLED"))
-	cfg.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(requestQueueIsEnabled)
-	// choosing runtime.GOMAXPROCS(0)*2 for the number of workers as a reasonable default, but can be overridden
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS",
-		func(val int) { cfg.RequestQueueConfig.NumWorkers = val },
-		runtime.GOMAXPROCS(0)*2)
-	parseNonNegativeInt("REPLICATED_INDICES_REQUEST_QUEUE_SIZE",
-		func(val int) { cfg.RequestQueueConfig.QueueSize = val },
-		cluster.DefaultRequestQueueSize)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
-		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
-		cluster.DefaultRequestQueueFullHttpStatus)
-	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
-		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
-		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }
@@ -2225,5 +2213,9 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.DefaultPath == nil {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
+
+	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
+		c.Export.SkipAccessCheck = true
 	}
 }

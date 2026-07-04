@@ -46,8 +46,8 @@ func TestBackup_PrepareForBackup(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
@@ -76,8 +76,8 @@ func TestBackup_ListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
@@ -104,6 +104,12 @@ func TestBackup_ListFiles(t *testing.T) {
 		assert.True(t, matched, "regex does not match")
 	})
 
+	t.Run("SnapshotMutableFiles returns nil (hnsw seals files in PrepareForBackup)", func(t *testing.T) {
+		relPaths, err := idx.SnapshotMutableFiles(ctx, dirName, t.TempDir())
+		assert.Nil(t, err)
+		assert.Nil(t, relPaths)
+	})
+
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
@@ -121,8 +127,8 @@ func TestBackup_HFreshListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
