@@ -263,9 +263,11 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	//
 	// Consequence for Store.Bucket callers: mid-teardown (reachable via
 	// Index.drop, which does not wait for in-flight queries) Bucket returns
-	// nil where it previously returned a shutting-down bucket. That is the
-	// better failure mode (an error instead of reads on freed state), but
-	// callers on the query path must nil-check.
+	// nil where it previously returned a shutting-down bucket — the better
+	// failure mode (an error instead of reads on freed state). The
+	// pinned-query paths (BM25, aggregator vector search) nil-check; the
+	// remaining query-path fetch sites keep their pre-existing exposure with
+	// this improved failure shape.
 	s.bucketAccessLock.Lock()
 	buckets := make(map[string]*Bucket, len(s.bucketsByName))
 	for name, bucket := range s.bucketsByName {
