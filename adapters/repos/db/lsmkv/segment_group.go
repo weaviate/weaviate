@@ -890,11 +890,10 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 		return err
 	}
 
-	// Set shutdownRequested before the refcount wait: once set, no new
-	// consistent view can incRef, so a zero observed by the wait stays zero
-	// and close() below cannot munmap under a live reader. Taking the write
-	// lock here is safe for the same reason as the Lock() further down: the
-	// compaction cycle was already stopped above.
+	// Flag before the refcount wait: no new view can incRef afterwards, so a
+	// zero observed by the wait stays zero and close() below cannot munmap
+	// under a live reader. The write lock is safe here for the same reason as
+	// the Lock() further down: the compaction cycle was already stopped above.
 	segmentsWithRefs := func() []Segment {
 		sg.maintenanceLock.Lock()
 		defer sg.maintenanceLock.Unlock()
