@@ -17,20 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestPinBucketDrain_LookupHoldsPinAcrossSwapShutdown is the deterministic,
@@ -143,52 +138,12 @@ type pinBucketDrainResult struct {
 // !forceRefetch) shuts the displaced old FIELD bucket down.
 func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResult {
 	ctx := testCtx()
-	const (
-		className = "PinDrainRetok"
-		fieldProp = "alpha" // FIELD-tokenized: pre-swap content the query expects
-		wordProp  = "beta"  // WORD-tokenized: post-swap content
-		phrase    = "hello world"
-		filler    = "lorem ipsum"
-		numDocs   = 8
-		matchDocs = 4 // docs carrying the phrase; rest carry filler
-	)
 
-	class := buildTwoTokenizationClass(className, fieldProp, wordProp)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { _ = shard.Shutdown(ctx) })
-
-	for _, p := range []string{fieldProp, wordProp} {
-		require.Equal(t, lsmkv.StrategyInverted,
-			shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(p)).Strategy(),
-			"searchable bucket for %q must start at Inverted", p)
-	}
-
-	for i := 0; i < numDocs; i++ {
-		text := phrase
-		if i >= matchDocs {
-			text = filler
-		}
-		obj := &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				ID:    strfmt.UUID(uuid.NewString()),
-				Class: className,
-				Properties: map[string]interface{}{
-					fieldProp: text,
-					wordProp:  text,
-				},
-			},
-		}
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	fieldBucket := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(fieldProp))
-	wordBucket := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(wordProp))
-	require.NotNil(t, fieldBucket)
-	require.NotNil(t, wordBucket)
-	require.NotSame(t, fieldBucket, wordBucket, "field and word buckets must be distinct")
+	fx := setupTwoTokenizationShard(t, ctx, "PinDrainRetok")
+	shard, idx := fx.shard, fx.idx
+	fieldBucket := fx.fieldBucket
+	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
+	phrase, matchDocs := fx.phrase, fx.matchDocs
 
 	// Build the production BM25Searcher exactly like shard_read.go, plus the
 	// pinning resolver and the test hooks.
