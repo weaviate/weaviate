@@ -2197,8 +2197,16 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 				propName, mainExists, backupExists, ingestExists)
 		}
 
-		if err := rt.markSwappedProp(propName); err != nil {
-			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+		// The sentinel may already exist: runtimeSwap sets IsSwappedProp
+		// after the in-memory flip, and a restart inside the FINALIZING
+		// window re-enters here (the dir-rename switch above correctly
+		// ignores the sentinel — disk state is authoritative for renames).
+		// markSwappedProp creates with O_EXCL, so an unguarded re-mark
+		// fails the whole unit with "file exists".
+		if !rt.IsSwappedProp(propName) {
+			if err := rt.markSwappedProp(propName); err != nil {
+				return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+			}
 		}
 		// Recovery re-establishes the overlay for the same reason as the happy path.
 		if t.onPropSwapped != nil {
