@@ -2181,18 +2181,11 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 			continue
 		}
 		task := task
-		// onPropSwapped stays wired for the recovery/resume path
-		// (recoverRuntimeSwapBuckets), which runs single-threaded at startup
-		// before any query is served — the flip↔overlay gap there is benign.
+		// onPropSwapped covers the recovery/resume path; the live Phase-2a
+		// loop uses swapPropAtomic (see the field docs on both).
 		task.onPropSwapped = func(propName string) {
 			shard.SetTokenizationOverlay(propName, target)
 		}
-		// swapPropAtomic is what the LIVE Phase-2a loop uses: it runs the
-		// per-prop flip and the overlay set as ONE critical section under
-		// the shard's tokenizationOverlayMu, so a concurrent query can never
-		// observe an inconsistent (bucket, overlay) pair during the
-		// FINALIZING window. The test-only afterFlipBeforeOverlayHook fires
-		// inside that section, between the flip and the overlay set.
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
 			rt reindexTracker, propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {

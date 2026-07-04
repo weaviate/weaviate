@@ -37,8 +37,7 @@ import (
 type twoTokenizationFixture struct {
 	shard *Shard
 	idx   *Index
-	// fieldBucket / wordBucket are the two distinct bucket identities as
-	// captured before any swap, so proofs can assert which one a resolver
+	// Captured pre-swap, so proofs can assert which bucket a resolver
 	// hands back at any instant.
 	fieldBucket *lsmkv.Bucket
 	wordBucket  *lsmkv.Bucket
@@ -153,19 +152,11 @@ func buildTwoTokenizationClass(className, fieldProp, wordProp string) *models.Cl
 	}
 }
 
-// lookupCount emulates a keyword query END-TO-END from a (tokenization,
-// bucket) pair, the unit of consistency the FINALIZING-window fix protects:
-// it tokenizes the query the given way, looks every resulting term up in the
-// given searchable bucket via the real DocPointerWithScoreList primitive,
-// and returns the best per-term hit count. A CONSISTENT pair (query
-// tokenized the same way the bucket was indexed) finds the docs; a MIXED
-// pair (the bug) misses → 0.
-//
-// We drive the lookup directly off the (tok, bucket) pair rather than
-// through the full BM25 scoring pipeline so the proof isolates exactly the
-// pair-consistency property — the higher-level scorer adds IDF/limit
-// behavior irrelevant to the race and is exercised separately by the
-// integration BM25 suites.
+// lookupCount emulates a keyword query from a (tokenization, bucket) pair —
+// the unit of consistency the fix protects: a CONSISTENT pair finds the
+// docs, a MIXED pair (the bug) misses → 0. Driven directly off the pair
+// rather than the full BM25 pipeline so the proof isolates exactly the
+// pair-consistency property.
 func lookupCount(ctx context.Context, tokenization string, bucket *lsmkv.Bucket, className, query string) int {
 	if bucket == nil {
 		return 0

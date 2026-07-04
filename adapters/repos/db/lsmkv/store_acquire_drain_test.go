@@ -59,16 +59,10 @@ func TestAcquireBucketForRead_PinAndRelease(t *testing.T) {
 	releaseMiss() // no-op must not panic
 }
 
-// TestShutdown_DrainsInFlightPin is the lsmkv-level proof that
-// Bucket.Shutdown drains in-flight read pins AND that Store.Shutdown does so
-// WITHOUT holding bucketAccessLock across the drain (so a concurrent query
-// that still needs Store.Bucket cannot deadlock against it).
-//
-// It pins a bucket via AcquireBucketForRead, then runs Store.Shutdown in a
-// goroutine. The Shutdown must BLOCK on the pin (proven: it does not complete
-// while the pin is held), and a concurrent Store.Bucket lookup must NOT block
-// — it returns nil because Store.Shutdown clears the registry before draining
-// (the de-inversion fix). Once the pin releases, Store.Shutdown completes.
+// TestShutdown_DrainsInFlightPin proves Store.Shutdown blocks on an
+// in-flight read pin AND does so without holding bucketAccessLock across
+// the drain: a concurrent Store.Bucket lookup returns nil (registry cleared
+// first) instead of deadlocking. Once the pin releases, Shutdown completes.
 func TestShutdown_DrainsInFlightPin(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStoreForDrain(t)
@@ -87,19 +81,14 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 		shutdownDone.Store(true)
 	}()
 
-	// Give Shutdown time to reach the drain and confirm it is BLOCKED on the
-	// pin (has not completed while we still hold it). The drain is what makes
-	// the use-after-free impossible.
+	// Give Shutdown time to reach the drain; it must be BLOCKED on the pin.
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, shutdownDone.Load(),
 		"DRAIN VIOLATED: Store.Shutdown completed while a read pin was still held")
 
-	// While Shutdown is parked in the drain, a concurrent query's Store.Bucket
-	// lookup must NOT block. This is the de-inversion guarantee: Store.Shutdown
-	// clears the registry BEFORE draining and releases bucketAccessLock, so the
-	// lookup completes (returning nil for the now-unregistered name) instead of
-	// blocking on bucketAccessLock held across the drain — the deadlock the fix
-	// prevents. A hard timeout turns a hang into a visible failure.
+	// De-inversion guarantee: while Shutdown is parked in the drain, a
+	// concurrent Store.Bucket must NOT block (registry cleared, lock
+	// released). The hard timeout turns a hang into a visible failure.
 	bucketLookupCh := make(chan *Bucket, 1)
 	go func() { bucketLookupCh <- store.Bucket("other") }()
 	select {

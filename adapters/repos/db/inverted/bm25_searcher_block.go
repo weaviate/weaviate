@@ -39,10 +39,7 @@ import (
 // var metrics = lsmkv.BlockMetrics{}
 
 func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, pins *pinnedSearchableBuckets, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
-	// Reuse the bucket this query PINNED at prop discovery instead of
-	// re-fetching by name: a re-fetch could land on the post-swap bucket or,
-	// mid-Shutdown, a freed mmap. Fall back to a by-name fetch only when no
-	// pinning resolver was wired.
+	// Same pinned-bucket reuse as createTerm.
 	bucket, pinned := pins.bucketFor(propName)
 	if !pinned || b.forceLookupRefetchForTest {
 		bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
@@ -76,23 +73,18 @@ func (b *BM25Searcher) wandBlock(
 	if err != nil {
 		return nil, nil, false, err
 	}
-	// Release every searchable-bucket pin this query took at prop discovery,
-	// on every exit path. One defer; release is idempotent so the explicit
+	// One defer for every exit path; release is idempotent so the explicit
 	// release in the wand-fallback below does not double-free.
 	defer pins.release()
 
-	// TEST-ONLY: widen the prop-discovery→lookup gap (the 258→603 window).
-	// Fired after pins are held and before createBlockTerm reads them.
 	if b.afterPinBeforeLookupHook != nil {
 		b.afterPinBeforeLookupHook()
 	}
 
 	// fallback to the old search process if not all buckets are inverted
 	if !allBucketsAreInverted {
-		// wand re-runs prop discovery and takes its OWN pins; release ours
-		// first so we never hold two RLocks on the same bucket across the
-		// call (a Shutdown waiting on the first RLock would otherwise block
-		// wand's second RLock — writer-priority deadlock).
+		// wand takes its OWN pins; release ours first — holding two RLocks
+		// on the same bucket deadlocks against a queued Shutdown writer.
 		pins.release()
 		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
 		return objects, scores, true, err
@@ -404,8 +396,7 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	scoresResult := make([]float32, 0, limit)
 	explanationsResults := make([][]*terms.DocPointerWithScore, 0, limit)
 
-	// Nil once Store.Shutdown has cleared the bucket map; fail fast instead
-	// of handing a nil receiver to ObjectsByDocIDWithEmpty.
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return nil, nil, errors.New("objects bucket not available (store shutting down?)")

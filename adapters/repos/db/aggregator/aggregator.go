@@ -66,21 +66,15 @@ type Aggregator struct {
 	// prop.Tokenization directly (tests and callers with no in-flight
 	// migration).
 	tokResolver inverted.TokenizationResolver
-	// bucketPinResolver, when non-nil, is propagated to every
-	// inverted.BM25Searcher built by this aggregator (hybrid / filtered
-	// bm25Objects), giving those queries the same one-bucket-per-query
-	// guarantee as Shard.ObjectSearch: the (tokenization, searchable
-	// bucket) pair is resolved as one snapshot and the bucket stays
-	// pinned across the whole query, so a concurrent retokenization's
-	// SwapBucketPointer+Shutdown drains instead of freeing an mmap a
-	// BM25 aggregation is still reading.
+	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
+	// built by this aggregator (hybrid / filtered bm25Objects), giving those
+	// queries the same one-bucket-per-query pin guarantee as
+	// Shard.ObjectSearch. See [inverted.SearchableBucketPinningResolver].
 	bucketPinResolver inverted.SearchableBucketPinningResolver
 }
 
-// WithSearchableBucketPinningResolver attaches a
-// [inverted.SearchableBucketPinningResolver] propagated to every
-// BM25Searcher this aggregator builds. Returns the receiver for fluent
-// chaining; nil (the default) keeps the non-pinning behavior.
+// WithSearchableBucketPinningResolver sets bucketPinResolver. Returns the
+// receiver for fluent chaining; nil (the default) keeps non-pinning behavior.
 func (a *Aggregator) WithSearchableBucketPinningResolver(
 	r inverted.SearchableBucketPinningResolver,
 ) *Aggregator {
