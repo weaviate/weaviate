@@ -404,7 +404,12 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	scoresResult := make([]float32, 0, limit)
 	explanationsResults := make([][]*terms.DocPointerWithScore, 0, limit)
 
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast instead
+	// of handing a nil receiver to ObjectsByDocIDWithEmpty.
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return nil, nil, errors.New("objects bucket not available (store shutting down?)")
+	}
 
 	startAt := 0
 	endAt := limit

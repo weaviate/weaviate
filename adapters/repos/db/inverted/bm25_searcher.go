@@ -60,21 +60,17 @@ type BM25Searcher struct {
 	// use prop.Tokenization directly (tests and callers with no
 	// in-flight migration).
 	tokResolver TokenizationResolver
-	// bucketTokResolver, when non-nil, supersedes tokResolver + GetBucket
+	// bucketPinResolver, when non-nil, supersedes tokResolver + GetBucket
 	// for searchable text props: it returns the effective tokenization AND
 	// the searchable bucket pointer as ONE consistent snapshot (read under
-	// the shard's tokenization-overlay RLock), closing the field→word
-	// FINALIZING-window race at the read side. Nil = fall back to the
-	// independent GetBucket + tokResolver pair.
-	bucketTokResolver SearchableBucketTokenizationResolver
-	// bucketPinResolver, when non-nil, supersedes bucketTokResolver: like it,
-	// it returns the (tokenization, searchable bucket) snapshot, but it also
-	// PINS the bucket for the whole query (lifetimeLock.RLock) and hands back
-	// a release fn. The pinned pointer is threaded into createTerm /
-	// createBlockTerm so lookup uses the SAME bucket prop discovery pinned
-	// instead of re-fetching by name — closing the lookup-time re-fetch
-	// residual and making a concurrent SwapBucketPointer+Shutdown drain on
-	// the in-flight query. Nil = fall back to bucketTokResolver (no pin).
+	// the shard's tokenization-overlay RLock), and PINS the bucket for the
+	// whole query (lifetimeLock.RLock), handing back a release fn. The
+	// pinned pointer is threaded into createTerm / createBlockTerm so
+	// lookup uses the SAME bucket prop discovery pinned instead of
+	// re-fetching by name — closing the field→word FINALIZING-window race
+	// AND the lookup-time re-fetch residual, and making a concurrent
+	// SwapBucketPointer+Shutdown drain on the in-flight query. Nil = fall
+	// back to the independent GetBucket + tokResolver pair.
 	bucketPinResolver SearchableBucketPinningResolver
 	// afterPinBeforeLookupHook, when non-nil, fires once per query AFTER prop
 	// discovery has pinned the searchable buckets but BEFORE the lookup phase
@@ -194,21 +190,6 @@ func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Sea
 	return b
 }
 
-// WithSearchableBucketTokenizationResolver attaches a
-// [SearchableBucketTokenizationResolver] used by the prop-discovery loop to
-// fetch each searchable text prop's bucket pointer and effective
-// tokenization as one consistent snapshot. When set it supersedes both
-// GetBucket and the plain [TokenizationResolver] for those props, closing
-// the field→word FINALIZING-window race on the read side. Returns the
-// receiver for fluent chaining. Pass nil (the default) to keep the
-// independent GetBucket + TokenizationResolver behavior.
-func (b *BM25Searcher) WithSearchableBucketTokenizationResolver(
-	r SearchableBucketTokenizationResolver,
-) *BM25Searcher {
-	b.bucketTokResolver = r
-	return b
-}
-
 // WithSearchableBucketPinningResolver attaches a
 // [SearchableBucketPinningResolver]. When set it supersedes the non-pinning
 // resolvers for searchable text props: prop discovery PINS each searchable
@@ -319,7 +300,15 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 	}()
 
-	count, err := b.store.Bucket(helpers.ObjectsBucketLSM).Count(ctx)
+	// The objects bucket disappears from the store map once Store.Shutdown
+	// has started (it clears the map before draining pinned readers), so an
+	// in-flight query must fail fast here instead of panicking on a nil
+	// receiver.
+	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return false, 0, nil, nil, nil, nil, 0, pins, fmt.Errorf("objects bucket not available (store shutting down?)")
+	}
+	count, err := objectsBucket.Count(ctx)
 	if err != nil {
 		return false, 0, nil, nil, nil, nil, 0, pins, fmt.Errorf("count objects: %w", err)
 	}
@@ -387,25 +376,20 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		//      pointer is threaded into createTerm/createBlockTerm so lookup
 		//      uses the same bucket, and a concurrent SwapBucketPointer+
 		//      Shutdown drains on this query before freeing the old mmap.
-		//   2. bucketTokResolver: the same consistent snapshot but WITHOUT a
-		//      pin (prop-discovery-only fix; lookup re-fetches by name).
-		//   3. independent GetBucket + tokResolver — correct when no overlay
+		//   2. independent GetBucket + tokResolver — correct when no overlay
 		//      is active.
 		// The (effectiveTok, bucket) pair stays consistent in every case.
 		var (
 			bucket       *lsmkv.Bucket
 			effectiveTok string
 		)
-		switch {
-		case b.bucketPinResolver != nil:
+		if b.bucketPinResolver != nil {
 			var release func()
 			effectiveTok, bucket, release = b.bucketPinResolver(prop.Name, prop.Tokenization)
 			// Record the pin (and its release) regardless of bucket==nil so
 			// the no-op release still runs and the prop appears in the pin set.
 			pins.add(property, bucket, release)
-		case b.bucketTokResolver != nil:
-			effectiveTok, bucket = b.bucketTokResolver(prop.Name, prop.Tokenization)
-		default:
+		} else {
 			bucket = b.GetBucket(property)
 			effectiveTok = ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
 		}
@@ -679,7 +663,12 @@ func (b *BM25Searcher) wand(
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
 	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast instead
+	// of handing a nil receiver to ObjectsByDocIDWithEmpty.
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return nil, nil, errors.New("objects bucket not available (store shutting down?)")
+	}
 	scores := make([]float32, 0, topKHeap.Len())
 	ids := make([]uint64, 0, topKHeap.Len())
 	explanations := make([][]*terms.DocPointerWithScore, 0, topKHeap.Len())

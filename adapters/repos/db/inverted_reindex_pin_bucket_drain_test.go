@@ -206,7 +206,6 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 		idx.getStopwordProvider(), shard.GetPropertyLengthTracker(), logger,
 		shard.versioner.Version()).
 		WithTokenizationResolver(shard.TokenizationFor).
-		WithSearchableBucketTokenizationResolver(shard.EffectiveTokenizationAndSearchableBucket).
 		WithSearchableBucketPinningResolver(shard.PinTokenizationAndSearchableBucket).
 		WithForceLookupRefetchForTest(forceRefetch).
 		WithAfterPinBeforeLookupHookForTest(func() {

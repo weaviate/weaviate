@@ -795,7 +795,7 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 // whether the migration changes tokenization.
 //
 // The matching read-side atomicity lives in
-// [Shard.EffectiveTokenizationAndSearchableBucket], which reads the
+// [Shard.PinTokenizationAndSearchableBucket], which reads the
 // overlay and the searchable-bucket pointer for a prop under the same
 // tokenizationOverlayMu.RLock — together they guarantee a query observes
 // a consistent (bucket, overlay) pair.
@@ -836,7 +836,7 @@ func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 }
 
 // tokenizationOverlayNonAtomicForTest, when true, reverts
-// SwapBucketAndSetOverlay and EffectiveTokenizationAndSearchableBucket to
+// SwapBucketAndSetOverlay and PinTokenizationAndSearchableBucket to
 // their PRE-FIX two-separate-critical-sections behavior. It exists ONLY so
 // the asymmetry proof (TestAtomicOverlaySwap_BM25NeverSeesZeroCount via
 // TestAtomicOverlaySwap_OldCodeIsRacy) can show that the old code observes
@@ -864,56 +864,7 @@ var tokenizationOverlayNonAtomicForTest bool
 // Note the lock nesting here is bucketAccessLock-INNER (store.Bucket takes
 // bucketAccessLock.RLock) under tokenizationOverlayMu-OUTER (the RLock
 // held here) — the same direction as the write side, so no inversion.
-func (s *Shard) EffectiveTokenizationAndSearchableBucket(propName, liveTokenization string,
-) (string, *lsmkv.Bucket) {
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-
-	if propName == "" {
-		return liveTokenization, s.store.Bucket(bucketName)
-	}
-
-	if tokenizationOverlayNonAtomicForTest {
-		// PRE-FIX BEHAVIOR (test-only): read the bucket pointer and the
-		// overlay under SEPARATE lock acquisitions (the bucket WITHOUT the
-		// overlay lock), reproducing the two-independent-reads race the fix
-		// closes. NEVER set in production.
-		bucket := s.store.Bucket(bucketName)
-		return s.TokenizationFor(propName, liveTokenization), bucket
-	}
-
-	s.tokenizationOverlayMu.RLock()
-	overlay, ok := "", false
-	if s.tokenizationOverlay != nil {
-		overlay, ok = s.tokenizationOverlay[propName]
-	}
-	// Read the bucket pointer under the SAME RLock as the overlay so the
-	// (bucket, overlay) pair is a single consistent snapshot.
-	bucket := s.store.Bucket(bucketName)
-	s.tokenizationOverlayMu.RUnlock()
-
-	if !ok {
-		return liveTokenization, bucket
-	}
-	if overlay == liveTokenization {
-		// Live schema has caught up. Self-clear so future calls take the
-		// fast path — same defensive self-clear as TokenizationFor. The
-		// bucket pointer was already read under the snapshot above; the
-		// returned tokenization (== liveTokenization == overlay) is
-		// consistent with it regardless of the clear.
-		s.tokenizationOverlayMu.Lock()
-		if s.tokenizationOverlay != nil {
-			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
-				delete(s.tokenizationOverlay, propName)
-			}
-		}
-		s.tokenizationOverlayMu.Unlock()
-		return liveTokenization, bucket
-	}
-	return overlay, bucket
-}
-
-// PinTokenizationAndSearchableBucket is the pinning sibling of
-// [Shard.EffectiveTokenizationAndSearchableBucket]: it resolves the active
+// PinTokenizationAndSearchableBucket resolves the active
 // query-time tokenization for propName AND pins the property's searchable
 // bucket for the full duration of a query, returning the bucket together
 // with a release function the caller MUST invoke exactly once.
@@ -931,9 +882,8 @@ func (s *Shard) EffectiveTokenizationAndSearchableBucket(propName, liveTokenizat
 //
 // Consistency with the tokenization: the pin is taken UNDER the same
 // tokenizationOverlayMu.RLock as the overlay read, so the returned
-// (tokenization, pinned bucket) pair is a single consistent snapshot — the
-// same guarantee [Shard.EffectiveTokenizationAndSearchableBucket] gives,
-// now extended to cover the whole query rather than just prop discovery.
+// (tokenization, pinned bucket) pair is a single consistent snapshot,
+// covering the whole query rather than just prop discovery.
 // Store.AcquireBucketForRead takes lifetimeLock.RLock under
 // bucketAccessLock.RLock; held under tokenizationOverlayMu.RLock the nesting
 // is tokenizationOverlayMu → bucketAccessLock → lifetimeLock, the same
