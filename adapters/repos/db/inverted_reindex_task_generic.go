@@ -205,13 +205,13 @@ type ShardReindexTaskGeneric struct {
 	// tokenization-changing migrations.
 	onPropSwapped func(propName string)
 
-	// trackerMkdirGuard yields the close-lock guard serializing a reindex
-	// tracker's init() MkdirAll against a concurrent Index.drop (see
-	// newReindexTrackerGuarded). Defaults to Index.withCloseRLockGuard in
-	// NewShardReindexTaskGeneric; the drain-rematerialize test wraps it to
-	// interpose a barrier at the exact pre-MkdirAll point that makes the
-	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
-	// branch runs in production.
+	// trackerMkdirGuard yields the guard serializing a reindex tracker's
+	// init() MkdirAll against a concurrent Index.drop AND per-shard tenant
+	// delete (dropShards) — see newReindexTrackerGuarded. Defaults to
+	// Index.withShardRLockGuard in NewShardReindexTaskGeneric; the
+	// drain-rematerialize test wraps it to interpose a barrier at the exact
+	// pre-MkdirAll point that makes the delete-vs-MkdirAll race deterministic.
+	// Always set — no test-only branch runs in production.
 	trackerMkdirGuard func(shard ShardLike) func(func() error) error
 }
 
@@ -243,7 +243,9 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	t.processOneSwapPropFn = t.processOneSwapProp
 	t.processOneTidyPropFn = t.processOneTidyProp
 	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
-		return shard.Index().withCloseRLockGuard
+		return func(fn func() error) error {
+			return shard.Index().withShardRLockGuard(shard.Name(), fn)
+		}
 	}
 	return t
 }
@@ -373,8 +375,11 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
 
-	// context.Canceled means the index is closing — propagate unwrapped so
-	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
+	// DTM route: runShardLifecycle runs on scheduler/worker goroutines that
+	// hold no closeLock, so the hook's tracker init must be guarded against a
+	// concurrent DELETE (see newReindexTrackerGuarded). context.Canceled from
+	// the guard means the index or shard is being deleted — propagate unwrapped so callers
+	// treat it as a clean stop, consistent with OnAfterLsmInitAsync.
 	if err := t.onAfterLsmInitGuarded(ctx, concreteShard); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return err
@@ -1088,8 +1093,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 	rt, err := newTracker(shard)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			// Guarded route: return unwrapped so callers can errors.Is on it.
-			logger.Debug("index is closing, stopping after-LSM-init hook")
+			// Guarded route: the index or shard is being deleted and the tracker dir was
+			// deliberately not created. Clean stop; return unwrapped so
+			// callers can errors.Is on it.
+			logger.Debug("index or shard is being deleted, stopping after-LSM-init hook")
 			return err
 		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
@@ -1223,10 +1230,14 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 	return nil
 }
 
-// newReindexTrackerGuarded serializes the tracker's init()-time MkdirAll
-// against Index.drop: DTM-driven callers hold no closeLock, and an unguarded
-// MkdirAll would re-create the class dir a concurrent DELETE just renamed
-// away. context.Canceled means the index is closing (clean stop).
+// newReindexTrackerGuarded builds a tracker whose init()-time MkdirAll is
+// serialized against Index.drop AND per-shard tenant deletes (dropShards)
+// via withShardRLockGuard: DTM-driven callers (worker drain loop,
+// runShardLifecycle via onAfterLsmInitGuarded, RunPrepareOnShard,
+// RunSwapOnShard) can race a concurrent DELETE, and an unguarded MkdirAll
+// would re-create the class or shard dir the delete just removed. The guard
+// makes it complete-before-removal or bail with context.Canceled (treated
+// as a clean stop).
 //
 // The shard-init hooks MUST keep the plain factory: some NewShard routes
 // hold closeLock.RLock, and a nested RLock (sync.RWMutex is non-reentrant)
@@ -1254,12 +1265,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
-	// Guarded: a cancelled worker re-enters here with no ctx check before the
-	// tracker's MkdirAll (see newReindexTrackerGuarded).
+	// Guarded: per-iteration WORKER drain path — a cancelled worker re-enters
+	// here with no ctx check before the tracker's MkdirAll. context.Canceled
+	// means the index or shard is being deleted; treat as a clean stop.
 	rt, err := t.newReindexTrackerGuarded(shard)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			logger.Debug("index is closing, stopping reindex drain")
+			logger.Debug("index or shard is being deleted, stopping reindex drain")
 			return zerotime, false, err
 		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
