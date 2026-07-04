@@ -110,7 +110,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		// Add client tracking middleware early in the chain to capture all requests
 		if telemeter != nil {
-			handler = telemetry.ClientTrackingMiddleware(telemeter.GetClientTracker())(handler)
+			handler = telemetry.ClientTrackingMiddleware(telemeter.GetClientTracker(), telemeter.GetIntegrationTracker())(handler)
 		}
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)

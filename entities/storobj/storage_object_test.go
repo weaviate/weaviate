@@ -100,6 +100,125 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
+// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts the jsonparser
+// path with every property listed yields the same object as json.Unmarshal —
+// the equivalence the MultiObjectByID fast path relies on.
+func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
+	const className = "MyFavoriteClass"
+
+	cases := []struct {
+		name  string
+		props map[string]interface{}
+	}{
+		{
+			name: "primitives",
+			props: map[string]interface{}{
+				"name":   "MyName",
+				"count":  float64(17),
+				"active": true,
+			},
+		},
+		{
+			name: "arrays",
+			props: map[string]interface{}{
+				"tags":    []interface{}{"a", "b", "c"},
+				"numbers": []interface{}{float64(1), float64(2), float64(3)},
+			},
+		},
+		{
+			name: "cross_ref_beacons",
+			props: map[string]interface{}{
+				"hasRef": []interface{}{
+					map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f2eb5f-5abf-447a-81ca-74b1dd168247"},
+					map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/a1b2c3d4-5abf-447a-81ca-74b1dd168247"},
+				},
+			},
+		},
+		{
+			name: "nested_object",
+			props: map[string]interface{}{
+				"address": map[string]interface{}{
+					"city": "Amsterdam",
+					"zip":  float64(1011),
+				},
+			},
+		},
+		{
+			name:  "empty",
+			props: map[string]interface{}{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := FromObject(
+				&models.Object{
+					Class:              className,
+					CreationTimeUnix:   123456,
+					LastUpdateTimeUnix: 56789,
+					ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+					Properties:         tc.props,
+				},
+				[]float32{1, 2, 0.7},
+				map[string][]float32{"vector1": {1, 2, 3}},
+				nil,
+			)
+			before.DocID = 7
+
+			asBinary, err := before.MarshalBinary()
+			require.NoError(t, err)
+
+			viaJSON, err := FromBinaryDisk(asBinary, className)
+			require.NoError(t, err)
+
+			pe := NewPropExtraction()
+			for name := range tc.props {
+				pe.Add(name)
+			}
+			viaJSONParser, err := FromBinaryDiskWithProps(asBinary, className, pe)
+			require.NoError(t, err)
+
+			assert.Equal(t, viaJSON, viaJSONParser)
+		})
+	}
+}
+
+func TestAllPropertiesExtraction(t *testing.T) {
+	cases := []struct {
+		name  string
+		class *models.Class
+		want  *PropertyExtraction
+	}{
+		{
+			name:  "nil class",
+			class: nil,
+			want:  nil,
+		},
+		{
+			name:  "no properties",
+			class: &models.Class{Class: "Empty"},
+			want:  nil,
+		},
+		{
+			name: "lists every property as a single-element path",
+			class: &models.Class{Class: "Doc", Properties: []*models.Property{
+				{Name: "name"},
+				{Name: "count"},
+				{Name: "hasRef"},
+			}},
+			want: &PropertyExtraction{PropertyPaths: [][]string{
+				{"name"}, {"count"}, {"hasRef"},
+			}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, AllPropertiesExtraction(tc.class))
+		})
+	}
+}
+
 func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 	before := FromObject(
 		&models.Object{
@@ -1844,10 +1963,181 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 	})
 }
 
+func TestPatchDocID(t *testing.T) {
+	obj := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties:         map[string]interface{}{"name": "MyName"},
+		},
+		[]float32{1, 2, 0.7},
+		map[string][]float32{"vector1": {1, 2, 3}},
+		nil,
+	)
+	obj.DocID = 7
+
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	require.NoError(t, PatchDocID(asBinary, 42))
+
+	gotID, err := DocIDFromBinary(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), gotID)
+
+	obj.DocID = 42
+	expected, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	assert.Equal(t, expected, asBinary)
+
+	decoded, err := FromBinaryNetwork(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), decoded.DocID)
+	assert.Equal(t, obj.ID(), decoded.ID())
+}
+
+func TestPatchDocID_Errors(t *testing.T) {
+	t.Run("too short", func(t *testing.T) {
+		require.Error(t, PatchDocID(make([]byte, 8), 1))
+	})
+
+	t.Run("unsupported version", func(t *testing.T) {
+		buf := make([]byte, 9)
+		buf[0] = 2
+		require.Error(t, PatchDocID(buf, 1))
+	})
+}
+
 func pickRandomIDsBetween(start, end uint64, count int) []uint64 {
 	ids := make([]uint64, count)
 	for i := 0; i < count; i++ {
 		ids[i] = start + uint64(rand.Intn(int(end-start)))
 	}
 	return ids
+}
+
+func TestStorageObjectRemoveTargetVector(t *testing.T) {
+	tests := []struct {
+		name             string
+		vectors          map[string][]float32
+		multiVectors     map[string][][]float32
+		targetVector     string
+		wantChanged      bool
+		wantVectors      []string
+		wantMultiVectors []string
+	}{
+		{
+			name:             "removes a regular vector",
+			vectors:          map[string][]float32{"foo": {1, 2}, "bar": {3, 4}},
+			targetVector:     "foo",
+			wantChanged:      true,
+			wantVectors:      []string{"bar"},
+			wantMultiVectors: []string{},
+		},
+		{
+			name:             "removes a multi vector",
+			multiVectors:     map[string][][]float32{"mv": {{1, 2}}, "keep": {{3, 4}}},
+			targetVector:     "mv",
+			wantChanged:      true,
+			wantVectors:      []string{},
+			wantMultiVectors: []string{"keep"},
+		},
+		{
+			name:             "absent name is a no-op",
+			vectors:          map[string][]float32{"foo": {1}},
+			multiVectors:     map[string][][]float32{"mv": {{2}}},
+			targetVector:     "missing",
+			wantChanged:      false,
+			wantVectors:      []string{"foo"},
+			wantMultiVectors: []string{"mv"},
+		},
+		{
+			name:             "nil maps are a no-op",
+			targetVector:     "foo",
+			wantChanged:      false,
+			wantVectors:      []string{},
+			wantMultiVectors: []string{},
+		},
+	}
+
+	vectorKeys := func(m map[string][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+	multiVectorKeys := func(m map[string][][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &Object{Vectors: tt.vectors, MultiVectors: tt.multiVectors}
+
+			assert.Equal(t, tt.wantChanged, o.RemoveTargetVector(tt.targetVector))
+			assert.ElementsMatch(t, tt.wantVectors, vectorKeys(o.Vectors))
+			assert.ElementsMatch(t, tt.wantMultiVectors, multiVectorKeys(o.MultiVectors))
+
+			assert.False(t, o.RemoveTargetVector(tt.targetVector))
+		})
+	}
+}
+
+func TestStorageObjectRemoveTargetVectorRoundTrip(t *testing.T) {
+	before := FromObject(
+		&models.Object{
+			Class: "DropClass",
+			ID:    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+		},
+		nil,
+		map[string][]float32{"keep": {1, 2, 3}, "drop": {4, 5, 6}},
+		map[string][][]float32{"mvkeep": {{7, 8}}, "mvdrop": {{9, 10}}},
+	)
+	before.DocID = 1
+
+	asBinary, err := before.MarshalBinary()
+	require.NoError(t, err)
+
+	obj, err := FromBinaryDisk(asBinary, "DropClass")
+	require.NoError(t, err)
+
+	require.True(t, obj.RemoveTargetVector("drop"))
+	require.True(t, obj.RemoveTargetVector("mvdrop"))
+	require.False(t, obj.RemoveTargetVector("drop"))
+
+	stripped, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	after, err := FromBinaryDisk(stripped, "DropClass")
+	require.NoError(t, err)
+
+	vectorKeys := func(m map[string][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+	multiVectorKeys := func(m map[string][][]float32) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		return out
+	}
+
+	assert.ElementsMatch(t, []string{"keep"}, vectorKeys(after.Vectors))
+	assert.ElementsMatch(t, []string{"mvkeep"}, multiVectorKeys(after.MultiVectors))
+	assert.ElementsMatch(t, after.Vectors["keep"], []float32{1, 2, 3})
+	assert.ElementsMatch(t, after.MultiVectors["mvkeep"], [][]float32{{7, 8}})
+
+	assert.False(t, after.RemoveTargetVector("drop"))
+	assert.False(t, after.RemoveTargetVector("mvdrop"))
 }

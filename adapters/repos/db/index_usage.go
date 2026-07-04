@@ -13,7 +13,9 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 	"time"
@@ -174,6 +176,16 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				return fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
 			}
 			if err2 != nil {
+				// Files vanished mid-deletion: record zero usage instead of failing
+				// the whole report (same as the tenantDirExists check above).
+				if errors.Is(err2, fs.ErrNotExist) {
+					i.logger.WithFields(logrus.Fields{
+						"class": i.Config.ClassName.String(),
+						"shard": shardName,
+					}).Warnf("shard files missing during usage calculation, likely deleted concurrently; recording empty usage: %v", err2)
+					collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, localStatus))
+					return nil
+				}
 				return err2
 			}
 			collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)

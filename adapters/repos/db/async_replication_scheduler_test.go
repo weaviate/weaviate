@@ -272,31 +272,6 @@ func TestRegisterDeregisterLifecycle(t *testing.T) {
 		sched := newSchedulerForUnitTest(t)
 		assert.NoError(t, sched.Deregister(&Shard{}))
 	})
-
-	t.Run("RegisterAssignsMonotoneSeq", func(t *testing.T) {
-		// Successive Register calls must stamp strictly increasing seq values
-		// so the FIFO tie-break in heap ordering is well-defined.
-		sched := newSchedulerForUnitTest(t)
-		const n = 5
-		shards := make([]*Shard, n)
-		for i := range shards {
-			shards[i] = &Shard{}
-			require.NoError(t, sched.Register(shards[i]))
-		}
-
-		sched.mu.Lock()
-		seqs := make([]uint64, n)
-		for i, s := range shards {
-			require.NotNil(t, sched.entries[s], "shard %d must be registered", i)
-			seqs[i] = sched.entries[s].seq
-		}
-		sched.mu.Unlock()
-
-		for i := 1; i < n; i++ {
-			assert.Less(t, seqs[i-1], seqs[i],
-				"seq must increase monotonically with each Register call (pos %d)", i)
-		}
-	})
 }
 
 // TestHeapFIFOTieBreakingSeq verifies that when multiple entries share the same

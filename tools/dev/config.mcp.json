@@ -17,7 +17,7 @@
       "arguments": {
         "query": "The natural language search query to find relevant objects.",
         "collection_name": "The name of the collection to search in.",
-        "alpha": "Controls the balance between vector and keyword search: 0.0 = pure keyword (BM25), 1.0 = pure vector, 0.5 = equal weight (default)."
+        "alpha": "Controls the balance between vector and keyword search: 0.0 = pure keyword (BM25), 1.0 = pure vector. Default is 0.75 (vector-leaning)."
       }
     },
     "weaviate-objects-upsert": {
