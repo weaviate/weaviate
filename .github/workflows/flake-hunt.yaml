@@ -36,7 +36,6 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Build test image (race, same as CI reindex jobs)
         run: |
-          cd test
           GIT_REVISION=$(git rev-parse --short HEAD)
           GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           docker compose -f docker-compose-test.yml build \
