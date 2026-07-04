@@ -238,19 +238,27 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 }
 
-// waitForClassOnAllNodes blocks until className is visible (GET
-// /v1/schema/<class> == 200, a per-node local read) on every node. After
-// createCollection a node still catching up on the RAFT schema log — e.g. one
-// tied up in a slow startup migration — may not yet have the class; a
-// consistency=ALL write then trips that replica's schema-version deadline
-// (got=N want=N+k). Gating writes on convergence avoids that without retrying
-// the write itself (objects get auto-UUIDs, so a retry would duplicate).
+// waitForClassOnAllNodes blocks until className is visible in every node's
+// LOCAL schema view. The `consistency: false` header is load-bearing: without
+// it the GET defaults to consistency=true and is proxied to the leader, so
+// the poll would return 200 immediately after create regardless of the lagging
+// follower — exactly the follower whose local RAFT catch-up (e.g. one tied up
+// in a slow startup migration) trips a consistency=ALL write's schema-version
+// deadline (got=N want=N+k). Gating writes on local convergence avoids that
+// without retrying the write itself (objects get auto-UUIDs, so a retry would
+// duplicate).
 func waitForClassOnAllNodes(t *testing.T, compose *docker.DockerCompose, className string) {
 	t.Helper()
 	for i := 1; i <= 3; i++ {
 		nodeURI := compose.GetWeaviateNode(i).URI()
 		require.Eventuallyf(t, func() bool {
-			resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className))
+			req, err := http.NewRequest(http.MethodGet,
+				fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className), nil)
+			if err != nil {
+				return false
+			}
+			req.Header.Set("consistency", "false")
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				return false
 			}
@@ -258,7 +266,7 @@ func waitForClassOnAllNodes(t *testing.T, compose *docker.DockerCompose, classNa
 			_ = resp.Body.Close()
 			return resp.StatusCode == http.StatusOK
 		}, 60*time.Second, 100*time.Millisecond,
-			"class %s must be visible on node %d before consistency=ALL writes", className, i)
+			"class %s must be locally visible on node %d before consistency=ALL writes", className, i)
 	}
 }
 
