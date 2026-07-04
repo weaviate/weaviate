@@ -100,18 +100,11 @@ type fileReindexTracker struct {
 	keyParser          indexKeyParser
 	config             fileReindexTrackerConfig
 
-	// mkdirGuard, when non-nil, wraps the os.MkdirAll in init() so the
-	// directory creation is serialized against the owning Index's drop().
-	// Wired by newReindexTrackerGuarded for trackers created on the reindex
-	// WORKER drain path, where a cancelled-but-still-draining worker must not
-	// re-materialize a shard LSM path that a concurrent DELETE (Index.drop)
-	// has just renamed away. nil for all other (non-worker) callers, which
-	// keeps their behavior byte-for-byte identical to a direct MkdirAll.
-	//
-	// The guard receives the MkdirAll as a closure and is expected to run it
-	// under Index.closeLock.RLock() with an i.closed pre-check (see
-	// (*Index).withCloseRLockGuard). If it returns context.Canceled the
-	// directory is intentionally NOT created and init() propagates that error.
+	// mkdirGuard, when non-nil, wraps init()'s os.MkdirAll (expected:
+	// Index.withCloseRLockGuard) so directory creation is serialized against
+	// Index.drop and cannot re-materialize a renamed-away class dir.
+	// context.Canceled means the index is closing and the dir was
+	// deliberately not created. nil = plain MkdirAll, behavior unchanged.
 	mkdirGuard func(func() error) error
 }
 
@@ -132,13 +125,9 @@ type fileReindexTrackerConfig struct {
 	migrationPath      string
 }
 
-// reindexTrackerInitHook is a TEST-ONLY hook fired at the very top of
-// fileReindexTracker.init(), BEFORE the (optionally guarded) os.MkdirAll and
-// before any closeLock is taken. Production leaves it nil, which compiles to a
-// single nil-check on a cold path. Tests set it to widen the drop()-vs-MkdirAll
-// race window deterministically: the hook can block until a concurrent
-// Index.drop() has renamed the directory away, proving that the guard (and only
-// the guard) prevents re-materialization.
+// reindexTrackerInitHook is a TEST-ONLY hook fired at the top of init(),
+// before the (optionally guarded) MkdirAll. Tests block in it to widen the
+// drop()-vs-MkdirAll race window deterministically. Production leaves it nil.
 var reindexTrackerInitHook func()
 
 func (t *fileReindexTracker) init() error {
@@ -151,20 +140,9 @@ func (t *fileReindexTracker) init() error {
 	}
 
 	if t.mkdirGuard != nil {
-		// Guarded worker path: the MkdirAll runs under Index.closeLock.RLock()
-		// with an i.closed pre-check, so it is mutually exclusive with the
-		// rename-away inside Index.drop(). A context.Canceled return means the
-		// index is closing and the directory was deliberately not created.
-		if err := t.mkdirGuard(mkdir); err != nil {
-			return err
-		}
-		return nil
+		return t.mkdirGuard(mkdir)
 	}
-
-	if err := mkdir(); err != nil {
-		return err
-	}
-	return nil
+	return mkdir()
 }
 
 func (t *fileReindexTracker) HasStartCondition() bool {
