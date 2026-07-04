@@ -103,10 +103,7 @@ func testMapToBlockmaxMultiPropertyDefersFlip(t *testing.T, compose *docker.Dock
 	className := "MultiNodeBlockmaxMultiProp"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
-		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("title", "body"))
 	defer deleteCollection(t, restURI, className)
 
 	// Baseline: flag off pre-migration.
@@ -156,9 +153,7 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeBlockmax"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
@@ -242,9 +237,7 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeRoaringSet"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
@@ -344,9 +337,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeTokenize"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
@@ -409,9 +400,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	className := "ConsistencyTest"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)

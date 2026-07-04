@@ -230,9 +230,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	const className = "RestartRoundTrip"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("text"))
 	// Use a closure so the URI is re-resolved at defer-time. The
 	// rolling restart below replaces node-1's container; capturing
 	// compose.GetWeaviateNode(1).URI() at defer-registration time
@@ -376,10 +374,7 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	const className = "ConcurrentProps"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
-		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("title", "body"))
 	defer deleteCollection(t, restURI, className)
 
 	// Each object has distinct content in title and body so we can
@@ -514,10 +509,7 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	const className = "MultiProp"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
-		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
-		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, restURI, className, 3, 3, textProps("title", "body"))
 	defer deleteCollection(t, restURI, className)
 
 	importObjectsTwoProps(t, restURI, className, testDocuments)
