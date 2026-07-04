@@ -3306,8 +3306,8 @@ func (i *Index) drop() error {
 // Scope: the guard covers whole-index drops only. Per-shard tenant deletes
 // (dropShards) run under closeLock.RLock themselves and never set i.closed,
 // so the guard is blind to them — a guarded MkdirAll can still re-create a
-// tenant shard dir that dropShards just removed. Tracked in a separate
-// to-be-filed issue.
+// tenant shard dir that dropShards just removed. Tracked in
+// https://github.com/weaviate/0-weaviate-issues/issues/288.
 func (i *Index) withCloseRLockGuard(fn func() error) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
