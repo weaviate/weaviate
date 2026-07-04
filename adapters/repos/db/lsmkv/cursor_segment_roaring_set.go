@@ -21,8 +21,11 @@ func (s *segment) newRoaringSetCursor() roaringset.SegmentCursor {
 		&roaringSetSeeker{s.index})
 }
 
-func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
-	segments, release := sg.getConsistentViewOfSegments()
+func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func(), error) {
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	out := make([]roaringset.InnerCursor, len(segments))
 
@@ -30,7 +33,7 @@ func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()
 		out[i] = segment.newRoaringSetCursor()
 	}
 
-	return out, release
+	return out, release, nil
 }
 
 // diskIndex returns node's Start and End offsets

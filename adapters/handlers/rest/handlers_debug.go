@@ -1206,6 +1206,11 @@ func setupDebugHandlers(appState *state.State) {
 				return
 			}
 			view := b.GetConsistentView()
+			if err := view.Err(); err != nil {
+				debugConsistentViewsLock.Unlock()
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
+				return
+			}
 			debugConsistentViews[key] = view
 			debugConsistentViewsLock.Unlock()
 

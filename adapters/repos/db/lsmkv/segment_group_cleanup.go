@@ -426,10 +426,12 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	var tmpSegmentPath string
 
 	ok, err := func() (bool, error) {
-		segments, release := c.sg.getConsistentViewOfSegments()
+		segments, release, err := c.sg.getConsistentViewOfSegments()
+		if err != nil {
+			return false, err
+		}
 		defer release()
 
-		var err error
 		candidateIdx, startIdx, lastIdx, onCompleted, err = c.findCandidate(segments)
 		if err != nil {
 			return false, err

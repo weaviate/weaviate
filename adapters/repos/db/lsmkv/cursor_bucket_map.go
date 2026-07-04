@@ -58,7 +58,11 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) (*CursorMap, error) {
 		cfg(&c)
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newMapCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newMapCursors()
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		return nil, err
+	}
 
 	// we hold a flush-lock during initialzation, but we release it before
 	// returning to the caller. However, `*memtable.newCursor` creates a deep

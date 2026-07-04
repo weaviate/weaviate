@@ -23,6 +23,15 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+// mustSegmentView unwraps getConsistentViewOfSegments for tests that run
+// against a live (non-shutting-down) segment group.
+func mustSegmentView(t *testing.T, sg *SegmentGroup) ([]Segment, func()) {
+	t.Helper()
+	segments, release, err := sg.getConsistentViewOfSegments()
+	require.NoError(t, err)
+	return segments, release
+}
+
 func newShutdownTestBucket(t *testing.T, ctx context.Context, opts ...BucketOption) *Bucket {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -74,9 +83,6 @@ func TestReadAfterShutdownErrs(t *testing.T) {
 	val, err := b.Get([]byte("key-1"))
 	require.ErrorIs(t, err, ErrShuttingDown)
 	assert.Nil(t, val)
-
-	_, err = b.MapCursor()
-	require.ErrorIs(t, err, ErrShuttingDown)
 }
 
 // TestCursorsAfterShutdownRefuse: the no-error cursor constructors are the
@@ -111,6 +117,17 @@ func TestCursorsAfterShutdownRefuse(t *testing.T) {
 		require.NoError(t, b.Shutdown(ctx))
 
 		requirePanicsWithShuttingDown(t, func() { b.SetCursor() })
+	})
+
+	t.Run("map cursor", func(t *testing.T) {
+		b := newShutdownTestBucket(t, ctx, WithStrategy(StrategyMapCollection))
+		require.NoError(t, b.MapSet([]byte("key-1"), MapPair{Key: []byte("k"), Value: []byte("v")}))
+		require.NoError(t, b.FlushAndSwitch())
+		require.NoError(t, b.Shutdown(ctx))
+
+		// MapCursor has an error channel, so it must refuse via error, not panic
+		_, err := b.MapCursor()
+		require.ErrorIs(t, err, ErrShuttingDown)
 	})
 }
 

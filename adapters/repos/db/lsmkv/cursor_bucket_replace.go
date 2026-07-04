@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -69,7 +70,14 @@ func (b *Bucket) Cursor() *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		// this legacy constructor has no error channel: fail loudly (recovered
+		// by the enterrors/HTTP layers) instead of serving a silently empty
+		// cursor over a bucket whose segments are being munmapped
+		panic(fmt.Errorf("lsmkv cursor: %w", err))
+	}
 
 	// we hold a flush-lock during initialzation, but we release it before
 	// returning to the caller. However, `*memtable.newCursor` creates a deep
@@ -137,7 +145,13 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 func (b *Bucket) CursorOnDisk() *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
+	if err != nil {
+		// this legacy constructor has no error channel: fail loudly (recovered
+		// by the enterrors/HTTP layers) instead of serving a silently empty
+		// cursor over a bucket whose segments are being munmapped
+		panic(fmt.Errorf("lsmkv cursor: %w", err))
+	}
 
 	return &CursorReplace{
 		innerCursors: innerCursors,
@@ -161,7 +175,14 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithSecondaryIndex(pos)
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursorsWithSecondaryIndex(pos)
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		// this legacy constructor has no error channel: fail loudly (recovered
+		// by the enterrors/HTTP layers) instead of serving a silently empty
+		// cursor over a bucket whose segments are being munmapped
+		panic(fmt.Errorf("lsmkv cursor: %w", err))
+	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two

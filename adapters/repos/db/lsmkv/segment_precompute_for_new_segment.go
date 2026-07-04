@@ -11,13 +11,23 @@
 
 package lsmkv
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, error) {
 	// It is now safe to hold the RLock on the maintenanceLock because we know
 	// that the compaction routine will not try to obtain the Lock() until we
 	// have released the flushVsCompactLock.
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if errors.Is(err, ErrShuttingDown) {
+		// a flush racing shutdown proceeds against an empty baseline, mirroring
+		// the intentional post-close behavior (see shutdown's segments = nil)
+		segments, release = nil, func() {}
+	} else if err != nil {
+		return nil, err
+	}
 	defer release()
 
 	segment, err := newSegment(path, sg.logger,
