@@ -567,7 +567,7 @@ func (p *ReindexProvider) processOneUnit(
 			// Index or shard is being deleted: the cascade-cancel will
 			// terminate this task; stop quietly instead of failing the unit.
 			p.logger.WithField("unit", unitID).
-				Debug("index closing during recovery-record persist; stopping unit")
+				Debug("index or shard is being deleted during recovery-record persist; stopping unit")
 			return
 		}
 		// A failure to persist the recovery record means a restart in the
