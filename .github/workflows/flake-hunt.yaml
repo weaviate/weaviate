@@ -1,0 +1,72 @@
+# TEMPORARY mass-repro harness for flake hunting. Lives only on
+# temp/flake-hunt/** branches; never merged to main. Runs one targeted
+# acceptance test HUNT_RUNS times in each of the parallel matrix slots,
+# uploading full -v logs for every failing run. Push to a
+# temp/flake-hunt/** branch to trigger.
+name: flake-hunt
+on:
+  push:
+    branches:
+      - 'temp/flake-hunt/**'
+
+jobs:
+  hunt:
+    name: hunt (${{ matrix.slot }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    env:
+      HUNT_TARGET: 'TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization'
+      HUNT_PKG: './test/acceptance/reindex_multinode/'
+      HUNT_RUNS: '10'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Build test image (race, same as CI reindex jobs)
+        run: |
+          cd test
+          GIT_REVISION=$(git rev-parse --short HEAD)
+          GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          docker compose -f docker-compose-test.yml build \
+            --build-arg GIT_REVISION="$GIT_REVISION" \
+            --build-arg GIT_BRANCH="$GIT_BRANCH" \
+            --build-arg EXTRA_BUILD_ARGS="-race" \
+            weaviate
+      - name: Hunt
+        run: |
+          mkdir -p /tmp/hunt-logs
+          fails=0
+          for i in $(seq 1 "$HUNT_RUNS"); do
+            echo "=== slot ${{ matrix.slot }} run $i/$HUNT_RUNS $(date -u +%H:%M:%SZ) ==="
+            if TEST_WEAVIATE_IMAGE=weaviate/test-server \
+               go test -v -count 1 -timeout 25m -run "$HUNT_TARGET" "$HUNT_PKG" \
+               > "/tmp/hunt-logs/slot${{ matrix.slot }}-run$i.log" 2>&1; then
+              echo "RUN $i PASSED"
+              rm "/tmp/hunt-logs/slot${{ matrix.slot }}-run$i.log"
+            else
+              fails=$((fails+1))
+              echo "RUN $i FAILED — tail follows"
+              tail -80 "/tmp/hunt-logs/slot${{ matrix.slot }}-run$i.log"
+            fi
+          done
+          echo "HUNT RESULT slot=${{ matrix.slot }} fails=$fails/$HUNT_RUNS"
+          exit "$fails"
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hunt-logs-slot${{ matrix.slot }}
+          path: /tmp/hunt-logs/
+          if-no-files-found: ignore
