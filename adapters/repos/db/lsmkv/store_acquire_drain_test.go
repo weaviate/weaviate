@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -70,9 +71,14 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 	require.NoError(t, store.CreateOrLoadBucket(ctx, "pinned", WithStrategy(StrategyReplace)))
 	require.NoError(t, store.CreateOrLoadBucket(ctx, "other", WithStrategy(StrategyReplace)))
 
-	// Pin "pinned" for the duration of a simulated query.
-	b, release := store.AcquireBucketForRead("pinned")
+	// Pin "pinned" for the duration of a simulated query. Once-wrapped and
+	// deferred so any FailNow still releases the pin and unwedges the
+	// parked drain (the raw release is a bare RUnlock — no double-call).
+	b, rawRelease := store.AcquireBucketForRead("pinned")
 	require.NotNil(t, b)
+	var relOnce sync.Once
+	release := func() { relOnce.Do(rawRelease) }
+	defer release()
 
 	var shutdownDone atomic.Bool
 	shutdownErrCh := make(chan error, 1)
@@ -111,52 +117,96 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 	}
 }
 
-// TestShutdownBucket_DoesNotWedgeStoreOnPinnedBucket pins the QA-found F1
-// deadlock: ShutdownBucket used to hold bucketAccessLock across the
-// drain-Shutdown, wedging the whole store against a pinned query that still
-// needed Store.Bucket (runtime-reachable via property-index DELETE). With the
-// remove-from-map-first protocol, a concurrent lookup completes while the
-// drain is parked, and ShutdownBucket finishes once the pin releases.
-func TestShutdownBucket_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
-	ctx := context.Background()
-	store := newTestStoreForDrain(t)
-	t.Cleanup(func() { _ = store.Shutdown(ctx) })
-
-	require.NoError(t, store.CreateOrLoadBucket(ctx, "pinned", WithStrategy(StrategyReplace)))
-	require.NoError(t, store.CreateOrLoadBucket(ctx, "other", WithStrategy(StrategyReplace)))
-
-	pinned, release := store.AcquireBucketForRead("pinned")
-	require.NotNil(t, pinned)
-
-	shutdownErrCh := make(chan error, 1)
-	go func() { shutdownErrCh <- store.ShutdownBucket(ctx, "pinned") }()
-
-	// While ShutdownBucket is parked in the drain, an unrelated lookup must
-	// complete promptly — pre-fix it blocked on bucketAccessLock forever.
-	lookupCh := make(chan *Bucket, 1)
-	go func() { lookupCh <- store.Bucket("other") }()
-	select {
-	case got := <-lookupCh:
-		require.NotNil(t, got, "unrelated bucket must remain fetchable during the drain")
-	case <-time.After(5 * time.Second):
-		release()
-		t.Fatal("DEADLOCK: Store.Bucket blocked while ShutdownBucket drained a pinned bucket under bucketAccessLock")
+// TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket pins the QA-found
+// F1/F2 deadlocks: ShutdownBucket and ReplaceBuckets used to hold
+// bucketAccessLock across the drain-Shutdown, wedging the whole store
+// against a pinned query that still needed Store.Bucket (runtime-reachable
+// via property-index DELETE resp. the debug InvertedReindex endpoint). With
+// the remove-from-map-first protocol, a concurrent lookup completes while
+// the drain is parked, and the teardown finishes once the pin releases.
+func TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
+	cases := []struct {
+		name     string
+		teardown func(ctx context.Context, store *Store) error
+		// registryReflects reports whether the "pinned" registry entry shows
+		// the teardown's registry phase completed: deregistered for
+		// ShutdownBucket, swapped to the replacement for ReplaceBuckets.
+		// pinned/replacement are the pre-teardown pointers.
+		registryReflects func(got, pinned, replacement *Bucket) bool
+	}{
+		{
+			name: "ShutdownBucket",
+			teardown: func(ctx context.Context, store *Store) error {
+				return store.ShutdownBucket(ctx, "pinned")
+			},
+			registryReflects: func(got, _, _ *Bucket) bool { return got == nil },
+		},
+		{
+			name: "ReplaceBuckets",
+			teardown: func(ctx context.Context, store *Store) error {
+				return store.ReplaceBuckets(ctx, "pinned", "replacement")
+			},
+			registryReflects: func(got, _, replacement *Bucket) bool { return got == replacement },
+		},
 	}
 
-	// The pinned name must already be deregistered (remove-first protocol).
-	require.Nil(t, store.Bucket("pinned"))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := newTestStoreForDrain(t)
+			t.Cleanup(func() { _ = store.Shutdown(ctx) })
 
-	select {
-	case err := <-shutdownErrCh:
-		t.Fatalf("ShutdownBucket returned before the pin was released: %v", err)
-	default:
-	}
+			require.NoError(t, store.CreateOrLoadBucket(ctx, "pinned", WithStrategy(StrategyReplace)))
+			require.NoError(t, store.CreateOrLoadBucket(ctx, "replacement", WithStrategy(StrategyReplace)))
+			require.NoError(t, store.CreateOrLoadBucket(ctx, "other", WithStrategy(StrategyReplace)))
+			replacement := store.Bucket("replacement")
 
-	release()
-	select {
-	case err := <-shutdownErrCh:
-		require.NoError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("ShutdownBucket did not complete after the pin was released")
+			pinned, release := store.AcquireBucketForRead("pinned")
+			require.NotNil(t, pinned)
+			// Once-wrapped and deferred: the release MUST run on every exit
+			// path (incl. FailNow), or the parked drain holds closeLock.RLock
+			// forever and the Cleanup Store.Shutdown wedges the package. The
+			// raw release is a bare RUnlock — double-calling it would corrupt
+			// the mutex, hence the Once.
+			var relOnce sync.Once
+			releaseOnce := func() { relOnce.Do(release) }
+			defer releaseOnce()
+
+			teardownErrCh := make(chan error, 1)
+			go func() { teardownErrCh <- tc.teardown(ctx, store) }()
+
+			// While the teardown is parked in the drain, an unrelated lookup
+			// must complete promptly — pre-fix it blocked on bucketAccessLock.
+			lookupCh := make(chan *Bucket, 1)
+			go func() { lookupCh <- store.Bucket("other") }()
+			select {
+			case got := <-lookupCh:
+				require.NotNil(t, got, "unrelated bucket must remain fetchable during the drain")
+			case <-time.After(5 * time.Second):
+				t.Fatal("DEADLOCK: Store.Bucket blocked while the teardown drained a pinned bucket under bucketAccessLock")
+			}
+
+			// The registry phase must complete while the pin is held
+			// (remove/swap-first protocol). Eventually: the teardown
+			// goroutine's registry phase races this check.
+			require.Eventually(t, func() bool {
+				return tc.registryReflects(store.Bucket("pinned"), pinned, replacement)
+			}, 5*time.Second, time.Millisecond,
+				"registry must reflect the teardown while the drain is still parked")
+
+			select {
+			case err := <-teardownErrCh:
+				t.Fatalf("teardown returned before the pin was released: %v", err)
+			default:
+			}
+
+			releaseOnce()
+			select {
+			case err := <-teardownErrCh:
+				require.NoError(t, err)
+			case <-time.After(10 * time.Second):
+				t.Fatal("teardown did not complete after the pin was released")
+			}
+		})
 	}
 }

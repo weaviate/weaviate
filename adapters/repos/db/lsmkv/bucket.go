@@ -1614,7 +1614,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	// lifetimeLock field doc (incl. why there is deliberately no timeout).
 	// The heartbeat makes a wedged drain diagnosable.
 	drained := make(chan struct{})
-	go func() {
+	enterrors.GoWrapper(func() {
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
 		for {
@@ -1626,7 +1626,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 					Warn("bucket shutdown still draining in-flight read pins")
 			}
 		}
-	}()
+	}, b.logger)
 	b.lifetimeLock.Lock()
 	close(drained)
 	defer b.lifetimeLock.Unlock()
