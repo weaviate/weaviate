@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -219,7 +220,11 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
-	var terminalErr error
+	// atomic.Pointer, not a plain var: correct today because
+	// require.Eventually's cross-goroutine send/receive orders the write
+	// before the read, but a future switch to assert.Eventually (returns on
+	// timeout) would turn a plain capture into a live race.
+	var terminalErr atomic.Pointer[error]
 	require.Eventually(t, func() bool {
 		task, ok := fetchReindexTask(restURI, taskID)
 		if !ok {
@@ -228,14 +233,16 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 		t.Logf("task %s status: %s", taskID, task.Status)
 		switch task.Status {
 		case "FAILED", "CANCELLED":
-			terminalErr = fmt.Errorf("reindex task %s reached terminal status %s before going live: %s",
+			err := fmt.Errorf("reindex task %s reached terminal status %s before going live: %s",
 				taskID, task.Status, task.Error)
+			terminalErr.Store(&err)
 			return true // exit Eventually; Fatalf below on the test goroutine
 		case "FINISHED":
 			// Drained before a live status was observed (fixture too small).
-			terminalErr = fmt.Errorf("reindex task %s reached FINISHED before a live status was observed; "+
+			err := fmt.Errorf("reindex task %s reached FINISHED before a live status was observed; "+
 				"increase the import corpus so the migration outlives the gate-arming poll",
 				taskID)
+			terminalErr.Store(&err)
 			return true
 		case "STARTED", "PREPARING", "SWAPPING":
 			return true
@@ -243,8 +250,8 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 		return false
 	}, o.timeout, 200*time.Millisecond,
 		"reindex task %s should reach a live (STARTED/PREPARING/SWAPPING) status", taskID)
-	if terminalErr != nil {
-		t.Fatal(terminalErr)
+	if errp := terminalErr.Load(); errp != nil {
+		t.Fatal(*errp)
 	}
 }
 
@@ -256,7 +263,8 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 	t.Helper()
 	o := applyOptions(opts)
 
-	var terminalErr error
+	// atomic.Pointer for the same future-proofing as AwaitReindexLive.
+	var terminalErr atomic.Pointer[error]
 	require.Eventually(t, func() bool {
 		task, ok := fetchReindexTask(restURI, taskID)
 		if !ok {
@@ -264,13 +272,14 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 		}
 		t.Logf("task %s status: %s", taskID, task.Status)
 		if task.Status == "FAILED" {
-			terminalErr = fmt.Errorf("reindex task failed: %s", task.Error)
+			err := fmt.Errorf("reindex task failed: %s", task.Error)
+			terminalErr.Store(&err)
 			return true // exit Eventually; Fatalf below on the test goroutine
 		}
 		return task.Status == "FINISHED"
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
-	if terminalErr != nil {
-		t.Fatal(terminalErr)
+	if errp := terminalErr.Load(); errp != nil {
+		t.Fatal(*errp)
 	}
 }
 
@@ -282,8 +291,9 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 	t.Helper()
 	o := applyOptions(opts)
 
-	var lastProgress float32
-	var sawIndexing bool
+	// Atomics for the same future-proofing as AwaitReindexLive.
+	var lastProgress atomic.Value // float32
+	var sawIndexing atomic.Bool
 
 	require.Eventually(t, func() bool {
 		resp, ok := TryGetIndexes(restURI, collection)
@@ -296,8 +306,8 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 					if idx.Type == indexType {
 						switch idx.Status {
 						case "indexing":
-							sawIndexing = true
-							lastProgress = idx.Progress
+							sawIndexing.Store(true)
+							lastProgress.Store(idx.Progress)
 							return false
 						case "ready":
 							return true
@@ -311,8 +321,8 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 		return false
 	}, o.timeout, 1*time.Second, "expected property %s index %s to reach ready status", property, indexType)
 
-	if sawIndexing {
-		t.Logf("index monitoring: saw indexing->ready for %s/%s (final progress: %f)", property, indexType, lastProgress)
+	if sawIndexing.Load() {
+		t.Logf("index monitoring: saw indexing->ready for %s/%s (final progress: %f)", property, indexType, lastProgress.Load())
 	} else {
 		t.Logf("index monitoring: task completed too fast for %s/%s", property, indexType)
 	}
