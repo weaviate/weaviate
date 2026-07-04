@@ -13,10 +13,7 @@ package reindex_multinode
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"testing"
 	"time"
 
@@ -134,7 +131,7 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 // so callers can pin per-replica behaviour.
 func taskExists(t *testing.T, restURI, taskID string) (exists, ok bool) {
 	t.Helper()
-	tasks, ok := tryFetchTasks(restURI)
+	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
 	if !ok {
 		return false, false
 	}
@@ -163,7 +160,7 @@ func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 func assertIndexesReady(t *testing.T, restURI, className, label string) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {
-		indexes, ok := tryGetIndexes(restURI, className)
+		indexes, ok := reindexhelpers.TryGetIndexes(restURI, className)
 		if !ok {
 			return false // transient post-restart read (gRPC reconnect) — retry
 		}
@@ -194,45 +191,4 @@ func assertIndexesReady(t *testing.T, restURI, className, label string) {
 				label, p.Name, idx.Type, idx.Status)
 		}
 	}
-}
-
-// tryFetchTasks does one tolerant GET /v1/tasks: ok=false on any transport /
-// non-200 / decode error so Eventually polls retry post-restart transients
-// (gRPC reconnect). Deliberately takes no *testing.T — require inside an
-// Eventually condition goroutine would runtime.Goexit the wrong goroutine.
-func tryFetchTasks(restURI string) (models.DistributedTasks, bool) {
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-	if err != nil {
-		return nil, false
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, false
-	}
-	var tasks models.DistributedTasks
-	if json.Unmarshal(body, &tasks) != nil {
-		return nil, false
-	}
-	return tasks, true
-}
-
-// tryGetIndexes is the GET /v1/schema/{class}/indexes counterpart of
-// tryFetchTasks: tolerant and goroutine-safe, for Eventually polls that must
-// ride out the same post-restart reconnect window.
-func tryGetIndexes(restURI, className string) (*reindexhelpers.IndexesResponse, bool) {
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, className))
-	if err != nil {
-		return nil, false
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, false
-	}
-	var out reindexhelpers.IndexesResponse
-	if json.Unmarshal(body, &out) != nil {
-		return nil, false
-	}
-	return &out, true
 }

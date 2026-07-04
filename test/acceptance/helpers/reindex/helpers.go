@@ -150,30 +150,53 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	return &result
 }
 
-// AwaitReindexLive blocks until the task reaches a live status.
-//
-// fetchReindexTask does one GET /v1/tasks poll and returns the reindex task
-// with the given ID. ok is false when the request, status, decode, or lookup
-// hasn't yielded that task yet, so pollers keep retrying. A non-200 is logged
-// rather than decoded as JSON, so a flake surfaces the actual status instead
-// of a generic decode/timeout failure.
-func fetchReindexTask(t *testing.T, restURI, taskID string) (models.DistributedTask, bool) {
-	t.Helper()
+// TryFetchTasks does one tolerant GET /v1/tasks: ok=false on any transport /
+// non-200 / decode error so Eventually polls retry post-restart transients
+// (gRPC reconnect). Deliberately takes no *testing.T — require inside an
+// Eventually condition goroutine would runtime.Goexit the wrong goroutine.
+func TryFetchTasks(restURI string) (models.DistributedTasks, bool) {
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	if err != nil {
-		return models.DistributedTask{}, false
+		return nil, false
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return models.DistributedTask{}, false
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Logf("GET /v1/tasks returned status %d: %s", resp.StatusCode, string(body))
-		return models.DistributedTask{}, false
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, false
 	}
 	var tasks models.DistributedTasks
-	if err := json.Unmarshal(body, &tasks); err != nil {
+	if json.Unmarshal(body, &tasks) != nil {
+		return nil, false
+	}
+	return tasks, true
+}
+
+// TryGetIndexes is the GET /v1/schema/{collection}/indexes counterpart of
+// TryFetchTasks: tolerant and goroutine-safe, for Eventually polls that must
+// ride out the same post-restart reconnect window.
+func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var out IndexesResponse
+	if json.Unmarshal(body, &out) != nil {
+		return nil, false
+	}
+	return &out, true
+}
+
+// fetchReindexTask does one tolerant GET /v1/tasks poll and returns the
+// reindex task with the given ID. ok is false when the request, status,
+// decode, or lookup hasn't yielded that task yet, so pollers keep retrying.
+func fetchReindexTask(restURI, taskID string) (models.DistributedTask, bool) {
+	tasks, ok := TryFetchTasks(restURI)
+	if !ok {
 		return models.DistributedTask{}, false
 	}
 	for _, task := range tasks["reindex"] {
@@ -184,52 +207,71 @@ func fetchReindexTask(t *testing.T, restURI, taskID string) (models.DistributedT
 	return models.DistributedTask{}, false
 }
 
+// AwaitReindexLive blocks until the task reaches a live status.
+//
 // Sync here, not on GET /v1/schema/<class>/indexes: the backup gate reads
 // DTM liveness, and the two can lag ~1s, so index-status races the gate.
+//
+// A terminal status is captured inside the Eventually condition (which runs
+// on its own goroutine, so it must never Fatalf) and reported from the test
+// goroutine after Eventually returns.
 func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
+	var terminalErr error
 	require.Eventually(t, func() bool {
-		task, ok := fetchReindexTask(t, restURI, taskID)
+		task, ok := fetchReindexTask(restURI, taskID)
 		if !ok {
 			return false
 		}
 		t.Logf("task %s status: %s", taskID, task.Status)
 		switch task.Status {
 		case "FAILED", "CANCELLED":
-			t.Fatalf("reindex task %s reached terminal status %s before going live: %s",
+			terminalErr = fmt.Errorf("reindex task %s reached terminal status %s before going live: %s",
 				taskID, task.Status, task.Error)
+			return true // exit Eventually; Fatalf below on the test goroutine
 		case "FINISHED":
 			// Drained before a live status was observed (fixture too small).
-			t.Fatalf("reindex task %s reached FINISHED before a live status was observed; "+
+			terminalErr = fmt.Errorf("reindex task %s reached FINISHED before a live status was observed; "+
 				"increase the import corpus so the migration outlives the gate-arming poll",
 				taskID)
+			return true
 		case "STARTED", "PREPARING", "SWAPPING":
 			return true
 		}
 		return false
 	}, o.timeout, 200*time.Millisecond,
 		"reindex task %s should reach a live (STARTED/PREPARING/SWAPPING) status", taskID)
+	if terminalErr != nil {
+		t.Fatal(terminalErr)
+	}
 }
 
 // AwaitReindexFinished polls /v1/tasks until the named reindex task
-// reaches FINISHED. Fails on FAILED or on timeout (default 120s).
+// reaches FINISHED. Fails on FAILED or on timeout (default 120s). FAILED is
+// captured inside the Eventually condition and reported from the test
+// goroutine after — the condition goroutine must never Fatalf.
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
+	var terminalErr error
 	require.Eventually(t, func() bool {
-		task, ok := fetchReindexTask(t, restURI, taskID)
+		task, ok := fetchReindexTask(restURI, taskID)
 		if !ok {
 			return false
 		}
 		t.Logf("task %s status: %s", taskID, task.Status)
 		if task.Status == "FAILED" {
-			t.Fatalf("reindex task failed: %s", task.Error)
+			terminalErr = fmt.Errorf("reindex task failed: %s", task.Error)
+			return true // exit Eventually; Fatalf below on the test goroutine
 		}
 		return task.Status == "FINISHED"
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
+	if terminalErr != nil {
+		t.Fatal(terminalErr)
+	}
 }
 
 // AwaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
@@ -244,7 +286,10 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 	var sawIndexing bool
 
 	require.Eventually(t, func() bool {
-		resp := GetIndexes(t, restURI, collection)
+		resp, ok := TryGetIndexes(restURI, collection)
+		if !ok {
+			return false // transient read (e.g. post-restart gRPC reconnect) — retry
+		}
 		for _, prop := range resp.Properties {
 			if prop.Name == property {
 				for _, idx := range prop.Indexes {
