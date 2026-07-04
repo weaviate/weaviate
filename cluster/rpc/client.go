@@ -297,13 +297,18 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 func (cl *Client) acquireLocked() (*grpc.ClientConn, func()) {
 	rc := cl.leaderRpcConn
 	rc.refs++
+	// Once-guarded: a double release would drive refs negative and break the
+	// refs==0 close trigger, leaking the conn.
+	var once sync.Once
 	release := func() {
-		cl.connLock.Lock()
-		defer cl.connLock.Unlock()
-		rc.refs--
-		if rc.retired && rc.refs == 0 {
-			cl.closeRefConn(rc)
-		}
+		once.Do(func() {
+			cl.connLock.Lock()
+			defer cl.connLock.Unlock()
+			rc.refs--
+			if rc.retired && rc.refs == 0 {
+				cl.closeRefConn(rc)
+			}
+		})
 	}
 	return rc.conn, release
 }
