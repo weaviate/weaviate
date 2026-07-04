@@ -238,6 +238,38 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 }
 
+// waitForClassOnAllNodes blocks until className is visible in every node's
+// LOCAL schema view. The `consistency: false` header is load-bearing: without
+// it the GET defaults to consistency=true and is proxied to the leader, so
+// the poll would return 200 immediately after create regardless of the lagging
+// follower — exactly the follower whose local RAFT catch-up (e.g. one tied up
+// in a slow startup migration) trips a consistency=ALL write's schema-version
+// deadline (got=N want=N+k). Gating writes on local convergence avoids that
+// without retrying the write itself (objects get auto-UUIDs, so a retry would
+// duplicate).
+func waitForClassOnAllNodes(t *testing.T, compose *docker.DockerCompose, className string) {
+	t.Helper()
+	for i := 1; i <= 3; i++ {
+		nodeURI := compose.GetWeaviateNode(i).URI()
+		require.Eventuallyf(t, func() bool {
+			req, err := http.NewRequest(http.MethodGet,
+				fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className), nil)
+			if err != nil {
+				return false
+			}
+			req.Header.Set("consistency", "false")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return resp.StatusCode == http.StatusOK
+		}, 60*time.Second, 100*time.Millisecond,
+			"class %s must be locally visible on node %d before consistency=ALL writes", className, i)
+	}
+}
+
 func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeRoaringSet"
 	restURI := compose.GetWeaviateNode(1).URI()
@@ -246,6 +278,9 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
+
+	// Gate the first consistency=ALL write on schema convergence across nodes.
+	waitForClassOnAllNodes(t, compose, className)
 
 	importObjects(t, restURI, className, testDocuments)
 
