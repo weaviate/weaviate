@@ -557,10 +557,8 @@ func (p *ReindexProvider) processOneUnit(
 	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
 	//
 	// Guarded against Index.drop: SaveRecoveryPayload MkdirAll's the
-	// migration dir, so an unguarded write racing a DELETE re-materializes
-	// the renamed-away class dir — the same shape newReindexTrackerGuarded
-	// closes on the tracker paths. This goroutine (GoWrapper worker) never
-	// holds closeLock, so the RLock is safe.
+	// migration dir — same re-materialization race the tracker paths guard
+	// via newReindexTrackerGuarded. This goroutine never holds closeLock.
 	if err := concreteShard.Index().withCloseRLockGuard(func() error {
 		return p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks)
 	}); err != nil {
