@@ -303,6 +303,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	}
 
 	props := make([]propInfo, 0, len(params.Properties))
+	seenProps := make(map[string]struct{}, len(params.Properties))
 	neededTokenizations := map[string]struct{}{}
 	needsASCIIFold := map[string]struct{}{}
 
@@ -316,6 +317,15 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			propBoost = float32(boost)
 		}
 		propertyBoosts[property] = propBoost
+
+		// Dedupe (e.g. ["title", "title^2"]): last boost wins (map overwrite
+		// above), but the prop is processed once — a second pass would take
+		// a second pin (a swap between the two yields the mixed pair this
+		// fix closes) and overwrite the segment-view releaseCallbacks entry.
+		if _, dup := seenProps[property]; dup {
+			continue
+		}
+		seenProps[property] = struct{}{}
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
@@ -336,7 +346,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		)
 		if b.bucketPinResolver != nil {
 			var release func()
-			effectiveTok, bucket, release = b.bucketPinResolver(prop.Name, prop.Tokenization)
+			// Resolve by the user-supplied name, not prop.Name:
+			// GetPropertyByName splits on "." so a dotted input would
+			// otherwise silently search the parent prop's bucket instead of
+			// erroring like the non-pinning path always has.
+			effectiveTok, bucket, release = b.bucketPinResolver(property, prop.Tokenization)
 			// Record the pin (and its release) regardless of bucket==nil so
 			// the no-op release still runs and the prop appears in the pin set.
 			pins.add(property, bucket, release)

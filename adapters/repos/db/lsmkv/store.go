@@ -105,12 +105,11 @@ func (s *Store) bucketNoLock(name string) *Bucket {
 //
 // TEARDOWN INVARIANT: a pinned query may still need bucketAccessLock to
 // finish (e.g. Store.Bucket(objects)), so no code may hold bucketAccessLock
-// across a draining bucket.Shutdown for a bucket a live query can pin —
-// that inverts the order and deadlocks. Online teardown must remove the
-// bucket from bucketsByName FIRST (SwapBucketPointer does; Store.Shutdown
-// snapshots+clears the map before draining). The callers that DO hold
-// bucketAccessLock across Shutdown (ShutdownBucket, ReplaceBuckets) are safe
-// only because they run offline, where no live query can hold a pin.
+// across a draining bucket.Shutdown — that inverts the order and deadlocks
+// the whole store. Every teardown path must remove the bucket from
+// bucketsByName FIRST and drain outside the lock: SwapBucketPointer,
+// ShutdownBucket, ReplaceBuckets, and Store.Shutdown (snapshot+clear) all
+// follow this protocol; any new teardown path must too.
 func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
 	s.bucketAccessLock.RLock()
 	b := s.bucketsByName[name]
@@ -261,6 +260,12 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	// across a draining Shutdown deadlocks against a pinned query that still
 	// needs Store.Bucket to finish. With the map cleared, that query's
 	// lookup returns nil, it exits, its pin releases, the drain completes.
+	//
+	// Consequence for Store.Bucket callers: mid-teardown (reachable via
+	// Index.drop, which does not wait for in-flight queries) Bucket returns
+	// nil where it previously returned a shutting-down bucket. That is the
+	// better failure mode (an error instead of reads on freed state), but
+	// callers on the query path must nil-check.
 	s.bucketAccessLock.Lock()
 	buckets := make(map[string]*Bucket, len(s.bucketsByName))
 	for name, bucket := range s.bucketsByName {
@@ -301,18 +306,25 @@ func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
+	// Remove from the registry FIRST, drain-Shutdown OUTSIDE
+	// bucketAccessLock — the TEARDOWN INVARIANT on AcquireBucketForRead:
+	// holding the registry lock across the drain deadlocks against a pinned
+	// query that still needs Store.Bucket to finish. The bucket is
+	// deregistered even if Shutdown then errors: a half-shut-down bucket
+	// must not be reachable for new pins.
 	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
-
 	bucket, ok := s.bucketsByName[bucketName]
+	if ok {
+		delete(s.bucketsByName, bucketName)
+	}
+	s.bucketAccessLock.Unlock()
+
 	if !ok {
 		return fmt.Errorf("shutdown bucket %q of store %q: %w", bucketName, s.dir, ErrBucketNotFound)
 	}
 	if err := bucket.Shutdown(ctx); err != nil {
 		return errors.Wrapf(err, "shutdown bucket %q of store %q", bucketName, s.dir)
 	}
-	delete(s.bucketsByName, bucketName)
-
 	return nil
 }
 
@@ -561,20 +573,25 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return fmt.Errorf("%w: replacing bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, replacementBucketName, s.dir)
 	}
 
+	// Swap the registry entries under the lock, then run the displaced
+	// bucket's drain-Shutdown (inside replaceBucket) OUTSIDE it — the
+	// TEARDOWN INVARIANT on AcquireBucketForRead. Once the map is swapped,
+	// no new pin can land on the displaced bucket; existing pins drain.
 	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
-
 	bucket := s.bucketsByName[bucketName]
+	replacementBucket := s.bucketsByName[replacementBucketName]
+	if bucket != nil && replacementBucket != nil {
+		s.bucketsByName[bucketName] = replacementBucket
+		delete(s.bucketsByName, replacementBucketName)
+	}
+	s.bucketAccessLock.Unlock()
+
 	if bucket == nil {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
 	}
-
-	replacementBucket := s.bucketsByName[replacementBucketName]
 	if replacementBucket == nil {
 		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
 	}
-	s.bucketsByName[bucketName] = replacementBucket
-	delete(s.bucketsByName, replacementBucketName)
 
 	var currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir string
 	var err error
