@@ -3365,7 +3365,8 @@ func (i *Index) dropShards(names []string) error {
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
 					ec.Add(err)
-					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+					// shard is nil in this branch — shard.ID() would panic
+					i.logger.WithField("action", "drop_shard").WithField("shard", name).Error(err)
 				}
 			} else {
 				// If shard is loaded use the native primitive to drop it
