@@ -61,9 +61,7 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 
 	const className = "PostRestartPlateau"
 
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, 3, 3, textProps("text"))
 	// Re-resolve at defer time: rollingRestart replaces each container,
 	// which testcontainers reallocates ports for. Capturing a URL at
 	// defer-registration time would bake in a pre-restart port and the
@@ -313,7 +311,7 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 	const totalObjects = 10_000
 
 	trueVal, falseVal := true, false
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:              "price",
 			DataType:          []string{"int"},

@@ -57,7 +57,7 @@ func TestMultiNode_ChangeTokenization_RoundTrip(t *testing.T) {
 	const className = "RoundTripTokenize"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
