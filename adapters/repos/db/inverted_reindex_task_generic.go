@@ -425,7 +425,10 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 		"method":     "RunPrepareOnShard",
 	})
 
-	rt, err := t.newReindexTracker(concreteShard.pathLSM())
+	// Guarded: PREP is DTM-scheduler-driven (never under closeLock), so the
+	// tracker's MkdirAll must be serialized against a concurrent DELETE the
+	// same way as the worker drain path — see newReindexTrackerGuarded.
+	rt, err := t.newReindexTrackerGuarded(concreteShard)
 	if err != nil {
 		return fmt.Errorf("creating reindex tracker: %w", err)
 	}
@@ -450,7 +453,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
 			return fmt.Errorf("resume iteration before prep: %w", err)
 		}
-		rt, err = t.newReindexTracker(concreteShard.pathLSM())
+		rt, err = t.newReindexTrackerGuarded(concreteShard)
 		if err != nil {
 			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
 		}
@@ -533,7 +536,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		"method":     "RunSwapOnShard",
 	})
 
-	rt, err := t.newReindexTracker(concreteShard.pathLSM())
+	// Guarded: SWAP is DTM-scheduler-driven (never under closeLock), same
+	// DELETE-race exposure as the worker drain path.
+	rt, err := t.newReindexTrackerGuarded(concreteShard)
 	if err != nil {
 		return fmt.Errorf("creating reindex tracker: %w", err)
 	}
@@ -578,7 +583,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		// (and possibly more — runtimeSwap MAY have run inline if
 		// skipSwapOnFinish was somehow not honored, though it's set in
 		// runShardLifecycle).
-		rt, err = t.newReindexTracker(concreteShard.pathLSM())
+		rt, err = t.newReindexTrackerGuarded(concreteShard)
 		if err != nil {
 			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
 		}
@@ -839,6 +844,9 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 		return nil
 	}
 
+	// Deliberately UNguarded: shard-init hooks can run under an outer
+	// closeLock.RLock (see newReindexTrackerGuarded) — a nested RLock here
+	// deadlocks against a queued drop() writer.
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
@@ -1072,6 +1080,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 
+	// Deliberately UNguarded: shard-init hook, see comment in OnBeforeLsmInit.
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
@@ -1205,18 +1214,26 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	return nil
 }
 
-// newReindexTrackerGuarded builds a reindex tracker for the WORKER drain path
-// whose init()-time os.MkdirAll is serialized against the owning Index's
-// drop() via Index.closeLock.
+// newReindexTrackerGuarded builds a reindex tracker for DTM-scheduler-driven
+// paths (worker drain loop, RunPrepareOnShard, RunSwapOnShard) whose
+// init()-time os.MkdirAll is serialized against the owning Index's drop()
+// via Index.closeLock.
 //
 // The plain t.newReindexTracker factory creates the tracker dir with an
-// unguarded MkdirAll. That is correct for setup/recovery callers that run
-// before the worker loop, but it is UNSAFE for the per-iteration call inside
-// the worker loop (OnAfterLsmInitAsync): a cancelled reindex worker keeps
-// draining and re-enters this function with NO ctx check before the MkdirAll.
-// If a concurrent DELETE (Index.drop) has renamed the shard's LSM path away,
-// the unguarded MkdirAll re-materializes the original directory AFTER the
-// rename, leaving an orphaned class dir that the DELETE was supposed to remove.
+// unguarded MkdirAll. That is correct — and REQUIRED — for the shard-init
+// hooks (OnBeforeLsmInit / OnAfterLsmInit): those run inside NewShard, which
+// two of its call routes reach while ALREADY holding closeLock.RLock on the
+// same goroutine (initLocalShardWithForcedLoading, getOptInitLocalShard);
+// sync.RWMutex is non-reentrant, so taking the guard's RLock there deadlocks
+// against a queued drop() writer. Those routes are also already excluded
+// from drop() for their whole duration by that outer RLock. DTM-driven
+// paths, by contrast, provably never hold closeLock (they reach the shard
+// via ForEachShard/GetShard, whose RLocks are released before the callback),
+// and they ARE reachable while a concurrent DELETE runs: a cancelled reindex
+// keeps executing with NO ctx check before the MkdirAll. If Index.drop has
+// renamed the shard's LSM path away, the unguarded MkdirAll re-materializes
+// the original directory AFTER the rename, leaving an orphaned class dir
+// that the DELETE was supposed to remove.
 //
 // Routing the MkdirAll through index.withCloseRLockGuard makes it mutually
 // exclusive with drop()'s rename: it either completes before drop() takes the
