@@ -60,6 +60,14 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
+	// guarded by maintenanceLock; once set, no new consistent views may be
+	// created, so the refcounts observed by shutdown's wait can only decrease
+	shutdownRequested bool
+
+	// nil in production; invoked by shutdown between the refcount wait and
+	// segment close to make the race window deterministic in tests
+	testHookShutdownAfterRefWait func()
+
 	strategy string
 
 	compactionCallbackCtrl cyclemanager.CycleCallbackCtrl
@@ -623,6 +631,11 @@ func (sg *SegmentGroup) segmentAtPositionHasID(pos int, id string) bool {
 	return pos >= 0 && pos < len(sg.segments) && segmentID(sg.segments[pos].getPath()) == id
 }
 
+// ErrShuttingDown is returned when a new consistent view is requested after
+// shutdown has begun. Refusing (instead of serving a soon-to-be-munmapped or
+// empty view) is what keeps the refcount wait in shutdown race-free.
+var ErrShuttingDown = errors.New("lsmkv bucket is shutting down: cannot create new consistent view")
+
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
 	segments = make([]Segment, len(sg.segments))
@@ -924,6 +937,13 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	sg.maintenanceLock.RUnlock()
 
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+
+	// test-only: exposes the window between the refcount wait and close, where
+	// a racing reader must be refused a new view (see ErrShuttingDown)
+	if sg.testHookShutdownAfterRefWait != nil {
+		sg.testHookShutdownAfterRefWait()
+	}
+
 	sg.dropSegmentsAwaiting()
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
