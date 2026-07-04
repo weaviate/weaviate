@@ -365,18 +365,10 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			wantPath: "swapped",
 		},
 		{
-			// A rolling restart inside the FINALIZING window: runtimeSwap
-			// already flipped in-memory AND set the per-prop swapped
-			// sentinel, then the node restarted before markSwapped(). The
-			// disk renames converged pre-restart (main + backup both
-			// exist → recovery's rename switch no-ops), so the ONLY work
-			// left for recoverRuntimeSwapBuckets is the marking — which
-			// must tolerate the pre-existing sentinel (markSwappedProp
-			// creates with O_EXCL; an unguarded re-mark fails the unit
-			// with "file exists" and flips the whole task to FAILED —
-			// observed in CI as TestMultiNode_RollingRestartDuring
-			// Finalizing_PerReplicaConsistency, weaviate/weaviate run
-			// 28709084881 job 85139507951).
+			// Restart mid-FINALIZING: sentinel already set, disk renames
+			// already converged → recovery's only remaining work is the
+			// re-mark, which must tolerate the existing O_EXCL sentinel.
+			// Regression for the CI failure in run 28709084881.
 			name: "IsMerged/prop_sentinel_preset/recovery_mark_idempotent",
 			setupRT: func(rt reindexTracker) {
 				require.NoError(t, rt.markStarted(time.Now()))
