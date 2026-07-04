@@ -28,6 +28,9 @@ func (b *Bucket) SetRawList(key []byte) ([][]byte, error) {
 }
 
 func (b *Bucket) setRawListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
+	if view.err != nil {
+		return nil, view.err
+	}
 	var out [][]byte
 
 	v, err := b.disk.getCollectionBytes(key, view.Disk)

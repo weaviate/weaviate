@@ -453,10 +453,12 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	var tmpSegmentPath string
 
 	ok, err := func() (bool, error) {
-		segments, release := c.sg.getConsistentViewOfSegments()
+		segments, release, err := c.sg.getConsistentViewOfSegments()
+		if err != nil {
+			return false, err
+		}
 		defer release()
 
-		var err error
 		candidateIdx, startIdx, lastIdx, onCompleted, err = c.findCandidate(segments)
 		if err != nil {
 			return false, err
@@ -691,7 +693,10 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	transformer valueTransformer, shouldAbort cyclemanager.ShouldAbortCallback,
 ) (idx int, tmpPath string, found bool, err error) {
-	segments, release := c.sg.getConsistentViewOfSegments()
+	segments, release, err := c.sg.getConsistentViewOfSegments()
+	if err != nil {
+		return emptyIdx, "", false, err
+	}
 	defer release()
 
 	idx = emptyIdx

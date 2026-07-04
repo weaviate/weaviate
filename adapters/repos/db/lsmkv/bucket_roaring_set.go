@@ -128,6 +128,9 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 func (b *Bucket) roaringSetGetFromConsistentView(
 	view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
+	if view.err != nil {
+		return nil, noopRelease, view.err
+	}
 	layers, release, err := b.disk.roaringSetGet(key, view.Disk)
 	if err != nil {
 		return nil, noopRelease, err
