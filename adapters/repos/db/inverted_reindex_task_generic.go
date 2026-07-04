@@ -803,23 +803,39 @@ func unwrapShard(ctx context.Context, shard ShardLike) (*Shard, error) {
 	}
 }
 
-func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
-	collectionName := shard.Index().Config.ClassName.String()
-	shardName := shard.Name()
+// logPhase builds the per-invocation logger and the finished-lifecycle
+// callback shared by the LSM-init hooks. context.Canceled logs at Debug —
+// the scheduler already logs the cancelled unit.
+func (t *ShardReindexTaskGeneric) logPhase(collectionName, shardName, method string,
+) (logrus.FieldLogger, func(started time.Time, err error)) {
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shardName,
-		"method":     "OnBeforeLsmInit",
+		"method":     method,
 	})
 	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
+	done := func(started time.Time, err error) {
+		logger := logger.WithField("took", time.Since(started))
+		switch {
+		case err == nil:
 			logger.Info("finished")
+		case errors.Is(err, context.Canceled):
+			// Clean stop (index closing / request cancelled): the scheduler
+			// already logs the cancelled unit, so keep this at debug to avoid
+			// a duplicate ERROR line per clean stop.
+			logger.Debugf("finished after cancellation: %v", err)
+		default:
+			logger.Errorf("finished with error: %v", err)
 		}
-	}(time.Now())
+	}
+	return logger, done
+}
+
+func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
+	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
+	logger, done := t.logPhase(collectionName, shardName, "OnBeforeLsmInit")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	if !t.isShardSelected(collectionName, shardName) {
 		logger.Debug("different collection/shard selected. nothing to do")
@@ -1073,26 +1089,8 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 ) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
-	logger := t.logger.WithFields(map[string]any{
-		"collection": collectionName,
-		"shard":      shardName,
-		"method":     "OnAfterLsmInit",
-	})
-	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		switch {
-		case err == nil:
-			logger.Info("finished")
-		case errors.Is(err, context.Canceled):
-			// Clean stop (index closing / request cancelled): the scheduler
-			// already logs the cancelled unit, so keep this at debug to avoid
-			// a duplicate ERROR line per clean stop.
-			logger.Debugf("finished after cancellation: %v", err)
-		default:
-			logger.Errorf("finished with error: %v", err)
-		}
-	}(time.Now())
+	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInit")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	// skip shard only if not started or rollback requested
 	// otherwise double writes have to be enabled if migration was already started
@@ -1273,26 +1271,8 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
-	logger := t.logger.WithFields(map[string]any{
-		"collection": collectionName,
-		"shard":      shardName,
-		"method":     "OnAfterLsmInitAsync",
-	})
-	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		switch {
-		case err == nil:
-			logger.Info("finished")
-		case errors.Is(err, context.Canceled):
-			// Clean stop (index closing / request cancelled): the scheduler
-			// already logs the cancelled unit, so keep this at debug to avoid
-			// a duplicate ERROR line per clean stop.
-			logger.Debugf("finished after cancellation: %v", err)
-		default:
-			logger.Errorf("finished with error: %v", err)
-		}
-	}(time.Now())
+	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInitAsync")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	zerotime := time.Time{}
 
