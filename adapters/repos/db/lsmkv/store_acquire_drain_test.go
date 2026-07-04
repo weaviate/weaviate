@@ -210,3 +210,47 @@ func TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
 		})
 	}
 }
+
+// TestReplaceBuckets_ConcurrentWriteSurvives pins the lost-write window QA
+// found on the remove-from-map-first protocol: a by-name write landing after
+// the map swap but before the replacement's dir/memtable tail completed was
+// appended to a memtable the tail then discarded unflushed. The freeze
+// (flushLock held across the whole move) makes the writer block instead.
+func TestReplaceBuckets_ConcurrentWriteSurvives(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStoreForDrain(t)
+	t.Cleanup(func() { _ = store.Shutdown(ctx) })
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, "target", WithStrategy(StrategyReplace)))
+	require.NoError(t, store.CreateOrLoadBucket(ctx, "replacement", WithStrategy(StrategyReplace)))
+
+	key, val := []byte("mid-swap-key"), []byte("mid-swap-val")
+	putDone := make(chan error, 1)
+	store.testOnReplaceAfterSwap = func() {
+		go func() {
+			b := store.Bucket("target") // resolves to the replacement post-swap
+			putDone <- b.Put(key, val)
+		}()
+		// Pre-fix the Put completes into the doomed memtable, so this wait
+		// returns immediately. Post-fix the Put blocks on the held flushLock
+		// and the timeout path lets ReplaceBuckets finish first.
+		select {
+		case err := <-putDone:
+			putDone <- err
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	require.NoError(t, store.ReplaceBuckets(ctx, "target", "replacement"))
+
+	select {
+	case err := <-putDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("concurrent Put did not complete after ReplaceBuckets returned")
+	}
+
+	got, err := store.Bucket("target").Get(key)
+	require.NoError(t, err)
+	require.Equal(t, val, got, "LOST WRITE: value acknowledged during ReplaceBuckets is gone")
+}
