@@ -94,23 +94,13 @@ type Bucket struct {
 	flushLock sync.RWMutex
 
 	// lifetimeLock pins this bucket pointer for the full duration of a
-	// read/query. A query takes lifetimeLock.RLock() (via
-	// Store.AcquireBucketForRead) when it resolves the bucket and holds it
-	// until the query ends; Shutdown takes lifetimeLock.Lock() as its very
-	// first action to DRAIN all in-flight pins before tearing down the
-	// mmap'd segments (b.disk.shutdown). This is what makes a per-prop
-	// bucket-pointer swap followed by oldBucket.Shutdown safe against a query
-	// that pinned the old pointer: the Shutdown blocks until the query
-	// releases its pin, so the mmap is never freed under a live read.
-	//
-	// There is deliberately NO timeout on the Shutdown-side Lock(): a
-	// timeout-then-free would free mmap'd memory out from under a reader and
-	// SEGFAULT. It is a true drain.
-	//
-	// Lock ordering: lifetimeLock is OUTER, flushLock is INNER. A query holds
-	// lifetimeLock.RLock for the whole query and takes flushLock.RLock per
-	// read op; Shutdown takes lifetimeLock.Lock first, then flushLock.Lock —
-	// the same direction, so no inversion.
+	// read/query: RLock via Store.AcquireBucketForRead, held until the query
+	// ends; Shutdown takes Lock() as its FIRST action, draining all in-flight
+	// pins before freeing mmap'd segments — so a bucket-pointer swap followed
+	// by oldBucket.Shutdown can never free memory under a live read.
+	// Deliberately NO timeout on the drain: timeout-then-free would SEGFAULT
+	// a reader. Ordering: lifetimeLock OUTER, flushLock INNER — same
+	// direction on the read and Shutdown sides, so no inversion.
 	lifetimeLock sync.RWMutex
 	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
 	// designed assuming a single triggerer at a time (the periodic flush
@@ -1619,14 +1609,8 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
-	// Drain in-flight reads/queries that pinned this bucket pointer before
-	// tearing anything down. A query takes lifetimeLock.RLock (via
-	// Store.AcquireBucketForRead) for its whole duration; this Lock() blocks
-	// until every such pin is released, guaranteeing b.disk.shutdown below
-	// never frees mmap'd segments under a live reader. Deliberately no
-	// timeout: a timeout-then-free would SEGFAULT mmap'd memory. Held for the
-	// rest of Shutdown. Lifetime-OUTER / flushLock-INNER (flushLock is taken
-	// further down), the same direction as readers, so no inversion.
+	// Drain every in-flight read pin before tearing anything down — see the
+	// lifetimeLock field doc (incl. why there is deliberately no timeout).
 	b.lifetimeLock.Lock()
 	defer b.lifetimeLock.Unlock()
 
