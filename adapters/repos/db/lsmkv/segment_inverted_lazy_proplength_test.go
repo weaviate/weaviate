@@ -105,6 +105,56 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 	}
 }
 
+// TestInvertedFreePropertyLengthsClearsNarrowPairs pins that freePropertyLengths
+// clears the uint32 pairs layout, not just dense. TestInvertedLazyPropertyLengths
+// above uses contiguous docIDs (the dense path), so its post-free nil check on
+// propLengthsPairIds32 is vacuous — that field is never populated there. Strided
+// docIDs with a max under uint32 force the narrow-pairs layout, exercising the
+// field for real.
+func TestInvertedFreePropertyLengthsClearsNarrowPairs(t *testing.T) {
+	ctx := context.Background()
+	const size = 100
+	const stride = 1_000_000 // max docID 99_000_000 < MaxUint32; span/3 >> size -> pairs, not dense
+	key := []byte("my-key")
+
+	dirName := t.TempDir()
+	mk := func() *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyInverted))
+		require.Nil(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	b := mk()
+	for i := 0; i < size; i++ {
+		docID := uint64(i) * stride
+		require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(docID, float32(1), float32(1+i%5), false)))
+	}
+	require.Nil(t, b.FlushAndSwitch())
+
+	// reopen so the segment is loaded from disk via newSegment
+	require.Nil(t, b.Shutdown(ctx))
+	b = mk()
+	defer b.Shutdown(ctx)
+
+	require.GreaterOrEqual(t, len(b.disk.segments), 1)
+	seg := b.disk.segments[0]
+
+	_, err := seg.getPropertyLengths()
+	require.NoError(t, err)
+	inv := seg.getInvertedData()
+	require.NotNil(t, inv.propLengthsPairIds32, "strided max under uint32 must select the narrow pairs layout")
+	require.Nil(t, inv.propLengthsDense, "sparse span must not select dense")
+	require.Nil(t, inv.propLengthsPairIds, "max under uint32 must not use wide pairs")
+
+	seg.freePropertyLengths()
+	require.False(t, seg.isPropertyLengthsLoaded())
+	require.Nil(t, seg.getInvertedData().propLengthsPairIds32, "free must clear the uint32 pairs layout")
+	require.Nil(t, seg.getInvertedData().propLengthsPairLens, "free must clear the pairs lengths")
+}
+
 // TestInvertedCompactionFreesLazyPropertyLengths verifies that an inverted
 // compaction releases a property length map it loaded itself, while leaving a
 // map that was already loaded before the compaction untouched. The aborted

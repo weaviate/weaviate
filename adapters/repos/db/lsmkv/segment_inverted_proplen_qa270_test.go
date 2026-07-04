@@ -24,9 +24,12 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// flushPropLenSegmentQA flushes one inverted segment whose stored property
-// lengths are exactly `want` (docID -> length; a length of 0 is stored verbatim,
-// which forces the pairs layout) and returns the on-disk segment.
+// flushPropLenSegmentQA flushes one inverted segment whose stored property lengths
+// are exactly `want` (docID -> length; a length of 0 is stored verbatim, which
+// forces the pairs layout). The on-disk pairs order is gob map-iteration order,
+// so this exercises the integrated flush→load→view path but cannot pin the
+// dense-gate scan order — the deterministic gate pin lives in the unit test for
+// selectPropLengthLayout.
 func flushPropLenSegmentQA(t *testing.T, want map[uint64]uint32) (Segment, func()) {
 	t.Helper()
 	ctx := context.Background()
@@ -86,18 +89,16 @@ func TestProplen270_BoundaryMaxUint32(t *testing.T) {
 	}
 }
 
-// TestProplen270_ZeroLengthHighDocIDStaysWide is the regression test for the trap
-// the issue calls out: the dense-gate min/max loop early-stops at the first
-// zero-length doc, so its max is NOT the segment's true max. The uint32 gate must
-// use sortPropLenPairs' full-scan max instead. Here a stored 0-length forces the
-// pairs layout AND the true max is > MaxUint32 — the segment MUST keep uint64 ids
-// and must not truncate the high docID. If the gate ever regresses to the dense
-// gate's early-stopped max, this segment would be misclassified as uint32 and the
-// 1<<33 length would be silently lost.
+// TestProplen270_ZeroLengthHighDocIDStaysWide is the integrated-path check for the
+// trap the issue calls out: a stored zero-length forces the pairs layout, and the
+// segment's true max (highID) exceeds uint32, so the segment must keep uint64 ids
+// and must not truncate the high docID. This exercises the real flush→load→view→get
+// path; the flush order (and thus the dense-gate scan order) is gob-random, so the
+// deterministic regression pin lives in TestSelectPropLengthLayout_* instead.
 func TestProplen270_ZeroLengthHighDocIDStaysWide(t *testing.T) {
-	const highID = uint64(1) << 33 // > MaxUint32
+	const highID = uint64(1) << 33 // > MaxUint32, the true max
 	want := map[uint64]uint32{
-		3:      0, // zero-length: forces pairs AND is where the dense gate early-stops
+		3:      0, // zero-length: forces pairs
 		7:      5,
 		50:     9,
 		highID: 12, // true max, far beyond uint32

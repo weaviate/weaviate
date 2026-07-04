@@ -200,54 +200,78 @@ func (s *segment) loadPropertyLengthsLocked() (propLengths, error) {
 		}
 	}
 
-	if len(ids) > 0 {
-		minID, maxID := ids[0], ids[0]
-		// min/max only feed the dense gate, so stop at the first zero length — a
-		// zero rules dense out anyway (see the gate below)
-		hasZeroLen := lens[0] == 0
-		for i := 1; i < len(ids) && !hasZeroLen; i++ {
-			if ids[i] < minID {
-				minID = ids[i]
-			}
-			if ids[i] > maxID {
-				maxID = ids[i]
-			}
-			if lens[i] == 0 {
-				hasZeroLen = true
-			}
-		}
-		span := maxID - minID + 1
-		// dense uses 0 as the "docID absent" sentinel (getPropertyLengths drops
-		// zero slots), so a stored 0 would be lost — keep pairs when one exists.
-		if !hasZeroLen && span != 0 && span/3 <= uint64(len(ids)) {
-			// dense path: direct-indexed fill, no sort needed (unlike the pairs branch)
-			dense := make([]uint32, span)
-			for i, id := range ids {
-				dense[id-minID] = lens[i]
-			}
-			s.invertedData.propLengthsDense = dense
-			s.invertedData.propLengthsDenseMin = minID
-		} else {
-			maxID := sortPropLenPairs(ids, lens)
-			// Narrow ids to uint32 (4B vs 8B) when the segment's max docID fits.
-			// Runtime per-segment gate, never an assumption: docIDs aren't reused
-			// on delete, so a churned shard's max can exceed uint32 with few live
-			// docs. maxID is the sort's full scan, not the dense gate's early-stop.
-			if maxID <= math.MaxUint32 {
-				ids32 := make([]uint32, len(ids))
-				for i, id := range ids {
-					ids32[i] = uint32(id)
-				}
-				s.invertedData.propLengthsPairIds32 = ids32
-			} else {
-				s.invertedData.propLengthsPairIds = ids
-			}
-			s.invertedData.propLengthsPairLens = lens
-		}
-	}
+	layout := selectPropLengthLayout(ids, lens)
+	s.invertedData.propLengthsDense = layout.dense
+	s.invertedData.propLengthsDenseMin = layout.denseMin
+	s.invertedData.propLengthsPairIds32 = layout.ids32
+	s.invertedData.propLengthsPairIds = layout.ids64
+	s.invertedData.propLengthsPairLens = layout.lens
 
 	s.invertedData.propertyLengthsLoaded = true
 	return s.invertedData.propLengthsSnapshot(), nil
+}
+
+// propLengthLayout is the resident-memory representation chosen for a segment's
+// property lengths: exactly one of dense, narrow-pairs (ids32) or wide-pairs
+// (ids64) is populated, with lens set for the two pairs layouts.
+type propLengthLayout struct {
+	dense    []uint32
+	denseMin uint64
+	ids32    []uint32
+	ids64    []uint64
+	lens     []uint32
+}
+
+// selectPropLengthLayout picks the resident layout for decoded (ids, lens) pairs.
+// Extracted from the load path so the gate is unit-testable: DecodePairs yields
+// entries in gob map-iteration order (random per process), so a segment-flush
+// test can't pin the scan order — only a direct call with a fixed slice can.
+//
+// The dense gate's min/max loop early-stops at the first zero-length doc; that
+// truncated max is sound ONLY for ruling dense out (a stored zero can't use the
+// dense sentinel layout). The uint32 gate must use sortPropLenPairs' full-scan
+// max — using the early-stopped max would misclassify a segment whose true max
+// exceeds uint32 as narrow and silently truncate the high docID.
+func selectPropLengthLayout(ids []uint64, lens []uint32) propLengthLayout {
+	if len(ids) == 0 {
+		return propLengthLayout{}
+	}
+	minID, maxID := ids[0], ids[0]
+	hasZeroLen := lens[0] == 0
+	for i := 1; i < len(ids) && !hasZeroLen; i++ {
+		if ids[i] < minID {
+			minID = ids[i]
+		}
+		if ids[i] > maxID {
+			maxID = ids[i]
+		}
+		if lens[i] == 0 {
+			hasZeroLen = true
+		}
+	}
+	span := maxID - minID + 1
+	// dense uses 0 as the "docID absent" sentinel (getPropertyLengths drops zero
+	// slots), so a stored 0 would be lost — keep pairs when one exists.
+	if !hasZeroLen && span != 0 && span/3 <= uint64(len(ids)) {
+		// direct-indexed fill, no sort needed (unlike the pairs branch)
+		dense := make([]uint32, span)
+		for i, id := range ids {
+			dense[id-minID] = lens[i]
+		}
+		return propLengthLayout{dense: dense, denseMin: minID}
+	}
+	// Narrow ids to uint32 (4B vs 8B) when the segment's max docID fits. Runtime
+	// per-segment gate, never an assumption: docIDs aren't reused on delete, so a
+	// churned shard's max can exceed uint32 with few live docs.
+	trueMax := sortPropLenPairs(ids, lens)
+	if trueMax <= math.MaxUint32 {
+		ids32 := make([]uint32, len(ids))
+		for i, id := range ids {
+			ids32[i] = uint32(id)
+		}
+		return propLengthLayout{ids32: ids32, lens: lens}
+	}
+	return propLengthLayout{ids64: ids, lens: lens}
 }
 
 // sortPropLenPairs sorts both arrays in tandem by docID using an LSD radix sort
