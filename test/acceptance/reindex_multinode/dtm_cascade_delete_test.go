@@ -150,10 +150,8 @@ func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 	t.Helper()
 	// /v1/tasks is served from the coordinator's FSM-replicated view — the
 	// cascade applies inside the same FSM, so absence is visible immediately.
-	// The Eventually + tolerant read absorb the post-rolling-restart window
-	// where the queried node's ListDistributedTasks gRPC connection is still
-	// reconnecting and /v1/tasks transiently returns non-200: a read that did
-	// not succeed is retried, never read as "task still present".
+	// The tolerant read retries post-restart transient non-200s (gRPC
+	// reconnect); only a successful read with the task absent passes.
 	require.Eventuallyf(t, func() bool {
 		exists, ok := taskExists(t, restURI, taskID)
 		return ok && !exists
@@ -198,14 +196,10 @@ func assertIndexesReady(t *testing.T, restURI, className, label string) {
 	}
 }
 
-// tryFetchTasks does one tolerant GET /v1/tasks, returning ok=false on any
-// transport / non-200 / decode error so a caller polling inside
-// require.Eventually retries instead of hard-failing. Right after a rolling
-// restart the queried node's internal gRPC connection for ListDistributedTasks
-// can still be reconnecting, so /v1/tasks transiently returns a non-200
-// ("client connection is closing") that must be ridden out. Takes no
-// *testing.T: it runs inside an Eventually condition goroutine, where
-// require/t.Fatal would runtime.Goexit the wrong goroutine.
+// tryFetchTasks does one tolerant GET /v1/tasks: ok=false on any transport /
+// non-200 / decode error so Eventually polls retry post-restart transients
+// (gRPC reconnect). Deliberately takes no *testing.T — require inside an
+// Eventually condition goroutine would runtime.Goexit the wrong goroutine.
 func tryFetchTasks(restURI string) (models.DistributedTasks, bool) {
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	if err != nil {
