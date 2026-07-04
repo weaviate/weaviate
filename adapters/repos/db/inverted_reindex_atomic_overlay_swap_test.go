@@ -78,13 +78,11 @@ import (
 //
 // SCOPE. This proves atomicity of the (tokenization, searchable-bucket)
 // resolve the query performs at PROP DISCOVERY — i.e. the two reads the bug
-// report identifies (GetBucket + TokenizationFor, bm25_searcher.go ~216/239,
-// now unified in Shard.EffectiveTokenizationAndSearchableBucket). It does NOT
-// cover the SEPARATE, narrower lookup-time bucket re-fetch in createTerm /
-// createBlockTerm (bm25_searcher.go:603 / bm25_searcher_block.go:42), which
-// re-fetches the bucket by name independently of this snapshot; closing that
-// safely requires coordinating Phase-2b bucket shutdown with in-flight
-// queries and is left as a documented residual (see the QA report).
+// report identifies (GetBucket + TokenizationFor), now unified in
+// Shard.PinTokenizationAndSearchableBucket. The SEPARATE lookup-time
+// bucket re-fetch in createTerm / createBlockTerm is closed by threading
+// the pinned bucket into the lookup phase; that half is proven by
+// TestPinBucketDrain_* (inverted_reindex_pin_bucket_drain_test.go).
 //
 // TestAtomicOverlaySwap_BM25NeverSeesZeroCount is the WITH-FIX run: a
 // concurrent query never observes an inconsistent (bucket, tokenization)
@@ -98,7 +96,7 @@ func TestAtomicOverlaySwap_BM25NeverSeesZeroCount(t *testing.T) {
 
 // TestAtomicOverlaySwap_OldCodeIsRacy is the WITHOUT-FIX run: with
 // tokenizationOverlayNonAtomicForTest toggled on, SwapBucketAndSetOverlay
-// and EffectiveTokenizationAndSearchableBucket revert to the pre-fix
+// and PinTokenizationAndSearchableBucket revert to the pre-fix
 // two-separate-critical-sections behavior, and the SAME concurrent query —
 // with the SAME 50ms hook — DOES observe the inconsistent pair. This pins
 // the asymmetry: the proof is sensitive, and the old code is racy.
@@ -240,11 +238,12 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 	// Concurrent query loop on the FIELD prop. Each iteration is exactly
 	// what the production read path does for a searchable text prop: resolve
 	// the effective tokenization AND the searchable bucket as one snapshot
-	// (Shard.EffectiveTokenizationAndSearchableBucket — the read-side fix),
-	// then look the phrase up using THAT pair. With the fix the pair is
-	// always consistent → always validCount. Pre-fix, the read could pick up
-	// the post-flip WORD bucket with the pre-set FIELD overlay (or vice
-	// versa) and miss → 0. The loop records the first non-validCount result.
+	// (Shard.PinTokenizationAndSearchableBucket — the read-side fix),
+	// then look the phrase up using THAT pair while holding the pin. With
+	// the fix the pair is always consistent → always validCount. Pre-fix,
+	// the read could pick up the post-flip WORD bucket with the pre-set
+	// FIELD overlay (or vice versa) and miss → 0. The loop records the
+	// first non-validCount result.
 	var (
 		stop       atomic.Bool
 		queryWG    sync.WaitGroup
@@ -254,7 +253,8 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 		totalReads atomic.Int64
 	)
 	query := func() (int, string) {
-		tok, bkt := shard.EffectiveTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
+		tok, bkt, release := shard.PinTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
+		defer release()
 		which := "other"
 		switch bkt {
 		case fieldBucket:
@@ -301,7 +301,8 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 	// Post-swap the FIELD prop resolves to the WORD bucket with overlay=word.
 	// (Holds in both modes — the toggle only affects atomicity, not the end
 	// state.)
-	tokPost, bktPost := shard.EffectiveTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
+	tokPost, bktPost, releasePost := shard.PinTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
+	defer releasePost()
 	require.Equal(t, models.PropertyTokenizationWord, tokPost,
 		"overlay must route the FIELD prop to WORD post-swap")
 	require.Same(t, wordBucket, bktPost,
