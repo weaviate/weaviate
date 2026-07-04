@@ -3302,6 +3302,12 @@ func (i *Index) drop() error {
 // runs. A lock-free i.closed check is NOT sufficient: a stale read would let
 // fn re-create the just-renamed path. fn must be short and must not acquire
 // i.closeLock for writing or any lock drop() holds in an inverting order.
+//
+// Scope: the guard covers whole-index drops only. Per-shard tenant deletes
+// (dropShards) run under closeLock.RLock themselves and never set i.closed,
+// so the guard is blind to them — a guarded MkdirAll can still re-create a
+// tenant shard dir that dropShards just removed. Tracked in a separate
+// to-be-filed issue.
 func (i *Index) withCloseRLockGuard(fn func() error) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
