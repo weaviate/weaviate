@@ -61,6 +61,20 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
+// textProps builds word-tokenized text properties — the package's default
+// collection shape.
+func textProps(names ...string) []*models.Property {
+	props := make([]*models.Property, 0, len(names))
+	for _, name := range names {
+		props = append(props, &models.Property{
+			Name:         name,
+			DataType:     []string{"text"},
+			Tokenization: "word",
+		})
+	}
+	return props
+}
+
 // createCollection creates a class with the given shard count and replication factor
 // via the REST API, then blocks until the class is in every node's LOCAL
 // schema view — a lagging follower otherwise fails consistency=ALL writes,
