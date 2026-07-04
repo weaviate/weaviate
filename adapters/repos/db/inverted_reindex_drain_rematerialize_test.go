@@ -43,65 +43,29 @@ import (
 //     onAfterLsmInitGuarded — the same route enterDTMPhase's iteration
 //     resume ladder takes (and RunOnShard shares).
 func TestModeADrainRematerialize(t *testing.T) {
-	for _, tc := range drainRematerializeCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "ModeADrain_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{"title"})
+	runDrainRematerialize(t, rematerializeProbe{
+		classPrefix: "ModeADrain_",
+		watchedDir:  func(idx *Index, _ *Shard) string { return idx.path() },
+		del:         func(idx *Index, _ *Shard) error { return idx.drop() },
+		what:        "class dir",
+		deleteBy:    "DELETE renamed it away",
+	})
+}
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-
-			idxPath := idx.path()
-			require.DirExists(t, idxPath, "class dir must exist before drop")
-
-			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTask(idx.logger, strategy)
-
-			// The worker signals inHook at the top of the first tracker init,
-			// then blocks on releaseHook until drop() has completed — no sleeps.
-			inHook := make(chan struct{})
-			releaseHook := make(chan struct{})
-			var hookOnce sync.Once
-
-			reindexTrackerInitHook = func() {
-				hookOnce.Do(func() { close(inHook) })
-				<-releaseHook
-			}
-			t.Cleanup(func() { reindexTrackerInitHook = nil })
-
-			var driveErr error
-			workerDone := make(chan struct{})
-			go func() {
-				defer close(workerDone)
-				driveErr = tc.drive(ctx, task, shard)
-			}()
-
-			// Worker parked pre-MkdirAll; drive the DELETE to completion.
-			<-inHook
-			require.NoError(t, idx.drop())
-			require.NoFileExists(t, idxPath,
-				"drop() must have renamed the class dir away before the worker proceeds")
-
-			// Release the worker so its MkdirAll runs AFTER the rename.
-			close(releaseHook)
-			<-workerDone
-
-			// The guard bails with context.Canceled (clean stop); a nil error
-			// would also be acceptable if a future refactor swallows the stop.
-			if driveErr != nil {
-				assert.Truef(t, errors.Is(driveErr, context.Canceled),
-					"production entry failed with an unexpected error (want context.Canceled): %v", driveErr)
-			}
-
-			// The load-bearing assertion.
-			_, statErr := os.Stat(idxPath)
-			assert.Truef(t, os.IsNotExist(statErr),
-				"draining reindex goroutine re-materialized class dir %q after DELETE renamed it away (stat err: %v)",
-				idxPath, statErr)
-		})
-	}
+// TestDropShardsDrainRematerialize is the per-shard-tenant-delete companion of
+// TestModeADrainRematerialize (weaviate/0-weaviate-issues#288): dropShards
+// runs under closeLock.RLock and never sets i.closed, so the close guard alone
+// is blind to it — an unguarded tracker MkdirAll racing a tenant delete
+// re-creates <class>/<shard>/lsm/.migrations/<mig>/ right after dropShards
+// removed the shard dir, leaving an orphaned tenant shard dir on disk.
+func TestDropShardsDrainRematerialize(t *testing.T) {
+	runDrainRematerialize(t, rematerializeProbe{
+		classPrefix: "DropShardsDrain_",
+		watchedDir:  func(idx *Index, shard *Shard) string { return shardPath(idx.path(), shard.Name()) },
+		del:         func(idx *Index, shard *Shard) error { return idx.dropShards([]string{shard.Name()}) },
+		what:        "tenant shard dir",
+		deleteBy:    "dropShards removed it",
+	})
 }
 
 type drainRematerializeCase struct {
@@ -130,34 +94,36 @@ func drainRematerializeCases() []drainRematerializeCase {
 	}
 }
 
-// TestDropShardsDrainRematerialize is the per-shard-tenant-delete companion of
-// TestModeADrainRematerialize (weaviate/0-weaviate-issues#288): dropShards
-// runs under closeLock.RLock and never sets i.closed, so the close guard alone
-// is blind to it — an unguarded tracker MkdirAll racing a tenant delete
-// re-creates <class>/<shard>/lsm/.migrations/<mig>/ right after dropShards
-// removed the shard dir, leaving an orphaned tenant shard dir on disk. The
-// TEST-ONLY reindexTrackerInitHook parks the DTM goroutine just before the
-// MkdirAll until dropShards completes — no sleeps.
-func TestDropShardsDrainRematerialize(t *testing.T) {
+// rematerializeProbe parameterizes the shared drain-rematerialize driver by
+// deletion primitive and the directory that must stay deleted.
+type rematerializeProbe struct {
+	classPrefix string
+	watchedDir  func(idx *Index, shard *Shard) string
+	del         func(idx *Index, shard *Shard) error
+	what        string
+	deleteBy    string
+}
+
+func runDrainRematerialize(t *testing.T, probe rematerializeProbe) {
 	for _, tc := range drainRematerializeCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
-			className := "DropShardsDrain_" + uuid.NewString()[:8]
+			className := probe.classPrefix + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{"title"})
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
 			shard := shd.(*Shard)
-			shardName := shard.Name()
 
-			shardDir := shardPath(idx.path(), shardName)
-			require.DirExists(t, shardDir, "shard dir must exist before dropShards")
+			watched := probe.watchedDir(idx, shard)
+			require.DirExists(t, watched, "watched dir must exist before the delete")
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 
 			// The worker signals inHook at the top of the first tracker init,
-			// then blocks on releaseHook until dropShards has completed.
+			// then blocks on releaseHook until the delete has completed — no
+			// sleeps.
 			inHook := make(chan struct{})
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
@@ -175,11 +141,11 @@ func TestDropShardsDrainRematerialize(t *testing.T) {
 				driveErr = tc.drive(ctx, task, shard)
 			}()
 
-			// Worker parked pre-MkdirAll; drive the tenant delete to completion.
+			// Worker parked pre-MkdirAll; drive the delete to completion.
 			<-inHook
-			require.NoError(t, idx.dropShards([]string{shardName}))
-			require.NoDirExists(t, shardDir,
-				"dropShards must have removed the shard dir before the worker proceeds")
+			require.NoError(t, probe.del(idx, shard))
+			require.NoFileExists(t, watched,
+				"the delete must have removed the watched dir before the worker proceeds")
 
 			// Release the worker so its MkdirAll runs AFTER the removal.
 			close(releaseHook)
@@ -193,10 +159,10 @@ func TestDropShardsDrainRematerialize(t *testing.T) {
 			}
 
 			// The load-bearing assertion.
-			_, statErr := os.Stat(shardDir)
+			_, statErr := os.Stat(watched)
 			assert.Truef(t, os.IsNotExist(statErr),
-				"draining reindex goroutine re-materialized tenant shard dir %q after dropShards removed it (stat err: %v)",
-				shardDir, statErr)
+				"draining reindex goroutine re-materialized %s %q after %s (stat err: %v)",
+				probe.what, watched, probe.deleteBy, statErr)
 		})
 	}
 }
