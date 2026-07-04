@@ -122,7 +122,7 @@ package db
 import (
 	"bytes"
 	"context"
-	stderrors "errors"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -361,7 +361,15 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
 
-	if err := t.OnAfterLsmInit(ctx, concreteShard); err != nil {
+	// DTM route: runShardLifecycle runs on scheduler/worker goroutines that
+	// hold no closeLock, so the hook's tracker init must be guarded against a
+	// concurrent DELETE (see newReindexTrackerGuarded). context.Canceled from
+	// the guard means the index is closing — propagate unwrapped so callers
+	// treat it as a clean stop, consistent with OnAfterLsmInitAsync.
+	if err := t.onAfterLsmInitGuarded(ctx, concreteShard); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
 		return fmt.Errorf("after LSM init: %w", err)
 	}
 
@@ -477,6 +485,17 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 	rt, err := t.newReindexTrackerGuarded(concreteShard)
 	if err != nil {
 		return nil, fmt.Errorf("creating reindex tracker: %w", err)
+	}
+
+	// IsMerged fast-path — MUST stay ahead of the iteration-resume ladder
+	// below. merged.mig can only be written after the iteration completed, so
+	// on a torn sentinel state (IsMerged && !IsReindexed — e.g. partial
+	// sentinel loss or operator surgery) re-running the iteration would run
+	// against an already-merged migration (or error out on !IsStarted). Both
+	// callers handle the merged state downstream: RunPrepareOnShard no-ops,
+	// RunSwapOnShard's dispatch has an IsMerged branch.
+	if rt.IsMerged() {
+		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
 	}
 
 	if !rt.IsReindexed() {
@@ -807,9 +826,12 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 		return nil
 	}
 
-	// Deliberately UNguarded: shard-init hooks can run under an outer
-	// closeLock.RLock (see newReindexTrackerGuarded) — a nested RLock here
-	// deadlocks against a queued drop() writer.
+	// Deliberately UNguarded: OnBeforeLsmInit is only reachable from the
+	// shard-init route (ShardReindexerV3.RunBeforeLsmInit via shard_init.go —
+	// no DTM-goroutine caller exists), and some of those routes run under an
+	// outer closeLock.RLock (see newReindexTrackerGuarded) — a nested RLock
+	// here deadlocks against a queued drop() writer. If a DTM-driven caller
+	// is ever added, it needs a guarded variant like onAfterLsmInitGuarded.
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
@@ -1016,7 +1038,39 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 	return nil
 }
 
-func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) (err error) {
+// OnAfterLsmInit is the shard-init entry into the after-LSM-init hook
+// (ShardReindexerV3.RunAfterLsmInit via shard_init.go, including the
+// recovery-only reindexer). It builds the PLAIN tracker because some NewShard
+// routes hold closeLock.RLock on the calling goroutine (see
+// newReindexTrackerGuarded). DTM-driven callers MUST use
+// onAfterLsmInitGuarded instead — an unguarded tracker init on a goroutine
+// holding no closeLock can re-materialize a just-DELETEd class dir.
+func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
+	return t.onAfterLsmInitWithTracker(ctx, shard, func(s *Shard) (reindexTracker, error) {
+		return t.newReindexTracker(s.pathLSM())
+	})
+}
+
+// onAfterLsmInitGuarded is the DTM-route entry into the after-LSM-init hook:
+// runShardLifecycle (RunOnShard / RunReindexOnlyOnShard, including
+// enterDTMPhase's iteration resume) runs on scheduler/worker goroutines that
+// hold no closeLock, so the tracker's init()-time MkdirAll must be guarded
+// against a concurrent Index.drop — the same DELETE-race exposure as
+// OnAfterLsmInitAsync. Returns context.Canceled unwrapped when the index is
+// closing (clean stop).
+func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, shard *Shard) error {
+	return t.onAfterLsmInitWithTracker(ctx, shard, func(s *Shard) (reindexTracker, error) {
+		return t.newReindexTrackerGuarded(s)
+	})
+}
+
+// onAfterLsmInitWithTracker is the shared body of OnAfterLsmInit /
+// onAfterLsmInitGuarded. newTracker selects the plain (shard-init route) or
+// guarded (DTM route) tracker factory — see newReindexTrackerGuarded for why
+// the two routes must differ.
+func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context, shard *Shard,
+	newTracker func(*Shard) (reindexTracker, error),
+) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
@@ -1027,10 +1081,16 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	logger.Info("starting")
 	defer func(started time.Time) {
 		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
+		switch {
+		case err == nil:
 			logger.Info("finished")
+		case errors.Is(err, context.Canceled):
+			// Clean stop (index closing / request cancelled): the scheduler
+			// already logs the cancelled unit, so keep this at debug to avoid
+			// a duplicate ERROR line per clean stop.
+			logger.Debugf("finished after cancellation: %v", err)
+		default:
+			logger.Errorf("finished with error: %v", err)
 		}
 	}(time.Now())
 
@@ -1043,9 +1103,17 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 
-	// Deliberately UNguarded: shard-init hook, see comment in OnBeforeLsmInit.
-	rt, err := t.newReindexTracker(shard.pathLSM())
+	// Tracker factory selected per route (plain on shard init, guarded on the
+	// DTM route) — see OnAfterLsmInit / onAfterLsmInitGuarded above.
+	rt, err := newTracker(shard)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Guarded route: the index is closing and the tracker dir was
+			// deliberately not created. Clean stop; return unwrapped so
+			// callers can errors.Is on it.
+			logger.Debug("index is closing, stopping after-LSM-init hook")
+			return err
+		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return err
 	}
@@ -1179,15 +1247,18 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 
 // newReindexTrackerGuarded builds a tracker whose init()-time MkdirAll is
 // serialized against Index.drop via withCloseRLockGuard: DTM-driven callers
-// (worker drain loop, RunPrepareOnShard, RunSwapOnShard) can race a
-// concurrent DELETE, and an unguarded MkdirAll would re-create the class dir
-// drop() just renamed away. The guard makes it complete-before-rename or
-// bail with context.Canceled (treated as a clean stop).
+// (worker drain loop, runShardLifecycle via onAfterLsmInitGuarded,
+// RunPrepareOnShard, RunSwapOnShard) can race a concurrent DELETE, and an
+// unguarded MkdirAll would re-create the class dir drop() just renamed away.
+// The guard makes it complete-before-rename or bail with context.Canceled
+// (treated as a clean stop).
 //
 // The shard-init hooks (OnBeforeLsmInit / OnAfterLsmInit) MUST keep the
-// plain factory: two NewShard call routes already hold closeLock.RLock on
-// the same goroutine, and sync.RWMutex is non-reentrant — the guard would
-// deadlock against a queued drop() writer. That outer RLock already excludes
+// plain factory: SOME NewShard call routes hold closeLock.RLock on the same
+// goroutine (eager index init and the background lazy-load hold none, but
+// the factory has to be safe on ALL of them), and sync.RWMutex is
+// non-reentrant — a nested RLock on the lock-holding routes deadlocks
+// against a queued drop() writer. On those routes the outer RLock excludes
 // drop() for their whole duration anyway.
 func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (reindexTracker, error) {
 	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
@@ -1210,10 +1281,16 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	logger.Info("starting")
 	defer func(started time.Time) {
 		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
+		switch {
+		case err == nil:
 			logger.Info("finished")
+		case errors.Is(err, context.Canceled):
+			// Clean stop (index closing / request cancelled): the scheduler
+			// already logs the cancelled unit, so keep this at debug to avoid
+			// a duplicate ERROR line per clean stop.
+			logger.Debugf("finished after cancellation: %v", err)
+		default:
+			logger.Errorf("finished with error: %v", err)
 		}
 	}(time.Now())
 
@@ -1229,7 +1306,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// means the index is closing; treat as a clean stop.
 	rt, err := t.newReindexTrackerGuarded(shard)
 	if err != nil {
-		if stderrors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) {
 			logger.Debug("index is closing, stopping reindex drain")
 			return zerotime, false, err
 		}
