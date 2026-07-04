@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -73,10 +72,7 @@ func (b *Bucket) Cursor() *CursorReplace {
 	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
 	if err != nil {
 		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
-		// this legacy constructor has no error channel: fail loudly (recovered
-		// by the enterrors/HTTP layers) instead of serving a silently empty
-		// cursor over a bucket whose segments are being munmapped
-		panic(fmt.Errorf("lsmkv cursor: %w", err))
+		b.panicOnCursorRefusal(err)
 	}
 
 	// we hold a flush-lock during initialzation, but we release it before
@@ -147,10 +143,7 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 
 	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
 	if err != nil {
-		// this legacy constructor has no error channel: fail loudly (recovered
-		// by the enterrors/HTTP layers) instead of serving a silently empty
-		// cursor over a bucket whose segments are being munmapped
-		panic(fmt.Errorf("lsmkv cursor: %w", err))
+		b.panicOnCursorRefusal(err)
 	}
 
 	return &CursorReplace{
@@ -178,10 +171,7 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 	innerCursors, unlockSegmentGroup, err := b.disk.newCursorsWithSecondaryIndex(pos)
 	if err != nil {
 		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
-		// this legacy constructor has no error channel: fail loudly (recovered
-		// by the enterrors/HTTP layers) instead of serving a silently empty
-		// cursor over a bucket whose segments are being munmapped
-		panic(fmt.Errorf("lsmkv cursor: %w", err))
+		b.panicOnCursorRefusal(err)
 	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state

@@ -528,6 +528,17 @@ func (cv BucketConsistentView) Err() error {
 	return cv.err
 }
 
+// panicOnCursorRefusal fails the legacy no-error cursor constructors loudly
+// instead of serving a silently empty cursor over munmapping segments.
+// Caller survey (weaviate/0-weaviate-issues#285): every production caller is
+// a request path (HTTP/gRPC panic middleware), a GoWrapper'ed goroutine, or a
+// cyclemanager callback — all recover; the dedicated-store buckets (schema,
+// transactions, modules, checkpoint) are never displaced by reindex and shut
+// down only at process exit.
+func (b *Bucket) panicOnCursorRefusal(err error) {
+	panic(fmt.Errorf("lsmkv cursor: %w", err))
+}
+
 // GetConsistentView returns a consistent view of the bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
 // call ReleaseView() on the returned view when done to avoid blocking compactions.
