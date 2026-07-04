@@ -3288,6 +3288,32 @@ func (i *Index) drop() error {
 	return nil
 }
 
+// withCloseRLockGuard runs fn under i.closeLock.RLock, returning
+// context.Canceled WITHOUT running fn if the index is closing/closed.
+//
+// drop() sets i.closed AND renames the index dir away under the same write
+// lock, so fn — today the reindex tracker's MkdirAll — either completes
+// before the rename (its output is carried into the .deleteme dir) or never
+// runs. A lock-free i.closed check is NOT sufficient: a stale read would let
+// fn re-create the just-renamed path. fn must be short and must not acquire
+// i.closeLock for writing or any lock drop() holds in an inverting order.
+//
+// Scope: the guard covers whole-index drops only. Per-shard tenant deletes
+// (dropShards) run under closeLock.RLock themselves and never set i.closed,
+// so the guard is blind to them — a guarded MkdirAll can still re-create a
+// tenant shard dir that dropShards just removed. Tracked in
+// https://github.com/weaviate/0-weaviate-issues/issues/288.
+func (i *Index) withCloseRLockGuard(fn func() error) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return context.Canceled
+	}
+
+	return fn()
+}
+
 func (i *Index) dropShards(names []string) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()

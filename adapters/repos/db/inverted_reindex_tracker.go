@@ -99,6 +99,13 @@ type fileReindexTracker struct {
 	progressCheckpoint int
 	keyParser          indexKeyParser
 	config             fileReindexTrackerConfig
+
+	// mkdirGuard, when non-nil, wraps init()'s os.MkdirAll (expected:
+	// Index.withCloseRLockGuard) so directory creation is serialized against
+	// Index.drop and cannot re-materialize a renamed-away class dir.
+	// context.Canceled means the index is closing and the dir was
+	// deliberately not created. nil = plain MkdirAll, behavior unchanged.
+	mkdirGuard func(func() error) error
 }
 
 type fileReindexTrackerConfig struct {
@@ -118,11 +125,24 @@ type fileReindexTrackerConfig struct {
 	migrationPath      string
 }
 
+// reindexTrackerInitHook is a TEST-ONLY hook fired at the top of init(),
+// before the (optionally guarded) MkdirAll. Tests block in it to widen the
+// drop()-vs-MkdirAll race window deterministically. Production leaves it nil.
+var reindexTrackerInitHook func()
+
 func (t *fileReindexTracker) init() error {
-	if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
-		return err
+	if reindexTrackerInitHook != nil {
+		reindexTrackerInitHook()
 	}
-	return nil
+
+	mkdir := func() error {
+		return os.MkdirAll(t.config.migrationPath, 0o777)
+	}
+
+	if t.mkdirGuard != nil {
+		return t.mkdirGuard(mkdir)
+	}
+	return mkdir()
 }
 
 func (t *fileReindexTracker) HasStartCondition() bool {
