@@ -208,8 +208,7 @@ func TestClient_Apply_ReChainsNamespaceSentinels(t *testing.T) {
 			defer conn.Close()
 
 			cl := &Client{addrResolver: fakes.NewFakeRPCAddressResolver("bufnet", nil), rpcMessageMaxSize: 1024 * 1024, logger: logrus.StandardLogger()}
-			cl.leaderRpcConn = conn
-			cl.leaderRaftAddr = "bufnet"
+			cl.leaderRpcConn = &refConn{conn: conn, addr: "bufnet"}
 
 			_, err = cl.Apply(ctx, "bufnet", &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_CLASS})
 			require.Error(t, err)
