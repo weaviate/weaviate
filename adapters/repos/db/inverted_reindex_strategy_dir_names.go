@@ -139,6 +139,22 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 	return name[:idx], gen, true
 }
 
+// classLevelMigrationDirForIndexType returns the class-level strategy's
+// migration dir prefix for an indexType. Class-level dirs are excluded
+// from [migrationDirsForPropertyIndex] (deleting them on a per-prop event
+// would corrupt the class-wide migration), but their completed gens must
+// still feed the sidecar PRESERVE set in CleanStalePartialReindexState —
+// their ingest dirs are live per-prop data awaiting next-restart finalize.
+func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
+	switch indexType {
+	case "filterable":
+		return MigrationDirFilterableRoaringsetRefresh, true
+	case "searchable":
+		return MigrationDirSearchableMapToBlockmax, true
+	}
+	return "", false
+}
+
 // migrationDirsForPropertyIndex returns the per-property migration
 // directory names that — if marked tidied on disk — would lie after the
 // given (propName, indexType) bucket has been removed. Called from
@@ -156,22 +172,6 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 // Wholesale-deleting them on a single property's DELETE would corrupt
 // the class-level migration; their per-property entries are pruned by
 // the strategy's own bookkeeping.
-// classLevelMigrationDirForIndexType returns the class-level strategy's
-// migration dir prefix for an indexType. Class-level dirs are excluded
-// from [migrationDirsForPropertyIndex] (deleting them on a per-prop event
-// would corrupt the class-wide migration), but their completed gens must
-// still feed the sidecar PRESERVE set in CleanStalePartialReindexState —
-// their ingest dirs are live per-prop data awaiting next-restart finalize.
-func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
-	switch indexType {
-	case "filterable":
-		return MigrationDirFilterableRoaringsetRefresh, true
-	case "searchable":
-		return MigrationDirSearchableMapToBlockmax, true
-	}
-	return "", false
-}
-
 func migrationDirsForPropertyIndex(propName, indexType string) []string {
 	switch indexType {
 	case "filterable":

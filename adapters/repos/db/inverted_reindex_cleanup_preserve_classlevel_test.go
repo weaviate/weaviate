@@ -162,65 +162,61 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 // keyed by (sidecar-suffix-base, gen): a roaringset ingest dir survives
 // iff a completed roaringset-refresh tracker of the SAME gen exists.
 func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T) {
-	t.Run("completed enable_filterable gen 1 must not preserve stale roaringset ingest_1", func(t *testing.T) {
-		ctx := testCtx()
-		className := "CleanupGenCollide_" + uuid.NewString()[:8]
-		class := newTestClassWithProps(className, []string{"category"})
-		shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-			false, false, false)
-		shard := shd.(*Shard)
-		defer shard.Shutdown(ctx)
-		lsm := shard.pathLSM()
+	cases := []struct {
+		name                 string
+		completedTracker     string
+		completedTrackerMigs []string
+		liveSidecar          string
+		staleTracker         string
+		staleSidecar         string
+		wipeReason           string
+	}{
+		{
+			name:                 "completed enable_filterable gen 1 must not preserve stale roaringset ingest_1",
+			completedTracker:     "enable_filterable_category_1",
+			completedTrackerMigs: []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
+			liveSidecar:          "property_category__enable_filterable_ingest_1",
+			staleTracker:         "filterable_roaringset_refresh_1",
+			staleSidecar:         "property_category__roaringset_ingest_1",
+			wipeReason: "stale roaringset ingest_1 must be wiped even though an unrelated " +
+				"completed migration shares gen 1 (bare-int keying bug, issue #295)",
+		},
+		{
+			name:                 "completed roaringset gen 2 must not preserve stale enable_filterable ingest_2",
+			completedTracker:     "filterable_roaringset_refresh_2",
+			completedTrackerMigs: []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig"},
+			liveSidecar:          "property_category__roaringset_ingest_2",
+			staleTracker:         "enable_filterable_category_2",
+			staleSidecar:         "property_category__enable_filterable_ingest_2",
+			wipeReason: "stale enable_filterable ingest_2 must be wiped even though the " +
+				"completed roaringset migration shares gen 2",
+		},
+	}
 
-		// Completed per-prop migration at gen 1 → its own ingest_1 is live.
-		mkTrackerDir(t, lsm, "enable_filterable_category_1",
-			"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
-		mkSidecarDir(t, lsm, "property_category__enable_filterable_ingest_1")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "CleanupGenCollide_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"category"})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+			lsm := shard.pathLSM()
 
-		// Cancelled roaringset refresh, ALSO at gen 1 — its ingest_1 is stale.
-		mkTrackerDir(t, lsm, "filterable_roaringset_refresh_1", "started.mig")
-		mkSidecarDir(t, lsm, "property_category__roaringset_ingest_1")
+			mkTrackerDir(t, lsm, tc.completedTracker, tc.completedTrackerMigs...)
+			mkSidecarDir(t, lsm, tc.liveSidecar)
+			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
+			mkSidecarDir(t, lsm, tc.staleSidecar)
 
-		require.NoError(t,
-			shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+			require.NoError(t,
+				shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
 
-		require.True(t,
-			dirExistsAt(t, lsm, "property_category__enable_filterable_ingest_1"),
-			"live enable_filterable ingest_1 must survive")
-		require.False(t,
-			dirExistsAt(t, lsm, "property_category__roaringset_ingest_1"),
-			"stale roaringset ingest_1 must be wiped even though an unrelated "+
-				"completed migration shares gen 1 (bare-int keying bug, issue #295)")
-	})
-
-	t.Run("completed roaringset gen 2 must not preserve stale enable_filterable ingest_2", func(t *testing.T) {
-		ctx := testCtx()
-		className := "CleanupGenCollide_" + uuid.NewString()[:8]
-		class := newTestClassWithProps(className, []string{"category"})
-		shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-			false, false, false)
-		shard := shd.(*Shard)
-		defer shard.Shutdown(ctx)
-		lsm := shard.pathLSM()
-
-		mkTrackerDir(t, lsm, "filterable_roaringset_refresh_2",
-			"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig")
-		mkSidecarDir(t, lsm, "property_category__roaringset_ingest_2")
-
-		mkTrackerDir(t, lsm, "enable_filterable_category_2", "started.mig")
-		mkSidecarDir(t, lsm, "property_category__enable_filterable_ingest_2")
-
-		require.NoError(t,
-			shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
-
-		require.True(t,
-			dirExistsAt(t, lsm, "property_category__roaringset_ingest_2"),
-			"live roaringset ingest_2 must survive")
-		require.False(t,
-			dirExistsAt(t, lsm, "property_category__enable_filterable_ingest_2"),
-			"stale enable_filterable ingest_2 must be wiped even though the "+
-				"completed roaringset migration shares gen 2")
-	})
+			require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
+				"live completed-migration sidecar must survive")
+			require.False(t, dirExistsAt(t, lsm, tc.staleSidecar), tc.wipeReason)
+		})
+	}
 }
 
 // TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix pins the
