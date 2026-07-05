@@ -556,10 +556,9 @@ func (p *ReindexProvider) processOneUnit(
 	// the old main bucket (no ingest double-write) and are lost on swap.
 	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
 	//
-	// Guarded against Index.drop AND dropShards: SaveRecoveryPayload
-	// MkdirAll's the migration dir — same re-materialization race the tracker
-	// paths guard via newReindexTrackerGuarded. This goroutine never holds
-	// closeLock or shardCreateLocks.
+	// Guarded: SaveRecoveryPayload MkdirAll's the migration dir — same
+	// re-materialization race the tracker paths guard. This goroutine never
+	// holds closeLock or shardCreateLocks.
 	if err := concreteShard.Index().withShardRLockGuard(concreteShard.Name(), func() error {
 		return p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks)
 	}); err != nil {

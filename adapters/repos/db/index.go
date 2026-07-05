@@ -3298,11 +3298,9 @@ func (i *Index) drop() error {
 // must be short and must not acquire i.closeLock for writing or any lock
 // drop() holds in an inverting order.
 //
-// Scope: the guard covers whole-index drops only. Per-shard tenant deletes
-// (dropShards) run under closeLock.RLock themselves and never set i.closed,
-// so this guard is blind to them — callers whose fn touches a specific
-// shard's directory must use withShardRLockGuard instead
-// (weaviate/0-weaviate-issues#288).
+// Scope: whole-index drops only. dropShards never sets i.closed, so this
+// guard is blind to it — fn touching a specific shard's directory must use
+// withShardRLockGuard instead (weaviate/0-weaviate-issues#288).
 func (i *Index) withCloseRLockGuard(fn func() error) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
@@ -3315,17 +3313,12 @@ func (i *Index) withCloseRLockGuard(fn func() error) error {
 }
 
 // withShardRLockGuard is the per-shard companion of withCloseRLockGuard
-// (weaviate/0-weaviate-issues#288): dropShards never sets i.closed, so the
-// close guard alone cannot stop fn from re-creating a tenant shard dir that
-// dropShards just removed. Holding shardCreateLocks.RLock while re-checking
-// i.shards membership makes fn either complete before dropShards' removal
-// (its output is removed with the shard) or bail with context.Canceled after
-// it — dropShards holds the write lock across LoadAndDelete + dir removal.
-//
-// Lock order matches the documented hierarchy (closeLock before
-// shardCreateLocks; backupLock is skippable). fn must be short, must not
-// acquire any Index lock, and callers must not already hold
-// shardCreateLocks(shardName) for writing.
+// (weaviate/0-weaviate-issues#288): dropShards never sets i.closed, so this
+// additionally holds shardCreateLocks.RLock and re-checks i.shards
+// membership — fn either completes before dropShards removes the shard dir
+// or bails with context.Canceled. fn must be short, must not acquire any
+// Index lock, and callers must not already hold shardCreateLocks(shardName)
+// for writing.
 func (i *Index) withShardRLockGuard(shardName string, fn func() error) error {
 	return i.withCloseRLockGuard(func() error {
 		i.shardCreateLocks.RLock(shardName)

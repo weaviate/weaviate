@@ -101,10 +101,9 @@ type fileReindexTracker struct {
 	config             fileReindexTrackerConfig
 
 	// mkdirGuard, when non-nil, wraps init()'s os.MkdirAll (expected:
-	// Index.withShardRLockGuard) so directory creation is serialized against
-	// Index.drop and dropShards and cannot re-materialize a deleted class or
-	// tenant shard dir. context.Canceled means the index or shard is being
-	// deleted and the dir was deliberately not created. nil = plain MkdirAll.
+	// Index.withShardRLockGuard) so it cannot re-materialize a class or shard
+	// dir a concurrent delete just removed. context.Canceled means the dir
+	// was deliberately not created. nil = plain MkdirAll.
 	mkdirGuard func(func() error) error
 }
 

@@ -52,12 +52,9 @@ func TestModeADrainRematerialize(t *testing.T) {
 	})
 }
 
-// TestDropShardsDrainRematerialize is the per-shard-tenant-delete companion of
-// TestModeADrainRematerialize (weaviate/0-weaviate-issues#288): dropShards
-// runs under closeLock.RLock and never sets i.closed, so the close guard alone
-// is blind to it — an unguarded tracker MkdirAll racing a tenant delete
-// re-creates <class>/<shard>/lsm/.migrations/<mig>/ right after dropShards
-// removed the shard dir, leaving an orphaned tenant shard dir on disk.
+// TestDropShardsDrainRematerialize pins the tenant-delete variant: a draining
+// tracker MkdirAll re-creates the shard dir dropShards just removed
+// (weaviate/0-weaviate-issues#288).
 func TestDropShardsDrainRematerialize(t *testing.T) {
 	runDrainRematerialize(t, rematerializeProbe{
 		classPrefix: "DropShardsDrain_",
@@ -73,9 +70,8 @@ type drainRematerializeCase struct {
 	drive func(ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error
 }
 
-// drainRematerializeCases are the two production entry points whose guarded
-// tracker init can race a concurrent delete (whole-index drop or per-shard
-// dropShards); both rematerialize tests drive the same pair.
+// drainRematerializeCases are the production entry points whose guarded
+// tracker init can race a concurrent delete.
 func drainRematerializeCases() []drainRematerializeCase {
 	return []drainRematerializeCase{
 		{
@@ -122,8 +118,7 @@ func runDrainRematerialize(t *testing.T, probe rematerializeProbe) {
 			task := newTestTask(idx.logger, strategy)
 
 			// The worker signals inHook at the top of the first tracker init,
-			// then blocks on releaseHook until the delete has completed — no
-			// sleeps.
+			// then blocks on releaseHook until the delete has completed.
 			inHook := make(chan struct{})
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
