@@ -39,9 +39,6 @@ func newTestStoreForDrain(t *testing.T) *Store {
 	return store
 }
 
-// TestAcquireBucketForRead_PinAndRelease verifies the basic contract:
-// AcquireBucketForRead returns the registered bucket and a working release,
-// and returns (nil, no-op) for an unknown name.
 func TestAcquireBucketForRead_PinAndRelease(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStoreForDrain(t)
@@ -60,10 +57,9 @@ func TestAcquireBucketForRead_PinAndRelease(t *testing.T) {
 	releaseMiss() // no-op must not panic
 }
 
-// TestShutdown_DrainsInFlightPin proves Store.Shutdown blocks on an
-// in-flight read pin AND does so without holding bucketAccessLock across
-// the drain: a concurrent Store.Bucket lookup returns nil (registry cleared
-// first) instead of deadlocking. Once the pin releases, Shutdown completes.
+// TestShutdown_DrainsInFlightPin: Store.Shutdown must block on an in-flight
+// read pin WITHOUT holding bucketAccessLock across the drain — a concurrent
+// Store.Bucket lookup returns nil instead of deadlocking.
 func TestShutdown_DrainsInFlightPin(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStoreForDrain(t)
@@ -71,9 +67,8 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 	require.NoError(t, store.CreateOrLoadBucket(ctx, "pinned", WithStrategy(StrategyReplace)))
 	require.NoError(t, store.CreateOrLoadBucket(ctx, "other", WithStrategy(StrategyReplace)))
 
-	// Pin "pinned" for the duration of a simulated query. Once-wrapped and
-	// deferred so any FailNow still releases the pin and unwedges the
-	// parked drain (the raw release is a bare RUnlock — no double-call).
+	// Once-wrapped + deferred so a FailNow still releases the pin exactly
+	// once (the raw release is a bare RUnlock).
 	b, rawRelease := store.AcquireBucketForRead("pinned")
 	require.NotNil(t, b)
 	var relOnce sync.Once
@@ -92,9 +87,8 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 	require.False(t, shutdownDone.Load(),
 		"DRAIN VIOLATED: Store.Shutdown completed while a read pin was still held")
 
-	// De-inversion guarantee: while Shutdown is parked in the drain, a
-	// concurrent Store.Bucket must NOT block (registry cleared, lock
-	// released). The hard timeout turns a hang into a visible failure.
+	// While Shutdown is parked in the drain, a concurrent Store.Bucket must
+	// NOT block; the hard timeout turns a hang into a visible failure.
 	bucketLookupCh := make(chan *Bucket, 1)
 	go func() { bucketLookupCh <- store.Bucket("other") }()
 	select {
@@ -106,7 +100,6 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 		t.Fatal("DEADLOCK: Store.Bucket blocked while Store.Shutdown drained a pinned bucket under bucketAccessLock")
 	}
 
-	// Release the pin; Shutdown must now complete promptly.
 	release()
 
 	select {
@@ -117,21 +110,16 @@ func TestShutdown_DrainsInFlightPin(t *testing.T) {
 	}
 }
 
-// TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket pins the QA-found
-// F1/F2 deadlocks: ShutdownBucket and ReplaceBuckets used to hold
-// bucketAccessLock across the drain-Shutdown, wedging the whole store
-// against a pinned query that still needed Store.Bucket (runtime-reachable
-// via property-index DELETE resp. the debug InvertedReindex endpoint). With
-// the remove-from-map-first protocol, a concurrent lookup completes while
-// the drain is parked, and the teardown finishes once the pin releases.
+// TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket: ShutdownBucket and
+// ReplaceBuckets used to hold bucketAccessLock across the drain, wedging
+// the whole store against a pinned query that still needed Store.Bucket.
 func TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
 	cases := []struct {
 		name     string
 		teardown func(ctx context.Context, store *Store) error
-		// registryReflects reports whether the "pinned" registry entry shows
-		// the teardown's registry phase completed: deregistered for
-		// ShutdownBucket, swapped to the replacement for ReplaceBuckets.
-		// pinned/replacement are the pre-teardown pointers.
+		// registryReflects reports whether the teardown's registry phase
+		// completed: deregistered for ShutdownBucket, swapped to the
+		// replacement for ReplaceBuckets.
 		registryReflects func(got, pinned, replacement *Bucket) bool
 	}{
 		{
@@ -163,11 +151,9 @@ func TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
 
 			pinned, release := store.AcquireBucketForRead("pinned")
 			require.NotNil(t, pinned)
-			// Once-wrapped and deferred: the release MUST run on every exit
-			// path (incl. FailNow), or the parked drain holds closeLock.RLock
-			// forever and the Cleanup Store.Shutdown wedges the package. The
-			// raw release is a bare RUnlock — double-calling it would corrupt
-			// the mutex, hence the Once.
+			// Must release on every exit path (incl. FailNow) or the parked
+			// drain wedges the Cleanup Store.Shutdown; Once because the raw
+			// release is a bare RUnlock.
 			var relOnce sync.Once
 			releaseOnce := func() { relOnce.Do(release) }
 			defer releaseOnce()
@@ -186,9 +172,8 @@ func TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
 				t.Fatal("DEADLOCK: Store.Bucket blocked while the teardown drained a pinned bucket under bucketAccessLock")
 			}
 
-			// The registry phase must complete while the pin is held
-			// (remove/swap-first protocol). Eventually: the teardown
-			// goroutine's registry phase races this check.
+			// The registry phase must complete while the pin is held;
+			// Eventually because it races this check.
 			require.Eventually(t, func() bool {
 				return tc.registryReflects(store.Bucket("pinned"), pinned, replacement)
 			}, 5*time.Second, time.Millisecond,
@@ -211,10 +196,9 @@ func TestOnlineTeardown_DoesNotWedgeStoreOnPinnedBucket(t *testing.T) {
 	}
 }
 
-// TestReplaceBuckets_ConcurrentWriteSurvives pins the lost-write window QA
-// found on the remove-from-map-first protocol: a by-name write landing after
-// the map swap but before the replacement's dir/memtable tail completed was
-// appended to a memtable the tail then discarded unflushed. The freeze
+// TestReplaceBuckets_ConcurrentWriteSurvives pins the lost-write window: a
+// by-name write landing after the map swap but before ReplaceBuckets' tail
+// completed went to a memtable the tail discarded unflushed. The freeze
 // (flushLock held across the whole move) makes the writer block instead.
 func TestReplaceBuckets_ConcurrentWriteSurvives(t *testing.T) {
 	ctx := context.Background()
@@ -231,9 +215,9 @@ func TestReplaceBuckets_ConcurrentWriteSurvives(t *testing.T) {
 			b := store.Bucket("target") // resolves to the replacement post-swap
 			putDone <- b.Put(key, val)
 		}()
-		// Pre-fix the Put completes into the doomed memtable, so this wait
-		// returns immediately. Post-fix the Put blocks on the held flushLock
-		// and the timeout path lets ReplaceBuckets finish first.
+		// Pre-fix the Put completes into the doomed memtable (immediate
+		// return); post-fix it blocks on the held flushLock and the timeout
+		// lets ReplaceBuckets finish first.
 		select {
 		case err := <-putDone:
 			putDone <- err
