@@ -203,7 +203,25 @@ type ShardReindexTaskGeneric struct {
 	// longer than one in-memory map write. Runs on the swap goroutine, so
 	// SetTokenizationOverlay's own lock is enough. Wired only for
 	// tokenization-changing migrations.
+	//
+	// Only the recovery/resume path still uses this (single-threaded at
+	// startup, so the flip↔overlay gap is benign); the live Phase-2a loop
+	// routes through swapPropAtomic when wired.
 	onPropSwapped func(propName string)
+
+	// swapPropAtomic, when non-nil, runs the Phase-2a per-prop flip AND the
+	// overlay set as ONE critical section (Shard.SwapBucketAndSetOverlay),
+	// so a concurrent query never observes a mixed (bucket, overlay) pair.
+	// Wired only for tokenization-changing migrations; nil = legacy
+	// two-step flip + onPropSwapped (fine without an overlay). Returns the
+	// displaced old bucket for Phase-2b, or (nil, nil) on an already-swapped
+	// prop — the overlay is still (re-)established (resumed-swap contract).
+	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
+
+	// afterFlipBeforeOverlayHook fires inside swapPropAtomic's critical
+	// section, between flip and overlay set — the window the pre-fix
+	// two-step code left unguarded. TEST-ONLY, nil in production.
+	afterFlipBeforeOverlayHook func()
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -1824,17 +1842,29 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// sentinel is already on disk — recovery idempotency.
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
-		oldMainBucket, err := t.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
-		if err != nil {
-			return err
+		var (
+			oldMainBucket *lsmkv.Bucket
+			err           error
+		)
+		if t.swapPropAtomic != nil {
+			oldMainBucket, err = t.swapPropAtomic(ctx, store, rt, propIdx, propName)
+			if err != nil {
+				return err
+			}
+		} else {
+			oldMainBucket, err = t.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+			if err != nil {
+				return err
+			}
+			// Fire even when processOneSwapPropFn no-ops an already-swapped
+			// prop (sentinel on disk), so a resumed swap re-establishes the
+			// overlay. Nil for non-tokenization migrations.
+			if t.onPropSwapped != nil {
+				t.onPropSwapped(propName)
+			}
 		}
 		if oldMainBucket != nil {
 			oldMainBuckets[propName] = oldMainBucket
-		}
-		// Fire even when processOneSwapPropFn no-ops an already-swapped prop
-		// (sentinel on disk), so a resumed swap re-establishes the overlay.
-		if t.onPropSwapped != nil {
-			t.onPropSwapped(propName)
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")

@@ -92,6 +92,16 @@ type Bucket struct {
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
 	flushLock sync.RWMutex
+
+	// lifetimeLock pins this bucket pointer for the full duration of a
+	// read/query: RLock via Store.AcquireBucketForRead, held until the query
+	// ends; Shutdown takes Lock() as its FIRST action, draining all in-flight
+	// pins before freeing mmap'd segments — so a bucket-pointer swap followed
+	// by oldBucket.Shutdown can never free memory under a live read.
+	// Deliberately NO timeout on the drain: timeout-then-free would SEGFAULT
+	// a reader. Ordering: lifetimeLock OUTER, flushLock INNER — same
+	// direction on the read and Shutdown sides, so no inversion.
+	lifetimeLock sync.RWMutex
 	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
 	// designed assuming a single triggerer at a time (the periodic flush
 	// callback or a control-plane caller — backup, runtime migration,
@@ -1644,6 +1654,27 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
+	// Drain every in-flight read pin before tearing anything down — see the
+	// lifetimeLock field doc (incl. why there is deliberately no timeout).
+	// The heartbeat makes a wedged drain diagnosable.
+	drained := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-drained:
+				return
+			case <-t.C:
+				b.logger.WithField("dir", b.dir).
+					Warn("bucket shutdown still draining in-flight read pins")
+			}
+		}
+	}, b.logger)
+	b.lifetimeLock.Lock()
+	close(drained)
+	defer b.lifetimeLock.Unlock()
+
 	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	start := time.Now()

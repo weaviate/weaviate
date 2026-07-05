@@ -761,6 +761,126 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 	s.tokenizationOverlay[propName] = target
 }
 
+// SwapBucketAndSetOverlay runs propName's bucket-pointer flip and its
+// tokenization-overlay set as ONE critical section under
+// tokenizationOverlayMu, so a concurrent query never observes a mixed
+// (bucket, overlay) pair during the FINALIZING window — the read side is
+// [Shard.PinTokenizationAndSearchableBucket]. flip runs WHILE the lock is
+// held; nesting is overlay-OUTER / bucketAccessLock-INNER, and the reverse
+// direction cannot occur (lsmkv.Store never reaches up to the Shard).
+//
+// The overlay is set whenever flip returns no error — including the
+// resume case where flip no-ops on an already-swapped prop (returns
+// (nil, nil)) — preserving the "re-establish the overlay on a resumed
+// swap" contract. Empty target = no overlay written (safe for
+// non-tokenization migrations routed through here).
+//
+// CONTRACT: flip must NOT call Bucket.Shutdown or acquire lifetimeLock —
+// a pinned query holds lifetimeLock.RLock and may take
+// tokenizationOverlayMu next (self-clear path); draining inside this
+// critical section would invert that order and deadlock. Phase-2b
+// teardown belongs strictly after this method returns.
+func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
+	flip func() (*lsmkv.Bucket, error),
+) (*lsmkv.Bucket, error) {
+	if tokenizationOverlayNonAtomicForTest {
+		// PRE-FIX BEHAVIOR: two separate critical sections with a gap —
+		// what the asymmetry proof exercises. NEVER set in production.
+		oldMainBucket, err := flip()
+		if err != nil {
+			return nil, err
+		}
+		if propName != "" && target != "" {
+			s.SetTokenizationOverlay(propName, target)
+		}
+		return oldMainBucket, nil
+	}
+
+	s.tokenizationOverlayMu.Lock()
+	defer s.tokenizationOverlayMu.Unlock()
+
+	oldMainBucket, err := flip()
+	if err != nil {
+		return nil, err
+	}
+
+	if propName != "" && target != "" {
+		if s.tokenizationOverlay == nil {
+			s.tokenizationOverlay = map[string]string{}
+		}
+		s.tokenizationOverlay[propName] = target
+	}
+
+	return oldMainBucket, nil
+}
+
+// tokenizationOverlayNonAtomicForTest reverts SwapBucketAndSetOverlay and
+// PinTokenizationAndSearchableBucket to the pre-fix two-critical-sections
+// behavior, so TestAtomicOverlaySwap_OldCodeIsRacy can prove the proof's
+// sensitivity. Never set in production code.
+var tokenizationOverlayNonAtomicForTest bool
+
+// PinTokenizationAndSearchableBucket resolves the active query-time
+// tokenization for propName AND pins the property's searchable bucket for
+// the full duration of a query, returning a release function the caller
+// MUST invoke exactly once. Both reads happen under one
+// tokenizationOverlayMu.RLock — matched by the write side
+// ([Shard.SwapBucketAndSetOverlay]) — so a query sees either the full
+// pre-swap or full post-swap (tokenization, bucket) state, never a mixed
+// pair. The pin (lifetimeLock.RLock via Store.AcquireBucketForRead) extends
+// that consistency across the whole query: a concurrent swap's
+// oldBucket.Shutdown drains the pin before freeing mmaps. Lock nesting is
+// tokenizationOverlayMu → bucketAccessLock → lifetimeLock on the read side,
+// the same direction as the write side and Shutdown (lifetimeLock alone,
+// bucket already out of the map) — no inversion.
+//
+// The returned bucket may be nil (no searchable bucket for the prop); the
+// release is then a no-op but must still be called.
+func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
+) (string, *lsmkv.Bucket, func()) {
+	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+
+	if propName == "" {
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		return liveTokenization, bucket, release
+	}
+
+	if tokenizationOverlayNonAtomicForTest {
+		// PRE-FIX BEHAVIOR: bucket and overlay read under SEPARATE locks —
+		// the race the fix closes. Still pins, so the asymmetry proof
+		// exercises the lifetime drain. NEVER set in production.
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		return s.TokenizationFor(propName, liveTokenization), bucket, release
+	}
+
+	s.tokenizationOverlayMu.RLock()
+	overlay, ok := "", false
+	if s.tokenizationOverlay != nil {
+		overlay, ok = s.tokenizationOverlay[propName]
+	}
+	// Pin the bucket pointer under the SAME RLock as the overlay so the
+	// (tokenization, pinned bucket) pair is a single consistent snapshot.
+	bucket, release := s.store.AcquireBucketForRead(bucketName)
+	s.tokenizationOverlayMu.RUnlock()
+
+	if !ok {
+		return liveTokenization, bucket, release
+	}
+	if overlay == liveTokenization {
+		// Live schema has caught up: self-clear so future calls take the
+		// fast path (same defensive self-clear as TokenizationFor).
+		s.tokenizationOverlayMu.Lock()
+		if s.tokenizationOverlay != nil {
+			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
+				delete(s.tokenizationOverlay, propName)
+			}
+		}
+		s.tokenizationOverlayMu.Unlock()
+		return liveTokenization, bucket, release
+	}
+	return overlay, bucket, release
+}
+
 // ClearTokenizationOverlay removes any tokenization-overlay entry for
 // propName. Idempotent — called by the schema-update callback when the
 // live schema's tokenization for propName matches the overlay's target,

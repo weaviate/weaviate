@@ -60,10 +60,73 @@ type BM25Searcher struct {
 	// use prop.Tokenization directly (tests and callers with no
 	// in-flight migration).
 	tokResolver TokenizationResolver
+	// bucketPinResolver, when non-nil, supersedes tokResolver + GetBucket
+	// for searchable text props: one consistent (tokenization, bucket)
+	// snapshot, with the bucket PINNED for the whole query and threaded
+	// into createTerm / createBlockTerm — so lookup never re-fetches by
+	// name and a concurrent SwapBucketPointer+Shutdown drains on the
+	// in-flight query. See [SearchableBucketPinningResolver].
+	bucketPinResolver SearchableBucketPinningResolver
+	// afterPinBeforeLookupHook fires once per query in the gap between prop
+	// discovery (pins held) and lookup — where the re-fetch race lives.
+	// TEST-ONLY, never set in production.
+	afterPinBeforeLookupHook func()
+	// forceLookupRefetchForTest makes lookup ignore the pinned bucket and
+	// re-fetch by name (pre-fix behavior) for the asymmetry proof.
+	// TEST-ONLY, never set in production.
+	forceLookupRefetchForTest bool
 }
 
 type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
+}
+
+// pinnedSearchableBuckets carries the bucket pointers a single query pinned
+// at prop discovery so lookup (createTerm / createBlockTerm) reuses the
+// exact pinned pointer instead of re-fetching by name. Per-query value,
+// threaded explicitly — never stored on the shared BM25Searcher. release()
+// is idempotent and deferred by the query's top-level method so every exit
+// path frees all pins. Nil receiver = no pinning resolver active; lookup
+// falls back to by-name fetches.
+type pinnedSearchableBuckets struct {
+	byProp   map[string]*lsmkv.Bucket
+	releases []func()
+	released bool
+}
+
+// bucketFor returns the pinned searchable bucket for propName, or nil if
+// this query did not pin one (no pinning resolver, or the prop had no
+// searchable bucket). A nil receiver is valid and returns (nil, false).
+func (p *pinnedSearchableBuckets) bucketFor(propName string) (*lsmkv.Bucket, bool) {
+	if p == nil || p.byProp == nil {
+		return nil, false
+	}
+	b, ok := p.byProp[propName]
+	return b, ok
+}
+
+// add records a pinned bucket for propName together with its release fn.
+// bucket may be nil (prop has no searchable bucket); release is still
+// recorded so it runs at query end.
+func (p *pinnedSearchableBuckets) add(propName string, bucket *lsmkv.Bucket, release func()) {
+	if p.byProp == nil {
+		p.byProp = map[string]*lsmkv.Bucket{}
+	}
+	p.byProp[propName] = bucket
+	if release != nil {
+		p.releases = append(p.releases, release)
+	}
+}
+
+// release releases every pin exactly once. Idempotent and nil-safe.
+func (p *pinnedSearchableBuckets) release() {
+	if p == nil || p.released {
+		return
+	}
+	p.released = true
+	for _, r := range p.releases {
+		r()
+	}
 }
 
 type termListRequest struct {
@@ -105,6 +168,31 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 // Pass nil (the default) to use the schema-stored value directly.
 func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Searcher {
 	b.tokResolver = r
+	return b
+}
+
+// WithSearchableBucketPinningResolver attaches a
+// [SearchableBucketPinningResolver] (see the field doc on bucketPinResolver
+// for what it guarantees). Returns the receiver for fluent chaining; nil
+// (the default) keeps the non-pinning behavior.
+func (b *BM25Searcher) WithSearchableBucketPinningResolver(
+	r SearchableBucketPinningResolver,
+) *BM25Searcher {
+	b.bucketPinResolver = r
+	return b
+}
+
+// WithAfterPinBeforeLookupHookForTest sets afterPinBeforeLookupHook
+// (TEST-ONLY). Returns the receiver for fluent chaining.
+func (b *BM25Searcher) WithAfterPinBeforeLookupHookForTest(hook func()) *BM25Searcher {
+	b.afterPinBeforeLookupHook = hook
+	return b
+}
+
+// WithForceLookupRefetchForTest sets forceLookupRefetchForTest (TEST-ONLY).
+// Returns the receiver for fluent chaining.
+func (b *BM25Searcher) WithForceLookupRefetchForTest(force bool) *BM25Searcher {
+	b.forceLookupRefetchForTest = force
 	return b
 }
 
@@ -158,10 +246,31 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
-func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
-	count, err := b.store.Bucket(helpers.ObjectsBucketLSM).Count(ctx)
+// generateQueryTermsAndStats scans the searched properties, pins each
+// searchable bucket (when a pinning resolver is wired), and returns the
+// per-tokenization term/prop maps plus the pinned-bucket set.
+//
+// Pin lifetime: on SUCCESS the caller (wand / wandBlock) owns the pins and
+// MUST defer pins.release(); on ERROR everything is released here and the
+// caller's deferred release no-ops — no pin is ever leaked.
+func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (_ bool, _ float64, _ map[string][]string, _ map[string][]string, _ map[string][]int, _ map[string]float32, _ float64, pins *pinnedSearchableBuckets, _ error) {
+	pins = &pinnedSearchableBuckets{}
+	failed := true
+	defer func() {
+		if failed {
+			pins.release()
+		}
+	}()
+
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast instead
+	// of nil-receiver panicking.
+	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return false, 0, nil, nil, nil, nil, 0, pins, fmt.Errorf("objects bucket not available (store shutting down?)")
+	}
+	count, err := objectsBucket.Count(ctx)
 	if err != nil {
-		return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("count objects: %w", err)
+		return false, 0, nil, nil, nil, nil, 0, pins, fmt.Errorf("count objects: %w", err)
 	}
 	N := float64(count)
 
@@ -194,6 +303,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	}
 
 	props := make([]propInfo, 0, len(params.Properties))
+	seenProps := make(map[string]struct{}, len(params.Properties))
 	neededTokenizations := map[string]struct{}{}
 	needsASCIIFold := map[string]struct{}{}
 
@@ -208,35 +318,58 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 		propertyBoosts[property] = propBoost
 
+		// Dedupe (e.g. ["title", "title^2"]): last boost wins (map overwrite
+		// above), but the prop is processed once — a second pass would take
+		// a second pin (a swap between the two yields the mixed pair this
+		// fix closes) and overwrite the segment-view releaseCallbacks entry.
+		if _, dup := seenProps[property]; dup {
+			continue
+		}
+		seenProps[property] = struct{}{}
+
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
-			return false, 0, nil, nil, nil, nil, 0, err
+			return false, 0, nil, nil, nil, nil, 0, pins, err
 		}
 
-		bucket := b.GetBucket(property)
+		prop, err := schema.GetPropertyByName(class, property)
+		if err != nil {
+			return false, 0, nil, nil, nil, nil, 0, pins, err
+		}
+
+		// Resolve (tokenization, bucket) as ONE snapshot and pin for the
+		// whole query when a resolver is wired; otherwise the independent
+		// pair (correct when no overlay/retokenization is active).
+		var (
+			bucket       *lsmkv.Bucket
+			effectiveTok string
+		)
+		if b.bucketPinResolver != nil {
+			var release func()
+			// Resolve by the user-supplied name, not prop.Name:
+			// GetPropertyByName splits on "." so a dotted input would
+			// otherwise silently search the parent prop's bucket instead of
+			// erroring like the non-pinning path always has.
+			effectiveTok, bucket, release = b.bucketPinResolver(property, prop.Tokenization)
+			// Record the pin (and its release) regardless of bucket==nil so
+			// the no-op release still runs and the prop appears in the pin set.
+			pins.add(property, bucket, release)
+		} else {
+			bucket = b.GetBucket(property)
+			effectiveTok = ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
+		}
 		if bucket == nil {
-			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("could not find bucket for property %v", property)
+			return false, 0, nil, nil, nil, nil, 0, pins, fmt.Errorf("could not find bucket for property %v", property)
 		}
 
 		if bucket.Strategy() != lsmkv.StrategyInverted {
 			allBucketsAreInverted = false
 		}
 
-		prop, err := schema.GetPropertyByName(class, property)
-		if err != nil {
-			return false, 0, nil, nil, nil, nil, 0, err
-		}
-
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			// effectiveTok consults the per-shard tokenization overlay
-			// (set during the FINALIZING window of a change-tokenization
-			// migration) before falling back to the schema-stored value.
-			// The rest of the BM25 pipeline for this property uses
-			// effectiveTok everywhere `prop.Tokenization` would have been
-			// read, so query input gets tokenized against the value that
-			// matches the bucket content on this shard.
-			effectiveTok := ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
+			// effectiveTok consults the per-shard tokenization overlay, so
+			// query input is tokenized against this shard's bucket content.
 			tokKey := effectiveTok
 			hasCustomStopwords := prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != ""
 			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
@@ -262,7 +395,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 				meanValid:             !math.IsNaN(float64(propMean)),
 			})
 		default:
-			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+			return false, 0, nil, nil, nil, nil, 0, pins, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -314,7 +447,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			if pi.effectiveTokenization == models.PropertyTokenizationWord {
 				d, err := b.stopwordProvider.Get(pi.prop)
 				if err != nil {
-					return false, 0, nil, nil, nil, nil, 0, err
+					return false, 0, nil, nil, nil, nil, 0, pins, err
 				}
 				sw = d
 			}
@@ -326,7 +459,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		if _, exists := propNamesByTokenization[tokKey]; !exists {
-			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+			return false, 0, nil, nil, nil, nil, 0, pins, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 				pi.effectiveTokenization, pi.prop.Name)
 		}
 		propNamesByTokenization[tokKey] = append(propNamesByTokenization[tokKey], pi.name)
@@ -341,7 +474,9 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0
 	}
-	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
+	// Success: the caller now owns the pins; disarm the error-path release.
+	failed = false
+	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, pins, nil
 }
 
 // asciiTokenizationKey returns the composite key used for ascii-insensitive properties.
@@ -354,9 +489,16 @@ func (b *BM25Searcher) wand(
 ) ([]*storobj.Object, []float32, error) {
 	start := time.Now()
 
-	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
+	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, err
+	}
+	// One defer covering all exit paths: a leaked pin would block a future
+	// retokenization swap's Shutdown forever.
+	defer pins.release()
+
+	if b.afterPinBeforeLookupHook != nil {
+		b.afterPinBeforeLookupHook()
 	}
 
 	allRequests := make([]termListRequest, 0, 1000)
@@ -415,7 +557,7 @@ func (b *BM25Searcher) wand(
 				}
 			}()
 
-			termResult, termErr := b.createTerm(N, filterDocIds, term, termId, propNames, propertyBoosts, duplicateBoost, ctx)
+			termResult, termErr := b.createTerm(N, filterDocIds, term, termId, propNames, propertyBoosts, duplicateBoost, pins, ctx)
 			if termErr != nil {
 				err = termErr
 				return err
@@ -478,7 +620,11 @@ func (b *BM25Searcher) wand(
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
 	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return nil, nil, errors.New("objects bucket not available (store shutting down?)")
+	}
 	scores := make([]float32, 0, topKHeap.Len())
 	ids := make([]uint64, 0, topKHeap.Len())
 	explanations := make([][]*terms.DocPointerWithScore, 0, topKHeap.Len())
@@ -544,7 +690,7 @@ func (b *BM25Searcher) getTopKIds(topKHeap *priorityqueue.Queue[[]*terms.DocPoin
 	return ids, scores, explanations, nil
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, pins *pinnedSearchableBuckets, ctx context.Context) (*terms.Term, error) {
 	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
 	var filteredDocIDs *sroar.Bitmap
@@ -564,7 +710,13 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 		eg.Go(
 			func() error {
-				bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+				// Use the bucket pinned at prop discovery — a by-name
+				// re-fetch could land on the post-swap bucket or a freed
+				// mmap. By-name only when no pinning resolver was wired.
+				bucket, pinned := pins.bucketFor(propName)
+				if !pinned || b.forceLookupRefetchForTest {
+					bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+				}
 				if bucket == nil {
 					return fmt.Errorf("could not find bucket for property %v", propName)
 				}

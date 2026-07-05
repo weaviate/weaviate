@@ -60,6 +60,10 @@ type Store struct {
 
 	closeLock sync.RWMutex
 	closed    bool
+
+	// testOnReplaceAfterSwap runs right after ReplaceBuckets makes the
+	// replacement name-visible; nil in production.
+	testOnReplaceAfterSwap func()
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -94,6 +98,32 @@ func (s *Store) Bucket(name string) *Bucket {
 // bucketNoLock returns a bucket by name; caller must hold bucketAccessLock.
 func (s *Store) bucketNoLock(name string) *Bucket {
 	return s.bucketsByName[name]
+}
+
+// AcquireBucketForRead returns the bucket registered under name, pinned via
+// lifetimeLock.RLock so a concurrent SwapBucketPointer+Shutdown cannot free
+// it mid-query. The RLock is taken UNDER bucketAccessLock, so the caller
+// pins either the pre-swap bucket (Shutdown then blocks on this pin) or the
+// post-swap one — never a torn state. Returns (nil, no-op release) for an
+// unknown name. The caller MUST call release exactly once (defer it).
+//
+// TEARDOWN INVARIANT: a pinned query may still need bucketAccessLock to
+// finish (e.g. Store.Bucket(objects)), so no code may hold bucketAccessLock
+// across a draining bucket.Shutdown — that inverts the order and deadlocks
+// the whole store. Every teardown path must remove the bucket from
+// bucketsByName FIRST and drain outside the lock: SwapBucketPointer,
+// ShutdownBucket, ReplaceBuckets, and Store.Shutdown (snapshot+clear) all
+// follow this protocol; any new teardown path must too.
+func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
+	s.bucketAccessLock.RLock()
+	b := s.bucketsByName[name]
+	if b == nil {
+		s.bucketAccessLock.RUnlock()
+		return nil, func() {}
+	}
+	b.lifetimeLock.RLock()
+	s.bucketAccessLock.RUnlock()
+	return b, b.lifetimeLock.RUnlock
 }
 
 func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
@@ -229,14 +259,32 @@ func (s *Store) Shutdown(ctx context.Context) error {
 
 	s.closed = true
 
+	// Snapshot + clear the registry, then RELEASE bucketAccessLock BEFORE
+	// draining — the TEARDOWN INVARIANT on AcquireBucketForRead: holding it
+	// across a draining Shutdown deadlocks against a pinned query that still
+	// needs Store.Bucket to finish. With the map cleared, that query's
+	// lookup returns nil, it exits, its pin releases, the drain completes.
+	//
+	// Consequence for Store.Bucket callers: mid-teardown (reachable via
+	// Index.drop, which does not wait for in-flight queries) Bucket returns
+	// nil where it previously returned a shutting-down bucket — the better
+	// failure mode (an error instead of reads on freed state). The
+	// pinned-query paths (BM25, aggregator vector search) nil-check; the
+	// remaining query-path fetch sites keep their pre-existing exposure with
+	// this improved failure shape.
 	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
+	buckets := make(map[string]*Bucket, len(s.bucketsByName))
+	for name, bucket := range s.bucketsByName {
+		buckets[name] = bucket
+	}
+	s.bucketsByName = map[string]*Bucket{}
+	s.bucketAccessLock.Unlock()
 
 	// shutdown must be called on every bucket
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
 
-	for name, bucket := range s.bucketsByName {
+	for name, bucket := range buckets {
 		name := name
 		bucket := bucket
 
@@ -264,18 +312,25 @@ func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
+	// Remove from the registry FIRST, drain-Shutdown OUTSIDE
+	// bucketAccessLock — the TEARDOWN INVARIANT on AcquireBucketForRead:
+	// holding the registry lock across the drain deadlocks against a pinned
+	// query that still needs Store.Bucket to finish. The bucket is
+	// deregistered even if Shutdown then errors: a half-shut-down bucket
+	// must not be reachable for new pins.
 	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
-
 	bucket, ok := s.bucketsByName[bucketName]
+	if ok {
+		delete(s.bucketsByName, bucketName)
+	}
+	s.bucketAccessLock.Unlock()
+
 	if !ok {
 		return fmt.Errorf("shutdown bucket %q of store %q: %w", bucketName, s.dir, ErrBucketNotFound)
 	}
 	if err := bucket.Shutdown(ctx); err != nil {
 		return errors.Wrapf(err, "shutdown bucket %q of store %q", bucketName, s.dir)
 	}
-	delete(s.bucketsByName, bucketName)
-
 	return nil
 }
 
@@ -478,6 +533,9 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	return nil
 }
 
+// replaceBucket drains the displaced bucket and swaps the two directories on
+// disk. Caller must hold replacementBucket.flushLock (flushLock OUTER →
+// maintenanceLock INNER, same order as the flush path).
 func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
 	replacementBucket.disk.maintenanceLock.Lock()
 	defer replacementBucket.disk.maintenanceLock.Unlock()
@@ -497,8 +555,6 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 		WithField("dir", s.dir).
 		Info("replacing bucket")
 
-	replacementBucket.flushLock.Lock()
-	defer replacementBucket.flushLock.Unlock()
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return "", "", "", "", errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
@@ -507,6 +563,36 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	}
 
 	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
+}
+
+// freezeAndSwapForReplace makes the replacement visible under bucketName while
+// frozen: its flushLock is taken BEFORE the map swap and stays held on success
+// (released by the caller once dir/memtable/segment paths are consistent).
+// Without the freeze, a by-name writer landing between the swap and the tail
+// would append to a memtable the tail discards unflushed — a lost write.
+// Lock order matches RenameBucket (bucketAccessLock OUTER → flushLock INNER).
+func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string) (bucket, replacementBucket *Bucket, err error) {
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	bucket = s.bucketsByName[bucketName]
+	replacementBucket = s.bucketsByName[replacementBucketName]
+	if bucket == nil {
+		return nil, nil, fmt.Errorf("bucket '%s' not found", bucketName)
+	}
+	if replacementBucket == nil {
+		return nil, nil, fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
+	}
+
+	replacementBucket.flushLock.Lock()
+	if replacementBucket.flushing != nil {
+		replacementBucket.flushLock.Unlock() // lock escapes this scope only on success
+		return nil, nil, fmt.Errorf("bucket '%s' can not be renamed before flushing", replacementBucketName)
+	}
+
+	s.bucketsByName[bucketName] = replacementBucket
+	delete(s.bucketsByName, replacementBucketName)
+	return bucket, replacementBucket, nil
 }
 
 // Replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
@@ -524,31 +610,25 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return fmt.Errorf("%w: replacing bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, replacementBucketName, s.dir)
 	}
 
-	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
-
-	bucket := s.bucketsByName[bucketName]
-	if bucket == nil {
-		return fmt.Errorf("bucket '%s' not found", bucketName)
+	// Swap the registry entries with the replacement frozen, then run the
+	// displaced bucket's drain-Shutdown (inside replaceBucket) OUTSIDE
+	// bucketAccessLock — the TEARDOWN INVARIANT on AcquireBucketForRead.
+	// Once the map is swapped, no new pin can land on the displaced bucket;
+	// by-name access to the replacement blocks on its held flushLock until
+	// the physical move below completes.
+	bucket, replacementBucket, err := s.freezeAndSwapForReplace(bucketName, replacementBucketName)
+	if err != nil {
+		return err
 	}
+	defer replacementBucket.flushLock.Unlock()
 
-	replacementBucket := s.bucketsByName[replacementBucketName]
-	if replacementBucket == nil {
-		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
+	if s.testOnReplaceAfterSwap != nil {
+		s.testOnReplaceAfterSwap()
 	}
-	s.bucketsByName[bucketName] = replacementBucket
-	delete(s.bucketsByName, replacementBucketName)
 
 	_, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err := s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
 	if err != nil {
 		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
-	}
-
-	replacementBucket.flushLock.Lock()
-	defer replacementBucket.flushLock.Unlock()
-
-	if replacementBucket.flushing != nil {
-		return fmt.Errorf("bucket '%s' can not be renamed before flushing", replacementBucketName)
 	}
 
 	replacementBucket.dir = newReplacementBucketDir

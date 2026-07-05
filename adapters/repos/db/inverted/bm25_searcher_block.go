@@ -38,8 +38,15 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
-	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, pins *pinnedSearchableBuckets, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
+	// Same pinned-bucket reuse as createTerm.
+	bucket, pinned := pins.bucketFor(propName)
+	if !pinned || b.forceLookupRefetchForTest {
+		bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+	}
+	if bucket == nil {
+		return nil, nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
+	}
 	return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config, ctx)
 }
 
@@ -62,13 +69,23 @@ func (b *BM25Searcher) wandBlock(
 		return []*storobj.Object{}, []float32{}, false, nil
 	}
 
-	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
+	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, false, err
+	}
+	// One defer for every exit path; release is idempotent so the explicit
+	// release in the wand-fallback below does not double-free.
+	defer pins.release()
+
+	if b.afterPinBeforeLookupHook != nil {
+		b.afterPinBeforeLookupHook()
 	}
 
 	// fallback to the old search process if not all buckets are inverted
 	if !allBucketsAreInverted {
+		// wand takes its OWN pins; release ours first — holding two RLocks
+		// on the same bucket deadlocks against a queued Shutdown writer.
+		pins.release()
 		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
 		return objects, scores, true, err
 	}
@@ -104,7 +121,7 @@ func (b *BM25Searcher) wandBlock(
 			globalIdfCounts := make(map[string]uint64, len(queryTerms))
 			nonZeroTerms := make(map[string]uint64, len(queryTerms))
 			for _, propName := range propNames {
-				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, b.config, ctx)
+				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, b.config, pins, ctx)
 				if err != nil {
 					return nil, nil, false, err
 				}
@@ -253,7 +270,10 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
 
-	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	objects, scores, err := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	if err != nil {
+		return nil, nil, false, err
+	}
 
 	combineTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
@@ -262,7 +282,7 @@ func (b *BM25Searcher) wandBlock(
 	return objects, scores, false, nil
 }
 
-func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// Preallocate by the real upper bound (total result rows across
 	// properties/segments), not limit*len(allIds): for unlimited (limit==0)
 	// queries the caller inflates limit to the sum of all term counts, which
@@ -301,11 +321,13 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
+	// Propagate — swallowing this produced silent empty results (the
+	// symptom class this PR eliminates).
 	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
-	return combinedObjects, combinedScores
+	return combinedObjects, combinedScores, nil
 }
 
 type aggregate func(float32, float32) float32
@@ -379,7 +401,11 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	scoresResult := make([]float32, 0, limit)
 	explanationsResults := make([][]*terms.DocPointerWithScore, 0, limit)
 
+	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return nil, nil, errors.New("objects bucket not available (store shutting down?)")
+	}
 
 	startAt := 0
 	endAt := limit
