@@ -2539,13 +2539,26 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 		propsByName[props[i]] = struct{}{}
 	}
 
-	disableAdd := shard.registerAddToPropertyValueIndex(
-		t.strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy))
-	disableDelete := shard.registerDeleteFromPropertyValueIndex(
-		t.strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy))
+	addCb := t.strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy)
+	delCb := t.strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy)
+
+	var disable func()
+	if forTargetStrategy {
+		// Ingest window only: arm the migration double-write scope together
+		// with the callbacks in one atomic store, so a concurrent write to
+		// these props is analyzed under the TARGET schema (via the overlay +
+		// RawValues) instead of being source-tokenized into the ingest bucket.
+		// weaviate/0-weaviate-issues#298.
+		disable = shard.registerDoubleWriteWithScope(addCb, delCb, props, t.strategy.AnalyzerOverlay(props))
+	} else {
+		// Backup window: mirror source-analyzed writes as-is; no scope.
+		disableAdd := shard.registerAddToPropertyValueIndex(addCb)
+		disableDelete := shard.registerDeleteFromPropertyValueIndex(delCb)
+		disable = func() { disableAdd(); disableDelete() }
+	}
 
 	t.callbackDisableFuncsMu.Lock()
-	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disableAdd, disableDelete)
+	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disable)
 	t.callbackDisableFuncsMu.Unlock()
 }
 

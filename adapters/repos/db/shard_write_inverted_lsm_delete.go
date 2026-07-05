@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -181,11 +180,9 @@ func (s *Shard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64
 	return bucket.RoaringSetRangeRemove(binary.BigEndian.Uint64(key), docID)
 }
 
+// onDeleteFromPropertyValueIndex fires every registered delete callback (no
+// scope suppression); the delete-then-suppress write path uses the
+// threaded-snapshot variant inside deleteFromInvertedIndicesLSM.
 func (s *Shard) onDeleteFromPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	callbacks, _ := s.callbacksRemoveFromPropertyValueIndex.Load().([]onDeleteFromPropertyValueIndex)
-	ec := errorcompounder.New()
-	for _, cb := range callbacks {
-		ec.Add(cb(s, docID, property))
-	}
-	return ec.ToError()
+	return s.fireDeleteFromPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
 }

@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -312,13 +311,12 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 	return nil
 }
 
+// onAddToPropertyValueIndex fires every registered add callback (no scope
+// suppression). The suppressing write path uses the threaded-snapshot variant
+// via addToPropertyValueIndex; this convenience form loads its own snapshot
+// and is used by callers outside a threaded write (and the callback tests).
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	callbacks, _ := s.callbacksAddToPropertyValueIndex.Load().([]onAddToPropertyValueIndex)
-	ec := errorcompounder.New()
-	for _, cb := range callbacks {
-		ec.Add(cb(s, docID, property))
-	}
-	return ec.ToError()
+	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
 }
 
 func isMetaCountProperty(property inverted.Property) bool {

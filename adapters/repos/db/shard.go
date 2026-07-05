@@ -479,13 +479,13 @@ type Shard struct {
 
 	reindexer ShardReindexerV3
 
-	// Copy-on-write callback slices stored in atomic.Value for lock-free reads
-	// on the hot write path. Registration (rare) copies the slice behind
-	// propertyValueIndexCallbacksMu; iteration (every object write) loads the
-	// current snapshot without locking.
-	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
-	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
-	propertyValueIndexCallbacksMu         sync.Mutex
+	// Folded copy-on-write snapshot ({add,del,scope}, see propValueIndexState)
+	// stored in atomic.Value for lock-free reads on the hot write path.
+	// Registration/arm/disarm (rare) each publish a fresh copy behind
+	// propertyValueIndexCallbacksMu; every object write loads one consistent
+	// snapshot without locking.
+	propValueIndexState           atomic.Value // *propValueIndexState
+	propertyValueIndexCallbacksMu sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -974,16 +974,10 @@ func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueInd
 		return callback(shard, docID, property)
 	}
 
-	s.propertyValueIndexCallbacksMu.Lock()
-	var current []onAddToPropertyValueIndex
-	if v := s.callbacksAddToPropertyValueIndex.Load(); v != nil {
-		current = v.([]onAddToPropertyValueIndex)
-	}
-	updated := make([]onAddToPropertyValueIndex, len(current)+1)
-	copy(updated, current)
-	updated[len(current)] = wrapped
-	s.callbacksAddToPropertyValueIndex.Store(updated)
-	s.propertyValueIndexCallbacksMu.Unlock()
+	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+		cur.add = appendAddCallback(cur.add, wrapped)
+		return cur
+	})
 
 	return func() { disabled.Store(true) }
 }
@@ -997,16 +991,10 @@ func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromProper
 		return callback(shard, docID, property)
 	}
 
-	s.propertyValueIndexCallbacksMu.Lock()
-	var current []onDeleteFromPropertyValueIndex
-	if v := s.callbacksRemoveFromPropertyValueIndex.Load(); v != nil {
-		current = v.([]onDeleteFromPropertyValueIndex)
-	}
-	updated := make([]onDeleteFromPropertyValueIndex, len(current)+1)
-	copy(updated, current)
-	updated[len(current)] = wrapped
-	s.callbacksRemoveFromPropertyValueIndex.Store(updated)
-	s.propertyValueIndexCallbacksMu.Unlock()
+	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+		cur.del = appendDeleteCallback(cur.del, wrapped)
+		return cur
+	})
 
 	return func() { disabled.Store(true) }
 }
