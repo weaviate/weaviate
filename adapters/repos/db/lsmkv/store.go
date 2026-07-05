@@ -101,19 +101,14 @@ func (s *Store) bucketNoLock(name string) *Bucket {
 }
 
 // AcquireBucketForRead returns the bucket registered under name, pinned via
-// lifetimeLock.RLock so a concurrent SwapBucketPointer+Shutdown cannot free
-// it mid-query. The RLock is taken UNDER bucketAccessLock, so the caller
-// pins either the pre-swap bucket (Shutdown then blocks on this pin) or the
-// post-swap one — never a torn state. Returns (nil, no-op release) for an
-// unknown name. The caller MUST call release exactly once (defer it).
+// lifetimeLock.RLock so a concurrent swap+Shutdown cannot free it mid-query.
+// Returns (nil, no-op release) for an unknown name; the caller MUST call
+// release exactly once.
 //
 // TEARDOWN INVARIANT: a pinned query may still need bucketAccessLock to
-// finish (e.g. Store.Bucket(objects)), so no code may hold bucketAccessLock
-// across a draining bucket.Shutdown — that inverts the order and deadlocks
-// the whole store. Every teardown path must remove the bucket from
-// bucketsByName FIRST and drain outside the lock: SwapBucketPointer,
-// ShutdownBucket, ReplaceBuckets, and Store.Shutdown (snapshot+clear) all
-// follow this protocol; any new teardown path must too.
+// finish, so no teardown path may hold bucketAccessLock across a draining
+// bucket.Shutdown — remove the bucket from bucketsByName FIRST and drain
+// outside the lock, or the whole store deadlocks.
 func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
 	s.bucketAccessLock.RLock()
 	b := s.bucketsByName[name]
@@ -259,19 +254,10 @@ func (s *Store) Shutdown(ctx context.Context) error {
 
 	s.closed = true
 
-	// Snapshot + clear the registry, then RELEASE bucketAccessLock BEFORE
-	// draining — the TEARDOWN INVARIANT on AcquireBucketForRead: holding it
-	// across a draining Shutdown deadlocks against a pinned query that still
-	// needs Store.Bucket to finish. With the map cleared, that query's
-	// lookup returns nil, it exits, its pin releases, the drain completes.
-	//
-	// Consequence for Store.Bucket callers: mid-teardown (reachable via
-	// Index.drop, which does not wait for in-flight queries) Bucket returns
-	// nil where it previously returned a shutting-down bucket — the better
-	// failure mode (an error instead of reads on freed state). The
-	// pinned-query paths (BM25, aggregator vector search) nil-check; the
-	// remaining query-path fetch sites keep their pre-existing exposure with
-	// this improved failure shape.
+	// Snapshot + clear the registry, then release bucketAccessLock BEFORE
+	// draining (TEARDOWN INVARIANT on AcquireBucketForRead). Consequence:
+	// mid-teardown Store.Bucket returns nil where it previously returned a
+	// shutting-down bucket — query paths nil-check for this.
 	s.bucketAccessLock.Lock()
 	buckets := make(map[string]*Bucket, len(s.bucketsByName))
 	for name, bucket := range s.bucketsByName {
@@ -312,12 +298,9 @@ func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
-	// Remove from the registry FIRST, drain-Shutdown OUTSIDE
-	// bucketAccessLock — the TEARDOWN INVARIANT on AcquireBucketForRead:
-	// holding the registry lock across the drain deadlocks against a pinned
-	// query that still needs Store.Bucket to finish. The bucket is
-	// deregistered even if Shutdown then errors: a half-shut-down bucket
-	// must not be reachable for new pins.
+	// Remove from the registry FIRST, drain outside bucketAccessLock
+	// (TEARDOWN INVARIANT on AcquireBucketForRead). Deregistered even if
+	// Shutdown errors: a half-shut-down bucket must not be pinnable.
 	s.bucketAccessLock.Lock()
 	bucket, ok := s.bucketsByName[bucketName]
 	if ok {
@@ -565,12 +548,11 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
 }
 
-// freezeAndSwapForReplace makes the replacement visible under bucketName while
-// frozen: its flushLock is taken BEFORE the map swap and stays held on success
-// (released by the caller once dir/memtable/segment paths are consistent).
-// Without the freeze, a by-name writer landing between the swap and the tail
-// would append to a memtable the tail discards unflushed — a lost write.
-// Lock order matches RenameBucket (bucketAccessLock OUTER → flushLock INNER).
+// freezeAndSwapForReplace makes the replacement name-visible while frozen:
+// its flushLock is taken BEFORE the map swap and stays held on success —
+// otherwise a by-name writer landing before ReplaceBuckets' tail completes
+// would append to a memtable the tail discards unflushed (lost write).
+// Lock order matches RenameBucket: bucketAccessLock OUTER → flushLock INNER.
 func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string) (bucket, replacementBucket *Bucket, err error) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
@@ -610,12 +592,10 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return fmt.Errorf("%w: replacing bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, replacementBucketName, s.dir)
 	}
 
-	// Swap the registry entries with the replacement frozen, then run the
-	// displaced bucket's drain-Shutdown (inside replaceBucket) OUTSIDE
-	// bucketAccessLock — the TEARDOWN INVARIANT on AcquireBucketForRead.
-	// Once the map is swapped, no new pin can land on the displaced bucket;
-	// by-name access to the replacement blocks on its held flushLock until
-	// the physical move below completes.
+	// Swap the registry entries with the replacement frozen, then drain the
+	// displaced bucket (inside replaceBucket) OUTSIDE bucketAccessLock
+	// (TEARDOWN INVARIANT on AcquireBucketForRead). By-name access to the
+	// replacement blocks on its held flushLock until the move completes.
 	bucket, replacementBucket, err := s.freezeAndSwapForReplace(bucketName, replacementBucketName)
 	if err != nil {
 		return err

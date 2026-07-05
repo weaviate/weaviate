@@ -26,19 +26,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestAtomicOverlaySwap_BM25NeverSeesZeroCount proves the prop-discovery
-// half of the FINALIZING-window fix: pre-fix, the bucket-pointer flip and
-// the overlay set were two independent critical sections, so a concurrent
-// BM25 query could read the post-flip bucket with the pre-set overlay,
-// tokenize the phrase the OLD way, and miss → transient count==0. With
-// flip+overlay in ONE critical section (SwapBucketAndSetOverlay) and the
-// query reading both under the same RLock, no mixed pair is observable.
-//
-// The two-tokenization fixture emulates the swap: a real SwapBucketPointer
-// redirects the FIELD prop's searchable bucket to the WORD-content bucket
-// through the production wiring, with a TEST-ONLY 50ms hook widening the
-// flip↔overlay window; a concurrent query loop asserts it only ever sees
-// validCount. The lookup-time half is proven by TestPinBucketDrain_*.
+// TestAtomicOverlaySwap_BM25NeverSeesZeroCount: pre-fix, the bucket flip
+// and the overlay set were two independent critical sections, so a
+// concurrent BM25 query could see a mixed (bucket, tokenization) pair and
+// transiently return 0. The lookup-time half is TestPinBucketDrain_*.
 func TestAtomicOverlaySwap_BM25NeverSeesZeroCount(t *testing.T) {
 	sawBad, detail, reads := runAtomicOverlaySwapProof(t)
 	require.False(t, sawBad,
@@ -46,9 +37,8 @@ func TestAtomicOverlaySwap_BM25NeverSeesZeroCount(t *testing.T) {
 		detail, reads)
 }
 
-// TestAtomicOverlaySwap_OldCodeIsRacy is the asymmetry run: with the
-// pre-fix two-critical-sections behavior restored, the SAME proof DOES
-// observe the inconsistent pair — the proof is sensitive.
+// Asymmetry run: with the pre-fix behavior restored, the SAME proof must
+// observe the inconsistent pair — proving the proof is sensitive.
 func TestAtomicOverlaySwap_OldCodeIsRacy(t *testing.T) {
 	tokenizationOverlayNonAtomicForTest = true
 	t.Cleanup(func() { tokenizationOverlayNonAtomicForTest = false })
@@ -60,12 +50,10 @@ func TestAtomicOverlaySwap_OldCodeIsRacy(t *testing.T) {
 	t.Logf("WITHOUT FIX (expected): %s", detail)
 }
 
-// runAtomicOverlaySwapProof drives one field→word searchable-retokenization
-// swap with a 50ms flip↔overlay window while a concurrent query loop reads
-// the (tokenization, bucket) pair via the production read-side resolver and
-// looks the phrase up using that pair. It returns whether any read observed
-// a non-validCount result (an inconsistent pair), a human-readable detail of
-// the first such observation, and the number of reads performed.
+// runAtomicOverlaySwapProof drives one field→word swap with a widened
+// flip↔overlay window while a concurrent query loop reads the
+// (tokenization, bucket) pair via the production resolver, reporting the
+// first non-validCount observation.
 func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, readsOut int64) {
 	ctx := testCtx()
 	const hookSleepMs = 50
@@ -76,8 +64,7 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
 	phrase, validCount := fx.phrase, fx.matchDocs
 
-	// Baseline equivalence the proof hinges on: both CONSISTENT pairs find
-	// validCount docs; both MIXED pairs (the bug's signature) miss → 0.
+	// Baseline: CONSISTENT pairs find validCount docs; MIXED pairs miss → 0.
 	require.Equal(t, validCount, lookupCount(ctx, models.PropertyTokenizationField, fieldBucket, className, phrase),
 		"(FIELD tok, FIELD bucket) must find the phrase docs")
 	require.Equal(t, validCount, lookupCount(ctx, models.PropertyTokenizationWord, wordBucket, className, phrase),
@@ -87,9 +74,8 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 	require.Equal(t, 0, lookupCount(ctx, models.PropertyTokenizationWord, fieldBucket, className, phrase),
 		"(WORD tok, FIELD bucket) — the bug's signature — must MISS")
 
-	// Override processOneSwapPropFn so the per-prop "flip" redirects the
-	// FIELD prop's searchable bucket to the WORD-content bucket via the real
-	// store.SwapBucketPointer — the same swap the runtime migration performs.
+	// The "flip" redirects the FIELD prop's searchable bucket to the
+	// WORD-content bucket via the same SwapBucketPointer the migration uses.
 	task := NewRuntimeSearchableRetokenizeTask(
 		idx.logger, fieldProp, models.PropertyTokenizationWord,
 		className, lsmkv.StrategyInverted, className, 1,
@@ -99,8 +85,6 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
 		_ reindexTracker, _ int, _ string,
 	) (*lsmkv.Bucket, error) {
-		// Redirect fieldBucketName → the WORD-content bucket. Returns the
-		// displaced (old FIELD) bucket, mirroring processOneSwapProp.
 		return store.SwapBucketPointer(ctx, fieldBucketName, wordBucketName)
 	}
 
@@ -113,15 +97,11 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 	require.True(t, maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task}),
 		"overlay wiring must be active for a tokenization-changing migration")
 
-	// Widen the flip↔overlay window so the race is deterministically
-	// observable.
+	// Widen the flip↔overlay window so the race is deterministically observable.
 	task.afterFlipBeforeOverlayHook = func() {
 		time.Sleep(hookSleepMs * time.Millisecond)
 	}
 
-	// Concurrent query loop: resolve the (tokenization, bucket) snapshot
-	// via the production read-side resolver and look the phrase up with
-	// that pair, recording the first non-validCount observation.
 	var (
 		stop       atomic.Bool
 		queryWG    sync.WaitGroup
@@ -173,9 +153,8 @@ func runAtomicOverlaySwapProof(t *testing.T) (sawBadOut bool, detailOut string, 
 
 	require.Positive(t, totalReads.Load(), "query loop must have executed at least once")
 
-	// Post-swap the FIELD prop resolves to the WORD bucket with overlay=word.
-	// (Holds in both modes — the toggle only affects atomicity, not the end
-	// state.)
+	// Post-swap state holds in both modes — the toggle only affects
+	// atomicity, not the end state.
 	tokPost, bktPost, releasePost := shard.PinTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
 	defer releasePost()
 	require.Equal(t, models.PropertyTokenizationWord, tokPost,
