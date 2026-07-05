@@ -20,16 +20,11 @@ import (
 )
 
 // migrationDoubleWriteScope names the properties whose live double-write must
-// be analyzed under the migration's TARGET schema instead of the source
-// schema, plus the analyzer overlay that produces that target analysis. It is
-// empty (nil maps) whenever no reindex migration is ingesting on this shard,
-// which is the overwhelmingly common case; a nil-map lookup on the write path
-// then costs nothing.
-//
-// The scope is DERIVED from the registered ingest-window double-write
-// callbacks, never persisted: OnAfterLsmInit re-registers the callbacks on
-// every boot and re-arms the scope, so a restart rebuilds it with no on-disk
-// format.
+// be analyzed under the migration's TARGET schema (via overlay), so an
+// overlapping write mirrors the same terms the backfill produced. Empty (nil
+// maps) when no migration is ingesting, so the write-path lookup then costs
+// nothing. Derived from the ingest-window callbacks (re-armed on every boot),
+// never persisted.
 type migrationDoubleWriteScope struct {
 	props   map[string]struct{}
 	overlay map[string]inverted.PropertyOverlay
@@ -96,13 +91,11 @@ func insertUnlessIn(dst map[string]struct{}, key string, drop []string) map[stri
 	return dst
 }
 
-// propValueIndexState is the single copy-on-write snapshot behind the write
-// path's one atomic Load: the add/delete property-value-index callback slices
-// PLUS the migration double-write scope. Folding all three into one value is
-// what makes a write observe a CONSISTENT triple — a concurrent arm/disarm can
-// never expose "callbacks registered but scope not yet armed" (a source-schema
-// leak into the ingest bucket) or "scope armed but callbacks gone" (a target
-// write silently dropped).
+// propValueIndexState folds the add/delete callback slices and the migration
+// scope into one atomic snapshot so a write observes a CONSISTENT triple: a
+// concurrent arm/disarm can never expose callbacks-without-scope (source-schema
+// leak into the ingest bucket) or scope-without-callbacks (dropped target
+// write).
 type propValueIndexState struct {
 	add   []onAddToPropertyValueIndex
 	del   []onDeleteFromPropertyValueIndex
@@ -122,13 +115,6 @@ func (s *Shard) loadPropValueIndexState() *propValueIndexState {
 		return v.(*propValueIndexState)
 	}
 	return emptyPropValueIndexState
-}
-
-// migrationDoubleWriteScope exposes just the scope of the current snapshot for
-// callers that do not need the callback slices. The hot write path uses the
-// full state's .scope instead so it Loads only once.
-func (s *Shard) migrationDoubleWriteScope() *migrationDoubleWriteScope {
-	return &s.loadPropValueIndexState().scope
 }
 
 // mutatePropValueIndexState is the SOLE writer of the folded snapshot: it
@@ -203,12 +189,11 @@ func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, st *propValueIndexSta
 	return filtered, nil
 }
 
-// migrationDoubleWrite mirrors an object write into the reindex ingest bucket
-// under the migration's TARGET analysis, for the scope properties whose inline
-// callback the write path suppressed. It deletes the previous object's target
-// terms then adds the new object's, matching the main path's delete-then-add
-// order; the ingest bucket is a write-only sidecar until swap, so the full
-// re-add per write is idempotent and invisible to queries.
+// migrationDoubleWrite mirrors an object write into the ingest bucket under the
+// migration's TARGET analysis for the scope props whose inline callback the
+// write path suppressed. Delete-old then add-new (main-path order); the ingest
+// bucket is a write-only sidecar until swap, so full per-write churn is
+// idempotent and invisible to queries.
 func (s *Shard) migrationDoubleWrite(st *propValueIndexState, object, prevObject *storobj.Object,
 	status objectInsertStatus,
 ) error {
