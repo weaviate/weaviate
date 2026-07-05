@@ -223,11 +223,9 @@ type ShardReindexTaskGeneric struct {
 	// branch runs in production.
 	trackerMkdirGuard func(shard ShardLike) func(func() error) error
 
-	// TEST-ONLY: fires in [onAfterLsmInitWithTracker] right before the ingest
-	// double-write callbacks are registered (and before reindexStarted is
-	// captured) — the exact spot where the pre-fix ordering lost a concurrent
-	// write (weaviate/weaviate#11688). Tests inject writes here to make the
-	// markStarted→register race deterministic. Nil in production.
+	// TEST-ONLY: fires right before the ingest double-write callbacks
+	// register, letting tests inject a write into the markStarted→register
+	// gap (weaviate/weaviate#11688). Nil in production.
 	onBeforeDoubleWriteRegistration func()
 }
 
@@ -1141,10 +1139,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 		return nil
 	}
 
-	// markStarted is intentionally deferred to after the ingest double-write
-	// callbacks are registered — see the markStarted call at the end of this
-	// function. Capturing reindexStarted here (the pre-fix ordering) lost live
-	// writes in the register gap (weaviate/weaviate#11688).
+	// markStarted is deferred until after the double-write callbacks are
+	// registered below — capturing it earlier opens a lost-write gap
+	// (weaviate/weaviate#11688).
 
 	// Torn-state recovery: if rt.IsReindexed() is true but the reindex
 	// bucket dirs that markReindexed() must have populated are missing on
@@ -1236,15 +1233,13 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 		}
 		disableJustRegistered := t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
 
-		// Capture reindexStarted only now, after the callbacks are live, so
-		// every write the iterator skips (LastUpdateTimeUnix >= reindexStarted)
-		// was mirrored into ingest — no skipped-and-unmirrored gap. Ceiled up
-		// one ms because LastUpdateTimeUnix has ms resolution and the predicate
-		// is `<`; else a write sharing the truncated ms could be skipped yet
-		// land before registration. Overlap writes (after registration, before
-		// reindexStarted) are both mirrored and backfilled; they converge since
-		// reindex segments precede ingest in merge order and writes are per-key
-		// idempotent.
+		// Captured only after callbacks are live, so every write the iterator
+		// skips (LastUpdateTimeUnix >= reindexStarted) is guaranteed mirrored
+		// into ingest. Ceiled up one ms: LastUpdateTimeUnix has ms resolution
+		// and the skip predicate is `<`, so a write sharing the truncated ms
+		// could otherwise land before registration. Overlap writes converge
+		// because reindex segments precede ingest in merge order and writes
+		// are per-key idempotent.
 		if !isStarted {
 			startedAt := time.Now().Truncate(time.Millisecond).Add(time.Millisecond)
 			if err = rt.markStarted(startedAt); err != nil {
@@ -1786,13 +1781,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Always disable the double-write callbacks registered by this task
 	// instance, regardless of whether the swap completes successfully.
 	//
-	// On the happy path this runs after the in-memory pointer flip. The
-	// callbacks stay armed until this defer, so a live write between
-	// SwapBucketPointer and here still fires them. SwapBucketPointer deletes
-	// the ingest-name entry, so each callback resolves its bucket via
-	// [resolveDoubleWriteBucket] and falls back to the canonical main name —
-	// which now denotes the same physical bucket — landing the mirror write
-	// in the surviving bucket instead of dereferencing a nil one.
+	// On the happy path this runs after the in-memory pointer flip. Callbacks
+	// stay armed until this defer, so a live write in between still fires
+	// them; [resolveDoubleWriteBucket] falls back to the canonical name once
+	// SwapBucketPointer deletes the ingest-name entry, landing the mirror
+	// write in the surviving bucket instead of dereferencing nil.
 	//
 	// On an error path this is the load-bearing case: without it,
 	// callbacks would keep firing against buckets that may be mid-swap,
@@ -2561,11 +2554,10 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// registerDoubleWriteCallbacks arms the strategy's add/delete mirror
-// callbacks and stores their disable func for the eventual [disableCallbacks].
-// The returned func disables ONLY the pair registered by this call (each
-// disable is idempotent), for failure paths that must not touch registrations
-// the same task made for other shards.
+// registerDoubleWriteCallbacks arms the strategy's add/delete mirror callbacks
+// for [disableCallbacks]. The returned func disables only this call's pair
+// (idempotent), for failure paths that must not touch other shards'
+// registrations.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
 ) func() {

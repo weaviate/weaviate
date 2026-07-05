@@ -20,17 +20,15 @@ import (
 )
 
 // migrationDoubleWriteScope names properties needing TARGET-schema analysis
-// (via overlay), so an overlapping write mirrors the backfill. Nil maps when
-// idle keep the write-path lookup free. Derived from ingest callbacks and
-// re-armed each boot; never persisted.
+// via overlay, so an overlapping write mirrors the backfill. Nil maps mean
+// idle — no migration in flight.
 type migrationDoubleWriteScope struct {
 	props   map[string]struct{}
 	overlay map[string]inverted.PropertyOverlay
 }
 
-// withArmed returns copy-on-write scope additions: callers hold
-// propertyValueIndexCallbacksMu, and the fresh maps let a concurrent
-// lock-free reader keep seeing the old snapshot until Store publishes this one.
+// withArmed copies rather than mutates, so a concurrent lock-free reader keeps
+// seeing the old snapshot until Store publishes the new one.
 func (sc migrationDoubleWriteScope) withArmed(props []string,
 	overlay map[string]inverted.PropertyOverlay,
 ) migrationDoubleWriteScope {
@@ -88,9 +86,8 @@ func insertUnlessIn(dst map[string]struct{}, key string, drop []string) map[stri
 }
 
 // propValueIndexState folds the callback slices and migration scope into one
-// atomic snapshot, so a write sees a consistent triple: a concurrent arm/
-// disarm can never expose callbacks-without-scope (source leak into the
-// ingest bucket) or scope-without-callbacks (dropped target write).
+// atomic snapshot, so a concurrent arm/disarm can never expose
+// callbacks-without-scope or scope-without-callbacks to a write.
 type propValueIndexState struct {
 	add   []onAddToPropertyValueIndex
 	del   []onDeleteFromPropertyValueIndex
@@ -101,9 +98,9 @@ type propValueIndexState struct {
 // callback has ever been registered, so callers never nil-check the Load.
 var emptyPropValueIndexState = &propValueIndexState{}
 
-// loadPropValueIndexState returns the current snapshot without locking. The
-// write path loads exactly once per object so suppression, migAdd/migDel, and
-// the migration pass all see the same consistent {add,del,scope}.
+// loadPropValueIndexState returns the current snapshot without locking. Load
+// once per object so suppression and the migration pass see the same
+// {add,del,scope}.
 func (s *Shard) loadPropValueIndexState() *propValueIndexState {
 	if v := s.propValueIndexState.Load(); v != nil {
 		return v.(*propValueIndexState)
@@ -112,9 +109,9 @@ func (s *Shard) loadPropValueIndexState() *propValueIndexState {
 }
 
 // mutatePropValueIndexState is the sole writer of the folded snapshot: fn runs
-// on a copy under propertyValueIndexCallbacksMu and the result publishes via
-// one atomic Store, so registration/arm/disarm land as one indivisible
-// transition. fn must copy, not mutate in place, any slice/map it grows.
+// under the mutex and the result publishes via one atomic Store, so
+// registration/arm/disarm land as one indivisible transition. fn must copy,
+// not mutate in place, any slice/map it grows.
 func (s *Shard) mutatePropValueIndexState(fn func(cur propValueIndexState) propValueIndexState) {
 	s.propertyValueIndexCallbacksMu.Lock()
 	defer s.propertyValueIndexCallbacksMu.Unlock()
@@ -141,9 +138,8 @@ func appendDeleteCallback(cur []onDeleteFromPropertyValueIndex, cb onDeleteFromP
 	return updated
 }
 
-// fireAddToPropertyValueIndex invokes every add callback. The migration pass
-// calls this directly to bypass the inline write path's scope suppression —
-// suppressing here would drop the very write the migration exists to make.
+// fireAddToPropertyValueIndex invokes every add callback, bypassing the
+// inline write path's scope suppression (the migration pass needs it fired).
 func (s *Shard) fireAddToPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
 	for _, cb := range st.add {
@@ -160,9 +156,9 @@ func (s *Shard) fireDeleteFromPropertyValueIndex(st *propValueIndexState, docID 
 	return ec.ToError()
 }
 
-// analyzeForDoubleWrite runs AnalyzeObjectForMigrationWithOverlay (RawValues +
-// Force*/tokenization overlay) and filters to scope properties, so the
-// migration pass never touches a bucket it does not own.
+// analyzeForDoubleWrite filters AnalyzeObjectForMigrationWithOverlay's result
+// to scope properties, so the migration pass never touches a bucket it does
+// not own.
 func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, st *propValueIndexState) ([]inverted.Property, error) {
 	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, st.scope.overlay)
 	if err != nil {
@@ -178,9 +174,9 @@ func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, st *propValueIndexSta
 }
 
 // migrationDoubleWrite mirrors a write into the ingest bucket under TARGET
-// analysis, for scope props whose inline callback was suppressed. Delete-old
-// then add-new; the ingest bucket is a write-only sidecar until swap, so
-// per-write churn is idempotent and invisible to queries.
+// analysis, for scope props whose inline callback was suppressed. The ingest
+// bucket is a write-only sidecar until swap, so per-write churn is idempotent
+// and invisible to queries.
 func (s *Shard) migrationDoubleWrite(st *propValueIndexState, object, prevObject *storobj.Object,
 	status objectInsertStatus,
 ) error {
@@ -230,10 +226,10 @@ func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *
 	return nil
 }
 
-// registerDoubleWriteWithScope arms the migration scope and registers the
-// add+delete callbacks in ONE atomic Store, so a concurrent writer never sees
-// callbacks without the scope — which would leak source-tokenized terms into
-// the ingest bucket (the weaviate#298 bug). The returned func disarms both.
+// registerDoubleWriteWithScope arms the scope and registers the add+delete
+// callbacks in ONE atomic Store, so a concurrent writer never sees callbacks
+// without the scope and leaks source-tokenized terms into the ingest bucket
+// (weaviate/0-weaviate-issues#298). Returned func disarms both.
 func (s *Shard) registerDoubleWriteWithScope(add onAddToPropertyValueIndex, del onDeleteFromPropertyValueIndex,
 	props []string, overlay map[string]inverted.PropertyOverlay,
 ) func() {
@@ -259,9 +255,8 @@ func (s *Shard) registerDoubleWriteWithScope(add onAddToPropertyValueIndex, del 
 	})
 
 	return func() {
-		// Disable callbacks first so none can write the post-swap ingest
-		// bucket, then drop the scope so the inline path resumes owning these
-		// props.
+		// Disable callbacks before dropping the scope, so none can write the
+		// post-swap ingest bucket while the inline path resumes owning these props.
 		disabled.Store(true)
 		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
 			cur.scope = cur.scope.withDisarmed(props, overlay)

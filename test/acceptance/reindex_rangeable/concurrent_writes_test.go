@@ -11,16 +11,8 @@
 
 // Package reindex_rangeable_concurrent_writes is the black-box regression
 // suite for weaviate/weaviate#11688: live writes racing an enable-rangeable
-// runtime migration must not be dropped from the rangeable index.
-//
-// It ports QA's repro (f10, rangeable variant): N objects with an int
-// property that has indexFilterable=false (no other enabled inverted index
-// — the exposed property state), M concurrent PATCHes setting the property
-// to a marker value while PUT /v1/schema/{class}/indexes/{prop}
-// {"rangeable":{"enabled":true}} runs. After the migration completes, an
-// Aggregate over `prop >= MARK` must count exactly M. A live control (the
-// same write storm against a class whose rangeable index was enabled at
-// create time, i.e. no migration) pins that the storm itself loses
+// runtime migration must not be dropped from the rangeable index. A live
+// control class (no migration) pins that the write storm itself loses
 // nothing.
 package reindex_rangeable_concurrent_writes
 
@@ -53,9 +45,8 @@ const (
 	// numObjects keeps the backfill long enough that the M concurrent
 	// PATCHes overlap the migration window, while keeping CI runtime sane.
 	numObjects = 4000
-	// numUpdates is the number of concurrent PATCHes racing the migration.
 	numUpdates = 500
-	// updateThreads fans the PATCHes out, mirroring QA's repro.
+	// updateThreads fans the PATCHes out across goroutines.
 	updateThreads = 4
 	// mark is the post-update property value; far above every initial
 	// value so `vint >= mark` counts exactly the updated objects.
@@ -101,10 +92,8 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 		}
 	}()
 
-	// Live control FIRST: the same write storm against a class whose
-	// rangeable index existed from the start. Proves the storm itself
-	// (batching, PATCH concurrency, aggregation) loses nothing, so a
-	// migration-case failure isolates the migration as the cause.
+	// Live control FIRST: same storm, no migration — isolates the migration
+	// as the cause if only the migration case fails.
 	t.Run("live control (no migration)", func(t *testing.T) {
 		className := "F10RangeableLive"
 		ids := setupClassWithObjects(t, className, true)
@@ -141,8 +130,7 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 		}
 
 		// The core assertion: every concurrently PATCHed object must be
-		// range-queryable. Pre-fix this lost a stable double-digit
-		// percentage of the M updates (weaviate/weaviate#11688).
+		// range-queryable (weaviate/weaviate#11688).
 		var got int
 		require.Eventuallyf(t, func() bool {
 			got = aggregateCountWhereGTE(t, className, propName, mark)
@@ -157,12 +145,10 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 	})
 }
 
-// setupClassWithObjects creates the test class and imports numObjects
-// objects with vint cycling 0..99. rangeableAtCreate toggles the control
-// (true: index exists from the start, no migration needed) vs the
-// migration scenario (false: indexRangeFilters off, to be enabled at
-// runtime). indexFilterable is false in BOTH cases — the property state
-// that exposed the bug (no other enabled inverted index).
+// setupClassWithObjects creates the test class and imports numObjects objects
+// with vint cycling 0..99. rangeableAtCreate toggles the live-control class
+// (index enabled at create) vs the migration class (enabled at runtime);
+// indexFilterable is false in both, the property state that exposed the bug.
 func setupClassWithObjects(t *testing.T, className string, rangeableAtCreate bool) []string {
 	t.Helper()
 	vFalse := false
@@ -212,10 +198,8 @@ func setupClassWithObjects(t *testing.T, className string, rangeableAtCreate boo
 	return ids
 }
 
-// runUpdateStorm PATCHes numUpdates objects (ids[1000:1000+numUpdates]) to
-// vint=mark across updateThreads goroutines and waits for completion.
-// Every PATCH must succeed — a failed write would make the count
-// assertion ambiguous.
+// runUpdateStorm PATCHes numUpdates objects to vint=mark and waits for
+// completion. Every PATCH must succeed, else the count assertion is ambiguous.
 func runUpdateStorm(t *testing.T, restURI, className string, ids []string) {
 	t.Helper()
 	logger := logrus.New()
@@ -247,9 +231,9 @@ func runUpdateStorm(t *testing.T, restURI, className string, ids []string) {
 	t.Logf("update storm complete: %d PATCHes", numUpdates)
 }
 
-// patchVint PATCHes a single object's vint to mark via the REST API —
-// exactly what QA's repro does. Raw HTTP keeps error handling
-// goroutine-safe (no testify asserts off the test goroutine).
+// patchVint PATCHes a single object's vint to mark via the REST API. Raw
+// HTTP keeps error handling goroutine-safe (no testify asserts off the test
+// goroutine).
 func patchVint(restURI, className, id string) error {
 	body, err := json.Marshal(map[string]interface{}{
 		"class":      className,
@@ -271,11 +255,9 @@ func patchVint(restURI, className, id string) error {
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
-	// Strictly 204: a successful PATCH returns 204 No Content. An empty 200
-	// is the signature of a panicked handler — the REST panic middleware
-	// recovers WITHOUT writing a response, so net/http defaults to 200 with
-	// an empty body while the write was only half-applied (this is exactly
-	// how the pre-fix swap-window nil-bucket panic surfaced to clients).
+	// Strictly 204: an empty 200 is the signature of a panicked handler — the
+	// REST panic middleware recovers without writing a response, so net/http
+	// defaults to 200 with an empty body while the write was half-applied.
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("status %d (want 204): %s", resp.StatusCode, string(respBody))
 	}

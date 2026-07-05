@@ -30,9 +30,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// newNoLiveIndexRangeableTestClass forces IndexFilterable false (and leaves
-// IndexRangeFilters nil), so the property has no live index and AnalyzeObject
-// skips it on ordinary writes — the case only the double-write can cover.
+// newNoLiveIndexRangeableTestClass forces IndexFilterable false, so the
+// property has no live index and only the double-write can cover it.
 func newNoLiveIndexRangeableTestClass(className string) *models.Class {
 	c := newFilterableToRangeableTestClass(className)
 	noIndex := false
@@ -63,9 +62,8 @@ func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 }
 
 // TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost pins
-// weaviate/0-weaviate-issues#298: a write during the enable-rangeable window
-// targets a property with no live index, so only the migration double-write
-// (not ordinary AnalyzeObject) can make it survive the swap.
+// weaviate/0-weaviate-issues#298: a write to a no-live-index property during
+// an enable-rangeable migration must survive the swap via the double-write.
 func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	ctx := testCtx()
 	const propName = filterableToRangeablePropName

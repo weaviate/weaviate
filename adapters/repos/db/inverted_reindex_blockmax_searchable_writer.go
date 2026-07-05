@@ -37,9 +37,8 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 	return nil
 }
 
-// swapFallbackNamer maps a property to its canonical (main) bucket name, used
-// when the sidecar name no longer resolves post-swap; nil means "skip on
-// missing sidecar" (backup-phase callbacks). See resolveDoubleWriteBucket.
+// swapFallbackNamer is the canonical-name fallback passed to
+// resolveDoubleWriteBucket; nil skips on a missing sidecar (backup phase).
 func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {

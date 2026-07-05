@@ -26,38 +26,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestReindex_ConcurrentWriteInRegistrationGap_NotLost is the regression test
-// for the markStarted→registerDoubleWriteCallbacks write-loss window
-// (weaviate/weaviate#11688). Ported from 323bcf22f5 (originally on
-// columnar-v2, enable-columnar) and adapted to the enable-rangeable
-// scaffolding on this branch.
-//
-// Pre-fix, onAfterLsmInitWithTracker captured the reindexStarted timestamp
-// BEFORE loading the ingest buckets and registering the double-write
-// callbacks. A write landing in that window was
-//
-//	(a) skipped by the backfill iterator, because its LastUpdateTimeUnix is
-//	    >= reindexStarted (the iterator assumes such writes are
-//	    double-written), AND
-//	(b) NOT double-written into the ingest bucket, because the callbacks
-//	    were not registered yet
-//
-// so the row never reached the target bucket — permanently missing after
-// the migration reported FINISHED.
-//
-// The onBeforeDoubleWriteRegistration hook fires at the exact spot of the old
-// gap (after the old markStarted position, before callback registration).
-// Updates injected there change each object's score to a value outside the
-// corpus; each MUST survive under its new value after the swap. Against the
-// pre-fix ordering the gap assertions fail with numGapUpdates values missing;
-// with the fix (timestamp captured after registration, ceiled up one ms) they
-// pass because reindexStarted now sorts strictly after every gap write, so the
-// iterator backfills them.
-//
-// A second batch of updates lands after OnAfterLsmInit returns (callbacks
-// active, iteration not yet started); those survive only via the double-write
-// path (the iterator skips them), pinning the mechanism the iterator-skip
-// predicate relies on.
+// TestReindex_ConcurrentWriteInRegistrationGap_NotLost pins
+// weaviate/weaviate#11688: a write landing in the markStarted→register gap is
+// skipped by the backfill iterator (LastUpdateTimeUnix >= reindexStarted) and
+// unmirrored by the not-yet-registered double-write — permanently lost.
 func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	const (
 		numObjects        = 25
@@ -82,10 +54,8 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	// update overwrites object i with a fresh score and a CURRENT
-	// LastUpdateTimeUnix — exactly what a live PATCH/PUT does. The timestamp
-	// is what makes the backfill iterator skip the object once it is
-	// >= reindexStarted.
+	// update sets a CURRENT LastUpdateTimeUnix — what makes the backfill
+	// iterator skip the object once it is >= reindexStarted.
 	update := func(i int, val int64) {
 		require.NoError(t, shard.PutObject(ctx, &storobj.Object{
 			MarshallerVersion: 1,
@@ -130,13 +100,10 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
 	require.NotNil(t, rangeBucket, "post-migration rangeable bucket must exist")
 
-	// Positive control: an unmodified corpus value must be backfilled, else
-	// the migration populated nothing and the gap assertions prove nothing.
 	require.NotEmptyf(t, readRangeableIDs(t, rangeBucket, 0),
 		"positive control: iterator-backfilled corpus value 0 must be present")
 
-	// The gap writes: each updated object must be served under its new value.
-	// Missing here means the write in the markStarted→register gap was lost.
+	// Gap writes: served via the fixed markStarted ordering.
 	for i := 0; i < numGapUpdates; i++ {
 		val := gapValueBase + int64(i)
 		assert.Lenf(t, readRangeableIDs(t, rangeBucket, val), 1,
@@ -144,7 +111,7 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 				"the markStarted→registerDoubleWriteCallbacks gap lost it", i, val)
 	}
 
-	// The post-registration writes: served only via the double-write path.
+	// Post-registration writes: served only via the double-write path.
 	for i := numGapUpdates; i < numGapUpdates+numPostInitUpdate; i++ {
 		val := postValueBase + int64(i)
 		assert.Lenf(t, readRangeableIDs(t, rangeBucket, val), 1,
@@ -152,9 +119,8 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 				"via the double-write path", i, val)
 	}
 
-	// Convergence: every object appears exactly once across the expected
-	// values — no lost rows (count < numObjects) and no ghosts (a docID under
-	// two values). Reads the corpus values plus every injected value.
+	// Convergence: every object must appear exactly once — no lost rows, no
+	// ghosts under a second value.
 	seen := map[uint64]int{}
 	countValue := func(v int64) {
 		for _, id := range readRangeableIDs(t, rangeBucket, v) {
