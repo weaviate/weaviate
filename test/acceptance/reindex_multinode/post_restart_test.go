@@ -440,6 +440,8 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 	// OnAfterLsmInitAsync iterator path that #212 Issues C/D/G hit.
 	t.Log("submitting post-restart re-apply migrations (3 concurrent)")
 	uri1 = restURIOf(compose, 1)
+	// FINISHED is leader-read; gate on local schema before the next PUT.
+	reindexhelpers.AwaitTokenizationVisible(t, uri1, className, "path", "field")
 	{
 		var (
 			tp, tc, tk string

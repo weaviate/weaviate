@@ -61,8 +61,6 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
-// textProps builds word-tokenized text properties — the package's default
-// collection shape.
 func textProps(names ...string) []*models.Property {
 	props := make([]*models.Property, 0, len(names))
 	for _, name := range names {
@@ -75,10 +73,9 @@ func textProps(names ...string) []*models.Property {
 	return props
 }
 
-// createCollection creates a class with the given shard count and replication factor
-// via the REST API, then blocks until the class is in every node's LOCAL
-// schema view — a lagging follower otherwise fails consistency=ALL writes,
-// and the write can't simply be retried (auto-UUIDs would duplicate).
+// createCollection creates a class via the REST API, then blocks until it is
+// in every node's local schema view: a lagging follower fails consistency=ALL
+// writes, and retrying isn't safe (auto-UUIDs would duplicate).
 func createCollection(t *testing.T, compose *docker.DockerCompose, restURI, className string, shardCount, rf int, properties []*models.Property) {
 	t.Helper()
 
@@ -108,9 +105,8 @@ func createCollection(t *testing.T, compose *docker.DockerCompose, restURI, clas
 	respBody, _ := io.ReadAll(resp.Body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "create class failed: %s", string(respBody))
 
-	// The consistency:false header is load-bearing — the default proxies the
-	// read to the leader, which would hide a follower whose local schema view
-	// still lags behind the CREATE_CLASS apply.
+	// consistency:false forces a local read; the default proxies to the
+	// leader, which would hide a lagging follower.
 	for _, node := range compose.Containers() {
 		if !strings.HasPrefix(node.Name(), "weaviate-") {
 			continue
@@ -664,6 +660,11 @@ func filterMigrationLogLines(s string) []string {
 		"recovered untidied", "swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
+		// raft leadership lines: correlate with the FINISHED vs
+		// local-schema race (see AwaitTokenizationVisible).
+		"entering follower state", "entering candidate state",
+		"entering leader state", "election won", "leadership",
+		"raft_node_state",
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {
