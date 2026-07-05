@@ -2544,11 +2544,9 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 
 	var disable func()
 	if forTargetStrategy {
-		// Ingest window only: arm the migration double-write scope together
-		// with the callbacks in one atomic store, so a concurrent write to
-		// these props is analyzed under the TARGET schema (via the overlay +
-		// RawValues) instead of being source-tokenized into the ingest bucket.
-		// weaviate/0-weaviate-issues#298.
+		// Ingest window: arm the scope atomically with the callbacks, or a
+		// concurrent write gets source-tokenized into the ingest bucket
+		// (weaviate/0-weaviate-issues#298).
 		disable = shard.registerDoubleWriteWithScope(addCb, delCb, props, t.strategy.AnalyzerOverlay(props))
 	} else {
 		// Backup window: mirror source-analyzed writes as-is; no scope.

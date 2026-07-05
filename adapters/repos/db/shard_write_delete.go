@@ -189,9 +189,8 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 
-	// Migration double-write: remove the deleted object's TARGET terms from
-	// the ingest bucket for scope props (the inline delete callback above was
-	// suppressed for them). No-op when no migration is ingesting.
+	// Mirrors the delete into the ingest bucket for scope props suppressed
+	// above; no-op absent a migration.
 	if err = s.migrationDoubleWriteDelete(st, previousObject, docID); err != nil {
 		return fmt.Errorf("migration double-write delete: %w", err)
 	}

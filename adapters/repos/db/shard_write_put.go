@@ -520,9 +520,8 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
-	// One snapshot for the whole write: the source-schema props above drive the
-	// MAIN buckets, while st.scope (if a migration is ingesting) redirects the
-	// scope props' double-write to a TARGET-schema pass below.
+	// One snapshot for the whole write, so the double-write pass below sees
+	// the same {add,del,scope} as the inline suppression above.
 	st := s.loadPropValueIndexState()
 
 	var prevProps []inverted.Property
@@ -618,10 +617,8 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		}
 	}
 
-	// Migration double-write: for scope props whose inline callback we
-	// suppressed above, mirror this write into the ingest bucket under the
-	// TARGET analysis (delete-old then add-new). No-op when no migration is
-	// ingesting.
+	// Mirrors this write into the ingest bucket under the TARGET analysis for
+	// scope props suppressed above; no-op absent a migration.
 	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
 		return fmt.Errorf("migration double-write: %w", err)
 	}

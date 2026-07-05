@@ -30,12 +30,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// newNoLiveIndexRangeableTestClass builds the FilterableToRangeable class with
-// the numeric property carrying NO live inverted index at all: IndexFilterable
-// forced false (the base builder leaves it nil → defaults true) and
-// IndexRangeFilters left nil → false. AnalyzeObject therefore skips the
-// property on ordinary writes, which is precisely the "absent input" case the
-// enable-rangeable double-write must cover.
+// newNoLiveIndexRangeableTestClass forces IndexFilterable false (and leaves
+// IndexRangeFilters nil), so the property has no live index and AnalyzeObject
+// skips it on ordinary writes — the case only the double-write can cover.
 func newNoLiveIndexRangeableTestClass(className string) *models.Class {
 	c := newFilterableToRangeableTestClass(className)
 	noIndex := false
@@ -43,10 +40,8 @@ func newNoLiveIndexRangeableTestClass(className string) *models.Class {
 	return c
 }
 
-// readRangeableIDs returns the docIDs stored under a single int64 value in a
-// RoaringSetRange bucket. Sibling of filterableToRangeableFingerprint, but for
-// one caller-chosen value (the concurrent write uses a value outside the 0..N
-// corpus so it can be queried in isolation).
+// readRangeableIDs returns docIDs for one int64 value in a RoaringSetRange
+// bucket; sibling of filterableToRangeableFingerprint for a single value.
 func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	t.Helper()
 	require.Equal(t, lsmkv.StrategyRoaringSetRange, b.Strategy(),
@@ -67,26 +62,15 @@ func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	return bm.ToArray()
 }
 
-// TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost is the
-// enable-an-index shape of weaviate/0-weaviate-issues#298 (the retokenize
-// shapes live in inverted_reindex_write_during_finalize_test.go). The property
-// has NO live inverted index, so the ordinary write path's AnalyzeObject skips
-// it and the inline double-write has nothing to mirror — only the migration
-// pass, analyzing under the strategy's ForceRangeable overlay, makes the
-// property present and writes it to the new rangeable bucket.
-//
-// RED before the fix: with no migration double-write the concurrent value is
-// silently dropped and a range query misses it after the swap.
-//
-// Positive control: the iterator-backfilled corpus IS present in the same
-// bucket, proving the target-population path works and the concurrent write's
-// absence is specifically the enable-X double-write failing.
+// TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost pins
+// weaviate/0-weaviate-issues#298: a write during the enable-rangeable window
+// targets a property with no live index, so only the migration double-write
+// (not ordinary AnalyzeObject) can make it survive the swap.
 func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	ctx := testCtx()
 	const propName = filterableToRangeablePropName
 	const numObjects = 25
-	// Distinct from the 0..(filterableToRangeableNumDistinctValues-1) corpus so
-	// its posting list is unambiguously the concurrent write.
+	// Outside the corpus so its posting list is unambiguously this write.
 	const concurrentValue = int64(4242)
 
 	className := "EnableRangeableConc_" + uuid.NewString()[:8]
@@ -106,7 +90,7 @@ func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	// Drive to reindexed-but-not-swapped: iterator done, double-write live.
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 
-	// Concurrent write in the FINALIZING window, value outside the corpus.
+	// The concurrent write: lands in the FINALIZING window, before swap.
 	require.NoError(t, shard.PutObject(ctx, &storobj.Object{
 		MarshallerVersion: 1,
 		Object: models.Object{
@@ -122,12 +106,10 @@ func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
 	require.NotNil(t, rangeBucket, "post-swap rangeable bucket must exist")
 
-	// Positive control: the backfilled corpus reached the rangeable bucket.
 	require.NotEmptyf(t, readRangeableIDs(t, rangeBucket, 0),
 		"positive control: iterator-backfilled corpus (value 0) must be present in the rangeable bucket; "+
 			"got none — the migration never populated it and the assertion below would prove nothing")
 
-	// The concurrent write's value must survive the swap.
 	ids := readRangeableIDs(t, rangeBucket, concurrentValue)
 	assert.NotEmptyf(t, ids,
 		"#298 enable-rangeable: object written during the reindex window is NOT under the target rangeable value "+

@@ -479,11 +479,9 @@ type Shard struct {
 
 	reindexer ShardReindexerV3
 
-	// Folded copy-on-write snapshot ({add,del,scope}, see propValueIndexState)
-	// stored in atomic.Value for lock-free reads on the hot write path.
-	// Registration/arm/disarm (rare) each publish a fresh copy behind
-	// propertyValueIndexCallbacksMu; every object write loads one consistent
-	// snapshot without locking.
+	// Folded snapshot (see propValueIndexState) for lock-free reads on the hot
+	// write path; registration/arm/disarm publish a fresh copy behind
+	// propertyValueIndexCallbacksMu.
 	propValueIndexState           atomic.Value // *propValueIndexState
 	propertyValueIndexCallbacksMu sync.Mutex
 	// stores names of properties that are searchable and use buckets of

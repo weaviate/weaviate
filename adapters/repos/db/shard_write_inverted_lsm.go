@@ -126,10 +126,8 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
-	// Suppress the inline callback for props under migration: their target
-	// double-write is handled by migrationDoubleWrite with the correct
-	// TARGET analysis (the inline callback would only see the source-schema
-	// property here). Non-scope props keep firing inline exactly as before.
+	// Scope props are suppressed here; migrationDoubleWrite fires them under
+	// the TARGET analysis instead of this source-schema view.
 	if _, migrating := st.scope.props[property.Name]; !migrating {
 		if err := s.fireAddToPropertyValueIndex(st, docID, &property); err != nil {
 			return err
@@ -317,10 +315,8 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 	return nil
 }
 
-// onAddToPropertyValueIndex fires every registered add callback (no scope
-// suppression). The suppressing write path uses the threaded-snapshot variant
-// via addToPropertyValueIndex; this convenience form loads its own snapshot
-// and is used by callers outside a threaded write (and the callback tests).
+// onAddToPropertyValueIndex fires all add callbacks with no scope
+// suppression; used outside the threaded write path (and by tests).
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
 	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
 }
