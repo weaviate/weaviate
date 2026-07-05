@@ -23,11 +23,8 @@ import (
 	"google.golang.org/grpc/connectivity"
 )
 
-// TestClient_Query_LeaderChangeMidRPC reproduces weaviate/0-weaviate-issues#284:
-// a concurrent getConn observing a new leader used to Close() the conn another
-// RPC had just acquired, surfacing "grpc: the client connection is closing" on
-// leader-forwarded requests during rolling restarts. The hook deterministically
-// forces the leader change into the window between getConn and the RPC call.
+// Pins the race where a leader change closes the conn underneath an in-flight
+// RPC (weaviate/0-weaviate-issues#284).
 func TestClient_Query_LeaderChangeMidRPC(t *testing.T) {
 	addr1, stop1 := startTestServer(t, &testServer{})
 	defer stop1()
@@ -55,10 +52,7 @@ func TestClient_Query_LeaderChangeMidRPC(t *testing.T) {
 	}
 }
 
-// TestClient_getConn_RetiredConnClosesAfterLastRelease pins the drain half of
-// the swap-then-drain contract: a conn retired by a leader change must still be
-// closed once its last in-flight RPC releases it, otherwise every leader change
-// would leak a conn.
+// Pins that a retired conn still closes (is not leaked) once its last in-flight RPC releases it.
 func TestClient_getConn_RetiredConnClosesAfterLastRelease(t *testing.T) {
 	addr1, stop1 := startTestServer(t, &testServer{})
 	defer stop1()
@@ -82,9 +76,7 @@ func TestClient_getConn_RetiredConnClosesAfterLastRelease(t *testing.T) {
 	require.Equal(t, connectivity.Shutdown, conn1.GetState())
 }
 
-// TestClient_Query_ConcurrentLeaderFlap hammers Query with the client's view of
-// the leader flapping between two nodes; no request may ever observe its conn
-// closed underneath it, regardless of interleaving.
+// Pins that no query observes its conn closed underneath it while the leader flaps.
 func TestClient_Query_ConcurrentLeaderFlap(t *testing.T) {
 	addr1, stop1 := startTestServer(t, &testServer{})
 	defer stop1()

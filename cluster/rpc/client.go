@@ -97,10 +97,8 @@ type rpcAddressResolver interface {
 	Address(raftAddress string) (string, error)
 }
 
-// refConn pairs the leader conn with a reference count so that a leader change
-// can retire the conn without closing it underneath an in-flight RPC (closing
-// it mid-RPC surfaced as "grpc: the client connection is closing" errors on
-// leader-forwarded requests during rolling restarts).
+// refConn pairs the leader conn with a reference count so a leader change can
+// retire the conn without closing it underneath an in-flight RPC.
 type refConn struct {
 	conn *grpc.ClientConn
 	// addr is the raft address this conn was dialed for
@@ -247,10 +245,8 @@ func (cl *Client) Close() {
 	cl.retireLocked()
 }
 
-// getConn either returns the cached connection in the client to the leader or will instantiate a new one towards
-// leaderRaftAddr and retire the old one
-// Returns the gRPC client connection to leaderRaftAddr and a release func the caller must invoke once its RPC is done
-// Returns an error if an RPC connection to leaderRaftAddr can't be established
+// getConn returns the cached conn to the leader, or dials leaderRaftAddr and
+// retires the old conn. Callers must invoke release once their RPC is done.
 func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.ClientConn, func(), error) {
 	cl.connLock.Lock()
 	defer cl.connLock.Unlock()
@@ -290,15 +286,12 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	return acquired, release, nil
 }
 
-// acquireLocked hands out the current conn plus a release func that closes it
-// only once it is both retired and idle, so a leader change observed by a
-// concurrent getConn never closes a conn with RPCs still in flight.
-// Callers must hold connLock.
+// acquireLocked hands out the current conn plus a release func; release closes
+// the conn once it is both retired and idle. Callers must hold connLock.
 func (cl *Client) acquireLocked() (*grpc.ClientConn, func()) {
 	rc := cl.leaderRpcConn
 	rc.refs++
-	// Once-guarded: a double release would drive refs negative and break the
-	// refs==0 close trigger, leaking the conn.
+	// a double release would drive refs negative and leak the conn
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
