@@ -133,10 +133,8 @@ func perNodeBM25Counts(t *testing.T, compose *docker.DockerCompose, className, q
 	return counts
 }
 
-// awaitTokenizationOnAllNodes blocks until the property's tokenization
-// matches the target in every node's LOCAL schema. Task FINISHED is a
-// leader-forwarded read while a follow-up indexes PUT validates against
-// the submit node's local schema, so this gate must not leader-proxy.
+// awaitTokenizationOnAllNodes gates each node's LOCAL schema; a leader-
+// proxied read here would just check the leader three times over.
 func awaitTokenizationOnAllNodes(
 	t *testing.T, compose *docker.DockerCompose, className, propName, target string,
 ) {
