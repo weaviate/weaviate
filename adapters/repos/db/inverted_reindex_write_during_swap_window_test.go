@@ -197,3 +197,61 @@ func TestReindex_ConcurrentDeleteDuringSwapWindow_NotLost(t *testing.T) {
 	assert.Lenf(t, rangeableDocIDsAtLeast(t, bucket, 0), numObjects-1,
 		"exactly one object must be removed from the rangeable index after the swap-window delete")
 }
+
+// TestResolveDoubleWriteBucket_FallsBackAfterSwap is the hook-free unit
+// counterpart to the two swap-window pins above: it asserts the resolution
+// truth table of resolveDoubleWriteBucket directly against the exact store
+// state SwapBucketPointer produces — no task, no swap orchestration, no
+// timing. This is the pure seam behind the weaviate/weaviate#11688 fix, so the
+// branch that panicked is proven in-place rather than only through a driven
+// swap:
+//
+//	sidecar present            → sidecar bucket (the normal double-write target)
+//	sidecar gone, fallback set → canonical bucket (ingest phase: the swap
+//	                             renamed ingest→canonical, so the mirror write
+//	                             must still land — pre-fix this was a nil deref)
+//	sidecar gone, fallback ""  → nil (backup phase: the source is genuinely
+//	                             torn down, so skipping is correct, not loss)
+func TestResolveDoubleWriteBucket_FallsBackAfterSwap(t *testing.T) {
+	ctx := testCtx()
+	className := "ResolveDoubleWrite_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"category"})
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	// Synthetic names decoupled from any shard-managed bucket, so the resolver
+	// (a pure store map lookup) is exercised in isolation.
+	const sidecarName = "dw_resolver_ingest_sidecar"
+	const canonicalName = "dw_resolver_canonical"
+	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, sidecarName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, canonicalName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+
+	// Pre-swap: the sidecar exists, so it is resolved directly.
+	require.Same(t, shard.store.Bucket(sidecarName),
+		resolveDoubleWriteBucket(shard, sidecarName, canonicalName),
+		"pre-swap the sidecar bucket must be resolved directly")
+
+	// The production swap: canonical now points at the sidecar's physical
+	// bucket and the sidecar NAME is unregistered — the exact window state a
+	// concurrent write's callback observes.
+	_, err := shard.store.SwapBucketPointer(ctx, canonicalName, sidecarName)
+	require.NoError(t, err)
+	require.Nil(t, shard.store.Bucket(sidecarName),
+		"sanity: SwapBucketPointer must unregister the sidecar name")
+
+	// Ingest-phase resolution: sidecar gone → fall back to the canonical name
+	// (non-nil), so the callback writes instead of dereferencing nil.
+	require.Same(t, shard.store.Bucket(canonicalName),
+		resolveDoubleWriteBucket(shard, sidecarName, canonicalName),
+		"#11688: post-swap the resolver must fall back to the canonical bucket, "+
+			"not return nil (the pre-fix nil deref that paniced the write)")
+
+	// Backup-phase resolution: no fallback name → nil is correct (the source is
+	// genuinely gone; a nil-skip here is a no-op, not data loss).
+	require.Nil(t, resolveDoubleWriteBucket(shard, sidecarName, ""),
+		"with no swap-fallback name the resolver must return nil (backup phase)")
+}
