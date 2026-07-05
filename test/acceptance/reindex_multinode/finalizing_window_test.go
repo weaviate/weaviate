@@ -526,23 +526,9 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 }
 
 // batchImport posts objects in batches of `batchSize` using /v1/batch/objects
-// at consistency_level=ALL.
-//
-// ALL (not the default) is load-bearing for the reverse (field→word)
-// direction. Default batch consistency returns after a single-replica ack,
-// leaving the other replicas' apply legs in flight. The reindex then
-// snapshots each replica's object store at whatever count it currently
-// holds — a lagging replica reindexes fewer objects, and its post-swap
-// WORD bucket is permanently short until replication catches up. The
-// forward direction's baseline gate hides this because it waits for WORD
-// "alpha"==objectCount on every replica (a full-corpus convergence check),
-// but the reverse baseline gate only waits for FIELD full-phrase==1 (doc #0
-// alone), so under-replication of the other objects slips through and
-// surfaces later as a sub-1500 count. On the starved soak VM this produced
-// per-node reindex sums of 1499 / 1495 / 1500 (matching the probe reads
-// bit-for-bit), failing postCount==1500 and inflating the partial window
-// to seconds. ALL makes the corpus converged before the migration starts,
-// so every replica reindexes the full 1500. Mirrors importObjects.
+// at consistency_level=ALL: the reverse reindex must start from a fully
+// replicated store, or a lagging replica builds a permanently-short WORD
+// bucket. Mirrors importObjects.
 func batchImport(t *testing.T, restURI, className string, texts []string, batchSize int) {
 	t.Helper()
 
