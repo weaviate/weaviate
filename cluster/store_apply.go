@@ -511,8 +511,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// A command introduced by a newer app version. Log and no-op rather than
+		// panic: a crash would wedge the FSM on every unknown entry during a
+		// rolling upgrade. The applied index still advances, so the node stays
+		// consistent and skips the command's effect until it upgrades.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type":  cmd.Type,
