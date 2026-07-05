@@ -232,26 +232,37 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
 }
 
-// fetchLocalTokenization requires consistency:false: the default GET
-// proxies to the leader, not this node's local schema.
-func fetchLocalTokenization(restURI, className, propName string) (string, bool) {
+// FetchClass reads the class schema via the given node. local=true sends
+// consistency:false for the node's own FSM state; the default GET proxies
+// to the leader — fine for cluster assertions, useless as a per-node gate.
+func FetchClass(restURI, className string, local bool) (*models.Class, bool) {
 	req, err := http.NewRequest(http.MethodGet,
 		fmt.Sprintf("http://%s/v1/schema/%s", restURI, className), nil)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
-	req.Header.Set("consistency", "false")
+	if local {
+		req.Header.Set("consistency", "false")
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return "", false
+		return nil, false
 	}
 	var class models.Class
 	if err := json.Unmarshal(body, &class); err != nil {
+		return nil, false
+	}
+	return &class, true
+}
+
+func fetchLocalTokenization(restURI, className, propName string) (string, bool) {
+	class, ok := FetchClass(restURI, className, true)
+	if !ok {
 		return "", false
 	}
 	for _, prop := range class.Properties {
