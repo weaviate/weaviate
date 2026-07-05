@@ -117,10 +117,49 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 // [migrationDirsForPropertyIndex] for the (propName, indexType) tuple.
 func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 	out := map[int]bool{}
+	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+		out[gen] = true
+	})
+	return out
+}
+
+// completedMigrationSidecarSuffixes returns the gen-suffixed sidecar dir
+// suffixes (e.g. "__roaringset_ingest_2") owned by completed-but-deferred
+// migrations matching `prefixes`. Keying preservation by (suffix-base, gen)
+// instead of bare gen prevents a completed strategy's generation from
+// shielding — or failing to shield — a DIFFERENT strategy's sidecar that
+// happens to share the generation int.
+//
+// Used by [Shard.CleanStalePartialReindexState] for both the bucket-
+// shutdown skip and the sidecar-dir sweep; membership is tested against
+// the sidecar name's portion after the main bucket name (which starts
+// with "__", same as the suffix bases below).
+func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[string]bool {
+	out := map[string]bool{}
+	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+		suffixes := migrationSuffixes(base)
+		if suffixes == nil {
+			return
+		}
+		tail := genSuffix(gen)
+		out[suffixes.ingestSuffix+tail] = true
+		out[suffixes.backupSuffix+tail] = true
+		if rs := reindexSuffixForFinalize(base); rs != "" {
+			out[rs+tail] = true
+		}
+	})
+	return out
+}
+
+// forEachCompletedMigration invokes fn for every tracker dir under
+// lsmPath/.migrations whose (prefix, gen) parse matches one of `prefixes`
+// and that carries tidied.mig or merged.mig — i.e. migrations that
+// completed in-process and await next-restart finalize.
+func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base string, gen int)) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		return out
+		return
 	}
 	prefixSet := map[string]bool{}
 	for _, p := range prefixes {
@@ -139,10 +178,9 @@ func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 		}
 		dirPath := filepath.Join(migrationsDir, entry.Name())
 		if fileExistsInDir(dirPath, "tidied.mig") || fileExistsInDir(dirPath, "merged.mig") {
-			out[gen] = true
+			fn(base, gen)
 		}
 	}
-	return out
 }
 
 // fileExistsInDir is a small helper for [completedMigrationGens]; returns
