@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -433,6 +435,11 @@ func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "panic" && entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				// without GoWrapper's recover the panic kills the process by
+				// design; retry-after-panic only exists in recovery mode.
+				t.Skip("panic recovery disabled")
+			}
 			dyn := newUpgradeTestDynamic(t, 10)
 			dyn.doUpgradeHookForTest = tc.hook
 
