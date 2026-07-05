@@ -70,7 +70,11 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newRoaringSetCursors()
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		b.panicOnCursorRefusal(err)
+	}
 
 	// we hold a flush-lock during initialzation, but we release it before
 	// returning to the caller. However, `*memtable.newCursor` creates a deep

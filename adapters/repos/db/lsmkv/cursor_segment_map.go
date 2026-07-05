@@ -30,8 +30,11 @@ func (s *segment) newMapCursor() innerCursorMap {
 	}
 }
 
-func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
-	segments, release := sg.getConsistentViewOfSegments()
+func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func(), error) {
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	out := make([]innerCursorMap, len(segments))
 
@@ -43,7 +46,7 @@ func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
 		}
 	}
 
-	return out, release
+	return out, release, nil
 }
 
 func (s *segmentCursorMap) decode(parsed segmentCollectionNode) ([]MapPair, error) {

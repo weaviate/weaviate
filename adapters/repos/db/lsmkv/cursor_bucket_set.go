@@ -46,7 +46,10 @@ func (b *Bucket) SetCursor() *CursorSet {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newCollectionCursors()
+	if err != nil {
+		b.panicOnCursorRefusal(err)
+	}
 
 	// we hold a flush-lock during initialzation, but we release it before
 	// returning to the caller. However, `*memtable.newCollectionCursor` creates

@@ -69,7 +69,11 @@ func (b *Bucket) Cursor() *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		b.panicOnCursorRefusal(err)
+	}
 
 	// we hold a flush-lock during initialzation, but we release it before
 	// returning to the caller. However, `*memtable.newCursor` creates a deep
@@ -106,7 +110,11 @@ func (b *Bucket) CursorReplaceReusable() *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newReusableCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newReusableCursors()
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		b.panicOnCursorRefusal(err)
+	}
 
 	if b.flushing != nil {
 		innerCursors = append(innerCursors, b.flushing.newCursor())
@@ -168,7 +176,10 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 func (b *Bucket) CursorOnDisk() *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
+	if err != nil {
+		b.panicOnCursorRefusal(err)
+	}
 
 	return &CursorReplace{
 		innerCursors: innerCursors,
@@ -192,7 +203,11 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithSecondaryIndex(pos)
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursorsWithSecondaryIndex(pos)
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		b.panicOnCursorRefusal(err)
+	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two

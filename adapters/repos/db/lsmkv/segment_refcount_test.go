@@ -84,7 +84,7 @@ func TestSegmentGroupConsistentViewConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iters; j++ {
-				_, release := sg.getConsistentViewOfSegments()
+				_, release := mustSegmentView(t, sg)
 				release()
 			}
 		}()

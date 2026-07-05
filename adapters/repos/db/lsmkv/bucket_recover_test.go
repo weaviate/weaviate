@@ -67,7 +67,10 @@ func TestBucketWalReload(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, entries, 1, "single wal file should be created")
 
-			testBucketContent(t, strategy, b, 2)
+			// reads on a shut-down bucket are refused (ErrShuttingDown) instead
+			// of silently serving memtable-only data; the content must come
+			// back via the WAL reload below
+			assertReadsRefused(t, strategy, b)
 
 			// start fresh with a new memtable, new entries will stay in wal until size is reached
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
@@ -229,6 +232,25 @@ func TestBucketRecovery(t *testing.T) {
 	get, err := b.Get([]byte("hello1"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("world1"), get)
+}
+
+func assertReadsRefused(t *testing.T, strategy string, b *Bucket) {
+	t.Helper()
+	var err error
+	switch strategy {
+	case StrategyReplace:
+		_, err = b.Get([]byte("hello1"))
+	case StrategySetCollection:
+		_, err = b.SetList([]byte("hello1"))
+	case StrategyRoaringSet:
+		_, _, err = b.RoaringSetGet([]byte("hello1"))
+	case StrategyRoaringSetRange:
+		// mirrors testBucketContent, which has no read path for this strategy
+		return
+	case StrategyMapCollection:
+		_, err = b.MapList(context.Background(), []byte("hello1"))
+	}
+	require.ErrorIs(t, err, ErrShuttingDown)
 }
 
 func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) {
