@@ -25,23 +25,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestModeADrainRematerialize deterministically reproduces the race where a
-// cancelled-but-still-draining DTM reindex goroutine re-enters a tracker
-// init after a concurrent DELETE: Index.drop renamed the class dir away, but
-// pathLSM() re-resolves to the ORIGINAL path and an unguarded tracker
-// MkdirAll re-creates it — an orphaned class dir the DELETE was supposed to
-// remove. The TEST-ONLY reindexTrackerInitHook parks the goroutine just
-// before the MkdirAll until drop() completes — no sleeps.
-//
-// Each subtest drives a REAL production entry point (not the tracker factory
-// directly), so reverting the guard wiring at either callsite turns the
-// corresponding subtest red at the final os.Stat:
-//
-//   - the worker drain path: OnAfterLsmInitAsync, the per-iteration re-entry
-//     a cancelled worker takes with no ctx check before the tracker MkdirAll;
-//   - the DTM lifecycle path: RunReindexOnlyOnShard → runShardLifecycle →
-//     onAfterLsmInitGuarded — the same route enterDTMPhase's iteration
-//     resume ladder takes (and RunOnShard shares).
+// TestModeADrainRematerialize pins the race where a draining reindex
+// goroutine's tracker MkdirAll re-creates the class dir a concurrent DELETE
+// (Index.drop) just renamed away.
 func TestModeADrainRematerialize(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -78,8 +64,6 @@ func TestModeADrainRematerialize(t *testing.T) {
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 
-			// The worker signals inHook at the top of the first tracker init,
-			// then blocks on releaseHook until drop() has completed — no sleeps.
 			inHook := make(chan struct{})
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
@@ -107,14 +91,12 @@ func TestModeADrainRematerialize(t *testing.T) {
 			close(releaseHook)
 			<-workerDone
 
-			// The guard bails with context.Canceled (clean stop); a nil error
-			// would also be acceptable if a future refactor swallows the stop.
+			// nil is also fine: only a clean stop is acceptable.
 			if driveErr != nil {
 				assert.Truef(t, errors.Is(driveErr, context.Canceled),
 					"production entry failed with an unexpected error (want context.Canceled): %v", driveErr)
 			}
 
-			// The load-bearing assertion.
 			_, statErr := os.Stat(idxPath)
 			assert.Truef(t, os.IsNotExist(statErr),
 				"draining reindex goroutine re-materialized class dir %q after DELETE renamed it away (stat err: %v)",
