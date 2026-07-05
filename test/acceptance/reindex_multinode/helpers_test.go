@@ -660,6 +660,12 @@ func filterMigrationLogLines(s string) []string {
 		"recovered untidied", "swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
+		// raft leadership evidence: a leader move between a task's
+		// FINISHED (leader read) and the local schema apply is a known
+		// flake shape. These lines are rare, so the dump stays small.
+		"entering follower state", "entering candidate state",
+		"entering leader state", "election won", "leadership",
+		"raft_node_state",
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {

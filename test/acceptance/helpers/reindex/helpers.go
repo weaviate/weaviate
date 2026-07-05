@@ -232,6 +232,60 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
 }
 
+// fetchLocalTokenization reads propName's tokenization from the node's
+// LOCAL schema. The consistency:false header is load-bearing — the
+// default proxies GET /v1/schema/{class} to the leader.
+func fetchLocalTokenization(restURI, className, propName string) (string, bool) {
+	req, err := http.NewRequest(http.MethodGet,
+		fmt.Sprintf("http://%s/v1/schema/%s", restURI, className), nil)
+	if err != nil {
+		return "", false
+	}
+	req.Header.Set("consistency", "false")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	var class models.Class
+	if err := json.Unmarshal(body, &class); err != nil {
+		return "", false
+	}
+	for _, prop := range class.Properties {
+		if prop.Name == propName {
+			return prop.Tokenization, true
+		}
+	}
+	return "", false
+}
+
+// AwaitTokenizationVisible blocks until propName's tokenization equals
+// wantTok in the node's LOCAL schema. /v1/tasks FINISHED is a leader-
+// forwarded read while the indexes PUT validates against the local
+// schema — gate on local visibility before resubmitting.
+func AwaitTokenizationVisible(t *testing.T, restURI, className, propName, wantTok string, opts ...Option) {
+	t.Helper()
+	o := applyOptions(opts)
+
+	lastSeen := "(no successful read)"
+	deadline := time.Now().Add(o.timeout)
+	for time.Now().Before(deadline) {
+		if tok, ok := fetchLocalTokenization(restURI, className, propName); ok {
+			lastSeen = tok
+			if tok == wantTok {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("property %s.%s tokenization not %q in local schema of %s within %s (last seen: %q)",
+		className, propName, wantTok, restURI, o.timeout, lastSeen)
+}
+
 // AwaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
 // the named (property, indexType) reports `ready`. Unlike
 // AwaitReindexFinished, this polls the index-status surface — useful for

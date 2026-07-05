@@ -138,6 +138,9 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("change-tokenization → field: task=%s", task1)
 	reindexhelpers.AwaitReindexFinished(t, uri1, task1, reindexhelpers.WithTimeout(180*time.Second))
+	// FINISHED is a leader read; the next PUT validates against node-1's
+	// local schema — gate on local visibility before resubmitting.
+	reindexhelpers.AwaitTokenizationVisible(t, uri1, className, "path", "field")
 
 	// === Step 5: every replica must serve the FIELD count.
 	// AwaitReindexFinished only confirms node-1; poll all replicas (50ms)
@@ -326,6 +329,9 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 		reindexhelpers.AwaitReindexFinished(t, uri, tp, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tc, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tk, reindexhelpers.WithTimeout(180*time.Second))
+		// FINISHED is a leader read; cycle 1's PUT validates against
+		// node-1's local schema — gate on local visibility.
+		reindexhelpers.AwaitTokenizationVisible(t, uri, className, "path", "field")
 	}
 
 	// Repeated journey: rebuild + tokenization round-trip, N times. The
@@ -364,6 +370,8 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 		reindexhelpers.AwaitReindexFinished(t, uri, tp, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tc, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri, tk, reindexhelpers.WithTimeout(180*time.Second))
+		// Gate the next cycle's PUT on node-1's local schema flip.
+		reindexhelpers.AwaitTokenizationVisible(t, uri, className, "path", nextTok)
 	}
 
 	// After preRestartCycles cycles, the path tokenization is:

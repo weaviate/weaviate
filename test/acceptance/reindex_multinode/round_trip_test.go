@@ -133,20 +133,17 @@ func perNodeBM25Counts(t *testing.T, compose *docker.DockerCompose, className, q
 	return counts
 }
 
-// awaitTokenizationOnAllNodes polls each node's /v1/schema/{class} until
-// the named property's tokenization matches the target. The schema flip is
-// RAFT-replicated from the OnTaskCompleted commit, so it lands on every
-// node within RAFT propagation latency — typically tens of ms.
+// awaitTokenizationOnAllNodes blocks until the property's tokenization
+// matches the target in every node's LOCAL schema. Task FINISHED is a
+// leader-forwarded read while a follow-up indexes PUT validates against
+// the submit node's local schema, so this gate must not leader-proxy.
 func awaitTokenizationOnAllNodes(
 	t *testing.T, compose *docker.DockerCompose, className, propName, target string,
 ) {
 	t.Helper()
 
 	for i := 0; i < 3; i++ {
-		uri := compose.GetWeaviateNode(i + 1).URI()
-		require.Eventuallyf(t, func() bool {
-			return tryGetPropertyTokenization(uri, className, propName) == target
-		}, 30*time.Second, 50*time.Millisecond,
-			"node %d: property %q tokenization should be %q", i+1, propName, target)
+		reindexhelpers.AwaitTokenizationVisible(t,
+			compose.GetWeaviateNode(i+1).URI(), className, propName, target)
 	}
 }
