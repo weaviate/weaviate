@@ -621,13 +621,18 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	enterrors.GoWrapper(func() {
 		defer callback()
+		// re-arm on error AND panic (GoWrapper recovers): a later Upgrade call
+		// must be able to retry. doUpgrade flips status only on success.
+		defer func() {
+			if !dynamic.status.IsUpgraded() {
+				dynamic.status.Reset()
+			}
+		}()
 		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
 		err := dynamic.doUpgrade()
 		if err != nil {
 			dynamic.logger.WithError(err).Error("failed to upgrade index")
-			// re-arm: a later Upgrade call must be able to retry.
-			dynamic.status.Reset()
 			return
 		}
 		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
@@ -641,54 +646,54 @@ func (dynamic *dynamic) doUpgrade() error {
 		return dynamic.doUpgradeHookForTest()
 	}
 
-	// Start with a read lock to prevent reading from the index
-	// while it's being dropped or closed.
-	// This allows search operations to continue while the index is being
-	// upgraded.
-	dynamic.RLock()
+	// The read lock keeps the current index alive (not dropped/closed) while
+	// the new one is built; searches continue throughout. Closure so the
+	// unlock is deferred and panic-safe.
+	index, err := func() (*hnsw.HNSW, error) {
+		dynamic.RLock()
+		defer dynamic.RUnlock()
 
-	index, err := hnsw.New(
-		hnsw.Config{
-			Logger:                       dynamic.logger,
-			RootPath:                     dynamic.rootPath,
-			ID:                           dynamic.id,
-			ShardName:                    dynamic.shardName,
-			ClassName:                    dynamic.className,
-			PrometheusMetrics:            dynamic.prometheusMetrics,
-			VectorForIDThunk:             dynamic.vectorForIDThunk,
-			GetViewThunk:                 dynamic.getViewThunk,
-			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
-			DistanceProvider:             dynamic.distanceProvider,
-			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
-			DisableSnapshots:             dynamic.hnswDisableSnapshots,
-			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
-			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
-			AllocChecker:                 dynamic.AllocChecker,
-			MakeBucketOptions:            dynamic.MakeBucketOptions,
-			AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
-		},
-		dynamic.uc.HnswUC,
-		dynamic.tombstoneCallbacks,
-		dynamic.store,
-	)
+		index, err := hnsw.New(
+			hnsw.Config{
+				Logger:                       dynamic.logger,
+				RootPath:                     dynamic.rootPath,
+				ID:                           dynamic.id,
+				ShardName:                    dynamic.shardName,
+				ClassName:                    dynamic.className,
+				PrometheusMetrics:            dynamic.prometheusMetrics,
+				VectorForIDThunk:             dynamic.vectorForIDThunk,
+				GetViewThunk:                 dynamic.getViewThunk,
+				TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
+				DistanceProvider:             dynamic.distanceProvider,
+				MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
+				DisableSnapshots:             dynamic.hnswDisableSnapshots,
+				SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
+				WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
+				AllocChecker:                 dynamic.AllocChecker,
+				MakeBucketOptions:            dynamic.MakeBucketOptions,
+				AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
+			},
+			dynamic.uc.HnswUC,
+			dynamic.tombstoneCallbacks,
+			dynamic.store,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := dynamic.copyToVectorIndex(index); err != nil {
+			return nil, err
+		}
+
+		// Start commit-log maintenance on the new HNSW index. The cache prefill
+		// is a no-op because cachePrefilled was already set during init (fresh
+		// index with no commit-log state) and the cache is populated by AddBatch.
+		index.PostStartup(dynamic.ctx)
+		return index, nil
+	}()
 	if err != nil {
-		dynamic.RUnlock()
 		return err
 	}
-
-	err = dynamic.copyToVectorIndex(index)
-	if err != nil {
-		dynamic.RUnlock()
-		return err
-	}
-
-	// Start commit-log maintenance on the new HNSW index. The cache prefill
-	// is a no-op because cachePrefilled was already set during init (fresh
-	// index with no commit-log state) and the cache is populated by AddBatch.
-	index.PostStartup(dynamic.ctx)
-
-	// end of read-only zone
-	dynamic.RUnlock()
 
 	// Lock the index for writing but check if it was already
 	// closed in the meantime
