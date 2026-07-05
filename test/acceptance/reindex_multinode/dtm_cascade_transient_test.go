@@ -20,11 +20,7 @@ import (
 	"testing"
 )
 
-// Regression guard for the post-rolling-restart flake in
-// TestMultiNode_DeleteRecreateCleansReindexTasks: assertTaskGone's inner read
-// used to hard-assert status==200 and FailNow'd from the Eventually condition
-// goroutine on the first transient non-200 (gRPC reconnect after restart).
-// Drives assertTaskGone against a server replaying that transient; must pass.
+// pins: assertTaskGone retries transient /v1/tasks non-200s (post-restart gRPC reconnect) instead of failing.
 func TestAssertTaskGone_ToleratesTransientReadError(t *testing.T) {
 	var polls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

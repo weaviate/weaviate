@@ -147,8 +147,7 @@ func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 	t.Helper()
 	// /v1/tasks is served from the coordinator's FSM-replicated view — the
 	// cascade applies inside the same FSM, so absence is visible immediately.
-	// The tolerant read retries post-restart transient non-200s (gRPC
-	// reconnect); only a successful read with the task absent passes.
+	// A failed read is a retry, not absence.
 	require.Eventuallyf(t, func() bool {
 		exists, ok := taskExists(t, restURI, taskID)
 		return ok && !exists

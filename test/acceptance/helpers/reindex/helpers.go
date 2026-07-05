@@ -151,10 +151,9 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	return &result
 }
 
-// TryFetchTasks does one tolerant GET /v1/tasks: ok=false on any transport /
-// non-200 / decode error so Eventually polls retry post-restart transients
-// (gRPC reconnect). Deliberately takes no *testing.T — require inside an
-// Eventually condition goroutine would runtime.Goexit the wrong goroutine.
+// TryFetchTasks does one tolerant GET /v1/tasks: ok=false on any error so
+// Eventually polls can retry post-restart transients. No *testing.T: require
+// in an Eventually condition would runtime.Goexit the wrong goroutine.
 func TryFetchTasks(restURI string) (models.DistributedTasks, bool) {
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	if err != nil {
@@ -173,8 +172,7 @@ func TryFetchTasks(restURI string) (models.DistributedTasks, bool) {
 }
 
 // TryGetIndexes is the GET /v1/schema/{collection}/indexes counterpart of
-// TryFetchTasks: tolerant and goroutine-safe, for Eventually polls that must
-// ride out the same post-restart reconnect window.
+// TryFetchTasks: same tolerant, no-*testing.T contract.
 func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
 	if err != nil {
@@ -192,9 +190,8 @@ func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
 	return &out, true
 }
 
-// fetchReindexTask does one tolerant GET /v1/tasks poll and returns the
-// reindex task with the given ID. ok is false when the request, status,
-// decode, or lookup hasn't yielded that task yet, so pollers keep retrying.
+// fetchReindexTask returns the reindex task with the given ID; ok=false
+// means keep polling.
 func fetchReindexTask(restURI, taskID string) (models.DistributedTask, bool) {
 	tasks, ok := TryFetchTasks(restURI)
 	if !ok {
@@ -212,18 +209,13 @@ func fetchReindexTask(restURI, taskID string) (models.DistributedTask, bool) {
 //
 // Sync here, not on GET /v1/schema/<class>/indexes: the backup gate reads
 // DTM liveness, and the two can lag ~1s, so index-status races the gate.
-//
-// A terminal status is captured inside the Eventually condition (which runs
-// on its own goroutine, so it must never Fatalf) and reported from the test
-// goroutine after Eventually returns.
 func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
-	// atomic.Pointer, not a plain var: correct today because
-	// require.Eventually's cross-goroutine send/receive orders the write
-	// before the read, but a future switch to assert.Eventually (returns on
-	// timeout) would turn a plain capture into a live race.
+	// atomic.Pointer: require.Eventually's channel sync makes a plain var
+	// safe today, but a switch to assert.Eventually (returns on timeout)
+	// would make a plain capture a live race.
 	var terminalErr atomic.Pointer[error]
 	require.Eventually(t, func() bool {
 		task, ok := fetchReindexTask(restURI, taskID)
@@ -256,9 +248,7 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 }
 
 // AwaitReindexFinished polls /v1/tasks until the named reindex task
-// reaches FINISHED. Fails on FAILED or on timeout (default 120s). FAILED is
-// captured inside the Eventually condition and reported from the test
-// goroutine after — the condition goroutine must never Fatalf.
+// reaches FINISHED. Fails on FAILED or on timeout (default 120s).
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
