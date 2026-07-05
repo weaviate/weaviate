@@ -140,11 +140,9 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 }
 
 // classLevelMigrationDirForIndexType returns the class-level strategy's
-// migration dir prefix for an indexType. Class-level dirs are excluded
-// from [migrationDirsForPropertyIndex] (deleting them on a per-prop event
-// would corrupt the class-wide migration), but their completed gens must
-// still feed the sidecar PRESERVE set in CleanStalePartialReindexState —
-// their ingest dirs are live per-prop data awaiting next-restart finalize.
+// migration dir prefix for an indexType. Excluded from deletion in
+// [migrationDirsForPropertyIndex], but its completed gens must still feed
+// the preserve set in CleanStalePartialReindexState: their sidecars are live.
 func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
 	switch indexType {
 	case "filterable":

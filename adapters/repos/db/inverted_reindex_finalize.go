@@ -125,15 +125,9 @@ func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 
 // completedMigrationSidecarSuffixes returns the gen-suffixed sidecar dir
 // suffixes (e.g. "__roaringset_ingest_2") owned by completed-but-deferred
-// migrations matching `prefixes`. Keying preservation by (suffix-base, gen)
-// instead of bare gen prevents a completed strategy's generation from
-// shielding — or failing to shield — a DIFFERENT strategy's sidecar that
-// happens to share the generation int.
-//
-// Used by [Shard.CleanStalePartialReindexState] for both the bucket-
-// shutdown skip and the sidecar-dir sweep; membership is tested against
-// the sidecar name's portion after the main bucket name (which starts
-// with "__", same as the suffix bases below).
+// migrations matching `prefixes`. Keying by (suffix-base, gen) instead of
+// bare gen stops one strategy's completed gen from shielding — or failing
+// to shield — a different strategy's sidecar at the same gen (issue #295).
 func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[string]bool {
 	out := map[string]bool{}
 	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
@@ -152,9 +146,8 @@ func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[st
 }
 
 // forEachCompletedMigration invokes fn for every tracker dir under
-// lsmPath/.migrations whose (prefix, gen) parse matches one of `prefixes`
-// and that carries tidied.mig or merged.mig — i.e. migrations that
-// completed in-process and await next-restart finalize.
+// lsmPath/.migrations matching `prefixes` that carries tidied.mig or
+// merged.mig (completed in-process, awaiting next-restart finalize).
 func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base string, gen int)) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)

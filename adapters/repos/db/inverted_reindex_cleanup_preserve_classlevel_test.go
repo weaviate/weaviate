@@ -22,8 +22,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// mkTrackerDir creates .migrations/<name>/ under lsmPath with the given
-// sentinel files.
 func mkTrackerDir(t *testing.T, lsmPath, name string, sentinels ...string) {
 	t.Helper()
 	dir := filepath.Join(lsmPath, ".migrations", name)
@@ -33,7 +31,6 @@ func mkTrackerDir(t *testing.T, lsmPath, name string, sentinels ...string) {
 	}
 }
 
-// mkSidecarDir creates a fake on-disk sidecar bucket dir under lsmPath.
 func mkSidecarDir(t *testing.T, lsmPath, name string) {
 	t.Helper()
 	dir := filepath.Join(lsmPath, name)
@@ -51,17 +48,9 @@ func dirExistsAt(t *testing.T, lsmPath, name string) bool {
 	return info.IsDir()
 }
 
-// TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize
-// pins the soak-observed data-loss bug (issue #295): a completed
-// class-level migration (filterable_roaringset_refresh /
-// searchable_map_to_blockmax) in deferred-finalize state has its live
-// ingest sidecar dir on disk (the in-memory main bucket pointer's backing
-// store). A subsequent CleanStalePartialReindexState for the same
-// (prop, indexType) — e.g. pre-submit defense-in-depth for an unrelated
-// per-prop migration — must NOT delete that ingest dir. Before the fix,
-// the preserve set was computed only from the per-prop tracker prefixes,
-// so the class-level gen was invisible and the live dir was wiped:
-// silent index loss on next restart, ENOENT on the next migration's swap.
+// TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize pins
+// issue #295: cleanup must not wipe the live ingest sidecar of a completed
+// class-level migration awaiting deferred finalize.
 func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -73,8 +62,7 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 		// per-prop completed tracker + its live ingest sidecar
 		propTracker     string
 		propLiveSidecar string
-		// genuinely stale sidecar of a cancelled class-level attempt
-		// (tracker without tidied/merged) — must still be deleted
+		// stale cancelled class-level attempt, must still be deleted
 		staleTracker string
 		staleSidecar string
 	}{
@@ -140,9 +128,7 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			require.False(t, dirExistsAt(t, lsm, tc.staleSidecar),
 				"stale sidecar %s of a cancelled attempt must be wiped", tc.staleSidecar)
 
-			// Tracker-deletion semantics are unchanged: class-level tracker
-			// dirs are never deleted by the per-prop sweep; the completed
-			// per-prop tracker is preserved by the existing tidied/merged gate.
+			// Tracker-deletion semantics must be unchanged by the fix.
 			require.True(t,
 				dirExistsAt(t, filepath.Join(lsm, ".migrations"), tc.classTracker),
 				"class-level tracker %s must not be touched by per-prop cleanup",
@@ -155,12 +141,8 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 }
 
 // TestCleanStalePartialReindexState_GenCollisionAcrossStrategies pins the
-// second flaw from issue #295: preservation used to be keyed by BARE
-// generation int, so a completed migration of strategy A at gen N
-// accidentally preserved (and, symmetrically, could fail to protect) a
-// DIFFERENT strategy's sidecar at the same gen. Preservation must be
-// keyed by (sidecar-suffix-base, gen): a roaringset ingest dir survives
-// iff a completed roaringset-refresh tracker of the SAME gen exists.
+// bare-gen keying flaw (issue #295): preservation must key on
+// (suffix-base, gen), not the generation int alone.
 func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T) {
 	cases := []struct {
 		name                 string
@@ -220,11 +202,7 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 }
 
 // TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix pins the
-// bucket-shutdown half of the same keying bug: the skip that protects a
-// LIVE loaded sidecar bucket from being shut down must match by
-// (suffix-base, gen), and must recognize class-level completed gens.
-// Shutting the live bucket down and deleting its dir tears the backing
-// store out from under the in-memory main bucket pointer.
+// bucket-shutdown half of the bare-gen keying bug (issue #295).
 func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 	ctx := testCtx()
 	className := "CleanupShutdownSkip_" + uuid.NewString()[:8]
@@ -235,8 +213,7 @@ func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 	defer shard.Shutdown(ctx)
 	lsm := shard.pathLSM()
 
-	// Completed class-level migration at gen 2; its ingest bucket is loaded
-	// (it IS the main bucket's backing store until next-restart finalize).
+	// Completed class-level migration at gen 2 with its ingest bucket loaded.
 	mkTrackerDir(t, lsm, "filterable_roaringset_refresh_2",
 		"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig")
 	liveName := "property_category__roaringset_ingest_2"

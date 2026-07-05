@@ -279,17 +279,10 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	// Compute the completed-but-deferred sidecar suffixes for this
-	// (prop, indexType). Any tracker dir with tidied.mig or merged.mig
-	// represents a successfully finished in-process migration whose ingest
-	// sidecar dir is the live backing store of the in-memory main bucket
-	// pointer — wiping it here is the #10675-shape silent data loss this
-	// gate exists to prevent (R2/R2b on the controller node).
-	//
-	// The preserve set deliberately spans MORE prefixes than the tracker-
-	// deletion sweep: class-level strategies are excluded from deletion
-	// (their tracker aggregates every prop of the class) but their completed
-	// gens' sidecars are just as live for this prop and must survive.
+	// Preserve sidecars of completed-but-deferred migrations: they back the
+	// live in-memory bucket pointer; wiping them is #10675-shape data loss.
+	// The preserve set spans MORE prefixes than the tracker-deletion sweep:
+	// class-level gens are excluded from deletion but their sidecars are live.
 	preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
 	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
 		preservePrefixes = append(preservePrefixes, classDir)
@@ -310,11 +303,9 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		if bucketName == mainBucketName {
 			continue
 		}
-		// Skip live sidecar buckets that back a completed-but-deferred
-		// migration (in-memory bucket pointer still references them; their
-		// dir on disk is the canonical bucket's data until next-restart
-		// finalize renames it). Matched by (suffix-base, gen), not bare gen,
-		// so an unrelated strategy's completed gen never shields this bucket.
+		// Skip live sidecar buckets backing a completed-but-deferred
+		// migration. Matched by (suffix-base, gen), not bare gen, so an
+		// unrelated strategy's completed gen never shields this bucket.
 		if preserveSidecars[strings.TrimPrefix(bucketName, mainBucketName)] {
 			continue
 		}
@@ -336,9 +327,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		WithField("preserved_sidecars", preserveSidecarsSlice(preserveSidecars)).
 		Info("partial-reindex cleanup: sidecar buckets shut down")
 
-	// Step 2 + 3: remove the sidecar dirs and migration dir. Both call the
-	// existing helpers, which log errors rather than panic. Pass through
-	// the preserved sidecar suffixes so the deferred-finalize state survives.
+	// Steps 2 + 3: remove sidecar dirs and migration dir. The helpers log
+	// errors rather than fail; preserved suffixes survive.
 	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveSidecars)
 	s.cleanStaleMigrationDirs(propName, indexType)
 	logger.Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
@@ -406,20 +396,10 @@ func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
 	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, nil)
 }
 
-// cleanStaleSidecarDirsWithPreserved is the preserve-aware variant used by
-// the CANCEL→retry and pre-submit defense-in-depth paths. `preserveSidecars`
-// lists the gen-suffixed sidecar suffixes (e.g. "__roaringset_ingest_2",
-// from [completedMigrationSidecarSuffixes]) whose dirs MUST be kept on disk
-// because they belong to a completed-but-deferred migration (their tracker
-// dir has tidied.mig / merged.mig). Wiping those out from under the
-// in-memory bucket pointer produces #10675-shape silent data loss on the
-// next submit-without-restart sequence. Keyed by (suffix-base, gen), never
-// bare gen: a completed strategy's generation must not shield a different
-// strategy's sidecar that shares the int.
-//
-// Pass nil to wipe every matching sidecar dir (the DELETE→re-enable
-// callers, which already removed the main bucket and have no live state
-// to protect).
+// cleanStaleSidecarDirsWithPreserved removes matching sidecar dirs except
+// those in `preserveSidecars` (from [completedMigrationSidecarSuffixes]):
+// they back live completed-but-deferred migrations; wiping them is
+// #10675-shape silent data loss. Pass nil to wipe everything.
 func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preserveSidecars map[string]bool) {
 	entries, err := os.ReadDir(s.pathLSM())
 	if err != nil {
