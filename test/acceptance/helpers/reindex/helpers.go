@@ -232,9 +232,8 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
 }
 
-// fetchLocalTokenization reads propName's tokenization from the node's
-// LOCAL schema. The consistency:false header is load-bearing — the
-// default proxies GET /v1/schema/{class} to the leader.
+// fetchLocalTokenization requires consistency:false: the default GET
+// proxies to the leader, not this node's local schema.
 func fetchLocalTokenization(restURI, className, propName string) (string, bool) {
 	req, err := http.NewRequest(http.MethodGet,
 		fmt.Sprintf("http://%s/v1/schema/%s", restURI, className), nil)
@@ -263,10 +262,8 @@ func fetchLocalTokenization(restURI, className, propName string) (string, bool) 
 	return "", false
 }
 
-// AwaitTokenizationVisible blocks until propName's tokenization equals
-// wantTok in the node's LOCAL schema. /v1/tasks FINISHED is a leader-
-// forwarded read while the indexes PUT validates against the local
-// schema — gate on local visibility before resubmitting.
+// AwaitTokenizationVisible gates on the node's local schema: /v1/tasks
+// FINISHED is leader-forwarded, but the indexes PUT validates locally.
 func AwaitTokenizationVisible(t *testing.T, restURI, className, propName, wantTok string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
