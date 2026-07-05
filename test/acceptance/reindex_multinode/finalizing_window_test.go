@@ -212,14 +212,13 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// stable baseline. If the probe matches zero at startTok we'd
 	// classify steady-state samples as partial, blowing the budget.
 	//
-	// Wait for per-replica convergence first. batchImport uses default
-	// write consistency; the synchronous POST returning does NOT
-	// guarantee that every replica has finished its replication leg —
-	// there can be a brief lag (typically <500ms) before all 3 nodes
-	// return identical probe counts. Without this wait the baseline
-	// captured here can be 5-10 below steady-state, and the
-	// classifyProbeSamples helper will subsequently treat *every*
-	// steady-state sample as out-of-range (count > captured baseline).
+	// Wait for per-replica convergence first: even with batchImport at
+	// consistency_level=ALL (object writes acked by all replicas), a BM25
+	// probe can briefly see divergent counts while a replica finishes
+	// indexing, so capture the baseline only once all 3 nodes agree.
+	// Without this wait the baseline captured here can be below
+	// steady-state, and the classifyProbeSamples helper will subsequently
+	// treat *every* steady-state sample as out-of-range (count > captured baseline).
 	// That misclassification produced 13 spurious failures on PR
 	// #11323 CI run b19dd49366 / job 76404184658:
 	//   baseline captured: 1495 (lagged replica)
