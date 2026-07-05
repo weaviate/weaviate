@@ -220,6 +220,15 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
 			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
 			mergedProps[oldIdx].IndexSearchable = new[idx].IndexSearchable
+			if new[idx].Tokenization != "" {
+				// v1.38 runtime-reindex commits a change-tokenization migration as
+				// an UpdateProperty carrying the new tokenization. Without merging
+				// it, a node downgraded to this version keeps the old tokenization
+				// and silently returns 0 hits (0-weaviate-issues#238). Native
+				// v1.37 never mutates an existing property's tokenization, so the
+				// incoming value equals the stored one here and this is a no-op.
+				mergedProps[oldIdx].Tokenization = new[idx].Tokenization
+			}
 
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
 				mergedProps[oldIdx].NestedProperties,
