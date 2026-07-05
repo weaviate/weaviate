@@ -874,10 +874,15 @@ func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expecte
 				s.nodeID, s.count, lo, hi)
 		default:
 			c.Partial++
-			if c.FirstPartial.IsZero() {
+			// min/max by timestamp, not arrival order: per-node probe
+			// goroutines interleave, and a regressed LastPartial makes the
+			// late-partial anchor undershoot a legitimate in-window sample
+			if c.FirstPartial.IsZero() || s.t.Before(c.FirstPartial) {
 				c.FirstPartial = s.t
 			}
-			c.LastPartial = s.t
+			if s.t.After(c.LastPartial) {
+				c.LastPartial = s.t
+			}
 			t.Logf("partial @ +%v node=%d count=%d (baseline=%d, post=%d)",
 				s.t.Sub(migrationStart).Round(time.Millisecond),
 				s.nodeID, s.count, baseline, expectedAfter)
@@ -914,4 +919,27 @@ func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAf
 		}
 	}
 	return late
+}
+
+// TestClassifyProbeSamples_OutOfOrderPartials pins the soak-caught false
+// positive: two near-simultaneous partials from different node goroutines
+// arriving out of timestamp order regressed LastPartial, so the late-partial
+// anchor (LastPartial+100ms) undershot the true latest partial.
+func TestClassifyProbeSamples_OutOfOrderPartials(t *testing.T) {
+	start := time.Now()
+	samples := []probeSample{
+		{t: start.Add(2092 * time.Millisecond), nodeID: 1, count: 970}, // partial, arrives first
+		{t: start.Add(1990 * time.Millisecond), nodeID: 3, count: 970}, // partial, earlier timestamp
+		{t: start.Add(3 * time.Second), nodeID: 2, count: 0},           // post
+	}
+	c := classifyProbeSamples(t, samples, 1500, 0, start)
+
+	require.Equal(t, 2, c.Partial)
+	require.Equal(t, start.Add(1990*time.Millisecond), c.FirstPartial, "FirstPartial must be the earliest timestamp")
+	require.Equal(t, start.Add(2092*time.Millisecond), c.LastPartial, "LastPartial must be the latest timestamp")
+	require.False(t, c.LastPartial.Before(c.FirstPartial), "window must never be negative")
+
+	// with a correct anchor no partial can post-date it
+	anchor := c.LastPartial.Add(100 * time.Millisecond)
+	require.Zero(t, countLatePartials(t, samples, 1500, 0, anchor, start))
 }
