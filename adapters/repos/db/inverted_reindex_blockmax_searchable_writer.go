@@ -44,16 +44,9 @@ func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
-			return nil
-		}
-		bucketName := bucketNamer(property.Name)
-		var swapFallback string
-		if swapFallbackNamer != nil {
-			swapFallback = swapFallbackNamer(property.Name)
-		}
-		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
-		if bucket == nil {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		if skip {
 			return nil
 		}
 		propLen := calcPropLenInverted(property.Items)
@@ -71,16 +64,9 @@ func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
-			return nil
-		}
-		bucketName := bucketNamer(property.Name)
-		var swapFallback string
-		if swapFallbackNamer != nil {
-			swapFallback = swapFallbackNamer(property.Name)
-		}
-		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
-		if bucket == nil {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		if skip {
 			return nil
 		}
 		for _, item := range property.Items {

@@ -11,7 +11,10 @@
 
 package db
 
-import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+import (
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+)
 
 // resolveDoubleWriteBucket resolves the bucket a runtime-reindex double-write
 // callback should mirror into. Every strategy MakeAddCallback/MakeDeleteCallback
@@ -51,4 +54,28 @@ func resolveDoubleWriteBucket(shard *Shard, sidecarName, swapFallbackName string
 		return nil
 	}
 	return shard.store.Bucket(swapFallbackName)
+}
+
+// resolveScopedDoubleWriteBucket is the shared prologue every strategy's
+// double-write callback runs: scope filter, then swap-window-aware resolution
+// via [resolveDoubleWriteBucket]. forTargetStrategy=false is the backup-phase
+// callback (skip on a tidied sidecar); true resolves the canonical name via
+// sourceBucketName across the swap window. skip=true means the callback must
+// no-op — the prop is out of scope, or the backup sidecar was already tidied.
+// bucketName is returned for error context. Callers keep only their
+// strategy-specific index guard.
+func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
+	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,
+	forTargetStrategy bool,
+) (bucket *lsmkv.Bucket, bucketName string, skip bool) {
+	if _, ok := propsByName[property.Name]; !ok {
+		return nil, "", true
+	}
+	bucketName = bucketNamer(property.Name)
+	var swapFallback string
+	if forTargetStrategy {
+		swapFallback = sourceBucketName(property.Name)
+	}
+	bucket = resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+	return bucket, bucketName, bucket == nil
 }

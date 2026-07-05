@@ -87,19 +87,9 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
-			return nil
-		}
-
-		bucketName := bucketNamer(property.Name)
-		var swapFallback string
-		if forTargetStrategy {
-			swapFallback = s.SourceBucketName(property.Name)
-		}
-		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
-		if bucket == nil {
-			// Backup sidecar already tidied — skip the mirror write. See
-			// resolveDoubleWriteBucket for the post-swap nil semantics.
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
 		for _, item := range property.Items {
@@ -118,19 +108,9 @@ func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) 
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
-			return nil
-		}
-
-		bucketName := bucketNamer(property.Name)
-		var swapFallback string
-		if forTargetStrategy {
-			swapFallback = s.SourceBucketName(property.Name)
-		}
-		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
-		if bucket == nil {
-			// Backup sidecar already tidied — skip the mirror write. See
-			// resolveDoubleWriteBucket for the post-swap nil semantics.
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
 		for _, item := range property.Items {
