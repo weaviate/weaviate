@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -392,21 +393,15 @@ func assertQueryConsistency(t *testing.T, results [][]string) {
 	}
 }
 
-// getClassFromNode retrieves a class schema from a specific node.
+// getClassFromNode is LEADER-PROXIED (default GET consistency): fine for
+// cluster-level assertions, never a per-node visibility gate — use
+// reindexhelpers.AwaitTokenizationVisible for gating.
 func getClassFromNode(t *testing.T, restURI, className string) *models.Class {
 	t.Helper()
 
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", restURI, className))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "get class failed: %s", string(body))
-
-	var class models.Class
-	require.NoError(t, json.Unmarshal(body, &class))
-	return &class
+	class, ok := reindexhelpers.FetchClass(restURI, className, false)
+	require.True(t, ok, "get class %s via %s failed", className, restURI)
+	return class
 }
 
 // tryImportObject attempts to import a single object and returns an error
@@ -441,29 +436,14 @@ func tryImportObject(restURI, className, text string) error {
 	return nil
 }
 
-// tryGetPropertyTokenization retrieves a property's tokenization from a node.
-// Returns "" if the request fails or the property is not found.
+// tryGetPropertyTokenization is LEADER-PROXIED (default GET consistency):
+// fine for cluster-level assertions, never a per-node visibility gate — use
+// reindexhelpers.AwaitTokenizationVisible for gating. "" = failed/not found.
 func tryGetPropertyTokenization(restURI, className, propName string) string {
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", restURI, className))
-	if err != nil {
+	class, ok := reindexhelpers.FetchClass(restURI, className, false)
+	if !ok {
 		return ""
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return ""
-	}
-
-	var class models.Class
-	if err := json.Unmarshal(body, &class); err != nil {
-		return ""
-	}
-
 	for _, prop := range class.Properties {
 		if prop.Name == propName {
 			return prop.Tokenization
