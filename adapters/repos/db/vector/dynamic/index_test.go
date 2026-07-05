@@ -419,65 +419,45 @@ func newUpgradeTestDynamic(t *testing.T, vectorsSize int) *dynamic {
 	return dyn
 }
 
-// Regression test (weaviate/0-weaviate-issues#296): a failed upgrade attempt
-// must not block a later Upgrade call from retrying.
+// Regression test (weaviate/0-weaviate-issues#296): a failed or panicked
+// upgrade attempt (GoWrapper recovers the panic) must still fire the callback
+// and re-arm status so a later Upgrade call can retry.
 func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
-	dyn := newUpgradeTestDynamic(t, 10)
-
-	dyn.doUpgradeHookForTest = func() error {
-		return errors.New("injected upgrade failure")
+	cases := []struct {
+		name string
+		hook func() error
+	}{
+		{"error", func() error { return errors.New("injected upgrade failure") }},
+		{"panic", func() error { panic("injected upgrade panic") }},
 	}
 
-	firstCallback := make(chan struct{})
-	require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
-	select {
-	case <-firstCallback:
-	case <-time.After(5 * time.Second):
-		t.Fatal("first upgrade callback was not invoked")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dyn := newUpgradeTestDynamic(t, 10)
+			dyn.doUpgradeHookForTest = tc.hook
+
+			firstCallback := make(chan struct{})
+			require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
+			select {
+			case <-firstCallback:
+			case <-time.After(5 * time.Second):
+				t.Fatal("first upgrade callback was not invoked")
+			}
+			require.False(t, dyn.IsUpgraded(), "a failed attempt must not report as upgraded")
+
+			// clear the injected failure so the retry can actually complete.
+			dyn.doUpgradeHookForTest = nil
+
+			secondCallback := make(chan struct{})
+			require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
+			select {
+			case <-secondCallback:
+			case <-time.After(5 * time.Second):
+				t.Fatal("second upgrade callback was not invoked -- status stuck, retry never ran")
+			}
+			require.True(t, dyn.IsUpgraded(), "the retried upgrade must actually complete")
+		})
 	}
-	require.False(t, dyn.IsUpgraded(), "a failed attempt must not report as upgraded")
-
-	// clear the injected failure so the retry can actually complete.
-	dyn.doUpgradeHookForTest = nil
-
-	secondCallback := make(chan struct{})
-	require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
-	select {
-	case <-secondCallback:
-	case <-time.After(5 * time.Second):
-		t.Fatal("second upgrade callback was not invoked -- retry never ran")
-	}
-	require.True(t, dyn.IsUpgraded(), "the retried upgrade must actually complete")
-}
-
-// Regression test: a panic inside doUpgrade (recovered by GoWrapper) must
-// still fire the callback and re-arm status so a later attempt can retry.
-func TestDynamicUpgradeRetriesAfterPanickedAttempt(t *testing.T) {
-	dyn := newUpgradeTestDynamic(t, 10)
-
-	dyn.doUpgradeHookForTest = func() error {
-		panic("injected upgrade panic")
-	}
-
-	firstCallback := make(chan struct{})
-	require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
-	select {
-	case <-firstCallback:
-	case <-time.After(5 * time.Second):
-		t.Fatal("callback was not invoked after a panicked attempt")
-	}
-	require.False(t, dyn.IsUpgraded(), "a panicked attempt must not report as upgraded")
-
-	dyn.doUpgradeHookForTest = nil
-
-	secondCallback := make(chan struct{})
-	require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
-	select {
-	case <-secondCallback:
-	case <-time.After(5 * time.Second):
-		t.Fatal("second upgrade callback was not invoked -- panic left status stuck at upgrading")
-	}
-	require.True(t, dyn.IsUpgraded(), "the retried upgrade must actually complete")
 }
 
 // Regression test: a mid-upgrade Upgrade call must invoke its own callback
