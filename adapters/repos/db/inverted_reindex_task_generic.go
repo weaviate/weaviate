@@ -2258,8 +2258,13 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 				propName, mainExists, backupExists, ingestExists)
 		}
 
-		if err := rt.markSwappedProp(propName); err != nil {
-			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+		// runtimeSwap may have set the sentinel before a mid-FINALIZING
+		// restart; markSwappedProp creates with O_EXCL, so an unguarded
+		// re-mark fails recovery with "file exists".
+		if !rt.IsSwappedProp(propName) {
+			if err := rt.markSwappedProp(propName); err != nil {
+				return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+			}
 		}
 		// Recovery re-establishes the overlay for the same reason as the happy path.
 		if t.onPropSwapped != nil {
