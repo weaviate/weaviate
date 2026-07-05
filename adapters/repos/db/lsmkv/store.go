@@ -545,9 +545,8 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	replacementBucket.active = mt
 
-	// no updateBucketDir on the displaced bucket: its shutdown (inside
-	// replaceBucket) nil'd the segment list, so the path rewrite was always a
-	// no-op — and post-refusal it would error out the whole replace
+	// no updateBucketDir on the displaced bucket: its shutdown nil'd the
+	// segment list, so the path rewrite is a no-op that would now be refused
 	if err := s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir); err != nil {
 		return err
 	}

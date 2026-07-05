@@ -514,8 +514,8 @@ type BucketConsistentView struct {
 	release  func()
 	Bucket   *Bucket
 
-	// non-nil when the view was refused (bucket shutting down); every read
-	// through this view must return it instead of partial memtable-only data
+	// non-nil when the view was refused (shutdown); reads must return it
+	// instead of partial memtable-only data
 	err error
 }
 
@@ -529,12 +529,9 @@ func (cv BucketConsistentView) Err() error {
 }
 
 // panicOnCursorRefusal fails the legacy no-error cursor constructors loudly
-// instead of serving a silently empty cursor over munmapping segments.
-// Caller survey (weaviate/0-weaviate-issues#285): every production caller is
-// a request path (HTTP/gRPC panic middleware), a GoWrapper'ed goroutine, or a
-// cyclemanager callback — all recover; the dedicated-store buckets (schema,
-// transactions, modules, checkpoint) are never displaced by reindex and shut
-// down only at process exit.
+// instead of serving a silently empty cursor over munmapping segments. Every
+// production caller sits under a recover (request middleware, GoWrapper,
+// cyclemanager); caller survey in weaviate/0-weaviate-issues#285.
 func (b *Bucket) panicOnCursorRefusal(err error) {
 	panic(fmt.Errorf("lsmkv cursor: %w", err))
 }
@@ -1808,8 +1805,8 @@ func (b *Bucket) FlushAndSwitch() error {
 				// contention.
 				segments, release, err := b.disk.getConsistentViewOfSegments()
 				if errors.Is(err, ErrShuttingDown) {
-					// same no-op as the post-close nil segment list: the divergence
-					// is non-critical (see above) and is repaired on restart
+					// same non-critical divergence as the post-close nil segment
+					// list (see above); repaired on restart
 					return nil
 				} else if err != nil {
 					return err

@@ -23,8 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// mustSegmentView unwraps getConsistentViewOfSegments for tests that run
-// against a live (non-shutting-down) segment group.
+// mustSegmentView unwraps getConsistentViewOfSegments for tests on a live segment group.
 func mustSegmentView(t *testing.T, sg *SegmentGroup) ([]Segment, func()) {
 	t.Helper()
 	segments, release, err := sg.getConsistentViewOfSegments()
@@ -41,11 +40,7 @@ func newShutdownTestBucket(t *testing.T, ctx context.Context, opts ...BucketOpti
 	return b
 }
 
-// TestShutdownRefusesViewsInRefWaitWindow reproduces weaviate/0-weaviate-issues#285:
-// shutdown waits for segment refcounts to reach zero and then munmaps, but a
-// reader could take a NEW view between the wait's last zero-observation and the
-// close (use-after-munmap → SIGBUS). The test hook makes that window
-// deterministic: a read issued inside it must be refused, not served.
+// A view taken between shutdown's refcount wait and close would read munmapped memory (weaviate/0-weaviate-issues#285).
 func TestShutdownRefusesViewsInRefWaitWindow(t *testing.T) {
 	ctx := context.Background()
 	b := newShutdownTestBucket(t, ctx, WithStrategy(StrategyReplace))
@@ -70,8 +65,7 @@ func TestShutdownRefusesViewsInRefWaitWindow(t *testing.T) {
 	assert.Nil(t, windowVal)
 }
 
-// TestReadAfterShutdownErrs covers the second half of #285: a reader arriving
-// after sg.segments = nil must get an error, not a silently empty result.
+// A read after shutdown must error, not return a silently empty result (weaviate/0-weaviate-issues#285).
 func TestReadAfterShutdownErrs(t *testing.T) {
 	ctx := context.Background()
 	b := newShutdownTestBucket(t, ctx, WithStrategy(StrategyReplace))
@@ -85,10 +79,7 @@ func TestReadAfterShutdownErrs(t *testing.T) {
 	assert.Nil(t, val)
 }
 
-// TestCursorsAfterShutdownRefuse: the no-error cursor constructors are the
-// unpinned read path of aggregations and filters on displaced reindex buckets.
-// They must refuse loudly (panic carries ErrShuttingDown, recovered by the
-// enterrors/HTTP layers), never serve a silently empty iteration.
+// Cursor constructors on a shut-down bucket must refuse loudly, never serve a silently empty iteration.
 func TestCursorsAfterShutdownRefuse(t *testing.T) {
 	ctx := context.Background()
 
@@ -125,7 +116,7 @@ func TestCursorsAfterShutdownRefuse(t *testing.T) {
 		require.NoError(t, b.FlushAndSwitch())
 		require.NoError(t, b.Shutdown(ctx))
 
-		// MapCursor has an error channel, so it must refuse via error, not panic
+		// MapCursor returns an error, so it refuses without panicking
 		_, err := b.MapCursor()
 		require.ErrorIs(t, err, ErrShuttingDown)
 	})
@@ -144,9 +135,7 @@ func requirePanicsWithShuttingDown(t *testing.T, f func()) {
 	f()
 }
 
-// TestShutdownVsReadersStress races real readers against shutdown. Every read
-// must either fully succeed or fail with ErrShuttingDown; on unfixed code this
-// can dereference munmapped memory (SIGBUS). Run with -race.
+// Races readers against shutdown: every read must fully succeed or fail with ErrShuttingDown.
 func TestShutdownVsReadersStress(t *testing.T) {
 	ctx := context.Background()
 	b := newShutdownTestBucket(t, ctx, WithStrategy(StrategyReplace))

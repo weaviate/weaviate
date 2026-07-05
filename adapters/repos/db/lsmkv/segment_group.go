@@ -60,12 +60,12 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
-	// guarded by maintenanceLock; once set, no new consistent views may be
-	// created, so the refcounts observed by shutdown's wait can only decrease
+	// guarded by maintenanceLock; blocks new consistent views so segment
+	// refcounts can only decrease during shutdown's wait
 	shutdownRequested bool
 
-	// nil in production; invoked by shutdown between the refcount wait and
-	// segment close to make the race window deterministic in tests
+	// test-only (nil in production): runs between shutdown's refcount wait
+	// and segment close
 	testHookShutdownAfterRefWait func()
 
 	strategy string
@@ -589,9 +589,8 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
-// ErrShuttingDown is returned when a new consistent view is requested after
-// shutdown has begun. Refusing (instead of serving a soon-to-be-munmapped or
-// empty view) is what keeps the refcount wait in shutdown race-free.
+// ErrShuttingDown refuses new consistent views once shutdown has begun; this
+// is what keeps shutdown's refcount wait race-free.
 var ErrShuttingDown = errors.New("lsmkv bucket is shutting down: cannot create new consistent view")
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func(), err error) {
@@ -599,8 +598,6 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	defer sg.maintenanceLock.RUnlock()
 
 	if sg.shutdownRequested {
-		// refuse instead of serving an (empty or soon-to-be-munmapped) view:
-		// shutdown's refcount wait relies on refs only decreasing from here on
 		return nil, func() {}, ErrShuttingDown
 	}
 
@@ -891,9 +888,8 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 
 	// Flag before the refcount wait: no new view can incRef afterwards, so a
-	// zero observed by the wait stays zero and close() below cannot munmap
-	// under a live reader. The write lock is safe here for the same reason as
-	// the Lock() further down: the compaction cycle was already stopped above.
+	// zero observed by the wait stays zero and close() cannot munmap under a
+	// live reader. The write lock is safe: the compaction cycle stopped above.
 	segmentsWithRefs := func() []Segment {
 		sg.maintenanceLock.Lock()
 		defer sg.maintenanceLock.Unlock()
@@ -910,8 +906,6 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
 
-	// test-only: exposes the window between the refcount wait and close, where
-	// a racing reader must be refused a new view (see ErrShuttingDown)
 	if sg.testHookShutdownAfterRefWait != nil {
 		sg.testHookShutdownAfterRefWait()
 	}

@@ -21,11 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestReplaceBuckets_SucceedsAndServesReplacement pins the happy path that had
-// zero coverage: the displaced bucket's post-shutdown updateBucketDir was a
-// silent no-op that the new-view refusal turned into an error, failing EVERY
-// ReplaceBuckets call (filter→search migration, resetDimensionsLSM, inverted
-// reindexer).
+// ReplaceBuckets must not fail on the displaced bucket's post-shutdown updateBucketDir refusal.
 func TestReplaceBuckets_SucceedsAndServesReplacement(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -42,8 +38,7 @@ func TestReplaceBuckets_SucceedsAndServesReplacement(t *testing.T) {
 
 	require.NoError(t, store.Bucket("target").Put([]byte("old-key"), []byte("old-val")))
 	require.NoError(t, store.Bucket("replacement").Put([]byte("new-key"), []byte("new-val")))
-	// flush so the post-replace read exercises the rewritten segment paths,
-	// not just the carried-over memtable
+	// flush so the post-replace read exercises rewritten segment paths
 	require.NoError(t, store.Bucket("replacement").FlushAndSwitch())
 
 	require.NoError(t, store.ReplaceBuckets(ctx, "target", "replacement"))

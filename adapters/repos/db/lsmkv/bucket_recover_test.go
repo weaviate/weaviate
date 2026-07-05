@@ -67,9 +67,7 @@ func TestBucketWalReload(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, entries, 1, "single wal file should be created")
 
-			// reads on a shut-down bucket are refused (ErrShuttingDown) instead
-			// of silently serving memtable-only data; the content must come
-			// back via the WAL reload below
+			// reads on a shut-down bucket are refused; content comes back via the WAL reload below
 			assertReadsRefused(t, strategy, b)
 
 			// start fresh with a new memtable, new entries will stay in wal until size is reached

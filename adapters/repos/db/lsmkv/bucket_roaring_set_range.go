@@ -58,8 +58,8 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	return b.readerRoaringSetRangeFromSegments()
 }
 
-// failedReaderRoaringSetRange surfaces a refused consistent view (bucket
-// shutting down) on Read instead of serving memtable-only partial results.
+// failedReaderRoaringSetRange surfaces a refused view's error on Read
+// instead of serving partial results.
 type failedReaderRoaringSetRange struct{ err error }
 
 func (r failedReaderRoaringSetRange) Read(context.Context, uint64, filters.Operator) (*sroar.Bitmap, func(), error) {
