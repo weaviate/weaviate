@@ -240,6 +240,25 @@ func (s *Shard) migrationDoubleWrite(st *propValueIndexState, object, prevObject
 	return nil
 }
 
+// migrationDoubleWriteDelete is the delete-only counterpart of
+// migrationDoubleWrite, for the pure object-delete path: it removes the
+// deleted object's TARGET terms from the ingest bucket for scope properties.
+func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *storobj.Object, docID uint64) error {
+	if len(st.scope.props) == 0 || prevObject == nil {
+		return nil
+	}
+	migDel, err := s.analyzeForDoubleWrite(prevObject, st)
+	if err != nil {
+		return err
+	}
+	for i := range migDel {
+		if err := s.fireDeleteFromPropertyValueIndex(st, docID, &migDel[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // registerDoubleWriteWithScope registers the ingest-window add+delete
 // double-write callbacks AND arms the migration scope in ONE atomic Store, so
 // a concurrent writer never sees the callbacks without the scope (which would

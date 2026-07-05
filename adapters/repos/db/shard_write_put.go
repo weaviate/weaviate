@@ -520,6 +520,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	// One snapshot for the whole write: the source-schema props above drive the
+	// MAIN buckets, while st.scope (if a migration is ingesting) redirects the
+	// scope props' double-write to a TARGET-schema pass below.
+	st := s.loadPropValueIndexState()
+
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
 	var prevNestedProps []inverted.NestedProperty
@@ -573,7 +578,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
+		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
 		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
@@ -593,7 +598,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
@@ -611,6 +616,14 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return err
 		}
+	}
+
+	// Migration double-write: for scope props whose inline callback we
+	// suppressed above, mirror this write into the ingest bucket under the
+	// TARGET analysis (delete-old then add-new). No-op when no migration is
+	// ingesting.
+	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
+		return fmt.Errorf("migration double-write: %w", err)
 	}
 
 	return nil

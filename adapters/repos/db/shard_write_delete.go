@@ -183,9 +183,17 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	// For any NotEquals filter, we do an Equals filter and invert it's results.
 	s.bitmapFactory.RemoveIds(docID)
 
-	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
+	st := s.loadPropValueIndexState()
+	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID, st)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
+	}
+
+	// Migration double-write: remove the deleted object's TARGET terms from
+	// the ingest bucket for scope props (the inline delete callback above was
+	// suppressed for them). No-op when no migration is ingesting.
+	if err = s.migrationDoubleWriteDelete(st, previousObject, docID); err != nil {
+		return fmt.Errorf("migration double-write delete: %w", err)
 	}
 
 	if err = s.deleteNestedInvertedIndicesLSM(previousNestedProps, docID); err != nil {

@@ -213,11 +213,13 @@ func TestShardCallbacks_DualWriteMigration(t *testing.T) {
 	// (via addToPropertyValueIndex) which also triggers callbacks.
 	writeDoc := func(t *testing.T, docID uint64, term string) {
 		t.Helper()
+		// Load the snapshot fresh each write so the callback registered
+		// mid-test is observed, mirroring the production write path.
 		err := s.addToPropertyValueIndex(docID, inverted.Property{
 			Name:               propName,
 			Items:              []inverted.Countable{{Data: []byte(term)}},
 			HasFilterableIndex: true,
-		})
+		}, s.loadPropValueIndexState())
 		require.NoError(t, err)
 	}
 

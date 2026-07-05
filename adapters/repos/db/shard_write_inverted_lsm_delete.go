@@ -22,7 +22,7 @@ import (
 )
 
 func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
-	docID uint64,
+	docID uint64, st *propValueIndexState,
 ) error {
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
@@ -67,8 +67,12 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
-		if err := s.onDeleteFromPropertyValueIndex(docID, &prop); err != nil {
-			return err
+		// Suppress the inline callback for props under migration; their
+		// target-schema delete double-write is handled by the migration pass.
+		if _, migrating := st.scope.props[prop.Name]; !migrating {
+			if err := s.fireDeleteFromPropertyValueIndex(st, docID, &prop); err != nil {
+				return err
+			}
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
