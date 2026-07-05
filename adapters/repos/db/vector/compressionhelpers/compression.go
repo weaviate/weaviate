@@ -142,10 +142,9 @@ func (compressor *quantizedVectorsCompressor[T]) Len() int32 {
 	return compressor.cache.Len()
 }
 
-// compressedBucket is nil mid-teardown: Store.Shutdown clears the registry
+// compressedBucket is nil mid-teardown (Store.Shutdown clears the registry
 // before draining, and async compress/prefill goroutines can outlive the
-// shard (observed as a nil-Put panic in the compression-failure e2e).
-// Callers treat nil as "shard is gone, skip".
+// shard); callers treat nil as "shard is gone, skip".
 func (compressor *quantizedVectorsCompressor[T]) compressedBucket() *lsmkv.Bucket {
 	return compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector))
 }

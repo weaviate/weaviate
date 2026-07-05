@@ -875,8 +875,8 @@ func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expecte
 		default:
 			c.Partial++
 			// min/max by timestamp, not arrival order: per-node probe
-			// goroutines interleave, and a regressed LastPartial makes the
-			// late-partial anchor undershoot a legitimate in-window sample
+			// goroutines interleave and a regressed LastPartial would
+			// undershoot the late-partial anchor
 			if c.FirstPartial.IsZero() || s.t.Before(c.FirstPartial) {
 				c.FirstPartial = s.t
 			}
@@ -921,10 +921,9 @@ func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAf
 	return late
 }
 
-// TestClassifyProbeSamples_OutOfOrderPartials pins the soak-caught false
-// positive: two near-simultaneous partials from different node goroutines
-// arriving out of timestamp order regressed LastPartial, so the late-partial
-// anchor (LastPartial+100ms) undershot the true latest partial.
+// TestClassifyProbeSamples_OutOfOrderPartials pins a false positive:
+// partials arriving out of timestamp order regressed LastPartial, so the
+// late-partial anchor undershot the true latest partial.
 func TestClassifyProbeSamples_OutOfOrderPartials(t *testing.T) {
 	start := time.Now()
 	samples := []probeSample{

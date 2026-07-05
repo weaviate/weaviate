@@ -209,17 +209,14 @@ type ShardReindexTaskGeneric struct {
 	onPropSwapped func(propName string)
 
 	// swapPropAtomic, when non-nil, runs the Phase-2a per-prop flip AND the
-	// overlay set as ONE critical section (Shard.SwapBucketAndSetOverlay),
-	// so a concurrent query never observes a mixed (bucket, overlay) pair.
-	// Wired only for tokenization-changing migrations; nil = legacy
-	// two-step flip + onPropSwapped (fine without an overlay). Returns the
-	// displaced old bucket for Phase-2b, or (nil, nil) on an already-swapped
-	// prop — the overlay is still (re-)established (resumed-swap contract).
+	// overlay set as ONE critical section (Shard.SwapBucketAndSetOverlay).
+	// Wired only for tokenization-changing migrations; nil = legacy two-step
+	// flip + onPropSwapped (fine without an overlay). Returns the displaced
+	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
 	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	// afterFlipBeforeOverlayHook fires inside swapPropAtomic's critical
-	// section, between flip and overlay set — the window the pre-fix
-	// two-step code left unguarded. TEST-ONLY, nil in production.
+	// TEST-ONLY: fires inside swapPropAtomic between flip and overlay set —
+	// the window the pre-fix two-step code left unguarded.
 	afterFlipBeforeOverlayHook func()
 }
 

@@ -93,14 +93,11 @@ type Bucket struct {
 	// normal operation
 	flushLock sync.RWMutex
 
-	// lifetimeLock pins this bucket pointer for the full duration of a
-	// read/query: RLock via Store.AcquireBucketForRead, held until the query
-	// ends; Shutdown takes Lock() as its FIRST action, draining all in-flight
-	// pins before freeing mmap'd segments — so a bucket-pointer swap followed
-	// by oldBucket.Shutdown can never free memory under a live read.
-	// Deliberately NO timeout on the drain: timeout-then-free would SEGFAULT
-	// a reader. Ordering: lifetimeLock OUTER, flushLock INNER — same
-	// direction on the read and Shutdown sides, so no inversion.
+	// lifetimeLock pins this bucket for a whole read/query (RLock via
+	// Store.AcquireBucketForRead); Shutdown takes Lock() FIRST, draining all
+	// pins before freeing mmap'd segments. Deliberately NO drain timeout:
+	// timeout-then-free would SEGFAULT a reader. Order: lifetimeLock OUTER,
+	// flushLock INNER on both the read and Shutdown sides.
 	lifetimeLock sync.RWMutex
 	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
 	// designed assuming a single triggerer at a time (the periodic flush
@@ -1609,9 +1606,8 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
-	// Drain every in-flight read pin before tearing anything down — see the
-	// lifetimeLock field doc (incl. why there is deliberately no timeout).
-	// The heartbeat makes a wedged drain diagnosable.
+	// Drain all in-flight read pins first (see the lifetimeLock doc); the
+	// heartbeat makes a wedged drain diagnosable.
 	drained := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		t := time.NewTicker(30 * time.Second)

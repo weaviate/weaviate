@@ -32,10 +32,9 @@ import (
 )
 
 // partialWindowBudget bounds the mixed-state cutover window. 700ms matches
-// the per-shard RUNSWAP+RAFT envelope on a representative disk (~80ms
-// locally); deliberately-starved environments (the flake-hunter soak runs 6
-// concurrent suites on a weak VM) exceed it without any convergence defect,
-// so they may widen it via REINDEX_PARTIAL_WINDOW_BUDGET_MS.
+// the per-shard RUNSWAP+RAFT envelope on a representative disk; starved
+// environments (e.g. soak VMs) exceed it without any convergence defect and
+// may widen it via REINDEX_PARTIAL_WINDOW_BUDGET_MS.
 func partialWindowBudget() time.Duration {
 	if ms, err := strconv.Atoi(os.Getenv("REINDEX_PARTIAL_WINDOW_BUDGET_MS")); err == nil && ms > 0 {
 		return time.Duration(ms) * time.Millisecond
@@ -187,11 +186,6 @@ func runLiveQueryDuringChangeTokenizationCase(
 		rf          = 3
 		objectCount = 1500
 		batchSize   = 100
-		// Cross-shard cutover window budget: see partialWindowBudget. A
-		// brief mixed-state window is expected on every replica; the
-		// overlay closes a failure MODE within it (the out-of-range "0
-		// from a swapped replica with stale schema" shape, asserted
-		// separately by c.OutOfRange == 0).
 	)
 
 	className := fmt.Sprintf("LiveQueryTok_%s_%s_%s", startTok, targetTok, indexType)

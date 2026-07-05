@@ -28,17 +28,14 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// twoTokenizationFixture is the shared setup for the retokenization race
-// proofs (atomic overlay swap + lookup-time pin/drain): one shard with a
-// FIELD-tokenized and a WORD-tokenized searchable prop carrying identical
-// content, so redirecting the FIELD prop's bucket pointer to the WORD
-// bucket emulates the runtime field→word swap with both "generations"
-// available as distinct, identity-comparable buckets.
+// twoTokenizationFixture: one shard with a FIELD- and a WORD-tokenized
+// searchable prop carrying identical content, so redirecting the FIELD
+// prop's bucket pointer to the WORD bucket emulates the runtime field→word
+// swap with both generations as distinct, identity-comparable buckets.
 type twoTokenizationFixture struct {
 	shard *Shard
 	idx   *Index
-	// Captured pre-swap, so proofs can assert which bucket a resolver
-	// hands back at any instant.
+	// captured pre-swap for identity assertions
 	fieldBucket *lsmkv.Bucket
 	wordBucket  *lsmkv.Bucket
 
@@ -49,11 +46,9 @@ type twoTokenizationFixture struct {
 	matchDocs int    // docs carrying phrase; validCount for consistent pairs
 }
 
-// setupTwoTokenizationShard builds the fixture: creates the two-prop class,
-// a shard, and numDocs docs of which matchDocs carry the queried phrase in
-// BOTH props (the rest carry filler; keeping the queried terms out of 100%
-// of docs avoids BM25's over-frequent-term IDF collapse, so the phrase
-// reliably scores above zero and the matched docs are returned).
+// setupTwoTokenizationShard writes numDocs docs of which matchDocs carry the
+// phrase in BOTH props; keeping the phrase out of 100% of docs avoids BM25's
+// over-frequent-term IDF collapse, so matched docs reliably score above zero.
 func setupTwoTokenizationShard(t *testing.T, ctx context.Context, className string) *twoTokenizationFixture {
 	t.Helper()
 	const (
@@ -71,8 +66,8 @@ func setupTwoTokenizationShard(t *testing.T, ctx context.Context, className stri
 	shard := shd.(*Shard)
 	t.Cleanup(func() { _ = shard.Shutdown(ctx) })
 
-	// Both props start at Inverted/BlockMax (UsingBlockMaxWAND:true) — the
-	// production default and the strategy a field→word retokenization runs on.
+	// Inverted/BlockMax is the production default and the strategy a
+	// field→word retokenization runs on.
 	for _, p := range []string{fieldProp, wordProp} {
 		require.Equal(t, lsmkv.StrategyInverted,
 			shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(p)).Strategy(),
@@ -117,9 +112,6 @@ func setupTwoTokenizationShard(t *testing.T, ctx context.Context, className stri
 	}
 }
 
-// buildTwoTokenizationClass builds a class with one FIELD-tokenized and one
-// WORD-tokenized searchable text property, on Inverted/BlockMax searchable
-// buckets (the production default for a field→word retokenization).
 func buildTwoTokenizationClass(className, fieldProp, wordProp string) *models.Class {
 	vFalse := false
 	vTrue := true
@@ -141,9 +133,7 @@ func buildTwoTokenizationClass(className, fieldProp, wordProp string) *models.Cl
 			Stopwords:              &models.StopwordConfig{Preset: "none"},
 			IndexNullState:         true,
 			IndexPropertyLength:    true,
-			// Inverted (BlockMax) searchable buckets — the production default
-			// and the strategy a field→word searchable retokenization runs on.
-			UsingBlockMaxWAND: true,
+			UsingBlockMaxWAND:      true,
 		},
 		Properties: []*models.Property{
 			mkProp(fieldProp, models.PropertyTokenizationField),
@@ -153,10 +143,7 @@ func buildTwoTokenizationClass(className, fieldProp, wordProp string) *models.Cl
 }
 
 // lookupCount emulates a keyword query from a (tokenization, bucket) pair —
-// the unit of consistency the fix protects: a CONSISTENT pair finds the
-// docs, a MIXED pair (the bug) misses → 0. Driven directly off the pair
-// rather than the full BM25 pipeline so the proof isolates exactly the
-// pair-consistency property.
+// a CONSISTENT pair finds the docs, a MIXED pair (the bug) misses → 0.
 func lookupCount(ctx context.Context, tokenization string, bucket *lsmkv.Bucket, className, query string) int {
 	if bucket == nil {
 		return 0

@@ -73,8 +73,6 @@ func (b *BM25Searcher) wandBlock(
 	if err != nil {
 		return nil, nil, false, err
 	}
-	// One defer for every exit path; release is idempotent so the explicit
-	// release in the wand-fallback below does not double-free.
 	defer pins.release()
 
 	if b.afterPinBeforeLookupHook != nil {
@@ -321,8 +319,7 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
-	// Propagate — swallowing this produced silent empty results (the
-	// symptom class this PR eliminates).
+	// Swallowing this error produced silent empty results.
 	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
 		return nil, nil, err
