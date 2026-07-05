@@ -47,8 +47,8 @@ type movementFakeUpgradable struct {
 	indexed       uint64
 	upgraded      bool
 	upgradeCalled bool
-	// upgradeErr, when set, is returned by Upgrade WITHOUT invoking callback --
-	// modeling dynamic.Upgrade's synchronous ctx.Err() failure mode.
+	// upgradeErr, when set, is returned by Upgrade without invoking callback
+	// (models dynamic.Upgrade's synchronous ctx.Err() path).
 	upgradeErr error
 }
 

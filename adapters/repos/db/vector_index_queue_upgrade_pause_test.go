@@ -21,12 +21,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 )
 
-// newPausableTestQueue wires a VectorIndexQueue to a real, started Scheduler and
-// a real DiskQueue -- unlike newMovementTestQueue's zero-value scheduler, this
-// one actually tracks pause state, so IsQueuePaused reflects reality instead of
-// trivially returning false. ScheduleInterval is set far beyond the test's
-// lifetime so the scheduler's own background tick never fires BeforeSchedule
-// concurrently with the test's direct call.
+// newPausableTestQueue uses a real, started Scheduler (not newMovementTestQueue's
+// zero-value one) so IsQueuePaused reflects actual state; ScheduleInterval is set
+// huge so the scheduler's own tick can't race the test's direct BeforeSchedule call.
 func newPausableTestQueue(t *testing.T, vi VectorIndex) *VectorIndexQueue {
 	t.Helper()
 
@@ -55,10 +52,8 @@ func newPausableTestQueue(t *testing.T, vi VectorIndex) *VectorIndexQueue {
 	return viq
 }
 
-// Regression test for weaviate/0-weaviate-issues#296 defect 2: BeforeSchedule
-// paused the queue before calling ci.Upgrade, but only logged the error if
-// Upgrade failed -- leaking the pause forever whenever Upgrade returns an error
-// without having invoked its callback (e.g. dynamic.Upgrade's ctx.Err() path).
+// Regression test (weaviate/0-weaviate-issues#296): BeforeSchedule must resume
+// the queue itself if Upgrade errors without having invoked its callback.
 func TestVectorIndexQueue_BeforeSchedule_DoesNotLeakPauseOnUpgradeError(t *testing.T) {
 	fake := &movementFakeUpgradable{
 		shouldUpgrade: true,

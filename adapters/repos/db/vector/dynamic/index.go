@@ -134,9 +134,8 @@ func (s *status) Upgraded() {
 	(*atomic.Pointer[string])(s).Store(&upgraded)
 }
 
-// TryUpgrading atomically transitions status from unset to upgrading, returning
-// true only to the caller that wins the transition. This replaces a one-shot
-// sync.Once so a Reset (failed attempt) can be retried by a later Upgrade call.
+// TryUpgrading claims the upgrade attempt; only the winning caller gets true,
+// so a Reset after a failed attempt lets a later call retry.
 func (s *status) TryUpgrading() bool {
 	if s == nil {
 		return false
@@ -174,8 +173,7 @@ type dynamic struct {
 	MakeBucketOptions            lsmkv.MakeBucketOptions
 	AsyncIndexingEnabled         bool
 
-	// doUpgradeHookForTest, when set, replaces doUpgrade's body. Test-only seam
-	// for forcing/timing upgrade failures without touching hnsw/bbolt.
+	// doUpgradeHookForTest, when set, replaces doUpgrade's body (test-only).
 	doUpgradeHookForTest func() error
 }
 

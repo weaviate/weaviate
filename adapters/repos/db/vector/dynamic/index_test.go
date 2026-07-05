@@ -358,9 +358,8 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	}
 }
 
-// newUpgradeTestDynamic builds a minimal dynamic index with vectorsSize vectors
-// already indexed and ShouldUpgrade()==true, for exercising Upgrade's retry and
-// re-entrancy paths without paying for a full recall/latency-style test.
+// newUpgradeTestDynamic builds a minimal dynamic index with vectorsSize indexed
+// vectors and ShouldUpgrade()==true, for exercising Upgrade's retry/re-entrancy paths.
 func newUpgradeTestDynamic(t *testing.T, vectorsSize int) *dynamic {
 	t.Helper()
 	ctx := context.Background()
@@ -420,10 +419,8 @@ func newUpgradeTestDynamic(t *testing.T, vectorsSize int) *dynamic {
 	return dyn
 }
 
-// Regression test for weaviate/0-weaviate-issues#296 defect 1: upgradeOnce was
-// consumed by the first (failed) attempt, so every later Upgrade call returned
-// nil without ever invoking its callback -- the caller's paused queue (see
-// VectorIndexQueue.BeforeSchedule) stayed paused forever.
+// Regression test (weaviate/0-weaviate-issues#296): a failed upgrade attempt
+// must not block a later Upgrade call from retrying.
 func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
 	dyn := newUpgradeTestDynamic(t, 10)
 
@@ -453,10 +450,8 @@ func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
 	require.True(t, dyn.IsUpgraded(), "the retried upgrade must actually complete")
 }
 
-// Regression test: a second Upgrade call arriving while an attempt is already
-// in flight must not block on it -- it must invoke its own caller's callback
-// immediately, since that caller (e.g. BeforeSchedule) owns its own pause and
-// the in-flight attempt owns a different one.
+// Regression test: a mid-upgrade Upgrade call must invoke its own callback
+// immediately instead of blocking on the in-flight attempt.
 func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
 	dyn := newUpgradeTestDynamic(t, 10)
 
@@ -468,8 +463,7 @@ func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
 
 	firstCallback := make(chan struct{})
 	require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
-	// TryUpgrading flips the status synchronously before Upgrade returns, so a
-	// second caller below is guaranteed to observe "mid-upgrade".
+	// TryUpgrading flips status synchronously, so this is guaranteed "mid-upgrade".
 	require.True(t, dyn.status.IsUpgrading())
 
 	secondCallback := make(chan struct{})
@@ -495,10 +489,8 @@ func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
 	}
 }
 
-// Regression test: Upgrade called after Shutdown returns ctx.Err() synchronously
-// with no goroutine spawned to ever invoke the callback, so it must invoke it
-// inline -- otherwise a caller that paused its queue expecting a resume never
-// gets one.
+// Regression test: Upgrade after Shutdown must invoke the callback inline,
+// since no goroutine is spawned to do it later.
 func TestDynamicUpgradeAfterShutdownInvokesCallbackSynchronously(t *testing.T) {
 	dyn := newUpgradeTestDynamic(t, 10)
 
