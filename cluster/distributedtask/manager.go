@@ -691,6 +691,59 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	return nil
 }
 
+// MarkTaskFailed transitions a task from SWAPPING to FAILED. The scheduler
+// issues this when a node's [UnitAwareProvider.OnTaskCompleted] returns a
+// terminal error — a permanent schema-flip failure or a transient one that
+// exhausted the retry budget — so a swallowed cutover failure can no longer
+// let the task reach FINISHED with an un-flipped schema
+// (weaviate/0-weaviate-issues#297).
+//
+// Idempotent at the FSM layer: every node's scheduler may fire this after
+// its local OnTaskCompleted fails. The first commit flips SWAPPING → FAILED;
+// a later commit for an already-FAILED task is a no-op, and one that races a
+// peer's FINISHED / a CANCELLED is refused so the first terminal transition
+// wins. FinishedAt is left at the AllUnitsTerminal moment, matching the other
+// FAILED paths.
+func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
+	var r api.MarkTaskFailedRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal mark task failed request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	switch task.Status {
+	case TaskStatusFailed:
+		// Idempotent: another node's MarkTaskFailed already committed.
+		return nil
+	case TaskStatusSwapping:
+		// Normal transition.
+	default:
+		// FINISHED / CANCELLED / STARTED — refuse so a stale command can't
+		// overwrite a terminal status a peer (or the operator) committed.
+		return wrapPermanent(ErrTaskNotInFinalizingState,
+			fmt.Sprintf("task %s/%s/%d cannot be failed from status %s",
+				r.Namespace, r.Id, task.Version, task.Status))
+	}
+
+	task.Status = TaskStatusFailed
+	if r.Error != "" {
+		if task.Error != "" {
+			task.Error = task.Error + "; " + r.Error
+		} else {
+			task.Error = r.Error
+		}
+	}
+	m.notifySchedulerWithLock()
+	return nil
+}
+
 // UpdateUnitProgress also handles initial node assignment: the first progress update for an
 // unassigned unit sets its NodeID, claiming it for that node. After assignment, updates from
 // other nodes are rejected. Progress updates to terminal units are silently ignored (no error)

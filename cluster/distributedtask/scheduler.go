@@ -60,7 +60,19 @@ type taskSchedulerState struct {
 	preparationAckEmitted            bool
 	postCompletionGroupErrors        map[string]error
 	preparationCompletionGroupErrors map[string]error
+	// completedCallbackAttempts counts SWAPPING-path OnTaskCompleted calls
+	// that returned a transient error. On reaching [maxCompletedCallbackAttempts]
+	// the scheduler stops retrying and fails the task, so a persistently
+	// erroring flip can't loop SWAPPING forever (weaviate/0-weaviate-issues#297).
+	completedCallbackAttempts int
 }
+
+// maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
+// the SWAPPING path. One attempt fires per scheduler tick; once exhausted the
+// task is transitioned to FAILED rather than retried indefinitely. Permanent
+// failures ([ErrTaskCompletionPermanent]) bypass this and fail on the first
+// attempt.
+const maxCompletedCallbackAttempts = 5
 
 // Scheduler is the component which is responsible for polling the active tasks in the cluster (via the Manager)
 // and making sure that the tasks are running on the local node.
@@ -592,14 +604,12 @@ func (s *Scheduler) tick() {
 				// SWAPPING path wait until every node has acked: the schema
 				// flip can't commit while any replica's swap is undetermined.
 				//
-				// Snapshot/process/commit: snapshot the "should fire" decision
-				// (and set completedCallbackFired pre-callback) under s.mu;
-				// drop s.mu for the single OnTaskCompleted call; re-acquire
-				// on the way out. There is no per-result commit beyond the
-				// pre-set fired mark — OnTaskCompleted's failure mode is
-				// handled by the MarkDistributedTaskFinalized rollback
-				// (it clears completedCallbackFired so the next tick retries).
-				s.runCompletedCallbackPhase(desc, task, suProvider, effectiveStatus)
+				// A non-nil OnTaskCompleted error on the SWAPPING path clears
+				// completedCallbackFired so runFinalizePhase below withholds
+				// FINISHED and the next tick retries the flip; a permanent or
+				// retry-exhausted error transitions the task to FAILED
+				// instead (weaviate/0-weaviate-issues#297).
+				s.runCompletedCallbackPhase(namespace, desc, task, suProvider, effectiveStatus)
 			}
 		}
 
@@ -1042,15 +1052,21 @@ func (s *Scheduler) runSwapPhase(
 // runCompletedCallbackPhase fires OnTaskCompleted for a single task in
 // Phase 2 (SWAPPING/FAILED/FINISHED/CANCELLED).
 //
-// Owns its own lock lifecycle: acquires s.mu to decide eligibility +
-// set completedCallbackFired pre-callback, releases for the slow
-// callback, returns. No commit step needed — the pre-set fired mark
-// records the attempt; OnTaskCompleted's failure mode is handled by the
-// MarkDistributedTaskFinalized rollback (it clears completedCallbackFired
-// so the next tick retries). Providers implementing
-// [UnitAwareProvider.OnTaskCompleted] MUST be safe to invoke more than
-// once per task — see the "Idempotency contract" note at the rollback site.
+// Owns its own lock lifecycle: acquires s.mu to decide eligibility + set
+// completedCallbackFired pre-callback, releases for the slow callback, then
+// re-acquires to react to the callback's error. Providers implementing
+// [UnitAwareProvider.OnTaskCompleted] MUST be safe to invoke more than once
+// per task — see the "Idempotency contract" note at the rollback site.
+//
+// SWAPPING-path error handling (weaviate/0-weaviate-issues#297): a non-nil
+// error clears completedCallbackFired so runFinalizePhase withholds FINISHED
+// and the next tick re-fires the callback. A permanent error
+// ([ErrTaskCompletionPermanent]) or one that exhausted
+// [maxCompletedCallbackAttempts] transitions the task to FAILED instead of
+// retrying forever. Errors on terminal-status invocations are best-effort
+// cleanup and never reopen the task.
 func (s *Scheduler) runCompletedCallbackPhase(
+	namespace string,
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
@@ -1086,7 +1102,63 @@ func (s *Scheduler) runCompletedCallbackPhase(
 
 	// Fire OnTaskCompleted without the lock. See the "Idempotency contract"
 	// note at the matching rollback site in runFinalizePhase.
-	suProvider.OnTaskCompleted(task)
+	cbErr := suProvider.OnTaskCompleted(task)
+	if cbErr == nil {
+		return
+	}
+
+	// Only the SWAPPING cutover retries/fails. A terminal-status callback
+	// (FAILED/CANCELLED/FINISHED cleanup) that errors must not reopen the
+	// task — leave the fired mark set so it doesn't re-fire.
+	if effectiveStatus != TaskStatusSwapping {
+		s.loggerWithTask(namespace, desc).
+			Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", effectiveStatus, cbErr)
+		return
+	}
+
+	// Withhold finalize (clear the fired mark so the next tick re-fires) and
+	// decide whether this failure is terminal. A permanent error fails now;
+	// a transient one fails only once the retry budget is exhausted.
+	failMsg := func() string {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		state := s.perTaskStateLocked(desc)
+		if state == nil {
+			// Local cleanup deleted the entry between callback and commit —
+			// nothing to record or retry.
+			return ""
+		}
+		state.completedCallbackFired = false
+		state.completedCallbackAttempts++
+		permanent := errors.Is(cbErr, ErrTaskCompletionPermanent)
+		if permanent || state.completedCallbackAttempts >= maxCompletedCallbackAttempts {
+			return cbErr.Error()
+		}
+		s.loggerWithTask(namespace, desc).
+			Warnf("OnTaskCompleted failed (attempt %d/%d); withholding finalize, will retry next tick: %v",
+				state.completedCallbackAttempts, maxCompletedCallbackAttempts, cbErr)
+		return ""
+	}()
+	if failMsg == "" {
+		return
+	}
+
+	// Terminal failure: transition SWAPPING → FAILED without the lock. The
+	// fired mark stays cleared so a transient MarkDistributedTaskFailed error
+	// re-fires and re-attempts the transition (idempotent at the FSM layer);
+	// once FAILED, the next tick re-fires OnTaskCompleted for terminal cleanup.
+	if s.taskFinalizer == nil {
+		return
+	}
+	if err := s.taskFinalizer.MarkDistributedTaskFailed(
+		context.Background(), namespace, task.ID, task.Version, failMsg,
+	); err != nil {
+		s.loggerWithTask(namespace, desc).
+			Warnf("failed to mark distributed task failed after OnTaskCompleted error; will retry on next tick: %v", err)
+		return
+	}
+	s.loggerWithTask(namespace, desc).
+		Errorf("distributed task transitioned to FAILED: OnTaskCompleted did not succeed: %s", failMsg)
 }
 
 // finalizeWork captures one finalize-phase task identity. Populated under
@@ -1151,12 +1223,9 @@ func (s *Scheduler) runFinalizePhase(
 		}
 		s.loggerWithTask(namespace, w.desc).
 			Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
-		// TODO(scheduler): clearing completedCallbackFired here causes
-		// OnTaskCompleted to re-fire on the next tick. Safe today because
-		// the reindex provider's OnTaskCompleted is idempotent, but
-		// [UnitAwareProvider.OnTaskCompleted] (in types.go) doesn't yet
-		// declare the requirement. See the matching "Idempotency contract"
-		// note in [Scheduler.runCompletedCallbackPhase].
+		// Clearing completedCallbackFired re-fires OnTaskCompleted next tick.
+		// Safe because [UnitAwareProvider.OnTaskCompleted] now requires
+		// idempotency (types.go); a re-fire that succeeds finalizes then.
 		if providerIsUnitAware {
 			if rollbackState := s.perTaskStateLocked(w.desc); rollbackState != nil {
 				rollbackState.completedCallbackFired = false

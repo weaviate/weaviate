@@ -1355,6 +1355,78 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 		"late ack must not be recorded on a terminal task")
 }
 
+// TestManager_MarkTaskFailed pins the SWAPPING → FAILED FSM path the
+// scheduler uses when OnTaskCompleted returns a terminal error
+// (weaviate/0-weaviate-issues#297): the transition records the error, is
+// idempotent, and refuses to overwrite a task that already reached FINISHED.
+func TestManager_MarkTaskFailed(t *testing.T) {
+	markFailed := func(t *testing.T, h *testHarness, ns, id string, version uint64, errMsg string) error {
+		return h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
+			Namespace:          ns,
+			Id:                 id,
+			Version:            version,
+			Error:              errMsg,
+			FailedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+	}
+
+	t.Run("transitions SWAPPING to FAILED and records the error", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+		completeUnit(t, h, "ns", "task1", version, "node-1", "u")
+
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
+		finishedAt := tasks["ns"][0].FinishedAt
+
+		require.NoError(t, markFailed(t, h, "ns", "task1", version, "schema flip failed at finalize"))
+
+		tasks, _ = h.manager.ListDistributedTasks(context.Background())
+		task := tasks["ns"][0]
+		require.Equal(t, TaskStatusFailed, task.Status)
+		require.Contains(t, task.Error, "schema flip failed at finalize")
+		require.Equal(t, finishedAt, task.FinishedAt,
+			"FinishedAt must stay at the AllUnitsTerminal moment, matching other FAILED paths")
+	})
+
+	t.Run("is idempotent: second call on FAILED is a no-op", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+		completeUnit(t, h, "ns", "task1", version, "node-1", "u")
+
+		require.NoError(t, markFailed(t, h, "ns", "task1", version, "first failure"))
+		require.NoError(t, markFailed(t, h, "ns", "task1", version, "second failure"))
+
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
+		require.Contains(t, tasks["ns"][0].Error, "first failure")
+		require.NotContains(t, tasks["ns"][0].Error, "second failure",
+			"idempotent second call must not append another error")
+	})
+
+	t.Run("refuses to fail a task that already reached FINISHED", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+		completeUnit(t, h, "ns", "task1", version, "node-1", "u")
+		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			Version:               version,
+			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+
+		err := markFailed(t, h, "ns", "task1", version, "too late")
+		require.Error(t, err, "the first terminal transition must win")
+		require.ErrorIs(t, err, ErrTaskNotInFinalizingState)
+
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status)
+	})
+}
+
 // TestManager_SnapshotRestore_WithPostCompletionAcks pins the
 // crash-safety property the https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A fix relies on:
 // the per-node acks survive RAFT snapshot/restore. Without this, a

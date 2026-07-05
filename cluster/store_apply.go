@@ -497,6 +497,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.MarkTaskFinalized(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFailed(&cmd)
+		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:
 		f = func() {
 			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)

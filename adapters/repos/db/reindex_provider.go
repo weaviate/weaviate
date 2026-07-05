@@ -1560,7 +1560,15 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // Skips the flip on non-SWAPPING terminal states (FAILED / CANCELLED) so
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
-func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
+//
+// Returns a non-nil error on the SWAPPING path when the flip did not commit
+// so the scheduler withholds FINISHED and retries (weaviate/0-weaviate-issues
+// #297). A deterministically-unrecoverable failure (unparsable payload,
+// target property gone at finalize) is wrapped in
+// [distributedtask.ErrTaskCompletionPermanent] so the scheduler fails the
+// task instead of retrying forever; every other flip error is transient.
+// Terminal-status (FAILED/CANCELLED) cleanup is best-effort and returns nil.
+func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
 	p.clearTaskCaches(task.TaskDescriptor)
@@ -1587,15 +1595,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
 			}
 		}
-		return
+		return nil
 	}
 	if payloadErr != nil {
 		logger.Errorf("reindex provider: task-completion: failed to load payload; schema flip will not run: %v", payloadErr)
-		return
+		// An unparsable payload never becomes parsable — permanent.
+		return fmt.Errorf("load payload for schema flip: %w: %w", payloadErr, distributedtask.ErrTaskCompletionPermanent)
 	}
 	if !IsSemanticMigration(payload.MigrationType) {
 		// Format-only migrations flip their metadata inside RunSwapOnShard.
-		return
+		return nil
 	}
 
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
@@ -1606,7 +1615,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		// Leave the overlay in place: buckets are NEW-tokenized but the
 		// schema is still pre-flip on this node — the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
-		return
+		// The error (permanent-wrapped inside flipSemanticMigrationSchema for
+		// property-gone, plain otherwise) tells the scheduler to retry-or-fail.
+		return fmt.Errorf("schema flip: %w", err)
 	}
 
 	if IsTokenizationChangingMigration(payload.MigrationType) {
@@ -1629,6 +1640,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 			})
 		}
 	}
+
+	// Flip committed; the overlay clear above is best-effort (self-heals on
+	// query). The cutover succeeded, so the scheduler may finalize.
+	return nil
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -2034,9 +2049,11 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("flip tokenization: %w", err)
 		}
 		if len(missing) > 0 {
-			// Single-property migration; a missing property between submit
-			// and finalize is a hard error.
-			return fmt.Errorf("property %v not found in class %q at finalize", missing, payload.Collection)
+			// Single-property migration; a property deleted between submit
+			// and finalize can never be flipped — permanent, so the
+			// scheduler fails the task rather than retrying (issue #297).
+			return fmt.Errorf("property %v not found in class %q at finalize: %w",
+				missing, payload.Collection, distributedtask.ErrTaskCompletionPermanent)
 		}
 		logger.WithField("tokenization", payload.TargetTokenization).
 			Info("reindex provider: change-tokenization cutover committed")

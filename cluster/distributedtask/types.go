@@ -46,17 +46,27 @@ type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
-// TaskFinalizer is an interface for issuing a request to transition a task
-// from [TaskStatusSwapping] to [TaskStatusFinished]. The [Scheduler] calls
-// this from its tick after [Provider.OnTaskCompleted] returns successfully so
-// the FSM-level FINISHED state lines up with "every post-completion callback
-// committed cluster-wide" (not just "every unit terminal"). Idempotent at the
-// FSM layer — every node's scheduler issues this independently after its
-// local OnTaskCompleted returns; only the first commit actually flips the
-// status. See the godoc on [TaskStatusSwapping] for the underlying race
-// this discipline fixes.
+// TaskFinalizer is the interface the [Scheduler] uses to issue a task's
+// terminal transition out of [TaskStatusSwapping] once its local
+// [UnitAwareProvider.OnTaskCompleted] has returned. Both methods are
+// idempotent at the FSM layer — every node's scheduler issues them
+// independently, and only the first commit actually flips the status.
 type TaskFinalizer interface {
+	// MarkDistributedTaskFinalized transitions SWAPPING → FINISHED after
+	// OnTaskCompleted returned nil, so the FSM-level FINISHED state lines up
+	// with "every post-completion callback committed cluster-wide" (not just
+	// "every unit terminal"). See the godoc on [TaskStatusSwapping] for the
+	// underlying race this discipline fixes.
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+
+	// MarkDistributedTaskFailed transitions SWAPPING → FAILED when
+	// OnTaskCompleted returned a terminal error: a permanent failure
+	// ([ErrTaskCompletionPermanent]) or a transient one that exhausted the
+	// per-task retry budget. errMsg is recorded on the task for forensics.
+	// This closes weaviate/0-weaviate-issues#297, where a swallowed
+	// schema-flip failure let the task reach FINISHED with an un-flipped
+	// schema.
+	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
 // PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
@@ -312,7 +322,19 @@ type UnitAwareProvider interface {
 	// twice, etc.). Today's concrete provider (db/reindex_provider.go's
 	// OnTaskCompleted → autoCleanupAfterTerminal) already is; new
 	// implementations MUST preserve this contract.
-	OnTaskCompleted(task *Task)
+	//
+	// Return value (weaviate/0-weaviate-issues#297): a non-nil error on the
+	// SWAPPING path (the cluster-wide cutover, e.g. the schema flip)
+	// withholds finalize — the scheduler does NOT commit FINISHED and
+	// instead re-fires OnTaskCompleted on the next tick. Wrap the error in
+	// [ErrTaskCompletionPermanent] when it is deterministically
+	// unrecoverable (target property gone, payload unparsable): the
+	// scheduler then transitions the task to FAILED immediately. A plain
+	// error is transient and retried up to a bounded count before the task
+	// is failed. Errors returned on terminal-status invocations
+	// (FAILED/CANCELLED/FINISHED cleanup) are best-effort and do NOT reopen
+	// the task; return nil there.
+	OnTaskCompleted(task *Task) error
 }
 
 type UnitStatus string

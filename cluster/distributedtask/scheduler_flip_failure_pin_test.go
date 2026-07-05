@@ -12,6 +12,7 @@
 package distributedtask
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
@@ -24,12 +25,11 @@ import (
 // provider's cluster-wide schema flip (adapters/repos/db/reindex_provider.go:
 // OnTaskCompleted -> flipSemanticMigrationSchema).
 //
-// The real OnTaskCompleted has a VOID signature and swallows a failed flip
-// (reindex_provider.go:1606-1611): it logs the error and returns, so the
-// scheduler has no way to observe that the schema was NOT flipped. This fake
-// reproduces exactly that seam: when flipShouldFail is set it records the
-// attempt, leaves schemaFlipped=false, and returns normally. The void return
-// means the scheduler cannot tell a successful flip from a failed one.
+// When flipShouldFail is set it records the attempt, leaves
+// schemaFlipped=false, and returns a transient (non-permanent) error — the
+// #297 fix gives OnTaskCompleted an error return so the scheduler can observe
+// the failed flip, withhold FINISHED, and retry. Before the fix the method
+// was void and the failure was invisible, so the task finalized anyway.
 type flipFailingProvider struct {
 	*testTaskProvider
 
@@ -56,19 +56,20 @@ func (p *flipFailingProvider) OnSwapRequested(_ *Task, _ string, _ []string) err
 }
 
 // OnTaskCompleted models the cluster-wide schema flip. On the failure path it
-// CANNOT signal the failure to the scheduler because the interface method is
-// void, which is the defect #297 describes.
-func (p *flipFailingProvider) OnTaskCompleted(_ *Task) {
+// returns a transient error (schema stays pre-migration); the scheduler must
+// then withhold FINISHED and retry rather than commit the divergence #297
+// describes.
+func (p *flipFailingProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.completedCalls++
-	if p.flipShouldFail {
-		// Mirrors reindex_provider.go:1606-1611: flipSemanticMigrationSchema
-		// returns an error, it is logged and swallowed, and the schema stays
-		// pre-migration. The void return leaves the scheduler none the wiser.
-		return
+	if p.flipShouldFail && task.Status == TaskStatusSwapping {
+		// Mirrors flipSemanticMigrationSchema returning a transient error:
+		// the flip did not commit, so the scheduler must not finalize.
+		return errors.New("simulated transient schema-flip failure")
 	}
 	p.schemaFlipped = true
+	return nil
 }
 
 func (p *flipFailingProvider) snapshot() (calls int, flipped bool) {
@@ -130,22 +131,16 @@ func runFlipScenario(t *testing.T, prov *flipFailingProvider) (TaskStatus, int, 
 	return final[0].Status, calls, flipped
 }
 
-// TestOnTaskCompletedFlipFailure_TaskStillReachesFinished pins issue #297:
-// a schema-flip failure inside the void OnTaskCompleted callback is invisible
-// to the DTM scheduler, so the task still finalizes to FINISHED while the
-// schema stays un-flipped, violating the TaskStatusFinished contract
-// (types.go:376-379: "the task succeeded on every node AND every per-node
-// post-completion callback has run") and the scheduler comment at
-// scheduler.go:508-512 ("the FINISHED transition is committed ... only AFTER
-// OnTaskCompleted returns successfully").
-//
-// The finalize-rollback retry (runFinalizePhase, scheduler.go:1147-1165) does
-// NOT cover this: it clears completedCallbackFired only when
-// MarkDistributedTaskFinalized itself returns an error, a DIFFERENT failure
-// than the flip failing inside OnTaskCompleted. Because OnTaskCompleted is
-// void, a failed flip never clears completedCallbackFired, so runFinalizePhase
-// still sees the fired mark and commits FINISHED.
-func TestOnTaskCompletedFlipFailure_TaskStillReachesFinished(t *testing.T) {
+// TestOnTaskCompletedFlipFailure_TaskDoesNotReachFinished pins issue #297:
+// a schema-flip failure inside OnTaskCompleted must keep the task out of
+// FINISHED, honoring the TaskStatusFinished contract (types.go: "the task
+// succeeded on every node AND every per-node post-completion callback has
+// run"). Before the fix OnTaskCompleted was void: a swallowed flip failure
+// never cleared completedCallbackFired, so runFinalizePhase committed FINISHED
+// with an un-flipped schema. The fix gives OnTaskCompleted an error return;
+// the scheduler withholds finalize and retries on a transient error, so the
+// task stays SWAPPING (not FINISHED) while the flip keeps failing.
+func TestOnTaskCompletedFlipFailure_TaskDoesNotReachFinished(t *testing.T) {
 	// Positive control: the flip SUCCEEDS. Proves the harness drives a task
 	// SWAPPING -> FINISHED and that FINISHED lines up with schemaFlipped=true.
 	// This rules out a trivially-red pin (broken harness that never finalizes).

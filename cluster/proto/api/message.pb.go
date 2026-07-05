@@ -88,6 +88,7 @@ const (
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED                  ApplyRequest_Type = 306
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK      ApplyRequest_Type = 307
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK ApplyRequest_Type = 308
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED                     ApplyRequest_Type = 309
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -154,6 +155,7 @@ var (
 		306: "TYPE_DISTRIBUTED_TASK_MARK_FINALIZED",
 		307: "TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK",
 		308: "TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK",
+		309: "TYPE_DISTRIBUTED_TASK_MARK_FAILED",
 	}
 	ApplyRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":                                                0,
@@ -217,6 +219,7 @@ var (
 		"TYPE_DISTRIBUTED_TASK_MARK_FINALIZED":                            306,
 		"TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK":                307,
 		"TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK":           308,
+		"TYPE_DISTRIBUTED_TASK_MARK_FAILED":                               309,
 	}
 )
 
@@ -2116,6 +2119,90 @@ func (x *MarkTaskFinalizedRequest) GetFinalizedAtUnixMillis() int64 {
 	return 0
 }
 
+// MarkTaskFailedRequest transitions a task from SWAPPING to FAILED when the
+// scheduler's OnTaskCompleted returns a terminal error: a permanent
+// schema-flip failure (the target property was deleted mid-flight, so the
+// cluster-wide flip can never succeed), or a transient one that exhausted
+// the per-task retry budget. Without it a swallowed flip failure let the
+// task finalize to FINISHED with an un-flipped schema
+// (weaviate/0-weaviate-issues#297). Idempotent at the FSM layer: SWAPPING →
+// FAILED once; a later commit for an already-terminal task is a no-op.
+type MarkTaskFailedRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Namespace          string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id                 string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version            uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	Error              string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	FailedAtUnixMillis int64                  `protobuf:"varint,5,opt,name=failed_at_unix_millis,json=failedAtUnixMillis,proto3" json:"failed_at_unix_millis,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *MarkTaskFailedRequest) Reset() {
+	*x = MarkTaskFailedRequest{}
+	mi := &file_api_message_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarkTaskFailedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarkTaskFailedRequest) ProtoMessage() {}
+
+func (x *MarkTaskFailedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarkTaskFailedRequest.ProtoReflect.Descriptor instead.
+func (*MarkTaskFailedRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *MarkTaskFailedRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *MarkTaskFailedRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MarkTaskFailedRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *MarkTaskFailedRequest) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *MarkTaskFailedRequest) GetFailedAtUnixMillis() int64 {
+	if x != nil {
+		return x.FailedAtUnixMillis
+	}
+	return 0
+}
+
 // RecordDistributedTaskPostCompletionAckRequest captures one node's
 // SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
 // OnSwapRequested for barrier tasks) — i.e. did every local unit's
@@ -2152,7 +2239,7 @@ type RecordDistributedTaskPostCompletionAckRequest struct {
 
 func (x *RecordDistributedTaskPostCompletionAckRequest) Reset() {
 	*x = RecordDistributedTaskPostCompletionAckRequest{}
-	mi := &file_api_message_proto_msgTypes[28]
+	mi := &file_api_message_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2164,7 +2251,7 @@ func (x *RecordDistributedTaskPostCompletionAckRequest) String() string {
 func (*RecordDistributedTaskPostCompletionAckRequest) ProtoMessage() {}
 
 func (x *RecordDistributedTaskPostCompletionAckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[28]
+	mi := &file_api_message_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2177,7 +2264,7 @@ func (x *RecordDistributedTaskPostCompletionAckRequest) ProtoReflect() protorefl
 
 // Deprecated: Use RecordDistributedTaskPostCompletionAckRequest.ProtoReflect.Descriptor instead.
 func (*RecordDistributedTaskPostCompletionAckRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{28}
+	return file_api_message_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *RecordDistributedTaskPostCompletionAckRequest) GetNamespace() string {
@@ -2244,7 +2331,7 @@ type RecordDistributedTaskPreparationCompleteAckRequest struct {
 
 func (x *RecordDistributedTaskPreparationCompleteAckRequest) Reset() {
 	*x = RecordDistributedTaskPreparationCompleteAckRequest{}
-	mi := &file_api_message_proto_msgTypes[29]
+	mi := &file_api_message_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2256,7 +2343,7 @@ func (x *RecordDistributedTaskPreparationCompleteAckRequest) String() string {
 func (*RecordDistributedTaskPreparationCompleteAckRequest) ProtoMessage() {}
 
 func (x *RecordDistributedTaskPreparationCompleteAckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[29]
+	mi := &file_api_message_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2269,7 +2356,7 @@ func (x *RecordDistributedTaskPreparationCompleteAckRequest) ProtoReflect() prot
 
 // Deprecated: Use RecordDistributedTaskPreparationCompleteAckRequest.ProtoReflect.Descriptor instead.
 func (*RecordDistributedTaskPreparationCompleteAckRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{29}
+	return file_api_message_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetNamespace() string {
@@ -2339,13 +2426,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xdc\x12\n" +
+	"\x12NotifyPeerResponse\"\x84\x13\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xb8\x11\n" +
+	"subCommand\"\xe0\x11\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2408,7 +2495,8 @@ const file_api_message_proto_rawDesc = "" +
 	"*TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS\x10\xb1\x02\x12)\n" +
 	"$TYPE_DISTRIBUTED_TASK_MARK_FINALIZED\x10\xb2\x02\x125\n" +
 	"0TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK\x10\xb3\x02\x12:\n" +
-	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\"\x04\bc\x10c\"A\n" +
+	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\x12&\n" +
+	"!TYPE_DISTRIBUTED_TASK_MARK_FAILED\x10\xb5\x02\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
 	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +
@@ -2543,7 +2631,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x127\n" +
-	"\x18finalized_at_unix_millis\x18\x04 \x01(\x03R\x15finalizedAtUnixMillis\"\xf1\x01\n" +
+	"\x18finalized_at_unix_millis\x18\x04 \x01(\x03R\x15finalizedAtUnixMillis\"\xa8\x01\n" +
+	"\x15MarkTaskFailedRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x121\n" +
+	"\x15failed_at_unix_millis\x18\x05 \x01(\x03R\x12failedAtUnixMillis\"\xf1\x01\n" +
 	"-RecordDistributedTaskPostCompletionAckRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2583,7 +2677,7 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_api_message_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                                     // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),                                     // 1: weaviate.internal.cluster.QueryRequest.Type
@@ -2617,8 +2711,9 @@ var file_api_message_proto_goTypes = []any{
 	(*RecordDistributedTaskUnitCompletionRequest)(nil),         // 29: weaviate.internal.cluster.RecordDistributedTaskUnitCompletionRequest
 	(*UpdateDistributedTaskUnitProgressRequest)(nil),           // 30: weaviate.internal.cluster.UpdateDistributedTaskUnitProgressRequest
 	(*MarkTaskFinalizedRequest)(nil),                           // 31: weaviate.internal.cluster.MarkTaskFinalizedRequest
-	(*RecordDistributedTaskPostCompletionAckRequest)(nil),      // 32: weaviate.internal.cluster.RecordDistributedTaskPostCompletionAckRequest
-	(*RecordDistributedTaskPreparationCompleteAckRequest)(nil), // 33: weaviate.internal.cluster.RecordDistributedTaskPreparationCompleteAckRequest
+	(*MarkTaskFailedRequest)(nil),                              // 32: weaviate.internal.cluster.MarkTaskFailedRequest
+	(*RecordDistributedTaskPostCompletionAckRequest)(nil),      // 33: weaviate.internal.cluster.RecordDistributedTaskPostCompletionAckRequest
+	(*RecordDistributedTaskPreparationCompleteAckRequest)(nil), // 34: weaviate.internal.cluster.RecordDistributedTaskPreparationCompleteAckRequest
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
@@ -2659,7 +2754,7 @@ func file_api_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   30,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
