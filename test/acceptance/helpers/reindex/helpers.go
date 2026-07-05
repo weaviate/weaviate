@@ -232,9 +232,8 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
 }
 
-// FetchClass reads the class schema via the given node. local=true sends
-// consistency:false for the node's own FSM state; the default GET proxies
-// to the leader — fine for cluster assertions, useless as a per-node gate.
+// FetchClass: local=true sends consistency:false for the node's own FSM
+// state; the default GET proxies to the leader, not a per-node visibility gate.
 func FetchClass(restURI, className string, local bool) (*models.Class, bool) {
 	req, err := http.NewRequest(http.MethodGet,
 		fmt.Sprintf("http://%s/v1/schema/%s", restURI, className), nil)
