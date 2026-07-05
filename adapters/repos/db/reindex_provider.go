@@ -556,17 +556,18 @@ func (p *ReindexProvider) processOneUnit(
 	// the old main bucket (no ingest double-write) and are lost on swap.
 	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
 	//
-	// Guarded against Index.drop: SaveRecoveryPayload MkdirAll's the
-	// migration dir — same re-materialization race the tracker paths guard
-	// via newReindexTrackerGuarded. This goroutine never holds closeLock.
-	if err := concreteShard.Index().withCloseRLockGuard(func() error {
+	// Guarded against Index.drop AND dropShards: SaveRecoveryPayload
+	// MkdirAll's the migration dir — same re-materialization race the tracker
+	// paths guard via newReindexTrackerGuarded. This goroutine never holds
+	// closeLock or shardCreateLocks.
+	if err := concreteShard.Index().withShardRLockGuard(concreteShard.Name(), func() error {
 		return p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks)
 	}); err != nil {
 		if errors.Is(err, context.Canceled) {
-			// Index is closing (concurrent DELETE): the cascade-cancel will
+			// Index or shard is being deleted: the cascade-cancel will
 			// terminate this task; stop quietly instead of failing the unit.
 			p.logger.WithField("unit", unitID).
-				Debug("index closing during recovery-record persist; stopping unit")
+				Debug("index or shard is being deleted during recovery-record persist; stopping unit")
 			return
 		}
 		// A failure to persist the recovery record means a restart in the

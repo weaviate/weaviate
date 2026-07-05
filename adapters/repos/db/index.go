@@ -3292,17 +3292,18 @@ func (i *Index) drop() error {
 // context.Canceled WITHOUT running fn if the index is closing/closed.
 //
 // drop() sets i.closed AND renames the index dir away under the same write
-// lock, so fn — today the reindex tracker's MkdirAll — either completes
-// before the rename (its output is carried into the .deleteme dir) or never
-// runs. A lock-free i.closed check is NOT sufficient: a stale read would let
+// lock, so fn — today the reindex paths' MkdirAll, via withShardRLockGuard —
+// either completes before the rename (its output is carried into the
+// .deleteme dir) or never runs. A lock-free i.closed check is NOT
+// sufficient: a stale read would let
 // fn re-create the just-renamed path. fn must be short and must not acquire
 // i.closeLock for writing or any lock drop() holds in an inverting order.
 //
 // Scope: the guard covers whole-index drops only. Per-shard tenant deletes
 // (dropShards) run under closeLock.RLock themselves and never set i.closed,
-// so the guard is blind to them — a guarded MkdirAll can still re-create a
-// tenant shard dir that dropShards just removed. Tracked in
-// https://github.com/weaviate/0-weaviate-issues/issues/288.
+// so this guard is blind to them — callers whose fn touches a specific
+// shard's directory must use withShardRLockGuard instead
+// (weaviate/0-weaviate-issues#288).
 func (i *Index) withCloseRLockGuard(fn func() error) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
@@ -3312,6 +3313,31 @@ func (i *Index) withCloseRLockGuard(fn func() error) error {
 	}
 
 	return fn()
+}
+
+// withShardRLockGuard is the per-shard companion of withCloseRLockGuard
+// (weaviate/0-weaviate-issues#288): dropShards never sets i.closed, so the
+// close guard alone cannot stop fn from re-creating a tenant shard dir that
+// dropShards just removed. Holding shardCreateLocks.RLock while re-checking
+// i.shards membership makes fn either complete before dropShards' removal
+// (its output is removed with the shard) or bail with context.Canceled after
+// it — dropShards holds the write lock across LoadAndDelete + dir removal.
+//
+// Lock order matches the documented hierarchy (closeLock before
+// shardCreateLocks; backupLock is skippable). fn must be short, must not
+// acquire any Index lock, and callers must not already hold
+// shardCreateLocks(shardName) for writing.
+func (i *Index) withShardRLockGuard(shardName string, fn func() error) error {
+	return i.withCloseRLockGuard(func() error {
+		i.shardCreateLocks.RLock(shardName)
+		defer i.shardCreateLocks.RUnlock(shardName)
+
+		if i.shards.Load(shardName) == nil {
+			return context.Canceled
+		}
+
+		return fn()
+	})
 }
 
 func (i *Index) dropShards(names []string) error {
@@ -3340,7 +3366,8 @@ func (i *Index) dropShards(names []string) error {
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
 					ec.Add(err)
-					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+					// shard is nil in this branch — shard.ID() would panic
+					i.logger.WithField("action", "drop_shard").WithField("shard", name).Error(err)
 				}
 			} else {
 				// If shard is loaded use the native primitive to drop it
