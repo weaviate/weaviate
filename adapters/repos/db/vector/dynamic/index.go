@@ -118,14 +118,6 @@ func (s *status) IsUpgrading() bool {
 	return v != nil && *v == upgrading
 }
 
-// Upgrading sets the status to upgrading. This is used to indicate that the index is currently being upgraded from flat to HNSW.
-func (s *status) Upgrading() {
-	if s == nil {
-		return
-	}
-	(*atomic.Pointer[string])(s).Store(&upgrading)
-}
-
 // Reset sets the status to nil. This is used to indicate that the index is neither upgraded nor upgrading.
 func (s *status) Reset() {
 	if s == nil {
@@ -140,6 +132,16 @@ func (s *status) Upgraded() {
 		return
 	}
 	(*atomic.Pointer[string])(s).Store(&upgraded)
+}
+
+// TryUpgrading atomically transitions status from unset to upgrading, returning
+// true only to the caller that wins the transition. This replaces a one-shot
+// sync.Once so a Reset (failed attempt) can be retried by a later Upgrade call.
+func (s *status) TryUpgrading() bool {
+	if s == nil {
+		return false
+	}
+	return (*atomic.Pointer[string])(s).CompareAndSwap(nil, &upgrading)
 }
 
 type dynamic struct {
@@ -160,7 +162,6 @@ type dynamic struct {
 	threshold                    uint64
 	index                        VectorIndex
 	status                       status
-	upgradeOnce                  sync.Once
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
 	uc                           ent.UserConfig
 	db                           *bbolt.DB
@@ -172,6 +173,10 @@ type dynamic struct {
 	AllocChecker                 memwatch.AllocChecker
 	MakeBucketOptions            lsmkv.MakeBucketOptions
 	AsyncIndexingEnabled         bool
+
+	// doUpgradeHookForTest, when set, replaces doUpgrade's body. Test-only seam
+	// for forcing/timing upgrade failures without touching hnsw/bbolt.
+	doUpgradeHookForTest func() error
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -599,7 +604,9 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 
 func (dynamic *dynamic) Upgrade(callback func()) error {
 	if dynamic.ctx.Err() != nil {
-		// already closed
+		// no goroutine will run to fire the callback, so the pause/resume
+		// contract must be resolved synchronously here.
+		callback()
 		return dynamic.ctx.Err()
 	}
 
@@ -607,26 +614,35 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
 
-	dynamic.upgradeOnce.Do(func() {
-		dynamic.status.Upgrading()
-		enterrors.GoWrapper(func() {
-			defer callback()
-			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
+	if !dynamic.status.TryUpgrading() {
+		// an attempt is already in flight (or just finished) and owns its own
+		// callback; resolve this caller's separately instead of blocking on it.
+		callback()
+		return nil
+	}
 
-			err := dynamic.doUpgrade()
-			if err != nil {
-				dynamic.logger.WithError(err).Error("failed to upgrade index")
-				dynamic.status.Reset()
-				return
-			}
-			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
-		}, dynamic.logger)
-	})
+	enterrors.GoWrapper(func() {
+		defer callback()
+		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
+
+		err := dynamic.doUpgrade()
+		if err != nil {
+			dynamic.logger.WithError(err).Error("failed to upgrade index")
+			// re-arm: a later Upgrade call must be able to retry.
+			dynamic.status.Reset()
+			return
+		}
+		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
+	}, dynamic.logger)
 
 	return nil
 }
 
 func (dynamic *dynamic) doUpgrade() error {
+	if dynamic.doUpgradeHookForTest != nil {
+		return dynamic.doUpgradeHookForTest()
+	}
+
 	// Start with a read lock to prevent reading from the index
 	// while it's being dropped or closed.
 	// This allows search operations to continue while the index is being

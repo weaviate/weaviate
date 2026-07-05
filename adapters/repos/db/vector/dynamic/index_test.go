@@ -13,6 +13,7 @@ package dynamic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -355,6 +356,158 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("upgrade callback was not called")
 	}
+}
+
+// newUpgradeTestDynamic builds a minimal dynamic index with vectorsSize vectors
+// already indexed and ShouldUpgrade()==true, for exercising Upgrade's retry and
+// re-entrancy paths without paying for a full recall/latency-style test.
+func newUpgradeTestDynamic(t *testing.T, vectorsSize int) *dynamic {
+	t.Helper()
+	ctx := context.Background()
+	dimensions := 4
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	dyn, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:              t.TempDir(),
+		ID:                    "upgrade-retry-test",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      dist,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}, ent.UserConfig{
+		Threshold: uint64(vectorsSize),
+		Distance:  dist.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	for i, v := range vectors {
+		require.NoError(t, dyn.Add(ctx, uint64(i), v))
+	}
+
+	shouldUpgrade, _ := dyn.ShouldUpgrade()
+	require.True(t, shouldUpgrade)
+	require.False(t, dyn.Upgraded())
+
+	return dyn
+}
+
+// Regression test for weaviate/0-weaviate-issues#296 defect 1: upgradeOnce was
+// consumed by the first (failed) attempt, so every later Upgrade call returned
+// nil without ever invoking its callback -- the caller's paused queue (see
+// VectorIndexQueue.BeforeSchedule) stayed paused forever.
+func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
+	dyn := newUpgradeTestDynamic(t, 10)
+
+	dyn.doUpgradeHookForTest = func() error {
+		return errors.New("injected upgrade failure")
+	}
+
+	firstCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
+	select {
+	case <-firstCallback:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first upgrade callback was not invoked")
+	}
+	require.False(t, dyn.IsUpgraded(), "a failed attempt must not report as upgraded")
+
+	// clear the injected failure so the retry can actually complete.
+	dyn.doUpgradeHookForTest = nil
+
+	secondCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
+	select {
+	case <-secondCallback:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second upgrade callback was not invoked -- retry never ran")
+	}
+	require.True(t, dyn.IsUpgraded(), "the retried upgrade must actually complete")
+}
+
+// Regression test: a second Upgrade call arriving while an attempt is already
+// in flight must not block on it -- it must invoke its own caller's callback
+// immediately, since that caller (e.g. BeforeSchedule) owns its own pause and
+// the in-flight attempt owns a different one.
+func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
+	dyn := newUpgradeTestDynamic(t, 10)
+
+	block := make(chan struct{})
+	dyn.doUpgradeHookForTest = func() error {
+		<-block
+		return nil
+	}
+
+	firstCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
+	// TryUpgrading flips the status synchronously before Upgrade returns, so a
+	// second caller below is guaranteed to observe "mid-upgrade".
+	require.True(t, dyn.status.IsUpgrading())
+
+	secondCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
+
+	select {
+	case <-secondCallback:
+	default:
+		t.Fatal("a mid-upgrade Upgrade call must invoke its own callback synchronously")
+	}
+
+	select {
+	case <-firstCallback:
+		t.Fatal("the in-flight attempt's callback must not have fired yet")
+	default:
+	}
+
+	close(block)
+	select {
+	case <-firstCallback:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first upgrade callback was never invoked after unblocking")
+	}
+}
+
+// Regression test: Upgrade called after Shutdown returns ctx.Err() synchronously
+// with no goroutine spawned to ever invoke the callback, so it must invoke it
+// inline -- otherwise a caller that paused its queue expecting a resume never
+// gets one.
+func TestDynamicUpgradeAfterShutdownInvokesCallbackSynchronously(t *testing.T) {
+	dyn := newUpgradeTestDynamic(t, 10)
+
+	require.NoError(t, dyn.Shutdown(context.Background()))
+
+	called := false
+	err := dyn.Upgrade(func() { called = true })
+	require.Error(t, err)
+	require.True(t, called, "Upgrade must invoke the callback even when it short-circuits on a closed context")
 }
 
 func TestDynamicUpgradeCompression(t *testing.T) {
