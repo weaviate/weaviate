@@ -2197,9 +2197,8 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 				propName, mainExists, backupExists, ingestExists)
 		}
 
-		// runtimeSwap may have set the sentinel before a mid-FINALIZING
-		// restart; markSwappedProp creates with O_EXCL, so an unguarded
-		// re-mark fails recovery with "file exists".
+		// markSwappedProp creates with O_EXCL; a mid-FINALIZING restart may
+		// have already set the sentinel.
 		if !rt.IsSwappedProp(propName) {
 			if err := rt.markSwappedProp(propName); err != nil {
 				return fmt.Errorf("marking swapped prop %q: %w", propName, err)

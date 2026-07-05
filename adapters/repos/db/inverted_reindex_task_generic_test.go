@@ -365,10 +365,7 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			wantPath: "swapped",
 		},
 		{
-			// Restart mid-FINALIZING: sentinel already set, disk renames
-			// already converged → recovery's only remaining work is the
-			// re-mark, which must tolerate the existing O_EXCL sentinel.
-			// Regression for the CI failure in run 28709084881.
+			// pins: recovery re-mark of an already-set O_EXCL swap sentinel must not fail
 			name: "IsMerged/prop_sentinel_preset/recovery_mark_idempotent",
 			setupRT: func(rt reindexTracker) {
 				require.NoError(t, rt.markStarted(time.Now()))
