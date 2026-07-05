@@ -679,10 +679,8 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		delResp.StatusCode, string(delBody))
 	deletedByTest = true
 
-	// class-dir removal is async (`.deleteme` rename + background RemoveAll)
-	// and lags the DELETE 200 under load; poll instead of checking once.
-	// Mirrors the .migrations drain poll above: assert.Eventually drives it,
-	// and on timeout we t.Fatalf with an ls -la so a real leak stays loud.
+	// Class-dir removal is async and lags the DELETE 200 under load;
+	// poll instead of checking once.
 	removed := assert.Eventually(t, func() bool {
 		code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
 		require.NoError(t, execErr)
