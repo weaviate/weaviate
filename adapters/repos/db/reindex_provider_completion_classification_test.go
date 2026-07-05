@@ -23,21 +23,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// The reindex provider is the PRODUCER of the permanent-vs-transient
-// decision the scheduler acts on: a permanent failure (wrapped in
-// [distributedtask.ErrTaskCompletionPermanent]) FAILs the task
-// immediately, a transient one is retried up to the per-task bound. A
-// transient failure mislabeled permanent would prematurely FAIL a
-// recoverable migration; the inverse would spin the retry budget on a
-// call that can never succeed. Both classes are pinned here against the
-// real classification code, on the sentinel via errors.Is — never on
-// message substrings.
+// Pins OnTaskCompleted's permanent-vs-transient error classification
+// (weaviate/0-weaviate-issues#297), asserted via errors.Is, never message substrings.
 
-// classReaderStub supplies only ReadOnlyClass, the single schema
-// dependency the finalize classification consults on the missing-property
-// and unreadable-class paths. Every other SchemaReader method is promoted
-// from the nil embedded interface: a call would panic, surfacing an
-// unexpected dependency instead of passing silently.
+// classReaderStub implements only ReadOnlyClass; other SchemaReader calls
+// panic via the nil embedded interface, surfacing unexpected dependencies.
 type classReaderStub struct {
 	schema.SchemaReader
 	class *models.Class
@@ -45,11 +35,8 @@ type classReaderStub struct {
 
 func (r classReaderStub) ReadOnlyClass(string) *models.Class { return r.class }
 
-// newClassificationProvider builds a ReindexProvider wired with just the
-// schema reader the flip path reads from. ReadOnlyClass returns cls (nil
-// models a class that is not locally readable). The Manager's Handler is
-// left zero-valued: the missing-property and unreadable-class paths never
-// reach the RAFT UpdateProperty call, so no FSM wiring is needed.
+// newClassificationProvider wires a ReindexProvider with just the schema
+// reader the flip path reads; cls=nil models a class that's not locally readable.
 func newClassificationProvider(cls *models.Class) *ReindexProvider {
 	logger, _ := test.NewNullLogger()
 	return &ReindexProvider{
@@ -65,9 +52,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	t.Run("unparsable payload is permanent", func(t *testing.T) {
-		// A payload that no longer parses can never parse on retry, so
-		// OnTaskCompleted classifies it permanent up front rather than
-		// re-firing the flip forever.
+		// Never becomes parsable, so this must be permanent, not transient.
 		p := &ReindexProvider{
 			logger:       logger,
 			payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
@@ -85,10 +70,8 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 	})
 
 	t.Run("change-tokenization target property gone is permanent", func(t *testing.T) {
-		// The class survives but the target property was deleted between
-		// submit and finalize: applyPerPropertySchemaUpdate reports it in
-		// missing, and a single-property tokenization flip against an
-		// absent property can never commit.
+		// Property deleted between submit and finalize can never be
+		// flipped — permanent, not transient.
 		p := newClassificationProvider(&models.Class{Class: "Docs"})
 		payload := &ReindexTaskPayload{
 			MigrationType:      ReindexTypeChangeTokenization,
@@ -102,12 +85,8 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 	})
 
 	t.Run("change-tokenization non-missing flip error is transient", func(t *testing.T) {
-		// A flip error that is NOT the property-gone case (here the class
-		// is not locally readable, standing in for any RAFT/apply error)
-		// flows through the shared `if err != nil` return in
-		// flipSemanticMigrationSchema — the exact line a RAFT apply error
-		// takes. It must stay plain so the scheduler retries within its
-		// bound instead of FAILing a recoverable migration.
+		// Any non-property-gone flip error (here: class not locally
+		// readable) must stay plain, or the scheduler would FAIL a recoverable migration.
 		p := newClassificationProvider(nil)
 		payload := &ReindexTaskPayload{
 			MigrationType:      ReindexTypeChangeTokenization,
@@ -121,9 +100,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 	})
 
 	t.Run("enable-filterable tolerates a missing property", func(t *testing.T) {
-		// enable-* discard the missing list — a dropped property is the
-		// same end state as "already filterable". A missing property must
-		// not surface as any error, let alone permanent.
+		// enable-* treat a dropped property as already-filterable, not an error.
 		p := newClassificationProvider(&models.Class{Class: "Docs"})
 		payload := &ReindexTaskPayload{
 			MigrationType: ReindexTypeEnableFilterable,

@@ -691,19 +691,14 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	return nil
 }
 
-// MarkTaskFailed transitions a task from SWAPPING to FAILED. The scheduler
-// issues this when a node's [UnitAwareProvider.OnTaskCompleted] returns a
-// terminal error — a permanent schema-flip failure or a transient one that
-// exhausted the retry budget — so a swallowed cutover failure can no longer
-// let the task reach FINISHED with an un-flipped schema
-// (weaviate/0-weaviate-issues#297).
+// MarkTaskFailed transitions SWAPPING → FAILED when a node's
+// [UnitAwareProvider.OnTaskCompleted] returns a terminal error, so a
+// swallowed cutover failure can't leave the task FINISHED with an
+// un-flipped schema (weaviate/0-weaviate-issues#297).
 //
-// Idempotent at the FSM layer: every node's scheduler may fire this after
-// its local OnTaskCompleted fails. The first commit flips SWAPPING → FAILED;
-// a later commit for an already-FAILED task is a no-op, and one that races a
-// peer's FINISHED / a CANCELLED is refused so the first terminal transition
-// wins. FinishedAt is left at the AllUnitsTerminal moment, matching the other
-// FAILED paths.
+// Idempotent at the FSM layer: the first commit wins; a later call on an
+// already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
+// is refused. FinishedAt stays at the AllUnitsTerminal moment.
 func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	var r api.MarkTaskFailedRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -723,7 +718,6 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 		// Idempotent: another node's MarkTaskFailed already committed.
 		return nil
 	case TaskStatusSwapping:
-		// Normal transition.
 	default:
 		// FINISHED / CANCELLED / STARTED — refuse so a stale command can't
 		// overwrite a terminal status a peer (or the operator) committed.

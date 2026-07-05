@@ -2119,14 +2119,10 @@ func (x *MarkTaskFinalizedRequest) GetFinalizedAtUnixMillis() int64 {
 	return 0
 }
 
-// MarkTaskFailedRequest transitions a task from SWAPPING to FAILED when the
-// scheduler's OnTaskCompleted returns a terminal error: a permanent
-// schema-flip failure (the target property was deleted mid-flight, so the
-// cluster-wide flip can never succeed), or a transient one that exhausted
-// the per-task retry budget. Without it a swallowed flip failure let the
-// task finalize to FINISHED with an un-flipped schema
-// (weaviate/0-weaviate-issues#297). Idempotent at the FSM layer: SWAPPING →
-// FAILED once; a later commit for an already-terminal task is a no-op.
+// MarkTaskFailedRequest transitions a task SWAPPING → FAILED when
+// OnTaskCompleted returns a terminal error: permanent schema-flip failure
+// or retry-exhausted transient one (weaviate/0-weaviate-issues#297).
+// Idempotent at the FSM layer: a later commit on a terminal task is a no-op.
 type MarkTaskFailedRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Namespace          string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`

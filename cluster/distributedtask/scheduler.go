@@ -60,18 +60,15 @@ type taskSchedulerState struct {
 	preparationAckEmitted            bool
 	postCompletionGroupErrors        map[string]error
 	preparationCompletionGroupErrors map[string]error
-	// completedCallbackAttempts counts SWAPPING-path OnTaskCompleted calls
-	// that returned a transient error. On reaching [maxCompletedCallbackAttempts]
-	// the scheduler stops retrying and fails the task, so a persistently
-	// erroring flip can't loop SWAPPING forever (weaviate/0-weaviate-issues#297).
+	// completedCallbackAttempts counts transient OnTaskCompleted failures on
+	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
+	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
-// the SWAPPING path. One attempt fires per scheduler tick; once exhausted the
-// task is transitioned to FAILED rather than retried indefinitely. Permanent
-// failures ([ErrTaskCompletionPermanent]) bypass this and fail on the first
-// attempt.
+// the SWAPPING path before the task is FAILED. [ErrTaskCompletionPermanent]
+// failures bypass this and fail on the first attempt.
 const maxCompletedCallbackAttempts = 5
 
 // Scheduler is the component which is responsible for polling the active tasks in the cluster (via the Manager)
@@ -604,11 +601,9 @@ func (s *Scheduler) tick() {
 				// SWAPPING path wait until every node has acked: the schema
 				// flip can't commit while any replica's swap is undetermined.
 				//
-				// A non-nil OnTaskCompleted error on the SWAPPING path clears
-				// completedCallbackFired so runFinalizePhase below withholds
-				// FINISHED and the next tick retries the flip; a permanent or
-				// retry-exhausted error transitions the task to FAILED
-				// instead (weaviate/0-weaviate-issues#297).
+				// A non-nil OnTaskCompleted error on the SWAPPING path withholds
+				// FINISHED and retries or fails the task; see
+				// runCompletedCallbackPhase (weaviate/0-weaviate-issues#297).
 				s.runCompletedCallbackPhase(namespace, desc, task, suProvider, effectiveStatus)
 			}
 		}
@@ -1052,19 +1047,16 @@ func (s *Scheduler) runSwapPhase(
 // runCompletedCallbackPhase fires OnTaskCompleted for a single task in
 // Phase 2 (SWAPPING/FAILED/FINISHED/CANCELLED).
 //
-// Owns its own lock lifecycle: acquires s.mu to decide eligibility + set
+// Owns its own lock lifecycle: acquires s.mu to decide eligibility and set
 // completedCallbackFired pre-callback, releases for the slow callback, then
-// re-acquires to react to the callback's error. Providers implementing
-// [UnitAwareProvider.OnTaskCompleted] MUST be safe to invoke more than once
-// per task — see the "Idempotency contract" note at the rollback site.
+// re-acquires to react to its error. [UnitAwareProvider.OnTaskCompleted]
+// implementations MUST tolerate being invoked more than once per task —
+// see the "Idempotency contract" note at the rollback site.
 //
 // SWAPPING-path error handling (weaviate/0-weaviate-issues#297): a non-nil
-// error clears completedCallbackFired so runFinalizePhase withholds FINISHED
-// and the next tick re-fires the callback. A permanent error
-// ([ErrTaskCompletionPermanent]) or one that exhausted
-// [maxCompletedCallbackAttempts] transitions the task to FAILED instead of
-// retrying forever. Errors on terminal-status invocations are best-effort
-// cleanup and never reopen the task.
+// error withholds FINISHED and retries next tick; [ErrTaskCompletionPermanent]
+// or exhausting [maxCompletedCallbackAttempts] fails the task instead.
+// Terminal-status errors are best-effort cleanup and never reopen the task.
 func (s *Scheduler) runCompletedCallbackPhase(
 	namespace string,
 	desc TaskDescriptor,
@@ -1107,18 +1099,16 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 
-	// Only the SWAPPING cutover retries/fails. A terminal-status callback
-	// (FAILED/CANCELLED/FINISHED cleanup) that errors must not reopen the
-	// task — leave the fired mark set so it doesn't re-fire.
+	// Only the SWAPPING cutover retries/fails; a terminal-status error is
+	// best-effort cleanup — leave the fired mark set so it doesn't re-fire.
 	if effectiveStatus != TaskStatusSwapping {
 		s.loggerWithTask(namespace, desc).
 			Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", effectiveStatus, cbErr)
 		return
 	}
 
-	// Withhold finalize (clear the fired mark so the next tick re-fires) and
-	// decide whether this failure is terminal. A permanent error fails now;
-	// a transient one fails only once the retry budget is exhausted.
+	// Clear the fired mark so the next tick re-fires; a permanent error fails
+	// now, a transient one only once the retry budget is exhausted.
 	failMsg := func() string {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -1143,10 +1133,8 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 
-	// Terminal failure: transition SWAPPING → FAILED without the lock. The
-	// fired mark stays cleared so a transient MarkDistributedTaskFailed error
-	// re-fires and re-attempts the transition (idempotent at the FSM layer);
-	// once FAILED, the next tick re-fires OnTaskCompleted for terminal cleanup.
+	// Fired mark stays cleared so a failed MarkDistributedTaskFailed call
+	// retries next tick (idempotent at the FSM layer).
 	if s.taskFinalizer == nil {
 		return
 	}
@@ -1223,9 +1211,8 @@ func (s *Scheduler) runFinalizePhase(
 		}
 		s.loggerWithTask(namespace, w.desc).
 			Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
-		// Clearing completedCallbackFired re-fires OnTaskCompleted next tick.
-		// Safe because [UnitAwareProvider.OnTaskCompleted] now requires
-		// idempotency (types.go); a re-fire that succeeds finalizes then.
+		// Clearing completedCallbackFired re-fires OnTaskCompleted next tick;
+		// safe now that [UnitAwareProvider.OnTaskCompleted] requires idempotency.
 		if providerIsUnitAware {
 			if rollbackState := s.perTaskStateLocked(w.desc); rollbackState != nil {
 				rollbackState.completedCallbackFired = false

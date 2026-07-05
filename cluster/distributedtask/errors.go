@@ -88,15 +88,11 @@ var (
 )
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
-// failure the [Scheduler] must NOT retry: the post-completion work is
-// deterministically unrecoverable (the migration's target property was
-// deleted mid-flight, so the cluster-wide schema flip can never succeed; or
-// the task payload no longer parses). The scheduler transitions the task
-// straight to FAILED instead of spending the retry budget on a call that
-// cannot succeed. A plain (non-wrapped) OnTaskCompleted error is treated as
-// transient and retried up to the per-task bound. Distinct from
-// [ErrPermanentRejection], which classifies FSM apply rejections crossing
-// the RAFT/gRPC boundary.
+// failure as deterministically unrecoverable (e.g. target property deleted
+// mid-flight, payload unparsable): the [Scheduler] fails the task
+// immediately instead of retrying. A plain error is transient and retried
+// up to the per-task bound. Distinct from [ErrPermanentRejection] (FSM
+// apply rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate

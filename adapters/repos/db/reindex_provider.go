@@ -1561,13 +1561,10 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
 //
-// Returns a non-nil error on the SWAPPING path when the flip did not commit
-// so the scheduler withholds FINISHED and retries (weaviate/0-weaviate-issues
-// #297). A deterministically-unrecoverable failure (unparsable payload,
-// target property gone at finalize) is wrapped in
-// [distributedtask.ErrTaskCompletionPermanent] so the scheduler fails the
-// task instead of retrying forever; every other flip error is transient.
-// Terminal-status (FAILED/CANCELLED) cleanup is best-effort and returns nil.
+// Returns a non-nil error on the SWAPPING path when the flip fails: wrapped
+// in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain
+// when transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup
+// always returns nil.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
@@ -1615,8 +1612,6 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		// Leave the overlay in place: buckets are NEW-tokenized but the
 		// schema is still pre-flip on this node — the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
-		// The error (permanent-wrapped inside flipSemanticMigrationSchema for
-		// property-gone, plain otherwise) tells the scheduler to retry-or-fail.
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
@@ -1641,8 +1636,6 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		}
 	}
 
-	// Flip committed; the overlay clear above is best-effort (self-heals on
-	// query). The cutover succeeded, so the scheduler may finalize.
 	return nil
 }
 
@@ -2049,9 +2042,8 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("flip tokenization: %w", err)
 		}
 		if len(missing) > 0 {
-			// Single-property migration; a property deleted between submit
-			// and finalize can never be flipped — permanent, so the
-			// scheduler fails the task rather than retrying (issue #297).
+			// Single-property migration: a property deleted between submit
+			// and finalize can never be flipped — permanent (weaviate/0-weaviate-issues#297).
 			return fmt.Errorf("property %v not found in class %q at finalize: %w",
 				missing, payload.Collection, distributedtask.ErrTaskCompletionPermanent)
 		}

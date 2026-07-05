@@ -1355,10 +1355,8 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 		"late ack must not be recorded on a terminal task")
 }
 
-// TestManager_MarkTaskFailed pins the SWAPPING → FAILED FSM path the
-// scheduler uses when OnTaskCompleted returns a terminal error
-// (weaviate/0-weaviate-issues#297): the transition records the error, is
-// idempotent, and refuses to overwrite a task that already reached FINISHED.
+// TestManager_MarkTaskFailed pins the SWAPPING → FAILED FSM path
+// (weaviate/0-weaviate-issues#297): idempotent, refuses to overwrite FINISHED.
 func TestManager_MarkTaskFailed(t *testing.T) {
 	markFailed := func(t *testing.T, h *testHarness, ns, id string, version uint64, errMsg string) error {
 		return h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
