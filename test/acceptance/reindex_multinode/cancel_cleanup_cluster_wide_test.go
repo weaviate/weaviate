@@ -67,7 +67,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 
 	uri := restURIOf(compose, 1)
 	trueVal := true
-	createCollection(t, uri, className, 3, 3, []*models.Property{
+	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
 		{
 			Name:            propName,
 			DataType:        []string{"text"},
@@ -264,8 +264,10 @@ func scanClassDirAllNodes(
 	return survivors
 }
 
-// createS3Backup posts to /v1/backups/s3 and waits up to 120s for a
-// SUCCESS terminal status.
+// createS3Backup posts to /v1/backups/s3 and waits for a SUCCESS terminal
+// status. Completion (not just acceptance) is load-bearing: an in-flight
+// backup makes Index.drop take the rename-aside keepFiles path, defeating the
+// post-delete "class dir removed" assertion. Budget sized for a starved VM.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
 	body := map[string]interface{}{
@@ -287,7 +289,7 @@ func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) e
 		return fmt.Errorf("backup create returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	deadline := time.Now().Add(120 * time.Second)
+	deadline := time.Now().Add(300 * time.Second)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -309,7 +311,7 @@ func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) e
 			return fmt.Errorf("backup FAILED: %s", status.Error)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("backup did not reach SUCCESS/FAILED in 120s; last status: %s", status.Status)
+			return fmt.Errorf("backup did not reach SUCCESS/FAILED in 300s; last status: %s", status.Status)
 		}
 		<-ticker.C
 	}
