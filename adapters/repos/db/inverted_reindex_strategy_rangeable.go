@@ -126,7 +126,16 @@ func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string)
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if forTargetStrategy {
+			swapFallback = s.SourceBucketName(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			// Backup sidecar already tidied — skip the mirror write. See
+			// resolveDoubleWriteBucket for the post-swap nil semantics.
+			return nil
+		}
 		for _, item := range property.Items {
 			if err := shard.addToPropertyRangeBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("adding rangeable prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
@@ -146,7 +155,16 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		var swapFallback string
+		if forTargetStrategy {
+			swapFallback = s.SourceBucketName(property.Name)
+		}
+		bucket := resolveDoubleWriteBucket(shard, bucketName, swapFallback)
+		if bucket == nil {
+			// Backup sidecar already tidied — skip the mirror write. See
+			// resolveDoubleWriteBucket for the post-swap nil semantics.
+			return nil
+		}
 		for _, item := range property.Items {
 			if err := shard.deleteFromPropertyRangeBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("deleting rangeable prop '%s' from bucket '%s': %w", item.Data, bucketName, err)

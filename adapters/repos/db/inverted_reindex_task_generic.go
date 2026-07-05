@@ -1786,11 +1786,13 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Always disable the double-write callbacks registered by this task
 	// instance, regardless of whether the swap completes successfully.
 	//
-	// On the happy path this runs after the in-memory pointer flip:
-	// the main bucket pointer has already been swapped, so any callback
-	// invocations between markSwappedProp and this defer would have been
-	// harmless redundant writes (the ingest bucket is reachable under
-	// both the main and ingest names).
+	// On the happy path this runs after the in-memory pointer flip. The
+	// callbacks stay armed until this defer, so a live write between
+	// SwapBucketPointer and here still fires them. SwapBucketPointer deletes
+	// the ingest-name entry, so each callback resolves its bucket via
+	// [resolveDoubleWriteBucket] and falls back to the canonical main name —
+	// which now denotes the same physical bucket — landing the mirror write
+	// in the surviving bucket instead of dereferencing a nil one.
 	//
 	// On an error path this is the load-bearing case: without it,
 	// callbacks would keep firing against buckets that may be mid-swap,
