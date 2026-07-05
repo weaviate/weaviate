@@ -51,65 +51,85 @@ func rangeableDocIDsAtLeast(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	return bm.ToArray()
 }
 
-// TestReindex_ConcurrentWriteDuringSwapWindow_NotLost pins
-// weaviate/weaviate#11688: a write landing between SwapBucketPointer
-// (unregisters the ingest name) and disableCallbacks must not be lost —
-// pre-fix the double-write callback dereferenced a nil bucket. The write is
-// an UPDATE, exercising both the delete-old and add-new callback legs.
-func TestReindex_ConcurrentWriteDuringSwapWindow_NotLost(t *testing.T) {
-	ctx := testCtx()
-	const propName = filterableToRangeablePropName
-	const numObjects = 25
-	const perValue = numObjects / filterableToRangeableNumDistinctValues
-	// Outside the corpus so its posting list is unambiguously this write.
-	const mark = int64(999999)
+const (
+	swapWindowNumObjects = 25
+	swapWindowPerValue   = swapWindowNumObjects / filterableToRangeableNumDistinctValues
+)
 
-	className := "SwapWindowUpdate_" + uuid.NewString()[:8]
+// swapWindowScenario drives the shared lifecycle for a concurrent op landing in
+// the swap window of weaviate/weaviate#11688: import 25 rangeable objects with
+// NO live index (so the write depends entirely on the double-write callback),
+// start the FilterableToRangeable migration, inject one op right after the
+// per-prop pointer flip (ingest name unregistered, callbacks still armed), then
+// swap. inject must not fail — pre-fix it paniced on the nil ingest bucket.
+// run returns the post-swap rangeable bucket for the caller's assertions.
+type swapWindowScenario struct {
+	inject func(t *testing.T, ctx context.Context, shard *Shard, objs []*storobj.Object)
+}
+
+func (sc swapWindowScenario) run(t *testing.T) *lsmkv.Bucket {
+	t.Helper()
+	ctx := testCtx()
+	className := "SwapWindow_" + uuid.NewString()[:8]
 	class := newNoLiveIndexRangeableTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
 	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
 
-	objs := makeFilterableToRangeableTestObjects(t, numObjects, className)
+	objs := makeFilterableToRangeableTestObjects(t, swapWindowNumObjects, className)
 	for _, obj := range objs {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
-	// objs[0] carries value 0 (0 % numDistinct); we update it to mark below.
+	// objs[0] carries value 0 (0 % numDistinct); the injected op targets it.
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, filterableToRangeablePropName)
 
-	// Inject the update right after the per-prop pointer flip: the ingest name
-	// is unregistered but the callbacks are still armed.
-	swapWindowWriteDone := false
+	injected := false
 	origSwap := task.processOneSwapPropFn
 	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, prop string) (*lsmkv.Bucket, error) {
 		oldMain, err := origSwap(ctx, store, rt, propIdx, prop)
 		if err != nil {
 			return oldMain, err
 		}
-		require.NoError(t, shard.PutObject(ctx, &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				ID:                 objs[0].ID(),
-				Class:              className,
-				Properties:         map[string]interface{}{propName: mark},
-				CreationTimeUnix:   time.Now().UnixMilli(),
-				LastUpdateTimeUnix: time.Now().UnixMilli(),
-			},
-		}), "live write during the swap window must not fail (pre-fix it paniced in the double-write callback)")
-		swapWindowWriteDone = true
+		sc.inject(t, ctx, shard, objs)
+		injected = true
 		return oldMain, nil
 	}
 
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	require.True(t, swapWindowWriteDone, "swap-window write hook must have fired")
+	require.True(t, injected, "swap-window injection hook must have fired")
 
-	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName))
 	require.NotNil(t, bucket, "post-swap rangeable bucket must exist")
+	return bucket
+}
+
+// TestReindex_ConcurrentWriteDuringSwapWindow_NotLost pins
+// weaviate/weaviate#11688: a write landing between SwapBucketPointer
+// (unregisters the ingest name) and disableCallbacks must not be lost —
+// pre-fix the double-write callback dereferenced a nil bucket. The write is
+// an UPDATE, exercising both the delete-old and add-new callback legs.
+func TestReindex_ConcurrentWriteDuringSwapWindow_NotLost(t *testing.T) {
+	// Outside the corpus so its posting list is unambiguously this write.
+	const mark = int64(999999)
+	bucket := swapWindowScenario{
+		inject: func(t *testing.T, ctx context.Context, shard *Shard, objs []*storobj.Object) {
+			require.NoError(t, shard.PutObject(ctx, &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:                 objs[0].ID(),
+					Class:              string(objs[0].Class()),
+					Properties:         map[string]interface{}{filterableToRangeablePropName: mark},
+					CreationTimeUnix:   time.Now().UnixMilli(),
+					LastUpdateTimeUnix: time.Now().UnixMilli(),
+				},
+			}), "live write during the swap window must not fail (pre-fix it paniced in the double-write callback)")
+		},
+	}.run(t)
 
 	// add-new leg: the updated value is range-queryable at exactly its docID.
 	assert.Lenf(t, readRangeableIDs(t, bucket, mark), 1,
@@ -117,12 +137,12 @@ func TestReindex_ConcurrentWriteDuringSwapWindow_NotLost(t *testing.T) {
 			"target value %d — its double-write add leg was lost or paniced", mark)
 
 	// delete-old leg: objs[0] no longer contributes to value 0.
-	assert.Lenf(t, readRangeableIDs(t, bucket, 0), perValue-1,
+	assert.Lenf(t, readRangeableIDs(t, bucket, 0), swapWindowPerValue-1,
 		"#11688 swap-window: the update's delete-old leg did not remove the pre-value "+
 			"from the index — value 0 still has the stale docID")
 
 	// Every object present exactly once — objs[0] moved from 0 to mark.
-	assert.Lenf(t, rangeableDocIDsAtLeast(t, bucket, 0), numObjects,
+	assert.Lenf(t, rangeableDocIDsAtLeast(t, bucket, 0), swapWindowNumObjects,
 		"every object must be in the rangeable index exactly once after the swap")
 }
 
@@ -130,56 +150,20 @@ func TestReindex_ConcurrentWriteDuringSwapWindow_NotLost(t *testing.T) {
 // counterpart of TestReindex_ConcurrentWriteDuringSwapWindow_NotLost
 // (weaviate/weaviate#11688): a mid-swap DELETE hits the same nil-bucket deref.
 func TestReindex_ConcurrentDeleteDuringSwapWindow_NotLost(t *testing.T) {
-	ctx := testCtx()
-	const propName = filterableToRangeablePropName
-	const numObjects = 25
-	const perValue = numObjects / filterableToRangeableNumDistinctValues
-
-	className := "SwapWindowDelete_" + uuid.NewString()[:8]
-	class := newNoLiveIndexRangeableTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	objs := makeFilterableToRangeableTestObjects(t, numObjects, className)
-	for _, obj := range objs {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-	// objs[0] carries value 0; the backfill indexes it, then we delete it
-	// inside the swap window.
-
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
-
-	swapWindowDeleteDone := false
-	origSwap := task.processOneSwapPropFn
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, prop string) (*lsmkv.Bucket, error) {
-		oldMain, err := origSwap(ctx, store, rt, propIdx, prop)
-		if err != nil {
-			return oldMain, err
-		}
-		require.NoError(t, shard.DeleteObject(ctx, objs[0].ID(), time.Now()),
-			"live delete during the swap window must not fail (pre-fix it paniced in the double-write delete callback)")
-		swapWindowDeleteDone = true
-		return oldMain, nil
-	}
-
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	require.True(t, swapWindowDeleteDone, "swap-window delete hook must have fired")
-
-	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
-	require.NotNil(t, bucket, "post-swap rangeable bucket must exist")
+	bucket := swapWindowScenario{
+		inject: func(t *testing.T, ctx context.Context, shard *Shard, objs []*storobj.Object) {
+			require.NoError(t, shard.DeleteObject(ctx, objs[0].ID(), time.Now()),
+				"live delete during the swap window must not fail (pre-fix it paniced in the double-write delete callback)")
+		},
+	}.run(t)
 
 	// The deleted object's contribution to value 0 is gone.
-	assert.Lenf(t, readRangeableIDs(t, bucket, 0), perValue-1,
+	assert.Lenf(t, readRangeableIDs(t, bucket, 0), swapWindowPerValue-1,
 		"#11688 swap-window: the delete written during the swap window did not remove "+
 			"the object from value 0 — its double-write delete leg was lost or paniced")
 
 	// One fewer object in the whole index.
-	assert.Lenf(t, rangeableDocIDsAtLeast(t, bucket, 0), numObjects-1,
+	assert.Lenf(t, rangeableDocIDsAtLeast(t, bucket, 0), swapWindowNumObjects-1,
 		"exactly one object must be removed from the rangeable index after the swap-window delete")
 }
 
