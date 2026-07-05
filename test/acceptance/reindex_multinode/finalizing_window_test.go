@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,6 +30,18 @@ import (
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
+
+// partialWindowBudget bounds the mixed-state cutover window. 700ms matches
+// the per-shard RUNSWAP+RAFT envelope on a representative disk (~80ms
+// locally); deliberately-starved environments (the flake-hunter soak runs 6
+// concurrent suites on a weak VM) exceed it without any convergence defect,
+// so they may widen it via REINDEX_PARTIAL_WINDOW_BUDGET_MS.
+func partialWindowBudget() time.Duration {
+	if ms, err := strconv.Atoi(os.Getenv("REINDEX_PARTIAL_WINDOW_BUDGET_MS")); err == nil && ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return 700 * time.Millisecond
+}
 
 // TestLiveQueriesDuringChangeTokenization pins the correctness
 // invariant of the per-shard tokenization overlay introduced for
@@ -173,17 +187,11 @@ func runLiveQueryDuringChangeTokenizationCase(
 		rf          = 3
 		objectCount = 1500
 		batchSize   = 100
-		// Cross-shard cutover window budget. The cluster-wide schema flip in
-		// OnTaskCompleted propagates via RAFT after every node has run its
-		// local swap, so a brief window of mixed states (some shards
-		// swapped, some not) is expected on every replica regardless of the
-		// overlay. The 700 ms ceiling matches the per-shard
-		// RUNSWAP+RAFT-propagation envelope on a representative disk; the
-		// overlay does NOT shrink that spread — it closes a specific
-		// failure MODE within it (the out-of-range "0 from a swapped
-		// replica with stale schema" shape, asserted separately below by
-		// c.OutOfRange == 0).
-		partialWindowBudget = 700 * time.Millisecond
+		// Cross-shard cutover window budget: see partialWindowBudget. A
+		// brief mixed-state window is expected on every replica; the
+		// overlay closes a failure MODE within it (the out-of-range "0
+		// from a swapped replica with stale schema" shape, asserted
+		// separately by c.OutOfRange == 0).
 	)
 
 	className := fmt.Sprintf("LiveQueryTok_%s_%s_%s", startTok, targetTok, indexType)
@@ -298,10 +306,10 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// out-of-range assertion above is what guards correctness.
 	if c.Partial > 0 {
 		windowDuration := c.LastPartial.Sub(c.FirstPartial)
-		assert.LessOrEqualf(t, windowDuration, partialWindowBudget,
+		assert.LessOrEqualf(t, windowDuration, partialWindowBudget(),
 			"partial-results window of %v exceeds budget of %v for %s→%s on %s — "+
 				"the cross-shard cutover took longer than the design admits.",
-			windowDuration, partialWindowBudget, startTok, targetTok, indexType)
+			windowDuration, partialWindowBudget(), startTok, targetTok, indexType)
 	}
 
 	// Post-window guarantee: after the bounded partial window closes
@@ -486,7 +494,6 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	// budget. The test continues to enforce the looser ceiling as a
 	// no-regression guard against either the cluster-wide cutover
 	// spread or the per-shard alignment regressing.
-	const partialWindowBudget = 700 * time.Millisecond
 
 	// Window-duration only. Partial-sample count is `window × probe_rate ×
 	// shard_count`, which inherits per-shard IO variance even when the
@@ -498,13 +505,13 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	// dependent.
 	if c.Partial > 0 {
 		windowDuration := c.LastPartial.Sub(c.FirstPartial)
-		assert.LessOrEqual(t, windowDuration, partialWindowBudget,
+		assert.LessOrEqual(t, windowDuration, partialWindowBudget(),
 			"partial-results window of %v exceeds the budget of %v — "+
 				"the cluster-wide cutover is taking longer than the bounded "+
 				"RAFT-propagation + scheduler-wake design admits; investigate "+
 				"the reactive-firing path (Manager.notifySchedulerWithLock, "+
 				"Scheduler.wakeCh, OnGroupCompleted, OnTaskCompleted)",
-			windowDuration, partialWindowBudget)
+			windowDuration, partialWindowBudget())
 	}
 
 	// Post-window guarantee: after the bounded partial window closes,
