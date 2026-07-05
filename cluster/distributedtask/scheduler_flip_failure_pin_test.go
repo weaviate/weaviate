@@ -70,29 +70,29 @@ func (p *flipFailingProvider) snapshot() (calls int, flipped bool) {
 
 // runFlipScenario drives one task STARTED -> SWAPPING -> (attempted) FINISHED
 // and returns the final status plus the observed flip result.
-func runFlipScenario(t *testing.T, prov *flipFailingProvider) (TaskStatus, int, bool) {
+// submitTaskToSwapping wires prov into a fresh harness, adds one non-barrier
+// task, drives its unit to completion so the task reaches SWAPPING (where
+// OnTaskCompleted fires), asserts that precondition, and starts the scheduler.
+// base is prov's embedded testTaskProvider, registered explicitly so
+// drain/leaktest see its goroutines. Shared by the flip-failure and retry pins;
+// the caller owns h.Close().
+func submitTaskToSwapping(t *testing.T, prov Provider, base *testTaskProvider, taskID string) *testHarness {
 	t.Helper()
 
 	h := newTestHarness(t)
 	h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
-	h.provider = prov.testTaskProvider
+	h.provider = base
 	h = h.init(t)
-	// init() only wires the two known concrete provider types for
-	// drain/leaktest; register flipFailingProvider's base explicitly.
-	h.testProviders = append(h.testProviders, prov.testTaskProvider)
-
-	const taskID = "flip-task"
+	h.testProviders = append(h.testProviders, base)
 
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 		UnitIds:               []string{"u-1"},
-		// NeedsPreparationBarrier omitted: on unit completion the task jumps
-		// STARTED -> SWAPPING directly, where OnTaskCompleted fires.
+		// Non-barrier: unit completion jumps STARTED -> SWAPPING directly.
 	}), 1))
 
-	// Drive the unit to completion -> task becomes SWAPPING.
 	completeUnit(t, h, h.tasksNamespace, taskID, 1, h.localNodeID, "u-1")
 
 	pre := h.listManagerTasks(t)[h.tasksNamespace]
@@ -101,6 +101,12 @@ func runFlipScenario(t *testing.T, prov *flipFailingProvider) (TaskStatus, int, 
 		"precondition: task must be SWAPPING before the scheduler ticks")
 
 	h.startScheduler(t)
+	return h
+}
+
+func runFlipScenario(t *testing.T, prov *flipFailingProvider) (TaskStatus, int, bool) {
+	t.Helper()
+	h := submitTaskToSwapping(t, prov, prov.testTaskProvider, "flip-task")
 	defer h.Close()
 
 	// Extra ticks give a hypothetical retry a chance; confirms exactly-once firing.

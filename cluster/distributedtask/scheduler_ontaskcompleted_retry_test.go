@@ -18,7 +18,6 @@ import (
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/require"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 // retryFlipProvider models the reindex OnTaskCompleted schema flip for the
@@ -83,34 +82,8 @@ func (p *retryFlipProvider) snapshot() (swappingAttempts int, flipped bool, bySt
 // callers advance the clock to drive ticks.
 func startRetryScenario(t *testing.T, prov *retryFlipProvider) (*testHarness, string) {
 	t.Helper()
-
-	h := newTestHarness(t)
-	h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
-	h.provider = prov.testTaskProvider
-	h = h.init(t)
-	// init() only knows the two concrete provider types; register the base
-	// explicitly so drain/leaktest see this provider's run goroutines.
-	h.testProviders = append(h.testProviders, prov.testTaskProvider)
-
 	const taskID = "retry-flip-task"
-
-	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             h.tasksNamespace,
-		Id:                    taskID,
-		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		UnitIds:               []string{"u-1"},
-	}), 1))
-
-	// Unit completion jumps STARTED → SWAPPING (non-barrier task).
-	completeUnit(t, h, h.tasksNamespace, taskID, 1, h.localNodeID, "u-1")
-
-	pre := h.listManagerTasks(t)[h.tasksNamespace]
-	require.Len(t, pre, 1)
-	require.Equal(t, TaskStatusSwapping, pre[0].Status,
-		"precondition: task must be SWAPPING before the scheduler ticks")
-
-	h.startScheduler(t)
-	return h, taskID
+	return submitTaskToSwapping(t, prov, prov.testTaskProvider, taskID), taskID
 }
 
 func statusOf(t *testing.T, h *testHarness) TaskStatus {
