@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func testKeyMatch5(t *testing.T, key1, key2 string, expected bool) {
@@ -355,12 +356,54 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"",
 			true,
 		},
-		// no bleed: roles/ is not namespace-bearing, so it stays global.
+		// roles/<id> — terminal namespace-bearing shape (mirrors users/<id>).
 		{
-			"ns=customer1, roles/ path → not specialized (still global)",
+			"ns=customer1, in-ns role, roles/.* policy → match (specialize)",
+			"roles/customer1:editor",
+			"roles/.*",
+			"customer1",
+			true,
+		},
+		{
+			"ns=customer1, unqualified role request, roles/.* policy → mismatch (specialized away)",
 			"roles/editor",
 			"roles/.*",
 			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, cross-ns role, roles/.* policy → mismatch (cross-ns deny)",
+			"roles/customer2:editor",
+			"roles/.*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, exact qualified role policy → match",
+			"roles/customer1:editor",
+			"roles/customer1:editor",
+			"customer1",
+			true,
+		},
+		{
+			"empty ns, qualified role, roles/.* policy → match (any-ns widen)",
+			"roles/customer1:editor",
+			"roles/.*",
+			"",
+			true,
+		},
+		{
+			"empty ns, qualified role, literal roles/* policy → match (/* normalized)",
+			"roles/customer1:editor",
+			"roles/*",
+			"",
+			true,
+		},
+		{
+			"empty ns, unqualified role, roles/.* policy → passthrough match (operator unchanged)",
+			"roles/editor",
+			"roles/.*",
+			"",
 			true,
 		},
 	}
@@ -478,95 +521,38 @@ func TestNamespaceAwareMatcherGate(t *testing.T) {
 	assert.False(t, namespaceAwareMatcher("users/x:a", "users/a", ""),
 		"NS-enabled global caller: grant to user 'a' must not match OIDC user 'x:a'")
 
+	// NS-disabled: roles/ mirrors users/ — grant to 'foo' must not match 'x:foo'.
+	assert.False(t, call(false, "roles/x:foo", "roles/foo", ""),
+		"NS-disabled: grant to role 'foo' must not match 'x:foo'")
+	assert.True(t, call(false, "roles/editor", "roles/.*", ""),
+		"NS-disabled: plain wildcard role match still works")
+
 	// NS-enabled: the gate delegates to the namespace-aware core.
 	assert.True(t, call(true, "users/customer1:bob", "users/.*", "customer1"),
 		"NS-enabled: users/.* specializes to the caller's namespace")
 	assert.False(t, call(true, "users/customer2:bob", "users/.*", "customer1"),
 		"NS-enabled: cross-namespace user access denied")
-
 	// Operator-only domains are denied to namespaced callers (ns != "") even
 	// when a delegated role's wildcard policy would otherwise match, but stay
 	// reachable for the global caller (ns == "").
-	for _, dom := range []string{"backups", "nodes", "replicate", "cluster", "namespaces"} {
+	for _, dom := range []string{"backups", "nodes", "replicate", "cluster", "namespaces", "groups"} {
 		req := dom + "/anything"
 		assert.False(t, namespaceAwareMatcher(req, dom+"/.*", "customer1"),
 			"namespaced caller must be denied operator-only domain %q", dom)
 		assert.True(t, namespaceAwareMatcher(req, dom+"/.*", ""),
 			"global caller must reach operator-only domain %q", dom)
 	}
+	// Groups are global, not namespace-bearing: a namespaced caller must not
+	// match a groups/ policy even when the group id itself carries a ':'.
+	assert.False(t, namespaceAwareMatcher("groups/oidc/customer1:admins", "groups/.*", "customer1"),
+		"namespaced caller must be denied groups/ even for a colon-bearing group id")
 
-	// roles/groups are namespace-bearing via qualified names, so the gate must
-	// not blanket-deny them for namespaced callers.
+	// roles is namespace-bearing via qualified names, so the gate must not
+	// blanket-deny it for namespaced callers.
 	assert.True(t, call(true, "roles/customer1:editor", "roles/.*", "customer1"),
-		"namespaced caller keeps access to its own qualified role")
-}
-
-// TestRewriteSegment locks the contract of the per-segment rewriter directly,
-// so a regression in segment handling (e.g. double-prefixing, wrong cross-NS
-// behavior) shows up here rather than being masked by KeyMatch5 still
-// matching a malformed pattern.
-func TestRewriteSegment(t *testing.T) {
-	tests := []struct {
-		name     string
-		seg      string
-		prefix   string
-		fixedNs  bool
-		wantOK   bool
-		wantText string // builder contents on ok=true
-	}{
-		{
-			name:     "unqualified seg, fixed-ns: prefix is prepended",
-			seg:      "Movies.*",
-			prefix:   "customer1:",
-			fixedNs:  true,
-			wantOK:   true,
-			wantText: "customer1:Movies.*",
-		},
-		{
-			name:     "unqualified seg, any-ns: regex prefix is prepended",
-			seg:      "Movies.*",
-			prefix:   "[^/:]+:",
-			fixedNs:  false,
-			wantOK:   true,
-			wantText: "[^/:]+:Movies.*",
-		},
-		{
-			name:     "qualified seg matching prefix, fixed-ns: seg verbatim",
-			seg:      "customer1:Movies",
-			prefix:   "customer1:",
-			fixedNs:  true,
-			wantOK:   true,
-			wantText: "customer1:Movies",
-		},
-		{
-			name:    "qualified seg with different namespace, fixed-ns: ok=false (cross-NS deny)",
-			seg:     "customer2:Movies",
-			prefix:  "customer1:",
-			fixedNs: true,
-			wantOK:  false,
-		},
-		{
-			name:     "qualified seg, any-ns: seg verbatim (qualified stays fixed)",
-			seg:      "customer1:Movies",
-			prefix:   "[^/:]+:",
-			fixedNs:  false,
-			wantOK:   true,
-			wantText: "customer1:Movies",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var b strings.Builder
-			ok := rewriteSegment(&b, tt.seg, 0, len(tt.seg), tt.prefix, tt.fixedNs)
-			if ok != tt.wantOK {
-				t.Fatalf("rewriteSegment ok = %v; want %v", ok, tt.wantOK)
-			}
-			if ok && b.String() != tt.wantText {
-				t.Errorf("rewriteSegment wrote %q; want %q", b.String(), tt.wantText)
-			}
-		})
-	}
+		"NS-enabled: roles/.* specializes to the caller's namespace")
+	assert.False(t, call(true, "roles/customer2:editor", "roles/.*", "customer1"),
+		"NS-enabled: cross-namespace role access denied")
 }
 
 // TestRewritePolicy asserts the exact rewritten string for representative
@@ -651,15 +637,37 @@ func TestRewritePolicy(t *testing.T) {
 			fixedNs: true,
 			wantOK:  false,
 		},
+		{
+			name:     "roles path, fixed-ns specialize, unqualified role",
+			policy:   "roles/.*",
+			prefix:   "customer1:",
+			fixedNs:  true,
+			wantOK:   true,
+			wantText: "roles/customer1:.*",
+		},
+		{
+			name:     "roles path, fixed-ns, already-qualified matching role → policy unchanged",
+			policy:   "roles/customer1:editor",
+			prefix:   "customer1:",
+			fixedNs:  true,
+			wantOK:   true,
+			wantText: "roles/customer1:editor",
+		},
+		{
+			name:    "roles path, fixed-ns, already-qualified mismatching role → cross-NS deny",
+			policy:  "roles/customer2:editor",
+			prefix:  "customer1:",
+			fixedNs: true,
+			wantOK:  false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			colStart, colEnd, hasAlias := findNamespaceSegments(tt.policy)
-			if colEnd == 0 {
+			if _, colEnd, _ := namespacing.FindNamespaceSegments(tt.policy); colEnd == 0 {
 				t.Fatalf("test setup: %q is not namespaceable", tt.policy)
 			}
-			got, ok := rewritePolicy(tt.policy, colStart, colEnd, hasAlias, tt.prefix, tt.fixedNs)
+			got, ok := rewritePolicy(tt.policy, tt.prefix, tt.fixedNs)
 			if ok != tt.wantOK {
 				t.Fatalf("rewritePolicy ok = %v; want %v (got=%q)", ok, tt.wantOK, got)
 			}
@@ -706,7 +714,8 @@ func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
 
 // TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed asserts
 // admin/viewer on NS-enabled clusters cover only collections/data/tenants/
-// aliases plus MCP and user CRUD.
+// aliases plus MCP, user CRUD + assign/revoke, and MATCH-scoped roles
+// management (admin CRUD, viewer READ).
 func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
@@ -721,9 +730,9 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	rootRows := rolePolicies(t, m, authorization.Root)
 	readOnlyRows := rolePolicies(t, m, authorization.ReadOnly)
 
-	// admin: must contain CRUD over schema/data/aliases plus MCP and user
-	// CRUD; tenant rows share the schema domain. No backups/replicate/
-	// cluster/nodes/roles/groups/namespaces.
+	// admin: must contain CRUD over schema/data/aliases plus MCP, user CRUD +
+	// assign/revoke, and roles CRUD at MATCH scope; tenant rows share the schema
+	// domain. No backups/replicate/cluster/nodes/groups/namespaces.
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.CREATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.UPDATE))
@@ -738,25 +747,35 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.UPDATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.DELETE))
 	for _, prohibited := range []string{
-		"backups/", "cluster/", "nodes/", "roles/", "groups/", "namespaces/", "replicate/",
+		"backups/", "cluster/", "nodes/", "groups/", "namespaces/", "replicate/",
 	} {
 		for _, row := range adminRows {
 			assert.NotContains(t, row[1], prohibited, "admin (NS-enabled) must not have policy on %s domain", prohibited)
 		}
 	}
-	// AssignAndRevokeUsers (verb "A" on users/) remains excluded.
-	assert.False(t, roleHasResourceVerb(adminRows, "users/", authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE),
-		"admin (NS-enabled) must not have assign_and_revoke_users")
+	// AssignAndRevokeUsers (verb "A" on users/) is included.
+	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE),
+		"admin (NS-enabled) must have assign_and_revoke_users")
+	// roles management is included, but only at MATCH scope — never ALL.
+	for _, verb := range []string{authorization.CREATE, authorization.READ, authorization.UPDATE, authorization.DELETE} {
+		assert.True(t, roleHasResourceVerb(adminRows, "roles/", authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_MATCH)),
+			"admin (NS-enabled) must have roles %s at MATCH scope", verb)
+		assert.False(t, roleHasResourceVerb(adminRows, "roles/", authorization.VerbWithScope(verb, authorization.ROLE_SCOPE_ALL)),
+			"admin (NS-enabled) must not have ALL-scoped roles %s", verb)
+	}
 
-	// viewer: read-only over the same domains, no other verbs, no other
-	// domains. MCP and users are included as READ only.
+	// viewer: read-only over the same domains, no write verbs. MCP, users and
+	// roles are included as READ only (roles READ is MATCH-scoped).
 	for _, row := range viewerRows {
-		assert.Equal(t, authorization.READ, row[2], "viewer (NS-enabled) must only have READ verb")
+		base, _, _ := strings.Cut(row[2], "_")
+		assert.Equal(t, authorization.READ, base, "viewer (NS-enabled) must only have READ verb (any scope)")
 	}
 	assert.True(t, roleHasResourceVerb(viewerRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "data/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, conv.CasbinMcp(), authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "users/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(viewerRows, "roles/", authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)),
+		"viewer (NS-enabled) must have roles READ at MATCH scope")
 
 	// root and read-only keep wildcard cluster-wide policies.
 	require.Len(t, rootRows, 1)
@@ -1034,4 +1053,104 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 	require.NoError(t, err)
 	assert.Contains(t, roles, conv.PrefixRoleName(authorization.ReadOnly),
 		"env-var read-only group must still have read-only role after restart")
+}
+
+// TestApplyPredefinedRoles_RejectsNamespacedRootUser pins the static-bootstrap
+// reject: a namespace-qualified root user fails startup on NS clusters so a
+// namespaced principal can't inherit root. NS-disabled is unaffected.
+func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
+	tests := []struct {
+		name              string
+		rootUsers         []string
+		namespacesEnabled bool
+		wantErr           bool
+	}{
+		{"namespaced root user on NS cluster rejected", []string{"customer1:alice"}, true, true},
+		{"bare root user on NS cluster allowed", []string{"alice"}, true, false},
+		{"mixed list with one namespaced on NS cluster rejected", []string{"alice", "customer1:bob"}, true, true},
+		{"namespaced root user on NS-disabled allowed", []string{"customer1:alice"}, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			conf := rbacconf.Config{Enabled: true, RootUsers: tt.rootUsers}
+			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestEnforce_GlobalRoleAssignedToNamespacedSubject drives the full Enforce
+// path to pin that a global built-in role assigned to a `<ns>:` subject is
+// enforced namespace-scoped: the caller reaches only its own namespace.
+func TestEnforce_GlobalRoleAssignedToNamespacedSubject(t *testing.T) {
+	dir := freshPolicyDir(t)
+	conf := rbacconf.Config{Enabled: true}
+	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	require.NoError(t, err)
+	require.NotNil(t, enforcer)
+
+	// Assign the built-in admin (a global role) to one DB user per namespace.
+	c1Alice := conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb)
+	c2Bob := conv.UserNameWithTypeFromId("customer2:bob", authentication.AuthTypeDb)
+	for _, sub := range []string{c1Alice, c2Bob} {
+		_, err := enforcer.AddRoleForUser(sub, conv.PrefixRoleName(authorization.Admin))
+		require.NoError(t, err)
+	}
+	// Unassigned: enforcement is gated by the grouping, not blanket allow.
+	c1Eve := conv.UserNameWithTypeFromId("customer1:eve", authentication.AuthTypeDb)
+
+	tests := []struct {
+		name     string
+		subject  string
+		resource string
+		verb     string
+		ns       string
+		want     bool
+	}{
+		{
+			"customer1 admin reads own-namespace collection → allow",
+			c1Alice, authorization.CollectionsMetadata("customer1:Movies")[0], authorization.READ, "customer1", true,
+		},
+		{
+			"customer1 admin reads other-namespace collection → deny",
+			c1Alice, authorization.CollectionsMetadata("customer2:Movies")[0], authorization.READ, "customer1", false,
+		},
+		{
+			"customer2 admin reads own-namespace collection → allow",
+			c2Bob, authorization.CollectionsMetadata("customer2:Movies")[0], authorization.READ, "customer2", true,
+		},
+		{
+			"customer2 admin reads other-namespace collection → deny",
+			c2Bob, authorization.CollectionsMetadata("customer1:Movies")[0], authorization.READ, "customer2", false,
+		},
+		{
+			"customer1 admin reads own-namespace data → allow",
+			c1Alice, authorization.Objects("customer1:Movies", "", ""), authorization.READ, "customer1", true,
+		},
+		{
+			"customer1 admin reads other-namespace data → deny",
+			c1Alice, authorization.Objects("customer2:Movies", "", ""), authorization.READ, "customer1", false,
+		},
+		{
+			"customer1 admin reads bare unqualified collection → deny (must address own namespace)",
+			c1Alice, authorization.CollectionsMetadata("Movies")[0], authorization.READ, "customer1", false,
+		},
+		{
+			"unassigned namespaced subject → deny",
+			c1Eve, authorization.CollectionsMetadata("customer1:Movies")[0], authorization.READ, "customer1", false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := enforcer.Enforce(tt.subject, tt.resource, tt.verb, tt.ns)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
