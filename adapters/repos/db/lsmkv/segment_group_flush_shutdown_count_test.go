@@ -23,17 +23,68 @@ import (
 
 // openCountTestBucket opens (or reopens) a StrategyReplace bucket at a fixed dir
 // with net-count-additions enabled — the same config the objects bucket uses
-// (shard_init_lsm.go), which is the bucket the count bug affects.
-func openCountTestBucket(t *testing.T, ctx context.Context, dir string) *Bucket {
+// (shard_init_lsm.go), which is the bucket the count bug affects. extraOpts lets
+// a caller flip persistence-layout knobs (e.g. WithWriteMetadata) while keeping
+// the count-relevant config fixed; it must be passed identically on reopen.
+func openCountTestBucket(t *testing.T, ctx context.Context, dir string, extraOpts ...BucketOption) *Bucket {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+	opts := append([]BucketOption{
 		WithStrategy(StrategyReplace),
 		WithCalcCountNetAdditions(true),
-		WithLazySegmentLoading(false))
+		WithLazySegmentLoading(false),
+	}, extraOpts...)
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
 	require.NoError(t, err)
 	return b
+}
+
+// runFlushRacingShutdown drives the flush-vs-shutdown degrade end-to-end and
+// asserts the reopened count is 1. One distinct key ("a") is written, flushed,
+// overwritten once, then flushed again with shutdownRequested already set — the
+// second flush hits the degrade path (no consistent view of the lower segments,
+// so the new segment is precomputed against a nil baseline that miscounts the
+// overwrite as net-new). The fix must complete that flush (so b.flushing clears
+// and Shutdown does not hang) while refusing to persist the overstated CNA, so
+// the count is recomputed against the real neighbors on reopen. extraOpts pins
+// the persistence layout under test (nil = standalone .cna; WithWriteMetadata =
+// consolidated .metadata) and is applied to both the racing bucket and the
+// reopen.
+func runFlushRacingShutdown(t *testing.T, extraOpts ...BucketOption) {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	b := openCountTestBucket(t, ctx, dir, extraOpts...)
+	require.NoError(t, b.Put([]byte("a"), []byte("v1")))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Put([]byte("a"), []byte("v2"))) // overwrite once, still in the active memtable
+
+	// Simulate shutdown having begun: from this point getConsistentViewOfSegments
+	// refuses with ErrShuttingDown, so the in-flight flush below can no longer
+	// see the lower segments and hits the degrade path.
+	b.disk.maintenanceLock.Lock()
+	b.disk.shutdownRequested = true
+	b.disk.maintenanceLock.Unlock()
+
+	// The flush must still complete: it clears b.flushing so shutdown doesn't hang.
+	require.NoError(t, b.FlushAndSwitch())
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	require.NoError(t, b.Shutdown(shutdownCtx),
+		"shutdown must complete promptly: the degrade completes the flush so "+
+			"b.flushing is cleared and shutdown does not wait forever")
+
+	b2 := openCountTestBucket(t, ctx, dir, extraOpts...)
+	defer func() { require.NoError(t, b2.Shutdown(ctx)) }()
+	count, err := b2.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, count,
+		"a flush racing shutdown must not persist an overstated count: one key "+
+			"overwritten once is 1, not 2, after reopen")
 }
 
 // TestFlushDuringShutdown pins the flush-vs-shutdown count degrade
@@ -77,40 +128,22 @@ func TestFlushDuringShutdown(t *testing.T) {
 	// flush_racing_shutdown is the regression case: identical writes, but the
 	// second flush runs with shutdownRequested already set — the degrade path.
 	// Before the fix this persists CNA==2 and Count() reads 2 after reopen; with
-	// the fix it reads 1. The bounded shutdown context turns a regression that
-	// strands b.flushing into a fast DeadlineExceeded failure instead of hanging
-	// the suite.
+	// the fix it reads 1. This variant runs with the default persistence layout
+	// (standalone .cna file), so it guards the initCountNetAdditions gate.
 	t.Run("flush_racing_shutdown", func(t *testing.T) {
-		ctx := context.Background()
-		dir := t.TempDir()
+		runFlushRacingShutdown(t)
+	})
 
-		b := openCountTestBucket(t, ctx, dir)
-		require.NoError(t, b.Put([]byte("a"), []byte("v1")))
-		require.NoError(t, b.FlushAndSwitch())
-		require.NoError(t, b.Put([]byte("a"), []byte("v2"))) // overwrite once, still in the active memtable
-
-		// Simulate shutdown having begun: from this point getConsistentViewOfSegments
-		// refuses with ErrShuttingDown, so the in-flight flush below can no longer
-		// see the lower segments and hits the degrade path.
-		b.disk.maintenanceLock.Lock()
-		b.disk.shutdownRequested = true
-		b.disk.maintenanceLock.Unlock()
-
-		// The flush must still complete: it clears b.flushing so shutdown doesn't hang.
-		require.NoError(t, b.FlushAndSwitch())
-
-		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		require.NoError(t, b.Shutdown(shutdownCtx),
-			"shutdown must complete promptly: the degrade completes the flush so "+
-				"b.flushing is cleared and shutdown does not wait forever")
-
-		b2 := openCountTestBucket(t, ctx, dir)
-		defer func() { require.NoError(t, b2.Shutdown(ctx)) }()
-		count, err := b2.Count(ctx)
-		require.NoError(t, err)
-		require.Equal(t, 1, count,
-			"a flush racing shutdown must not persist an overstated count: one key "+
-				"overwritten once is 1, not 2, after reopen")
+	// write_metadata_path is the same racing-flush-during-shutdown scenario, but
+	// the bucket runs WithWriteMetadata(true) — the layout the objects bucket uses
+	// when WriteMetadataFilesEnabled — so the CNA is bundled into the consolidated
+	// .metadata file instead of a standalone .cna. That is a SECOND persistence
+	// site: the degrade must also skip the .metadata write (initMetadata's
+	// deferCountNetAdditions early-return), or the overstated count is persisted
+	// there instead. flush_racing_shutdown above cannot catch a regression on this
+	// path because with writeMetadata=false initMetadata never touches the CNA.
+	// Without the initMetadata gate this reopens at Count==2; with it, Count==1.
+	t.Run("write_metadata_path", func(t *testing.T) {
+		runFlushRacingShutdown(t, WithWriteMetadata(true))
 	})
 }
