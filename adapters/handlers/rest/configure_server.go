@@ -71,7 +71,7 @@ func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithA
 		)
 		if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
 			appState.Logger.WithField("action", "graphql_rebuild").
-				Errorf("could not (re)build graphql provider: %v", err)
+				WithField("event", "rebuild_failed").Error(err)
 		}
 		appState.SetGraphQL(gql)
 	}
@@ -101,7 +101,7 @@ func rebuildGraphQLOnEnable(appState *state.State) {
 		appState.Traverser, appState.Modules, appState.Authorizer)
 	if err != nil && !errors.Is(err, utils.ErrEmptySchema) {
 		appState.Logger.WithField("action", "graphql_rebuild").
-			Errorf("could not rebuild graphql provider on enable: %v", err)
+			WithField("event", "enable_rebuild_failed").Error(err)
 	}
 	appState.SetGraphQLIfCurrent(gql, gen)
 }

@@ -36,9 +36,10 @@ type fakeGQLProvider struct{ gql libgraphql.GraphQL }
 
 func (f fakeGQLProvider) GetGraphQL() libgraphql.GraphQL { return f.gql }
 
-// TestGraphQLHandlersDisabledGate covers both the POST and batch handlers. The
-// graph is kept current even while disabled, so this explicit gate — not a nil
-// graph — is what rejects requests when DISABLE_GRAPHQL is set.
+// TestGraphQLHandlersDisabledGate covers both the POST and batch handlers. While
+// disabled the graph is dropped and no longer maintained, but the explicit
+// disabled.Get() gate fires before the graph is consulted — so a disabled request
+// gets "graphql api is disabled" rather than the nil-provider error.
 func TestGraphQLHandlersDisabledGate(t *testing.T) {
 	mgr := &schema.Manager{Authorizer: &authorization.DummyAuthorizer{}}
 	principal := &models.Principal{Username: "tester"}
