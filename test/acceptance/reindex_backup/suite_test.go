@@ -679,11 +679,25 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		delResp.StatusCode, string(delBody))
 	deletedByTest = true
 
-	code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
-	require.NoError(t, execErr)
-	require.Equalf(t, 1, code,
-		"class dir %s must be removed by DELETE; got test -d exit %d",
-		classPath, code)
+	// Class-dir removal is async and lags the DELETE 200 under load;
+	// poll instead of checking once.
+	removed := assert.Eventually(t, func() bool {
+		code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
+		require.NoError(t, execErr)
+		return code == 1 // test -d exit 1 == class dir gone
+	}, 30*time.Second, 50*time.Millisecond)
+	if !removed {
+		_, reader, execErr := container.Exec(ctx, []string{
+			"sh", "-c", fmt.Sprintf("ls -la %s 2>&1", classPath),
+		})
+		require.NoError(t, execErr)
+		out := new(strings.Builder)
+		if reader != nil {
+			_, _ = io.Copy(out, reader)
+		}
+		t.Fatalf("class dir %s must be removed by DELETE within 30s; still present:\n%s",
+			classPath, strings.TrimSpace(out.String()))
+	}
 
 	_ = taskID
 }

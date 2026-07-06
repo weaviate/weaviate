@@ -276,8 +276,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 		propertyBoosts[property] = propBoost
 
-		// Dedupe (e.g. ["title", "title^2"], last boost wins): a second pin
-		// for the same prop could straddle a swap and mix pre-/post-state.
+		// Skip duplicates: propertyBoosts already holds the last boost for
+		// this property; processing it again would double-count its score.
 		if _, dup := seenProps[property]; dup {
 			continue
 		}

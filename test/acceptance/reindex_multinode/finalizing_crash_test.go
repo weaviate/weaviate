@@ -73,7 +73,7 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	const expectedPathCount = totalObjects / 5 // exactly even bucketing
 
 	trueVal := true
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:            "path",
 			DataType:        []string{"text"},
@@ -249,7 +249,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	const expectedPathCount = totalObjects / 5
 
 	trueVal := true
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:            "path",
 			DataType:        []string{"text"},
