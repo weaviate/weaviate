@@ -71,16 +71,23 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 
+	// Wrap the ingest-window registration to land the gap writes at exactly
+	// the markStarted→register seam #11688 is about — right before callbacks
+	// arm, so only the fixed markStarted ordering keeps them.
 	gapWritesDone := false
-	task.onBeforeDoubleWriteRegistration = func() {
+	origRegister := task.registerDoubleWriteCallbacksFn
+	task.registerDoubleWriteCallbacksFn = func(shard *Shard, props []string,
+		bucketNamer func(string) string, forTargetStrategy bool,
+	) func() {
 		for i := 0; i < numGapUpdates; i++ {
 			update(i, gapValueBase+int64(i))
 		}
 		gapWritesDone = true
+		return origRegister(shard, props, bucketNamer, forTargetStrategy)
 	}
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	require.True(t, gapWritesDone, "hook must have fired during OnAfterLsmInit")
+	require.True(t, gapWritesDone, "registration wrapper must have fired during OnAfterLsmInit")
 
 	// Callbacks are registered now; these updates must reach the rangeable
 	// bucket via the double-write path (the iterator will skip them).
