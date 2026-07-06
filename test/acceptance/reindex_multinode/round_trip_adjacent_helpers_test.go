@@ -88,7 +88,10 @@ func createTenants(t *testing.T, restURI, className string, tenants []string) {
 		"create tenants failed: %s", string(respBody))
 }
 
-// importObjectsTenant imports the given texts into the given tenant.
+// importObjectsTenant imports the given texts into the given tenant, with
+// consistency_level=ALL (like importObjectsTwoProps): the MT round-trip test
+// captures a per-replica baseline immediately after import, so a lagging
+// replica would fail the n1==n2==n3 baseline assertion.
 func importObjectsTenant(
 	t *testing.T, restURI, className, tenant string, texts []string,
 ) {
@@ -107,7 +110,7 @@ func importObjectsTenant(
 		require.NoError(t, err)
 
 		resp, err := http.Post(
-			fmt.Sprintf("http://%s/v1/objects", restURI),
+			fmt.Sprintf("http://%s/v1/objects?consistency_level=ALL", restURI),
 			"application/json",
 			bytes.NewReader(body),
 		)
