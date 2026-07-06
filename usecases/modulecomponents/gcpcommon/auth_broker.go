@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
@@ -25,16 +26,32 @@ import (
 )
 
 type AuthBrokerTokenSource struct {
-	endpoint string
-	client   *http.Client
+	endpoint     string
+	client       *http.Client
+	tokenTimeout time.Duration
 }
 
-const maxRetries = 5
+const (
+	defaultTokenTimeout = 30 * time.Second
+	tokenTimeoutEnvVar  = "AUTH_BROKER_TOKEN_TIMEOUT"
+)
 
 var (
 	httpClientTimeout      = 5 * time.Second
 	ErrRetryableAuthBroker = errors.New("retryable error from auth broker")
 )
+
+func resolveTokenTimeout() time.Duration {
+	value, exists := os.LookupEnv(tokenTimeoutEnvVar)
+	if !exists || value == "" {
+		return defaultTokenTimeout
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return defaultTokenTimeout
+	}
+	return d
+}
 
 type AuthBrokerToken struct {
 	AccessToken string    `json:"access_token"`
@@ -48,11 +65,12 @@ func NewAuthBrokerTokenSource(endpoint string) *AuthBrokerTokenSource {
 		client: &http.Client{
 			Timeout: httpClientTimeout,
 		},
+		tokenTimeout: resolveTokenTimeout(),
 	}
 }
 
 func (b *AuthBrokerTokenSource) Token() (*oauth2.Token, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), b.tokenTimeout)
 	defer cancel()
 
 	identityToken, err := b.getIdentityToken(ctx)
@@ -65,13 +83,20 @@ func (b *AuthBrokerTokenSource) Token() (*oauth2.Token, error) {
 
 func (b *AuthBrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identityToken string) (*oauth2.Token, error) {
 	backoff := gax.Backoff{
-		Initial:    500 * time.Millisecond,
-		Max:        3 * time.Second,
+		Initial:    1 * time.Millisecond,
+		Max:        5 * time.Second,
 		Multiplier: 2,
 	}
 
 	var err error
-	for range maxRetries {
+	for {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if err != nil {
+				return nil, fmt.Errorf("auth broker token fetch aborted: %w (last attempt: %w)", ctxErr, err)
+			}
+			return nil, ctxErr
+		}
+
 		var tok *oauth2.Token
 		tok, err = b.fetchToken(ctx, identityToken)
 		if err == nil {
@@ -82,12 +107,10 @@ func (b *AuthBrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identit
 			return nil, err
 		}
 
-		if gax.Sleep(ctx, backoff.Pause()) != nil {
-			return nil, err
+		if sleepErr := gax.Sleep(ctx, backoff.Pause()); sleepErr != nil {
+			return nil, fmt.Errorf("auth broker token fetch aborted: %w (last attempt: %w)", sleepErr, err)
 		}
 	}
-
-	return nil, err
 }
 
 func (b *AuthBrokerTokenSource) fetchToken(ctx context.Context, identityToken string) (*oauth2.Token, error) {
