@@ -97,19 +97,14 @@ func (i *Index) usageForCollection(ctx context.Context, shardConcurrency int, ex
 		logrus.Fields{
 			"class":             i.Config.ClassName.String(),
 			"shard_concurrency": shardConcurrency,
-		}).Debugf("creating usage report with %d shards", len(localShards))
+		}).Infof("creating usage report with %d shards", len(localShards))
 
 	shardNames := make([]string, 0, len(localShards))
 	for shardName := range localShards {
 		shardNames = append(shardNames, shardName)
 	}
 
-	// There is an important distinction between the state of the shard in the schema (in schemaReader) and the local
-	// state, which corresponds to which shard is loaded in memory and both can be out of sync.
-	//
-	// After collecting all local shards from the sharding state, we process them with a bounded number of
-	// concurrent readers. Each shard locks itself against changes in the _local_ state (i.e. loading/unloading)
-	// inside usageForShard.
+	// process the local shards with a bounded number of concurrent readers
 	var (
 		mu        sync.Mutex
 		processed atomic.Int64
@@ -161,16 +156,19 @@ func (i *Index) usageForCollection(ctx context.Context, shardConcurrency int, ex
 			"shard_concurrency": shardConcurrency,
 			"processed_shards":  uniqueShardCount,
 			"took":              time.Since(start).Seconds(),
-		}).Debugf("finished processing %d/%d shards for usage report", uniqueShardCount, len(shardNames))
+		}).Infof("finished processing %d/%d shards for usage report", uniqueShardCount, len(shardNames))
 
 	collectionUsage.UniqueShardCount = uniqueShardCount
 	sort.Sort(collectionUsage.Shards)
 	return collectionUsage, nil
 }
 
-// usageForShard computes usage for a single local shard. A nil *ShardUsage with a nil error means
-// the shard should be skipped (transitional states like FREEZING/OFFLOADING). Safe to call
-// concurrently for distinct shards.
+// usageForShard computes usage for a single local shard. There is an important distinction between
+// the state of the shard in the schema (in schemaReader) and the local state, which corresponds to
+// which shard is loaded in memory — both can be out of sync, so the shard is locked against changes
+// in the _local_ state (i.e. loading/unloading) for the duration of the calculation. A nil
+// *ShardUsage with a nil error means the shard should be skipped (transitional states like
+// FREEZING/OFFLOADING). Safe to call concurrently for distinct shards.
 func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
