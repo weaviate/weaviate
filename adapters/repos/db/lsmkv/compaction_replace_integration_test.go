@@ -172,20 +172,7 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			keyCopy := copyByteSlice(k)
-			valueCopy := copyByteSlice(v)
-			retrieved = append(retrieved, kv{
-				key:   keyCopy,
-				value: valueCopy,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -206,20 +193,7 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("verify control after compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			keyCopy := copyByteSlice(k)
-			valueCopy := copyByteSlice(v)
-			retrieved = append(retrieved, kv{
-				key:   keyCopy,
-				value: valueCopy,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 		assertSingleSegmentOfSize(t, bucket, expectedMinSize, expectedMaxSize)
@@ -501,18 +475,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 	}
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:   k,
-				value: v,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -526,18 +489,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:   k,
-				value: v,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -588,18 +540,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 	}
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:   k,
-				value: v,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -613,18 +554,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 	})
 
 	t.Run("verify control after compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:   k,
-				value: v,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})

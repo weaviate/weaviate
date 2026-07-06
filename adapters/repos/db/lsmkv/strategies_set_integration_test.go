@@ -776,15 +776,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 				{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
 			}
 
-			var retrievedKeys [][]byte
-			var retrievedValues [][][]byte
-			c, err := b.SetCursor()
-			require.NoError(t, err)
-			defer c.Close()
-			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
-			}
+			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-016"), 0)
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
@@ -802,17 +794,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 				{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
 			}
 
-			var retrievedKeys [][]byte
-			var retrievedValues [][][]byte
-			c, err := b.SetCursor()
-			require.NoError(t, err)
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
-			}
+			retrievedKeys, retrievedValues := collectCursorSet(t, b, nil, 3)
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
@@ -838,17 +820,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 				},
 			}
 
-			var retrievedKeys [][]byte
-			var retrievedValues [][][]byte
-			c, err := b.SetCursor()
-			require.NoError(t, err)
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
-			}
+			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-001"), 2)
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
@@ -982,15 +954,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 				{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
 			}
 
-			var retrievedKeys [][]byte
-			var retrievedValues [][][]byte
-			c, err := b.SetCursor()
-			require.NoError(t, err)
-			defer c.Close()
-			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
-			}
+			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-016"), 0)
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
@@ -1008,17 +972,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 				{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
 			}
 
-			var retrievedKeys [][]byte
-			var retrievedValues [][][]byte
-			c, err := b.SetCursor()
-			require.NoError(t, err)
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
-			}
+			retrievedKeys, retrievedValues := collectCursorSet(t, b, nil, 3)
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
@@ -1052,17 +1006,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 				},
 			}
 
-			var retrievedKeys [][]byte
-			var retrievedValues [][][]byte
-			c, err := b.SetCursor()
-			require.NoError(t, err)
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
-			}
+			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-001"), 2)
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
@@ -1089,17 +1033,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 				},
 			}
 
-			var retrievedKeys [][]byte
-			var retrievedValues [][][]byte
-			c, err := b.SetCursor()
-			require.NoError(t, err)
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
-			}
+			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-001"), 2)
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)

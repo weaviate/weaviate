@@ -398,18 +398,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.CursorRoaringSet()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:       k,
-				additions: v.ToArray(),
-			})
-		}
+		retrieved := collectRoaringSetKVs(t, bucket, func(k []byte, v []uint64) kv { return kv{key: k, additions: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -431,18 +420,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	})
 
 	t.Run("verify control after compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.CursorRoaringSet()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:       k,
-				additions: v.ToArray(),
-			})
-		}
+		retrieved := collectRoaringSetKVs(t, bucket, func(k []byte, v []uint64) kv { return kv{key: k, additions: v} })
 
 		assert.Equal(t, expected, retrieved)
 		assertSingleSegmentOfSize(t, bucket, expectedMinSize, expectedMaxSize)
@@ -501,16 +479,7 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 			},
 		}
 
-		c, err := bucket.CursorRoaringSet()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v.ToArray(),
-			})
-		}
+		retrieved = collectRoaringSetKVs(t, bucket, func(k []byte, v []uint64) kv { return kv{key: k, values: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -532,16 +501,7 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 			},
 		}
 
-		c, err := bucket.CursorRoaringSet()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v.ToArray(),
-			})
-		}
+		retrieved = collectRoaringSetKVs(t, bucket, func(k []byte, v []uint64) kv { return kv{key: k, values: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})

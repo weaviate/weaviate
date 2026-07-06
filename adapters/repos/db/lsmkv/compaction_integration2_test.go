@@ -195,20 +195,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			keyCopy := copyByteSlice2(k)
-			valueCopy := copyByteSlice2(v)
-			retrieved = append(retrieved, kv{
-				key:   keyCopy,
-				value: valueCopy,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -228,20 +215,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("verify control after compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c, err := bucket.Cursor()
-		require.NoError(t, err)
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			keyCopy := copyByteSlice2(k)
-			valueCopy := copyByteSlice2(v)
-			retrieved = append(retrieved, kv{
-				key:   keyCopy,
-				value: valueCopy,
-			})
-		}
+		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
