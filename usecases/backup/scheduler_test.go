@@ -713,6 +713,41 @@ func TestSchedulerRestoration(t *testing.T) {
 		assert.Contains(t, fs.backend.glMeta.Error, "")
 	})
 
+	t.Run("SuccessWithBaseBackup", func(t *testing.T) {
+		baseID := "base-1"
+		metaWithBase := meta
+		metaWithBase.CompressionType = backup.CompressionGZIP
+		metaWithBase.BaseBackupID = baseID
+		baseMeta := backup.DistributedBackupDescriptor{
+			ID:              baseID,
+			Status:          backup.Success,
+			CompressionType: backup.CompressionGZIP,
+		}
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
+		bytes := marshalCoordinatorMeta(metaWithBase)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, baseID, GlobalBackupFile).Return(marshalCoordinatorMeta(baseMeta), nil)
+		fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
+		fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
+		fs.client.On("CanCommit", any, nodeA, any).Return(cResp, nil)
+		fs.client.On("Commit", any, nodeA, sReq).Return(nil)
+		fs.client.On("Status", any, nodeA, sReq).Return(sresp, nil)
+		fs.client.On("CanCommit", any, nodeB, any).Return(cResp, nil)
+		fs.client.On("Commit", any, nodeB, sReq).Return(nil)
+		fs.client.On("Status", any, nodeB, sReq).Return(sresp, nil)
+
+		s := fs.scheduler()
+		req := BackupRequest{ID: backupID, Include: []string{cls}, Backend: backendName}
+		resp, err := s.Restore(ctx, nil, &req, false)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+	})
+
 	t.Run("NodeMappingPassedCorrectly", func(t *testing.T) {
 		oldNodeA := "Old-Node-A"
 		oldNodeB := "Old-Node-B"
@@ -976,6 +1011,39 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}}, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), cls)
+	})
+
+	t.Run("MissingBaseBackup", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		metaWithBase := meta
+		metaWithBase.CompressionType = backup.CompressionGZIP
+		metaWithBase.BaseBackupID = "base-1"
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(metaWithBase), nil)
+		fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.ErrorContains(t, err, "resolve base backup chain")
+	})
+
+	t.Run("BaseBackupNotSuccessful", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		metaWithBase := meta
+		metaWithBase.CompressionType = backup.CompressionGZIP
+		metaWithBase.BaseBackupID = "base-1"
+		baseMeta := backup.DistributedBackupDescriptor{
+			ID:              "base-1",
+			Status:          backup.Failed,
+			CompressionType: backup.CompressionGZIP,
+		}
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(metaWithBase), nil)
+		fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(marshalCoordinatorMeta(baseMeta), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.ErrorContains(t, err, "resolve base backup chain")
 	})
 }
 
