@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -696,6 +697,103 @@ func TestCorruptChunkHeaderRecoveryUnreadableFile(t *testing.T) {
 	require.NoError(t, err)
 	_, err = os.Stat(validChunk + ".corrupt")
 	require.ErrorIs(t, err, os.ErrNotExist, "an unreadable chunk file must not be quarantined")
+}
+
+// writeSealedChunk creates a queue with a single sealed chunk containing
+// 3 records and returns the chunk file path.
+func writeSealedChunk(t *testing.T, s *Scheduler, dir string) string {
+	t.Helper()
+
+	q := makeQueueWith(t, s, discardExecutor(), 50, dir)
+	q.Pause(t.Context())
+	pushMany(t, q, 1, 100, 200, 300)
+	err := q.w.Promote()
+	require.NoError(t, err)
+	err = q.Close(t.Context())
+	require.NoError(t, err)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	return filepath.Join(dir, entries[0].Name())
+}
+
+func patchFile(t *testing.T, path string, off int64, data []byte) {
+	t.Helper()
+
+	f, err := os.OpenFile(path, os.O_RDWR, 0o644)
+	require.NoError(t, err)
+	defer f.Close()
+
+	_, err = f.WriteAt(data, off)
+	require.NoError(t, err)
+}
+
+// The record count in a chunk header and the per-record length prefixes are
+// read from disk and may be corrupt. DequeueBatch must not size allocations
+// from them unvalidated: a corrupt count panics the scheduler goroutine,
+// which is never restarted, silently halting async indexing for every queue
+// on the node, and a corrupt length can allocate up to 4GB.
+func TestDequeueBatchCorruptChunk(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	newQueue := func(t *testing.T, dir string) *DiskQueue {
+		q, err := NewDiskQueue(DiskQueueOptions{
+			ID:           "test_queue",
+			Scheduler:    s,
+			Logger:       newTestLogger(),
+			Dir:          dir,
+			TaskDecoder:  discardExecutor(),
+			StaleTimeout: 500 * time.Millisecond,
+			ChunkSize:    50,
+		})
+		require.NoError(t, err)
+		err = q.Init()
+		require.NoError(t, err)
+		return q
+	}
+
+	t.Run("corrupt record count", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		chunkFile := writeSealedChunk(t, s, tmpDir)
+
+		// corrupt the header's record count with an absurdly large value
+		var countBuf [8]byte
+		binary.BigEndian.PutUint64(countBuf[:], math.MaxUint64)
+		patchFile(t, chunkFile, int64(len(magicHeader)+1), countBuf[:])
+
+		q := newQueue(t, tmpDir)
+
+		// the corrupt count must not be trusted to size allocations,
+		// and the valid records must still be returned
+		var batch *Batch
+		var err error
+		require.NotPanics(t, func() {
+			batch, err = q.DequeueBatch()
+		})
+		require.NoError(t, err)
+		require.NotNil(t, batch)
+		require.Len(t, batch.Tasks, 3)
+	})
+
+	t.Run("corrupt record length", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		chunkFile := writeSealedChunk(t, s, tmpDir)
+
+		// corrupt the first record's length prefix, located right after the header
+		var lenBuf [4]byte
+		binary.BigEndian.PutUint32(lenBuf[:], 1<<31)
+		patchFile(t, chunkFile, int64(len(magicHeader)+1+8), lenBuf[:])
+
+		q := newQueue(t, tmpDir)
+
+		// the corrupt length must be rejected before any allocation
+		batch, err := q.DequeueBatch()
+		require.ErrorContains(t, err, "invalid record length")
+		require.Nil(t, batch)
+	})
 }
 
 func TestQueueAutoReleaseResources(t *testing.T) {
