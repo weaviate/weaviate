@@ -112,7 +112,12 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 
-		c := cpi.bucket.Cursor()
+		c, err := cpi.bucket.Cursor()
+		if err != nil {
+			cpi.logger.WithError(err).Warn("parallel iterator: open cursor")
+			abort.Store(true)
+			return
+		}
 		defer c.Close()
 
 		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
@@ -163,7 +168,12 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
 
-			c := cpi.bucket.Cursor()
+			c, err := cpi.bucket.Cursor()
+			if err != nil {
+				cpi.logger.WithError(err).Warn("parallel iterator: open cursor")
+				abort.Store(true)
+				return
+			}
 			defer c.Close()
 
 			// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
@@ -211,7 +221,12 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 
-		c := cpi.bucket.Cursor()
+		c, err := cpi.bucket.Cursor()
+		if err != nil {
+			cpi.logger.WithError(err).Warn("parallel iterator: open cursor")
+			abort.Store(true)
+			return
+		}
 		defer c.Close()
 
 		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
@@ -274,7 +289,12 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency(ctx context.Context) (ou
 		defer close(aborted)
 		defer stopTracking()
 
-		c := cpi.bucket.Cursor()
+		c, err := cpi.bucket.Cursor()
+		if err != nil {
+			cpi.logger.WithError(err).Warn("parallel iterator: open cursor")
+			aborted <- true
+			return
+		}
 		defer c.Close()
 
 		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf

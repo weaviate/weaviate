@@ -190,7 +190,10 @@ func scanObjectVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 		return err
 	}
 
-	c := bucket.Cursor()
+	c, err := bucket.Cursor()
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	var k, v []byte

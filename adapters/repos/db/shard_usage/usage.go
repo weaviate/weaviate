@@ -330,7 +330,10 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			}
 		}
 	default:
-		c := b.CursorRoaringSet()
+		c, err := b.CursorRoaringSet()
+		if err != nil {
+			return dimensionality, fmt.Errorf("create cursor: %w", err)
+		}
 		defer c.Close()
 
 		var v *sroar.Bitmap
