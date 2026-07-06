@@ -253,7 +253,10 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
 
-	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	objects, scores, err := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	if err != nil {
+		return nil, nil, false, err
+	}
 
 	combineTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
@@ -262,7 +265,7 @@ func (b *BM25Searcher) wandBlock(
 	return objects, scores, false, nil
 }
 
-func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// Preallocate by the real upper bound (total result rows across
 	// properties/segments), not limit*len(allIds): for unlimited (limit==0)
 	// queries the caller inflates limit to the sum of all term counts, which
@@ -301,11 +304,12 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
+	// Swallowing this error produced silent empty results.
 	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
-	return combinedObjects, combinedScores
+	return combinedObjects, combinedScores, nil
 }
 
 type aggregate func(float32, float32) float32
