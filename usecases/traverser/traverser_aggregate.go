@@ -53,7 +53,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, err
 		}
 
-		targetVectors, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
+		targetVectors, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.ReadOnlyClass,
 			className, targetVectors)
 		if err != nil {
 			return nil, err
@@ -82,7 +82,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if len(params.Hybrid.TargetVectors) == 1 {
 			targetVectors = params.Hybrid.TargetVectors[:1]
 		}
-		targetVectors, err := t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(), params.ClassName.String(), targetVectors)
+		targetVectors, err := t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.ReadOnlyClass, params.ClassName.String(), targetVectors)
 		if err != nil {
 			return nil, err
 		}
