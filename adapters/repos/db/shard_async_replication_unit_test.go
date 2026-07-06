@@ -22,6 +22,7 @@ import (
 	routertypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 // TestResolveObjectConflict covers all branches of resolveObjectConflict that
@@ -118,4 +119,32 @@ func TestResolveObjectConflict(t *testing.T) {
 			assert.Equal(t, tc.wantNotResolved, notResolved, "notResolved")
 		})
 	}
+}
+
+func TestHashTreeRoot(t *testing.T) {
+	t.Run("not initialized", func(t *testing.T) {
+		s := &Shard{}
+		_, ok := s.HashTreeRoot()
+		assert.False(t, ok)
+	})
+
+	t.Run("initialized matches Root and Level(0)", func(t *testing.T) {
+		ht, err := hashtree.NewCompactHashTree(1024, 4)
+		require.NoError(t, err)
+		require.NoError(t, ht.AggregateLeafWith(0, []byte("payload")))
+
+		s := &Shard{hashtree: ht, hashtreeFullyInitialized: true}
+
+		root, ok := s.HashTreeRoot()
+		require.True(t, ok)
+		assert.Equal(t, ht.Root(), root)
+
+		disc := hashtree.NewBitset(1)
+		disc.Set(0)
+		level0 := make([]hashtree.Digest, 1)
+		n, err := ht.Level(0, disc, level0)
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+		assert.Equal(t, level0[0], root)
+	})
 }

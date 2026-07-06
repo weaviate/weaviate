@@ -44,6 +44,10 @@ var (
 	ErrRead     = errors.New("read error")
 
 	ErrNoDiffFound = errors.New("no diff found")
+
+	// ErrCompareHashTreeRootsUnsupported: target node too old to serve the RPC
+	// (gRPC Unimplemented or REST 404). Callers fall back to per-shard descent.
+	ErrCompareHashTreeRootsUnsupported = errors.New("CompareHashTreeRoots not supported by target node")
 )
 
 type (
@@ -472,6 +476,109 @@ func (f *Finder) CompareDigests(ctx context.Context,
 	shardName string, host string, digests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
+}
+
+// targetHostAddrsForShard resolves a shard's remote replica host addresses
+// (excluding the local node), mirroring CollectShardDifferences.
+func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	if err != nil {
+		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
+	}
+
+	localNodeName := f.LocalNodeName()
+	localHostAddr, ok := f.nodeResolver.NodeHostname(localNodeName)
+	if !ok {
+		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
+	}
+
+	var hosts []string
+	for _, node := range routingPlan.NodeNames() {
+		if node == localNodeName {
+			continue
+		}
+		addr, ok := f.nodeResolver.NodeHostname(node)
+		if !ok || addr == localHostAddr {
+			continue
+		}
+		hosts = append(hosts, addr)
+	}
+	return hosts, nil
+}
+
+// prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
+// gRPC/REST message size.
+const prefilterMaxShardsPerRPC = 1000
+
+// PrefilterStats reports the per-host root-compare RPC outcomes for observability.
+type PrefilterStats struct {
+	OK          int
+	Errored     int
+	Unsupported int
+}
+
+// PrefilterShardRoots batches the level-0 root compare against replicas, returning
+// the subset needing a full descent (absent ⇒ in-sync). Chunked serially per host.
+func (f *Finder) PrefilterShardRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) (map[string]struct{}, PrefilterStats) {
+	needFull := make(map[string]struct{})
+	byHost := make(map[string]map[string]hashtree.Digest)
+
+	for shard, root := range roots {
+		hosts, err := f.targetHostAddrsForShard(shard)
+		if err != nil {
+			needFull[shard] = struct{}{}
+			continue
+		}
+		for _, h := range hosts {
+			sub := byHost[h]
+			if sub == nil {
+				sub = make(map[string]hashtree.Digest)
+				byHost[h] = sub
+			}
+			sub[shard] = root
+		}
+	}
+
+	var stats PrefilterStats
+	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	flush := func(host string) {
+		if len(chunk) == 0 {
+			return
+		}
+		diverging, err := f.client.CompareHashTreeRoots(ctx, host, f.class, chunk)
+		if err != nil {
+			// Unsupported peer or transport error: full descent for this chunk;
+			// a later cycle retries the batched path.
+			if errors.Is(err, ErrCompareHashTreeRootsUnsupported) {
+				stats.Unsupported++
+			} else {
+				stats.Errored++
+			}
+			for s := range chunk {
+				needFull[s] = struct{}{}
+			}
+		} else {
+			stats.OK++
+			for _, s := range diverging {
+				needFull[s] = struct{}{}
+			}
+		}
+		clear(chunk)
+	}
+
+	for host, sub := range byHost {
+		for s, r := range sub {
+			chunk[s] = r
+			if len(chunk) >= prefilterMaxShardsPerRPC {
+				flush(host)
+			}
+		}
+		flush(host)
+	}
+	return needFull, stats
 }
 
 // Overwrite specified object with most recent contents
