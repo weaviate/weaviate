@@ -416,15 +416,15 @@ func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 	shards := make([]*protocol.ShardRootDigest, 0, len(roots))
 	for shard, root := range roots {
 		shards = append(shards, &protocol.ShardRootDigest{
-			Shard:  shard,
-			RootH1: root[0],
-			RootH2: root[1],
+			Shard:      shard,
+			RootHashHi: root[0],
+			RootHashLo: root[1],
 		})
 	}
 
 	resp, err := client.CompareHashTreeRoots(ctx, &protocol.CompareHashTreeRootsRequest{
-		Index:  index,
-		Shards: shards,
+		Index:            index,
+		ShardRootDigests: shards,
 	})
 	if err != nil {
 		// Older peers don't serve this RPC; sentinel lets the caller fall back.

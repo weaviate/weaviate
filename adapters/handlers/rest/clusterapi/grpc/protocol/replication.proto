@@ -259,19 +259,18 @@ message HashTreeLevelResponse {
   bytes digests_data = 1; // JSON-encoded []hashtree.Digest
 }
 
-// CompareHashTreeRoots pre-filters shards by comparing hashtree roots in bulk.
-// The source sends its local root per shard; the target replies only with the
-// shards whose roots differ (or that it lacks / has not fully initialised), so
-// the source can skip the per-shard descent for the rest.
+// CompareHashTreeRoots pre-filters shards by bulk-comparing hashtree roots: the
+// target returns only shards whose roots differ, letting the source skip the rest.
 message ShardRootDigest {
   string shard = 1;
-  fixed64 root_h1 = 2; // Digest[0]
-  fixed64 root_h2 = 3; // Digest[1]
+  // The 128-bit hashtree root digest, split into two 64-bit words.
+  fixed64 root_hash_hi = 2; // Digest[0] (high 64 bits)
+  fixed64 root_hash_lo = 3; // Digest[1] (low 64 bits)
 }
 
 message CompareHashTreeRootsRequest {
   string index = 1;
-  repeated ShardRootDigest shards = 2;
+  repeated ShardRootDigest shard_root_digests = 2;
 }
 
 message CompareHashTreeRootsResponse {

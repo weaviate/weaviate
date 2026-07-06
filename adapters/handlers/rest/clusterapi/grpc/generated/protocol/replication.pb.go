@@ -2050,10 +2050,11 @@ func (x *HashTreeLevelResponse) GetDigestsData() []byte {
 // shards whose roots differ (or that it lacks / has not fully initialised), so
 // the source can skip the per-shard descent for the rest.
 type ShardRootDigest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Shard         string                 `protobuf:"bytes,1,opt,name=shard,proto3" json:"shard,omitempty"`
-	RootH1        uint64                 `protobuf:"fixed64,2,opt,name=root_h1,json=rootH1,proto3" json:"root_h1,omitempty"` // Digest[0]
-	RootH2        uint64                 `protobuf:"fixed64,3,opt,name=root_h2,json=rootH2,proto3" json:"root_h2,omitempty"` // Digest[1]
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Shard string                 `protobuf:"bytes,1,opt,name=shard,proto3" json:"shard,omitempty"`
+	// The 128-bit hashtree root digest, split into two 64-bit words.
+	RootHashHi    uint64 `protobuf:"fixed64,2,opt,name=root_hash_hi,json=rootHashHi,proto3" json:"root_hash_hi,omitempty"` // Digest[0] (high 64 bits)
+	RootHashLo    uint64 `protobuf:"fixed64,3,opt,name=root_hash_lo,json=rootHashLo,proto3" json:"root_hash_lo,omitempty"` // Digest[1] (low 64 bits)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2095,26 +2096,26 @@ func (x *ShardRootDigest) GetShard() string {
 	return ""
 }
 
-func (x *ShardRootDigest) GetRootH1() uint64 {
+func (x *ShardRootDigest) GetRootHashHi() uint64 {
 	if x != nil {
-		return x.RootH1
+		return x.RootHashHi
 	}
 	return 0
 }
 
-func (x *ShardRootDigest) GetRootH2() uint64 {
+func (x *ShardRootDigest) GetRootHashLo() uint64 {
 	if x != nil {
-		return x.RootH2
+		return x.RootHashLo
 	}
 	return 0
 }
 
 type CompareHashTreeRootsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shards        []*ShardRootDigest     `protobuf:"bytes,2,rep,name=shards,proto3" json:"shards,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Index            string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	ShardRootDigests []*ShardRootDigest     `protobuf:"bytes,2,rep,name=shard_root_digests,json=shardRootDigests,proto3" json:"shard_root_digests,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CompareHashTreeRootsRequest) Reset() {
@@ -2154,9 +2155,9 @@ func (x *CompareHashTreeRootsRequest) GetIndex() string {
 	return ""
 }
 
-func (x *CompareHashTreeRootsRequest) GetShards() []*ShardRootDigest {
+func (x *CompareHashTreeRootsRequest) GetShardRootDigests() []*ShardRootDigest {
 	if x != nil {
-		return x.Shards
+		return x.ShardRootDigests
 	}
 	return nil
 }
@@ -2449,14 +2450,16 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x05level\x18\x03 \x01(\x05R\x05level\x12\"\n" +
 	"\fdiscriminant\x18\x04 \x01(\fR\fdiscriminant\":\n" +
 	"\x15HashTreeLevelResponse\x12!\n" +
-	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\"Y\n" +
+	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\"k\n" +
 	"\x0fShardRootDigest\x12\x14\n" +
-	"\x05shard\x18\x01 \x01(\tR\x05shard\x12\x17\n" +
-	"\aroot_h1\x18\x02 \x01(\x06R\x06rootH1\x12\x17\n" +
-	"\aroot_h2\x18\x03 \x01(\x06R\x06rootH2\"h\n" +
+	"\x05shard\x18\x01 \x01(\tR\x05shard\x12 \n" +
+	"\froot_hash_hi\x18\x02 \x01(\x06R\n" +
+	"rootHashHi\x12 \n" +
+	"\froot_hash_lo\x18\x03 \x01(\x06R\n" +
+	"rootHashLo\"~\n" +
 	"\x1bCompareHashTreeRootsRequest\x12\x14\n" +
-	"\x05index\x18\x01 \x01(\tR\x05index\x123\n" +
-	"\x06shards\x18\x02 \x03(\v2\x1b.clusterapi.ShardRootDigestR\x06shards\"I\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12I\n" +
+	"\x12shard_root_digests\x18\x02 \x03(\v2\x1b.clusterapi.ShardRootDigestR\x10shardRootDigests\"I\n" +
 	"\x1cCompareHashTreeRootsResponse\x12)\n" +
 	"\x10diverging_shards\x18\x01 \x03(\tR\x0fdivergingShards\"A\n" +
 	"\x13CountObjectsRequest\x12\x14\n" +
@@ -2558,7 +2561,7 @@ var file_protocol_replication_proto_depIdxs = []int32{
 	2,  // 10: clusterapi.CompareDigestsRequest.digests:type_name -> clusterapi.RepairResponse
 	2,  // 11: clusterapi.CompareDigestsResponse.digests:type_name -> clusterapi.RepairResponse
 	2,  // 12: clusterapi.OverwriteObjectsResponse.results:type_name -> clusterapi.RepairResponse
-	35, // 13: clusterapi.CompareHashTreeRootsRequest.shards:type_name -> clusterapi.ShardRootDigest
+	35, // 13: clusterapi.CompareHashTreeRootsRequest.shard_root_digests:type_name -> clusterapi.ShardRootDigest
 	3,  // 14: clusterapi.ReplicationService.PutObject:input_type -> clusterapi.PutObjectRequest
 	5,  // 15: clusterapi.ReplicationService.PutObjects:input_type -> clusterapi.PutObjectsRequest
 	7,  // 16: clusterapi.ReplicationService.MergeObject:input_type -> clusterapi.MergeObjectRequest
