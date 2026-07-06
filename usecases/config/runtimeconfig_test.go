@@ -149,6 +149,7 @@ autoschema_enabled: true`)
 
 func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 	log := logrus.New()
+	log.SetOutput(io.Discard)
 
 	t.Run("parses disable_graphql from the overrides file", func(t *testing.T) {
 		cfg, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
