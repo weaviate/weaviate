@@ -338,6 +338,10 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 type classGetterWithAuthzFunc func(string) (*models.Class, error)
 
+// classGetterWithAuthzFunc returns a getter that memoizes each (class, tenant)
+// lookup for one request. A cache hit skips the RBAC Authorize call, so the memo
+// key must fully identify the authorized resource or one class's decision leaks
+// to another. Not concurrency-safe; scoped to a single request.
 func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
@@ -354,7 +358,7 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)
-			authorizedCollections[name] = class
+			authorizedCollections[classTenantName] = class
 		}
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
