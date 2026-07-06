@@ -30,6 +30,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -42,8 +43,9 @@ import (
 )
 
 const (
-	// numObjects keeps the backfill long enough that the M concurrent
-	// PATCHes overlap the migration window, while keeping CI runtime sane.
+	// numObjects keeps the backfill long enough that the numUpdates
+	// concurrent PATCHes overlap the migration window, while keeping CI
+	// runtime sane.
 	numObjects = 4000
 	numUpdates = 500
 	// updateThreads fans the PATCHes out across goroutines.
@@ -132,12 +134,14 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 		// The core assertion: every concurrently PATCHed object must be
 		// range-queryable (weaviate/weaviate#11688).
 		var got int
-		require.Eventuallyf(t, func() bool {
+		ok := assert.Eventually(t, func() bool {
 			got = aggregateCountWhereGTE(t, className, propName, mark)
 			return got == numUpdates
-		}, 60*time.Second, time.Second,
-			"migration must not drop concurrent writes from the rangeable index: "+
+		}, 60*time.Second, time.Second)
+		if !ok {
+			t.Fatalf("migration must not drop concurrent writes from the rangeable index: "+
 				"Aggregate(vint >= %d) = %d, want %d", mark, got, numUpdates)
+		}
 
 		// Sanity: total object count unchanged.
 		require.Equal(t, numObjects, aggregateCountAll(t, className),

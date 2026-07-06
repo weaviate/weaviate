@@ -61,7 +61,7 @@ const (
 // NO live index (so the write depends entirely on the double-write callback),
 // start the FilterableToRangeable migration, inject one op right after the
 // per-prop pointer flip (ingest name unregistered, callbacks still armed), then
-// swap. inject must not fail — pre-fix it paniced on the nil ingest bucket.
+// swap. inject must not fail — pre-fix it panicked on the nil ingest bucket.
 // run returns the post-swap rangeable bucket for the caller's assertions.
 type swapWindowScenario struct {
 	inject func(t *testing.T, ctx context.Context, shard *Shard, objs []*storobj.Object)
@@ -127,14 +127,14 @@ func TestReindex_ConcurrentWriteDuringSwapWindow_NotLost(t *testing.T) {
 					CreationTimeUnix:   time.Now().UnixMilli(),
 					LastUpdateTimeUnix: time.Now().UnixMilli(),
 				},
-			}), "live write during the swap window must not fail (pre-fix it paniced in the double-write callback)")
+			}), "live write during the swap window must not fail (pre-fix it panicked in the double-write callback)")
 		},
 	}.run(t)
 
 	// add-new leg: the updated value is range-queryable at exactly its docID.
 	assert.Lenf(t, readRangeableIDs(t, bucket, mark), 1,
 		"#11688 swap-window: the update written during the swap window is NOT under the "+
-			"target value %d — its double-write add leg was lost or paniced", mark)
+			"target value %d — its double-write add leg was lost or panicked", mark)
 
 	// delete-old leg: objs[0] no longer contributes to value 0.
 	assert.Lenf(t, readRangeableIDs(t, bucket, 0), swapWindowPerValue-1,
@@ -153,14 +153,14 @@ func TestReindex_ConcurrentDeleteDuringSwapWindow_NotLost(t *testing.T) {
 	bucket := swapWindowScenario{
 		inject: func(t *testing.T, ctx context.Context, shard *Shard, objs []*storobj.Object) {
 			require.NoError(t, shard.DeleteObject(ctx, objs[0].ID(), time.Now()),
-				"live delete during the swap window must not fail (pre-fix it paniced in the double-write delete callback)")
+				"live delete during the swap window must not fail (pre-fix it panicked in the double-write delete callback)")
 		},
 	}.run(t)
 
 	// The deleted object's contribution to value 0 is gone.
 	assert.Lenf(t, readRangeableIDs(t, bucket, 0), swapWindowPerValue-1,
 		"#11688 swap-window: the delete written during the swap window did not remove "+
-			"the object from value 0 — its double-write delete leg was lost or paniced")
+			"the object from value 0 — its double-write delete leg was lost or panicked")
 
 	// One fewer object in the whole index.
 	assert.Lenf(t, rangeableDocIDsAtLeast(t, bucket, 0), swapWindowNumObjects-1,
@@ -205,7 +205,7 @@ func TestResolveDoubleWriteBucket_FallsBackAfterSwap(t *testing.T) {
 	require.Same(t, shard.store.Bucket(canonicalName),
 		resolveDoubleWriteBucket(shard, sidecarName, canonicalName),
 		"#11688: post-swap the resolver must fall back to the canonical bucket, "+
-			"not return nil (the pre-fix nil deref that paniced the write)")
+			"not return nil (the pre-fix nil deref that panicked the write)")
 
 	// Backup-phase: no fallback, nil is correct (no-op, not loss).
 	require.Nil(t, resolveDoubleWriteBucket(shard, sidecarName, ""),
