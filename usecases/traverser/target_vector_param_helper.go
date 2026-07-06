@@ -15,9 +15,9 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type TargetVectorParamHelper struct{}
@@ -26,9 +26,16 @@ func NewTargetParamHelper() *TargetVectorParamHelper {
 	return &TargetVectorParamHelper{}
 }
 
-func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className string, targetVectors []string) ([]string, error) {
+// GetTargetVectorOrDefault returns the caller's target vectors unchanged when any
+// were supplied. Only when none were supplied does it read the single class via
+// getClass to derive the default target vector, so callers that already have target
+// vectors read no class at all.
+func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(getClass func(string) *models.Class, className string, targetVectors []string) ([]string, error) {
 	if len(targetVectors) == 0 {
-		class := sch.FindClassByName(schema.ClassName(className))
+		class := getClass(className)
+		if class == nil {
+			return nil, fmt.Errorf("class %q not found", className)
+		}
 
 		// If no target vectors provided, check whether legacy vector is configured.
 		// For backwards compatibility, we have to return legacy vector in case no named vectors configured.
