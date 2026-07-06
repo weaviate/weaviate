@@ -792,3 +792,64 @@ func collectChToSet[T comparable](t *testing.T, expectCount int, ch chan T) map[
 	}
 	return cleanedUpTasks
 }
+
+// countingTaskLister is a minimal TasksLister that counts calls instead of
+// returning any tasks. Used to observe whether tick() ran, without needing
+// the full Manager/provider pipeline.
+type countingTaskLister struct {
+	calls atomic.Int64
+}
+
+func (c *countingTaskLister) ListDistributedTasks(context.Context) (map[string][]*Task, error) {
+	c.calls.Add(1)
+	return nil, nil
+}
+
+// TestScheduler_CloseJoinsLoopGoroutine is the regression test for
+// weaviate/0-weaviate-issues#242: Close() closed stopCh and returned
+// without ever waiting for loop() to actually exit. Because loop()'s
+// select picks pseudo-randomly among ready cases, a tick already queued
+// on the ticker channel could fire after Close() had already returned,
+// running provider callbacks and synchronous RAFT applies against a
+// caller that believed shutdown was complete.
+//
+// A millisecond real-clock tick interval keeps the ticker "hot" (a tick is
+// essentially always pending by the time Close() runs), and repeating the
+// race across many independent trials turns a probabilistic select
+// tie-break into a near-certain failure on the pre-fix code while staying
+// fully deterministic (always green) on the fix, which structurally
+// cannot let a tick start once Close() has returned.
+func TestScheduler_CloseJoinsLoopGoroutine(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	logger, _ := logrustest.NewNullLogger()
+
+	const trials = 50
+	for i := 0; i < trials; i++ {
+		lister := &countingTaskLister{}
+
+		scheduler := NewScheduler(SchedulerParams{
+			TasksLister:       lister,
+			Providers:         map[string]Provider{},
+			Clock:             clockwork.NewRealClock(),
+			Logger:            logger,
+			MetricsRegisterer: monitoring.NoopRegisterer,
+			TickInterval:      time.Millisecond,
+		})
+
+		require.NoError(t, scheduler.Start(context.Background()))
+		// Let the ticker warm up so a tick is essentially always pending
+		// by the time Close() races against it below.
+		time.Sleep(time.Millisecond)
+
+		scheduler.Close()
+		afterClose := lister.calls.Load()
+
+		// Give any tick that raced Close() and lost the join (pre-fix
+		// behavior) plenty of time to land.
+		time.Sleep(10 * time.Millisecond)
+
+		require.Equal(t, afterClose, lister.calls.Load(),
+			"trial %d: tick() ran after Close() returned; loop() was not joined", i)
+	}
+}

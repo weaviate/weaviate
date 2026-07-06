@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jonboulle/clockwork"
@@ -57,6 +58,20 @@ type Scheduler struct {
 	tasksRunning *prometheus.GaugeVec
 
 	stopCh chan struct{}
+
+	// loopDone is closed by loop() right before it returns. Close() joins
+	// on this instead of just closing stopCh and moving on: without the
+	// join, Close() could return while loop() is still mid-select and about
+	// to fire one more tick (provider callbacks, synchronous RAFT applies)
+	// against a caller that already believes the scheduler is torn down.
+	// See weaviate/0-weaviate-issues#242.
+	loopDone chan struct{}
+
+	// loopStarted records whether Start() ever spawned loop(). A Scheduler
+	// that is constructed and Closed without ever being Started must not
+	// join loopDone in Close() — nothing would ever close it, so the join
+	// would block forever. Guarding on this keeps Close() safe in that case.
+	loopStarted atomic.Bool
 }
 
 type SchedulerParams struct {
@@ -103,7 +118,8 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 			Help: "Number of active distributed tasks running per namespace",
 		}, []string{"namespace"}),
 
-		stopCh: make(chan struct{}),
+		stopCh:   make(chan struct{}),
+		loopDone: make(chan struct{}),
 	}
 }
 
@@ -152,6 +168,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			Set(float64(len(startedTasks)))
 	}
 
+	s.loopStarted.Store(true)
 	enterrors.GoWrapper(s.loop, s.logger)
 
 	return nil
@@ -179,6 +196,10 @@ func filterTasks(tasks map[TaskDescriptor]*Task, predicate func(task *Task) bool
 }
 
 func (s *Scheduler) loop() {
+	// Signals Close() that this goroutine has actually exited, not just
+	// that stopCh was closed. See the loopDone field doc.
+	defer close(s.loopDone)
+
 	ticker := s.clock.NewTicker(s.tickInterval)
 	defer ticker.Stop()
 
@@ -306,6 +327,14 @@ func (s *Scheduler) setRunningTaskHandleWithLock(namespace string, desc TaskDesc
 
 func (s *Scheduler) Close() {
 	close(s.stopCh)
+	// Join loop() before terminating handles: without this, Close() could
+	// return (or start terminating handles) while loop() is still running a
+	// tick it picked up racing against stopCh. See the loopDone field doc.
+	// Skipped when Start() never ran (loopDone would then never close) —
+	// see the loopStarted field doc.
+	if s.loopStarted.Load() {
+		<-s.loopDone
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
