@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
@@ -60,6 +61,7 @@ func (w *Worker) do(batch *Batch) (err error) {
 		// scheduled again.
 		if r := recover(); r != nil {
 			w.logger.Errorf("recovered from panic while executing batch: %v", r)
+			entsentry.Recover(r)
 			enterrors.PrintStack(w.logger)
 			err = fmt.Errorf("panic while executing batch: %v", r)
 			batch.Cancel()

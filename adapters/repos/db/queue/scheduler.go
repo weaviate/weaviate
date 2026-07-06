@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -466,6 +467,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 	// restarted. Contain it so the scheduler moves on to the other queues.
 	defer func() {
 		if r := recover(); r != nil {
+			entsentry.Recover(r)
 			enterrors.PrintStack(s.Logger)
 			err = errors.Errorf("recovered from panic while dispatching queue: %v", r)
 		}
