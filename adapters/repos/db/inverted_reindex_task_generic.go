@@ -122,6 +122,7 @@ package db
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -203,6 +204,15 @@ type ShardReindexTaskGeneric struct {
 	// SetTokenizationOverlay's own lock is enough. Wired only for
 	// tokenization-changing migrations.
 	onPropSwapped func(propName string)
+
+	// trackerMkdirGuard yields the close-lock guard serializing a reindex
+	// tracker's init() MkdirAll against a concurrent Index.drop (see
+	// newReindexTrackerGuarded). Defaults to Index.withCloseRLockGuard in
+	// NewShardReindexTaskGeneric; the drain-rematerialize test wraps it to
+	// interpose a barrier at the exact pre-MkdirAll point that makes the
+	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
+	// branch runs in production.
+	trackerMkdirGuard func(shard ShardLike) func(func() error) error
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -232,6 +242,9 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	}
 	t.processOneSwapPropFn = t.processOneSwapProp
 	t.processOneTidyPropFn = t.processOneTidyProp
+	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
+		return shard.Index().withCloseRLockGuard
+	}
 	return t
 }
 
@@ -360,7 +373,12 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
 
-	if err := t.OnAfterLsmInit(ctx, concreteShard); err != nil {
+	// context.Canceled means the index is closing — propagate unwrapped so
+	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
+	if err := t.onAfterLsmInitGuarded(ctx, concreteShard); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
 		return fmt.Errorf("after LSM init: %w", err)
 	}
 
@@ -413,21 +431,11 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 // consistent with ongoing writes). Callbacks are disabled only at
 // the end of [runtimeSwap] after the atomic pointer flip.
 func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.enterDTMPhase(ctx, shard, "RunPrepareOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-
-	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().Config.ClassName.String(),
-		"shard":      concreteShard.Name(),
-		"method":     "RunPrepareOnShard",
-	})
-
-	rt, err := t.newReindexTracker(concreteShard.pathLSM())
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	// Idempotent fast-path: already merged means prep was already
 	// completed (either by an earlier call in this process or by a
@@ -435,27 +443,6 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	if rt.IsMerged() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
 		return nil
-	}
-
-	// Re-entry path: state-on-disk vs state-in-RAFT race (mirrors the
-	// same check in RunSwapOnShard). If we land here with state
-	// "started but not reindexed", resume the iteration before
-	// preparing.
-	if !rt.IsReindexed() {
-		if !rt.IsStarted() {
-			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
-		}
-		logger.Info("RunPrepareOnShard: state not yet reindexed on disk; resuming iteration before prep")
-		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
-			return fmt.Errorf("resume iteration before prep: %w", err)
-		}
-		rt, err = t.newReindexTracker(concreteShard.pathLSM())
-		if err != nil {
-			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
-		}
-		if !rt.IsReindexed() {
-			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
-		}
 	}
 
 	props, err := t.readPropsToReindex(rt)
@@ -471,6 +458,64 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 
 	return t.runtimePrepare(ctx, logger, shard, rt, props)
+}
+
+// dtmPhaseEntry is the shared entry state of the DTM-scheduler-driven phase
+// callbacks (RunPrepareOnShard / RunSwapOnShard).
+type dtmPhaseEntry struct {
+	shard  *Shard
+	logger logrus.FieldLogger
+	rt     reindexTracker
+}
+
+// enterDTMPhase unwraps the shard, opens the guarded tracker (DTM callbacks
+// run under no closeLock; see newReindexTrackerGuarded), and — if on-disk
+// state trails RAFT ("started but not reindexed" after a rolling restart) —
+// resumes the iteration before returning.
+func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return nil, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+
+	logger := t.logger.WithFields(map[string]any{
+		"collection": concreteShard.Index().Config.ClassName.String(),
+		"shard":      concreteShard.Name(),
+		"method":     method,
+	})
+
+	rt, err := t.newReindexTrackerGuarded(concreteShard)
+	if err != nil {
+		return nil, fmt.Errorf("creating reindex tracker: %w", err)
+	}
+
+	// MUST stay ahead of the iteration-resume ladder below: merged implies
+	// the iteration completed, so on a torn sentinel state (IsMerged &&
+	// !IsReindexed) resuming would re-run the iteration against an
+	// already-merged migration. Both callers handle merged downstream.
+	if rt.IsMerged() {
+		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
+	}
+
+	if !rt.IsReindexed() {
+		if !rt.IsStarted() {
+			// Shouldn't happen via OnGroupCompleted (units are node-assigned).
+			return nil, fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
+		}
+		logger.Info(method + ": state not yet reindexed on disk; resuming iteration")
+		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
+			return nil, fmt.Errorf("resume iteration: %w", err)
+		}
+		rt, err = t.newReindexTrackerGuarded(concreteShard)
+		if err != nil {
+			return nil, fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
+		}
+		if !rt.IsReindexed() {
+			return nil, fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
+		}
+	}
+
+	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
 }
 
 // RunSwapOnShard runs the swap+tidy+OnMigrationComplete phase.
@@ -521,70 +566,11 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 // swapped their buckets — producing the cluster-wide schema↔bucket
 // inversion this dispatch is here to prevent.
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.enterDTMPhase(ctx, shard, "RunSwapOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-
-	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().Config.ClassName.String(),
-		"shard":      concreteShard.Name(),
-		"method":     "RunSwapOnShard",
-	})
-
-	rt, err := t.newReindexTracker(concreteShard.pathLSM())
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
-
-	// State-on-disk vs state-in-RAFT race: a rolling restart that
-	// landed inside the FINALIZING window can leave a node with the
-	// unit's terminal state replicated in RAFT (the unit-completion
-	// record landed before the crash) but the on-disk markReindexed
-	// sentinel lost (file write didn't persist before SIGTERM, or the
-	// race went the other way and the iteration was still running when
-	// RAFT replicated some OTHER node's vote that flipped the group to
-	// FINALIZING). The recovered task's [OnAfterLsmInit] (fired at
-	// shard init by [shardReindexerV3RecoveryOnly]) only loads buckets
-	// — it does NOT run the iteration. The iteration lives in
-	// [OnAfterLsmInitAsync], which the recovery-only reindexer
-	// intentionally no-ops.
-	//
-	// If we land here with state "started but not reindexed", we need
-	// to resume the iteration before swapping. Calling
-	// [RunReindexOnlyOnShard] is the right entry point: it runs
-	// OnAfterLsmInit (idempotent for already-loaded buckets) and then
-	// loops OnAfterLsmInitAsync until the iteration terminates and
-	// markReindexed fires. After the call returns, we re-read the
-	// tracker and continue with the sentinel-aware swap dispatch.
-	//
-	// This is the local repro path where the iteration didn't reach
-	// markReindexed but the scheduler still scheduled the swap (e.g.
-	// rolling restart caught the unit mid-iteration).
-	if !rt.IsReindexed() {
-		if !rt.IsStarted() {
-			// Migration never started on this shard. This shouldn't
-			// happen via OnGroupCompleted (the scheduler only invokes
-			// this for units that were assigned to this node), but
-			// surface it cleanly rather than silently completing.
-			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
-		}
-		logger.Info("RunSwapOnShard: state not yet reindexed on disk; resuming iteration before swap")
-		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
-			return fmt.Errorf("resume iteration before swap: %w", err)
-		}
-		// Re-read tracker. The iteration should have set IsReindexed
-		// (and possibly more — runtimeSwap MAY have run inline if
-		// skipSwapOnFinish was somehow not honored, though it's set in
-		// runShardLifecycle).
-		rt, err = t.newReindexTracker(concreteShard.pathLSM())
-		if err != nil {
-			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
-		}
-		if !rt.IsReindexed() {
-			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
-		}
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
@@ -815,29 +801,45 @@ func unwrapShard(ctx context.Context, shard ShardLike) (*Shard, error) {
 	}
 }
 
-func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
-	collectionName := shard.Index().Config.ClassName.String()
-	shardName := shard.Name()
+// logPhase builds the per-invocation logger and the finished-lifecycle
+// callback shared by the LSM-init hooks. context.Canceled logs at Debug —
+// the scheduler already logs the cancelled unit.
+func (t *ShardReindexTaskGeneric) logPhase(collectionName, shardName, method string,
+) (logrus.FieldLogger, func(started time.Time, err error)) {
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shardName,
-		"method":     "OnBeforeLsmInit",
+		"method":     method,
 	})
 	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
+	done := func(started time.Time, err error) {
+		logger := logger.WithField("took", time.Since(started))
+		switch {
+		case err == nil:
 			logger.Info("finished")
+		case errors.Is(err, context.Canceled):
+			logger.Debugf("finished after cancellation: %v", err)
+		default:
+			logger.Errorf("finished with error: %v", err)
 		}
-	}(time.Now())
+	}
+	return logger, done
+}
+
+func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Shard) (err error) {
+	collectionName := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
+	logger, done := t.logPhase(collectionName, shardName, "OnBeforeLsmInit")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	if !t.isShardSelected(collectionName, shardName) {
 		logger.Debug("different collection/shard selected. nothing to do")
 		return nil
 	}
 
+	// Deliberately unguarded: only reachable from shard init, where some
+	// routes hold closeLock.RLock — a nested RLock would deadlock against a
+	// queued drop() writer (see newReindexTrackerGuarded).
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
@@ -1044,23 +1046,35 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 	return nil
 }
 
-func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) (err error) {
+// OnAfterLsmInit is the shard-init entry into the after-LSM-init hook. It
+// uses the plain tracker because some NewShard routes hold closeLock.RLock
+// (see newReindexTrackerGuarded); DTM-driven callers MUST use
+// onAfterLsmInitGuarded instead.
+func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
+	return t.onAfterLsmInitWithTracker(ctx, shard, func(s *Shard) (reindexTracker, error) {
+		return t.newReindexTracker(s.pathLSM())
+	})
+}
+
+// onAfterLsmInitGuarded is the DTM-route entry into the after-LSM-init hook:
+// scheduler/worker goroutines hold no closeLock, so the tracker init must be
+// guarded against a concurrent Index.drop. Returns context.Canceled
+// unwrapped when the index is closing (clean stop).
+func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, shard *Shard) error {
+	return t.onAfterLsmInitWithTracker(ctx, shard, func(s *Shard) (reindexTracker, error) {
+		return t.newReindexTrackerGuarded(s)
+	})
+}
+
+// onAfterLsmInitWithTracker is the shared body of OnAfterLsmInit /
+// onAfterLsmInitGuarded; newTracker selects the plain or guarded factory.
+func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context, shard *Shard,
+	newTracker func(*Shard) (reindexTracker, error),
+) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
-	logger := t.logger.WithFields(map[string]any{
-		"collection": collectionName,
-		"shard":      shardName,
-		"method":     "OnAfterLsmInit",
-	})
-	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
-			logger.Info("finished")
-		}
-	}(time.Now())
+	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInit")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	// skip shard only if not started or rollback requested
 	// otherwise double writes have to be enabled if migration was already started
@@ -1071,8 +1085,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 
-	rt, err := t.newReindexTracker(shard.pathLSM())
+	rt, err := newTracker(shard)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Guarded route: return unwrapped so callers can errors.Is on it.
+			logger.Debug("index is closing, stopping after-LSM-init hook")
+			return err
+		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return err
 	}
@@ -1204,24 +1223,29 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	return nil
 }
 
+// newReindexTrackerGuarded serializes the tracker's init()-time MkdirAll
+// against Index.drop: DTM-driven callers hold no closeLock, and an unguarded
+// MkdirAll would re-create the class dir a concurrent DELETE just renamed
+// away. context.Canceled means the index is closing (clean stop).
+//
+// The shard-init hooks MUST keep the plain factory: some NewShard routes
+// hold closeLock.RLock, and a nested RLock (sync.RWMutex is non-reentrant)
+// deadlocks against a queued drop() writer.
+func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (reindexTracker, error) {
+	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
+	rt.mkdirGuard = t.trackerMkdirGuard(shard)
+	if err := rt.init(); err != nil {
+		return nil, err
+	}
+	return rt, nil
+}
+
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
-	logger := t.logger.WithFields(map[string]any{
-		"collection": collectionName,
-		"shard":      shardName,
-		"method":     "OnAfterLsmInitAsync",
-	})
-	logger.Info("starting")
-	defer func(started time.Time) {
-		logger = logger.WithField("took", time.Since(started))
-		if err != nil {
-			logger.Errorf("finished with error: %v", err)
-		} else {
-			logger.Info("finished")
-		}
-	}(time.Now())
+	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInitAsync")
+	defer func(started time.Time) { done(started, err) }(time.Now())
 
 	zerotime := time.Time{}
 
@@ -1230,8 +1254,14 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
-	rt, err := t.newReindexTracker(shard.pathLSM())
+	// Guarded: a cancelled worker re-enters here with no ctx check before the
+	// tracker's MkdirAll (see newReindexTrackerGuarded).
+	rt, err := t.newReindexTrackerGuarded(shard)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Debug("index is closing, stopping reindex drain")
+			return zerotime, false, err
+		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return zerotime, false, err
 	}

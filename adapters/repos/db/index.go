@@ -3293,6 +3293,25 @@ func (i *Index) drop() error {
 	return nil
 }
 
+// withCloseRLockGuard runs fn under i.closeLock.RLock, returning
+// context.Canceled WITHOUT running fn if the index is closing/closed. fn
+// must be short and must not acquire i.closeLock for writing or any lock
+// drop() holds in an inverting order.
+//
+// Covers whole-index drops only: dropShards never sets i.closed, so tenant
+// deletes are invisible to the guard. Tracked in
+// https://github.com/weaviate/0-weaviate-issues/issues/288.
+func (i *Index) withCloseRLockGuard(fn func() error) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return context.Canceled
+	}
+
+	return fn()
+}
+
 func (i *Index) dropShards(names []string) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
