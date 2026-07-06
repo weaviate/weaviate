@@ -315,12 +315,6 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 	return nil
 }
 
-// onAddToPropertyValueIndex fires all add callbacks with no scope
-// suppression; used outside the threaded write path (and by tests).
-func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
-}
-
 func isMetaCountProperty(property inverted.Property) bool {
 	return len(property.Name) > len(schema.InternalMetaCountSuffix) &&
 		strings.HasSuffix(property.Name, schema.InternalMetaCountSuffix)

@@ -27,6 +27,18 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+// onAddToPropertyValueIndex and onDeleteFromPropertyValueIndex are test-only
+// shorthands that fire the registered add/delete callbacks against the shard's
+// default (no-scope) index state. Production code fires callbacks via
+// fire{Add,Delete}FromPropertyValueIndex directly with an explicit scope state.
+func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
+	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
+}
+
+func (s *Shard) onDeleteFromPropertyValueIndex(docID uint64, property *inverted.Property) error {
+	return s.fireDeleteFromPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
+}
+
 func TestShardCallbacks_AddToPropertyValueIndex(t *testing.T) {
 	t.Run("callback fires", func(t *testing.T) {
 		s := &Shard{}

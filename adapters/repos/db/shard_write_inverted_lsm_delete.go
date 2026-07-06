@@ -183,9 +183,3 @@ func (s *Shard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64
 
 	return bucket.RoaringSetRangeRemove(binary.BigEndian.Uint64(key), docID)
 }
-
-// onDeleteFromPropertyValueIndex fires all delete callbacks with no scope
-// suppression; used outside the threaded write path (and by tests).
-func (s *Shard) onDeleteFromPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	return s.fireDeleteFromPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
-}
