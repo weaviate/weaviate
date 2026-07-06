@@ -30,17 +30,16 @@ import (
 )
 
 // TestBaseModule_EnvShardConcurrencyReachesService verifies USAGE_SHARD_CONCURRENCY reaches
-// the usage service regardless of whether the service is wired before or after module Init.
+// the usage service. The service is wired after Init, matching production ordering
+// (postInitModules runs after initModules), so the parsed env value is pushed on wiring.
 func TestBaseModule_EnvShardConcurrencyReachesService(t *testing.T) {
 	t.Setenv("USAGE_SHARD_CONCURRENCY", "3")
 
 	mockStorage := NewMockStorageBackend(t)
 	mockService := clusterusage.NewMockService(t)
-	mockService.EXPECT().SetShardConcurrency(DefaultShardConcurrency).Return().Once()
 	mockService.EXPECT().SetShardConcurrency(3).Return().Once()
 
 	module := NewBaseModule("test-module", mockStorage)
-	module.SetUsageService(mockService)
 
 	cfg := &config.Config{}
 	cfg.Cluster.Hostname = "test-node"
@@ -49,6 +48,8 @@ func TestBaseModule_EnvShardConcurrencyReachesService(t *testing.T) {
 
 	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logrus.New(),
 		NewMetrics(prometheus.NewRegistry(), "test-module")))
+
+	module.SetUsageService(mockService)
 	close(module.stopChan)
 
 	assert.Equal(t, 3, module.shardConcurrency)
@@ -80,9 +81,10 @@ func TestBaseModule_RuntimeOverridesShardConcurrencyReachesService(t *testing.T)
 	}).Return().Once()
 
 	module := NewBaseModule("test-module", mockStorage)
-	module.SetUsageService(mockService)
 	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logrus.New(),
 		NewMetrics(prometheus.NewRegistry(), "test-module")))
+	// wire the service after Init, matching production ordering
+	module.SetUsageService(mockService)
 	defer close(module.stopChan)
 
 	// register the module's DynamicValue in a real config manager, like configure_api does
