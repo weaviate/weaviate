@@ -57,7 +57,7 @@ func TestMultiNode_ChangeTokenization_RoundTrip(t *testing.T) {
 	const className = "RoundTripTokenize"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
@@ -133,20 +133,15 @@ func perNodeBM25Counts(t *testing.T, compose *docker.DockerCompose, className, q
 	return counts
 }
 
-// awaitTokenizationOnAllNodes polls each node's /v1/schema/{class} until
-// the named property's tokenization matches the target. The schema flip is
-// RAFT-replicated from the OnTaskCompleted commit, so it lands on every
-// node within RAFT propagation latency — typically tens of ms.
+// awaitTokenizationOnAllNodes gates each node's LOCAL schema; a leader-
+// proxied read here would just check the leader three times over.
 func awaitTokenizationOnAllNodes(
 	t *testing.T, compose *docker.DockerCompose, className, propName, target string,
 ) {
 	t.Helper()
 
 	for i := 0; i < 3; i++ {
-		uri := compose.GetWeaviateNode(i + 1).URI()
-		require.Eventuallyf(t, func() bool {
-			return tryGetPropertyTokenization(uri, className, propName) == target
-		}, 30*time.Second, 50*time.Millisecond,
-			"node %d: property %q tokenization should be %q", i+1, propName, target)
+		reindexhelpers.AwaitTokenizationVisible(t,
+			compose.GetWeaviateNode(i+1).URI(), className, propName, target)
 	}
 }

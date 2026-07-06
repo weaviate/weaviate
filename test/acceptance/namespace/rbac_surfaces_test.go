@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/export"
@@ -35,6 +36,29 @@ import (
 // s3Backend is the backend identifier for the backup-s3 module wired in
 // setup_test.go; the same MinIO bucket also backs export.
 const s3Backend = "s3"
+
+// waitBackupCreated issues root's backup-create for a class, retrying only
+// while the coordinator's local precheck transiently 422s during cluster
+// bring-up (the 422 rejects before any staging, so the same ID is safe to
+// resend). Any other error fails the test immediately.
+func waitBackupCreated(t *testing.T, className, backupID string) *backups.BackupsCreateOK {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		okResp, err := helper.CreateBackupWithAuthz(
+			t, helper.DefaultBackupConfig(), className, s3Backend, backupID,
+			helper.CreateAuth(adminKey))
+		if err == nil {
+			return okResp
+		}
+		var unproc *backups.BackupsCreateUnprocessableEntity
+		require.Truef(t, errors.As(err, &unproc),
+			"root backup-create failed with non-transient error: %T: %v", err, err)
+		require.Falsef(t, time.Now().After(deadline),
+			"root backup-create still 422 after 30s: %v", err)
+		time.Sleep(200 * time.Millisecond)
+	}
+}
 
 // TestNamespaces_RBACSurfaces locks the contract that a namespaced user holding
 // the built-in admin role (granted in createNamespacedUser) is denied every
@@ -125,10 +149,7 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		// reaches SUCCESS — a real, completed operator action. The ID carries a
 		// unique suffix so reruns against the shared, persisted bucket don't collide.
 		backupID := fmt.Sprintf("ns-root-backup-%s-%d", ns1, time.Now().UnixNano())
-		okResp, err := helper.CreateBackupWithAuthz(
-			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
-			helper.CreateAuth(adminKey))
-		require.NoError(t, err)
+		okResp := waitBackupCreated(t, qualified, backupID)
 		// Root sees qualified Classes; backup endpoints are operator-only.
 		require.NotNil(t, okResp.Payload)
 		assert.Contains(t, okResp.Payload.Classes, qualified,
@@ -240,6 +261,13 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 				WithAction(authorization.ManageNamespaces).
 				WithNamespace("*").
 				Permission(),
+			{
+				Action: &authorization.ReadGroups,
+				Groups: &models.PermissionGroups{
+					Group:     authorization.String("*"),
+					GroupType: models.GroupTypeOidc,
+				},
+			},
 		},
 	})
 	t.Cleanup(func() { helper.DeleteRole(t, adminKey, role) })
@@ -347,5 +375,26 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 
 		helper.CreateNamespace(t, newNS, adminKey)
 		t.Cleanup(func() { helper.DeleteNamespace(t, newNS, adminKey) })
+	})
+
+	t.Run("group roles: namespaced role denied despite read_groups, root allowed", func(t *testing.T) {
+		// OIDC groups are global, not namespace-bearing: read_groups on groups/*
+		// would match the groups domain, but the operator-only deny fires for the
+		// namespaced caller. The group is one u1 does not belong to, so the
+		// handler runs the authz check rather than the own-group fast path.
+		const grp = "operator-only-group"
+		_, err := helper.Client(t).Authz.GetRolesForGroup(
+			authz.NewGetRolesForGroupParams().WithID(grp).WithGroupType(string(models.GroupTypeOidc)),
+			helper.CreateAuth(u1Key))
+		require.Error(t, err)
+		var forbidden *authz.GetRolesForGroupForbidden
+		require.True(t, errors.As(err, &forbidden), "expected GetRolesForGroupForbidden, got %T: %v", err, err)
+
+		// Root reads the same group's roles (empty, but a real 200) — proof the
+		// deny is narrowing, not a disabled endpoint.
+		_, err = helper.Client(t).Authz.GetRolesForGroup(
+			authz.NewGetRolesForGroupParams().WithID(grp).WithGroupType(string(models.GroupTypeOidc)),
+			helper.CreateAuth(adminKey))
+		require.NoError(t, err)
 	})
 }
