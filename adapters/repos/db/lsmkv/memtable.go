@@ -120,14 +120,11 @@ type Memtable struct {
 	commitlog       memtableCommitLogger
 	allocChecker    memwatch.AllocChecker
 	size            uint64
-	// netCountAdditions approximates the net number of live keys this
-	// memtable adds on top of older memtables/segments: +1 when a put makes a
-	// key live that wasn't live here, -1 when a tombstone kills a key that
-	// wasn't already tombstoned here. Whether the key exists further down the
-	// LSM tree is unknown at write time, so an update of a flushed key
-	// over-counts and a delete of a never-written key under-counts by one
-	// each; the drift disappears at flush, when the segment's exact net count
-	// is computed. Only maintained for StrategyReplace.
+	// netCountAdditions approximates the net live keys this memtable adds on
+	// top of the rest of the LSM tree. Whether a key already exists further
+	// down is unknown at write time: updates of flushed keys over-count,
+	// deletes of never-written keys under-count, and the drift is corrected by
+	// the exact per-segment count at flush. StrategyReplace only.
 	netCountAdditions  int
 	path               string
 	strategy           string
@@ -645,16 +642,13 @@ func (m *Memtable) countStats() *countStats {
 	return m.key.countStats()
 }
 
-// netCount returns the approximate net key additions of this memtable, see
-// netCountAdditions.
 func (m *Memtable) netCount() int {
 	m.RLock()
 	defer m.RUnlock()
 	return m.netCountAdditions
 }
 
-// isTombstoned reports whether the key currently sits in this memtable as a
-// tombstone. Callers must hold the memtable lock.
+// isTombstoned must be called with the memtable lock held.
 func (m *Memtable) isTombstoned(key []byte) bool {
 	err := m.key.exists(key)
 	return err != nil && !errors.Is(err, lsmkv.NotFound)

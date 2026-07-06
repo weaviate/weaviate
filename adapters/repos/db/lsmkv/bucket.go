@@ -1492,11 +1492,9 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-// CountApproximate estimates the bucket's net key count as the sum of the
-// flushed segments' exact net-count additions and each memtable's approximate
-// net-count counter (see Memtable.netCountAdditions). Unlike Count it is
-// O(#segments) — no memtable walk, no per-key disk probes — at the price of
-// the counters' bounded drift, which self-corrects at flush.
+// CountApproximate is a cheap O(#segments) alternative to Count: exact
+// per-segment counts plus each memtable's approximate counter (see
+// Memtable.netCountAdditions for the drift bounds).
 func (b *Bucket) CountApproximate() (int, error) {
 	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
 		return 0, fmt.Errorf("Bucket::CountApproximate(): %w", err)

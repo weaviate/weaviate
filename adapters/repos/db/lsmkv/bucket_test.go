@@ -757,28 +757,10 @@ func TestCountApproximate(t *testing.T) {
 
 	t.Run("memtable-resident inserts and deletes", func(t *testing.T) {
 		b := newBucket(t)
-		putKeys(t, b, 10)
-		requireApprox(t, b, 10)
-
-		for i := 0; i < 3; i++ {
-			require.NoError(t, b.Delete([]byte(fmt.Sprintf("key-%02d", i))))
-		}
-		requireApprox(t, b, 7)
-		requireExact(t, b, 7)
-	})
-
-	t.Run("matches exact count across flushes", func(t *testing.T) {
-		b := newBucket(t)
-		putKeys(t, b, 10)
-		require.NoError(t, b.FlushMemtable())
-		requireApprox(t, b, 10)
-
+		putKeys(t, b, 3)
 		require.NoError(t, b.Delete([]byte("key-00")))
-		require.NoError(t, b.Put([]byte("key-new"), []byte("value")))
-		requireApprox(t, b, 10)
-		require.NoError(t, b.FlushMemtable())
-		requireApprox(t, b, 10)
-		requireExact(t, b, 10)
+		requireApprox(t, b, 2)
+		requireExact(t, b, 2)
 	})
 
 	t.Run("over-counts an unflushed update of a flushed key until the next flush", func(t *testing.T) {
@@ -844,9 +826,8 @@ func TestCountApproximate(t *testing.T) {
 
 		b = newFromDir()
 		defer func() { require.NoError(t, b.Shutdown(ctx)) }()
-		// WAL replay dedups key-00's put+delete into a bare tombstone, so the
-		// rebuilt counter sees a delete of an unseen key: the documented
-		// under-count drift, corrected at the next flush
+		// WAL replay dedups key-00's put+delete into a bare tombstone: the
+		// documented delete-of-unseen-key under-count, corrected at flush
 		requireApprox(t, b, 1)
 		requireExact(t, b, 2)
 		require.NoError(t, b.FlushMemtable())

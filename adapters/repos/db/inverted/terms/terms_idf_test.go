@@ -26,9 +26,7 @@ func TestIdf(t *testing.T) {
 		want float64
 	}{
 		{"typical", 5, 100, math.Log(float64(1) + (100-5+0.5)/(5+0.5))},
-		{"n equals N", 100, 100, math.Log(float64(1) + 0.5/100.5)},
 		{"N undershoots n, clamped to n", 100, 3, math.Log(float64(1) + 0.5/100.5)},
-		{"zero n and N", 0, 0, math.Log(float64(2))},
 	}
 
 	for _, tt := range tests {

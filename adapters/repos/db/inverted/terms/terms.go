@@ -61,10 +61,9 @@ func (d *DocPointerWithScore) FromKeyVal(key []byte, value []byte, isTombstone b
 	return nil
 }
 
-// Idf computes the BM25 idf for a term matching n of N documents. N is
-// clamped to n: with an approximate document count (Bucket.CountApproximate)
-// N can undershoot a term's document frequency, and an unclamped idf would
-// go negative, corrupting scores and WAND pruning bounds.
+// Idf computes the BM25 idf for a term matching n of N documents, clamping
+// N to n: an approximate (undercounted) N would otherwise yield a negative
+// idf, corrupting scores and WAND pruning bounds.
 func Idf(n, N float64) float64 {
 	if N < n {
 		N = n

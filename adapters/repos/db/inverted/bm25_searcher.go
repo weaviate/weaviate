@@ -146,9 +146,6 @@ type bm25QueryStats struct {
 }
 
 func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (bm25QueryStats, error) {
-	// The approximate count avoids walking the object memtables per query; the
-	// resulting N can undershoot a term's document frequency, which terms.Idf
-	// clamps away.
 	count, err := b.store.Bucket(helpers.ObjectsBucketLSM).CountApproximate()
 	if err != nil {
 		return bm25QueryStats{}, fmt.Errorf("count objects: %w", err)

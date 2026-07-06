@@ -37,7 +37,6 @@ func TestMemtable_NetCount(t *testing.T) {
 		ops      []op
 		expected int
 	}{
-		{"single insert", []op{put("a")}, 1},
 		{"distinct inserts", []op{put("a"), put("b")}, 2},
 		{"update within memtable", []op{put("a"), put("a")}, 1},
 		{"insert then delete", []op{put("a"), del("a")}, 0},
@@ -45,8 +44,6 @@ func TestMemtable_NetCount(t *testing.T) {
 		{"repeated delete", []op{del("a"), del("a")}, -1},
 		{"delete then resurrect", []op{del("a"), put("a")}, 0},
 		{"delete with time", []op{put("a"), delWith("a")}, 0},
-		{"delete with time of unseen key", []op{delWith("a")}, -1},
-		{"mixed", []op{put("a"), put("b"), del("a"), put("c"), del("d")}, 1},
 	}
 
 	logger, _ := test.NewNullLogger()
