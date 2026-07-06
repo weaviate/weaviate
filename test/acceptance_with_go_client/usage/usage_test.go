@@ -415,7 +415,8 @@ func TestRestart(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	usage, err := getDebugUsageWithPort(debug)
+	// collect with concurrent shard readers, compare with the default report after restart
+	usage, err := getDebugUsageWithPort(debug, 4)
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 
