@@ -52,6 +52,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
@@ -1437,6 +1438,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
+	if err != nil {
+		appState.Logger.WithField("action", "grpc_web_startup").
+			Fatalf("init grpc-web handler: %v", err)
+	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1565,7 +1571,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	startGrpcServer(grpcServer, appState)
 	setupMCPHandlers(api, appState, objectsManager)
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+
+	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	// Serve grpc-web on the REST port under /grpc-web/ rather than a dedicated listener
+	return grpcweb.Mount("/grpc-web", grpcWebHandler, restHandler,
+		func() bool { return appState.ServerConfig.Config.GRPC.WebEnabledOrDefault() })
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
@@ -2648,6 +2658,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.WebEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

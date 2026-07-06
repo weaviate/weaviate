@@ -627,6 +627,40 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 	}
 }
 
+// TestEnvironmentGRPCWebEnabledDefaultsTrue pins that grpc-web is on by default
+// on every construction path now that the enable env var is gone: FromEnv seeds a
+// non-nil DynamicValue(true) (so the runtime override has a live value to flip),
+// and a bare Config resolves true via the nil-safe accessor (nil.Get() would
+// otherwise be false and silently disable the default).
+func TestEnvironmentGRPCWebEnabledDefaultsTrue(t *testing.T) {
+	t.Run("bare Config resolves true via accessor", func(t *testing.T) {
+		require.True(t, Config{}.GRPC.WebEnabledOrDefault())
+	})
+
+	// The config file is parsed into GRPC.WebEnabled before FromEnv runs, so
+	// FromEnv must only default when nothing set the value. Anything already there
+	// (an operator's grpc.webEnabled off-switch, in particular) has to survive.
+	preset := []struct {
+		name string
+		seed *configRuntime.DynamicValue[bool]
+		want bool
+	}{
+		{name: "nil is seeded to default true", seed: nil, want: true},
+		{name: "file-set false survives", seed: configRuntime.NewDynamicValue(false), want: false},
+		{name: "file-set true survives", seed: configRuntime.NewDynamicValue(true), want: true},
+	}
+	for _, tt := range preset {
+		t.Run("FromEnv preserves file value: "+tt.name, func(t *testing.T) {
+			conf := Config{}
+			conf.GRPC.WebEnabled = tt.seed
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.GRPC.WebEnabled, "runtime override needs a live value to toggle")
+			require.Equal(t, tt.want, conf.GRPC.WebEnabled.Get())
+			require.Equal(t, tt.want, conf.GRPC.WebEnabledOrDefault())
+		})
+	}
+}
+
 func TestEnvironmentCORS_Methods(t *testing.T) {
 	factors := []struct {
 		name        string

@@ -950,6 +950,9 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
 		config.GRPC.KeyFile = v
 	}
+	if config.GRPC.WebEnabled == nil {
+		config.GRPC.WebEnabled = configRuntime.NewDynamicValue(true)
+	}
 
 	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",

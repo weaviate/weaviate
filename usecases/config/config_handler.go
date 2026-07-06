@@ -868,12 +868,18 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port            int           `json:"port" yaml:"port"`
-	CertFile        string        `json:"certFile" yaml:"certFile"`
-	KeyFile         string        `json:"keyFile" yaml:"keyFile"`
-	MaxMsgSize      int           `json:"maxMsgSize" yaml:"maxMsgSize"`
-	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
-	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
+	Port            int                         `json:"port" yaml:"port"`
+	CertFile        string                      `json:"certFile" yaml:"certFile"`
+	KeyFile         string                      `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize      int                         `json:"maxMsgSize" yaml:"maxMsgSize"`
+	MaxOpenConns    int                         `json:"maxOpenConns" yaml:"maxOpenConns"`
+	IdleConnTimeout time.Duration               `json:"idleConnTimeout" yaml:"idleConnTimeout"`
+	WebEnabled      *runtime.DynamicValue[bool] `json:"webEnabled" yaml:"webEnabled"`
+}
+
+// WebEnabledOrDefault reports whether grpc-web serving is enabled, defaulting to true
+func (g GRPC) WebEnabledOrDefault() bool {
+	return g.WebEnabled == nil || g.WebEnabled.Get()
 }
 
 type MCP struct {
@@ -1078,7 +1084,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

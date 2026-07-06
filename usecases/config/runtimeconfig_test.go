@@ -464,6 +464,26 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, 0*time.Second, raftDrainSleep.Get())
 	})
 
+	t.Run("updating grpc_web_enabled (default true)", func(t *testing.T) {
+		// registered default is true (grpc-web on by default); pin that the
+		// snake_case key toggles it off and that removing the override restores
+		// the default rather than sticking at false.
+		reg := &WeaviateRuntimeConfig{
+			GRPCWebEnabled: runtime.NewDynamicValue(true),
+		}
+		assert.Equal(t, true, reg.GRPCWebEnabled.Get())
+
+		parsed, err := ParseRuntimeConfig([]byte(`grpc_web_enabled: false`))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, false, reg.GRPCWebEnabled.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(``))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, true, reg.GRPCWebEnabled.Get())
+	})
+
 	t.Run("updating raft_timeouts_multiplier", func(t *testing.T) {
 		var raftTimeoutsMultiplier runtime.DynamicValue[int]
 
