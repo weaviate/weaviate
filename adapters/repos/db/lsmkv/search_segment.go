@@ -110,7 +110,11 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			if firstNonExhausted == -1 {
 				firstNonExhausted = pivotPoint
 			}
-			cumScore += results[pivotPoint].idf
+			// worstDist is a real BM25 score (idf*tf*propertyBoost), so the per-term
+			// upper bound summed here must carry propertyBoost too; omitting it
+			// under-counts boosted terms, sinks the pivot too deep and skips genuine
+			// top-K docs.
+			cumScore += results[pivotPoint].idf * results[pivotPoint].propertyBoost
 			if cumScore >= worstDist {
 				pivotID = results[pivotPoint].idPointer
 				for i := pivotPoint + 1; i < len(results); i++ {
@@ -218,15 +222,15 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 		} else {
 			nextList := pivotPoint
-			maxWeight := results[nextList].idf
+			maxWeight := results[nextList].idf * results[nextList].propertyBoost
 			next := uint64(math.MaxUint64) // max uint
 
 			candidates := results[:pivotPoint+1]
 			for i := range candidates {
 				t := candidates[i]
-				if i < pivotPoint && t.idf > maxWeight {
+				if w := t.idf * t.propertyBoost; i < pivotPoint && w > maxWeight {
 					nextList = i
-					maxWeight = t.idf
+					maxWeight = w
 				}
 				if t.currentBlockMaxId < next {
 					next = t.currentBlockMaxId

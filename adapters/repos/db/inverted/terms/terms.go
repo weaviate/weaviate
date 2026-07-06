@@ -338,7 +338,11 @@ func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 		if term.Exhausted() {
 			continue
 		}
-		cumScore += term.Idf()
+		// minScore is a real BM25 score carrying propertyBoost, so the per-term
+		// upper bound must too: CurrentBlockImpact is idf*propertyBoost, whereas
+		// bare Idf under-counts boosted terms and sinks the pivot too deep,
+		// skipping genuine top-K docs. Matches FindMinID (the block-max pivot).
+		cumScore += float64(term.CurrentBlockImpact())
 		if cumScore >= minScore {
 			return term.IdPointer(), i, false
 		}
