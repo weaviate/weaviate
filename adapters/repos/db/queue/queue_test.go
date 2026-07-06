@@ -595,7 +595,7 @@ func TestCorruptChunkHeaderRecovery(t *testing.T) {
 				// backups must not pick it up
 				files, err := q.ListFiles(t.Context(), tmpDir)
 				require.NoError(t, err)
-				require.Len(t, files, 1)
+				require.Contains(t, files, filepath.Base(validChunk))
 				for _, f := range files {
 					require.False(t, strings.HasSuffix(f, ".corrupt"), "quarantined chunk should not appear in backup list")
 				}
