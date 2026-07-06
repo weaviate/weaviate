@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type innerTest struct {
@@ -1341,6 +1342,116 @@ func TestSubjectNamespace(t *testing.T) {
 			require.Equal(t, tt.wantUser, user)
 			require.Equal(t, tt.wantAuthType, authType)
 			require.Equal(t, tt.wantNamespace, namespace)
+		})
+	}
+}
+
+// TestUserNameWithTypeScoped pins the empty-namespace slot encoding: only a
+// global OIDC subject gets the leading ':'. Every row round-trips back to its
+// (namespace, name) through SubjectNamespace/NamespaceFromQualified, and
+// StripGlobalOIDCSlot inverts the slot for global OIDC rows.
+func TestUserNameWithTypeScoped(t *testing.T) {
+	tests := []struct {
+		name          string
+		authType      authentication.AuthType
+		user          string // user-portion before slotting (already qualified for namespaced rows)
+		isGlobal      bool
+		wantSubject   string
+		wantNamespace string
+		wantName      string // original name recovered from the subject
+	}{
+		{
+			name:          "global oidc bare name gets slot",
+			authType:      authentication.AuthTypeOIDC,
+			user:          "carol",
+			isGlobal:      true,
+			wantSubject:   "oidc::carol",
+			wantNamespace: "",
+			wantName:      "carol",
+		},
+		{
+			name:          "global oidc colon-bearing name gets slot",
+			authType:      authentication.AuthTypeOIDC,
+			user:          "customer1:carol",
+			isGlobal:      true,
+			wantSubject:   "oidc::customer1:carol",
+			wantNamespace: "",
+			wantName:      "customer1:carol",
+		},
+		{
+			name:          "global oidc name starting with colon: single slot, no double-slot",
+			authType:      authentication.AuthTypeOIDC,
+			user:          ":carol",
+			isGlobal:      true,
+			wantSubject:   "oidc:::carol",
+			wantNamespace: "",
+			wantName:      ":carol",
+		},
+		{
+			name:          "namespaced oidc carol",
+			authType:      authentication.AuthTypeOIDC,
+			user:          "customer1:carol",
+			isGlobal:      false,
+			wantSubject:   "oidc:customer1:carol",
+			wantNamespace: "customer1",
+			wantName:      "carol",
+		},
+		{
+			name:          "namespaced oidc colon-bearing short name",
+			authType:      authentication.AuthTypeOIDC,
+			user:          "customer1:foo:bar",
+			isGlobal:      false,
+			wantSubject:   "oidc:customer1:foo:bar",
+			wantNamespace: "customer1",
+			wantName:      "foo:bar",
+		},
+		{
+			name:          "same short name in another namespace does not collide",
+			authType:      authentication.AuthTypeOIDC,
+			user:          "customer2:carol",
+			isGlobal:      false,
+			wantSubject:   "oidc:customer2:carol",
+			wantNamespace: "customer2",
+			wantName:      "carol",
+		},
+		{
+			name:          "global db row: no slot",
+			authType:      authentication.AuthTypeDb,
+			user:          "bob",
+			isGlobal:      true,
+			wantSubject:   "db:bob",
+			wantNamespace: "",
+			wantName:      "bob",
+		},
+		{
+			name:          "ns-disabled oidc row: no slot",
+			authType:      authentication.AuthTypeOIDC,
+			user:          "carol",
+			isGlobal:      false,
+			wantSubject:   "oidc:carol",
+			wantNamespace: "",
+			wantName:      "carol",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := UserNameWithTypeScoped(tt.authType, tt.user, tt.isGlobal)
+			require.Equal(t, tt.wantSubject, subject)
+
+			userPortion, authType, namespace, err := SubjectNamespace(subject)
+			require.NoError(t, err)
+			require.Equal(t, tt.authType, authType)
+			require.Equal(t, tt.wantNamespace, namespace)
+			require.Equal(t, tt.wantNamespace, namespacing.NamespaceFromQualified(userPortion))
+
+			switch {
+			case tt.authType == authentication.AuthTypeOIDC && tt.isGlobal:
+				require.Equal(t, tt.wantName, StripGlobalOIDCSlot(userPortion))
+			case tt.wantNamespace != "":
+				require.Equal(t, tt.wantName, namespacing.StripQualification(userPortion))
+			default:
+				require.Equal(t, tt.wantName, userPortion)
+			}
 		})
 	}
 }

@@ -585,6 +585,33 @@ func UserNameWithTypeFromId(username string, authType authentication.AuthType) s
 	return fmt.Sprintf("%s:%s", authType, username)
 }
 
+// ScopedSubjectUser returns the grouping-subject user-portion for a principal.
+// A global OIDC user gets one leading PREFIX_SEPARATOR (the empty-namespace
+// slot) so it can never collide with a namespaced OIDC user of the same short
+// name; every other case (namespaced OIDC, any DB, NS-disabled) is returned
+// unchanged.
+func ScopedSubjectUser(authType authentication.AuthType, user string, isGlobal bool) string {
+	if isGlobal && authType == authentication.AuthTypeOIDC {
+		return PREFIX_SEPARATOR + user
+	}
+	return user
+}
+
+// UserNameWithTypeScoped builds the full casbin subject for a principal,
+// applying the empty-namespace slot for global OIDC users (see
+// ScopedSubjectUser).
+func UserNameWithTypeScoped(authType authentication.AuthType, user string, isGlobal bool) string {
+	return UserNameWithTypeFromId(ScopedSubjectUser(authType, user, isGlobal), authType)
+}
+
+// StripGlobalOIDCSlot removes exactly one leading PREFIX_SEPARATOR from an OIDC
+// user-portion — the inverse of the slot added by ScopedSubjectUser. Apply only
+// to OIDC user-portions on namespace-enabled clusters, where a leading ':' is
+// unambiguously the global slot.
+func StripGlobalOIDCSlot(user string) string {
+	return strings.TrimPrefix(user, PREFIX_SEPARATOR)
+}
+
 func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
