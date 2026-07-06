@@ -1346,6 +1346,18 @@ func (s *Shard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, 
 	return s.asyncCheckpointHashtree.Root(), s.asyncCheckpointCutoff, s.asyncCheckpointCreatedAt, true
 }
 
+// HashTreeRoot returns the shard's async-replication hashtree root; ok is false when the
+// hashtree is not fully initialised. Computed like HashTreeLevel(level=0) so roots match.
+func (s *Shard) HashTreeRoot() (root hashtree.Digest, ok bool) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if !s.hashtreeFullyInitialized {
+		return hashtree.Digest{}, false
+	}
+	return s.hashtree.Root(), true
+}
+
 // runHashbeatCycle runs one full hashbeat cycle and is called by a scheduler
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).

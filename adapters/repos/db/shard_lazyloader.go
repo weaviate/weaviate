@@ -804,6 +804,13 @@ func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
 	return l.isLoaded()
 }
 
+func (l *LazyLoadShard) HashTreeRoot() (root hashtree.Digest, ok bool) {
+	if !l.isLoaded() {
+		return hashtree.Digest{}, false
+	}
+	return l.shard.HashTreeRoot()
+}
+
 func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

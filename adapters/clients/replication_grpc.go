@@ -19,6 +19,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
@@ -402,6 +404,37 @@ func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index,
 		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
 	}
 	return protoToRepairResponses(resp.GetDigests()), nil
+}
+
+func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+
+	shards := make([]*protocol.ShardRootDigest, 0, len(roots))
+	for shard, root := range roots {
+		shards = append(shards, &protocol.ShardRootDigest{
+			Shard:        shard,
+			RootHashHigh: root[0],
+			RootHashLow:  root[1],
+		})
+	}
+
+	resp, err := client.CompareHashTreeRoots(ctx, &protocol.CompareHashTreeRootsRequest{
+		Index:            index,
+		ShardRootDigests: shards,
+	})
+	if err != nil {
+		// Older peers don't serve this RPC; sentinel lets the caller fall back.
+		if status.Code(err) == codes.Unimplemented {
+			return nil, replica.ErrCompareHashTreeRootsUnsupported
+		}
+		return nil, fmt.Errorf("gRPC CompareHashTreeRoots: %w", err)
+	}
+	return resp.GetDivergingShards(), nil
 }
 
 func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,

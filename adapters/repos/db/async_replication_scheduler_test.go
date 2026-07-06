@@ -15,6 +15,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1584,3 +1586,391 @@ func TestSchedulerClose_BoundedAndCancelsContextsWhenShardsStillRegistered(t *te
 
 // durationPtr is a helper that returns a pointer to a time.Duration value.
 func durationPtr(d time.Duration) *time.Duration { return &d }
+
+// newBareScheduler builds a scheduler struct without starting any goroutines.
+func newBareScheduler(batchSize, workChCap int) *AsyncReplicationScheduler {
+	s := &AsyncReplicationScheduler{
+		entries:                  make(map[*Shard]*asyncSchedulerEntry),
+		dispatchBuckets:          make(map[*Index][]*asyncSchedulerEntry),
+		workCh:                   make(chan *[]*asyncSchedulerEntry, workChCap),
+		asyncReplicationDisabled: configRuntime.NewDynamicValue(false),
+		rootPrefilterBatchSize:   configRuntime.NewDynamicValue(batchSize),
+		logger:                   logrus.New(),
+	}
+	s.batchPool.New = func() any {
+		b := make([]*asyncSchedulerEntry, 0, 64)
+		return &b
+	}
+	heap.Init(&s.h)
+	return s
+}
+
+func drainBatchSizes(ch chan *[]*asyncSchedulerEntry) []int {
+	var sizes []int
+	for {
+		select {
+		case bp := <-ch:
+			sizes = append(sizes, len(*bp))
+		default:
+			return sizes
+		}
+	}
+}
+
+func drainBatches(ch chan *[]*asyncSchedulerEntry) []*[]*asyncSchedulerEntry {
+	var batches []*[]*asyncSchedulerEntry
+	for {
+		select {
+		case bp := <-ch:
+			batches = append(batches, bp)
+		default:
+			return batches
+		}
+	}
+}
+
+func drainResults(ch chan asyncSchedulerResult) []asyncSchedulerResult {
+	var results []asyncSchedulerResult
+	for {
+		select {
+		case r := <-ch:
+			results = append(results, r)
+		default:
+			return results
+		}
+	}
+}
+
+// TestRunBatchEmitsOneResultPerEntry: every entry in a batch yields exactly one result.
+func TestRunBatchEmitsOneResultPerEntry(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+	entries := make([]*asyncSchedulerEntry, 3)
+	for i := range entries {
+		s := &Shard{class: &models.Class{Class: "C"}}
+		s.asyncRepWg.Add(1)
+		entries[i] = &asyncSchedulerEntry{shard: s}
+	}
+
+	sched.runBatch(&entries, newBatchScratch())
+
+	got := map[*asyncSchedulerEntry]int{}
+	for range entries {
+		select {
+		case r := <-sched.resultCh:
+			got[r.entry]++
+		case <-time.After(time.Second):
+			t.Fatal("missing result for a batch entry")
+		}
+	}
+	for _, e := range entries {
+		assert.Equal(t, 1, got[e], "each entry must yield exactly one result")
+		e.shard.asyncRepWg.Wait()
+	}
+}
+
+// TestAsyncSchedulerConcurrentBatchedDispatch races Register/Deregister against
+// Close over the batched path under -race: no race, no deadlock, balanced asyncRepWg.
+func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:       configRuntime.NewDynamicValue(4),
+		AsyncReplicationDisabled:               configRuntime.NewDynamicValue(false),
+		AsyncReplicationRootPrefilterBatchSize: configRuntime.NewDynamicValue(3),
+	}, nil, logger)
+	require.NoError(t, err)
+
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	shards := make([]*Shard, 30)
+	for i := range shards {
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%02d", i)}
+	}
+
+	var wg sync.WaitGroup
+	for _, s := range shards {
+		s := s
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = sched.Register(s)
+			time.Sleep(5 * time.Millisecond)
+			_ = sched.Deregister(s)
+		}()
+	}
+
+	time.Sleep(8 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		sched.Close()
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("scheduler did not terminate — possible deadlock in batched dispatch")
+	}
+
+	for _, s := range shards {
+		s.asyncRepWg.Wait()
+	}
+}
+
+// TestOnResultDiscardsZombieEntryAfterReRegister: a stale entry re-registered
+// mid-flight must be discarded, not re-pushed alongside the fresh one.
+func TestOnResultDiscardsZombieEntryAfterReRegister(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		deferDescent bool
+	}{
+		{name: "normal re-push"},
+		{name: "deferDescent re-push", deferDescent: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+
+			s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+			sched.onAddLocked(s)
+			e1 := sched.entries[s]
+
+			s.asyncRepWg.Add(1)
+			e1.inFlight = true
+			heap.Pop(&sched.h)
+			s.asyncRepWg.Done()
+
+			sched.onRemoveLocked(s)
+			sched.onAddLocked(s)
+			e2 := sched.entries[s]
+			require.NotSame(t, e1, e2)
+
+			sched.onResultLocked(asyncSchedulerResult{entry: e1, deferDescent: tc.deferDescent})
+
+			require.Len(t, sched.h, 1, "stale entry must not be re-pushed")
+			assert.Same(t, e2, sched.h[0])
+			assert.Equal(t, -1, e1.heapIdx, "stale entry stays out of the heap")
+			s.asyncRepWg.Wait()
+		})
+	}
+}
+
+// TestAsyncSchedulerMassDivergenceDeferDescent stresses a batch larger than the
+// resultCh buffer, all diverging, while Deregister/Register race the same shards.
+func TestAsyncSchedulerMassDivergenceDeferDescent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:       configRuntime.NewDynamicValue(4),
+		AsyncReplicationDisabled:               configRuntime.NewDynamicValue(false),
+		AsyncReplicationRootPrefilterBatchSize: configRuntime.NewDynamicValue(512),
+	}, nil, logger)
+	require.NoError(t, err)
+
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	const n = 256
+	shards := make([]*Shard, n)
+	for i := range shards {
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%03d", i)}
+		_ = sched.Register(shards[i])
+	}
+
+	var wg sync.WaitGroup
+	for _, s := range shards {
+		s := s
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 3 {
+				_ = sched.Deregister(s)
+				_ = sched.Register(s)
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		sched.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("scheduler did not terminate — possible deadlock in mass-divergence defer path")
+	}
+
+	for _, s := range shards {
+		s.asyncRepWg.Wait()
+	}
+}
+
+// TestClassifyBatchExcludesIneligible: override / uninitialised-hashtree shards are
+// excluded from the pre-filter and default to a full descent.
+func TestClassifyBatchExcludesIneligible(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+
+	override := &Shard{class: &models.Class{Class: "C"}}
+	override.targetNodeOverrides = additional.AsyncReplicationTargetNodeOverrides{{TargetNode: "n2"}}
+	uninit := &Shard{class: &models.Class{Class: "C"}}
+
+	batch := []*asyncSchedulerEntry{{shard: override}, {shard: uninit}}
+	scratch := newBatchScratch()
+
+	sched.classifyBatch(batch, scratch)
+
+	assert.Empty(t, scratch.roots, "no eligible shard ⇒ no roots collected")
+	assert.Empty(t, scratch.eligible)
+	for _, e := range batch {
+		assert.False(t, scratch.skip[e], "ineligible shards must take the full descent")
+	}
+}
+
+func TestEffectiveBatchSize(t *testing.T) {
+	t.Run("configured value is used", func(t *testing.T) {
+		sched := newBareScheduler(256, 1)
+		assert.Equal(t, 256, sched.effectiveBatchSize())
+	})
+
+	t.Run("invalid falls back to default", func(t *testing.T) {
+		sched := newBareScheduler(0, 1)
+		assert.Equal(t, fallbackRootPrefilterBatchSize, sched.effectiveBatchSize())
+		sched = newBareScheduler(-5, 1)
+		assert.Equal(t, fallbackRootPrefilterBatchSize, sched.effectiveBatchSize())
+	})
+
+	t.Run("over cap is clamped", func(t *testing.T) {
+		sched := newBareScheduler(maxRootPrefilterBatchSize+1000, 1)
+		assert.Equal(t, maxRootPrefilterBatchSize, sched.effectiveBatchSize())
+	})
+}
+
+func TestDispatchDueCoalescing(t *testing.T) {
+	t.Run("coalesces up to batch size with a smaller final batch", func(t *testing.T) {
+		sched := newBareScheduler(3, 16)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		for range 7 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{3, 3, 1}, drainBatchSizes(sched.workCh))
+		assert.Empty(t, sched.h, "all due entries dispatched")
+	})
+
+	t.Run("batch size 1 dispatches singletons", func(t *testing.T) {
+		sched := newBareScheduler(1, 16)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		for range 4 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{1, 1, 1, 1}, drainBatchSizes(sched.workCh))
+	})
+
+	t.Run("distinct indexes are batched separately", func(t *testing.T) {
+		sched := newBareScheduler(512, 16)
+		a := &Index{Config: IndexConfig{ClassName: "A"}}
+		b := &Index{Config: IndexConfig{ClassName: "B"}}
+		for range 3 {
+			sched.onAddLocked(&Shard{index: a, class: &models.Class{Class: "A"}})
+		}
+		for range 2 {
+			sched.onAddLocked(&Shard{index: b, class: &models.Class{Class: "B"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{3, 2}, drainBatchSizes(sched.workCh))
+	})
+
+	t.Run("full channel rolls unsent entries back into the heap", func(t *testing.T) {
+		sched := newBareScheduler(1, 2)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		for range 5 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.Len(t, drainBatchSizes(sched.workCh), 2, "channel capacity bounds dispatched batches")
+		assert.Len(t, sched.h, 3, "unsent entries rolled back into the heap")
+		for _, e := range sched.h {
+			assert.False(t, e.inFlight, "rolled-back entries must not be in-flight")
+		}
+	})
+}
+
+// TestDeferDescentReDispatchesSingletons: a coalesced batch of diverging shards is
+// deferred and re-dispatched as singletons so descent spreads across the pool.
+func TestDeferDescentReDispatchesSingletons(t *testing.T) {
+	sched := newBareScheduler(512, 16)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 32)
+
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	const n = 5
+	for i := range n {
+		sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%d", i)})
+	}
+
+	sched.dispatchDueLocked()
+	batches := drainBatches(sched.workCh)
+	require.Len(t, batches, 1, "the due shards coalesce into a single pre-filter batch")
+	require.Len(t, *batches[0], n)
+
+	sched.runBatch(batches[0], newBatchScratch())
+
+	results := drainResults(sched.resultCh)
+	require.Len(t, results, n, "one result per entry")
+	for _, r := range results {
+		assert.True(t, r.deferDescent, "diverging entries are deferred, not descended inline")
+		assert.NoError(t, r.err)
+		sched.onResultLocked(r)
+	}
+
+	require.Len(t, sched.entries, n)
+	for _, e := range sched.entries {
+		assert.True(t, e.descendDirect, "deferred entries are marked for direct descent")
+	}
+
+	sched.dispatchDueLocked()
+	assert.ElementsMatch(t, []int{1, 1, 1, 1, 1}, drainBatchSizes(sched.workCh),
+		"diverging shards re-dispatch as singletons, never re-coalesced into one batch")
+	for _, e := range sched.entries {
+		assert.False(t, e.descendDirect, "descendDirect cleared once the singleton is sent")
+	}
+}
+
+// TestDescendDirectSurvivesFullChannel: on a full workCh, unsent descendDirect
+// entries roll back retaining the flag and retry as singletons next round.
+func TestDescendDirectSurvivesFullChannel(t *testing.T) {
+	sched := newBareScheduler(512, 2)
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	const n = 5
+	for i := range n {
+		s := &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%d", i)}
+		sched.onAddLocked(s)
+		sched.entries[s].descendDirect = true
+	}
+
+	sched.dispatchDueLocked()
+
+	assert.ElementsMatch(t, []int{1, 1}, drainBatchSizes(sched.workCh),
+		"channel capacity bounds the singletons dispatched this round")
+	assert.Len(t, sched.h, n-2, "unsent divergers rolled back into the heap")
+	for _, e := range sched.h {
+		assert.True(t, e.descendDirect, "rolled-back divergers retain descendDirect")
+		assert.False(t, e.inFlight, "rolled-back divergers must not be in-flight")
+	}
+
+	sched.dispatchDueLocked()
+	assert.ElementsMatch(t, []int{1, 1}, drainBatchSizes(sched.workCh),
+		"remaining divergers keep dispatching as singletons")
+}

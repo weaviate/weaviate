@@ -12,30 +12,96 @@
 package usage
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	clusterusage "github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/usecases/config"
+	configruntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-func TestBaseModule_ShardJitterConfiguration(t *testing.T) {
-	// Test 1: Check that the default value is correct
-	assert.Equal(t, 100*time.Millisecond, DefaultShardJitterInterval, "jitter interval should be 100ms")
+// TestBaseModule_EnvShardConcurrencyReachesService verifies USAGE_SHARD_CONCURRENCY reaches
+// the usage service. The service is wired after Init, matching production ordering
+// (postInitModules runs after initModules), so the parsed env value is pushed on wiring.
+func TestBaseModule_EnvShardConcurrencyReachesService(t *testing.T) {
+	t.Setenv("USAGE_SHARD_CONCURRENCY", "3")
 
-	// Test 2: Test that the module initializes with default jitter
-	module := NewBaseModule("test-module", nil)
-	assert.Equal(t, DefaultShardJitterInterval, module.shardJitter, "module should use default jitter")
+	mockStorage := NewMockStorageBackend(t)
+	mockService := clusterusage.NewMockService(t)
+	mockService.EXPECT().SetShardConcurrency(3).Return().Once()
 
-	// Test 3: Test configurable jitter
-	customJitter := 50 * time.Millisecond
-	module.shardJitter = customJitter
-	assert.Equal(t, customJitter, module.shardJitter, "module should use custom jitter")
+	module := NewBaseModule("test-module", mockStorage)
 
-	// Test 4: Test that zero jitter is handled gracefully
-	module.shardJitter = 0
-	assert.Equal(t, 0*time.Millisecond, module.shardJitter, "module should allow zero jitter")
+	cfg := &config.Config{}
+	cfg.Cluster.Hostname = "test-node"
+	cfg.Persistence.DataPath = t.TempDir()
+	require.NoError(t, ParseCommonUsageConfig(cfg))
 
-	// Test 5: Test that negative jitter is handled gracefully
-	module.shardJitter = -1 * time.Millisecond
-	assert.Equal(t, -1*time.Millisecond, module.shardJitter, "module should allow negative jitter")
+	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logrus.New(),
+		NewMetrics(prometheus.NewRegistry(), "test-module")))
+
+	module.SetUsageService(mockService)
+	close(module.stopChan)
+
+	assert.Equal(t, 3, module.shardConcurrency)
+}
+
+// TestBaseModule_RuntimeOverridesShardConcurrencyReachesService exercises the full runtime
+// overrides chain: overrides file → ConfigManager → shared DynamicValue → module reloadConfig
+// → usage service.
+func TestBaseModule_RuntimeOverridesShardConcurrencyReachesService(t *testing.T) {
+	overridesPath := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, os.WriteFile(overridesPath, []byte(""), 0o644))
+
+	cfg := &config.Config{}
+	cfg.Cluster.Hostname = "test-node"
+	cfg.Persistence.DataPath = t.TempDir()
+	cfg.RuntimeOverrides.LoadInterval = 10 * time.Millisecond
+	require.NoError(t, ParseCommonUsageConfig(cfg))
+
+	mockStorage := NewMockStorageBackend(t)
+	mockStorage.EXPECT().UpdateConfig(mock.Anything).Return(false, nil).Maybe()
+	mockService := clusterusage.NewMockService(t)
+	mockService.EXPECT().SetShardConcurrency(DefaultShardConcurrency).Return().Maybe()
+	pushed := make(chan int, 1)
+	mockService.EXPECT().SetShardConcurrency(5).Run(func(concurrency int) {
+		select {
+		case pushed <- concurrency:
+		default:
+		}
+	}).Return().Once()
+
+	module := NewBaseModule("test-module", mockStorage)
+	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logrus.New(),
+		NewMetrics(prometheus.NewRegistry(), "test-module")))
+	// wire the service after Init, matching production ordering
+	module.SetUsageService(mockService)
+	defer close(module.stopChan)
+
+	// register the module's DynamicValue in a real config manager, like configure_api does
+	registered := &config.WeaviateRuntimeConfig{}
+	registered.UsageShardConcurrency = cfg.Usage.ShardConcurrency
+	cm, err := configruntime.NewConfigManager(overridesPath, config.NewRuntimeConfigParser(logrus.New()),
+		config.UpdateRuntimeConfig, registered, 10*time.Millisecond, logrus.New(), prometheus.NewRegistry())
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(overridesPath, []byte("usage_shard_concurrency: 5\n"), 0o644))
+	require.NoError(t, cm.ReloadConfig())
+	require.Equal(t, 5, cfg.Usage.ShardConcurrency.Get())
+
+	select {
+	case concurrency := <-pushed:
+		assert.Equal(t, 5, concurrency)
+	case <-time.After(5 * time.Second):
+		t.Fatal("usage service did not receive the shard concurrency from runtime overrides")
+	}
 }

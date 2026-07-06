@@ -90,6 +90,16 @@ type DigestObjectsInRangeResp struct {
 	Digests []types.RepairResponse `json:"digests,omitempty"`
 }
 
+// CompareHashTreeRootsReq / Resp are the REST-transport payloads for the batched
+// root pre-filter, keyed by shard.
+type CompareHashTreeRootsReq struct {
+	Roots map[string]hashtree.Digest `json:"roots"`
+}
+
+type CompareHashTreeRootsResp struct {
+	DivergingShards []string `json:"divergingShards,omitempty"`
+}
+
 // WClient is the client used to write to replicas
 type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
@@ -148,6 +158,11 @@ type RClient interface {
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+
+	// CompareHashTreeRoots batches the level-0 root compare of many shards, returning
+	// the diverging subset. Returns ErrCompareHashTreeRootsUnsupported on too-old targets.
+	CompareHashTreeRoots(ctx context.Context, host, index string,
+		roots map[string]hashtree.Digest) (divergingShards []string, err error)
 
 	CountObjects(ctx context.Context, host, index, shard string) (int, error)
 
@@ -208,6 +223,12 @@ func (fc FinderClient) CompareDigests(ctx context.Context,
 	digests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
 	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
+}
+
+func (fc FinderClient) CompareHashTreeRoots(ctx context.Context,
+	host, index string, roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return fc.cl.CompareHashTreeRoots(ctx, host, index, roots)
 }
 
 // FullReads read full objects
