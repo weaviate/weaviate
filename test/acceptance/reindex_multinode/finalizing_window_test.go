@@ -299,10 +299,11 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// out-of-range assertion above is what guards correctness.
 	if c.Partial > 0 {
 		windowDuration := c.LastPartial.Sub(c.FirstPartial)
-		assert.LessOrEqualf(t, windowDuration, partialWindowBudget(),
+		budget := partialWindowBudget()
+		assert.LessOrEqualf(t, windowDuration, budget,
 			"partial-results window of %v exceeds budget of %v for %s→%s on %s — "+
 				"the cross-shard cutover took longer than the design admits.",
-			windowDuration, partialWindowBudget(), startTok, targetTok, indexType)
+			windowDuration, budget, startTok, targetTok, indexType)
 	}
 
 	// Post-window guarantee: after the bounded partial window closes
@@ -498,13 +499,14 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	// dependent.
 	if c.Partial > 0 {
 		windowDuration := c.LastPartial.Sub(c.FirstPartial)
-		assert.LessOrEqual(t, windowDuration, partialWindowBudget(),
+		budget := partialWindowBudget()
+		assert.LessOrEqual(t, windowDuration, budget,
 			"partial-results window of %v exceeds the budget of %v — "+
 				"the cluster-wide cutover is taking longer than the bounded "+
 				"RAFT-propagation + scheduler-wake design admits; investigate "+
 				"the reactive-firing path (Manager.notifySchedulerWithLock, "+
 				"Scheduler.wakeCh, OnGroupCompleted, OnTaskCompleted)",
-			windowDuration, partialWindowBudget())
+			windowDuration, budget)
 	}
 
 	// Post-window guarantee: after the bounded partial window closes,
