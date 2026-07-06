@@ -242,8 +242,7 @@ func TestReplaceBuckets_ConcurrentWriteSurvives(t *testing.T) {
 
 	// Tail of ReplaceBuckets, driven test-side through the same unexported
 	// methods the production path uses.
-	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err :=
-		store.replaceBucket(ctx, replacementBucket, "replacement", bucket, "target")
+	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err := store.replaceBucket(ctx, replacementBucket, "replacement", bucket, "target")
 	require.NoError(t, err)
 	replacementBucket.dir = newReplacementBucketDir
 	mt, err := replacementBucket.createNewActiveMemtable()
