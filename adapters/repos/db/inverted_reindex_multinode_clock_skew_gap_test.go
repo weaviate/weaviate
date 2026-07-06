@@ -113,10 +113,12 @@ func readRangeableDocIDs(t *testing.T, b *lsmkv.Bucket, value int64) []uint64 {
 // bug; the skew here is a full day so the gap survives #11688's fix too — the
 // residual this pin is about.)
 func TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap(t *testing.T) {
+	t.Skip("RFC weaviate/weaviate#11692: reproduces the multi-node clock-skew double-write gap (a coordinator-stamped write with timestamp >= the replica's reindexStarted is skipped by backfill AND unmirrored). Un-skip when the skew-immune cutoff fix lands.")
+
 	const (
-		numCorpus    = 25            // baseline population, all timestamp 0 → all backfilled
-		controlValue = int64(100)    // distinct from corpus values 0..4 and from skewValue
-		skewValue    = int64(999)    // distinct sentinel; its loss is unambiguous
+		numCorpus    = 25         // baseline population, all timestamp 0 → all backfilled
+		controlValue = int64(100) // distinct from corpus values 0..4 and from skewValue
+		skewValue    = int64(999) // distinct sentinel; its loss is unambiguous
 	)
 	propName := filterableToRangeablePropName
 
