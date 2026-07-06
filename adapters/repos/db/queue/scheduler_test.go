@@ -441,6 +441,48 @@ func TestScheduler(t *testing.T) {
 	})
 }
 
+// panickingQueue implements Queue and panics when dequeued, simulating e.g.
+// a decoder panic on corrupt data.
+type panickingQueue struct {
+	id      string
+	metrics *Metrics
+}
+
+func (p *panickingQueue) ID() string                    { return p.id }
+func (p *panickingQueue) Size() int64                   { return 1 }
+func (p *panickingQueue) DequeueBatch() (*Batch, error) { panic("simulated dequeue panic") }
+func (p *panickingQueue) Metrics() *Metrics             { return p.metrics }
+
+// A panic while dispatching one queue must not kill the scheduler goroutine:
+// it is shared by every queue on the node and never restarted, so async
+// indexing would silently halt node-wide.
+func TestSchedulerSurvivesPanickingQueue(t *testing.T) {
+	s := makeScheduler(t, 1)
+	s.Start()
+	defer s.Close(t.Context())
+
+	// register a queue that panics on every dispatch and give the scheduler
+	// time to trip on it
+	s.RegisterQueue(&panickingQueue{
+		id:      "panicking_queue",
+		metrics: NewMetrics(newTestLogger(), nil, nil),
+	})
+	time.Sleep(200 * time.Millisecond)
+
+	// a healthy queue registered afterwards must still be processed
+	ch, decoder := streamExecutor()
+	q := makeQueueWith(t, s, decoder, 0, t.TempDir())
+	defer q.Close(t.Context())
+
+	pushMany(t, q, 1, 100)
+
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal("scheduler died after a queue panicked during dispatch")
+	}
+}
+
 func makeScheduler(t testing.TB, workers ...int) *Scheduler {
 	t.Helper()
 
