@@ -1153,6 +1153,44 @@ func initReindexAndDistributedTasks(
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
+	// #221 post-FAILED auto-repair dispatch. On a FAILED semantic migration
+	// the provider auto-submits the idempotent repair-* task that rebuilds the
+	// torn inverted bucket, through the same barrier pipeline the REST index
+	// handler uses. Gated by DistributedTasks.AutoRepairOnFailedReindex
+	// (default false); it MUST stay false until weaviate/weaviate#11982
+	// (0-weaviate-issues#222) merges — see the SetAutoRepairDispatcher godoc
+	// for the preserve-set hazard early enablement would re-open.
+	reindexProvider.SetAutoRepairDispatcher(
+		func() bool {
+			dv := appState.ServerConfig.Config.DistributedTasks.AutoRepairOnFailedReindex
+			return dv != nil && dv.Get()
+		},
+		func(ctx context.Context, collection string, properties []string, migrationType db.ReindexMigrationType) error {
+			ownership, err := repo.ShardReplicaOwnership(ctx, collection)
+			if err != nil {
+				return fmt.Errorf("auto-repair: shard ownership for %s: %w", collection, err)
+			}
+			if len(ownership) == 0 {
+				return fmt.Errorf("auto-repair: collection %s has no shards", collection)
+			}
+			unitIDs, unitToShard, unitToNode := buildUnitMaps(ownership)
+			payload := db.ReindexTaskPayload{
+				MigrationType: migrationType,
+				Collection:    collection,
+				Properties:    properties,
+				UnitToNode:    unitToNode,
+				UnitToShard:   unitToShard,
+			}
+			taskID := fmt.Sprintf("%s:%s:%s", collection, migrationType, shortRandomSuffix())
+			if len(properties) > 0 {
+				taskID = fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], shortRandomSuffix())
+			}
+			// repair-* migrations are format-only (non-semantic): no PREP barrier.
+			return appState.ClusterService.AddDistributedTaskWithBarrier(
+				ctx, db.ReindexNamespace, taskID, payload, unitIDs, false)
+		},
+	)
+
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
 		TaskLister:         appState.ClusterService.Raft,

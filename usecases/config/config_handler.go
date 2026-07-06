@@ -907,6 +907,14 @@ type DistributedTasksConfig struct {
 	CompletedTaskTTL      time.Duration              `json:"completedTaskTTL" yaml:"completedTaskTTL"`
 	SchedulerTickInterval time.Duration              `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
 	ReindexConcurrency    *runtime.DynamicValue[int] `json:"reindexConcurrency" yaml:"reindexConcurrency"`
+	// AutoRepairOnFailedReindex gates the post-FAILED auto-repair dispatch
+	// (weaviate/0-weaviate-issues#221): when true, a FAILED semantic migration
+	// auto-submits the idempotent repair-* migration that rebuilds the torn
+	// inverted bucket instead of only logging operator guidance. Defaults to
+	// false and MUST stay false until weaviate/weaviate#11982
+	// (0-weaviate-issues#222) merges — see the SetAutoRepairDispatcher godoc
+	// for the preserve-set hazard that makes early enablement unsafe.
+	AutoRepairOnFailedReindex *runtime.DynamicValue[bool] `json:"autoRepairOnFailedReindex" yaml:"autoRepairOnFailedReindex"`
 }
 
 type Persistence struct {

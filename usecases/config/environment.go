@@ -1393,6 +1393,12 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// Gate for the #221 post-FAILED auto-repair dispatch. Defaults to false;
+	// keep it false until weaviate/weaviate#11982 (0-weaviate-issues#222)
+	// merges (see DistributedTasksConfig.AutoRepairOnFailedReindex).
+	autoRepairOnFailedReindex := entcfg.Enabled(os.Getenv("DISTRIBUTED_TASKS_AUTO_REPAIR_ON_FAILED_REINDEX"))
+	config.DistributedTasks.AutoRepairOnFailedReindex = configRuntime.NewDynamicValue(autoRepairOnFailedReindex)
+
 	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
