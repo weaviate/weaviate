@@ -416,9 +416,9 @@ func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 	shards := make([]*protocol.ShardRootDigest, 0, len(roots))
 	for shard, root := range roots {
 		shards = append(shards, &protocol.ShardRootDigest{
-			Shard:      shard,
-			RootHashHi: root[0],
-			RootHashLo: root[1],
+			Shard:        shard,
+			RootHashHigh: root[0],
+			RootHashLow:  root[1],
 		})
 	}
 

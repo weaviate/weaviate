@@ -264,8 +264,8 @@ message HashTreeLevelResponse {
 message ShardRootDigest {
   string shard = 1;
   // The 128-bit hashtree root digest, split into two 64-bit words.
-  fixed64 root_hash_hi = 2; // Digest[0] (high 64 bits)
-  fixed64 root_hash_lo = 3; // Digest[1] (low 64 bits)
+  fixed64 root_hash_high = 2; // Digest[0] (high 64 bits)
+  fixed64 root_hash_low = 3; // Digest[1] (low 64 bits)
 }
 
 message CompareHashTreeRootsRequest {

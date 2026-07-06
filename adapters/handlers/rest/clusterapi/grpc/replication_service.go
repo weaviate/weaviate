@@ -277,7 +277,7 @@ func (s *ReplicationService) CompareHashTreeRoots(ctx context.Context, req *pb.C
 	shards := req.GetShardRootDigests()
 	roots := make(map[string]hashtree.Digest, len(shards))
 	for _, sr := range shards {
-		roots[sr.GetShard()] = hashtree.Digest{sr.GetRootHashHi(), sr.GetRootHashLo()}
+		roots[sr.GetShard()] = hashtree.Digest{sr.GetRootHashHigh(), sr.GetRootHashLow()}
 	}
 
 	diverging, err := s.server.CompareHashTreeRoots(ctx, req.GetIndex(), roots)

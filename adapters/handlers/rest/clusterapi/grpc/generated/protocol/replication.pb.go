@@ -2045,16 +2045,14 @@ func (x *HashTreeLevelResponse) GetDigestsData() []byte {
 	return nil
 }
 
-// CompareHashTreeRoots pre-filters shards by comparing hashtree roots in bulk.
-// The source sends its local root per shard; the target replies only with the
-// shards whose roots differ (or that it lacks / has not fully initialised), so
-// the source can skip the per-shard descent for the rest.
+// CompareHashTreeRoots pre-filters shards by bulk-comparing hashtree roots: the
+// target returns only shards whose roots differ, letting the source skip the rest.
 type ShardRootDigest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Shard string                 `protobuf:"bytes,1,opt,name=shard,proto3" json:"shard,omitempty"`
 	// The 128-bit hashtree root digest, split into two 64-bit words.
-	RootHashHi    uint64 `protobuf:"fixed64,2,opt,name=root_hash_hi,json=rootHashHi,proto3" json:"root_hash_hi,omitempty"` // Digest[0] (high 64 bits)
-	RootHashLo    uint64 `protobuf:"fixed64,3,opt,name=root_hash_lo,json=rootHashLo,proto3" json:"root_hash_lo,omitempty"` // Digest[1] (low 64 bits)
+	RootHashHigh  uint64 `protobuf:"fixed64,2,opt,name=root_hash_high,json=rootHashHigh,proto3" json:"root_hash_high,omitempty"` // Digest[0] (high 64 bits)
+	RootHashLow   uint64 `protobuf:"fixed64,3,opt,name=root_hash_low,json=rootHashLow,proto3" json:"root_hash_low,omitempty"`    // Digest[1] (low 64 bits)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2096,16 +2094,16 @@ func (x *ShardRootDigest) GetShard() string {
 	return ""
 }
 
-func (x *ShardRootDigest) GetRootHashHi() uint64 {
+func (x *ShardRootDigest) GetRootHashHigh() uint64 {
 	if x != nil {
-		return x.RootHashHi
+		return x.RootHashHigh
 	}
 	return 0
 }
 
-func (x *ShardRootDigest) GetRootHashLo() uint64 {
+func (x *ShardRootDigest) GetRootHashLow() uint64 {
 	if x != nil {
-		return x.RootHashLo
+		return x.RootHashLow
 	}
 	return 0
 }
@@ -2450,13 +2448,11 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x05level\x18\x03 \x01(\x05R\x05level\x12\"\n" +
 	"\fdiscriminant\x18\x04 \x01(\fR\fdiscriminant\":\n" +
 	"\x15HashTreeLevelResponse\x12!\n" +
-	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\"k\n" +
+	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\"q\n" +
 	"\x0fShardRootDigest\x12\x14\n" +
-	"\x05shard\x18\x01 \x01(\tR\x05shard\x12 \n" +
-	"\froot_hash_hi\x18\x02 \x01(\x06R\n" +
-	"rootHashHi\x12 \n" +
-	"\froot_hash_lo\x18\x03 \x01(\x06R\n" +
-	"rootHashLo\"~\n" +
+	"\x05shard\x18\x01 \x01(\tR\x05shard\x12$\n" +
+	"\x0eroot_hash_high\x18\x02 \x01(\x06R\frootHashHigh\x12\"\n" +
+	"\rroot_hash_low\x18\x03 \x01(\x06R\vrootHashLow\"~\n" +
 	"\x1bCompareHashTreeRootsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12I\n" +
 	"\x12shard_root_digests\x18\x02 \x03(\v2\x1b.clusterapi.ShardRootDigestR\x10shardRootDigests\"I\n" +

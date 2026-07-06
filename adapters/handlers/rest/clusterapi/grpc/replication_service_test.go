@@ -97,8 +97,8 @@ func TestCompareHashTreeRootsRoundTrip(t *testing.T) {
 		resp, err := svc.CompareHashTreeRoots(context.Background(), &pb.CompareHashTreeRootsRequest{
 			Index: index,
 			ShardRootDigests: []*pb.ShardRootDigest{
-				{Shard: "shard-a", RootHashHi: 1, RootHashLo: 2},
-				{Shard: "shard-b", RootHashHi: 3, RootHashLo: 4},
+				{Shard: "shard-a", RootHashHigh: 1, RootHashLow: 2},
+				{Shard: "shard-b", RootHashHigh: 3, RootHashLow: 4},
 			},
 		})
 		require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestCompareHashTreeRootsRoundTrip(t *testing.T) {
 
 		_, err := svc.CompareHashTreeRoots(context.Background(), &pb.CompareHashTreeRootsRequest{
 			Index:            index,
-			ShardRootDigests: []*pb.ShardRootDigest{{Shard: "shard-a", RootHashHi: 1, RootHashLo: 2}},
+			ShardRootDigests: []*pb.ShardRootDigest{{Shard: "shard-a", RootHashHigh: 1, RootHashLow: 2}},
 		})
 		require.Error(t, err)
 		st, ok := status.FromError(err)
