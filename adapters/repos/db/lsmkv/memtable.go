@@ -295,8 +295,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	wasLive := m.key.exists(key) == nil
-	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
+	netAdditions, previousKeys, wasLive := m.key.insert(key, value, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
 	if !wasLive {
 		m.netCountAdditions++
@@ -338,8 +337,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	wasTombstoned := m.isTombstoned(key)
-	previousKeys := m.key.setTombstone(key, nil, secondaryKeys)
+	previousKeys, wasTombstoned := m.key.setTombstone(key, nil, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
 	if !wasTombstoned {
 		m.netCountAdditions--
@@ -382,8 +380,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	wasTombstoned := m.isTombstoned(key)
-	previousKeys := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
+	previousKeys, wasTombstoned := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
 	if !wasTombstoned {
 		m.netCountAdditions--
@@ -646,12 +643,6 @@ func (m *Memtable) netCount() int {
 	m.RLock()
 	defer m.RUnlock()
 	return m.netCountAdditions
-}
-
-// isTombstoned must be called with the memtable lock held.
-func (m *Memtable) isTombstoned(key []byte) bool {
-	err := m.key.exists(key)
-	return err != nil && !errors.Is(err, lsmkv.NotFound)
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
