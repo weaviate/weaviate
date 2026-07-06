@@ -361,11 +361,13 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	// The record count comes from disk and may be corrupt. It is only used as
 	// a capacity hint: cap it by the number of records that could possibly
-	// fit in the chunk, i.e. a 4-byte length prefix plus at least one byte each.
+	// fit in the chunk payload, i.e. a 4-byte length prefix plus at least
+	// one byte each.
+	payloadSize := c.size - uint64(chunkHeaderSize)
 	count := c.count
-	if maxRecords := c.size / 5; count > maxRecords {
+	if maxRecords := payloadSize / 5; count > maxRecords {
 		q.Logger.WithField("file", c.path).
-			Warnf("chunk header claims %d records, but at most %d fit in %d bytes; the header is likely corrupt", c.count, maxRecords, c.size)
+			Warnf("chunk header claims %d records, but at most %d fit in %d bytes of payload; the header is likely corrupt", c.count, maxRecords, payloadSize)
 		count = maxRecords
 	}
 
@@ -390,10 +392,10 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			return nil, errors.New("invalid record length")
 		}
 		// the length prefix comes from disk and may be corrupt: a record
-		// cannot be larger than the chunk file that contains it. Validate
+		// cannot be larger than the chunk payload that contains it. Validate
 		// before allocating.
-		if uint64(length) > c.size {
-			return nil, errors.Errorf("invalid record length %d, chunk file is only %d bytes", length, c.size)
+		if uint64(length) > payloadSize-4 {
+			return nil, errors.Errorf("invalid record length %d, chunk payload is only %d bytes", length, payloadSize)
 		}
 
 		// read the record

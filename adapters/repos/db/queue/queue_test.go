@@ -14,6 +14,7 @@ package queue
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"math"
@@ -752,6 +753,9 @@ func TestDequeueBatchCorruptChunk(t *testing.T) {
 		require.NoError(t, err)
 		err = q.Init()
 		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = q.Close(context.Background())
+		})
 		return q
 	}
 
