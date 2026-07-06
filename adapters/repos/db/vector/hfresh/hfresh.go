@@ -388,8 +388,13 @@ func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 }
 
 func (h *HFresh) CompressionStats() compressionhelpers.CompressionStats {
-	if h.quantizer != nil {
-		return h.quantizer.Stats()
+	// the atomic dims load pairs with the store that publishes the quantizer
+	// at the end of initialization
+	if atomic.LoadUint32(&h.dims) == 0 {
+		return compressionhelpers.UncompressedStats{}
+	}
+	if quantizer := h.quantizer; quantizer != nil {
+		return quantizer.Stats()
 	}
 	return compressionhelpers.UncompressedStats{}
 }

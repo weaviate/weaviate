@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -165,7 +166,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 
 // splitPosting takes a posting and returns two groups.
 func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
-	enc := compressionhelpers.NewKMeansEncoder(2, int(h.dims), 0)
+	enc := compressionhelpers.NewKMeansEncoder(2, int(atomic.LoadUint32(&h.dims)), 0)
 
 	data := posting.Uncompress(h.quantizer)
 
