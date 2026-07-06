@@ -25,11 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestCombineResults_PropagatesGetObjectsError verifies that combineResults
-// surfaces an error from getObjectsAndScores to its caller instead of
-// swallowing it and returning silent empty results. The store here has no
-// objects bucket, so getObjectsAndScores fails to load the objects — that
-// failure must reach the caller.
+// TestCombineResults_PropagatesGetObjectsError pins combineResults forwarding
+// a getObjectsAndScores error instead of swallowing it.
 func TestCombineResults_PropagatesGetObjectsError(t *testing.T) {
 	logger := logrus.New()
 	dirName := t.TempDir()
@@ -41,9 +38,7 @@ func TestCombineResults_PropagatesGetObjectsError(t *testing.T) {
 	require.Nil(t, err)
 	defer store.Shutdown(context.Background())
 
-	// Create the objects bucket but deliberately WITHOUT a class name, so the
-	// object decode in getObjectsAndScores fails (ClassName() errors). This
-	// exercises the load-error path rather than a nil-bucket path.
+	// No class name set, so the object decode in getObjectsAndScores fails.
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
 		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1)))
 	require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
@@ -53,8 +48,6 @@ func TestCombineResults_PropagatesGetObjectsError(t *testing.T) {
 		logger: logger,
 	}
 
-	// One property, one segment, one candidate doc id — enough to make
-	// getObjectsAndScores attempt (and fail) an objects lookup.
 	allIds := [][][]uint64{{{1}}}
 	allScores := [][][]float32{{{0.5}}}
 	allExplanation := [][][][]*terms.DocPointerWithScore{{{{nil}}}}
