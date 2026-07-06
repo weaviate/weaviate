@@ -143,7 +143,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 				k1 = m.bm25config.K1
 			}
 
-			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder, float64(b), float64(k1), m.averagePropLength)
+			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder, float64(k1), float64(b), m.averagePropLength)
 
 			if _, err := bw.Write(blocksEncoded); err != nil {
 				return nil, nil, err
