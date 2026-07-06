@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -67,6 +68,7 @@ type DB struct {
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	startupComplete           atomic.Bool
+	startupProgress           atomic.Pointer[StartupProgressSnapshot]
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -157,6 +159,9 @@ func (db *DB) GetScheduler() *queue.Scheduler {
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
+	stop := db.trackStartupProgress(ctx)
+	defer stop()
+
 	err := db.init(ctx)
 	if err != nil {
 		return err
@@ -169,6 +174,125 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+const startupProgressUpdateInterval = 5 * time.Second
+
+// StartupProgressSnapshot is a consistent reading of eager shard-loading progress
+type StartupProgressSnapshot struct {
+	Loaded int64
+	Total  int64
+}
+
+// StartupLoadingProgress reports the most recently computed eager shard-loading
+// progress: how many eagerly-loaded local shards have finished loading (loaded)
+// against how many are expected to load eagerly (total).
+func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
+	return db.startupProgress.Load()
+}
+
+// trackStartupProgress recomputes eager shard-loading progress on a ticker and
+// caches it. It returns a stop function that halts the ticker and pins the
+// final value; callers should defer it. The goroutine also exits if ctx is done.
+func (db *DB) trackStartupProgress(ctx context.Context) func() {
+	classNames := db.startupClassNames()
+
+	// Publish immediately so a value is available before the first log tick.
+	db.updateStartupProgress(classNames)
+
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		ticker := time.NewTicker(startupProgressUpdateInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				db.updateStartupProgress(classNames)
+			}
+		}
+	}, db.logger)
+
+	return func() {
+		close(done)
+		// Pin the final value now that loading has finished.
+		db.updateStartupProgress(classNames)
+	}
+}
+
+// startupClassNames snapshots the current class names for the startup progress scan
+func (db *DB) startupClassNames() []string {
+	s := db.schemaGetter.GetSchemaSkipAuth()
+	if s.Objects == nil {
+		return nil
+	}
+	names := make([]string, 0, len(s.Objects.Classes))
+	for _, class := range s.Objects.Classes {
+		names = append(names, class.Class)
+	}
+	return names
+}
+
+// updateStartupProgress recomputes progress once and publishes it to the cached
+// snapshot and the Prometheus gauges.
+func (db *DB) updateStartupProgress(classNames []string) {
+	loaded, total := db.scanStartupProgress(classNames)
+	db.startupProgress.Store(&StartupProgressSnapshot{Loaded: loaded, Total: total})
+	db.promMetrics.SetStartupShardProgress(loaded, total)
+}
+
+// scanStartupProgress computes eager shard-loading progress from scratch for the
+// given classes.
+//
+// total starts from every HOT local shard known to the schema (eager and lazy);
+// lazy shards are then discounted as they are encountered in the index maps,
+// leaving the eager total. Safe to call while the DB is still loading.
+func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
+	for _, className := range classNames {
+		total += db.localShardsToLoad(className)
+	}
+
+	db.indexLock.RLock()
+	indices := make([]*Index, 0, len(db.indices))
+	for _, idx := range db.indices {
+		indices = append(indices, idx)
+	}
+	db.indexLock.RUnlock()
+
+	for _, idx := range indices {
+		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
+			if _, ok := shard.(*LazyLoadShard); ok {
+				total--
+				return nil
+			}
+			loaded++
+			return nil
+		})
+	}
+
+	return loaded, total
+}
+
+// localShardsToLoad returns the number of local shards that count toward eager
+// startup loading for the given class: local physical shards whose activity
+// status is HOT (empty status counts as HOT)
+func (db *DB) localShardsToLoad(className string) int64 {
+	var count int64
+	_ = db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		for name, physical := range state.Physical {
+			if state.IsLocalShard(name) && physical.ActivityStatus() == models.TenantActivityStatusHOT {
+				count++
+			}
+		}
+		return nil
+	})
+	return count
+}
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
 // This allows for better testability by using interfaces instead of concrete types
