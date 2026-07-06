@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +25,18 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
+
+func TestSearchTreatsPartiallyInitializedDimensionsAsEmptyIndex(t *testing.T) {
+	tf := createHFreshIndex(t)
+	vector := createTestVectors(32, 1)[0]
+
+	atomic.StoreUint32(&tf.Index.dims, uint32(len(vector)))
+
+	ids, dists, err := tf.Index.SearchByVector(t.Context(), vector, 10, nil)
+	require.NoError(t, err)
+	require.Empty(t, ids)
+	require.Empty(t, dists)
+}
 
 func TestSearchWithEmptyIndex(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)

@@ -36,13 +36,14 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	rescoreLimit := int(h.rescoreLimit)
-	if h.quantizer == nil {
-		if atomic.LoadUint32(&h.dims) == 0 {
-			return nil, nil, nil
-		}
-		return nil, nil, errors.New("quantizer not initialized")
+	if atomic.LoadUint32(&h.dims) == 0 {
+		return nil, nil, nil
 	}
-	queryDistancer := h.quantizer.NewDistancer(vector)
+	quantizer := h.quantizer
+	if quantizer == nil {
+		return nil, nil, nil
+	}
+	queryDistancer := quantizer.NewDistancer(vector)
 
 	var selectedCentroids []uint64
 	var postings []Posting
@@ -127,7 +128,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				continue
 			}
 
-			decompressBuf = h.quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
+			decompressBuf = quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
 			dist, err := queryDistancer.Distance(decompressBuf)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
