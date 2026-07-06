@@ -1427,10 +1427,10 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// Wait for any cycle dispatched between our Done() and the disable below.
 	s.asyncRepWg.Wait()
 
-	// Skip if the shard store is being torn down. performShutdown sets
-	// s.shut=true before calling mayStopAsyncReplication, so this is a
-	// reliable happens-before. Re-enabling now would race with store shutdown
-	// and leak an init-scan goroutine past scheduler.Close().
+	// Serialize disable→enable against performShutdown, which holds shutdownLock.Lock() across store teardown; under the RLock the enable (and the init-scan it spawns) either completes before shutdown or is skipped — no re-enable onto a closing store.
+	s.shutdownLock.RLock()
+	defer s.shutdownLock.RUnlock()
+
 	if s.shut.Load() {
 		return
 	}
