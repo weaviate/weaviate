@@ -57,4 +57,10 @@ type GlobalConfig struct {
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
 
 	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
+
+	// SELF_RECOVERY: env-only, read at startup, not hot-reloadable.
+	SelfRecoveryEnabled     bool `json:"self_recovery_enabled" yaml:"self_recovery_enabled"`
+	SelfRecoveryConcurrency int  `json:"self_recovery_concurrency" yaml:"self_recovery_concurrency"`
+	// Time a wiped joiner waits without apply progress at its catch-up barrier before loading eagerly. 0 ⇒ default.
+	SelfRecoveryBarrierTimeout time.Duration `json:"self_recovery_barrier_timeout" yaml:"self_recovery_barrier_timeout"`
 }

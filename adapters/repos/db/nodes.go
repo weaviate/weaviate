@@ -21,6 +21,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -186,6 +187,23 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 
 		// Don't force load a lazy shard to get nodes status
 		className := i.Config.ClassName.String()
+		// Report RECOVERING without forcing a load.
+		if rec, ok := shard.(*RecoveringShard); ok {
+			if rec.IsRecovering() {
+				numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
+				shardStatus := &models.NodeShardStatus{
+					Name:                 name,
+					Class:                className,
+					VectorIndexingStatus: storagestate.StatusRecovering.String(),
+					Loaded:               false,
+					ReplicationFactor:    replicationFactor,
+					NumberOfReplicas:     numberOfReplicas,
+				}
+				*status = append(*status, shardStatus)
+				shardCount++
+				return nil
+			}
+		}
 		if lazy, ok := shard.(*LazyLoadShard); ok {
 			if !lazy.isLoaded() {
 				numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())

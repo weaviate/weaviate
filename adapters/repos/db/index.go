@@ -15,6 +15,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -180,14 +181,20 @@ func (m *shardMap) Loaded(name string) ShardLike {
 		return nil
 	}
 
-	// If it's a lazy shard, only return it if it's loaded
-	if lazyShard, ok := shard.(*LazyLoadShard); ok {
-		if !lazyShard.isLoaded() {
+	// Deferred-load wrappers (lazy or recovering): only return once loaded.
+	if l, ok := shard.(loadableShard); ok {
+		if !l.isLoaded() {
 			return nil
 		}
 	}
 
 	return shard
+}
+
+// loadableShard is implemented by *LazyLoadShard and *RecoveringShard.
+type loadableShard interface {
+	Load(ctx context.Context) error
+	isLoaded() bool
 }
 
 // Store sets a shard giving its name and value
@@ -532,8 +539,15 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		if shard.activityStatus != models.TenantActivityStatusHOT {
 			continue
 		}
-		hotShardNames = append(hotShardNames, shard.name)
 		shardName := shard.name
+
+		// Missing dir + SELF_RECOVERY on: hand off to orchestrator and skip
+		// the lazy-load pass; enrolling it would create an empty dir mid-copy.
+		if i.recoverShardFromPeerIfNeeded(ctx, class, shardName, promMetrics) {
+			continue
+		}
+		hotShardNames = append(hotShardNames, shardName)
+
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
@@ -631,12 +645,101 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 		return nil
 	}
 
-	lazyShard, ok := shard.(*LazyLoadShard)
-	if ok {
-		return lazyShard.Load(context.Background())
+	// Never Load a recovering shard here: it would create an empty dir
+	// mid-copy. Promotion goes via the orchestrator/consumer.
+	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+		return nil
+	}
+
+	if l, ok := shard.(loadableShard); ok {
+		return l.Load(context.Background())
 	}
 
 	return nil
+}
+
+// recoverShardFromPeerIfNeeded installs a load-blocking RecoveringShard when the
+// live dir is missing at startup (resuming or fresh SELF_RECOVERY); true = skip normal init.
+func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.Class,
+	shardName string, promMetrics *monitoring.PrometheusMetrics,
+) bool {
+	if !i.shouldRecoverShardFromPeer(ctx, shardName) {
+		return false
+	}
+	collection := i.Config.ClassName.String()
+	logFields := logrus.Fields{"collection": collection, "shard": shardName}
+	orch := i.Config.SelfRecoveryOrchestrator
+
+	// Resuming SELF_RECOVERY op: block normal init (an empty live dir makes the
+	// consumer's promote erase the copy); don't re-submit — the op self-resumes.
+	if resuming, err := orch.HasInflightSelfRecoveryOp(ctx, collection, shardName); err != nil {
+		i.logger.WithError(err).WithFields(logFields).
+			Warn("self-recovery: could not check for in-flight self-recovery op; falling back to normal shard init")
+		return false
+	} else if resuming {
+		i.installRecoveringShard(ctx, class, shardName, promMetrics)
+		i.logger.WithFields(logFields).
+			WithField("action", "self_recovery_resumed").
+			Info("in-flight self-recovery op targets this shard at startup; blocking normal init for the resuming op")
+		return true
+	}
+
+	// A different in-flight op (e.g. scale-out COPY) owns the dir; leave it to that op.
+	if inflight, err := orch.HasInflightReplicationOp(ctx, collection, shardName); err != nil {
+		i.logger.WithError(err).WithFields(logFields).
+			Warn("self-recovery: could not check for in-flight replication op; falling back to normal shard init")
+		return false
+	} else if inflight {
+		i.logger.WithFields(logFields).
+			Info("self-recovery: a non-self-recovery in-flight op already targets this shard; leaving it to that op")
+		return false
+	}
+
+	// Fresh recovery: install before submit so a fast worker can't clobber the
+	// wrapper via LoadLocalShard; a declined submit reverts it.
+	i.installRecoveringShard(ctx, class, shardName, promMetrics)
+	fromBootstrap := i.Config.RaftBootstrapComplete != nil && !i.Config.RaftBootstrapComplete()
+	if !orch.SubmitRecovery(context.Background(), collection, shardName, fromBootstrap) {
+		i.shards.LoadAndDelete(shardName)
+		i.logger.WithFields(logFields).
+			Warn("self-recovery: submission was not queued (feature disabled or shutting down); falling back to normal shard init")
+		return false
+	}
+	i.logger.WithFields(logFields).
+		WithField("action", "self_recovery_submitted").
+		Info("local shard directory missing at startup; recovery from peer scheduled")
+	return true
+}
+
+// installRecoveringShard stores a load-blocking RecoveringShard so normal init
+// can't plant an empty live dir while recovery runs.
+func (i *Index) installRecoveringShard(ctx context.Context, class *models.Class,
+	shardName string, promMetrics *monitoring.PrometheusMetrics,
+) {
+	rec := NewRecoveringShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
+		i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter, i.shardReindexer, i.bitmapBufPool)
+	i.shards.Store(shardName, rec)
+}
+
+// shouldRecoverShardFromPeer is the eligibility preamble (feature on, startup
+// pass, live dir missing); the caller classifies in-flight ops and installs.
+func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string) bool {
+	orch := i.Config.SelfRecoveryOrchestrator
+	if orch == nil || !orch.Enabled() {
+		return false
+	}
+	if !enterrors.IsStartupDBLoad(ctx) {
+		return false
+	}
+	dir := shardPath(i.path(), shardName)
+	if _, err := os.Stat(dir); err == nil {
+		return false // dir exists; normal init owns it
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		i.logger.WithError(err).WithFields(logrus.Fields{"collection": i.Config.ClassName.String(), "shard": shardName}).
+			Warn("self-recovery: stat on shard dir failed; falling back to normal shard init")
+		return false
+	}
+	return true
 }
 
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
@@ -676,7 +779,7 @@ func (i *Index) maintenanceModeEnabled() bool {
 
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
-	return i.ForEachShard(func(_ string, shard ShardLike) error {
+	return i.forEachShardSkipRecovering(func(_ string, shard ShardLike) error {
 		wrapper := func(object *storobj.Object) error {
 			return cb(i, shard, object)
 		}
@@ -702,11 +805,23 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
+// forEachShardSkipRecovering is ForEachShard but skips shards being restored
+// from a peer: their buckets aren't usable yet (mustLoad would panic). Use for
+// all-shards ops that touch shard internals.
+func (i *Index) forEachShardSkipRecovering(f func(name string, shard ShardLike) error) error {
+	return i.ForEachShard(func(name string, shard ShardLike) error {
+		if shard.GetStatus() == storagestate.StatusRecovering {
+			return nil
+		}
+		return f(name, shard)
+	})
+}
+
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
-		// Skip lazy loaded shard which are not loaded
-		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
-			if !asLazyLoadShard.isLoaded() {
+		// Skip deferred-load wrappers until loaded.
+		if l, ok := shard.(loadableShard); ok {
+			if !l.isLoaded() {
 				return nil
 			}
 		}
@@ -725,9 +840,9 @@ func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) er
 
 func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLike) error) error {
 	return i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
-		// Skip lazy loaded shard which are not loaded
-		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
-			if !asLazyLoadShard.isLoaded() {
+		// Skip deferred-load wrappers until loaded.
+		if l, ok := shard.(loadableShard); ok {
+			if !l.isLoaded() {
 				return nil
 			}
 		}
@@ -737,7 +852,7 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
-	return i.ForEachShard(func(key string, shard ShardLike) error {
+	return i.forEachShardSkipRecovering(func(key string, shard ShardLike) error {
 		return cb(i, shard)
 	})
 }
@@ -746,7 +861,7 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
+	i.forEachShardSkipRecovering(func(key string, shard ShardLike) error {
 		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})
@@ -1091,6 +1206,14 @@ type IndexConfig struct {
 	InvertedSorterDisabled     *configRuntime.DynamicValue[bool]
 	LazyPropertyLengthsEnabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled     func() bool
+
+	// Consulted at startup for shards whose dir is missing: submits a
+	// copy from a healthy peer. Nil-safe.
+	SelfRecoveryOrchestrator SelfRecoveryOrchestrator
+	// Captured at submit time as fromBootstrap so the orchestrator can treat
+	// an all-peers-empty result during the bootstrap window as a likely
+	// class-added-during-downtime rather than a wipe. Nil ⇒ post-bootstrap.
+	RaftBootstrapComplete func() bool
 
 	HFreshEnabled bool
 
@@ -2934,9 +3057,8 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
 		if mustLoad {
-			lazyShard, ok := shard.(*LazyLoadShard)
-			if ok {
-				return lazyShard.Load(ctx)
+			if l, ok := shard.(loadableShard); ok {
+				return l.Load(ctx)
 			}
 		}
 

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -63,6 +64,7 @@ type DB struct {
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	startupComplete           atomic.Bool
+	raftBootstrapComplete     atomic.Bool
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -139,6 +141,9 @@ type DB struct {
 	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
 	// nil disables the check. See docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
+
+	// Set after the cluster service is up. Nil-safe: nil keeps MkdirAll behavior.
+	selfRecoveryOrchestrator SelfRecoveryOrchestrator
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -146,6 +151,40 @@ type DB struct {
 // inherit the manager. See docs/usage_limits.md.
 func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
+}
+
+// SelfRecoveryOrchestrator is the narrow surface used by the db package to
+// avoid an import cycle on cluster/replication.
+type SelfRecoveryOrchestrator interface {
+	// Enabled reports whether SELF_RECOVERY is on; must be checked before
+	// installing a wrapper, else it blocks load forever.
+	Enabled() bool
+	// HasInflightReplicationOp reports whether a non-terminal op already
+	// targets (collection, shard) here. Skip recovery on error (conservative).
+	HasInflightReplicationOp(ctx context.Context, collection, shard string) (bool, error)
+	// HasInflightSelfRecoveryOp is HasInflightReplicationOp narrowed to
+	// SELF_RECOVERY — the resume case that must install a wrapper, not skip.
+	HasInflightSelfRecoveryOp(ctx context.Context, collection, shard string) (bool, error)
+	// SubmitRecovery is non-blocking. Returns false when not queued; the caller
+	// MUST then fall back to normal init, else the wrapper stays load-blocked.
+	// fromBootstrap quiets empty-fallback logging during the RAFT bootstrap window.
+	SubmitRecovery(ctx context.Context, collection, shard string, fromBootstrap bool) bool
+	// Close stops new submissions and drains in-flight workers, bounded by ctx.
+	// Idempotent.
+	Close(ctx context.Context) error
+}
+
+// SetSelfRecoveryOrchestrator must be called before WaitForStartup.
+func (db *DB) SetSelfRecoveryOrchestrator(o SelfRecoveryOrchestrator) {
+	db.selfRecoveryOrchestrator = o
+}
+
+// ShardPath returns the on-disk directory for (collection, shard).
+func (db *DB) ShardPath(collection, shard string) string {
+	return shardPath(
+		path.Join(db.config.RootPath, indexID(schema.ClassName(collection))),
+		shard,
+	)
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -185,6 +224,12 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+// MarkRaftBootstrapComplete records that RAFT has finished its initial replay.
+func (db *DB) MarkRaftBootstrapComplete() { db.raftBootstrapComplete.Store(true) }
+
+// RaftBootstrapComplete reports whether the FSM replay window has ended.
+func (db *DB) RaftBootstrapComplete() bool { return db.raftBootstrapComplete.Load() }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
 // This allows for better testability by using interfaces instead of concrete types
@@ -480,6 +525,13 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 
 func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
+	// Stop self-recovery workers before tearing indexes down, so in-flight
+	// LoadLocalShard callbacks finish rather than race Index.Shutdown.
+	if db.selfRecoveryOrchestrator != nil {
+		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
+			db.logger.WithError(err).Warn("self-recovery: Close did not drain in time; workers may still be running")
+		}
+	}
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {

@@ -453,10 +453,11 @@ func TestToRPCError(t *testing.T) {
 }
 
 type MockMembers struct {
-	leader    string
-	errJoin   error
-	errNotify error
-	errRemove error
+	leader      string
+	commitIndex uint64
+	errJoin     error
+	errNotify   error
+	errRemove   error
 }
 
 func (m *MockMembers) Join(id string, addr string, voter bool) error {
@@ -473,6 +474,10 @@ func (m *MockMembers) Remove(id string) error {
 
 func (m *MockMembers) Leader() string {
 	return m.leader
+}
+
+func (m *MockMembers) CommitIndex() uint64 {
+	return m.commitIndex
 }
 
 type MockExecutor struct {
