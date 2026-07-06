@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -176,10 +178,12 @@ func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, na
 // --- helpers ---
 
 // fakeShardingReader returns a sharding state whose Physical set is exactly
-// `shards`; the provider's coverage guard compares it against the task's units.
+// `shards` (the coverage guard compares it against the task's units) and a class
+// whose VectorConfig is `vectorCfg` (the arm-time still-dropped guard reads it).
 type fakeShardingReader struct {
-	shards []string
-	err    error
+	shards    []string
+	vectorCfg map[string]models.VectorConfig
+	err       error
 }
 
 func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, uint64, error) {
@@ -191,6 +195,21 @@ func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, 
 		state.Physical[name] = sharding.Physical{}
 	}
 	return state, 0, nil
+}
+
+func (f *fakeShardingReader) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	cfg := f.vectorCfg
+	if cfg == nil {
+		cfg = map[string]models.VectorConfig{"v1": droppedCfg()} // default: target still dropped
+	}
+	out := map[string]versioned.Class{}
+	for _, name := range classes {
+		out[name] = versioned.Class{Class: &models.Class{Class: name, VectorConfig: cfg}}
+	}
+	return out, nil
 }
 
 func newTestDropProvider(shards dropVectorShards, fin dropVectorSchemaFinalizer, rec distributedtask.TaskCompletionRecorder) *DropVectorIndexProvider {
@@ -399,6 +418,32 @@ func TestStartTask_BucketLookupFails_UnitFailed(t *testing.T) {
 	require.Empty(t, rec.completed)
 }
 
+// TestStartTask_TargetNoLongerDropped_RefusesToArm pins the arm-time guard: if
+// the leader-consistent class shows the target live again (class deleted and
+// re-created in the marker->enqueue window), the unit must fail WITHOUT
+// registering the op — arming would strip live user data.
+func TestStartTask_TargetNoLongerDropped_RefusesToArm(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+	p.sharding = &fakeShardingReader{
+		shards:    []string{"shard1"},
+		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}, // live again
+	}
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Empty(t, bucket.registered, "op must not be armed against a live vector")
+	require.Contains(t, rec.failed, "u1")
+	require.Empty(t, rec.completed)
+}
+
 // --- OnGroupCompleted ---
 
 func TestOnGroupCompleted_PerTenantIndexFilesRemoved(t *testing.T) {
@@ -440,10 +485,11 @@ func TestOnGroupCompleted_OneFailingShardDoesNotBlockOthers(t *testing.T) {
 
 // --- OnTaskCompleted ---
 
-// TestOnTaskCompleted_TerminalTasks_DoNotMutateSchemaOrDeleteOp: FAILED/CANCELLED
-// leave both the schema marker (operator retry) and the edit op (a resumed task
-// picks it back up) untouched.
-func TestOnTaskCompleted_TerminalTasks_DoNotMutateSchemaOrDeleteOp(t *testing.T) {
+// TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema: FAILED/CANCELLED leave
+// the schema marker (operator retry) but MUST delete the edit op — a lingering op
+// would survive a later successful re-drop (fresh op ID), and once that re-drop
+// frees the name it would strip a re-created same-name vector.
+func TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema(t *testing.T) {
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusFailed,
 		distributedtask.TaskStatusCancelled,
@@ -455,7 +501,7 @@ func TestOnTaskCompleted_TerminalTasks_DoNotMutateSchemaOrDeleteOp(t *testing.T)
 
 			p.OnTaskCompleted(dropTask(status, nil))
 			require.False(t, fin.called, "%s task must not mutate schema", status)
-			require.Empty(t, bucket.deleted, "%s task must not delete the edit op", status)
+			require.Equal(t, []string{"op1"}, bucket.deleted, "%s task must disarm its edit op", status)
 		})
 	}
 }

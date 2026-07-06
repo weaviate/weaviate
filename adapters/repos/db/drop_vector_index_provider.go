@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -59,11 +62,13 @@ type dropVectorSchemaFinalizer interface {
 	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
 }
 
-// dropVectorShardingReader returns the leader-consistent sharding state, so the
-// finalize path can tell whether this task covered every current shard/tenant.
-// cluster.Raft satisfies it.
-type dropVectorShardingReader interface {
+// dropVectorSchemaReader provides leader-consistent schema reads: the sharding
+// state (so the finalize path can tell whether this task covered every current
+// shard/tenant) and the class (so op-arming can re-verify the targets are still
+// marked dropped). cluster.Raft satisfies it.
+type dropVectorSchemaReader interface {
 	QueryShardingState(class string) (*sharding.State, uint64, error)
+	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
 }
 
 // DropVectorIndexProvider executes drop-vector-index distributed tasks: each
@@ -77,7 +82,7 @@ type DropVectorIndexProvider struct {
 
 	shards    dropVectorShards
 	schema    dropVectorSchemaFinalizer
-	sharding  dropVectorShardingReader
+	sharding  dropVectorSchemaReader
 	logger    logrus.FieldLogger
 	localNode string
 
@@ -95,7 +100,7 @@ type DropVectorIndexProvider struct {
 func NewDropVectorIndexProvider(
 	shards dropVectorShards,
 	schema dropVectorSchemaFinalizer,
-	sharding dropVectorShardingReader,
+	sharding dropVectorSchemaReader,
 	logger logrus.FieldLogger,
 	localNode string,
 	serverCtx context.Context,
@@ -211,6 +216,19 @@ func (p *DropVectorIndexProvider) processOneUnit(
 
 	if bucket == nil {
 		p.failUnit(ctx, task, unitID, "objects bucket for shard "+payload.UnitToShard[unitID]+" not locally available")
+		return
+	}
+
+	// Last check before the destructive op arms: the marker commit and the task
+	// enqueue are not atomic, so the class may have been deleted+re-created (or the
+	// entry otherwise revived) since. Arming against a live vector would strip user
+	// data; refuse instead — the failed task deletes its ops and leaves any real
+	// marker for a retry.
+	if ok, err := p.targetsStillDropped(payload); err != nil {
+		p.failUnit(ctx, task, unitID, "verify targets still marked dropped: "+err.Error())
+		return
+	} else if !ok {
+		p.failUnit(ctx, task, unitID, "a target vector is no longer marked dropped; refusing to arm cleanup")
 		return
 	}
 
@@ -361,8 +379,18 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	case distributedtask.TaskStatusSwapping, distributedtask.TaskStatusFinished:
 		// Success — proceed.
 	default:
+		// FAILED/CANCELLED: the schema marker stays for an operator retry, but the
+		// op must NOT stay armed — a later successful re-drop (fresh op ID) would
+		// free the name while this op lingers, and it would strip a re-created
+		// same-name vector on the next compaction. Best-effort: an unloaded shard's
+		// op is caught by the orphan sweep on load (this task is terminal, so it is
+		// absent from the live-op set).
+		if err := p.deleteLocalEditOps(payload); err != nil {
+			logger.Warnf("drop-vector: task-completion: deleting %s task's edit op failed (orphan sweep on shard load will catch it): %v",
+				task.Status, err)
+		}
 		logger.WithField("status", task.Status).
-			Info("drop-vector: task-completion: task did not succeed, leaving schema marker for operator")
+			Info("drop-vector: task-completion: task did not succeed; edit ops deleted, schema marker left for operator")
 		return
 	}
 
@@ -397,6 +425,33 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 	logger.Info("drop-vector: task-completion: dropped vector(s) removed from schema")
+}
+
+// targetsStillDropped reports whether every payload target is still present and
+// marked dropped in the leader-consistent class. A missing class or entry means
+// the drop was superseded (class deleted/re-created, or the name freed).
+func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTaskPayload) (bool, error) {
+	vclasses, err := p.sharding.QueryReadOnlyClasses(payload.Collection)
+	if err != nil {
+		return false, err
+	}
+	class := vclasses[payload.Collection].Class
+	if class == nil {
+		return false, nil
+	}
+	for _, target := range payload.Targets {
+		dropped := false
+		for name, cfg := range class.VectorConfig {
+			if strings.EqualFold(name, target) && modelsext.IsVectorIndexDropped(cfg) {
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // uncoveredShards returns the collection's current shards (leader-consistent)

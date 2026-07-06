@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -35,7 +36,7 @@ import (
 // so it can reuse buildUnitMaps/buildUnitSpecs.
 type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
-	shardingState  shardingStateQuerier
+	schemaState    schemaStateQuerier
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -45,17 +46,19 @@ type clusterDropTaskClient interface {
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
 
-// shardingStateQuerier returns the leader-consistent sharding state for a
-// collection. Leader-consistent on purpose: units must be built from the current
-// tenant statuses, not this node's eventually-consistent local view (a tenant
-// activated moments ago could still read COLD locally and be skipped).
-// cluster.Raft satisfies it.
-type shardingStateQuerier interface {
+// schemaStateQuerier provides leader-consistent schema reads for a collection:
+// the sharding state (units must be built from the current tenant statuses, not
+// this node's eventually-consistent local view — a tenant activated moments ago
+// could still read COLD locally and be skipped) and the class (targets are
+// re-validated as still marked dropped right before submitting the destructive
+// cleanup task). cluster.Raft satisfies it.
+type schemaStateQuerier interface {
 	QueryShardingState(class string) (*sharding.State, uint64, error)
+	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
 }
 
-func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, shardingState shardingStateQuerier) *dropVectorIndexEnqueuer {
-	return &dropVectorIndexEnqueuer{clusterService: clusterService, shardingState: shardingState}
+func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier) *dropVectorIndexEnqueuer {
+	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState}
 }
 
 // HasActiveDrop reports whether a non-terminal drop task already covers
@@ -90,7 +93,20 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 // one unit per (shard, replica) grouped by shard, so each replica node strips
 // its own objects bucket.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
-	state, _, err := e.shardingState.QueryShardingState(collection)
+	// Re-validate against the leader-consistent class: the marker commit and this
+	// enqueue are not atomic, and reconciliation may run off a stale local schema
+	// snapshot. A target that is no longer marked dropped (class deleted and
+	// re-created, or already finalized elsewhere) must not get a cleanup task —
+	// that task would strip a live vector.
+	targets, err := e.stillDroppedTargets(collection, targets)
+	if err != nil {
+		return fmt.Errorf("drop-vector enqueue: verify targets for %q: %w", collection, err)
+	}
+	if len(targets) == 0 {
+		return nil // nothing (still) marked dropped — no-op
+	}
+
+	state, _, err := e.schemaState.QueryShardingState(collection)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: sharding state for %q: %w", collection, err)
 	}
@@ -128,6 +144,29 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	// task, the backstop for the HasActiveDrop check race.
 	taskID := uuid.NewString()
 	return e.clusterService.AddDistributedTaskWithGroups(ctx, db.DropVectorIndexNamespace, taskID, payload, specs)
+}
+
+// stillDroppedTargets filters targets to those still present and marked dropped
+// in the leader-consistent class. A missing class means nothing to clean.
+func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets []string) ([]string, error) {
+	vclasses, err := e.schemaState.QueryReadOnlyClasses(collection)
+	if err != nil {
+		return nil, err
+	}
+	class := vclasses[collection].Class
+	if class == nil {
+		return nil, nil
+	}
+	var still []string
+	for _, target := range targets {
+		for name, cfg := range class.VectorConfig {
+			if strings.EqualFold(name, target) && modelsext.IsVectorIndexDropped(cfg) {
+				still = append(still, target)
+				break
+			}
+		}
+	}
+	return still, nil
 }
 
 // activeShardOwnership builds node -> shard-names from a sharding state, limited

@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -158,14 +159,46 @@ func mustDropPayload(t *testing.T, collection string, targets ...string) []byte 
 }
 
 // fakeShardingState returns a leader-consistent-shaped sharding state built from
-// shard -> (status, nodes).
+// shard -> (status, nodes), and a class whose VectorConfig is vectorCfg (defaults
+// to the targets-still-dropped happy path for "v1").
 type fakeShardingState struct {
-	state *sharding.State
-	err   error
+	state     *sharding.State
+	vectorCfg map[string]models.VectorConfig
+	err       error
 }
 
 func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, uint64, error) {
 	return f.state, 0, f.err
+}
+
+func (f *fakeShardingState) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	cfg := f.vectorCfg
+	if cfg == nil {
+		cfg = map[string]models.VectorConfig{"v1": dropped()}
+	}
+	out := map[string]versioned.Class{}
+	for _, name := range classes {
+		out[name] = versioned.Class{Class: &models.Class{Class: name, VectorConfig: cfg}}
+	}
+	return out, nil
+}
+
+// TestEnqueueDropVectorIndex_TargetNoLongerDropped_NoOp pins the enqueue-time
+// guard: a target that the leader-consistent class shows live (class re-created,
+// or a stale reconciliation snapshot) must not get a cleanup task.
+func TestEnqueueDropVectorIndex_TargetNoLongerDropped_NoOp(t *testing.T) {
+	cluster := &fakeClusterDropClient{}
+	state := &fakeShardingState{
+		state:     shardingState(false, map[string]sharding.Physical{"s1": {BelongsToNodes: []string{"n1"}}}),
+		vectorCfg: map[string]models.VectorConfig{"v1": nonDropped()},
+	}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.Empty(t, cluster.gotTaskID, "no task may be enqueued for a live vector")
 }
 
 func shardingState(partitioning bool, shards map[string]sharding.Physical) *sharding.State {
@@ -202,7 +235,7 @@ func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
 	state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{
 		"cold": {Status: models.TenantActivityStatusCOLD, BelongsToNodes: []string{"n1"}},
 	})}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, shardingState: state}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 	require.Empty(t, cluster.gotTaskID, "no task should be enqueued when there are no active shards")
@@ -213,7 +246,7 @@ func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
 func TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors(t *testing.T) {
 	cluster := &fakeClusterDropClient{}
 	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{})}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, shardingState: state}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 	require.Error(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 }
@@ -228,7 +261,7 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
 		"shard1": {BelongsToNodes: []string{"node1"}},
 	})}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, shardingState: state}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 
