@@ -44,6 +44,7 @@ func TestAuthzNodesFilter(t *testing.T) {
 	helper.CreateClassAuth(t, clsP, adminKey)
 	helper.CreateClassAuth(t, clsA, adminKey)
 	helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewArticle().WithTitle("article1").Object()}, adminKey)
+	helper.CreateObjectsBatchAuth(t, []*models.Object{articles.NewParagraph().WithContents("p1").Object()}, adminKey)
 
 	helper.DeleteRole(t, adminKey, roleName)
 	defer helper.DeleteRole(t, adminKey, roleName)
@@ -52,16 +53,28 @@ func TestAuthzNodesFilter(t *testing.T) {
 	}})
 	helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 
-	// only permissions for one of the classes
+	// Confined caller sees only its own class. The node-wide Stats must be rebuilt
+	// from the visible shard (ShardCount is 1, not the cluster's 2) and the
+	// non-reconstructable BatchStats dropped, so neither leaks the hidden class.
+	// ObjectCount is a disk-async counter that lags unflushed writes, so it is not
+	// asserted.
 	resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(String(verbosity.OutputVerbose)), helper.CreateAuth(customKey))
-	require.NoError(t, err)
-	require.Len(t, resp.Payload.Nodes[0].Shards, 1)
-	require.Equal(t, resp.Payload.Nodes[0].Shards[0].Class, clsA.Class)
+	require.Nil(t, err)
+	node := resp.Payload.Nodes[0]
+	require.Len(t, node.Shards, 1)
+	require.Equal(t, clsA.Class, node.Shards[0].Class)
+	require.NotNil(t, node.Stats)
+	require.Equal(t, int64(1), node.Stats.ShardCount, "shard count must reflect only the visible shard")
+	require.Nil(t, node.BatchStats, "cluster-wide batch stats must be dropped for a confined caller")
 
-	// admin gets back shards for two classes
+	// Admin sees both classes with untouched cluster-wide Stats and BatchStats.
 	resp, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(String(verbosity.OutputVerbose)), helper.CreateAuth(adminKey))
-	require.NoError(t, err)
-	require.Len(t, resp.Payload.Nodes[0].Shards, 2)
+	require.Nil(t, err)
+	node = resp.Payload.Nodes[0]
+	require.Len(t, node.Shards, 2)
+	require.NotNil(t, node.Stats)
+	require.Equal(t, int64(2), node.Stats.ShardCount)
+	require.NotNil(t, node.BatchStats, "admin keeps cluster-wide batch stats")
 }
 
 func TestAuthzNodes(t *testing.T) {
