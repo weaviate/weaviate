@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -204,6 +205,10 @@ type Config struct {
 	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
 	// tenant-cap rejection, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
+
+	// DBLoadProgress reports local shard-loading progress (loaded,
+	// total) while the DB is being restored on startup.
+	DBLoadProgress func() *db.StartupProgressSnapshot
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -690,10 +695,33 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 				return nil
 			}
 			if time.Since(lastLog) >= logInterval {
-				st.log.Info("waiting for database to be restored")
+				st.log.WithFields(st.dbLoadProgressFields()).Info("waiting for database to be restored")
 				lastLog = time.Now()
 			}
 		}
+	}
+}
+
+// dbLoadProgressFields returns log fields describing shard-loading progress, or
+// nil when no progress source is configured or there are no shards to load.
+func (st *Store) dbLoadProgressFields() logrus.Fields {
+	if st.cfg.DBLoadProgress == nil {
+		return nil
+	}
+
+	snapshot := st.cfg.DBLoadProgress()
+	if snapshot == nil {
+		return nil
+	}
+
+	if snapshot.Total <= 0 {
+		return nil
+	}
+
+	return logrus.Fields{
+		"shards_loaded": snapshot.Loaded,
+		"shards_total":  snapshot.Total,
+		"progress":      fmt.Sprintf("%.0f%%", float64(snapshot.Loaded)/float64(snapshot.Total)*100),
 	}
 }
 
