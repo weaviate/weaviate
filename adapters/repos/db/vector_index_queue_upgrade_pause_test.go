@@ -45,6 +45,10 @@ func newPausableTestQueue(t *testing.T, vi VectorIndex) *VectorIndexQueue {
 	})
 	require.NoError(t, err)
 	require.NoError(t, dq.Init())
+	// Scheduler.Close does not close registered queues, so close the DiskQueue
+	// ourselves (runs before the scheduler cleanup via t.Cleanup's LIFO order)
+	// to avoid leaking its file descriptors/goroutines across tests.
+	t.Cleanup(func() { _ = dq.Close(context.Background()) })
 	viq.DiskQueue = dq
 
 	s.RegisterQueue(viq)

@@ -441,7 +441,8 @@ func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
 				t.Skip("panic recovery disabled")
 			}
 			dyn := newUpgradeTestDynamic(t, 10)
-			dyn.doUpgradeHookForTest = tc.hook
+			realUpgrade := dyn.upgradeFn
+			dyn.upgradeFn = tc.hook
 
 			firstCallback := make(chan struct{})
 			require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
@@ -452,8 +453,8 @@ func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
 			}
 			require.False(t, dyn.IsUpgraded(), "a failed attempt must not report as upgraded")
 
-			// clear the injected failure so the retry can actually complete.
-			dyn.doUpgradeHookForTest = nil
+			// restore the real rebuild so the retry can actually complete.
+			dyn.upgradeFn = realUpgrade
 
 			secondCallback := make(chan struct{})
 			require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
@@ -473,7 +474,7 @@ func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
 	dyn := newUpgradeTestDynamic(t, 10)
 
 	block := make(chan struct{})
-	dyn.doUpgradeHookForTest = func() error {
+	dyn.upgradeFn = func() error {
 		<-block
 		return nil
 	}

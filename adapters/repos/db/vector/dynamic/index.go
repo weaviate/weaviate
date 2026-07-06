@@ -173,8 +173,11 @@ type dynamic struct {
 	MakeBucketOptions            lsmkv.MakeBucketOptions
 	AsyncIndexingEnabled         bool
 
-	// doUpgradeHookForTest, when set, replaces doUpgrade's body (test-only).
-	doUpgradeHookForTest func() error
+	// upgradeFn performs the flat→HNSW rebuild. New wires it to the doUpgrade
+	// method; keeping it as an injected field (like the *Thunk dependencies
+	// above) lets tests substitute a failing or blocking rebuild without a
+	// test-only branch in the production path. Production always runs doUpgrade.
+	upgradeFn func() error
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -228,6 +231,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		MakeBucketOptions:            cfg.MakeBucketOptions,
 		AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
 	}
+	index.upgradeFn = index.doUpgrade
 
 	upgraded, err := index.init(&cfg)
 	if err != nil {
@@ -630,7 +634,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		}()
 		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
-		err := dynamic.doUpgrade()
+		err := dynamic.upgradeFn()
 		if err != nil {
 			dynamic.logger.WithError(err).Error("failed to upgrade index")
 			return
@@ -642,10 +646,6 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 }
 
 func (dynamic *dynamic) doUpgrade() error {
-	if dynamic.doUpgradeHookForTest != nil {
-		return dynamic.doUpgradeHookForTest()
-	}
-
 	// The read lock keeps the current index alive (not dropped/closed) while
 	// the new one is built; searches continue throughout. Closure so the
 	// unlock is deferred and panic-safe.
