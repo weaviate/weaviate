@@ -123,15 +123,7 @@ type fileReindexTrackerConfig struct {
 	migrationPath      string
 }
 
-// reindexTrackerInitHook is a TEST-ONLY hook fired before init()'s MkdirAll;
-// tests block in it to make the drop()-vs-MkdirAll race deterministic.
-var reindexTrackerInitHook func()
-
 func (t *fileReindexTracker) init() error {
-	if reindexTrackerInitHook != nil {
-		reindexTrackerInitHook()
-	}
-
 	mkdir := func() error {
 		return os.MkdirAll(t.config.migrationPath, 0o777)
 	}

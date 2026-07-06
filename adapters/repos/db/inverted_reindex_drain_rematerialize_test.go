@@ -68,11 +68,18 @@ func TestModeADrainRematerialize(t *testing.T) {
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
 
-			reindexTrackerInitHook = func() {
-				hookOnce.Do(func() { close(inHook) })
-				<-releaseHook
+			// Interpose a barrier at the tracker's pre-MkdirAll point (before
+			// the real close-lock guard runs, holding no lock) so the DELETE
+			// lands between the worker parking and its guarded MkdirAll.
+			realGuardFor := task.trackerMkdirGuard
+			task.trackerMkdirGuard = func(s ShardLike) func(func() error) error {
+				guard := realGuardFor(s)
+				return func(mkdir func() error) error {
+					hookOnce.Do(func() { close(inHook) })
+					<-releaseHook
+					return guard(mkdir)
+				}
 			}
-			t.Cleanup(func() { reindexTrackerInitHook = nil })
 
 			var driveErr error
 			workerDone := make(chan struct{})

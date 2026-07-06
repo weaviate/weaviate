@@ -204,6 +204,15 @@ type ShardReindexTaskGeneric struct {
 	// SetTokenizationOverlay's own lock is enough. Wired only for
 	// tokenization-changing migrations.
 	onPropSwapped func(propName string)
+
+	// trackerMkdirGuard yields the close-lock guard serializing a reindex
+	// tracker's init() MkdirAll against a concurrent Index.drop (see
+	// newReindexTrackerGuarded). Defaults to Index.withCloseRLockGuard in
+	// NewShardReindexTaskGeneric; the drain-rematerialize test wraps it to
+	// interpose a barrier at the exact pre-MkdirAll point that makes the
+	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
+	// branch runs in production.
+	trackerMkdirGuard func(shard ShardLike) func(func() error) error
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -233,6 +242,9 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	}
 	t.processOneSwapPropFn = t.processOneSwapProp
 	t.processOneTidyPropFn = t.processOneTidyProp
+	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
+		return shard.Index().withCloseRLockGuard
+	}
 	return t
 }
 
@@ -1221,7 +1233,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 // deadlocks against a queued drop() writer.
 func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (reindexTracker, error) {
 	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
-	rt.mkdirGuard = shard.Index().withCloseRLockGuard
+	rt.mkdirGuard = t.trackerMkdirGuard(shard)
 	if err := rt.init(); err != nil {
 		return nil, err
 	}
