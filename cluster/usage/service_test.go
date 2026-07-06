@@ -87,6 +87,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	)
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
