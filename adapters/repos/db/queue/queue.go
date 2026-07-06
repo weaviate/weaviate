@@ -359,9 +359,19 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 	defer c.Close()
 
+	// The record count comes from disk and may be corrupt. It is only used as
+	// a capacity hint: cap it by the number of records that could possibly
+	// fit in the chunk, i.e. a 4-byte length prefix plus at least one byte each.
+	count := c.count
+	if maxRecords := c.size / 5; count > maxRecords {
+		q.Logger.WithField("file", c.path).
+			Warnf("chunk header claims %d records, but at most %d fit in %d bytes; the header is likely corrupt", c.count, maxRecords, c.size)
+		count = maxRecords
+	}
+
 	// decode all tasks from the chunk
 	// and partition them by worker
-	tasks := make([]Task, 0, c.count)
+	tasks := make([]Task, 0, count)
 
 	buf := make([]byte, 4)
 	for {
@@ -378,6 +388,12 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		length := binary.BigEndian.Uint32(buf)
 		if length == 0 {
 			return nil, errors.New("invalid record length")
+		}
+		// the length prefix comes from disk and may be corrupt: a record
+		// cannot be larger than the chunk file that contains it. Validate
+		// before allocating.
+		if uint64(length) > c.size {
+			return nil, errors.Errorf("invalid record length %d, chunk file is only %d bytes", length, c.size)
 		}
 
 		// read the record
