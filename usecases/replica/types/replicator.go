@@ -47,9 +47,8 @@ type Replicator interface {
 	CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error)
 	HashTreeLevel(ctx context.Context, className, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
-	// CompareHashTreeRoots compares this node's local hashtree root per shard
-	// against the provided roots, returning the shards that diverge (root differs,
-	// or shard missing / hashtree not fully initialised here).
+	// CompareHashTreeRoots returns shards whose local root was read and differs;
+	// not-ready shards (missing/uninitialised) are omitted.
 	CompareHashTreeRoots(ctx context.Context, className string,
 		roots map[string]hashtree.Digest) (divergingShards []string, err error)
 	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)

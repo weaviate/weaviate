@@ -1253,9 +1253,8 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	return digests[:n], nil
 }
 
-// HashTreeRoot returns the shard's async-replication hashtree root digest. ok is
-// false when the hashtree is not fully initialised; callers treat that as
-// "diverging". Computed like HashTreeLevel(level=0), so batched equality matches.
+// HashTreeRoot returns the shard's async-replication hashtree root; ok is false when the
+// hashtree is not fully initialised. Computed like HashTreeLevel(level=0) so roots match.
 func (s *Shard) HashTreeRoot() (root hashtree.Digest, ok bool) {
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()

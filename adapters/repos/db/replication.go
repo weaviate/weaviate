@@ -965,9 +965,8 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-// CompareHashTreeRoots returns the requested shards whose local hashtree root
-// differs. Missing/uninitialised/cold (ensureInit=false) shards report diverging
-// so the source never wrongly skips a shard.
+// CompareHashTreeRoots returns shards whose local root was read and differs; not-ready
+// shards (missing/uninitialised/cold) are omitted — caught once they become ready.
 func (i *Index) CompareHashTreeRoots(ctx context.Context,
 	roots map[string]hashtree.Digest,
 ) ([]string, error) {
@@ -984,7 +983,7 @@ func (i *Index) CompareHashTreeRoots(ctx context.Context,
 			defer release()
 			return shard.HashTreeRoot()
 		}()
-		if !ok || localRoot != sourceRoot {
+		if ok && localRoot != sourceRoot {
 			diverging = append(diverging, shardName)
 		}
 	}

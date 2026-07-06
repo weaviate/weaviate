@@ -131,8 +131,8 @@ func TestAsyncSchedulerRegistrationIdempotent(t *testing.T) {
 	s.asyncRepWg.Wait()
 }
 
-// TestIndexCompareHashTreeRoots: a shard diverges iff its local root differs, is
-// missing, or its hashtree is uninitialised; an equal initialised root is omitted.
+// TestIndexCompareHashTreeRoots: a shard diverges iff its local root was read and
+// differs; missing/uninitialised roots are omitted.
 func TestIndexCompareHashTreeRoots(t *testing.T) {
 	ctx := context.Background()
 	_, idx := testShard(t, ctx, "CompareRootsClass")
@@ -153,18 +153,18 @@ func TestIndexCompareHashTreeRoots(t *testing.T) {
 		assert.Equal(t, []string{shardName}, div)
 	})
 
-	t.Run("unknown shard is diverging", func(t *testing.T) {
+	t.Run("unknown shard is omitted", func(t *testing.T) {
 		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{"no-such-shard": {1, 2}})
 		require.NoError(t, err)
-		assert.Equal(t, []string{"no-such-shard"}, div)
+		assert.Empty(t, div)
 	})
 
-	t.Run("uninitialised hashtree is diverging", func(t *testing.T) {
+	t.Run("uninitialised hashtree is omitted", func(t *testing.T) {
 		s.hashtreeFullyInitialized = false
 		defer func() { s.hashtreeFullyInitialized = true }()
 		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
 		require.NoError(t, err)
-		assert.Equal(t, []string{shardName}, div)
+		assert.Empty(t, div)
 	})
 }
 
