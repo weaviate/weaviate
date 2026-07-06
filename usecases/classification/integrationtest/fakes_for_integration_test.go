@@ -654,6 +654,12 @@ func (c *fakeReplicationClient) CompareDigests(ctx context.Context, host, index,
 	return nil, nil
 }
 
+func (c *fakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return nil, nil
+}
+
 func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
 	return 0, nil
 }
