@@ -13,10 +13,7 @@ package reindex_multinode
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"testing"
 	"time"
 
@@ -68,8 +65,9 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	t.Logf("first migration FINISHED: task=%s", task1)
 
 	// Spot-check pre-delete: task record is present on this node's view.
-	require.True(t, taskExists(t, uri, task1),
-		"pre-delete: reindex task %s must be in /v1/tasks", task1)
+	existsPre, okPre := taskExists(t, uri, task1)
+	require.Truef(t, okPre && existsPre,
+		"pre-delete: reindex task %s must be in /v1/tasks (fetch ok=%v)", task1, okPre)
 
 	deleteCollection(t, uri, className)
 	t.Logf("deleted class %s", className)
@@ -131,25 +129,28 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 // taskExists returns true if the reindex namespace contains a task with
 // the given ID on the queried node. Per-node scope (no /v1/tasks fan-out)
 // so callers can pin per-replica behaviour.
-func taskExists(t *testing.T, restURI, taskID string) bool {
+func taskExists(t *testing.T, restURI, taskID string) (exists, ok bool) {
 	t.Helper()
-	tasks := fetchTasks(t, restURI)
+	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
+	if !ok {
+		return false, false
+	}
 	for _, task := range tasks["reindex"] {
 		if task.ID == taskID {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
 
 func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 	t.Helper()
-	// /v1/tasks is served from the coordinator's FSM-replicated view —
-	// the cascade applies inside the same FSM, so the absence is visible
-	// immediately. Eventually wrap absorbs the (rare) raft-leader catch-up
-	// race after a rolling restart but not behavioural divergence.
+	// /v1/tasks is served from the coordinator's FSM-replicated view — the
+	// cascade applies inside the same FSM, so absence is visible immediately.
+	// A failed read is a retry, not absence.
 	require.Eventuallyf(t, func() bool {
-		return !taskExists(t, restURI, taskID)
+		exists, ok := taskExists(t, restURI, taskID)
+		return ok && !exists
 	}, 20*time.Second, 50*time.Millisecond,
 		"%s: reindex task %s must NOT be in /v1/tasks (cascade deleted on DELETE_CLASS)",
 		label, taskID)
@@ -158,7 +159,10 @@ func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 func assertIndexesReady(t *testing.T, restURI, className, label string) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {
-		indexes := reindexhelpers.GetIndexes(t, restURI, className)
+		indexes, ok := reindexhelpers.TryGetIndexes(restURI, className)
+		if !ok {
+			return false // transient post-restart read (gRPC reconnect) — retry
+		}
 		for _, p := range indexes.Properties {
 			for _, idx := range p.Indexes {
 				// Anything other than "ready" on a freshly-recreated class
@@ -186,17 +190,4 @@ func assertIndexesReady(t *testing.T, restURI, className, label string) {
 				label, p.Name, idx.Type, idx.Status)
 		}
 	}
-}
-
-func fetchTasks(t *testing.T, restURI string) models.DistributedTasks {
-	t.Helper()
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /v1/tasks failed: %s", string(body))
-	var tasks models.DistributedTasks
-	require.NoError(t, json.Unmarshal(body, &tasks))
-	return tasks
 }
