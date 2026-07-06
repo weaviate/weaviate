@@ -571,7 +571,7 @@ function get_fast_go_client_packages() {
 function get_go_client_group() {
   case "$1" in
     1) echo "acceptance_tests_with_client/multi_tenancy_tests acceptance_tests_with_client/filters_tests" ;;
-    2) echo "acceptance_tests_with_client/compression acceptance_tests_with_client/usage" ;;
+    2) echo "acceptance_tests_with_client/usage" ;;
     *) echo "" ;;
   esac
 }
