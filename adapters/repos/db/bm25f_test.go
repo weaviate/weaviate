@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -792,6 +793,98 @@ func EqualFloats(t *testing.T, expected, actual float32, significantFigures int)
 		significantFigures = len(s2) - 1
 	}
 	require.Equal(t, s1[:significantFigures+1], s2[:significantFigures+1])
+}
+
+// TestBM25F_DuplicatePropertyLastBoostWins verifies that a duplicate property
+// in the search list (e.g. ["title", "title^2"]) is scored exactly once, with
+// the LAST boost winning. Without deduping, the property is processed twice —
+// its bucket is scored twice and its term frequency is double-counted — which
+// inflates the score and can reorder results. Runs against both the classic
+// WAND and the BlockMaxWAND engines.
+func TestBM25F_DuplicatePropertyLastBoostWins(t *testing.T) {
+	for _, block := range []bool{false, true} {
+		name := "wand"
+		if block {
+			name = "blockmaxwand"
+		}
+		t.Run(name, func(t *testing.T) {
+			config.DefaultUsingBlockMaxWAND = block
+			// A minimal two-text-property class is enough to prove the dedup:
+			// the query term "journey" appears in both "title" and "description"
+			// at different frequencies, so double-counting "title" shifts scores.
+			// InvertedIndexConfig picks up config.DefaultUsingBlockMaxWAND above,
+			// selecting the engine under test.
+			vFalse, vTrue := false, true
+			searchableText := func(name string) *models.Property {
+				return &models.Property{
+					Name:            name,
+					DataType:        schema.DataTypeText.PropString(),
+					Tokenization:    models.PropertyTokenizationWord,
+					IndexFilterable: &vFalse,
+					IndexSearchable: &vTrue,
+				}
+			}
+			class := &models.Class{
+				Class:               "DupPropClass",
+				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+				InvertedIndexConfig: BM25FinvertedConfig(0.5, 100, "none"),
+				Properties: []*models.Property{
+					searchableText("title"),
+					searchableText("description"),
+				},
+			}
+			repo := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+
+			docs := []map[string]interface{}{
+				{"title": "journey", "description": "an unrelated description"},
+				{"title": "a distant title", "description": "journey journey journey"},
+				{"title": "journey journey", "description": "one journey here"},
+				{"title": "a journey story", "description": "the journey continues, journey on"},
+				{"title": "nothing to see", "description": "wholly unrelated content"},
+				{"title": "journey journey journey", "description": "short"},
+			}
+			for i, docProps := range docs {
+				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+				require.Nil(t, repo.PutObject(context.Background(),
+					&models.Object{Class: class.Class, ID: id, Properties: docProps},
+					[]float32{1, 3, 5, 0.4}, nil, nil, nil, 0))
+			}
+
+			idx := repo.GetIndex(schema.ClassName(class.Class))
+			require.NotNil(t, idx)
+
+			search := func(properties []string) ([]uint64, []float32) {
+				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: properties, Query: "journey"}
+				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, additional.Properties{}, nil, "", 0, []string{"title", "description"})
+				require.Nil(t, err)
+				ids := make([]uint64, len(res))
+				for i, r := range res {
+					ids[i] = r.DocID
+				}
+				return ids, scores
+			}
+
+			assertSame := func(wantIds []uint64, wantScores []float32, gotIds []uint64, gotScores []float32) {
+				require.Equal(t, wantIds, gotIds)
+				require.Equal(t, len(wantScores), len(gotScores))
+				for i := range wantScores {
+					EqualFloats(t, wantScores[i], gotScores[i], 6)
+				}
+			}
+
+			// Last boost is title^2, so the duplicate query must be identical to
+			// a single ["title^2", "description"] search (title counted once).
+			baseIds, baseScores := search([]string{"title^2", "description"})
+			dupIds, dupScores := search([]string{"title", "title^2", "description"})
+			assertSame(baseIds, baseScores, dupIds, dupScores)
+
+			// Last boost wins the other direction too: with title (boost 1) last,
+			// the duplicate query must match a single ["title", "description"].
+			base2Ids, base2Scores := search([]string{"title", "description"})
+			dup2Ids, dup2Scores := search([]string{"title^2", "title", "description"})
+			assertSame(base2Ids, base2Scores, dup2Ids, dup2Scores)
+		})
+	}
 }
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
