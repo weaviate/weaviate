@@ -2254,13 +2254,16 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		// we can only know the full n after we have checked all segments and all memtables
 		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
 
+		// currentBlockImpact is a max-score upper bound, so it must carry
+		// propertyBoost like Score and computeCurrentBlockImpact; bare idf
+		// under-counts boosted terms and prunes genuine top-K docs.
 		if active != nil {
 			active.idf = idfs[i]
-			active.currentBlockImpact = float32(idfs[i])
+			active.currentBlockImpact = float32(idfs[i] * active.propertyBoost)
 		}
 		if flushing != nil {
 			flushing.idf = idfs[i]
-			flushing.currentBlockImpact = float32(idfs[i])
+			flushing.currentBlockImpact = float32(idfs[i] * flushing.propertyBoost)
 		}
 
 		idfCounts[queryTerm] = n
