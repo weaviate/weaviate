@@ -633,11 +633,10 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	}
 
 	node.Lock()
-	level := node.level
 	id := node.id
 	node.Unlock()
 
-	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, level, id)
+	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, id)
 	if !ok {
 		return nil
 	}
@@ -653,67 +652,36 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	return nil
 }
 
-// errNoUsableEntrypoint: every candidate is denied, tombstoned, or under maintenance
 var errNoUsableEntrypoint = errors.New("no valid entrypoint available")
 
-// repairGlobalEntrypoint attempts to repair a broken global entrypoint during insert.
-// It is called from the insert path when the global entrypoint is unusable (e.g., under
-// maintenance or vector unavailable). The function finds a new valid entrypoint and
-// atomically updates it using CAS semantics.
-//
-// Parameters:
-//   - oldEntrypoint: the entrypoint that was found to be unusable
-//   - localDeny: nodes already tried and rejected during local fallback
-//
-// Returns the new entrypoint ID, or an error if no valid entrypoint can be found.
-// If another goroutine already repaired the entrypoint (CAS fails), returns the
-// current entrypoint value.
-func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, localDeny helpers.AllowList) (uint64, error) {
-	// Build denyList: exclude oldEntrypoint + known-bad local nodes
-	denyList := localDeny.WrapOnWrite()
-	denyList.Insert(oldEntrypoint)
-
-	// Get the old entrypoint's level (best effort - may be nil if already deleted)
-	var targetLevel int
-	if node := h.nodeByID(oldEntrypoint); node != nil {
-		node.Lock()
-		targetLevel = node.level
-		node.Unlock()
-	}
-
-	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, targetLevel, oldEntrypoint)
+// repairGlobalEntrypoint replaces an unusable global entrypoint with a usable
+// node, skipping nodes in denyList (which must already contain oldEntrypoint).
+// If a concurrent operation changed the entrypoint first, that entrypoint is
+// returned instead. Returns errNoUsableEntrypoint if no candidate remains.
+func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, denyList helpers.AllowList) (uint64, error) {
+	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, oldEntrypoint)
 	if !ok {
-		// No change: either graph is empty, or entrypoint was already changed by concurrent op
-		currentEp := h.getEntrypoint()
-		if currentEp == oldEntrypoint {
-			// Graph is empty or only unusable nodes remain
-			return 0, errNoUsableEntrypoint
+		if currentEp := h.getEntrypoint(); currentEp != oldEntrypoint {
+			return currentEp, nil
 		}
-		// Someone else already repaired it
-		return currentEp, nil
+		return 0, errNoUsableEntrypoint
 	}
 
-	// CAS: only update if entrypoint hasn't changed since we started
 	h.Lock()
-	if h.entryPointID == oldEntrypoint {
-		// CAS success: update in-memory first, then persist (matches deleteEntrypoint)
-		h.entryPointID = newEntrypoint
-		h.currentMaximumLayer = level
-		if err := h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level); err != nil {
-			h.Unlock()
-			return 0, fmt.Errorf("persist entrypoint: %w", err)
-		}
-		h.Unlock()
-		return newEntrypoint, nil
+	defer h.Unlock()
+	if h.entryPointID != oldEntrypoint {
+		return h.entryPointID, nil
 	}
-	// CAS failed: concurrent op already changed the entrypoint
-	currentEp := h.entryPointID
-	h.Unlock()
-	return currentEp, nil
+	h.entryPointID = newEntrypoint
+	h.currentMaximumLayer = level
+	if err := h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level); err != nil {
+		return 0, fmt.Errorf("persist entrypoint: %w", err)
+	}
+	return newEntrypoint, nil
 }
 
 // returns entryPointID, level and whether a change occurred
-func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel int,
+func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 	oldEntrypoint uint64,
 ) (uint64, int, bool) {
 	if h.getEntrypoint() != oldEntrypoint {
@@ -724,9 +692,9 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 
 	h.metrics.TombstoneFindGlobalEntrypoint()
 
-	// First pass: find the node with the highest level that is not in the denyList.
-	// This handles cases where nodes may have higher levels than both targetLevel
-	// and currentMaximumLayer (e.g., due to corrupt commit log replay or
+	// Find the node with the highest level that is not in the denyList. This
+	// handles cases where nodes may have higher levels than
+	// currentMaximumLayer (e.g., due to corrupt commit log replay or
 	// deserialization bugs).
 	h.RLock()
 	maxNodes := len(h.nodes)
@@ -759,25 +727,20 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		candidateLevel := candidate.level
 		candidate.Unlock()
 
-		if candidateLevel <= bestLevel {
-			continue
+		// skip tombstoned and under-maintenance nodes: they would immediately
+		// be found broken again
+		if candidateLevel > bestLevel && !candidate.isUnderMaintenance() &&
+			!h.hasTombstone(uint64(i)) {
+			bestCandidate = uint64(i)
+			bestLevel = candidateLevel
+			foundCandidate = true
 		}
-
-		// tombstoned or under-maintenance nodes would immediately be found broken again
-		if candidate.isUnderMaintenance() || h.hasTombstone(uint64(i)) {
-			continue
-		}
-
-		bestCandidate = uint64(i)
-		bestLevel = candidateLevel
-		foundCandidate = true
 	}
 
 	if foundCandidate {
 		return bestCandidate, bestLevel, true
 	}
 
-	// no usable candidate (graph empty or all nodes denied/tombstoned/under maintenance)
 	return 0, 0, false
 }
 

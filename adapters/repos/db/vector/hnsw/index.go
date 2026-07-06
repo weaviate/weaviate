@@ -664,6 +664,10 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if h.compressed.Load() {
 		dist, err := distancer.DistanceToNode(node)
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "distToNode")
+			}
 			return 0, err
 		}
 

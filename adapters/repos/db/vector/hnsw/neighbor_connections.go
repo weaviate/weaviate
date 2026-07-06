@@ -447,10 +447,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 	candidate := n.entryPointID
 
-	// [1] Fast path: try the cached global entrypoint.
-	// ErrNotFound (deleted node) is treated as "not usable" and proceeds to repair,
-	// not returned as error - see tryEpCandidateIgnoreDeleted.
-	success, err := n.tryEpCandidateIgnoreDeleted(candidate)
+	success, err := n.tryEpCandidate(candidate)
 	if err != nil {
 		return err
 	}
@@ -458,33 +455,17 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		return nil
 	}
 
-	// [2] Global candidate failed → attempt global repair ONCE
+	// the global candidate is unusable: repair the global entrypoint, then keep
+	// trying candidates locally, denying every node already found unusable
 	localDeny := n.denyList.WrapOnWrite()
 	localDeny.Insert(candidate)
 
-	newEp, err := n.graph.repairGlobalEntrypoint(candidate, localDeny)
+	candidate, err = n.graph.repairGlobalEntrypoint(candidate, localDeny)
 	if err != nil {
 		return fmt.Errorf("global entrypoint repair: %w", err)
 	}
 
-	// [3] Try the repaired entrypoint (or concurrent repair's result).
-	// Note: newEp != candidate is always true when repair succeeds without error,
-	// because candidate (oldEntrypoint) is excluded via denyList. This guard is
-	// defensive documentation, not a reachable branch.
-	if newEp != candidate {
-		success, err = n.tryEpCandidateIgnoreDeleted(newEp)
-		if err != nil {
-			return err
-		}
-		if success {
-			return nil
-		}
-		localDeny.Insert(newEp)
-		candidate = newEp
-	}
-
-	// [4] Repaired entrypoint also failed → local fallback with no-progress backstop
-	// 60s timeout is last-resort safety net, not expected path
+	// the 60s timeout is a last-resort safety net, not an expected path
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	n.graph.logger.WithFields(logrus.Fields{
@@ -497,19 +478,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 			return err
 		}
 
-		alternative, err := n.graph.findNewLocalEntrypoint(localDeny, candidate)
-		if err != nil {
-			return err
-		}
-
-		// No-progress detection: if we get the same candidate back or one already tried
-		if alternative == candidate || localDeny.Contains(alternative) {
-			return fmt.Errorf("no usable entrypoint: local fallback exhausted")
-		}
-
-		candidate = alternative
-
-		success, err = n.tryEpCandidateIgnoreDeleted(candidate)
+		success, err := n.tryEpCandidate(candidate)
 		if err != nil {
 			return err
 		}
@@ -517,23 +486,16 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 			return nil
 		}
 		localDeny.Insert(candidate)
-	}
-}
 
-// tryEpCandidateIgnoreDeleted wraps tryEpCandidate and handles the ErrNotFound case
-// consistently: deleted nodes are treated as "not usable" (returns false, nil),
-// while other errors are propagated.
-func (n *neighborFinderConnector) tryEpCandidateIgnoreDeleted(candidate uint64) (bool, error) {
-	success, err := n.tryEpCandidate(candidate)
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			// Node was deleted - treat as not usable, not as error
-			return false, nil
+		alternative, err := n.graph.findNewLocalEntrypoint(localDeny, candidate)
+		if err != nil {
+			return err
 		}
-		return false, err
+		if localDeny.Contains(alternative) {
+			return fmt.Errorf("no usable entrypoint: local fallback exhausted")
+		}
+		candidate = alternative
 	}
-	return success, nil
 }
 
 func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
