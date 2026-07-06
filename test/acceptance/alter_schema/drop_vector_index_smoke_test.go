@@ -39,6 +39,21 @@ import (
 // cleanup interval that is whole-hours-granular (default off), compaction is not
 // API-triggerable, and the schema removal needs the FSM transition that permits
 // removing a dropped vector entry once cleanup has finished.
+// errorResponseText flattens a go-swagger error into searchable text: Error()
+// prints payload pointers (&{Error:[0x...]}), so the payload messages must be
+// extracted through GetPayload.
+func errorResponseText(err error) string {
+	text := err.Error()
+	if p, ok := err.(interface{ GetPayload() *models.ErrorResponse }); ok && p.GetPayload() != nil {
+		for _, item := range p.GetPayload().Error {
+			if item != nil {
+				text += " " + item.Message
+			}
+		}
+	}
+	return text
+}
+
 func testDropVectorIndexSmoke() func(t *testing.T) {
 	return func(t *testing.T) {
 		className := "DropVectorIndexSmoke"
@@ -119,7 +134,7 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 				if !assert.Error(collect, err, "a write targeting the dropped vector must be rejected") {
 					return
 				}
-				assert.Contains(collect, err.Error(), "vector index",
+				assert.Contains(collect, errorResponseText(err), "vector index",
 					"the rejection must be the dropped-vector reject, not an unrelated error")
 			}, 15*time.Second, 200*time.Millisecond, "writes to the dropped vector should be rejected")
 		})
