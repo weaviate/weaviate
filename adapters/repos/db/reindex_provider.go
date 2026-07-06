@@ -1177,6 +1177,18 @@ func (p *ReindexProvider) runShardPrepPhase(
 // runShardSwapPhase. Partial success leaves the overlay set for the
 // flipped props only; un-swapped buckets keep the old tokenization and
 // need operator rebuild.
+//
+// RFC https://github.com/weaviate/0-weaviate-issues/issues/220: each
+// reindexTask.RunSwapOnShard below COMMITS its per-shard swap (canonical
+// pointer flip + destructive trim of the OLD backup) synchronously, before
+// the cluster-wide post-completion ack barrier collects acks. This loop
+// records a sibling's error but never rolls back the units that already
+// committed — and post-hoc rollback is physically impossible because the
+// OLD-tokenized backup was already trimmed inside runtimeSwap. So any single
+// unit failure with ≥1 committed sibling leaves a permanent schema↔bucket
+// inversion. The structural fix is pre-commit staging: stage every unit's
+// output and only promote (flip + trim) after the barrier confirms
+// all-success; discard the staged output and keep OLD intact on any failure.
 func (p *ReindexProvider) runShardSwapPhase(
 	ctx context.Context,
 	payload *ReindexTaskPayload,

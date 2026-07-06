@@ -1889,6 +1889,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// dirs from completed-and-tidied prior migrations on this prop).
 	// Independent of the atomic window — operates on _bak / .migrations
 	// dirs whose owning gen is strictly older than this gen.
+	//
+	// RFC https://github.com/weaviate/0-weaviate-issues/issues/220: this
+	// call ALSO deletes THIS gen's OLD-tokenized backup dir (the
+	// currentBackupBase case in trimOlderGenerationsLocked). It runs
+	// per-shard inside runtimeSwap, BEFORE the cluster-wide ack barrier
+	// that decides whether the schema flip commits. If a SIBLING unit's
+	// swap fails, the task flips to FAILED and the schema stays OLD — but
+	// this shard already destroyed its OLD data, so the schema↔bucket
+	// inversion is permanent and unrollbackable. Pre-commit staging must
+	// defer this destructive trim until the barrier confirms every unit
+	// succeeded; on any failure the OLD backup must survive so the swap
+	// can be rolled back. See TestReindexInversion_SiblingSwapFailure*.
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
 
 	logger.Info("runtime swap: migration complete (ingest→main rename deferred to next restart)")
