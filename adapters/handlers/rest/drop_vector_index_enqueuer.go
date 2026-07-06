@@ -37,6 +37,7 @@ import (
 type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
 	schemaState    schemaStateQuerier
+	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -57,8 +58,17 @@ type schemaStateQuerier interface {
 	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
 }
 
-func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier) *dropVectorIndexEnqueuer {
-	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState}
+func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
+	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
+}
+
+// warnSkippedPayload surfaces an undecodable active-task payload instead of
+// silently skipping it (the skip itself is deliberate fail-open behavior).
+func (e *dropVectorIndexEnqueuer) warnSkippedPayload(where, taskID string, err error) {
+	if e.logger != nil {
+		e.logger.WithField("task", taskID).
+			Warnf("drop-vector %s: skipping active task with unparseable payload: %v", where, err)
+	}
 }
 
 // HasActiveDrop reports whether a non-terminal drop task already covers
@@ -74,6 +84,7 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
+			e.warnSkippedPayload("has-active-drop", task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -211,6 +222,7 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
+			e.warnSkippedPayload("live-op-ids", task.ID, err)
 			continue
 		}
 		live[p.OpID] = struct{}{}

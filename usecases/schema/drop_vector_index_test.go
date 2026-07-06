@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -109,4 +110,18 @@ func TestDeleteClassVectorIndex_ReTrigger_DifferentTarget_SecondTask(t *testing.
 
 	require.Equal(t, vectorindex.VectorIndexTypeNone, cls.VectorConfig["bar"].VectorIndexType)
 	require.Equal(t, [][]string{{"bar"}}, enq.enqueued, "a different target gets its own task")
+}
+
+func TestDeleteClassVectorIndex_ReTrigger_HasActiveDropError_Surfaces(t *testing.T) {
+	cls := classWithVectors(map[string]models.VectorConfig{
+		"foo": {VectorIndexType: vectorindex.VectorIndexTypeNone},
+	})
+	h, sm, enq := newDropVectorHandler(t, cls)
+	enq.activeErr = errors.New("dtm unreachable")
+
+	err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
+	require.Error(t, err, "an unverifiable in-flight state must surface, not silently re-enqueue")
+	require.ErrorContains(t, err, "dtm unreachable")
+	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	require.Empty(t, enq.enqueued)
 }

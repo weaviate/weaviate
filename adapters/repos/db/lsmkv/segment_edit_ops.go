@@ -390,9 +390,11 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 	})
 }
 
-// RegisterOp persists an operation descriptor. It is idempotent: re-registering
-// an existing op keeps the original descriptor (notably its CreatedAt) so a
-// retry does not reorder transformer application.
+// RegisterOp persists an operation descriptor WITHOUT a pending snapshot.
+// Production uses RegisterOpWithSnapshot (descriptor + snapshot atomically); this
+// primitive remains for tests that need the descriptor-only state (e.g. the
+// interrupted-register resume path). Idempotent: re-registering keeps the
+// original descriptor (notably its CreatedAt).
 func (s *SegmentEditOps) RegisterOp(opID string, op OpDescriptor) error {
 	return s.withWriteTx(true, func(tx *bolt.Tx) error {
 		b := tx.Bucket(editOpsBucketOperations)
@@ -425,24 +427,36 @@ func (s *SegmentEditOps) RegisterOpWithSnapshot(opID string, op OpDescriptor, se
 				return err
 			}
 		}
-		sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+		return s.addPendingRowsTx(tx, opID, segIDs)
+	})
+}
+
+// addPendingRowsTx inserts pending rows for segIDs within the caller's
+// transaction, preserving existing rows (accrued retries) and skipping segments
+// quarantined for the op — a quarantine verdict (retry budget exhausted) must
+// survive restarts and re-snapshots, not ping-pong back to pending.
+func (s *SegmentEditOps) addPendingRowsTx(tx *bolt.Tx, opID string, segIDs []string) error {
+	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+	if err != nil {
+		return err
+	}
+	quarantined := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(opID))
+	for _, segID := range segIDs {
+		if sub.Get([]byte(segID)) != nil {
+			continue
+		}
+		if quarantined != nil && quarantined.Get([]byte(segID)) != nil {
+			continue
+		}
+		enc, err := json.Marshal(PendingSegment{})
 		if err != nil {
 			return err
 		}
-		for _, segID := range segIDs {
-			if sub.Get([]byte(segID)) != nil {
-				continue
-			}
-			enc, err := json.Marshal(PendingSegment{})
-			if err != nil {
-				return err
-			}
-			if err := sub.Put([]byte(segID), enc); err != nil {
-				return err
-			}
+		if err := sub.Put([]byte(segID), enc); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // HasPendingSnapshot reports whether opID's segments have been snapshotted (its
@@ -522,23 +536,7 @@ func (s *SegmentEditOps) SnapshotSegments(opID string, segIDs []string) error {
 		if tx.Bucket(editOpsBucketOperations).Get([]byte(opID)) == nil {
 			return fmt.Errorf("snapshot segments: operation %q is not registered", opID)
 		}
-		sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
-		if err != nil {
-			return err
-		}
-		for _, segID := range segIDs {
-			if sub.Get([]byte(segID)) != nil {
-				continue
-			}
-			enc, err := json.Marshal(PendingSegment{})
-			if err != nil {
-				return err
-			}
-			if err := sub.Put([]byte(segID), enc); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.addPendingRowsTx(tx, opID, segIDs)
 	})
 }
 
@@ -608,21 +606,9 @@ func (s *SegmentEditOps) pendingContainsTx(tx *bolt.Tx, opID, segID string) bool
 }
 
 // addPendingTx records segID as newly pending for opID within the caller's
-// transaction. It is idempotent: an already-pending row (with its retry state)
-// is left untouched.
+// transaction; see addPendingRowsTx for the idempotency/quarantine rules.
 func (s *SegmentEditOps) addPendingTx(tx *bolt.Tx, opID, segID string) error {
-	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
-	if err != nil {
-		return err
-	}
-	if sub.Get([]byte(segID)) != nil {
-		return nil
-	}
-	enc, err := json.Marshal(PendingSegment{})
-	if err != nil {
-		return err
-	}
-	return sub.Put([]byte(segID), enc)
+	return s.addPendingRowsTx(tx, opID, []string{segID})
 }
 
 // BumpAttempt records a failed rewrite attempt for a pending segment. The
@@ -700,7 +686,8 @@ func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 }
 
 // DeleteOp removes an operation and all of its pending and quarantined rows.
-// Called once the operation has fully completed (its DTM task is FINISHED).
+// Called when the op stops being live: task success (delivered as SWAPPING, or
+// FINISHED on a replay), terminal failure (FAILED/CANCELLED), or an orphan sweep.
 func (s *SegmentEditOps) DeleteOp(opID string) error {
 	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		if err := tx.Bucket(editOpsBucketOperations).Delete([]byte(opID)); err != nil {
@@ -719,6 +706,12 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 // lookup); a nil result skips the sweep. The reload between Reconcile and the
 // re-snapshot is load-bearing: the sweep mutates the op set, and re-snapshotting
 // a swept op would resurrect it.
+//
+// The re-snapshot deliberately covers ALL current segments, resetting per-segment
+// progress: completion is encoded as absence from pending, which is
+// indistinguishable from the crash-window merged output this recovery exists to
+// re-queue. Re-cleaning is idempotent; correctness is bought with restart-time
+// rework. Quarantined segments are NOT re-pended (see addPendingRowsTx).
 func (s *SegmentEditOps) Recover(segIDs []string, resolveLive func() map[string]struct{}) error {
 	ops, err := s.LoadOps()
 	if err != nil {
@@ -768,6 +761,10 @@ const editOpsOrphanSweepInterval = 5 * time.Minute
 // replica whose sidecar was copied mid-drop — before a compaction could strip a
 // re-created same-name vector. Rate-limited; a missing provider or lookup error
 // skips the sweep (safe fallback, retried next window).
+//
+// A sweep that wrongly removes a LIVE op (e.g. a stale task list read during a
+// cold-start log replay) self-heals: the active task's StartTask re-registers
+// the op with a fresh snapshot; the cost is re-cleaning, not lost cleanup.
 func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
 	s.mu.Lock()
 	if time.Since(s.lastOrphanSweep) < editOpsOrphanSweepInterval {

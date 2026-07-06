@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -82,7 +81,6 @@ type dropVectorSchemaReader interface {
 // vectors from every segment; on task completion the named vectors are removed
 // from the schema.
 type DropVectorIndexProvider struct {
-	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
 
 	shards    dropVectorShards
@@ -96,8 +94,6 @@ type DropVectorIndexProvider struct {
 	serverCtx context.Context
 
 	pollInterval time.Duration
-
-	runningHandles map[distributedtask.TaskDescriptor]*dropVectorTaskHandle
 }
 
 // NewDropVectorIndexProvider builds the provider. localNode filters units to the
@@ -111,14 +107,13 @@ func NewDropVectorIndexProvider(
 	serverCtx context.Context,
 ) *DropVectorIndexProvider {
 	return &DropVectorIndexProvider{
-		shards:         shards,
-		schema:         schema,
-		sharding:       sharding,
-		logger:         logger,
-		localNode:      localNode,
-		serverCtx:      serverCtx,
-		pollInterval:   defaultDropVectorPollInterval,
-		runningHandles: make(map[distributedtask.TaskDescriptor]*dropVectorTaskHandle),
+		shards:       shards,
+		schema:       schema,
+		sharding:     sharding,
+		logger:       logger,
+		localNode:    localNode,
+		serverCtx:    serverCtx,
+		pollInterval: defaultDropVectorPollInterval,
 	}
 }
 
@@ -134,13 +129,9 @@ func (p *DropVectorIndexProvider) GetLocalTasks() []distributedtask.TaskDescript
 	return nil
 }
 
-// CleanupTask drops the in-memory handle for a task whose local state is being
-// torn down. The edit-ops bookkeeping is owned by the bucket, not the provider,
-// so there is nothing else to remove here.
+// CleanupTask is a no-op: the provider keeps no per-task local state (the
+// scheduler owns the task handle; edit-ops bookkeeping is owned by the bucket).
 func (p *DropVectorIndexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
-	p.mu.Lock()
-	delete(p.runningHandles, desc)
-	p.mu.Unlock()
 	return nil
 }
 
@@ -159,15 +150,10 @@ func (p *DropVectorIndexProvider) StartTask(task *distributedtask.Task) (distrib
 
 	ctx, cancel := context.WithCancel(p.serverCtx)
 	handle := &dropVectorTaskHandle{cancel: cancel, doneCh: make(chan struct{})}
-	p.mu.Lock()
-	p.runningHandles[task.TaskDescriptor] = handle
-	p.mu.Unlock()
 
 	enterrors.GoWrapper(func() {
 		defer func() {
-			p.mu.Lock()
-			delete(p.runningHandles, task.TaskDescriptor)
-			p.mu.Unlock()
+			cancel() // release the serverCtx child on normal completion, not only on Terminate
 			close(handle.doneCh)
 		}()
 		p.processUnits(ctx, task, payload, localUnits)
@@ -376,7 +362,9 @@ func (p *DropVectorIndexProvider) OnGroupCompleted(
 		return err
 	}
 	// Accumulate instead of aborting so one failing shard can't block the file
-	// cleanup of every other tenant in the group; the scheduler retries on error.
+	// cleanup of every other tenant in the group. The joined error still fails the
+	// group's completion ack (there is no in-process retry; a restart replays the
+	// callback — LocalCallbacksDone is false).
 	var errs []error
 	for _, unitID := range localGroupUnitIDs {
 		shardName := payload.UnitToShard[unitID]

@@ -171,7 +171,6 @@ func Test_Schema_Authorization(t *testing.T) {
 		for _, method := range allExportedMethods(&Handler{classGetter: nil}) {
 			switch method {
 			case "RegisterSchemaUpdateCallback",
-				// internal wiring setter, not user-facing (drop-vector-index Phase 2)
 				// introduced by sync.Mutex in go 1.18
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
 				"TryLock", "RLocker", "TryRLock", "TxManager", "RestoreClass",

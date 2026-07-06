@@ -758,7 +758,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// Created here (not in the DTM wiring) so it can be injected into the schema
 	// manager at construction, and so the edit-op liveness provider is installed
 	// before ClusterService.Open drives restore-time shard loads.
-	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft)
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft, appState.Logger)
 	editops.SetLivenessProvider(dropVectorEnqueuer.LiveOpIDs)
 
 	schemaManager, err := schema.NewManager(migrator,

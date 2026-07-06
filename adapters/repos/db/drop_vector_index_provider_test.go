@@ -468,7 +468,40 @@ func TestStartTask_TargetNoLongerDropped_RefusesToArm(t *testing.T) {
 	require.Empty(t, rec.completed)
 }
 
-// --- OnGroupCompleted ---
+// TestStartTask_ProcessesOnlyLocalUnits pins the node filter: units owned by
+// other nodes are neither armed nor completed here.
+func TestStartTask_ProcessesOnlyLocalUnits(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+	p.sharding = &fakeShardingReader{shards: []string{"shard1", "shard2"}}
+
+	payload := &DropVectorIndexTaskPayload{
+		Collection: "Collection", Targets: []string{"v1"}, OpID: "op1",
+		UnitToNode:  map[string]string{"u1": "node1", "u2": "node2"},
+		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
+	}
+	enc, _ := payload.encode()
+	task := &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+		Payload:        enc,
+		Status:         distributedtask.TaskStatusStarted,
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+			"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
+		},
+	}
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Equal(t, []string{"u1"}, rec.completed, "only the local node's unit completes")
+	require.Empty(t, rec.failed, "the remote node's unit is not touched")
+}
+
+// --- OnGroupCompleted ---// --- OnGroupCompleted ---
 
 func TestOnGroupCompleted_PerTenantIndexFilesRemoved(t *testing.T) {
 	shards := &fakeShards{}
@@ -716,6 +749,8 @@ func TestCheckClassMutation_DoesNotBlockDeleteDuringDrop(t *testing.T) {
 func TestCheckTenantMutation_BlocksDuringDrop(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 	require.Error(t, p.CheckTenantMutation("C", []string{"tenant1"}, []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
+	require.NoError(t, p.CheckTenantMutation("Other", []string{"tenant1"}, []*distributedtask.Task{activeDropTask("t1", "C", "v1")}),
+		"a drop on another collection must not block this one's tenant mutations")
 }
 
 func TestCheckPropertyUpdate_NeverConflicts(t *testing.T) {

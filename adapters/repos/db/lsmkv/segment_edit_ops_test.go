@@ -518,3 +518,29 @@ func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
 	require.NoError(t, s.Close())
 	require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName))
 }
+
+// TestSegmentEditOps_QuarantineSurvivesReSnapshot pins that a quarantine verdict
+// (retry budget exhausted) is not silently undone: neither a plain re-snapshot
+// nor load-time Recover re-pends a quarantined segment.
+func TestSegmentEditOps_QuarantineSurvivesReSnapshot(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200"}))
+	require.NoError(t, s.Quarantine("op1", "100"))
+
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200"}))
+	pending, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200"}, pending, "re-snapshot must not resurrect the quarantined segment")
+
+	require.NoError(t, s.Recover([]string{"100", "200"}, func() map[string]struct{} { return nil }))
+	pending, err = s.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200"}, pending, "Recover must not resurrect the quarantined segment")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Len(t, q, 1)
+}
