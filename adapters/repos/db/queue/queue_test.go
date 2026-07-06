@@ -641,6 +641,63 @@ func TestCorruptChunkHeaderRecovery(t *testing.T) {
 	}
 }
 
+// An error opening or reading a chunk file (e.g. permissions, I/O) is not
+// evidence of corruption: quarantining or removing the chunk in that case
+// could silently drop valid tasks, so initialization must fail fast and leave
+// the file untouched.
+func TestCorruptChunkHeaderRecoveryUnreadableFile(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("permission errors are not enforced for root")
+	}
+
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	tmpDir := t.TempDir()
+	decoder := discardExecutor()
+
+	// write one sealed chunk with 3 records
+	q := makeQueueWith(t, s, decoder, 50, tmpDir)
+	q.Pause(t.Context())
+	pushMany(t, q, 1, 100, 200, 300)
+	err := q.w.Promote()
+	require.NoError(t, err)
+	err = q.Close(t.Context())
+	require.NoError(t, err)
+
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	validChunk := filepath.Join(tmpDir, entries[0].Name())
+
+	// make the chunk unreadable: opening it fails with a permission error
+	err = os.Chmod(validChunk, 0o000)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chmod(validChunk, 0o644) })
+
+	q, err = NewDiskQueue(DiskQueueOptions{
+		ID:           "test_queue",
+		Scheduler:    s,
+		Logger:       newTestLogger(),
+		Dir:          tmpDir,
+		TaskDecoder:  decoder,
+		StaleTimeout: 500 * time.Millisecond,
+		ChunkSize:    50,
+	})
+	require.NoError(t, err)
+
+	// the queue must fail fast instead of discarding a chunk it cannot read
+	err = q.Init()
+	require.Error(t, err, "an unreadable chunk file must fail initialization, not be salvaged")
+
+	// the chunk file must be left untouched
+	_, err = os.Stat(validChunk)
+	require.NoError(t, err)
+	_, err = os.Stat(validChunk + ".corrupt")
+	require.ErrorIs(t, err, os.ErrNotExist, "an unreadable chunk file must not be quarantined")
+}
+
 func TestQueueAutoReleaseResources(t *testing.T) {
 	t.Parallel()
 
