@@ -776,18 +776,6 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
-	if tokenizationOverlayNonAtomicForTest {
-		// PRE-FIX BEHAVIOR (asymmetry proof): two critical sections with a gap.
-		oldMainBucket, err := flip()
-		if err != nil {
-			return nil, err
-		}
-		if propName != "" && target != "" {
-			s.SetTokenizationOverlay(propName, target)
-		}
-		return oldMainBucket, nil
-	}
-
 	s.tokenizationOverlayMu.Lock()
 	defer s.tokenizationOverlayMu.Unlock()
 
@@ -806,10 +794,6 @@ func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 	return oldMainBucket, nil
 }
 
-// tokenizationOverlayNonAtomicForTest restores the pre-fix
-// two-critical-sections behavior for the asymmetry proofs. TEST-ONLY.
-var tokenizationOverlayNonAtomicForTest bool
-
 // PinTokenizationAndSearchableBucket resolves propName's query-time
 // tokenization AND pins its searchable bucket for the whole query, reading
 // both under one tokenizationOverlayMu.RLock (write side:
@@ -826,13 +810,6 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 	if propName == "" {
 		bucket, release := s.store.AcquireBucketForRead(bucketName)
 		return liveTokenization, bucket, release
-	}
-
-	if tokenizationOverlayNonAtomicForTest {
-		// PRE-FIX BEHAVIOR (asymmetry proof): bucket and overlay read under
-		// SEPARATE locks; still pins, so the proof exercises the drain.
-		bucket, release := s.store.AcquireBucketForRead(bucketName)
-		return s.TokenizationFor(propName, liveTokenization), bucket, release
 	}
 
 	s.tokenizationOverlayMu.RLock()
