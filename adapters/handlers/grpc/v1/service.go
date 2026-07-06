@@ -104,9 +104,8 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	parser := NewAggregateParser(
-		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
-	)
+	getClass := s.classGetterWithAuthzFunc(ctx, principal, req.Tenant)
+	parser := NewAggregateParser(getClass)
 
 	params, err := parser.Aggregate(req)
 	if err != nil {
@@ -118,10 +117,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		return nil, fmt.Errorf("aggregate: %w", err)
 	}
 
-	replier := NewAggregateReplier(
-		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
-		params,
-	)
+	replier := NewAggregateReplier(getClass, params)
 	reply, err := replier.Aggregate(res, params.GroupBy != nil)
 	if err != nil {
 		return nil, fmt.Errorf("prepare reply: %w", err)
@@ -291,9 +287,10 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
+	getClass := s.classGetterWithAuthzFunc(ctx, principal, req.Tenant)
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		getClass,
 		s.aliasGetter(),
 	)
 	replier := NewReplier(
@@ -307,7 +304,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
-	if err := s.validateClassAndProperty(searchParams); err != nil {
+	if err := s.validateClassAndProperty(getClass, searchParams); err != nil {
 		return nil, err
 	}
 
@@ -316,14 +313,13 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
-	scheme := s.schemaManager.GetSchemaSkipAuth()
-	return replier.Search(res, before, searchParams, scheme)
+	return replier.Search(res, before, searchParams, newSchemaResolver(getClass))
 }
 
-func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
-	class := s.schemaManager.ReadOnlyClass(searchParams.ClassName)
-	if class == nil {
-		return fmt.Errorf("could not find class %s in schema", searchParams.ClassName)
+func (s *Service) validateClassAndProperty(getClass classGetterWithAuthzFunc, searchParams dto.GetParams) error {
+	class, err := getClass(searchParams.ClassName)
+	if err != nil {
+		return err
 	}
 
 	for _, prop := range searchParams.Properties {
@@ -338,6 +334,10 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 type classGetterWithAuthzFunc func(string) (*models.Class, error)
 
+// classGetterWithAuthzFunc returns a getter that memoizes each (class, tenant)
+// lookup for one request. A cache hit skips the RBAC Authorize call, so the memo
+// key must fully identify the authorized resource or one class's decision leaks
+// to another. Not concurrency-safe; scoped to a single request.
 func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
@@ -354,7 +354,7 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)
-			authorizedCollections[name] = class
+			authorizedCollections[classTenantName] = class
 		}
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
