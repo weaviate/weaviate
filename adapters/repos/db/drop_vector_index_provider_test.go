@@ -42,8 +42,9 @@ type fakeEditOpBucket struct {
 	callIdx    int
 	deleted    []string // opIDs passed to DeleteEditOp
 	deleteErr  error
-	pendingErr error         // when set, EditOpPending returns it
-	polled     chan struct{} // if set, a non-blocking signal per EditOpPending call
+	pendingErr error                          // when set, EditOpPending returns it
+	pendingFn  func(string) ([]string, error) // when set, overrides all other pending sources
+	polled     chan struct{}                  // if set, a non-blocking signal per EditOpPending call
 }
 
 func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error {
@@ -67,6 +68,9 @@ func (f *fakeEditOpBucket) EditOpPending(opID string) ([]string, error) {
 	}
 	if f.pendingErr != nil {
 		return nil, f.pendingErr
+	}
+	if f.pendingFn != nil {
+		return f.pendingFn(opID)
 	}
 	if f.script != nil {
 		i := f.callIdx
@@ -101,22 +105,37 @@ type removedCall struct {
 
 type fakeShards struct {
 	bucket    editOpBucket
+	buckets   map[string]editOpBucket // per-shard override; takes precedence over bucket
 	bucketErr error
 	mu        sync.Mutex
 	removed   []removedCall
 	removeErr map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
 }
 
-func (f *fakeShards) EditOpBucketsForShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
+func (f *fakeShards) resolve(shardNames []string) (map[string]editOpBucket, error) {
 	if f.bucketErr != nil {
 		// Simulates "shard not locally available": absent from the result map.
 		return map[string]editOpBucket{}, nil
 	}
 	out := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
+		if f.buckets != nil {
+			if b, ok := f.buckets[name]; ok {
+				out[name] = b
+			}
+			continue
+		}
 		out[name] = f.bucket
 	}
 	return out, nil
+}
+
+func (f *fakeShards) EditOpBucketsForShards(ctx context.Context, collection string, shardNames []string) (map[string]editOpBucket, error) {
+	return f.resolve(shardNames)
+}
+
+func (f *fakeShards) EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
+	return f.resolve(shardNames)
 }
 
 func (f *fakeShards) EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error {
@@ -181,9 +200,10 @@ func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, na
 // `shards` (the coverage guard compares it against the task's units) and a class
 // whose VectorConfig is `vectorCfg` (the arm-time still-dropped guard reads it).
 type fakeShardingReader struct {
-	shards    []string
-	vectorCfg map[string]models.VectorConfig
-	err       error
+	shards      []string
+	vectorCfg   map[string]models.VectorConfig
+	activeTasks []*distributedtask.Task // returned by ListDistributedTasks
+	err         error
 }
 
 func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, uint64, error) {
@@ -195,6 +215,10 @@ func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, 
 		state.Physical[name] = sharding.Physical{}
 	}
 	return state, 0, nil
+}
+
+func (f *fakeShardingReader) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return map[string][]*distributedtask.Task{DropVectorIndexNamespace: f.activeTasks}, nil
 }
 
 func (f *fakeShardingReader) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
@@ -541,15 +565,82 @@ func TestOnTaskCompleted_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {
 	require.False(t, fin.called, "schema removal must be deferred when op deletion fails on a loaded shard")
 }
 
-// TestOnTaskCompleted_UnloadedShard_DefersFinalize: if a local shard's op can't be
-// deleted (shard unloaded), the schema marker must NOT be removed — otherwise a
-// re-created same-name vector would later be stripped by the lingering op.
-func TestOnTaskCompleted_UnloadedShard_DefersFinalize(t *testing.T) {
+// TestOnTaskCompleted_UnloadedShard_SkipsDeleteAndFinalizes: an unloaded shard's
+// op is NOT force-loaded for deletion (a replayed completion callback would
+// otherwise mass-load inactive shards) — it is skipped, and the sweep on the
+// shard's next load (plus the periodic cleanup-cycle sweep) disarms the op.
+// Finalize proceeds when coverage holds.
+func TestOnTaskCompleted_UnloadedShard_SkipsDeleteAndFinalizes(t *testing.T) {
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucketErr: errors.New("shard not loaded")}, fin, newFakeRecorder())
 
 	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
-	require.False(t, fin.called, "schema removal must be deferred when an op can't be deleted on an unloaded shard")
+	require.True(t, fin.called, "an unloaded shard is skipped (sweep disarms it), not a finalize blocker")
+}
+
+// TestOnTaskCompleted_ActiveOverlappingDrop_DefersFinalize: a replayed old task's
+// finalize must not remove the marker of a NEWER active drop on the same target —
+// that would free the name while the newer op still strips it.
+func TestOnTaskCompleted_ActiveOverlappingDrop_DefersFinalize(t *testing.T) {
+	bucket := &fakeEditOpBucket{}
+	fin := &fakeFinalizer{}
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+	newer := activeDropTask("t2", "Collection", "v1")
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, activeTasks: []*distributedtask.Task{newer}}
+
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+
+	require.Equal(t, []string{"op1"}, bucket.deleted, "own ops are still deleted")
+	require.False(t, fin.called, "finalize must be deferred while a newer drop on the target is active")
+}
+
+// TestProcessUnits_ArmsAllBeforeDraining pins the two-phase contract: every
+// unit's op is registered before any unit's drain begins, so all shards'
+// compaction/cleanup cycles work concurrently instead of serializing.
+func TestProcessUnits_ArmsAllBeforeDraining(t *testing.T) {
+	bucket2 := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+	// bucket1 drains only once shard2's op has been registered — under the old
+	// one-unit-at-a-time flow this deadlocks unit1's poll (bounded by waitDone).
+	bucket1 := &fakeEditOpBucket{}
+	bucket1.script = []pendingStep{{vals: []string{"s1"}}}
+	gate := func(opID string) ([]string, error) {
+		bucket2.mu.Lock()
+		registered := len(bucket2.registered) > 0
+		bucket2.mu.Unlock()
+		if registered {
+			return nil, nil
+		}
+		return []string{"s1"}, nil
+	}
+	bucket1.pendingFn = gate
+
+	shards := &fakeShards{buckets: map[string]editOpBucket{"shard1": bucket1, "shard2": bucket2}}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+	p.sharding = &fakeShardingReader{shards: []string{"shard1", "shard2"}}
+
+	payload := &DropVectorIndexTaskPayload{
+		Collection: "Collection", Targets: []string{"v1"}, OpID: "op1",
+		UnitToNode:  map[string]string{"u1": "node1", "u2": "node1"},
+		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
+	}
+	enc, _ := payload.encode()
+	task := &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+		Payload:        enc,
+		Status:         distributedtask.TaskStatusStarted,
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+			"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
+		},
+	}
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.ElementsMatch(t, []string{"u1", "u2"}, rec.completed,
+		"unit1 can only drain if unit2's op was registered before unit1's poll — the two-phase contract")
 }
 
 // TestOnTaskCompleted_UncoveredTenant_DefersFinalize pins the cold-tenant guard:

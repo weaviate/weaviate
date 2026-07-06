@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -59,6 +60,14 @@ type segmentCleaner interface {
 
 func newSegmentCleaner(sg *SegmentGroup) (segmentCleaner, error) {
 	if sg.cleanupInterval <= 0 {
+		// A disabled heuristic cleanup must not disable the edit-ops drain: with the
+		// default interval (0) the pending set would otherwise only shrink via
+		// compaction, which never touches a quiescent bucket — a drop task would
+		// poll forever. Edit-ops-only mode runs no heuristic pass and opens no
+		// cleanup.db bookkeeping.
+		if sg.editOps != nil && sg.strategy == StrategyReplace {
+			return &segmentCleanerCommon{sg: sg, editOpsOnly: true}, nil
+		}
 		return &segmentCleanerNoop{}, nil
 	}
 
@@ -119,8 +128,11 @@ func (c *segmentCleanerNoop) cleanupOnce(shouldAbort cyclemanager.ShouldAbortCal
 // or last execution timestamp of findCandiate method. This timeout is used to quickly exit
 // findCandidate method without necessity to verify if interval passed for each segment.
 type segmentCleanerCommon struct {
-	sg *SegmentGroup
-	db *bolt.DB
+	// editOpsOnly drives cleanup solely from the edit-ops pending set (heuristic
+	// cleanup disabled via interval<=0): no heuristic pass, no cleanup.db (db nil).
+	editOpsOnly bool
+	sg          *SegmentGroup
+	db          *bolt.DB
 }
 
 func (c *segmentCleanerCommon) init() error {
@@ -149,6 +161,9 @@ func (c *segmentCleanerCommon) init() error {
 }
 
 func (c *segmentCleanerCommon) close() error {
+	if c.db == nil { // edit-ops-only mode never opened it
+		return nil
+	}
 	if err := c.db.Close(); err != nil {
 		return fmt.Errorf("close cleanup bolt db %q: %w", c.db.Path(), err)
 	}
@@ -447,6 +462,11 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 			return cleaned, err
 		}
 	}
+	if c.editOpsOnly {
+		// Heuristic cleanup is disabled (interval<=0); this cleaner exists only to
+		// drain the edit-ops pending set.
+		return false, nil
+	}
 
 	var candidateIdx, startIdx, lastIdx int
 	var onCompleted onCompletedFunc
@@ -601,6 +621,8 @@ const maxCleanupAttempts = 5
 // next pass re-cleans idempotently (no S8-style orphaning onto a renamed output).
 func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.ShouldAbortCallback,
 ) (cleaned bool, handled bool, err error) {
+	c.sg.editOps.SweepOrphans(context.Background())
+
 	pending, err := c.sg.editOps.AllPending()
 	if err != nil {
 		return false, true, fmt.Errorf("load pending edit-op segments: %w", err)

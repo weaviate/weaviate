@@ -267,11 +267,6 @@ type schemaLister interface {
 func runDropVectorIndexReconciliationAtStartup(ctx context.Context, lister schemaLister,
 	enq schema.DropVectorIndexEnqueuer, logger logrus.FieldLogger,
 ) {
-	sch := lister.GetSchemaSkipAuth()
-	if sch.Objects == nil || len(sch.Objects.Classes) == 0 {
-		return
-	}
-
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
 		if ctx.Err() != nil {
@@ -286,6 +281,15 @@ func runDropVectorIndexReconciliationAtStartup(ctx context.Context, lister schem
 			return
 		case <-time.After(2 * time.Second):
 		}
+	}
+
+	// Read the schema AFTER the readiness wait: at startup the local schema is
+	// restored by the same background open the probe waits for, so an early read
+	// would see an empty/stale snapshot and silently skip markers — and this is
+	// the sole recovery path for every "reconciliation retries" deferral.
+	sch := lister.GetSchemaSkipAuth()
+	if sch.Objects == nil || len(sch.Objects.Classes) == 0 {
+		return
 	}
 	reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
 }

@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -28,10 +29,11 @@ import (
 // EditOpBucketsForShards resolves the edit-ops objects buckets for the given
 // local shards in a single walk, so the drop-vector provider can register ops and
 // poll pending sets without an O(shards) lookup per unit. A shard absent from the
-// result is not locally available (e.g. a deactivated tenant). Note: the walk
-// force-loads lazy-loaded shards — acceptable for a drop, which is a rare
+// result is not locally available (a deactivated tenant, or a lazy shard that
+// failed to load). Lazy shards are loaded explicitly with the error surfaced —
+// never via Store()'s panicking mustLoad — acceptable for a drop, a rare
 // operator-initiated action that must touch every shard once anyway.
-func (db *DB) EditOpBucketsForShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
+func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, shardNames []string) (map[string]editOpBucket, error) {
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
 		return nil, fmt.Errorf("index for collection %q not found", collection)
@@ -42,6 +44,42 @@ func (db *DB) EditOpBucketsForShards(collection string, shardNames []string) (ma
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	if err := idx.ForEachShard(func(name string, s ShardLike) error {
+		if _, ok := wanted[name]; !ok {
+			return nil
+		}
+		if lazy, ok := s.(*LazyLoadShard); ok {
+			if err := lazy.Load(ctx); err != nil {
+				db.logger.WithField("collection", collection).WithField("shard", name).
+					Warnf("drop-vector: load lazy shard: %v", err)
+				return nil // absent from result; the unit fails instead of panicking
+			}
+		}
+		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+			buckets[name] = b
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return buckets, nil
+}
+
+// EditOpBucketsForLoadedShards is EditOpBucketsForShards restricted to shards
+// already loaded — it never loads a shard. Used by the task-completion op delete,
+// which must not force-load (a replayed completion callback on a node with many
+// lazy/inactive shards would otherwise mass-load them); an unloaded shard's op is
+// disarmed by the sweep on its next load instead.
+func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
+	idx := db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return nil, fmt.Errorf("index for collection %q not found", collection)
+	}
+	wanted := make(map[string]struct{}, len(shardNames))
+	for _, name := range shardNames {
+		wanted[name] = struct{}{}
+	}
+	buckets := make(map[string]editOpBucket, len(shardNames))
+	if err := idx.ForEachLoadedShard(func(name string, s ShardLike) error {
 		if _, ok := wanted[name]; ok {
 			if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
 				buckets[name] = b
@@ -102,6 +140,20 @@ func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFina
 	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{mgr}}
 }
 
+// deepCopyClass returns a fully independent copy (JSON round-trip; finalize is
+// rare, cost is irrelevant).
+func deepCopyClass(c *models.Class) (*models.Class, error) {
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return nil, err
+	}
+	var cp models.Class
+	if err := json.Unmarshal(raw, &cp); err != nil {
+		return nil, err
+	}
+	return &cp, nil
+}
+
 const dropVectorFinalizeMaxAttempts = 5
 
 func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error {
@@ -113,7 +165,13 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 			return fmt.Errorf("drop-vector finalize: class %q not found", collection)
 		}
 
-		next := *orig
+		// ReadOnlyClass returns a SHALLOW clone whose nested pointers are shared
+		// with the live FSM class; the update path (setClassDefaults etc.) writes
+		// through them. Deep-copy before mutating anything.
+		next, err := deepCopyClass(orig)
+		if err != nil {
+			return fmt.Errorf("drop-vector finalize: copy class %q: %w", collection, err)
+		}
 		next.VectorConfig = make(map[string]models.VectorConfig, len(orig.VectorConfig))
 		changed := false
 		for name, cfg := range orig.VectorConfig {
@@ -130,7 +188,7 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 			return nil // idempotent: entries already gone
 		}
 
-		if err := f.mgr.UpdateClassInternal(ctx, collection, &next); err != nil {
+		if err := f.mgr.UpdateClassInternal(ctx, collection, next); err != nil {
 			lastErr = err
 			select {
 			case <-ctx.Done():

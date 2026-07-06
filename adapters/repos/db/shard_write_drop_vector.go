@@ -19,6 +19,47 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+// stripDroppedVectors removes dropped-target vectors carried over from a
+// previous object version, so a merge cannot re-persist them into a
+// post-snapshot segment the cleanup never rewrites (the pending set only covers
+// segments present at op registration). The maps are rebuilt, not mutated:
+// mergeProps shares the previous object's vector maps with the merged object,
+// and the previous version feeds the insert-status comparison.
+func stripDroppedVectors(class *models.Class, obj *storobj.Object) {
+	var hasDropped bool
+	for targetVector := range obj.Vectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			hasDropped = true
+			break
+		}
+	}
+	if hasDropped {
+		kept := make(map[string][]float32, len(obj.Vectors))
+		for targetVector, vector := range obj.Vectors {
+			if !isDroppedVectorIndex(class, targetVector) {
+				kept[targetVector] = vector
+			}
+		}
+		obj.Vectors = kept
+	}
+	hasDropped = false
+	for targetVector := range obj.MultiVectors {
+		if isDroppedVectorIndex(class, targetVector) {
+			hasDropped = true
+			break
+		}
+	}
+	if hasDropped {
+		kept := make(map[string][][]float32, len(obj.MultiVectors))
+		for targetVector, vector := range obj.MultiVectors {
+			if !isDroppedVectorIndex(class, targetVector) {
+				kept[targetVector] = vector
+			}
+		}
+		obj.MultiVectors = kept
+	}
+}
+
 // isDroppedVectorIndex reports whether the named vector's index has been
 // dropped (VectorConfig entry marked VectorIndexType=="none"). The legacy
 // vector (empty targetVector) is not managed through VectorConfig. A nil class

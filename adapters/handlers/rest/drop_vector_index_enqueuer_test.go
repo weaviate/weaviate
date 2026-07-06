@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -71,6 +72,53 @@ func TestReconcile_SkipsClassesWithLiveTasks(t *testing.T) {
 	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
 
 	require.Equal(t, []string{"A/v2"}, enq.enqueued, "only the marker without a live task is enqueued")
+}
+
+// probeRecordingEnqueuer flags when the DTM probe has run, so the order test can
+// assert the schema is read only afterwards.
+type probeRecordingEnqueuer struct {
+	*fakeReconcileEnqueuer
+	probed *bool
+}
+
+func (p *probeRecordingEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
+	*p.probed = true
+	return p.fakeReconcileEnqueuer.HasActiveDrop(ctx, collection, targetVector)
+}
+
+// orderLister records whether the schema was read before or after the probe.
+type orderLister struct {
+	probed  *bool
+	orderOK *bool
+	classes []*models.Class
+}
+
+func (l orderLister) GetSchemaSkipAuth() entschema.Schema {
+	if *l.probed {
+		*l.orderOK = true
+	}
+	return entschema.Schema{Objects: &models.Schema{Classes: l.classes}}
+}
+
+// TestReconciliationAtStartup_ReadsSchemaAfterProbe pins the restore race fix:
+// at startup the local schema is restored by the same background open the probe
+// waits for, so reading it before the probe would see an empty/stale snapshot
+// and silently skip markers.
+func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	probed, orderOK := false, false
+	enq := &probeRecordingEnqueuer{
+		fakeReconcileEnqueuer: &fakeReconcileEnqueuer{active: map[string]bool{}},
+		probed:                &probed,
+	}
+	lister := orderLister{probed: &probed, orderOK: &orderOK, classes: []*models.Class{
+		{Class: "A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+	}}
+
+	runDropVectorIndexReconciliationAtStartup(context.Background(), lister, enq, logger)
+
+	require.True(t, orderOK, "schema must be read AFTER the DTM readiness probe")
+	require.Equal(t, []string{"A/v1"}, enq.enqueued)
 }
 
 type fakeClusterDropClient struct {

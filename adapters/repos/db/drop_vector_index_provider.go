@@ -51,7 +51,11 @@ type editOpBucket interface {
 // objects buckets for shards (one walk), and (safety net) remove a dropped
 // vector index's on-disk files for a shard.
 type dropVectorShards interface {
-	EditOpBucketsForShards(collection string, shardNames []string) (map[string]editOpBucket, error)
+	// EditOpBucketsForShards loads shards as needed (lazy shards included); used to arm ops.
+	EditOpBucketsForShards(ctx context.Context, collection string, shardNames []string) (map[string]editOpBucket, error)
+	// EditOpBucketsForLoadedShards never loads a shard; used by completion-time op
+	// deletes so replayed callbacks can't mass-load inactive shards.
+	EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error)
 	EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error
 }
 
@@ -69,6 +73,7 @@ type dropVectorSchemaFinalizer interface {
 type dropVectorSchemaReader interface {
 	QueryShardingState(class string) (*sharding.State, uint64, error)
 	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
+	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
 // DropVectorIndexProvider executes drop-vector-index distributed tasks: each
@@ -178,28 +183,65 @@ func (p *DropVectorIndexProvider) processUnits(
 	ctx context.Context, task *distributedtask.Task,
 	payload *DropVectorIndexTaskPayload, localUnits []string,
 ) {
-	buckets := p.localBuckets(payload, localUnits)
+	buckets := p.localBuckets(ctx, payload, localUnits)
+
+	pending := make([]string, 0, len(localUnits))
 	for _, unitID := range localUnits {
-		if ctx.Err() != nil {
-			return // shutdown: leave units in place, the task resumes after restart
-		}
 		if unit, ok := task.Units[unitID]; ok && unit.Status == distributedtask.UnitStatusCompleted {
 			continue // already done in a prior run
 		}
-		p.processOneUnit(ctx, task, payload, unitID, buckets[payload.UnitToShard[unitID]])
+		pending = append(pending, unitID)
+	}
+
+	// Last check before the destructive ops arm: the marker commit and the task
+	// enqueue are not atomic, so the class may have been deleted+re-created (or the
+	// entry otherwise revived) since. Arming against a live vector would strip user
+	// data; refuse instead — the failed task deletes its ops and leaves any real
+	// marker for a retry.
+	if ok, err := p.targetsStillDropped(payload); err != nil {
+		for _, unitID := range pending {
+			p.failUnit(ctx, task, unitID, "verify targets still marked dropped: "+err.Error())
+		}
+		return
+	} else if !ok {
+		for _, unitID := range pending {
+			p.failUnit(ctx, task, unitID, "a target vector is no longer marked dropped; refusing to arm cleanup")
+		}
+		return
+	}
+
+	// Phase 1: arm every unit up front so all shards' compaction/cleanup cycles
+	// drain concurrently — arming lazily while polling unit-by-unit would
+	// serialize days of rewrite work on multi-tenant nodes.
+	armed := make([]string, 0, len(pending))
+	for _, unitID := range pending {
+		if ctx.Err() != nil {
+			return // shutdown: leave units in place, the task resumes after restart
+		}
+		if p.armUnit(ctx, task, payload, unitID, buckets[payload.UnitToShard[unitID]]) {
+			armed = append(armed, unitID)
+		}
+	}
+
+	// Phase 2: watch the pending sets drain.
+	for _, unitID := range armed {
+		if ctx.Err() != nil {
+			return
+		}
+		p.drainUnit(ctx, task, payload, unitID, buckets[payload.UnitToShard[unitID]])
 	}
 }
 
 // localBuckets resolves the objects bucket for every local unit's shard in one
 // walk. Returns nil on a lookup error; per-unit handling then fails the units.
 func (p *DropVectorIndexProvider) localBuckets(
-	payload *DropVectorIndexTaskPayload, localUnits []string,
+	ctx context.Context, payload *DropVectorIndexTaskPayload, localUnits []string,
 ) map[string]editOpBucket {
 	shardNames := make([]string, 0, len(localUnits))
 	for _, unitID := range localUnits {
 		shardNames = append(shardNames, payload.UnitToShard[unitID])
 	}
-	buckets, err := p.shards.EditOpBucketsForShards(payload.Collection, shardNames)
+	buckets, err := p.shards.EditOpBucketsForShards(ctx, payload.Collection, shardNames)
 	if err != nil {
 		p.logger.WithField("collection", payload.Collection).
 			Errorf("drop-vector: resolve objects buckets: %v", err)
@@ -208,28 +250,17 @@ func (p *DropVectorIndexProvider) localBuckets(
 	return buckets
 }
 
-func (p *DropVectorIndexProvider) processOneUnit(
+// armUnit registers the edit op on the unit's shard, reporting whether the unit
+// is armed and should be drained.
+func (p *DropVectorIndexProvider) armUnit(
 	ctx context.Context, task *distributedtask.Task,
 	payload *DropVectorIndexTaskPayload, unitID string, bucket editOpBucket,
-) {
+) bool {
 	logger := p.unitLogger(task, payload, unitID)
 
 	if bucket == nil {
 		p.failUnit(ctx, task, unitID, "objects bucket for shard "+payload.UnitToShard[unitID]+" not locally available")
-		return
-	}
-
-	// Last check before the destructive op arms: the marker commit and the task
-	// enqueue are not atomic, so the class may have been deleted+re-created (or the
-	// entry otherwise revived) since. Arming against a live vector would strip user
-	// data; refuse instead — the failed task deletes its ops and leaves any real
-	// marker for a retry.
-	if ok, err := p.targetsStillDropped(payload); err != nil {
-		p.failUnit(ctx, task, unitID, "verify targets still marked dropped: "+err.Error())
-		return
-	} else if !ok {
-		p.failUnit(ctx, task, unitID, "a target vector is no longer marked dropped; refusing to arm cleanup")
-		return
+		return false
 	}
 
 	if err := p.recorder.UpdateDistributedTaskUnitProgress(ctx, task.Namespace, task.ID,
@@ -246,9 +277,16 @@ func (p *DropVectorIndexProvider) processOneUnit(
 	}
 	if err := bucket.RegisterEditOp(payload.OpID, desc); err != nil {
 		p.failUnit(ctx, task, unitID, "register drop edit op: "+err.Error())
-		return
+		return false
 	}
+	return true
+}
 
+// drainUnit waits for the unit's pending set to empty and records completion.
+func (p *DropVectorIndexProvider) drainUnit(
+	ctx context.Context, task *distributedtask.Task,
+	payload *DropVectorIndexTaskPayload, unitID string, bucket editOpBucket,
+) {
 	if err := p.pollUntilEmpty(ctx, bucket, task, unitID, payload.OpID); err != nil {
 		if ctx.Err() != nil {
 			return // shutdown: resume after restart, do not mark failed
@@ -259,7 +297,7 @@ func (p *DropVectorIndexProvider) processOneUnit(
 
 	if err := p.recorder.RecordDistributedTaskUnitCompletion(ctx, task.Namespace, task.ID,
 		task.Version, p.localNode, unitID); err != nil {
-		logger.Errorf("drop-vector: record unit completion failed: %v", err)
+		p.unitLogger(task, payload, unitID).Errorf("drop-vector: record unit completion failed: %v", err)
 	}
 }
 
@@ -419,12 +457,48 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 
+	// A replayed completion (LocalCallbacksDone=false) is epoch-blind: this task's
+	// finalize must not remove the marker of a NEWER drop of the same name that is
+	// still running — that would free the name while the newer op strips it.
+	if blocked, err := p.activeOverlappingDrop(task, payload); err != nil {
+		logger.Errorf("drop-vector: task-completion: active-drop check failed (leaving schema marker): %v", err)
+		return
+	} else if blocked {
+		logger.Info("drop-vector: task-completion: a newer drop task on the same target is active; leaving its schema marker")
+		return
+	}
+
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
 		// Leave the marker in place; startup reconciliation retries the removal.
 		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
 		return
 	}
 	logger.Info("drop-vector: task-completion: dropped vector(s) removed from schema")
+}
+
+// activeOverlappingDrop reports whether another ACTIVE drop task overlaps this
+// payload's collection+targets.
+func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Task, payload *DropVectorIndexTaskPayload) (bool, error) {
+	tasks, err := p.sharding.ListDistributedTasks(p.serverCtx)
+	if err != nil {
+		return false, err
+	}
+	for _, other := range tasks[DropVectorIndexNamespace] {
+		if other.ID == task.ID || !other.Status.IsActive() {
+			continue
+		}
+		otherP, err := decodeDropVectorIndexPayload(other.Payload)
+		if err != nil {
+			continue
+		}
+		if !strings.EqualFold(otherP.Collection, payload.Collection) {
+			continue
+		}
+		if len(intersectTargets(otherP.Targets, payload.Targets)) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // targetsStillDropped reports whether every payload target is still present and
@@ -490,14 +564,20 @@ func (p *DropVectorIndexProvider) deleteLocalEditOps(payload *DropVectorIndexTas
 			shardNames = append(shardNames, payload.UnitToShard[unitID])
 		}
 	}
-	buckets, err := p.shards.EditOpBucketsForShards(payload.Collection, shardNames)
+	// Loaded shards only: forcing loads here would mass-load inactive shards on
+	// every replayed completion callback. An unloaded shard's op is disarmed by the
+	// sweep on its next load (this task is then terminal, so absent from the
+	// live-op set) and by the periodic cleanup-cycle sweep.
+	buckets, err := p.shards.EditOpBucketsForLoadedShards(payload.Collection, shardNames)
 	if err != nil {
 		return fmt.Errorf("resolve buckets to delete edit op (deferring finalize): %w", err)
 	}
 	for _, shardName := range shardNames {
 		bucket, ok := buckets[shardName]
 		if !ok {
-			return fmt.Errorf("shard %q not locally available to delete edit op (deferring finalize)", shardName)
+			p.logger.WithField("collection", payload.Collection).WithField("shard", shardName).
+				Info("drop-vector: shard not loaded for edit-op delete; the sweep on its next load disarms it")
+			continue
 		}
 		if err := bucket.DeleteEditOp(payload.OpID); err != nil {
 			return fmt.Errorf("delete edit op on shard %q: %w", shardName, err)

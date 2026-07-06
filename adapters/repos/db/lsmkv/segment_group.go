@@ -478,6 +478,24 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.metrics.ObjectCount(sg.count())
 	}
 
+	// Construct the sidecar before the cleaner (newSegmentCleaner consults
+	// sg.editOps to enable the edit-ops-only drain when the heuristic cleanup is
+	// disabled) and before the compaction cycle registers, so sg.editOps is
+	// published before any pass can read it (happens-before). The bolt file itself
+	// is opened lazily on the first registered op (see newSegmentEditOps), so an
+	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
+	//
+	// A non-empty className means the objects bucket (the only WithClassName caller);
+	// edit ops only apply to its replace-strategy store. Transformers are resolved
+	// per op type from the global registry; the persisted ops drive what runs.
+	if cfg.className != "" && cfg.strategy == StrategyReplace {
+		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
+		sg.editOps.logger = sg.logger
+		if err := sg.recoverEditOps(ctx); err != nil {
+			return nil, fmt.Errorf("recover segment edit ops: %w", err)
+		}
+	}
+
 	sc, err := newSegmentCleaner(sg)
 	if err != nil {
 		return nil, err
@@ -537,22 +555,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				"bucket":  filepath.Base(cfg.dir),
 				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
 			}).Debug("rangeable segment-in-memory built")
-		}
-	}
-
-	// Construct the sidecar before registering the cycle below, so sg.editOps is
-	// published before any pass can read it (happens-before). The bolt file itself
-	// is opened lazily on the first registered op (see newSegmentEditOps), so an
-	// objects bucket that never sees a drop carries no sidecar. Closed in shutdown.
-	//
-	// A non-empty className means the objects bucket (the only WithClassName caller);
-	// edit ops only apply to its replace-strategy store. Transformers are resolved
-	// per op type from the global registry; the persisted ops drive what runs.
-	if cfg.className != "" && cfg.strategy == StrategyReplace {
-		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
-		sg.editOps.logger = sg.logger
-		if err := sg.recoverEditOps(ctx); err != nil {
-			return nil, fmt.Errorf("recover segment edit ops: %w", err)
 		}
 	}
 

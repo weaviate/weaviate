@@ -131,3 +131,24 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		require.LessOrEqual(t, up.updateCalls, dropVectorFinalizeMaxAttempts)
 	})
 }
+
+// TestDeepCopyClass pins the finalize-safety fix: ReadOnlyClass returns a
+// shallow clone whose nested pointers are shared with the live FSM class, so the
+// finalizer must deep-copy before the update path mutates anything through them.
+func TestDeepCopyClass(t *testing.T) {
+	orig := &models.Class{
+		Class:               "C",
+		VectorConfig:        map[string]models.VectorConfig{"v1": droppedCfg()},
+		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2}},
+	}
+
+	cp, err := deepCopyClass(orig)
+	require.NoError(t, err)
+
+	cp.InvertedIndexConfig.Bm25.K1 = 9.9
+	delete(cp.VectorConfig, "v1")
+
+	require.Equal(t, float32(1.2), orig.InvertedIndexConfig.Bm25.K1,
+		"mutating the copy's nested pointer must not touch the original")
+	require.Contains(t, orig.VectorConfig, "v1")
+}

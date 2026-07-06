@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -114,6 +115,88 @@ func drainEditOpsCleanup(t *testing.T, bucket *Bucket) {
 		require.NoError(t, err)
 	}
 	t.Fatal("edit-ops cleanup did not drain within 20 passes")
+}
+
+// TestSegmentCleanerEditOps_DrainsWithCleanupIntervalDisabled pins that the
+// default config (cleanup interval 0, heuristic cleanup disabled) still drains
+// the edit-ops pending set — otherwise a drop task would poll forever on a
+// quiescent bucket. The heuristic path must stay off.
+func TestSegmentCleanerEditOps_DrainsWithCleanupIntervalDisabled(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithClassName("TestClass")) // NO cleanup interval
+	require.NoError(t, err)
+	bucket.SetMemtableThreshold(1e9)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+
+	editOps := newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", staticResolver(map[OpType]OpTransformerFactory{
+		OpTypeRemoveTargetVectors: prefixTransformer,
+	}))
+	bucket.disk.editOps = editOps
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("op1", segIDsOf(bucket)))
+
+	drainEditOpsCleanup(t, bucket)
+
+	v1, err := bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v1, "edit-ops drain must run even with heuristic cleanup disabled")
+
+	// With the pending set empty, the edit-ops-only cleaner must not fall through
+	// to the heuristic path (it is disabled by interval 0).
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.False(t, cleaned)
+}
+
+// TestSegmentEditOps_SweepOrphans pins the cleanup-cycle orphan sweep: an op with
+// no live task is deleted, a live one is kept, the sweep is rate-limited, and a
+// liveness error sweeps nothing.
+func TestSegmentEditOps_SweepOrphans(t *testing.T) {
+	ctx := context.Background()
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	t.Cleanup(func() { editops.SetLivenessProvider(nil) })
+
+	require.NoError(t, s.RegisterOp("orphan", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.RegisterOp("live", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 2}))
+
+	editops.SetLivenessProvider(func(context.Context) (map[string]struct{}, error) {
+		return map[string]struct{}{"live": {}}, nil
+	})
+	s.SweepOrphans(ctx)
+
+	ops, err := s.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	require.Equal(t, "live", ops[0].ID, "orphan swept, live op kept")
+
+	// Rate limit: an immediate second sweep is a no-op even if everything is
+	// orphaned now.
+	editops.SetLivenessProvider(func(context.Context) (map[string]struct{}, error) {
+		return map[string]struct{}{}, nil
+	})
+	s.SweepOrphans(ctx)
+	ops, err = s.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, 1, "rate-limited sweep must not run again immediately")
+
+	// Liveness error: sweep nothing (safe fallback).
+	s.lastOrphanSweep = time.Time{}
+	editops.SetLivenessProvider(func(context.Context) (map[string]struct{}, error) {
+		return nil, errors.New("dtm unreachable")
+	})
+	s.SweepOrphans(ctx)
+	ops, err = s.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, 1, "a liveness error must not sweep")
 }
 
 // TestSegmentCleanerEditOps_MultiOpSameSegment pins the grouping contract: when

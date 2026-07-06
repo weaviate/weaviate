@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +76,9 @@ type SegmentEditOps struct {
 	// warnedMissingTransformer dedups the "no transformer for this op type" warning
 	// to once per type, so the frequent compaction/cleanup passes can't spam it.
 	warnedMissingTransformer map[OpType]struct{}
+	// lastOrphanSweep rate-limits SweepOrphans' cluster-level liveness lookup.
+	// Guarded by mu.
+	lastOrphanSweep time.Time
 }
 
 // transformerResolver maps an op type to its transformer factory, reporting
@@ -743,6 +747,49 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive func() map[string]
 		}
 	}
 	return nil
+}
+
+// editOpsOrphanSweepInterval rate-limits the cleanup-cycle orphan sweep's
+// cluster-level liveness lookup.
+const editOpsOrphanSweepInterval = 5 * time.Minute
+
+// SweepOrphans deletes ops whose task is no longer live. The load-time sweep
+// (Recover) only helps on shard load; this cleanup-cycle variant disarms an
+// orphan on a RUNNING node — e.g. a finalize whose local op-delete failed, or a
+// replica whose sidecar was copied mid-drop — before a compaction could strip a
+// re-created same-name vector. Rate-limited; a missing provider or lookup error
+// skips the sweep (safe fallback, retried next window).
+func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
+	s.mu.Lock()
+	if time.Since(s.lastOrphanSweep) < editOpsOrphanSweepInterval {
+		s.mu.Unlock()
+		return
+	}
+	s.lastOrphanSweep = time.Now()
+	s.mu.Unlock()
+
+	ops, err := s.LoadOps()
+	if err != nil || len(ops) == 0 {
+		return
+	}
+	live, err := editops.LiveOps(ctx)
+	if err != nil || live == nil {
+		return
+	}
+	for _, op := range ops {
+		if _, ok := live[op.ID]; ok {
+			continue
+		}
+		if err := s.DeleteOp(op.ID); err != nil {
+			if s.logger != nil {
+				s.logger.WithField("op_id", op.ID).Warnf("edit-ops orphan sweep: delete failed: %v", err)
+			}
+			continue
+		}
+		if s.logger != nil {
+			s.logger.WithField("op_id", op.ID).Info("edit-ops orphan sweep: removed op with no live task")
+		}
+	}
 }
 
 // Reconcile repairs the store against ground truth at open time (C1):
