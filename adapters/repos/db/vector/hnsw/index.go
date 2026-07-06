@@ -679,7 +679,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
-			return 0, err
+			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,
