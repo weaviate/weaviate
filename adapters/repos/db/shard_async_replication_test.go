@@ -1282,3 +1282,51 @@ func TestLoadHashtreeIgnoresTmpFile(t *testing.T) {
 
 	require.NoError(t, s.disableAsyncReplication(ctx))
 }
+
+// TestResolveObjectConflictTimeBasedNoClobber pins that a TimeBased repair keeps a live local object at least as new as the remote deletion, even when the stale pre-RPC snapshot said it was older.
+func TestResolveObjectConflictTimeBasedNoClobber(t *testing.T) {
+	ctx := context.Background()
+	const (
+		class      = "TimeBasedNoClobber"
+		targetNode = "node-B"
+		snapshot   = int64(100) // stale digest-time snapshot; always < remoteDel so the outer gate passes
+		remoteDel  = int64(150)
+	)
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	tests := []struct {
+		name        string
+		liveTime    int64
+		wantDeleted bool
+		wantExists  bool
+	}{
+		{"live newer than remote deletion is kept", 200, false, true},
+		{"live older than remote deletion is deleted", 100, true, false},
+		{"live equal to remote deletion is kept", 150, false, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sl, _ := testShard(t, ctx, class)
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tc.liveTime)))
+
+			deleted, notResolved, err := s.resolveObjectConflict(
+				ctx,
+				routerTypes.RepairResponse{ID: id.String(), Deleted: true, UpdateTime: remoteDel},
+				models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+				targetNode, nil,
+				map[strfmt.UUID]int64{id: snapshot},
+			)
+			require.NoError(t, err)
+			assert.False(t, notResolved, "notResolved")
+			assert.Equal(t, tc.wantDeleted, deleted, "deleted")
+
+			obj, err := s.ObjectByID(ctx, id, nil, additional.Properties{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantExists, obj != nil, "object exists")
+		})
+	}
+}
