@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,4 +39,13 @@ func collectReplaceKVs[T any](t *testing.T, b *Bucket, build func(k, v []byte) T
 		out = append(out, build(kc, vc))
 	}
 	return out
+}
+
+// assertReplaceKVs collects every entry from a Replace cursor via build and
+// asserts the result equals expected. Folding the collect+compare pair into one
+// call keeps the verify-before/after-compaction blocks — repeated across the
+// compaction suites — from re-appearing as duplicated new code.
+func assertReplaceKVs[T any](t *testing.T, b *Bucket, expected []T, build func(k, v []byte) T) {
+	t.Helper()
+	assert.Equal(t, expected, collectReplaceKVs(t, b, build))
 }

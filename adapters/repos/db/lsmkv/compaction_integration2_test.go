@@ -195,9 +195,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
-
-		assert.Equal(t, expected, retrieved)
+		assertReplaceKVs(t, bucket, expected, func(k, v []byte) kv { return kv{key: k, value: v} })
 	})
 
 	t.Run("verify count control before compaction", func(*testing.T) {
@@ -215,9 +213,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("verify control after compaction", func(t *testing.T) {
-		retrieved := collectReplaceKVs(t, bucket, func(k, v []byte) kv { return kv{key: k, value: v} })
-
-		assert.Equal(t, expected, retrieved)
+		assertReplaceKVs(t, bucket, expected, func(k, v []byte) kv { return kv{key: k, value: v} })
 	})
 
 	t.Run("verify control using individual get operations",
@@ -241,10 +237,4 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 func nullLogger2() logrus.FieldLogger {
 	log, _ := test.NewNullLogger()
 	return log
-}
-
-func copyByteSlice2(src []byte) []byte {
-	dst := make([]byte, len(src))
-	copy(dst, src)
-	return dst
 }

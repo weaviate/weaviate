@@ -763,41 +763,11 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-016"),
-				[]byte("key-017"),
-				[]byte("key-018"),
-				[]byte("key-019"),
-			}
-			expectedValues := [][][]byte{
-				{[]byte("value-016.0"), []byte("value-016.1"), []byte("value-016.2")},
-				{[]byte("value-017.0"), []byte("value-017.1"), []byte("value-017.2")},
-				{[]byte("value-018.0"), []byte("value-018.1"), []byte("value-018.2")},
-				{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
-			}
-
-			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-016"), 0)
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorSet(t, b, []byte("key-016"), 0, []string{"key-016", "key-017", "key-018", "key-019"}, [][]string{{"value-016.0", "value-016.1", "value-016.2"}, {"value-017.0", "value-017.1", "value-017.2"}, {"value-018.0", "value-018.1", "value-018.2"}, {"value-019.0", "value-019.1", "value-019.2"}})
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-000"),
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][][]byte{
-				{[]byte("value-000.0"), []byte("value-000.1"), []byte("value-000.2")},
-				{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
-				{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
-			}
-
-			retrievedKeys, retrievedValues := collectCursorSet(t, b, nil, 3)
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorSet(t, b, nil, 3, []string{"key-000", "key-001", "key-002"}, [][]string{{"value-000.0", "value-000.1", "value-000.2"}, {"value-001.0", "value-001.1", "value-001.2"}, {"value-002.0", "value-002.1", "value-002.2"}})
 		})
 
 		t.Run("extend an existing key", func(t *testing.T) {
@@ -808,22 +778,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("verify the extension is contained", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][][]byte{
-				{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
-				{
-					[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2"),
-					[]byte("value-002.3"),
-				},
-			}
-
-			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-001"), 2)
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorSet(t, b, []byte("key-001"), 2, []string{"key-001", "key-002"}, [][]string{{"value-001.0", "value-001.1", "value-001.2"}, {"value-002.0", "value-002.1", "value-002.2", "value-002.3"}})
 		})
 	})
 
@@ -941,41 +896,11 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-016"),
-				[]byte("key-017"),
-				[]byte("key-018"),
-				[]byte("key-019"),
-			}
-			expectedValues := [][][]byte{
-				{[]byte("value-016.0"), []byte("value-016.1"), []byte("value-016.2")},
-				{[]byte("value-017.0"), []byte("value-017.1"), []byte("value-017.2")},
-				{[]byte("value-018.0"), []byte("value-018.1"), []byte("value-018.2")},
-				{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
-			}
-
-			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-016"), 0)
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorSet(t, b, []byte("key-016"), 0, []string{"key-016", "key-017", "key-018", "key-019"}, [][]string{{"value-016.0", "value-016.1", "value-016.2"}, {"value-017.0", "value-017.1", "value-017.2"}, {"value-018.0", "value-018.1", "value-018.2"}, {"value-019.0", "value-019.1", "value-019.2"}})
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-000"),
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][][]byte{
-				{[]byte("value-000.0"), []byte("value-000.1"), []byte("value-000.2")},
-				{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
-				{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
-			}
-
-			retrievedKeys, retrievedValues := collectCursorSet(t, b, nil, 3)
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorSet(t, b, nil, 3, []string{"key-000", "key-001", "key-002"}, [][]string{{"value-000.0", "value-000.1", "value-000.2"}, {"value-001.0", "value-001.1", "value-001.2"}, {"value-002.0", "value-002.1", "value-002.2"}})
 		})
 
 		t.Run("delete & extend an existing key", func(t *testing.T) {
@@ -990,26 +915,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("verify the extension is contained", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][][]byte{
-				{
-					[]byte("value-001.0"),
-					// "value-001.1" deleted
-					[]byte("value-001.2"),
-				},
-				{
-					[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2"),
-					[]byte("value-002.3"),
-				},
-			}
-
-			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-001"), 2)
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			// "value-001.1" deleted
+			assertCursorSet(t, b, []byte("key-001"), 2, []string{"key-001", "key-002"}, [][]string{{"value-001.0", "value-001.2"}, {"value-002.0", "value-002.1", "value-002.2", "value-002.3"}})
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -1017,26 +924,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("verify again after flush", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][][]byte{
-				{
-					[]byte("value-001.0"),
-					// "value-001.1" deleted
-					[]byte("value-001.2"),
-				},
-				{
-					[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2"),
-					[]byte("value-002.3"),
-				},
-			}
-
-			retrievedKeys, retrievedValues := collectCursorSet(t, b, []byte("key-001"), 2)
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			// "value-001.1" deleted
+			assertCursorSet(t, b, []byte("key-001"), 2, []string{"key-001", "key-002"}, [][]string{{"value-001.0", "value-001.2"}, {"value-002.0", "value-002.1", "value-002.2", "value-002.3"}})
 		})
 	})
 }

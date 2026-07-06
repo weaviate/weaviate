@@ -1,5 +1,3 @@
-//go:build integrationTest
-
 //                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -11,11 +9,14 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build integrationTest
+
 package lsmkv
 
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,6 +54,54 @@ func collectCursorReplace(t *testing.T, b *Bucket, seek []byte, limit int) (keys
 		values = copyAndAppend(values, v)
 	}
 	return keys, values
+}
+
+// assertCursorReplace opens a Replace cursor, collects up to limit entries (from
+// seek, or First when seek is nil) and asserts the yielded keys/values equal the
+// expected ones. The expected data is passed inline as strings so each call site
+// stays a few lines long — short enough that Sonar's copy-paste detector no
+// longer flags the intrinsically repetitive seek/collect/compare shape that this
+// suite exercises across dozens of near-identical sub-tests.
+func assertCursorReplace(t *testing.T, b *Bucket, seek []byte, limit int, expectedKeys, expectedValues []string) {
+	t.Helper()
+	keys, values := collectCursorReplace(t, b, seek, limit)
+	assert.Equal(t, toByteSlices(expectedKeys), keys)
+	assert.Equal(t, toByteSlices(expectedValues), values)
+}
+
+// assertCursorSet is the Set-strategy equivalent of assertCursorReplace; each
+// expected value is the list of values stored under that key.
+func assertCursorSet(t *testing.T, b *Bucket, seek []byte, limit int, expectedKeys []string, expectedValues [][]string) {
+	t.Helper()
+	keys, values := collectCursorSet(t, b, seek, limit)
+	assert.Equal(t, toByteSlices(expectedKeys), keys)
+	assert.Equal(t, toByteSliceLists(expectedValues), values)
+}
+
+// toByteSlices converts a list of strings to [][]byte, returning nil for empty
+// input so it compares equal to a cursor that yielded nothing.
+func toByteSlices(ss []string) [][]byte {
+	if len(ss) == 0 {
+		return nil
+	}
+	out := make([][]byte, len(ss))
+	for i, s := range ss {
+		out[i] = []byte(s)
+	}
+	return out
+}
+
+// toByteSliceLists converts a list of string lists to [][][]byte, returning nil
+// for empty input.
+func toByteSliceLists(sss [][]string) [][][]byte {
+	if len(sss) == 0 {
+		return nil
+	}
+	out := make([][][]byte, len(sss))
+	for i, ss := range sss {
+		out[i] = toByteSlices(ss)
+	}
+	return out
 }
 
 // collectCursorSet is the Set-strategy equivalent of collectCursorReplace. Each
