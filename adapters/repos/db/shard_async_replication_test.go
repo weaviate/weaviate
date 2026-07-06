@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -968,6 +969,124 @@ func TestConcurrentEnableDisable(t *testing.T) {
 	wg.Wait()
 
 	_ = s.disableAsyncReplication(ctx)
+}
+
+// TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping guards against the recursive-RLock deadlock where the merge paths called waitForMinimalHashTreeInitialization while holding asyncReplicationRWMux.RLock(); pre-fix it hangs (watchdog fires), post-fix it completes. Run with -race.
+func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
+	const (
+		writers    = 8
+		iterations = 150
+		watchdog   = 30 * time.Second
+	)
+
+	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
+
+	tests := []struct {
+		name  string
+		write func(s *Shard, id strfmt.UUID, updateTime int64) error
+	}{
+		{
+			// Exercises mergeObjectInStorage via the public MergeObject entry point.
+			name: "MergeObject",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				return s.MergeObject(context.Background(), objects.MergeDocument{
+					Class:      s.class.Class,
+					ID:         id,
+					UpdateTime: updateTime,
+				})
+			},
+		},
+		{
+			// Exercises mutableMergeObjectLSM directly (the AddReferencesBatch path).
+			name: "mutableMergeObjectLSM",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				idBytes, err := bytesFromUUID(id)
+				if err != nil {
+					return err
+				}
+				_, err = s.mutableMergeObjectLSM(context.Background(), objects.MergeDocument{
+					Class:      s.class.Class,
+					ID:         id,
+					UpdateTime: updateTime,
+				}, idBytes)
+				return err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			sl, _ := testShard(t, ctx, "MergeDeadlock"+tc.name, withAsyncScheduler(t))
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			for _, id := range ids {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(s.class.Class, id, tsFarPast)))
+			}
+			require.NoError(t, s.store.FlushMemtables(ctx))
+
+			cfg := minAsyncReplicationConfig()
+			require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+			awaitHashtreeInitialized(t, s)
+
+			var (
+				clock      atomic.Int64
+				writeErrs  atomic.Int64
+				toggleErrs atomic.Int64
+				wg         sync.WaitGroup
+			)
+			clock.Store(tsFarPast)
+
+			// Writers: hammer the merge path.
+			for w := range writers {
+				wg.Add(1)
+				go func(w int) {
+					defer wg.Done()
+					for range iterations {
+						id := ids[w%len(ids)]
+						if err := tc.write(s, id, clock.Add(1)); err != nil {
+							writeErrs.Add(1)
+						}
+					}
+				}(w)
+			}
+
+			// Toggler: flap async replication so a write-lock acquisition is frequently pending — the precondition for the deadlock.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for range iterations {
+					if err := s.disableAsyncReplication(ctx); err != nil {
+						toggleErrs.Add(1)
+					}
+					if err := s.enableAsyncReplication(ctx, cfg); err != nil {
+						toggleErrs.Add(1)
+					}
+				}
+			}()
+
+			done := make(chan struct{})
+			go func() { wg.Wait(); close(done) }()
+
+			select {
+			case <-done:
+			case <-time.After(watchdog):
+				t.Fatalf("merge writes deadlocked under async-replication flapping "+
+					"(recursive RLock in %s path): workload did not finish within %s", tc.name, watchdog)
+			}
+
+			// Write/toggle errors during flapping are benign (write lands while momentarily disabled); log, do not fail.
+			if n := writeErrs.Load(); n > 0 {
+				t.Logf("%d/%d merge writes returned a non-fatal error during flapping", n, writers*iterations)
+			}
+			if n := toggleErrs.Load(); n > 0 {
+				t.Logf("%d enable/disable toggles returned a non-fatal error during flapping", n)
+			}
+
+			require.NoError(t, s.disableAsyncReplication(ctx))
+		})
+	}
 }
 
 // TestDisableRacingInitLeavesNoRegistration is a targeted test for the TOCTOU
