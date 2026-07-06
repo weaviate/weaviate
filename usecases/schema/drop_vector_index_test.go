@@ -26,6 +26,7 @@ import (
 type fakeDropEnqueuer struct {
 	active     bool
 	activeErr  error
+	enqueueErr error
 	enqueued   [][]string
 	enqueuedAt []string // collection per enqueue call
 }
@@ -35,6 +36,9 @@ func (f *fakeDropEnqueuer) HasActiveDrop(ctx context.Context, collection, target
 }
 
 func (f *fakeDropEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
+	if f.enqueueErr != nil {
+		return f.enqueueErr
+	}
 	f.enqueued = append(f.enqueued, targets)
 	f.enqueuedAt = append(f.enqueuedAt, collection)
 	return nil
@@ -124,4 +128,21 @@ func TestDeleteClassVectorIndex_ReTrigger_HasActiveDropError_Surfaces(t *testing
 	require.ErrorContains(t, err, "dtm unreachable")
 	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 	require.Empty(t, enq.enqueued)
+}
+
+// TestDeleteClassVectorIndex_FreshDrop_EnqueueFailure_StillSucceeds pins the API
+// contract: the marker commit already made the drop effective, so an enqueue
+// failure is logged and the call succeeds — periodic reconciliation retries the
+// cleanup for any marker without a task.
+func TestDeleteClassVectorIndex_FreshDrop_EnqueueFailure_StillSucceeds(t *testing.T) {
+	cls := classWithVectors(map[string]models.VectorConfig{
+		"foo": {VectorIndexType: "hnsw"},
+	})
+	h, sm, enq := newDropVectorHandler(t, cls)
+	enq.enqueueErr = errors.New("dtm unreachable")
+	sm.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"),
+		"the drop is in effect once the marker is applied; enqueue failure must not fail it")
+	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 }

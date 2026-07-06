@@ -255,3 +255,59 @@ func TestDropVectorTransformer_CorruptBytesSurfacesError(t *testing.T) {
 		})
 	}
 }
+
+// TestDropVectorTransformer_DroppedTargetCheck pins the last-line guard: an op
+// whose target the schema no longer marks dropped (a stale/orphaned op that
+// outlived its drop) must no-op instead of stripping a re-created vector, while
+// still-dropped targets keep being stripped.
+func TestDropVectorTransformer_DroppedTargetCheck(t *testing.T) {
+	const className = "TestClass"
+	t.Cleanup(func() { SetDroppedTargetCheck(nil) })
+
+	marshal := func(t *testing.T, vecs map[string][]float32) []byte {
+		t.Helper()
+		obj := storobj.FromObject(&models.Object{
+			Class:      className,
+			ID:         strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{"name": "x"},
+		}, nil, vecs, nil)
+		obj.DocID = 1
+		b, err := obj.MarshalBinaryDisk(false)
+		require.NoError(t, err)
+		return b
+	}
+	op := editops.ActiveOp{ID: "op", Descriptor: editops.OpDescriptor{
+		Type: editops.OpTypeRemoveTargetVectors, Targets: []string{"revived", "stillDropped"}, CreatedAt: 1,
+	}}
+	in := marshal(t, map[string][]float32{"revived": {1}, "stillDropped": {2}, "keep": {3}})
+
+	t.Run("filters revived targets, strips still-dropped ones", func(t *testing.T) {
+		SetDroppedTargetCheck(func(cls, targetVector string) bool {
+			return targetVector == "stillDropped"
+		})
+		out, err := dropVectorTransformer(className, []editops.ActiveOp{op})(in)
+		require.NoError(t, err)
+		got, err := storobj.FromBinaryDisk(out, className)
+		require.NoError(t, err)
+		require.Contains(t, got.Vectors, "revived", "a re-created vector must survive a stale op")
+		require.Contains(t, got.Vectors, "keep")
+		require.NotContains(t, got.Vectors, "stillDropped")
+	})
+
+	t.Run("all targets revived: identity, bytes untouched", func(t *testing.T) {
+		SetDroppedTargetCheck(func(string, string) bool { return false })
+		out, err := dropVectorTransformer(className, []editops.ActiveOp{op})(in)
+		require.NoError(t, err)
+		require.Equal(t, in, out)
+	})
+
+	t.Run("no check installed: strips unfiltered", func(t *testing.T) {
+		SetDroppedTargetCheck(nil)
+		out, err := dropVectorTransformer(className, []editops.ActiveOp{op})(in)
+		require.NoError(t, err)
+		got, err := storobj.FromBinaryDisk(out, className)
+		require.NoError(t, err)
+		require.NotContains(t, got.Vectors, "revived")
+		require.NotContains(t, got.Vectors, "stillDropped")
+	})
+}

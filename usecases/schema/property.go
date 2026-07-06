@@ -299,9 +299,15 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return err
 	}
 
-	// Enqueue the distributed cleanup task that strips the dropped
-	// vector from stored objects and finalizes the schema removal.
-	return h.enqueueDropVectorIndexCleanup(ctx, className, vectorIndexName)
+	// Enqueue the distributed cleanup task that strips the dropped vector from
+	// stored objects and finalizes the schema removal. The marker above is already
+	// durably applied — the drop IS in effect — so an enqueue failure must not
+	// surface as a failed drop; periodic reconciliation retries the cleanup.
+	if err := h.enqueueDropVectorIndexCleanup(ctx, className, vectorIndexName); err != nil {
+		h.logger.WithField("class", className).WithField("targetVector", vectorIndexName).
+			Warnf("drop vector index: marker applied but cleanup enqueue failed; reconciliation will retry: %v", err)
+	}
+	return nil
 }
 
 // DeleteClassProperty from existing Schema

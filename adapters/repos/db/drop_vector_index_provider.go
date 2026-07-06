@@ -183,13 +183,28 @@ func (p *DropVectorIndexProvider) processUnits(
 	// enqueue are not atomic, so the class may have been deleted+re-created (or the
 	// entry otherwise revived) since. Arming against a live vector would strip user
 	// data; refuse instead — the failed task deletes its ops and leaves any real
-	// marker for a retry.
-	if ok, err := p.targetsStillDropped(payload); err != nil {
+	// marker for a retry. The leader read gets the same bounded tolerance as the
+	// drain poll: a momentary leader blip must not fail a whole drop task.
+	var stillDropped bool
+	var verifyErr error
+	for attempt := 0; attempt < maxConsecutivePollErrors; attempt++ {
+		stillDropped, verifyErr = p.targetsStillDropped(payload)
+		if verifyErr == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return // shutdown: leave units in place, the task resumes after restart
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if verifyErr != nil {
 		for _, unitID := range pending {
-			p.failUnit(ctx, task, unitID, "verify targets still marked dropped: "+err.Error())
+			p.failUnit(ctx, task, unitID, "verify targets still marked dropped: "+verifyErr.Error())
 		}
 		return
-	} else if !ok {
+	}
+	if !stillDropped {
 		for _, unitID := range pending {
 			p.failUnit(ctx, task, unitID, "a target vector is no longer marked dropped; refusing to arm cleanup")
 		}

@@ -136,6 +136,11 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
 	}
 
+	// Known limitation (matches the reindex model): a unit is emitted per
+	// (shard, replica) with no liveness filter, and the DTM never reassigns a
+	// claimed unit. A permanently-removed replica leaves its unit non-terminal and
+	// the task STARTED until an operator removes the node; no data is at risk (the
+	// marker stays and reconciliation resumes after the topology is repaired).
 	_, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
 	specs := buildUnitSpecs(shardOwnership)
 

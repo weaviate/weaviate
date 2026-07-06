@@ -67,6 +67,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -75,6 +76,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -781,6 +783,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.SchemaManager = schemaManager
+
+	// Last-line transformer guard: strip only targets the local schema still marks
+	// dropped, so an edit op that outlived its drop (failed delete, missed sweep)
+	// no-ops instead of stripping a re-created vector. Installed before
+	// ClusterService.Open so restore-time compactions are covered.
+	transformers.SetDroppedTargetCheck(func(className, targetVector string) bool {
+		class := schemaManager.ReadOnlyClass(className)
+		if class == nil {
+			return false
+		}
+		return modelsext.IsVectorIndexDropped(class.VectorConfig[targetVector])
+	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
