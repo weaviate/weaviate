@@ -149,8 +149,9 @@ func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
 		return MigrationDirFilterableRoaringsetRefresh, true
 	case "searchable":
 		return MigrationDirSearchableMapToBlockmax, true
+	default:
+		return "", false
 	}
-	return "", false
 }
 
 // migrationDirsForPropertyIndex returns the per-property migration
