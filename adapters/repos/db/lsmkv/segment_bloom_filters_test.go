@@ -112,7 +112,8 @@ func TestCreateBloomInit(t *testing.T) {
 	defer b2.Shutdown(ctx)
 
 	// just to ensure segments are loaded
-	cursor := b2.Cursor()
+	cursor, err := b2.Cursor()
+	require.NoError(t, err)
 	cursor.Close()
 
 	files, err := os.ReadDir(dirName)

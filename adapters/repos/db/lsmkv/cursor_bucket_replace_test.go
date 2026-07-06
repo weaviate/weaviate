@@ -65,8 +65,10 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		strategy: StrategyReplace,
 	}
 
-	cursor := b.Cursor()
-	diskCursor := b.CursorOnDisk()
+	cursor, err := b.Cursor()
+	require.NoError(t, err)
+	diskCursor, err := b.CursorOnDisk()
+	require.NoError(t, err)
 	validateOriginalCursorView := func(t *testing.T, c, cd *CursorReplace) {
 		// regular cursor
 		expected := map[string]string{
@@ -140,9 +142,11 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 
 	// now open a new cursor and validate it sees everything (including the new
 	// write
-	cursor2 := b.Cursor()
+	cursor2, err := b.Cursor()
+	require.NoError(t, err)
 	defer cursor2.Close()
-	diskCursor2 := b.CursorOnDisk()
+	diskCursor2, err := b.CursorOnDisk()
+	require.NoError(t, err)
 	defer diskCursor2.Close()
 
 	expected := map[string]string{

@@ -778,7 +778,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
-			c := b.SetCursor()
+			c, err := b.SetCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
@@ -803,7 +804,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
-			c := b.SetCursor()
+			c, err := b.SetCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
@@ -838,7 +840,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
-			c := b.SetCursor()
+			c, err := b.SetCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
@@ -981,7 +984,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
-			c := b.SetCursor()
+			c, err := b.SetCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
@@ -1006,7 +1010,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
-			c := b.SetCursor()
+			c, err := b.SetCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
@@ -1049,7 +1054,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
-			c := b.SetCursor()
+			c, err := b.SetCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
@@ -1085,7 +1091,8 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
-			c := b.SetCursor()
+			c, err := b.SetCursor()
+			require.NoError(t, err)
 			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {

@@ -92,7 +92,8 @@ func TestSetCursorConsistentView(t *testing.T) {
 	}
 
 	// Open the cursor that should see key1..key3 only and stay stable
-	cur := b.SetCursor()
+	cur, err := b.SetCursor()
+	require.NoError(t, err)
 	validateOriginalCursorView := func(t *testing.T, c *CursorSet) {
 		expected := map[string][][]byte{
 			"key1": {[]byte("value1")},
@@ -154,7 +155,8 @@ func TestSetCursorConsistentView(t *testing.T) {
 	cur.Close()
 
 	// 6) A new cursor now sees the latest state: key1..key4 (key4 is in active)
-	cur2 := b.SetCursor()
+	cur2, err := b.SetCursor()
+	require.NoError(t, err)
 	defer cur2.Close()
 
 	expected := map[string][][]byte{

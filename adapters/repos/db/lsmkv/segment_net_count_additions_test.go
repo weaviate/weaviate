@@ -101,7 +101,8 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	require.Nil(t, err)
 
 	// just to ensure segments are loaded
-	cursor := b.Cursor()
+	cursor, err := b.Cursor()
+	require.NoError(t, err)
 	cursor.Close()
 
 	files, err = os.ReadDir(dirName)
@@ -119,7 +120,8 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	defer b2.Shutdown(ctx)
 
 	// just to ensure segments are loaded
-	cursor = b2.Cursor()
+	cursor, err = b2.Cursor()
+	require.NoError(t, err)
 	cursor.Close()
 
 	files, err = os.ReadDir(dirName)

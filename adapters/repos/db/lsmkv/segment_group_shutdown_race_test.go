@@ -51,12 +51,14 @@ func TestShutdownRefusesViewsInRefWaitWindow(t *testing.T) {
 	var hookRan bool
 	var windowVal []byte
 	var windowErr error
-	b.disk.testHookShutdownAfterRefWait = func() {
+
+	// Drive the segment group's shutdown directly, passing the window hook as a
+	// parameter. This keeps the test seam off the production struct while still
+	// exercising the exact refcount-wait-to-close window.
+	require.NoError(t, b.disk.shutdown(ctx, func() {
 		hookRan = true
 		windowVal, windowErr = b.Get([]byte("key-1"))
-	}
-
-	require.NoError(t, b.Shutdown(ctx))
+	}))
 	require.True(t, hookRan)
 
 	require.ErrorIs(t, windowErr, ErrShuttingDown,
@@ -79,7 +81,8 @@ func TestReadAfterShutdownErrs(t *testing.T) {
 	assert.Nil(t, val)
 }
 
-// Cursor constructors on a shut-down bucket must refuse loudly, never serve a silently empty iteration.
+// Cursor constructors on a shut-down bucket must refuse with ErrShuttingDown,
+// never serve a silently empty iteration and never crash the node.
 func TestCursorsAfterShutdownRefuse(t *testing.T) {
 	ctx := context.Background()
 
@@ -89,7 +92,18 @@ func TestCursorsAfterShutdownRefuse(t *testing.T) {
 		require.NoError(t, b.FlushAndSwitch())
 		require.NoError(t, b.Shutdown(ctx))
 
-		requirePanicsWithShuttingDown(t, func() { b.Cursor() })
+		_, err := b.Cursor()
+		require.ErrorIs(t, err, ErrShuttingDown)
+	})
+
+	t.Run("replace cursor on disk", func(t *testing.T) {
+		b := newShutdownTestBucket(t, ctx, WithStrategy(StrategyReplace))
+		require.NoError(t, b.Put([]byte("key-1"), []byte("value-1")))
+		require.NoError(t, b.FlushAndSwitch())
+		require.NoError(t, b.Shutdown(ctx))
+
+		_, err := b.CursorOnDisk()
+		require.ErrorIs(t, err, ErrShuttingDown)
 	})
 
 	t.Run("roaringset cursor", func(t *testing.T) {
@@ -98,7 +112,8 @@ func TestCursorsAfterShutdownRefuse(t *testing.T) {
 		require.NoError(t, b.FlushAndSwitch())
 		require.NoError(t, b.Shutdown(ctx))
 
-		requirePanicsWithShuttingDown(t, func() { b.CursorRoaringSet() })
+		_, err := b.CursorRoaringSet()
+		require.ErrorIs(t, err, ErrShuttingDown)
 	})
 
 	t.Run("set cursor", func(t *testing.T) {
@@ -107,7 +122,8 @@ func TestCursorsAfterShutdownRefuse(t *testing.T) {
 		require.NoError(t, b.FlushAndSwitch())
 		require.NoError(t, b.Shutdown(ctx))
 
-		requirePanicsWithShuttingDown(t, func() { b.SetCursor() })
+		_, err := b.SetCursor()
+		require.ErrorIs(t, err, ErrShuttingDown)
 	})
 
 	t.Run("map cursor", func(t *testing.T) {
@@ -116,23 +132,9 @@ func TestCursorsAfterShutdownRefuse(t *testing.T) {
 		require.NoError(t, b.FlushAndSwitch())
 		require.NoError(t, b.Shutdown(ctx))
 
-		// MapCursor returns an error, so it refuses without panicking
 		_, err := b.MapCursor()
 		require.ErrorIs(t, err, ErrShuttingDown)
 	})
-}
-
-func requirePanicsWithShuttingDown(t *testing.T, f func()) {
-	t.Helper()
-	defer func() {
-		r := recover()
-		require.NotNil(t, r, "cursor constructor on a shut-down bucket must refuse, "+
-			"not serve a silently empty iteration")
-		err, ok := r.(error)
-		require.True(t, ok, "panic value should be an error, got %T", r)
-		require.ErrorIs(t, err, ErrShuttingDown)
-	}()
-	f()
 }
 
 // Races readers against shutdown: every read must fully succeed or fail with ErrShuttingDown.

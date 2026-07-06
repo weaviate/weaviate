@@ -197,7 +197,8 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -229,7 +230,8 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
