@@ -142,7 +142,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 func (s *Shard) MayResetTransferInactivityTimer() {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
-	s.mayResetInactivityTimer()
+	s.mayResetInactivityDeadline()
 }
 
 // structuralVectorOpInFlight reports whether any vector index is mid-restructure
@@ -170,11 +170,6 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 	// restart any running monitor so the shorter timeout takes effect; the immediately-following
 	// mayInitInactivityMonitoring respawns it. cancelling only stops the goroutine, not maintenance.
 	s.mayStopInactivityMonitoring()
-}
-
-func (s *Shard) mayResetInactivityTimer() {
-	s.haltForTransferDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
-	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
 }
 
 // mayStopInactivityMonitoring cancels the running inactivity monitor and clears the sentinel.
@@ -222,21 +217,6 @@ func (s *Shard) mayInitInactivityMonitoring() {
 			}
 		}
 	}, s.index.logger)
-}
-
-func (s *Shard) reArmOrResumeAfterInactivity() (resumed bool) {
-	s.haltForTransferMux.Lock()
-	defer s.haltForTransferMux.Unlock()
-
-	if remaining := time.Until(s.haltForTransferDeadline); remaining > 0 {
-		if s.haltForTransferInactivityTimer != nil {
-			s.haltForTransferInactivityTimer.Reset(remaining)
-		}
-		return false
-	}
-
-	s.mayForceResumeMaintenanceCycles(context.Background(), true)
-	return true
 }
 
 // handleInactivityFire resolves an inactivity-timer fire, returning true to keep watching
