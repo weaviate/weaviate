@@ -194,8 +194,10 @@ func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
 // caches it. It returns a stop function that halts the ticker and pins the
 // final value; callers should defer it. The goroutine also exits if ctx is done.
 func (db *DB) trackStartupProgress(ctx context.Context) func() {
+	classNames := db.startupClassNames()
+
 	// Publish immediately so a value is available before the first log tick.
-	db.updateStartupProgress()
+	db.updateStartupProgress(classNames)
 
 	done := make(chan struct{})
 	enterrors.GoWrapper(func() {
@@ -208,7 +210,7 @@ func (db *DB) trackStartupProgress(ctx context.Context) func() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				db.updateStartupProgress()
+				db.updateStartupProgress(classNames)
 			}
 		}
 	}, db.logger)
@@ -216,29 +218,40 @@ func (db *DB) trackStartupProgress(ctx context.Context) func() {
 	return func() {
 		close(done)
 		// Pin the final value now that loading has finished.
-		db.updateStartupProgress()
+		db.updateStartupProgress(classNames)
 	}
+}
+
+// startupClassNames snapshots the current class names for the startup progress scan
+func (db *DB) startupClassNames() []string {
+	s := db.schemaGetter.GetSchemaSkipAuth()
+	if s.Objects == nil {
+		return nil
+	}
+	names := make([]string, 0, len(s.Objects.Classes))
+	for _, class := range s.Objects.Classes {
+		names = append(names, class.Class)
+	}
+	return names
 }
 
 // updateStartupProgress recomputes progress once and publishes it to the cached
 // snapshot and the Prometheus gauges.
-func (db *DB) updateStartupProgress() {
-	loaded, total := db.scanStartupProgress()
+func (db *DB) updateStartupProgress(classNames []string) {
+	loaded, total := db.scanStartupProgress(classNames)
 	db.startupProgress.Store(&StartupProgressSnapshot{Loaded: loaded, Total: total})
 	db.promMetrics.SetStartupShardProgress(loaded, total)
 }
 
-// scanStartupProgress computes eager shard-loading progress from scratch.
+// scanStartupProgress computes eager shard-loading progress from scratch for the
+// given classes.
 //
 // total starts from every HOT local shard known to the schema (eager and lazy);
 // lazy shards are then discounted as they are encountered in the index maps,
 // leaving the eager total. Safe to call while the DB is still loading.
-func (db *DB) scanStartupProgress() (loaded, total int64) {
-	s := db.schemaGetter.GetSchemaSkipAuth()
-	if s.Objects != nil {
-		for _, class := range s.Objects.Classes {
-			total += db.localShardsToLoad(class.Class)
-		}
+func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
+	for _, className := range classNames {
+		total += db.localShardsToLoad(className)
 	}
 
 	db.indexLock.RLock()

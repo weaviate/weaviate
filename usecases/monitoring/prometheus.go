@@ -706,7 +706,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Disk I/O throuhput in bytes per second",
 		}, []string{"operation", "class_name", "shard_name"}),
 		StartupShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "startup_shards_loaded",
+			Name: "weaviate_startup_shards_loaded",
 			Help: "Number of eagerly-loaded local shards that have finished loading during startup",
 		}),
 		StartupShardsToLoad: promauto.NewGauge(prometheus.GaugeOpts{
