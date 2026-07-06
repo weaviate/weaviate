@@ -128,10 +128,6 @@ type Client struct {
 
 	// logger is the logger to log client warns etc.
 	logger *logrus.Logger
-
-	// testOnConnAcquired runs between conn acquisition and the RPC call so tests
-	// can force a leader change into that window. Always nil in production.
-	testOnConnAcquired func()
 }
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
@@ -225,10 +221,6 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 		return nil, err
 	}
 	defer release()
-
-	if cl.testOnConnAcquired != nil {
-		cl.testOnConnAcquired()
-	}
 
 	resp, err := cmd.NewClusterServiceClient(conn).Query(ctx, req)
 	return resp, fromRPCError(err)

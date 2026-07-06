@@ -23,6 +23,33 @@ import (
 	"google.golang.org/grpc/connectivity"
 )
 
+// ClientWithTest keeps the leader-change test seam off the production Client
+// surface. The hook has to fire between conn acquisition and the RPC call, and
+// Go embedding is not virtual dispatch, so Client.Query can't see a field on the
+// wrapper. Query is reproduced here to reach that window while reusing the real
+// getConn/refConn machinery under test.
+type ClientWithTest struct {
+	*Client
+	// testOnConnAcquired runs in the acquire->RPC window so a test can force a
+	// leader change into it.
+	testOnConnAcquired func()
+}
+
+func (c *ClientWithTest) Query(ctx context.Context, leaderRaftAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	conn, release, err := c.getConn(ctx, leaderRaftAddr)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	if c.testOnConnAcquired != nil {
+		c.testOnConnAcquired()
+	}
+
+	resp, err := cmd.NewClusterServiceClient(conn).Query(ctx, req)
+	return resp, fromRPCError(err)
+}
+
 // Pins the race where a leader change closes the conn underneath an in-flight
 // RPC (weaviate/0-weaviate-issues#284).
 func TestClient_Query_LeaderChangeMidRPC(t *testing.T) {
@@ -34,7 +61,7 @@ func TestClient_Query_LeaderChangeMidRPC(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 10; i++ {
-		cl := NewClient(&testResolver{}, fourMiB, false, logrus.StandardLogger())
+		cl := &ClientWithTest{Client: NewClient(&testResolver{}, fourMiB, false, logrus.StandardLogger())}
 
 		var fired atomic.Bool
 		cl.testOnConnAcquired = func() {
