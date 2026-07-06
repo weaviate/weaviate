@@ -55,6 +55,7 @@ type memtable interface {
 	DirtyDuration() time.Duration
 	updateDirtyAt()
 	countStats() *countStats
+	netCount() int
 	getStrategy() string
 	commitlogSize() int64
 	commitlogWalPath() string
@@ -110,15 +111,24 @@ type memtable interface {
 
 type Memtable struct {
 	sync.RWMutex
-	key                *binarySearchTree
-	keyMulti           *binarySearchTreeMulti
-	keyMap             *binarySearchTreeMap
-	primaryIndex       *binarySearchTree
-	roaringSet         *roaringset.BinarySearchTree
-	roaringSetRange    *roaringsetrange.Memtable
-	commitlog          memtableCommitLogger
-	allocChecker       memwatch.AllocChecker
-	size               uint64
+	key             *binarySearchTree
+	keyMulti        *binarySearchTreeMulti
+	keyMap          *binarySearchTreeMap
+	primaryIndex    *binarySearchTree
+	roaringSet      *roaringset.BinarySearchTree
+	roaringSetRange *roaringsetrange.Memtable
+	commitlog       memtableCommitLogger
+	allocChecker    memwatch.AllocChecker
+	size            uint64
+	// netCountAdditions approximates the net number of live keys this
+	// memtable adds on top of older memtables/segments: +1 when a put makes a
+	// key live that wasn't live here, -1 when a tombstone kills a key that
+	// wasn't already tombstoned here. Whether the key exists further down the
+	// LSM tree is unknown at write time, so an update of a flushed key
+	// over-counts and a delete of a never-written key under-counts by one
+	// each; the drift disappears at flush, when the segment's exact net count
+	// is computed. Only maintained for StrategyReplace.
+	netCountAdditions  int
 	path               string
 	strategy           string
 	secondaryIndices   uint16
@@ -288,8 +298,12 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
+	wasLive := m.key.exists(key) == nil
 	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasLive {
+		m.netCountAdditions++
+	}
 
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
@@ -327,8 +341,12 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
+	wasTombstoned := m.isTombstoned(key)
 	previousKeys := m.key.setTombstone(key, nil, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasTombstoned {
+		m.netCountAdditions--
+	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
@@ -367,8 +385,12 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Wrap(err, "write into commit log")
 	}
 
+	wasTombstoned := m.isTombstoned(key)
 	previousKeys := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasTombstoned {
+		m.netCountAdditions--
+	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
@@ -621,6 +643,21 @@ func (m *Memtable) countStats() *countStats {
 	m.RLock()
 	defer m.RUnlock()
 	return m.key.countStats()
+}
+
+// netCount returns the approximate net key additions of this memtable, see
+// netCountAdditions.
+func (m *Memtable) netCount() int {
+	m.RLock()
+	defer m.RUnlock()
+	return m.netCountAdditions
+}
+
+// isTombstoned reports whether the key currently sits in this memtable as a
+// tombstone. Callers must hold the memtable lock.
+func (m *Memtable) isTombstoned(key []byte) bool {
+	err := m.key.exists(key)
+	return err != nil && !errors.Is(err, lsmkv.NotFound)
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
