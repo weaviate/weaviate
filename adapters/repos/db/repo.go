@@ -20,8 +20,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/loadlimiter"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -34,6 +32,7 @@ import (
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -241,7 +240,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
 		remoteNode:                sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:             replicaClient,
 		asyncReplicationScheduler: asyncReplicationScheduler,
 		promMetrics:               promMetrics,
 		shutdown:                  make(chan struct{}),
@@ -258,6 +256,10 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		bitmapBufPoolClose:        func() {},
 		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,
 	}
+
+	// Serve replication calls targeting the local node in-process instead of
+	// over a loopback round-trip.
+	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
