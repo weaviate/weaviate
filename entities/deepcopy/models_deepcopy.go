@@ -66,6 +66,7 @@ func Class(c *models.Class) *models.Class {
 
 func Prop(p *models.Property) *models.Property {
 	return &models.Property{
+		BucketGeneration:  p.BucketGeneration,
 		DataType:          p.DataType,
 		Description:       p.Description,
 		ModuleConfig:      p.ModuleConfig,
