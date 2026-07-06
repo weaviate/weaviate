@@ -761,18 +761,14 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 	s.tokenizationOverlay[propName] = target
 }
 
-// SwapBucketAndSetOverlay runs propName's bucket-pointer flip and its
-// tokenization-overlay set as ONE critical section under
-// tokenizationOverlayMu (read side:
-// [Shard.PinTokenizationAndSearchableBucket]), so a concurrent query never
-// observes a mixed (bucket, overlay) pair. The overlay is set whenever flip
-// returns no error, including the (nil, nil) no-op on an already-swapped
-// prop (resumed-swap contract); empty target = no overlay written.
+// SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
+// critical section under tokenizationOverlayMu (read side:
+// [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
 //
-// CONTRACT: flip must NOT call Bucket.Shutdown or acquire lifetimeLock — a
-// pinned query holds lifetimeLock.RLock and may take tokenizationOverlayMu
-// next (self-clear path), so draining here would invert that order and
-// deadlock. Phase-2b teardown belongs strictly after this method returns.
+// CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
+// pinned query may need tokenizationOverlayMu next (self-clear path), so
+// draining here would invert lock order and deadlock. Phase-2b teardown
+// must happen strictly after this method returns.
 func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
@@ -794,15 +790,12 @@ func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 	return oldMainBucket, nil
 }
 
-// PinTokenizationAndSearchableBucket resolves propName's query-time
-// tokenization AND pins its searchable bucket for the whole query, reading
-// both under one tokenizationOverlayMu.RLock (write side:
-// [Shard.SwapBucketAndSetOverlay]) so a query never sees a mixed
-// pre-/post-swap pair; the pin makes a concurrent swap's oldBucket.Shutdown
-// drain before freeing mmaps. The caller MUST call release exactly once;
-// bucket may be nil (release still required). Lock order:
-// tokenizationOverlayMu → bucketAccessLock → lifetimeLock, matching the
-// write side — no inversion.
+// PinTokenizationAndSearchableBucket resolves propName's tokenization AND
+// pins its searchable bucket under one tokenizationOverlayMu.RLock (write
+// side: [Shard.SwapBucketAndSetOverlay]), so a query never sees a mixed
+// pre-/post-swap pair; the pin makes a concurrent swap's Shutdown drain
+// first. Caller MUST release exactly once (bucket may be nil). Lock order:
+// tokenizationOverlayMu → bucketAccessLock → lifetimeLock.
 func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
 ) (string, *lsmkv.Bucket, func()) {
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)

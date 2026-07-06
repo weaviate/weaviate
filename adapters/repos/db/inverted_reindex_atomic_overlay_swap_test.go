@@ -26,10 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestAtomicOverlaySwap_BM25NeverSeesZeroCount: pre-fix, the bucket flip
-// and the overlay set were two independent critical sections, so a
-// concurrent BM25 query could see a mixed (bucket, tokenization) pair and
-// transiently return 0. The lookup-time half is TestPinBucketDrain_*.
+// Pins the write-time bucket/overlay race: a concurrent BM25 query must
+// never see a mixed (bucket, tokenization) pair mid-swap (lookup-time half:
+// TestPinBucketDrain_*).
 func TestAtomicOverlaySwap_BM25NeverSeesZeroCount(t *testing.T) {
 	sawBad, detail, reads := runAtomicOverlaySwapProof(t, false)
 	require.False(t, sawBad,
@@ -37,11 +36,8 @@ func TestAtomicOverlaySwap_BM25NeverSeesZeroCount(t *testing.T) {
 		detail, reads)
 }
 
-// Asymmetry run: with the pre-fix behavior reproduced test-side, the SAME
-// proof must observe the inconsistent pair — proving the proof is sensitive.
-// Production carries no non-atomic knob; the nonAtomic mode composes the same
-// existing seams the pre-fix code used (a two-step flip+overlay swap closure
-// and separate TokenizationFor / AcquireBucketForRead reads).
+// Sensitivity check: the same proof, with the two-step (non-atomic)
+// flip+overlay behavior reproduced test-side, must observe the mixed pair.
 func TestAtomicOverlaySwap_OldCodeIsRacy(t *testing.T) {
 	sawBad, detail, reads := runAtomicOverlaySwapProof(t, true)
 	require.True(t, sawBad,
@@ -53,21 +49,8 @@ func TestAtomicOverlaySwap_OldCodeIsRacy(t *testing.T) {
 // runAtomicOverlaySwapProof drives one field→word swap with a widened
 // flip↔overlay window while a concurrent query loop reads the
 // (tokenization, bucket) pair, reporting the first non-validCount
-// observation.
-//
-// With nonAtomic=false it exercises the production atomic path: the swap
-// runs flip+overlay as one critical section (Shard.SwapBucketAndSetOverlay,
-// wired by maybeWirePerPropOverlaySet) and the query resolves the pair under
-// one RLock (Shard.PinTokenizationAndSearchableBucket) — no mixed pair even
-// with the window widened INSIDE the lock.
-//
-// With nonAtomic=true it reproduces the pre-fix two-step behavior entirely
-// test-side, without any production knob: the write is a swap closure that
-// flips, waits, then sets the overlay as a SEPARATE step, and the read
-// resolves tokenization (TokenizationFor) and bucket (AcquireBucketForRead)
-// under SEPARATE locks — exactly what the old SwapBucketAndSetOverlay /
-// PinTokenizationAndSearchableBucket did before the fix, so the mid-swap
-// window exposes a mixed pair.
+// observation. nonAtomic swaps in the two-step (separate flip/overlay,
+// separate-lock read) behavior instead of the atomic production path.
 func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, detailOut string, readsOut int64) {
 	ctx := testCtx()
 	const hookSleepMs = 50
@@ -113,12 +96,8 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 
 	// Widen the flip↔overlay window so the race is deterministically observable.
 	if nonAtomic {
-		// PRE-FIX WRITE reproduction: replace the atomically-wired
-		// swapPropAtomic with the old two-critical-sections form — flip, gap,
-		// then overlay set as a SEPARATE step. This is literally the pre-fix
-		// SwapBucketAndSetOverlay, composed test-side from the same seams
-		// (processOneSwapPropFn + SetTokenizationOverlay) so production carries
-		// no non-atomic branch.
+		// Two-step reproduction: flip, gap, then set the overlay as a
+		// SEPARATE step (composed test-side; production has no such branch).
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
 			rt reindexTracker, propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
@@ -131,12 +110,8 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 			return oldMainBucket, nil
 		}
 	} else {
-		// WITH FIX: drive the REAL atomic critical section
-		// (Shard.SwapBucketAndSetOverlay) through the existing swapPropAtomic DI
-		// field — the same seam maybeWirePerPropOverlaySet wires in production —
-		// and widen the flip↔overlay window INSIDE that lock, proving it covers
-		// the gap. The sleep sits between the bucket flip (processOneSwapPropFn)
-		// and the overlay set, exactly where the pre-fix code left the window open.
+		// Drives the real atomic critical section (Shard.SwapBucketAndSetOverlay),
+		// widening the flip↔overlay window INSIDE the lock to prove it covers the gap.
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
 			rt reindexTracker, propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
@@ -167,10 +142,8 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 			release func()
 		)
 		if nonAtomic {
-			// PRE-FIX READ reproduction: resolve the bucket and the
-			// tokenization under SEPARATE locks — exactly the old
-			// PinTokenizationAndSearchableBucket path — so a mid-swap read can
-			// observe a mixed (bucket, tokenization) pair.
+			// Resolve bucket and tokenization under SEPARATE locks, so a
+			// mid-swap read can observe a mixed pair.
 			bkt, release = shard.store.AcquireBucketForRead(
 				helpers.BucketSearchableFromPropNameLSM(fieldProp))
 			tok = shard.TokenizationFor(fieldProp, models.PropertyTokenizationField)

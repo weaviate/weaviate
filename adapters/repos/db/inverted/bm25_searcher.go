@@ -70,10 +70,9 @@ type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
 }
 
-// pinnedSearchableBuckets carries the buckets a single query pinned at prop
-// discovery so lookup reuses the exact pinned pointer instead of re-fetching
-// by name. Per-query, never stored on the shared BM25Searcher; nil receiver
-// = no pinning, lookup falls back to by-name fetches.
+// pinnedSearchableBuckets carries the buckets one query pinned at prop
+// discovery, so lookup reuses the pinned pointer instead of re-fetching by
+// name. Per-query, never stored on the shared BM25Searcher.
 type pinnedSearchableBuckets struct {
 	byProp   map[string]*lsmkv.Bucket
 	releases []func()
@@ -152,9 +151,7 @@ func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Sea
 	return b
 }
 
-// WithSearchableBucketPinningResolver attaches a
-// [SearchableBucketPinningResolver]; nil (the default) keeps the
-// non-pinning behavior.
+// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
 func (b *BM25Searcher) WithSearchableBucketPinningResolver(
 	r SearchableBucketPinningResolver,
 ) *BM25Searcher {
@@ -279,9 +276,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 		propertyBoosts[property] = propBoost
 
-		// Dedupe (e.g. ["title", "title^2"], last boost wins): a second pass
-		// would take a second pin — a swap between the two yields the mixed
-		// pair this fix closes.
+		// Dedupe (e.g. ["title", "title^2"], last boost wins): a second pin
+		// for the same prop could straddle a swap and mix pre-/post-state.
 		if _, dup := seenProps[property]; dup {
 			continue
 		}
@@ -658,10 +654,8 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 		eg.Go(
 			func() error {
-				// Use the bucket pinned at prop discovery — a by-name
+				// Reuse the bucket pinned at prop discovery — a by-name
 				// re-fetch could land on the post-swap bucket or a freed mmap.
-				// No resolver installed (pinned==false) => no pin taken, fall
-				// back to a by-name fetch (the pre-fix path).
 				bucket, pinned := pins.bucketFor(propName)
 				if !pinned {
 					bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))

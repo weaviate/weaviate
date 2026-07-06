@@ -23,9 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-// TestCompressorSurvivesStoreShutdown pins the nil-Bucket.Put panic: an
-// async compress/preload goroutine outliving the shard gets nil from
-// Store.Bucket and must skip instead of panicking.
+// Pins the nil-Bucket panic: a compressor outliving the store's Shutdown
+// must skip on a nil bucket instead of panicking.
 func TestCompressorSurvivesStoreShutdown(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	compressor, err := compressionhelpers.NewBQCompressor(
@@ -36,7 +35,6 @@ func TestCompressorSurvivesStoreShutdown(t *testing.T) {
 	compressor.Preload(1, []float32{-0.5, 0.5})
 	require.NoError(t, store.Shutdown(context.Background()))
 
-	// all of these raced shutdown pre-fix and panicked on the nil bucket
 	compressor.Preload(2, []float32{0.25, 0.7})
 	compressor.Delete(context.Background(), 1)
 	compressor.PrefillCache(context.Background())

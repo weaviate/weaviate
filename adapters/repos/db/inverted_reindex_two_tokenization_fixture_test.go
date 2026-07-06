@@ -28,10 +28,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// twoTokenizationFixture: one shard with a FIELD- and a WORD-tokenized
-// searchable prop carrying identical content, so redirecting the FIELD
-// prop's bucket pointer to the WORD bucket emulates the runtime field→word
-// swap with both generations as distinct, identity-comparable buckets.
+// twoTokenizationFixture: a shard with a FIELD- and a WORD-tokenized prop
+// carrying identical content, so redirecting the FIELD prop's bucket pointer
+// to the WORD bucket emulates a runtime field→word swap.
 type twoTokenizationFixture struct {
 	shard *Shard
 	idx   *Index

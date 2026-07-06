@@ -315,7 +315,7 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
-	// Swallowing this error produced silent empty results.
+	// Propagate: swallowing this error would silently empty the results.
 	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
 		return nil, nil, err

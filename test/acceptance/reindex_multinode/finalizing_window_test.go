@@ -212,13 +212,10 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// stable baseline. If the probe matches zero at startTok we'd
 	// classify steady-state samples as partial, blowing the budget.
 	//
-	// Wait for per-replica convergence first: even with batchImport at
-	// consistency_level=ALL (object writes acked by all replicas), a BM25
-	// probe can briefly see divergent counts while a replica finishes
-	// indexing, so capture the baseline only once all 3 nodes agree.
-	// Without this wait the baseline captured here can be below
-	// steady-state, and the classifyProbeSamples helper will subsequently
-	// treat *every* steady-state sample as out-of-range (count > captured baseline).
+	// Wait for per-replica convergence first: consistency_level=ALL only
+	// guarantees acked writes, not that every replica has finished indexing.
+	// Without this wait, classifyProbeSamples would treat *every*
+	// steady-state sample as out-of-range (count > captured baseline).
 	// That misclassification produced 13 spurious failures on PR
 	// #11323 CI run b19dd49366 / job 76404184658:
 	//   baseline captured: 1495 (lagged replica)
@@ -526,10 +523,9 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	}
 }
 
-// batchImport posts objects in batches of `batchSize` using /v1/batch/objects
-// at consistency_level=ALL: the reverse reindex must start from a fully
-// replicated store, or a lagging replica builds a permanently-short WORD
-// bucket. Mirrors importObjects.
+// batchImport posts in batches of `batchSize` at consistency_level=ALL — a
+// lagging replica would otherwise build a permanently-short WORD bucket for
+// the reverse reindex. Mirrors importObjects.
 func batchImport(t *testing.T, restURI, className string, texts []string, batchSize int) {
 	t.Helper()
 

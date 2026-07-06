@@ -71,8 +71,7 @@ type Aggregator struct {
 	bucketPinResolver inverted.SearchableBucketPinningResolver
 }
 
-// WithSearchableBucketPinningResolver sets bucketPinResolver; nil (the
-// default) keeps non-pinning behavior.
+// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
 func (a *Aggregator) WithSearchableBucketPinningResolver(
 	r inverted.SearchableBucketPinningResolver,
 ) *Aggregator {

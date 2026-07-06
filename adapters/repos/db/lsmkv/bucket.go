@@ -93,11 +93,10 @@ type Bucket struct {
 	// normal operation
 	flushLock sync.RWMutex
 
-	// lifetimeLock pins this bucket for a whole read/query (RLock via
-	// Store.AcquireBucketForRead); Shutdown takes Lock() FIRST, draining all
-	// pins before freeing mmap'd segments. Deliberately NO drain timeout:
-	// timeout-then-free would SEGFAULT a reader. Order: lifetimeLock OUTER,
-	// flushLock INNER on both the read and Shutdown sides.
+	// lifetimeLock pins this bucket for a whole read (RLock via
+	// Store.AcquireBucketForRead); Shutdown takes Lock() first, draining all
+	// pins before freeing mmap'd segments (no drain timeout — timeout-then-free
+	// would SEGFAULT a reader). Order: lifetimeLock OUTER, flushLock INNER.
 	lifetimeLock sync.RWMutex
 	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
 	// designed assuming a single triggerer at a time (the periodic flush

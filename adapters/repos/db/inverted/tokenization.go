@@ -13,11 +13,10 @@ package inverted
 
 import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
-// SearchableBucketPinningResolver returns a property's query-time
-// (tokenization, bucket) pair as one consistent snapshot, with the bucket
-// pinned until release is called exactly once (bucket may be nil; release
-// must still run). Prevents a query from mixing pre-/post-swap state during
-// a retokenization. Production: Shard.PinTokenizationAndSearchableBucket.
+// SearchableBucketPinningResolver returns one consistent (tokenization,
+// bucket) snapshot per property, pinned until release runs exactly once
+// (bucket may be nil; release still required) — preventing a query from
+// mixing pre-/post-swap state during a retokenization.
 type SearchableBucketPinningResolver func(propName, schemaTokenization string) (tokenization string, bucket *lsmkv.Bucket, release func())
 
 // TokenizationResolver returns the active query-time tokenization for a

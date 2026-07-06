@@ -98,13 +98,11 @@ func (s *Store) bucketNoLock(name string) *Bucket {
 
 // AcquireBucketForRead returns the bucket registered under name, pinned via
 // lifetimeLock.RLock so a concurrent swap+Shutdown cannot free it mid-query.
-// Returns (nil, no-op release) for an unknown name; the caller MUST call
-// release exactly once.
+// Unknown name returns (nil, no-op release); caller MUST release exactly once.
 //
-// TEARDOWN INVARIANT: a pinned query may still need bucketAccessLock to
-// finish, so no teardown path may hold bucketAccessLock across a draining
-// bucket.Shutdown — remove the bucket from bucketsByName FIRST and drain
-// outside the lock, or the whole store deadlocks.
+// TEARDOWN INVARIANT: no teardown path may hold bucketAccessLock across a
+// draining bucket.Shutdown — deregister first, then drain outside the lock,
+// or the whole store deadlocks.
 func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
 	s.bucketAccessLock.RLock()
 	b := s.bucketsByName[name]
@@ -545,10 +543,9 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 }
 
 // freezeAndSwapForReplace makes the replacement name-visible while frozen:
-// its flushLock is taken BEFORE the map swap and stays held on success —
-// otherwise a by-name writer landing before ReplaceBuckets' tail completes
-// would append to a memtable the tail discards unflushed (lost write).
-// Lock order matches RenameBucket: bucketAccessLock OUTER → flushLock INNER.
+// flushLock is taken before the map swap and held on success, so a by-name
+// writer landing before ReplaceBuckets' tail completes blocks instead of
+// writing into the memtable the tail discards (lost write).
 func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string) (bucket, replacementBucket *Bucket, err error) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()

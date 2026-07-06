@@ -29,10 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
-// TestPinBucketDrain_LookupHoldsPinAcrossSwapShutdown: pre-fix, createTerm /
-// createBlockTerm re-fetched the searchable bucket by name, so a
-// swap+Shutdown landing in the prop-discovery→lookup gap gave the query the
-// post-swap bucket (wrong count) or a freed mmap (UAF).
+// Pins the read-time race: a swap+Shutdown landing in the discovery→lookup
+// gap must not hand the query a post-swap bucket (wrong count) or a freed mmap (UAF).
 func TestPinBucketDrain_LookupHoldsPinAcrossSwapShutdown(t *testing.T) {
 	res := runPinBucketDrainProof(t, false /* forceRefetch */)
 
@@ -58,9 +56,7 @@ func TestPinBucketDrain_LookupHoldsPinAcrossSwapShutdown(t *testing.T) {
 		res.shutdownAt.Sub(res.shutdownStartedAt))
 }
 
-// Asymmetry run: with lookup forced back to re-fetch-by-name, the SAME held
-// query misses → 0. Deliberately does NOT shut the old bucket down, so the
-// wrong-count signal doesn't depend on use-after-free timing.
+// Asymmetry check: lookup forced back to re-fetch-by-name must miss (→0).
 func TestPinBucketDrain_OldRefetchYieldsWrongCount(t *testing.T) {
 	res := runPinBucketDrainProof(t, true /* forceRefetch */)
 
@@ -85,8 +81,7 @@ type pinBucketDrainResult struct {
 
 // runPinBucketDrainProof drives one real BM25F query held in the
 // prop-discovery→lookup gap while a concurrent goroutine swaps the FIELD
-// prop's searchable pointer to the WORD bucket and (when !forceRefetch)
-// shuts the displaced old FIELD bucket down.
+// prop's bucket pointer and (when !forceRefetch) shuts the old bucket down.
 func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResult {
 	ctx := testCtx()
 
@@ -96,11 +91,9 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
 	phrase, matchDocs := fx.phrase, fx.matchDocs
 
-	// Built like shard_read.go. The proof drives BM25Searcher through its
-	// production resolver seams only — no test-only knobs on the searcher.
-	// The parking that freezes the query in the discovery→lookup gap lives in
-	// a test resolver closure, and the pre-fix re-fetch is reproduced by
-	// simply omitting the pinning resolver (which is what the old code was).
+	// Drives BM25Searcher through its production resolver seams only; no
+	// test-only knobs on the searcher. Omitting the pinning resolver
+	// reproduces the old re-fetch-by-name behavior.
 	bm25Config := idx.GetInvertedIndexConfig().BM25
 	logger := idx.logger.WithFields(logrus.Fields{"class": className, "shard": shard.name})
 
@@ -125,19 +118,17 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 		shard.versioner.Version())
 
 	if forceRefetch {
-		// PRE-FIX BEHAVIOR (asymmetry proof): no pinning resolver, so lookup
-		// re-fetches the searchable bucket by name and lands on the post-swap
-		// WORD bucket. The tokenization resolver is the only seam left on this
-		// path, so park in it — tok is still captured FIELD-way pre-swap.
+		// No pinning resolver: lookup re-fetches by name and lands on the
+		// post-swap WORD bucket. Park in the tokenization resolver, the only
+		// seam left on this path — tok is still captured FIELD-way pre-swap.
 		bm25.WithTokenizationResolver(func(propName, schemaTok string) string {
 			tok := shard.TokenizationFor(propName, schemaTok)
 			park()
 			return tok
 		})
 	} else {
-		// WITH FIX: the pinning resolver takes the pin (held across the
-		// concurrent swap + old-bucket Shutdown, forcing the drain) and then
-		// parks, so lookup reuses the pinned pre-swap FIELD bucket.
+		// The pinning resolver takes the pin (held across the concurrent
+		// swap + old-bucket Shutdown, forcing the drain) then parks.
 		bm25.WithTokenizationResolver(shard.TokenizationFor).
 			WithSearchableBucketPinningResolver(
 				func(propName, schemaTok string) (string, *lsmkv.Bucket, func()) {
@@ -205,9 +196,8 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 			shutdownAtPtr.Store(&now)
 		}()
 
-		// Shutdown must be provably parked in the drain BEFORE the query is
-		// released — a broken drain would complete here instead. The
-		// started-flag check keeps the negative from passing vacuously.
+		// Shutdown must be parked in the drain BEFORE the query is released —
+		// a broken drain would complete here instead.
 		require.Eventually(t, shutdownStarted.Load, 5*time.Second, time.Millisecond,
 			"Shutdown goroutine must have started")
 		time.Sleep(50 * time.Millisecond)

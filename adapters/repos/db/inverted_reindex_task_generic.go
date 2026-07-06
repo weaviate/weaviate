@@ -203,15 +203,13 @@ type ShardReindexTaskGeneric struct {
 	// SetTokenizationOverlay's own lock is enough. Wired only for
 	// tokenization-changing migrations.
 	//
-	// Only the recovery/resume path still uses this (single-threaded at
-	// startup, so the flip↔overlay gap is benign); the live Phase-2a loop
+	// Only the recovery/resume path still uses this; the live Phase-2a loop
 	// routes through swapPropAtomic when wired.
 	onPropSwapped func(propName string)
 
 	// swapPropAtomic, when non-nil, runs the Phase-2a per-prop flip AND the
 	// overlay set as ONE critical section (Shard.SwapBucketAndSetOverlay).
-	// Wired only for tokenization-changing migrations; nil = legacy two-step
-	// flip + onPropSwapped (fine without an overlay). Returns the displaced
+	// nil = legacy two-step flip + onPropSwapped. Returns the displaced
 	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
 	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
 }
@@ -1789,8 +1787,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 				return err
 			}
 			// Fire even when processOneSwapPropFn no-ops an already-swapped
-			// prop (sentinel on disk), so a resumed swap re-establishes the
-			// overlay. Nil for non-tokenization migrations.
+			// prop (sentinel on disk), so a resumed swap re-establishes the overlay.
 			if t.onPropSwapped != nil {
 				t.onPropSwapped(propName)
 			}
