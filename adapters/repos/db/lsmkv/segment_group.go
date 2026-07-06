@@ -492,7 +492,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
 		sg.editOps.logger = sg.logger
 		if err := sg.recoverEditOps(ctx); err != nil {
-			return nil, fmt.Errorf("recover segment edit ops: %w", err)
+			// Not fatal: bricking the shard over drop-progress bookkeeping (e.g. a
+			// torn sidecar copy) would trade data availability for cleanup state.
+			// The drop stalls and every cleanup pass logs until repaired.
+			sg.logger.WithField("path", cfg.dir).
+				Errorf("recover segment edit ops failed; drop-vector cleanup on this shard is stalled: %v", err)
 		}
 	}
 
@@ -653,6 +657,13 @@ func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 // lookup failure — sweeping on a bad read could drop a still-live op, so we
 // prefer to re-arm and let a later load reconcile).
 func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context) map[string]struct{} {
+	if !editops.LivenessProviderInstalled() {
+		// Only reached with edit ops present: a missing provider silently disables
+		// the orphan sweep, which the startup wiring is supposed to prevent — warn
+		// loudly instead of hiding it.
+		sg.logger.Warnf("drop-vector: no edit-op liveness provider installed; orphan sweep disabled for this load")
+		return nil
+	}
 	live, err := editops.LiveOps(ctx)
 	if err != nil {
 		sg.logger.Warnf("drop-vector: live edit-op lookup failed; skipping orphan sweep this load: %v", err)

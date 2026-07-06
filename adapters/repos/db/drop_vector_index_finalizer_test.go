@@ -69,15 +69,20 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		require.Contains(t, up.updated.VectorConfig, "keep")
 	})
 
-	t.Run("removal matches case-insensitively (aligned with conflict checks)", func(t *testing.T) {
+	t.Run("case-differing sibling is a different vector; its marker stays", func(t *testing.T) {
+		// Target vector names are case-sensitive identifiers: finalizing "drop"
+		// must not erase the dropped marker of the distinct vector "Drop", whose
+		// own cleanup has not run.
 		up := &fakeClassUpdater{class: &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"drop": droppedCfg(),
 			"Drop": droppedCfg(),
 		}}}
 		f := &schemaVectorConfigFinalizer{mgr: up}
 
 		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}))
 		require.Equal(t, 1, up.updateCalls)
-		require.NotContains(t, up.updated.VectorConfig, "Drop")
+		require.NotContains(t, up.updated.VectorConfig, "drop")
+		require.Contains(t, up.updated.VectorConfig, "Drop", "the sibling's marker must survive")
 	})
 
 	t.Run("no-change is an idempotent no-op (entry already gone)", func(t *testing.T) {

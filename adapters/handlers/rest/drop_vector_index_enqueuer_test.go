@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -115,7 +116,10 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 		{Class: "A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
 	}}
 
-	runDropVectorIndexReconciliationAtStartup(context.Background(), lister, enq, logger)
+	// One round: the loop exits via ctx after the first pass.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour)
 
 	require.True(t, orderOK, "schema must be read AFTER the DTM readiness probe")
 	require.Equal(t, []string{"A/v1"}, enq.enqueued)
@@ -141,8 +145,9 @@ func (f *fakeClusterDropClient) AddDistributedTaskWithGroups(ctx context.Context
 }
 
 // TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget exercises the real
-// HasActiveDrop against the cluster task list: it matches an active task by
-// collection (case-insensitive) and target, and ignores terminal tasks.
+// HasActiveDrop against the cluster task list: collections match
+// case-insensitively, targets match exactly (case-sensitive identifiers), and
+// terminal tasks are ignored.
 func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 	active := &distributedtask.Task{
 		Namespace:      db.DropVectorIndexNamespace,
@@ -160,6 +165,10 @@ func TestHasActiveDrop_MatchesActiveTaskByCollectionAndTarget(t *testing.T) {
 	require.True(t, got)
 
 	got, err = enq.HasActiveDrop(context.Background(), "C", "v2") // different target
+	require.NoError(t, err)
+	require.False(t, got)
+
+	got, err = enq.HasActiveDrop(context.Background(), "C", "V1") // case-differing target = different vector
 	require.NoError(t, err)
 	require.False(t, got)
 

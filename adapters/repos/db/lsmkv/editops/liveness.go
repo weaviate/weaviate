@@ -14,6 +14,7 @@ package editops
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // LivenessProvider returns the set of edit-op IDs that still have a live
@@ -22,29 +23,63 @@ import (
 // same-name vector.
 type LivenessProvider func(ctx context.Context) (map[string]struct{}, error)
 
+// livenessCacheTTL bounds the leader round-trips a mass shard load can trigger:
+// every shard loading within the window shares one lookup.
+const livenessCacheTTL = 5 * time.Second
+
 var (
 	livenessMu       sync.RWMutex
 	livenessProvider LivenessProvider
+	livenessCached   map[string]struct{}
+	livenessFetched  time.Time
 )
 
 // SetLivenessProvider installs the cluster-level live-op lookup. Like the
 // transformers registry, it is package-level so per-bucket wiring stays free of
 // task-specific plumbing. Must be installed before shards load (in production:
 // before the RAFT store opens), or restore-time loads skip the sweep.
+//
+// The provider must return the live op IDs of EVERY task type that registers
+// edit ops (today: drop-vector only); an op type it does not cover would be
+// swept as an orphan. The sweep additionally protects op types other than
+// remove_target_vectors, so a future producer fails safe until it extends the
+// provider.
 func SetLivenessProvider(p LivenessProvider) {
 	livenessMu.Lock()
 	livenessProvider = p
+	livenessCached = nil
+	livenessFetched = time.Time{}
 	livenessMu.Unlock()
 }
 
+// LivenessProviderInstalled reports whether a provider is wired; callers use it
+// to warn when a sweep is silently disabled.
+func LivenessProviderInstalled() bool {
+	livenessMu.RLock()
+	defer livenessMu.RUnlock()
+	return livenessProvider != nil
+}
+
 // LiveOps resolves the live-op set, or (nil, nil) when no provider is installed
-// — callers treat nil as "sweep disabled".
+// — callers treat nil as "sweep disabled". Results are cached briefly so
+// per-shard-load callers don't fan a mass load out into per-shard leader RPCs.
 func LiveOps(ctx context.Context) (map[string]struct{}, error) {
 	livenessMu.RLock()
 	p := livenessProvider
+	cached, fetched := livenessCached, livenessFetched
 	livenessMu.RUnlock()
 	if p == nil {
 		return nil, nil
 	}
-	return p(ctx)
+	if cached != nil && time.Since(fetched) < livenessCacheTTL {
+		return cached, nil
+	}
+	live, err := p(ctx)
+	if err != nil {
+		return nil, err
+	}
+	livenessMu.Lock()
+	livenessCached, livenessFetched = live, time.Now()
+	livenessMu.Unlock()
+	return live, nil
 }

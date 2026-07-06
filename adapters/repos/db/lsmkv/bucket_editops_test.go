@@ -368,3 +368,32 @@ func TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment(t *testing.T) {
 	require.ElementsMatch(t, segs, pending,
 		"recovery re-queues every current segment and prunes the stale row")
 }
+
+// TestBucket_ListFiles_ExcludesEditOpsSidecar: the sidecar is live-writable bolt
+// state (a mid-write stream is a torn copy) and derived (restore reconciliation
+// re-creates it), so backups must not include it.
+func TestBucket_ListFiles_ExcludesEditOpsSidecar(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithClassName("MyClass"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+	bucket.SetMemtableThreshold(1e9)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.disk.editOps.RegisterOp("op1",
+		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
+	require.FileExists(t, filepath.Join(bucket.disk.dir, segmentEditOpsFileName))
+
+	files, err := bucket.ListFiles(ctx, "base")
+	require.NoError(t, err)
+	for _, f := range files {
+		require.NotContains(t, f, segmentEditOpsFileName, "backup file list must exclude the edit-ops sidecar")
+	}
+	require.NotEmpty(t, files, "segments must still be listed")
+}

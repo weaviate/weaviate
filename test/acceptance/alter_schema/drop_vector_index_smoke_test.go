@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clobjects "github.com/weaviate/weaviate/client/objects"
@@ -106,14 +107,20 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 			// the failure is the drop, never an already-exists conflict.
 			assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 				obj := &models.Object{
-					ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-0000000002%02d", time.Now().UnixNano()%100)),
+					// A truly unique ID per attempt: a reused ID fails with
+					// "already exists" and would false-pass a bare error assertion.
+					ID:         strfmt.UUID(uuid.NewString()),
 					Class:      className,
 					Properties: map[string]any{"name": "after-drop"},
 					Vectors:    models.Vectors{vec: mkVec(99)},
 				}
 				_, err := helper.Client(t).Objects.ObjectsCreate(
 					clobjects.NewObjectsCreateParams().WithBody(obj), nil)
-				assert.Error(collect, err, "a write targeting the dropped vector must be rejected")
+				if !assert.Error(collect, err, "a write targeting the dropped vector must be rejected") {
+					return
+				}
+				assert.Contains(collect, err.Error(), "vector index",
+					"the rejection must be the dropped-vector reject, not an unrelated error")
 			}, 15*time.Second, 200*time.Millisecond, "writes to the dropped vector should be rejected")
 		})
 

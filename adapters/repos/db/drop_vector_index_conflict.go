@@ -90,7 +90,7 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 			continue
 		}
 		return fmt.Errorf(
-			"drop-vector task %q is in flight on %s (status=%s); cancel it before mutating tenants %v",
+			"drop-vector task %q is in flight on %s (status=%s); wait for it to complete before mutating tenants %v",
 			task.ID, existP.Collection, task.Status, tenants)
 	}
 	return nil
@@ -104,15 +104,18 @@ func (p *DropVectorIndexProvider) LocalCallbacksDone(task *distributedtask.Task,
 	return false
 }
 
-// intersectTargets returns the case-insensitive intersection of two target lists.
+// intersectTargets returns the exact-match intersection of two target lists.
+// Target vector names are case-sensitive identifiers (distinct map keys in
+// VectorConfig, matched exactly by the transformer); only collection names are
+// compared case-insensitively.
 func intersectTargets(a, b []string) []string {
 	set := make(map[string]struct{}, len(a))
 	for _, t := range a {
-		set[strings.ToLower(t)] = struct{}{}
+		set[t] = struct{}{}
 	}
 	var out []string
 	for _, t := range b {
-		if _, ok := set[strings.ToLower(t)]; ok {
+		if _, ok := set[t]; ok {
 			out = append(out, t)
 		}
 	}

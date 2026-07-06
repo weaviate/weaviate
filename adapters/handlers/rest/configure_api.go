@@ -1173,8 +1173,9 @@ func initReindexAndDistributedTasks(
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
-		runDropVectorIndexReconciliationAtStartup(
-			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger)
+		runDropVectorIndexReconciliation(
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
+			dropVectorReconcileInterval)
 	}, appState.Logger)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{

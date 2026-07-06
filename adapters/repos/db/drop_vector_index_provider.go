@@ -514,14 +514,8 @@ func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTa
 		return false, nil
 	}
 	for _, target := range payload.Targets {
-		dropped := false
-		for name, cfg := range class.VectorConfig {
-			if strings.EqualFold(name, target) && modelsext.IsVectorIndexDropped(cfg) {
-				dropped = true
-				break
-			}
-		}
-		if !dropped {
+		cfg, ok := class.VectorConfig[target]
+		if !ok || !modelsext.IsVectorIndexDropped(cfg) {
 			return false, nil
 		}
 	}

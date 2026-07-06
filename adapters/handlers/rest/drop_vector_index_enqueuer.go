@@ -80,8 +80,8 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 			continue
 		}
 		for _, t := range p.Targets {
-			// Case-insensitive, matching CheckConflict so pre-check and FSM agree.
-			if strings.EqualFold(t, targetVector) {
+			// Exact match: target vector names are case-sensitive identifiers.
+			if t == targetVector {
 				return true, nil
 			}
 		}
@@ -159,11 +159,8 @@ func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets
 	}
 	var still []string
 	for _, target := range targets {
-		for name, cfg := range class.VectorConfig {
-			if strings.EqualFold(name, target) && modelsext.IsVectorIndexDropped(cfg) {
-				still = append(still, target)
-				break
-			}
+		if cfg, ok := class.VectorConfig[target]; ok && modelsext.IsVectorIndexDropped(cfg) {
+			still = append(still, target)
 		}
 	}
 	return still, nil
@@ -261,11 +258,18 @@ type schemaLister interface {
 	GetSchemaSkipAuth() entschema.Schema
 }
 
-// runDropVectorIndexReconciliationAtStartup waits (bounded) for the cluster task
-// store to be readable — so submits don't hit an unelected leader — then runs
-// reconcileDroppedVectorIndexes once. Launch in a goroutine; cancellable via ctx.
-func runDropVectorIndexReconciliationAtStartup(ctx context.Context, lister schemaLister,
-	enq schema.DropVectorIndexEnqueuer, logger logrus.FieldLogger,
+// dropVectorReconcileInterval is how often reconciliation re-checks for "none"
+// markers without a live task after the startup pass — the pickup path for
+// tenants that were inactive when a task finalized deferred, for markers left by
+// a FAILED task, and for backup restores; without it those wait for a restart.
+const dropVectorReconcileInterval = 15 * time.Minute
+
+// runDropVectorIndexReconciliation waits (bounded) for the cluster task store to
+// be readable — so submits don't hit an unelected leader — then runs
+// reconcileDroppedVectorIndexes periodically until ctx is cancelled. Launch in a
+// goroutine.
+func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
+	enq schema.DropVectorIndexEnqueuer, logger logrus.FieldLogger, interval time.Duration,
 ) {
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
@@ -283,13 +287,20 @@ func runDropVectorIndexReconciliationAtStartup(ctx context.Context, lister schem
 		}
 	}
 
-	// Read the schema AFTER the readiness wait: at startup the local schema is
-	// restored by the same background open the probe waits for, so an early read
-	// would see an empty/stale snapshot and silently skip markers — and this is
-	// the sole recovery path for every "reconciliation retries" deferral.
-	sch := lister.GetSchemaSkipAuth()
-	if sch.Objects == nil || len(sch.Objects.Classes) == 0 {
-		return
+	for {
+		// Read the schema AFTER the readiness wait (and fresh each round): at
+		// startup the local schema is restored by the same background open the
+		// probe waits for, so an early read would see an empty/stale snapshot and
+		// silently skip markers — and this is the sole recovery path for every
+		// "reconciliation retries" deferral.
+		sch := lister.GetSchemaSkipAuth()
+		if sch.Objects != nil && len(sch.Objects.Classes) > 0 {
+			reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
 	}
-	reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
 }

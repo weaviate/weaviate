@@ -733,6 +733,15 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive func() map[string]
 		existing[id] = struct{}{}
 	}
 	liveOpIDs := resolveLive()
+	if liveOpIDs != nil {
+		// Op types the liveness provider does not cover must survive the sweep
+		// (see SetLivenessProvider); treat them as live.
+		for _, op := range ops {
+			if op.Descriptor.Type != OpTypeRemoveTargetVectors {
+				liveOpIDs[op.ID] = struct{}{}
+			}
+		}
+	}
 	if err := s.Reconcile(existing, liveOpIDs); err != nil {
 		return err
 	}
@@ -777,6 +786,11 @@ func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
 		return
 	}
 	for _, op := range ops {
+		// Only op types the liveness provider is known to cover may be swept; an
+		// unknown (future) type fails safe until its producer extends the provider.
+		if op.Descriptor.Type != OpTypeRemoveTargetVectors {
+			continue
+		}
 		if _, ok := live[op.ID]; ok {
 			continue
 		}
