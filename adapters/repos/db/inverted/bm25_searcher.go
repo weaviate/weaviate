@@ -164,6 +164,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	}
 
 	props := make([]propInfo, 0, len(params.Properties))
+	seenProps := make(map[string]struct{}, len(params.Properties))
 	neededTokenizations := map[string]struct{}{}
 	needsASCIIFold := map[string]struct{}{}
 
@@ -176,6 +177,13 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			propBoost, _ = strconv.Atoi(boostStr)
 		}
 		propertyBoosts[property] = float32(propBoost)
+
+		// Skip duplicates: propertyBoosts already holds the last boost for
+		// this property; processing it again would double-count its score.
+		if _, dup := seenProps[property]; dup {
+			continue
+		}
+		seenProps[property] = struct{}{}
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
