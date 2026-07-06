@@ -706,11 +706,16 @@ func (q *DiskQueue) analyzeDisk() ([]string, error) {
 // (records are only ever written after the header) and is removed.
 // A full-size file with unreadable framing is renamed to <name>.corrupt so it
 // no longer blocks startup but remains available for inspection.
-// A well-formed header with an unknown version is not salvaged: it was likely
-// written by a newer version of weaviate and discarding it would lose valid
-// data, so the error is returned and initialization fails.
+// Only errors that are evidence of a corrupt or torn header are salvaged.
+// Anything else is returned and fails initialization: an environmental error
+// (e.g. permissions, I/O) does not mean the chunk is bad, and a well-formed
+// header with an unknown version was likely written by a newer version of
+// weaviate, so removing or hiding the chunk in those cases could drop valid
+// tasks.
 func (q *DiskQueue) salvageUnreadableChunk(path string, size int64, cause error) error {
-	if errors.Is(cause, errUnknownVersion) {
+	if !errors.Is(cause, errBadMagic) &&
+		!errors.Is(cause, io.EOF) &&
+		!errors.Is(cause, io.ErrUnexpectedEOF) {
 		return cause
 	}
 
