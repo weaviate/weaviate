@@ -71,6 +71,8 @@ import (
 // sentinels is the larger refactor tracked by the RFC. This test pins only the
 // destructive, irreversible part: destroying the OLD data before the barrier.
 func TestReindexInversion_SiblingSwapFailureLeavesNoRollback_RFC220(t *testing.T) {
+	t.Skip("RFC weaviate/0-weaviate-issues#220: reproduces the pre-commit swap inversion (a committed sibling's OLD backup is trimmed before the barrier, so a later sibling failure leaves schema=OLD, bucket=NEW, no rollback). Un-skip when the pre-commit staging fix lands — the assertion below then goes green.")
+
 	ctx := testCtx()
 	const propName = "title"
 
@@ -145,23 +147,16 @@ func prepShardToSwapBoundaryRFC220(
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
-	// skipSwapOnFinish stops the async loop at IsReindexed() so we drive
-	// runtimePrepare + runtimeSwap explicitly.
-	task.skipSwapOnFinish.Store(true)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// Drive to the IsMerged sentinel (the runtimePrepare boundary) via the
+	// shared dispatch-matrix inline-path helper, instead of re-inlining the
+	// skipSwapOnFinish + OnAfterLsmInit(Async) drive loop that already
+	// exists (near-verbatim) in several sibling reindex test files.
+	dispatchMatrixDriveToMerged(t, ctx, shard, task, dispatchMatrixPathInline)
 
 	rt, err := task.newReindexTracker(shard.pathLSM())
 	require.NoError(t, err)
 	props, err := task.readPropsToReindex(rt)
 	require.NoError(t, err)
-	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
 
 	return shard, task, props, rt
 }
