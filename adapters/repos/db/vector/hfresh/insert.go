@@ -100,16 +100,15 @@ func (h *HFresh) initDimensions(vector []float32) error {
 	}
 
 	size := uint32(len(vector))
-	atomic.StoreUint32(&h.dims, size)
 
-	if err := h.setMaxPostingSize(); err != nil {
+	if err := h.setMaxPostingSize(size); err != nil {
 		return err
 	}
 	if err := h.IndexMetadata.SetDimensions(size); err != nil {
 		return errors.Wrap(err, "could not persist dimensions")
 	}
 
-	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(size), 42, h.config.DistanceProvider)
 	if err != nil {
 		return errors.Wrap(err, "could not create quantizer")
 	}
@@ -122,6 +121,7 @@ func (h *HFresh) initDimensions(vector []float32) error {
 
 	h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
 	h.initDone = true
+	atomic.StoreUint32(&h.dims, size)
 	return nil
 }
 
