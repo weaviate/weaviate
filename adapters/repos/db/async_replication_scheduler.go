@@ -1427,7 +1427,8 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// Wait for any cycle dispatched between our Done() and the disable below.
 	s.asyncRepWg.Wait()
 
-	// Serialize disable→enable against performShutdown, which holds shutdownLock.Lock() across store teardown; under the RLock the enable (and the init-scan it spawns) either completes before shutdown or is skipped — no re-enable onto a closing store.
+	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
+	// across store teardown): enable either finishes before shutdown or is skipped.
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
 
@@ -1435,8 +1436,9 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 		return
 	}
 
-	// sched.ctx so disable/enable respect scheduler shutdown.
-	if err := s.disableAsyncReplication(sched.ctx); err != nil {
+	// persist=false: old-height tree is discarded on reload; skipping its dump
+	// keeps the fsync out of the shutdownLock.RLock region below.
+	if err := s.disableAsyncReplicationWithPersist(false); err != nil {
 		if sched.logger != nil {
 			sched.logger.
 				WithField("action", "async_replication_rebuild").
@@ -1483,11 +1485,11 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	s.asyncRepRebuildFailures.Store(0)
 	s.asyncRepRebuildBackoffUntil.Store(0)
 
-	// If Close() fired during enableAsyncReplication, or performShutdown set
-	// s.shut between the entry-time check and now, the enable touched a store
-	// being torn down or registered against a cancelled scheduler. Disable to
-	// clean up; disableAsyncReplication's fsync is bounded by hashtreeDumpTimeout.
+	// Close()/performShutdown fired: the enable touched a store being torn down.
+	// Clean up (persist=false: nothing to dump, keeps the fsync out of the RLock).
 	if sched.ctx.Err() != nil || s.shut.Load() {
-		s.disableAsyncReplication(sched.ctx)
+		if err := s.disableAsyncReplicationWithPersist(false); err != nil {
+			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
+		}
 	}
 }
