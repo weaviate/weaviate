@@ -178,12 +178,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 		propertyBoosts[property] = float32(propBoost)
 
-		// Dedupe (e.g. ["title", "title^2"], last boost wins): a duplicate
-		// property must be processed only once. propertyBoosts is keyed by
-		// property name and is overwritten above every iteration, so the last
-		// occurrence's boost always wins; without this guard the property is
-		// appended to props (and thus propNamesByTokenization) twice, so its
-		// bucket is scored twice and its term frequency is double-counted.
+		// Skip duplicates: propertyBoosts already holds the last boost for
+		// this property; processing it again would double-count its score.
 		if _, dup := seenProps[property]; dup {
 			continue
 		}

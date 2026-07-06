@@ -795,12 +795,7 @@ func EqualFloats(t *testing.T, expected, actual float32, significantFigures int)
 	require.Equal(t, s1[:significantFigures+1], s2[:significantFigures+1])
 }
 
-// TestBM25F_DuplicatePropertyLastBoostWins verifies that a duplicate property
-// in the search list (e.g. ["title", "title^2"]) is scored exactly once, with
-// the LAST boost winning. Without deduping, the property is processed twice —
-// its bucket is scored twice and its term frequency is double-counted — which
-// inflates the score and can reorder results. Runs against both the classic
-// WAND and the BlockMaxWAND engines.
+// A duplicate property (e.g. ["title", "title^2"]) must be scored once, with the last boost winning.
 func TestBM25F_DuplicatePropertyLastBoostWins(t *testing.T) {
 	for _, block := range []bool{false, true} {
 		name := "wand"
@@ -809,11 +804,8 @@ func TestBM25F_DuplicatePropertyLastBoostWins(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			config.DefaultUsingBlockMaxWAND = block
-			// A minimal two-text-property class is enough to prove the dedup:
-			// the query term "journey" appears in both "title" and "description"
-			// at different frequencies, so double-counting "title" shifts scores.
-			// InvertedIndexConfig picks up config.DefaultUsingBlockMaxWAND above,
-			// selecting the engine under test.
+			// "journey" appears in both properties at different frequencies,
+			// so double-counting "title" would shift scores.
 			vFalse, vTrue := false, true
 			searchableText := func(name string) *models.Property {
 				return &models.Property{
@@ -872,14 +864,12 @@ func TestBM25F_DuplicatePropertyLastBoostWins(t *testing.T) {
 				}
 			}
 
-			// Last boost is title^2, so the duplicate query must be identical to
-			// a single ["title^2", "description"] search (title counted once).
+			// Last boost (title^2) wins: must match a single ["title^2", "description"] search.
 			baseIds, baseScores := search([]string{"title^2", "description"})
 			dupIds, dupScores := search([]string{"title", "title^2", "description"})
 			assertSame(baseIds, baseScores, dupIds, dupScores)
 
-			// Last boost wins the other direction too: with title (boost 1) last,
-			// the duplicate query must match a single ["title", "description"].
+			// And the reverse: title (boost 1) last wins over title^2.
 			base2Ids, base2Scores := search([]string{"title", "description"})
 			dup2Ids, dup2Scores := search([]string{"title^2", "title", "description"})
 			assertSame(base2Ids, base2Scores, dup2Ids, dup2Scores)
