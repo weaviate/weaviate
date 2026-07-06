@@ -14,6 +14,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -53,6 +54,17 @@ func (w *Worker) Run(ctx context.Context) {
 
 func (w *Worker) do(batch *Batch) (err error) {
 	defer func() {
+		// a panicking task must not kill the worker goroutine: it is never
+		// restarted, and the batch would never be marked done or canceled,
+		// leaving the queue's active tasks gauge stuck so the queue is never
+		// scheduled again.
+		if r := recover(); r != nil {
+			w.logger.Errorf("recovered from panic while executing batch: %v", r)
+			enterrors.PrintStack(w.logger)
+			err = fmt.Errorf("panic while executing batch: %v", r)
+			batch.Cancel()
+			return
+		}
 		if err != nil {
 			batch.Cancel()
 		} else {
