@@ -64,10 +64,6 @@ type SegmentGroup struct {
 	// refcounts can only decrease during shutdown's wait
 	shutdownRequested bool
 
-	// test-only (nil in production): runs between shutdown's refcount wait
-	// and segment close
-	testHookShutdownAfterRefWait func()
-
 	strategy string
 
 	compactionCallbackCtrl cyclemanager.CycleCallbackCtrl
@@ -879,7 +875,11 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 	return count
 }
 
-func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+// afterRefWait is a test seam (nil in production): it runs between the
+// refcount wait and segment close, the window in which a newly-acquired
+// consistent view must already be refused. Threaded as a parameter rather
+// than stored on SegmentGroup to keep the test knob off the production struct.
+func (sg *SegmentGroup) shutdown(ctx context.Context, afterRefWait func()) error {
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
@@ -906,8 +906,8 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
 
-	if sg.testHookShutdownAfterRefWait != nil {
-		sg.testHookShutdownAfterRefWait()
+	if afterRefWait != nil {
+		afterRefWait()
 	}
 
 	sg.dropSegmentsAwaiting()

@@ -41,14 +41,14 @@ type cursorStateCollection struct {
 // SetCursor behaves like [Cursor], but for the RoaringSet strategy. It
 // needs to be closed using .Close() to free references to the underlying
 // segments.
-func (b *Bucket) SetCursor() *CursorSet {
+func (b *Bucket) SetCursor() (*CursorSet, error) {
 	MustBeExpectedStrategy(b.strategy, StrategySetCollection)
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	innerCursors, unlockSegmentGroup, err := b.disk.newCollectionCursors()
 	if err != nil {
-		b.panicOnCursorRefusal(err)
+		return nil, err
 	}
 
 	// we hold a flush-lock during initialzation, but we release it before
@@ -68,7 +68,7 @@ func (b *Bucket) SetCursor() *CursorSet {
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
-	}
+	}, nil
 }
 
 // SetCursorKeyOnly returns nil for all values. It has no control over the
@@ -77,10 +77,13 @@ func (b *Bucket) SetCursor() *CursorSet {
 // making this considerably more efficient if only keys are required.
 //
 // The same locking rules as for SetCursor apply.
-func (b *Bucket) SetCursorKeyOnly() *CursorSet {
-	c := b.SetCursor()
+func (b *Bucket) SetCursorKeyOnly() (*CursorSet, error) {
+	c, err := b.SetCursor()
+	if err != nil {
+		return nil, err
+	}
 	c.keyOnly = true
-	return c
+	return c, nil
 }
 
 func (c *CursorSet) Seek(key []byte) ([]byte, [][]byte) {

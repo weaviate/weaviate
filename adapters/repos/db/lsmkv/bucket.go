@@ -367,7 +367,10 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
-	cursor := b.Cursor()
+	cursor, err := b.Cursor()
+	if err != nil {
+		return err
+	}
 	defer cursor.Close()
 
 	i := 0
@@ -427,7 +430,10 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	}()
 
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDisk()
+	onDiskCursor, err := b.CursorOnDisk()
+	if err != nil {
+		return err
+	}
 	defer onDiskCursor.Close()
 
 	inmemProcessedDocIDs := make(map[uint64]struct{})
@@ -526,14 +532,6 @@ func (cv BucketConsistentView) ReleaseView() {
 // Err reports why the view was refused; nil for a usable view.
 func (cv BucketConsistentView) Err() error {
 	return cv.err
-}
-
-// panicOnCursorRefusal fails the legacy no-error cursor constructors loudly
-// instead of serving a silently empty cursor over munmapping segments. Every
-// production caller sits under a recover (request middleware, GoWrapper,
-// cyclemanager); caller survey in weaviate/0-weaviate-issues#285.
-func (b *Bucket) panicOnCursorRefusal(err error) {
-	panic(fmt.Errorf("lsmkv cursor: %w", err))
 }
 
 // GetConsistentView returns a consistent view of the bucket that can be used
@@ -1525,7 +1523,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
-	if err := b.disk.shutdown(ctx); err != nil {
+	if err := b.disk.shutdown(ctx, nil); err != nil {
 		return err
 	}
 

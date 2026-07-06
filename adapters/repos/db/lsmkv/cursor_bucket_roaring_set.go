@@ -49,18 +49,18 @@ func (c *cursorRoaringSet) Close() {
 // CursorRoaringSet behaves like [Cursor], but for the RoaringSet strategy. It
 // needs to be closed using .Close() to free references to the underlying
 // segments.
-func (b *Bucket) CursorRoaringSet() CursorRoaringSet {
+func (b *Bucket) CursorRoaringSet() (CursorRoaringSet, error) {
 	return b.cursorRoaringSet(false)
 }
 
 // CursorRoaringSetKey is the equivalent of [CursorRoaringSet], but only
 // returns keys. See [Cursor] for details on snapshot isolation. Needs to be
 // closed using .Close() to free references to the underlying disk segments.
-func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
+func (b *Bucket) CursorRoaringSetKeyOnly() (CursorRoaringSet, error) {
 	return b.cursorRoaringSet(true)
 }
 
-func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
+func (b *Bucket) cursorRoaringSet(keyOnly bool) (CursorRoaringSet, error) {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
 	cursorOpenedAt := time.Now()
@@ -73,7 +73,7 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	innerCursors, unlockSegmentGroup, err := b.disk.newRoaringSetCursors()
 	if err != nil {
 		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
-		b.panicOnCursorRefusal(err)
+		return nil, err
 	}
 
 	// we hold a flush-lock during initialzation, but we release it before
@@ -95,5 +95,5 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
 			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
-	}
+	}, nil
 }
