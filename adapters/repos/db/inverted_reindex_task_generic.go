@@ -214,10 +214,6 @@ type ShardReindexTaskGeneric struct {
 	// flip + onPropSwapped (fine without an overlay). Returns the displaced
 	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
 	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
-
-	// TEST-ONLY: fires inside swapPropAtomic between flip and overlay set —
-	// the window the pre-fix two-step code left unguarded.
-	afterFlipBeforeOverlayHook func()
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.

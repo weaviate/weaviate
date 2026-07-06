@@ -60,10 +60,6 @@ type Store struct {
 
 	closeLock sync.RWMutex
 	closed    bool
-
-	// testOnReplaceAfterSwap runs right after ReplaceBuckets makes the
-	// replacement name-visible; nil in production.
-	testOnReplaceAfterSwap func()
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -601,10 +597,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return err
 	}
 	defer replacementBucket.flushLock.Unlock()
-
-	if s.testOnReplaceAfterSwap != nil {
-		s.testOnReplaceAfterSwap()
-	}
 
 	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err := s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
 	if err != nil {

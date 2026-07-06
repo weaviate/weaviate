@@ -210,22 +210,49 @@ func TestReplaceBuckets_ConcurrentWriteSurvives(t *testing.T) {
 
 	key, val := []byte("mid-swap-key"), []byte("mid-swap-val")
 	putDone := make(chan error, 1)
-	store.testOnReplaceAfterSwap = func() {
-		go func() {
-			b := store.Bucket("target") // resolves to the replacement post-swap
-			putDone <- b.Put(key, val)
-		}()
-		// Pre-fix the Put completes into the doomed memtable (immediate
-		// return); post-fix it blocks on the held flushLock and the timeout
-		// lets ReplaceBuckets finish first.
-		select {
-		case err := <-putDone:
-			putDone <- err
-		case <-time.After(2 * time.Second):
-		}
+
+	// Reproduce ReplaceBuckets' body test-side (white-box, package lsmkv) so the
+	// mid-swap window — after the registry swap, before the tail completes — is
+	// reachable through the REAL entry points, no production hook. The freeze
+	// holds replacementBucket.flushLock across the whole move; that is the fix
+	// under test, so a by-name Put landing mid-swap must block on it instead of
+	// writing into the memtable the tail discards.
+	bucket, replacementBucket, err := store.freezeAndSwapForReplace("target", "replacement")
+	require.NoError(t, err)
+	// Release on every exit path (Once so the explicit unlock below is a no-op
+	// for the defer); otherwise a mid-tail FailNow leaves flushLock held and
+	// wedges the Cleanup Shutdown.
+	var unlockOnce sync.Once
+	unlock := func() { unlockOnce.Do(func() { replacementBucket.flushLock.Unlock() }) }
+	defer unlock()
+
+	// Mid-swap window: race a by-name write against the in-progress move.
+	go func() {
+		b := store.Bucket("target") // resolves to the replacement post-swap
+		putDone <- b.Put(key, val)
+	}()
+	// Pre-fix the Put completes into the doomed memtable (immediate return);
+	// post-fix it blocks on the held flushLock and the timeout lets the tail
+	// finish first.
+	select {
+	case err := <-putDone:
+		putDone <- err
+	case <-time.After(2 * time.Second):
 	}
 
-	require.NoError(t, store.ReplaceBuckets(ctx, "target", "replacement"))
+	// Tail of ReplaceBuckets, driven test-side through the same unexported
+	// methods the production path uses.
+	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err :=
+		store.replaceBucket(ctx, replacementBucket, "replacement", bucket, "target")
+	require.NoError(t, err)
+	replacementBucket.dir = newReplacementBucketDir
+	mt, err := replacementBucket.createNewActiveMemtable()
+	require.NoError(t, err)
+	replacementBucket.active = mt
+	store.updateBucketDir(bucket, currBucketDir, newBucketDir)
+	store.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
+	require.NoError(t, os.RemoveAll(newBucketDir))
+	unlock() // matches ReplaceBuckets' deferred flushLock release at tail end
 
 	select {
 	case err := <-putDone:

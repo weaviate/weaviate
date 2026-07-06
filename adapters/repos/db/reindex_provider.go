@@ -2191,14 +2191,7 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 		) (*lsmkv.Bucket, error) {
 			return shard.SwapBucketAndSetOverlay(propName, target,
 				func() (*lsmkv.Bucket, error) {
-					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
-					if err != nil {
-						return nil, err
-					}
-					if task.afterFlipBeforeOverlayHook != nil {
-						task.afterFlipBeforeOverlayHook()
-					}
-					return oldMainBucket, nil
+					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
 				})
 		}
 	}

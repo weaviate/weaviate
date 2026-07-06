@@ -131,10 +131,24 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 			return oldMainBucket, nil
 		}
 	} else {
-		// WITH FIX: keep the atomic production swapPropAtomic and widen the
-		// window INSIDE its critical section, proving the lock covers it.
-		task.afterFlipBeforeOverlayHook = func() {
-			time.Sleep(hookSleepMs * time.Millisecond)
+		// WITH FIX: drive the REAL atomic critical section
+		// (Shard.SwapBucketAndSetOverlay) through the existing swapPropAtomic DI
+		// field — the same seam maybeWirePerPropOverlaySet wires in production —
+		// and widen the flip↔overlay window INSIDE that lock, proving it covers
+		// the gap. The sleep sits between the bucket flip (processOneSwapPropFn)
+		// and the overlay set, exactly where the pre-fix code left the window open.
+		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
+			rt reindexTracker, propIdx int, propName string,
+		) (*lsmkv.Bucket, error) {
+			return shard.SwapBucketAndSetOverlay(propName, models.PropertyTokenizationWord,
+				func() (*lsmkv.Bucket, error) {
+					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+					if err != nil {
+						return nil, err
+					}
+					time.Sleep(hookSleepMs * time.Millisecond)
+					return oldMainBucket, nil
+				})
 		}
 	}
 
