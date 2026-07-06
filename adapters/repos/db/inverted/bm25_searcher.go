@@ -64,11 +64,6 @@ type BM25Searcher struct {
 	// searchable text props: one consistent (tokenization, bucket) snapshot,
 	// pinned for the whole query. See [SearchableBucketPinningResolver].
 	bucketPinResolver SearchableBucketPinningResolver
-	// TEST-ONLY: fires once per query between prop discovery (pins held)
-	// and lookup — where the re-fetch race lives.
-	afterPinBeforeLookupHook func()
-	// TEST-ONLY: makes lookup re-fetch by name (pre-fix behavior).
-	forceLookupRefetchForTest bool
 }
 
 type propLengthRetriever interface {
@@ -164,18 +159,6 @@ func (b *BM25Searcher) WithSearchableBucketPinningResolver(
 	r SearchableBucketPinningResolver,
 ) *BM25Searcher {
 	b.bucketPinResolver = r
-	return b
-}
-
-// WithAfterPinBeforeLookupHookForTest sets afterPinBeforeLookupHook (TEST-ONLY).
-func (b *BM25Searcher) WithAfterPinBeforeLookupHookForTest(hook func()) *BM25Searcher {
-	b.afterPinBeforeLookupHook = hook
-	return b
-}
-
-// WithForceLookupRefetchForTest sets forceLookupRefetchForTest (TEST-ONLY).
-func (b *BM25Searcher) WithForceLookupRefetchForTest(force bool) *BM25Searcher {
-	b.forceLookupRefetchForTest = force
 	return b
 }
 
@@ -466,10 +449,6 @@ func (b *BM25Searcher) wand(
 	// A leaked pin would block a future retokenization swap's Shutdown forever.
 	defer pins.release()
 
-	if b.afterPinBeforeLookupHook != nil {
-		b.afterPinBeforeLookupHook()
-	}
-
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
@@ -681,8 +660,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			func() error {
 				// Use the bucket pinned at prop discovery — a by-name
 				// re-fetch could land on the post-swap bucket or a freed mmap.
+				// No resolver installed (pinned==false) => no pin taken, fall
+				// back to a by-name fetch (the pre-fix path).
 				bucket, pinned := pins.bucketFor(propName)
-				if !pinned || b.forceLookupRefetchForTest {
+				if !pinned {
 					bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 				}
 				if bucket == nil {

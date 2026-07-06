@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -95,27 +96,56 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
 	phrase, matchDocs := fx.phrase, fx.matchDocs
 
-	// Built exactly like shard_read.go, plus the pinning resolver and hooks.
+	// Built like shard_read.go. The proof drives BM25Searcher through its
+	// production resolver seams only — no test-only knobs on the searcher.
+	// The parking that freezes the query in the discovery→lookup gap lives in
+	// a test resolver closure, and the pre-fix re-fetch is reproduced by
+	// simply omitting the pinning resolver (which is what the old code was).
 	bm25Config := idx.GetInvertedIndexConfig().BM25
 	logger := idx.logger.WithFields(logrus.Fields{"class": className, "shard": shard.name})
 
 	var (
-		pinnedCh   = make(chan struct{}) // closed inside the hook once pins are held
+		pinnedCh   = make(chan struct{}) // closed once the query holds its pin(s)
 		releaseCh  = make(chan struct{}) // closed by the test to let the held query proceed
 		releasedAt atomic.Pointer[time.Time]
+		parkOnce   sync.Once
 	)
+	// park freezes the query in the prop-discovery→lookup gap with its pin(s)
+	// already held; sync.Once keeps it one-shot across resolver re-entry.
+	park := func() {
+		parkOnce.Do(func() {
+			close(pinnedCh)
+			<-releaseCh
+		})
+	}
 
 	bm25 := inverted.NewBM25Searcher(bm25Config, shard.store,
 		idx.getSchema.ReadOnlyClass, shard.propertyIndices, idx.classSearcher,
 		idx.getStopwordProvider(), shard.GetPropertyLengthTracker(), logger,
-		shard.versioner.Version()).
-		WithTokenizationResolver(shard.TokenizationFor).
-		WithSearchableBucketPinningResolver(shard.PinTokenizationAndSearchableBucket).
-		WithForceLookupRefetchForTest(forceRefetch).
-		WithAfterPinBeforeLookupHookForTest(func() {
-			close(pinnedCh)
-			<-releaseCh
+		shard.versioner.Version())
+
+	if forceRefetch {
+		// PRE-FIX BEHAVIOR (asymmetry proof): no pinning resolver, so lookup
+		// re-fetches the searchable bucket by name and lands on the post-swap
+		// WORD bucket. The tokenization resolver is the only seam left on this
+		// path, so park in it — tok is still captured FIELD-way pre-swap.
+		bm25.WithTokenizationResolver(func(propName, schemaTok string) string {
+			tok := shard.TokenizationFor(propName, schemaTok)
+			park()
+			return tok
 		})
+	} else {
+		// WITH FIX: the pinning resolver takes the pin (held across the
+		// concurrent swap + old-bucket Shutdown, forcing the drain) and then
+		// parks, so lookup reuses the pinned pre-swap FIELD bucket.
+		bm25.WithTokenizationResolver(shard.TokenizationFor).
+			WithSearchableBucketPinningResolver(
+				func(propName, schemaTok string) (string, *lsmkv.Bucket, func()) {
+					tok, bkt, release := shard.PinTokenizationAndSearchableBucket(propName, schemaTok)
+					park()
+					return tok, bkt, release
+				})
+	}
 
 	validCount := lookupCount(ctx, models.PropertyTokenizationField, fieldBucket, className, phrase)
 	require.Equal(t, matchDocs, validCount, "(FIELD tok, FIELD bucket) baseline must equal matchDocs")
