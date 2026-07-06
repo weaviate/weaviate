@@ -387,13 +387,20 @@ func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
-func (h *HFresh) CompressionStats() compressionhelpers.CompressionStats {
-	// the atomic dims load pairs with the store that publishes the quantizer
-	// at the end of initialization
-	if atomic.LoadUint32(&h.dims) == 0 {
-		return compressionhelpers.UncompressedStats{}
+// loadQuantizer returns the index dimensionality and quantizer, or (0, nil)
+// if initialization has not completed yet. The atomic dims load pairs with
+// the store that publishes them at the end of initialization, so a non-nil
+// quantizer also guarantees the distancer and posting sizes are visible.
+func (h *HFresh) loadQuantizer() (uint32, *compressionhelpers.BinaryRotationalQuantizer) {
+	dims := atomic.LoadUint32(&h.dims)
+	if dims == 0 {
+		return 0, nil
 	}
-	if quantizer := h.quantizer; quantizer != nil {
+	return dims, h.quantizer
+}
+
+func (h *HFresh) CompressionStats() compressionhelpers.CompressionStats {
+	if _, quantizer := h.loadQuantizer(); quantizer != nil {
 		return quantizer.Stats()
 	}
 	return compressionhelpers.UncompressedStats{}

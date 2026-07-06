@@ -14,7 +14,6 @@ package hfresh
 import (
 	"context"
 	"iter"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -31,13 +30,9 @@ const (
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	vector = h.normalizeVec(vector)
 
-	// the atomic dims load pairs with the store that publishes the quantizer
-	// and distancer at the end of initialization; it must happen before any
-	// search path reads them, including flatSearch, which uses the distancer
-	if atomic.LoadUint32(&h.dims) == 0 {
-		return nil, nil, nil
-	}
-	quantizer := h.quantizer
+	// this must run before any search path reads the quantizer or distancer,
+	// including flatSearch, which uses the distancer
+	_, quantizer := h.loadQuantizer()
 	if quantizer == nil {
 		return nil, nil, nil
 	}
