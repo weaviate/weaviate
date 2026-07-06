@@ -871,8 +871,19 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
-	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
+	// Unregistering the compaction cycle both stops future compactions and
+	// signals any in-flight one to abort (shouldAbort -> ctx bridge in
+	// compactOrCleanup); it must complete before the teardown below, since a
+	// live compaction holds segment refs and races segment close. The caller's
+	// ctx is often already cancelled here (e.g. a node terminating mid-swap,
+	// weaviate/0-weaviate-issues#213). Passing it through made Unregister return
+	// early without ever setting shouldAbort, so the compaction ran on, the
+	// higher-level shutdown was left half-applied, and the error was mislabelled
+	// "long-running compaction in progress". Decouple from the caller's
+	// cancellation so the abort is always signalled and awaited; the compactor
+	// honours it within a bounded window.
+	if err := sg.compactionCallbackCtrl.Unregister(context.WithoutCancel(ctx)); err != nil {
+		return fmt.Errorf("unregister compaction cycle: %w", err)
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
