@@ -106,27 +106,29 @@ func (w *Worker) do(batch *Batch) (err error) {
 			return nil
 		}
 
-		hasTransientErrs := hasTransientErrors(errs)
-		if hasTransientErrs {
-			retryIn := w.calculateBackoff(attempts)
-			w.logger.
-				WithError(errors.Join(errs...)).
-				WithField("failed", len(failed)).
-				WithField("attempts", attempts).
-				WithField("retry_in", retryIn).
-				Warnf("transient errors detected, retrying batch in %s", retryIn)
+		// the remaining errors are recoverable: transient errors, or timeouts,
+		// which are deliberately excluded from the permanent classification.
+		// Retry the failed tasks with a backoff. Every failure must either
+		// discard the batch, return, or sleep before the next attempt,
+		// otherwise this loop spins at full speed.
+		retryIn := w.calculateBackoff(attempts)
+		w.logger.
+			WithError(errors.Join(errs...)).
+			WithField("failed", len(failed)).
+			WithField("attempts", attempts).
+			WithField("retry_in", retryIn).
+			Warnf("recoverable errors detected, retrying batch in %s", retryIn)
 
-			attempts++
-			retryTimer := time.NewTimer(retryIn)
-			select {
-			case <-batch.Ctx.Done():
-				if !retryTimer.Stop() {
-					<-retryTimer.C
-				}
-				return batch.Ctx.Err()
-			case <-retryTimer.C:
-				// try again
+		attempts++
+		retryTimer := time.NewTimer(retryIn)
+		select {
+		case <-batch.Ctx.Done():
+			if !retryTimer.Stop() {
+				<-retryTimer.C
 			}
+			return batch.Ctx.Err()
+		case <-retryTimer.C:
+			// try again
 		}
 	}
 }
@@ -140,16 +142,6 @@ func (w *Worker) calculateBackoff(attempts int) time.Duration {
 	}
 
 	return time.Second << (attempts - 1)
-}
-
-func hasTransientErrors(errs []error) bool {
-	for _, err := range errs {
-		if enterrors.IsTransient(err) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func hasPermanentErrors(errs []error) bool {
