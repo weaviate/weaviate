@@ -491,7 +491,7 @@ func TestPartialChunkRecovery(t *testing.T) {
 
 // chunkHeader builds a chunk file header with the given version and record count.
 func chunkHeader(version byte, count uint64) []byte {
-	buf := make([]byte, len(magicHeader)+1+8)
+	buf := make([]byte, chunkHeaderSize)
 	copy(buf, magicHeader)
 	buf[len(magicHeader)] = version
 	binary.BigEndian.PutUint64(buf[len(magicHeader)+1:], count)
@@ -516,7 +516,7 @@ func TestCorruptChunkHeaderRecovery(t *testing.T) {
 		sortsAfter  = "chunk-9999999999999999.bin"
 	)
 
-	badMagic := append([]byte("XXXX"), chunkHeader(1, 3)[4:]...)
+	badMagic := append(bytes.Repeat([]byte("X"), len(magicHeader)), chunkHeader(1, 3)[len(magicHeader):]...)
 	badMagic = append(badMagic, 0xDE, 0xAD, 0xBE, 0xEF)
 
 	tests := []struct {
