@@ -127,8 +127,9 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 
 	// each property is a distinct bucket, so term creation (the per-segment
-	// index descents) is independent across jobs
-	eg := enterrors.NewErrorGroupWrapper(b.logger)
+	// index descents) is independent across jobs; the derived context cancels
+	// sibling jobs on the first error
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(b.logger, ctx)
 	eg.SetLimit(_NUMCPU)
 	for i, job := range jobs {
 		termCounts[i] = job.queryTerms
@@ -138,7 +139,7 @@ func (b *BM25Searcher) wandBlock(
 		}
 
 		eg.Go(func() error {
-			results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, job.queryTerms, job.propName, propertyBoosts[job.propName], job.duplicateBoosts, b.config, ctx)
+			results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, job.queryTerms, job.propName, propertyBoosts[job.propName], job.duplicateBoosts, b.config, egCtx)
 			if err != nil {
 				return err
 			}
