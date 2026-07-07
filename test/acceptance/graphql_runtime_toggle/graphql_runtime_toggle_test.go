@@ -85,9 +85,9 @@ func eventually(t *testing.T, msg string, cond func() (bool, string)) {
 
 // TestGraphQLDisableRuntimeToggle pins the headline journey: a collection created
 // while GraphQL is disabled must be queryable as soon as it is re-enabled, with no
-// restart. This holds only because the schema graph is kept current while disabled
-// (serving is gated, building is not) — otherwise the re-enabled query hits a stale
-// "Cannot query field" error.
+// restart. This holds because re-enabling rebuilds the graph from the current
+// schema (rebuildGraphQLOnEnable), picking up classes added during the disabled
+// window — the graph is not maintained while disabled, only rebuilt on toggle.
 func TestGraphQLDisableRuntimeToggle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -150,8 +150,9 @@ func TestGraphQLDisableRuntimeToggle(t *testing.T) {
 	})
 
 	t.Run("add a collection while disabled, then re-enable: it is queryable", func(t *testing.T) {
-		// Created during the disabled window: the schema-update path must still
-		// rebuild the graph so this class is present after re-enabling.
+		// Created during the disabled window: the schema-update path skips the graph
+		// build while disabled, so this class only becomes queryable once re-enabling
+		// triggers a rebuild from the current schema.
 		helper.CreateClass(t, newClass(colBeta))
 
 		writeRuntimeOverride(t, ctx, container, "disable_graphql: false\n")
