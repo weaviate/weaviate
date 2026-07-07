@@ -847,17 +847,29 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("case-insensitive collection and target match", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("c", []string{"V1"},
-			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")})
-		require.NoError(t, err)
+	t.Run("collection matches case-insensitively, target exact-case only", func(t *testing.T) {
+		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
+			"collection names are case-insensitive")
+		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
+			"a case-differing sibling is a DIFFERENT vector; a finished task for v1 must not vouch for V1")
 	})
 
 	t.Run("active (not finished) task rejects removal", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
 			[]*distributedtask.Task{activeDropTask("t1", "C", "v1")})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "no FINISHED cleanup task")
+		require.Contains(t, err.Error(), "still active")
+	})
+
+	t.Run("newer active task blocks a replayed old task's removal", func(t *testing.T) {
+		// Epoch-blindness: an old FINISHED task covers v1, but a newer drop of the
+		// re-used name is running — removal would free the name mid-cleanup.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1"), activeDropTask("t2", "C", "v1")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "still active")
 	})
 
 	t.Run("no task at all rejects removal (manual PATCH to skip cleanup)", func(t *testing.T) {

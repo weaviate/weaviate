@@ -101,6 +101,15 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 // task covers it, so the marker can't vanish before the vectors are stripped.
 func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*distributedtask.Task) error {
 	for _, vec := range removedVectors {
+		// A replayed old task's finalize is epoch-blind: while a NEWER drop on the
+		// same name is still ACTIVE, removal would free the name mid-cleanup with
+		// its op still armed. Deterministic twin of the provider-side
+		// activeOverlappingDrop guard.
+		if id, active := activeDropCovers(className, vec, existingTasks); active {
+			return fmt.Errorf(
+				"cannot remove dropped vector %q on %s: cleanup task %q is still active for it",
+				vec, className, id)
+		}
 		if !finishedDropCovers(className, vec, existingTasks) {
 			return fmt.Errorf(
 				"cannot remove dropped vector %q on %s: no FINISHED cleanup task covers it; "+
@@ -109,6 +118,28 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 		}
 	}
 	return nil
+}
+
+// activeDropCovers reports whether a non-terminal drop-vector task strips vec on
+// className, returning its ID. Unparseable payloads are skipped (fail-open,
+// consistent with the other detectors).
+func activeDropCovers(className, vec string, existingTasks []*distributedtask.Task) (string, bool) {
+	for _, task := range existingTasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		existP, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			continue
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		if len(intersectTargets(existP.Targets, []string{vec})) > 0 {
+			return task.ID, true
+		}
+	}
+	return "", false
 }
 
 // finishedDropCovers reports whether a FINISHED drop-vector task strips vec on
