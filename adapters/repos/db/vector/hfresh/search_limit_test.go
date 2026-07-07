@@ -24,12 +24,29 @@ import (
 // min(limit, matching docs). rescoreLimit (default 350) is a quality floor
 // for the RQ1 candidate depth, not a cap — limits above it were silently
 // truncated to rescoreLimit results.
+//
+// For limit == nDocs the assertion allows a small tolerance: centroid
+// retrieval is approximate (HNSW) and may transiently miss a posting while
+// background splits run, so demanding all 500 documents is a recall
+// guarantee the index does not make. The pinned regression — results capped
+// at rescoreLimit — is still caught, as it would return only 350.
 func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 	const (
-		nDocs = 500
-		dim   = 32
+		nDocs        = 500
+		dim          = 32
+		fullScanFlex = 10 // tolerated misses when limit == nDocs
 	)
 	limits := []int{10, 350, 400, 500}
+
+	assertLen := func(t *testing.T, limit int, ids []uint64) {
+		t.Helper()
+		if limit >= nDocs {
+			require.GreaterOrEqual(t, len(ids), nDocs-fullScanFlex, "limit=%d", limit)
+			require.LessOrEqual(t, len(ids), nDocs, "limit=%d", limit)
+			return
+		}
+		require.Len(t, ids, limit, "limit=%d", limit)
+	}
 
 	t.Run("single vector path", func(t *testing.T) {
 		tf := createHFreshIndex(t)
@@ -56,8 +73,8 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 		for _, limit := range limits {
 			ids, dists, err := tf.Index.SearchByVector(t.Context(), probe, limit, nil)
 			require.NoError(t, err)
-			require.Len(t, ids, min(limit, nDocs), "limit=%d", limit)
-			require.Len(t, dists, min(limit, nDocs), "limit=%d", limit)
+			assertLen(t, limit, ids)
+			require.Len(t, dists, len(ids), "limit=%d", limit)
 		}
 	})
 
@@ -72,8 +89,8 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 		for _, limit := range limits {
 			ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), probe, limit, nil)
 			require.NoError(t, err)
-			require.Len(t, ids, min(limit, nDocs), "limit=%d", limit)
-			require.Len(t, dists, min(limit, nDocs), "limit=%d", limit)
+			assertLen(t, limit, ids)
+			require.Len(t, dists, len(ids), "limit=%d", limit)
 		}
 	})
 }

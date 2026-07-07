@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -479,10 +480,13 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 // maxSimScore computes the MaxSim score between query and document multi-vectors.
 // For each query token, it finds the minimum distance to any document token, then
 // sums across all query tokens. Lower score = more similar.
-// Callers must pass query tokens already normalized (normalizeMultiVec); document
-// tokens are fetched raw from object storage and normalized here.
+// Callers must pass query tokens already normalized (normalizeMultiVec) when
+// the configured distance is cosine; document tokens are handled here.
 func (h *HFresh) maxSimScore(queryVectors [][]float32, docVectors [][]float32) (float32, error) {
-	docVectors = h.normalizeMultiVec(docVectors)
+	if h.config.DistanceProvider.Type() == "cosine-dot" {
+		return h.maxSimScoreCosine(queryVectors, docVectors)
+	}
+
 	var score float32
 	for _, queryToken := range queryVectors {
 		d := h.config.DistanceProvider.New(queryToken)
@@ -491,6 +495,52 @@ func (h *HFresh) maxSimScore(queryVectors [][]float32, docVectors [][]float32) (
 			dist, err := d.Distance(docToken)
 			if err != nil {
 				return 0, err
+			}
+			if dist < minDist {
+				minDist = dist
+			}
+		}
+		score += minDist
+	}
+	return score, nil
+}
+
+var dotProvider = distancer.NewDotProductProvider()
+
+// maxSimScoreCosine computes the cosine MaxSim by folding each document
+// token's inverse norm into the dot product: dist(q̂, d) = 1 - dot(q̂, d)/‖d‖,
+// with query tokens pre-normalized by the caller. This avoids materializing
+// normalized copies of every candidate's tokens on the rescore hot path,
+// which visits ~rescoreLimit documents per query — a separate normalization
+// pass measurably regressed query latency (issue #276 follow-up). Zero-norm
+// tokens keep an inverse norm of 0, matching distancer.Normalize, which
+// leaves zero vectors untouched (distance 1).
+func (h *HFresh) maxSimScoreCosine(queryVectors [][]float32, docVectors [][]float32) (float32, error) {
+	invNorms := make([]float32, len(docVectors))
+	for j, docToken := range docVectors {
+		negNormSq, err := dotProvider.SingleDist(docToken, docToken)
+		if err != nil {
+			return 0, err
+		}
+		if negNormSq < 0 {
+			invNorms[j] = float32(1 / math.Sqrt(float64(-negNormSq)))
+		}
+	}
+
+	var score float32
+	for _, queryToken := range queryVectors {
+		d := dotProvider.New(queryToken)
+		minDist := float32(math.MaxFloat32)
+		for j, docToken := range docVectors {
+			negDot, err := d.Distance(docToken)
+			if err != nil {
+				return 0, err
+			}
+			dist := 1 + negDot*invNorms[j]
+			if dist < 0 {
+				// mirror the cosine-dot provider, which clamps negative
+				// rounding artifacts to zero
+				dist = 0
 			}
 			if dist < minDist {
 				minDist = dist
