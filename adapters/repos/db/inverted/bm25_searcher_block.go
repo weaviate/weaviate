@@ -69,14 +69,14 @@ func (b *BM25Searcher) wandBlock(
 		return []*storobj.Object{}, []float32{}, false, nil
 	}
 
-	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
+	qterms, qstats, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, false, err
 	}
 	defer pins.release()
 
 	// fallback to the old search process if not all buckets are inverted
-	if !allBucketsAreInverted {
+	if !qstats.allBucketsAreInverted {
 		// wand takes its OWN pins; release ours first — holding two RLocks
 		// on the same bucket deadlocks against a queued Shutdown writer.
 		pins.release()
@@ -104,10 +104,10 @@ func (b *BM25Searcher) wandBlock(
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
-	for tokenization, propNames := range propNamesByTokenization {
+	for tokenization, propNames := range qterms.propNamesByTokenization {
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
-			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
+			queryTerms, duplicateBoosts := qterms.queryTermsByTokenization[tokenization], qterms.duplicateBoostsByTokenization[tokenization]
 			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
 			for i, term := range queryTerms {
 				duplicateBoostsByTerm[term] = duplicateBoosts[i]
@@ -115,7 +115,7 @@ func (b *BM25Searcher) wandBlock(
 			globalIdfCounts := make(map[string]uint64, len(queryTerms))
 			nonZeroTerms := make(map[string]uint64, len(queryTerms))
 			for _, propName := range propNames {
-				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, b.config, pins, ctx)
+				results, idfCounts, release, err := b.createBlockTerm(qstats.N, filterDocIds, queryTerms, propName, qterms.propertyBoosts[propName], duplicateBoosts, b.config, pins, ctx)
 				if err != nil {
 					return nil, nil, false, err
 				}
@@ -147,7 +147,7 @@ func (b *BM25Searcher) wandBlock(
 				}
 				n := globalIdfCounts[term] / nonZeroTerms[term]
 
-				globalIdfs[term] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoostsByTerm[term])
+				globalIdfs[term] = math.Log(float64(1)+(qstats.N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoostsByTerm[term])
 			}
 			for _, result := range allResults[lenAllResults:] {
 				if len(result) == 0 {
@@ -236,9 +236,9 @@ func (b *BM25Searcher) wandBlock(
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
 				if params.SearchOperator == common_filters.SearchOperatorAnd {
-					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], qstats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
-					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], qstats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				}
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
