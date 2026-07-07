@@ -967,6 +967,14 @@ func (s *Shard) disableAsyncReplicationWithPersist(persist bool) error {
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
 
+		// Deregister under the write lock so {hashtree=nil, Deregister} is atomic:
+		// else a concurrent enable's fresh registration could be orphaned here.
+		if s.index.asyncReplicationScheduler != nil {
+			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+				s.index.logger.WithField("action", "async_replication").Error(err)
+			}
+		}
+
 		needDeregister = true
 
 		if capturedHT != nil {
@@ -981,16 +989,6 @@ func (s *Shard) disableAsyncReplicationWithPersist(persist bool) error {
 		return err
 	}
 	if needDeregister {
-		// Remove from the scheduler. The context has already been cancelled so
-		// any in-flight cycle will exit promptly; we do not wait for it here.
-		// Deregister may return context.Canceled if the scheduler is shutting
-		// down concurrently; that is safe to ignore because the rebuild path
-		// does not require a strict happens-before with the scheduler's shutdown.
-		if s.index.asyncReplicationScheduler != nil {
-			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
-				s.index.logger.WithField("action", "async_replication").Error(err)
-			}
-		}
 		// Clear stats outside asyncReplicationRWMux to avoid nesting
 		// asyncReplicationStatsMux inside a write lock.
 		s.asyncReplicationStatsMux.Lock()
@@ -1088,6 +1086,12 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 		return s.disableAsyncReplication(ctx)
 	}
 	return nil
+}
+
+func (s *Shard) hasActiveAsyncReplicationTargetOverrides() bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return len(s.targetNodeOverrides) > 0
 }
 
 func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
