@@ -173,13 +173,7 @@ type DigestObjectsInRangeResp struct {
 	Digests []types.RepairResponse `json:"digests,omitempty"`
 }
 
-// CompareHashTreeRootsReq / Resp are the REST-transport payloads for the batched
-// root pre-filter, keyed by shard. Roots are carried as raw [high, low] word pairs
-// rather than hashtree.Digest: Digest's JSON methods are pointer-receiver, so
-// json.Marshal skips them for non-addressable map values (emitting a plain array)
-// while json.Decode invokes them for addressable map elements (expecting base64) —
-// an asymmetry that made the REST path fail. [2]uint64 has no custom codec, so it
-// round-trips symmetrically.
+// CompareHashTreeRootsReq / Resp are the REST payloads for the batched root pre-filter; roots use raw [high,low] pairs since Digest's pointer-receiver JSON breaks for map values.
 type CompareHashTreeRootsReq struct {
 	Roots map[string][2]uint64 `json:"roots"`
 }

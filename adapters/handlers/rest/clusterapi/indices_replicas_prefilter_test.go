@@ -57,11 +57,7 @@ func newPrefilterTestServer(t *testing.T, replicator replicaTypes.Replicator) (p
 	return client, strings.TrimPrefix(server.URL, "http://")
 }
 
-// TestCompareHashTreeRootsRESTRoundTrip drives the real REST client against the real
-// handler and proves the pre-filter reports exactly the diverging shards while
-// preserving digests bit-for-bit (including high-bit-set words). It fails on the
-// pre-fix wire type, where the Digest map JSON-marshals as an array but decodes via
-// the pointer-only UnmarshalJSON, yielding an HTTP 400.
+// TestCompareHashTreeRootsRESTRoundTrip proves the real REST client+handler report exactly the diverging shards and preserve digests bit-for-bit.
 func TestCompareHashTreeRootsRESTRoundTrip(t *testing.T) {
 	const index = "MyClass"
 
