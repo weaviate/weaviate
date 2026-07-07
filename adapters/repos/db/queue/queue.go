@@ -672,11 +672,11 @@ func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
 	}
 
 	q.m.Lock()
+	defer q.m.Unlock()
 	q.recordCount -= c.count
 	q.diskUsage -= int64(c.size)
 	q.metrics.DiskUsage(q.diskUsage)
 	q.metrics.Size(q.recordCount)
-	q.m.Unlock()
 
 	q.Logger.WithField("file", quarantinePath).
 		Errorf("chunk is truncated or corrupt, quarantined it; records beyond the corruption are lost: %v", cause)
