@@ -889,8 +889,8 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	}
 	i.Config.AsyncReplicationConfig = config
 
-	// unloaded shards will fetch the latest config when they are loaded
-	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	// unloaded shards fetch the latest config when loaded; iterate concurrently so one shard's fault can't skip the rest (errors are accumulated, not first-error abort).
+	return i.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
 		ctrl, ok := shard.(asyncReplicationController)
 		if !ok {
 			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
@@ -916,11 +916,6 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (i *Index) ReplicationFactor() int64 {
