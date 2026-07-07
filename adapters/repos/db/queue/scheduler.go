@@ -468,7 +468,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			entsentry.Recover(r)
-			enterrors.PrintStack(s.Logger)
+			enterrors.PrintStack(s.Logger.WithField("queue_id", q.q.ID()))
 			err = errors.Errorf("recovered from panic while dispatching queue: %v", r)
 		}
 	}()
