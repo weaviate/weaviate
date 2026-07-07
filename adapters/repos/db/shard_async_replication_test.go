@@ -38,6 +38,7 @@ import (
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -1086,6 +1087,74 @@ func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
 
 			require.NoError(t, s.disableAsyncReplication(ctx))
 		})
+	}
+}
+
+// TestMergeUnblocksWhenInitBailsBeforeHashtreeScan deterministically drives the
+// deadlock that TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping only hits
+// under load: holding the single init slot parks the init goroutine before
+// initHashtree, then disableAsyncReplication cancels its context so it exits
+// without ever running the scan that closes minimalHashtreeInitializationCh.
+// Without the fix the channel leaks and the in-flight merge blocks forever.
+func TestMergeUnblocksWhenInitBailsBeforeHashtreeScan(t *testing.T) {
+	ctx := context.Background()
+
+	// Scheduler with a single hashtree-init slot so the test can starve the scan.
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), entreplication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:        configRuntime.NewDynamicValue(1),
+		AsyncReplicationHashtreeInitConcurrency: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:                configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	t.Cleanup(sched.Close)
+
+	sl, _ := testShard(t, ctx, "MergeUnblocksInitBail", func(idx *Index) {
+		idx.asyncReplicationScheduler = sched
+	})
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(s.class.Class, id, tsFarPast)))
+	}
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	// Occupy the only init slot so the shard's init goroutine blocks in
+	// acquireHashtreeInitSlot before it reaches initHashtree.
+	require.NoError(t, sched.hashtreeInitSem.Acquire(context.Background(), 1))
+	defer sched.hashtreeInitSem.Release(1)
+
+	// Spawns the init goroutine, which parks on the held slot with the hashtree
+	// set but not yet initialized.
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+
+	// The merge captures the open init channel and blocks in
+	// waitForMinimalHashTreeInitialization.
+	mergeDone := make(chan error, 1)
+	go func() {
+		mergeDone <- s.MergeObject(ctx, objects.MergeDocument{
+			Class:      s.class.Class,
+			ID:         uuidLow,
+			UpdateTime: tsFarPast + 1,
+		})
+	}()
+
+	// Precondition: the merge must actually be parked while init is stalled.
+	select {
+	case <-mergeDone:
+		t.Fatal("merge completed while hashtree init was stalled — precondition not met")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Disable cancels the shard's async context; the init goroutine returns from
+	// acquireHashtreeInitSlot and exits without running initHashtree.
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	select {
+	case <-mergeDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("merge did not unblock after async replication was disabled — init channel leaked")
 	}
 }
 

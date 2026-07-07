@@ -468,6 +468,9 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 
 	s.hashtreeFullyInitialized = false
 	s.minimalHashtreeInitializationCh = make(chan struct{})
+	// The init goroutine closes the channel it owns, not the shard field, which a
+	// concurrent enable may have swapped out under flapping. See closeInitCh.
+	initCh := s.minimalHashtreeInitializationCh
 
 	// asyncRepWg tracks this goroutine so that rebuildHashtree's
 	// asyncRepWg.Wait() serialises rebuilds against it, preventing the old
@@ -478,6 +481,27 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.asyncRepWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer s.asyncRepWg.Done()
+
+		// closeInitCh closes this goroutine's owned channel exactly once, unblocking
+		// merges parked in waitForMinimalHashTreeInitialization. It runs as both
+		// initHashtree's afterInMemCallback and a defer covering the early exits
+		// (scheduler nil, slot acquisition cancelled) that never reach initHashtree
+		// and would otherwise leave the channel open forever. The retry loop replaces
+		// ownedCh per attempt.
+		//
+		// No lock: ownedCh/ownedClosed are goroutine-local and close() already
+		// synchronizes with receivers. It must NOT take asyncReplicationRWMux — it
+		// runs while writes hold the RLock, so becoming a pending writer would, under
+		// Go's writer-priority RWMutex, block every new RLock and deadlock them.
+		ownedCh := initCh
+		ownedClosed := false
+		closeInitCh := func() {
+			if !ownedClosed {
+				ownedClosed = true
+				close(ownedCh)
+			}
+		}
+		defer closeInitCh()
 
 		if s.index.asyncReplicationScheduler == nil {
 			return
@@ -500,7 +524,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 			// the goroutine boundary, after the deferred release fires).
 			err := func() error {
 				defer s.index.asyncReplicationScheduler.releaseHashtreeInitSlot()
-				return s.initHashtree(ctx, effectiveConfig, bucket)
+				return s.initHashtree(ctx, effectiveConfig, bucket, closeInitCh)
 			}()
 
 			if err == nil {
@@ -543,13 +567,13 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 			s.hashtree.Reset()
-			// releaseInitialization (the afterInMemCallback passed to
-			// ApplyToObjectDigests) always closes minimalHashtreeInitializationCh
-			// before initHashtree returns — even on error — so the channel is
-			// already closed here. Closing it again would panic. Replace it with
-			// a fresh channel for the next attempt so write paths that arrive
-			// during the retry wait for that attempt's releaseInitialization.
-			s.minimalHashtreeInitializationCh = make(chan struct{})
+			// initHashtree already closed ownedCh (afterInMemCallback fires once, even
+			// on error); take ownership of a fresh channel so writes arriving during
+			// the retry block until the next attempt completes.
+			newCh := make(chan struct{})
+			s.minimalHashtreeInitializationCh = newCh
+			ownedCh = newCh
+			ownedClosed = false
 			s.asyncReplicationRWMux.Unlock()
 		}
 	}, s.index.logger)
@@ -654,7 +678,10 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 // released so that concurrent reads and writes are not blocked. Progress is
 // logged at loggingFrequency intervals. The scan is gated by hashtreeInitSem
 // to bound concurrent I/O across all shards at startup.
-func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
+//
+// releaseInit runs once the in-memory scan completes (as ApplyToObjectDigests'
+// afterInMemCallback, which fires exactly once even on error).
+func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket, releaseInit func()) (err error) {
 	start := time.Now()
 
 	s.metrics.IncAsyncReplicationHashTreeInitCount()
@@ -671,24 +698,10 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
 	}()
 
-	// releaseInitialization closes minimalHashtreeInitializationCh under RLock
-	// so it serializes with the write-lock path in the retry loop that replaces
-	// the channel. RLock is the correct lock here (not Lock): we are only
-	// reading the channel field and closing it; the retry path replaces the
-	// field under Lock. Invariant: this closure is called exactly once per
-	// initHashtree attempt (ApplyToObjectDigests guarantees it fires the
-	// afterInMemCallback exactly once), so there is no risk of double-close.
-	releaseInitialization := func() {
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
-		close(s.minimalHashtreeInitializationCh)
-	}
-
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(uuidBytes []byte, updateTime int64) error {
+	err = bucket.ApplyToObjectDigests(ctx, releaseInit, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
