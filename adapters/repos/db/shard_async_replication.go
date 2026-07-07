@@ -938,6 +938,12 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 // completion should use mayStopAsyncReplication instead, or call Deregister
 // followed by asyncRepWg.Wait() explicitly.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
+	return s.disableAsyncReplicationWithPersist(true)
+}
+
+// disableAsyncReplicationWithPersist is disableAsyncReplication with control over
+// the dump: persist=false discards the captured tree instead of fsync'ing it.
+func (s *Shard) disableAsyncReplicationWithPersist(persist bool) error {
 	var afterRelease func()
 	var needDeregister bool
 
@@ -954,7 +960,7 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		// Capture before clearing so afterRelease can persist the hashtree
 		// outside the write lock (same pattern as mayStopAsyncReplication).
 		var capturedHT hashtree.AggregatedHashTree
-		if s.hashtreeFullyInitialized {
+		if persist && s.hashtreeFullyInitialized {
 			capturedHT = s.hashtree
 		}
 

@@ -745,6 +745,45 @@ func TestMayStopAsyncReplicationDumpsHashtreeOnSuccess(t *testing.T) {
 		"persisted hashtree root must be non-zero: on-disk objects must have been registered")
 }
 
+// TestDisableAsyncReplicationPersist verifies the dump happens only when persist is true; the rebuild path uses persist=false to keep the fsync out of its shutdownLock.RLock region.
+func TestDisableAsyncReplicationPersist(t *testing.T) {
+	tests := []struct {
+		name        string
+		class       string
+		persist     bool
+		wantHTFiles int
+	}{
+		{name: "persist dumps hashtree", class: "DisablePersistTrue", persist: true, wantHTFiles: 1},
+		{name: "no-persist skips dump", class: "DisablePersistFalse", persist: false, wantHTFiles: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			sl, _ := testShard(t, ctx, tt.class, withAsyncScheduler(t))
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(tt.class, id, tsFarPast)))
+			}
+			flushShard(t, ctx, sl)
+
+			require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+			awaitHashtreeInitialized(t, s)
+
+			htPath := s.pathHashTree()
+			require.NoError(t, s.disableAsyncReplicationWithPersist(tt.persist))
+
+			require.Len(t, htFilesInDir(t, htPath), tt.wantHTFiles)
+
+			s.asyncReplicationRWMux.RLock()
+			require.Nil(t, s.hashtree)
+			s.asyncReplicationRWMux.RUnlock()
+		})
+	}
+}
+
 // ─── Fix: disk I/O outside the write lock ────────────────────────────────────
 //
 // The following tests cover the fix that moved tryLoadHashtreeFromDisk outside
