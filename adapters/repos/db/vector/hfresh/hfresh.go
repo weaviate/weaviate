@@ -42,6 +42,10 @@ var (
 	ErrPostingNotFound  = errors.New("posting not found")
 	ErrVectorNotFound   = errors.New("vector not found")
 	ErrMuveraNotEnabled = errors.New("hfresh only supports muvera for multi-vector operations")
+	// ErrMuveraNotInitialized is returned for multi-vector searches on a
+	// collection that has not indexed any multi-vector data yet: the muvera
+	// encoder is only initialized on the first insert.
+	ErrMuveraNotInitialized = errors.New("multi-vector search on an empty collection: the muvera encoder is not initialized until the first multi-vector is indexed")
 )
 
 var _ common.VectorIndex = (*HFresh)(nil)

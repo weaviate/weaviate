@@ -348,6 +348,15 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 		return nil, nil, ErrMuveraNotEnabled
 	}
 
+	// The muvera encoder is initialized by the first AddMulti (or restored
+	// from persisted metadata at startup). Until then its projection
+	// matrices are nil and EncodeQuery would panic (issue #275). dims is
+	// only set after the encoder is initialized and persisted, so a
+	// non-zero value guarantees the encoder is ready.
+	if atomic.LoadUint32(&h.dims) == 0 {
+		return nil, nil, ErrMuveraNotInitialized
+	}
+
 	vectors = h.normalizeMultiVec(vectors)
 	queryFlat := h.muveraEncoder.EncodeQuery(vectors)
 	// pass the user-requested k, not rescoreLimit: SearchByVector widens the
