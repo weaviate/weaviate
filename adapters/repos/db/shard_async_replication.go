@@ -790,7 +790,9 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 
 	s.asyncReplicationRWMux.Lock()
 
-	if s.hashtree == nil {
+	// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
+	// it: finalizing here would mark a different, partially-scanned tree ready.
+	if s.hashtree != ht {
 		s.asyncReplicationRWMux.Unlock()
 		s.index.logger.
 			WithField("action", "async_replication").
@@ -1031,24 +1033,21 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
 		s.clearAsyncCheckpointLocked()
+
+		// Deregister under the write lock so {hashtree=nil, Deregister} is atomic vs
+		// a concurrent enable's Register (else disable's late Deregister orphans it).
+		// Deadlock-free: the removeCh path takes only sched.mu, never asyncReplicationRWMux.
+		if s.index.asyncReplicationScheduler != nil {
+			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+				s.index.logger.WithField("action", "async_replication").Error(err)
+			}
+		}
 		return true
 	}()
 	if !stopped {
 		return nil
 	}
 
-	// Deregister OUTSIDE asyncReplicationRWMux. v1.38's Deregister is
-	// channel-based: it blocks on the dispatcher, which itself acquires
-	// asyncReplicationRWMux.RLock() — so holding the write lock across it
-	// deadlocks (see the scheduler's lock-ordering note). The context has
-	// already been cancelled so any in-flight cycle exits promptly; we do not
-	// wait for it here. A context.Canceled during scheduler shutdown is safe to
-	// ignore: the rebuild path needs no happens-before with scheduler shutdown.
-	if s.index.asyncReplicationScheduler != nil {
-		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
-			s.index.logger.WithField("action", "async_replication").Error(err)
-		}
-	}
 	// Clear stats outside asyncReplicationRWMux to avoid nesting
 	// asyncReplicationStatsMux inside a write lock.
 	s.asyncReplicationStatsMux.Lock()
