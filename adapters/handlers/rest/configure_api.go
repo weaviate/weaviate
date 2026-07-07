@@ -489,6 +489,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
 			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
+			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -2221,6 +2222,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
 		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
 		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
+		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
@@ -2293,7 +2295,7 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})

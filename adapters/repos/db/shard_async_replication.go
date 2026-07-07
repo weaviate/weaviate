@@ -1253,6 +1253,18 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	return digests[:n], nil
 }
 
+// HashTreeRoot returns the shard's async-replication hashtree root; ok is false when the
+// hashtree is not fully initialised. Computed like HashTreeLevel(level=0) so roots match.
+func (s *Shard) HashTreeRoot() (root hashtree.Digest, ok bool) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if !s.hashtreeFullyInitialized {
+		return hashtree.Digest{}, false
+	}
+	return s.hashtree.Root(), true
+}
+
 // runHashbeatCycle runs one full hashbeat cycle and is called by a scheduler
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).
@@ -1588,13 +1600,20 @@ func (s *Shard) resolveObjectConflict(
 		// Deletion conflict detected but auto-resolution is disabled.
 		return false, true, nil
 	}
-	if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
-		(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
-			r.UpdateTime > localUpdateTimes[strfmt.UUID(r.ID)]) {
+	if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		if err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime)); err != nil {
 			return false, false, fmt.Errorf("deleting local objects: %w", err)
 		}
 		return true, false, nil
+	}
+	if deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+		r.UpdateTime > localUpdateTimes[strfmt.UUID(r.ID)] {
+		// skipIfLocalNewer re-checks the live time under docIdLock so a write landing after the propagation snapshot is not clobbered by an older tombstone.
+		deleted, err := s.deleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime), true)
+		if err != nil {
+			return false, false, fmt.Errorf("deleting local objects: %w", err)
+		}
+		return deleted, false, nil
 	}
 	return false, false, nil
 }

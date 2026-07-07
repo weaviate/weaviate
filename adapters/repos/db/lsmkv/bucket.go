@@ -1492,6 +1492,27 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
+// CountApproximate is a cheap O(#segments) alternative to Count: exact
+// per-segment counts plus each memtable's approximate counter (see
+// Memtable.netCountAdditions for the drift bounds).
+func (b *Bucket) CountApproximate() (int, error) {
+	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
+		return 0, fmt.Errorf("Bucket::CountApproximate(): %w", err)
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	count := b.disk.countWithSegmentList(view.Disk) + view.Active.netCount()
+	if view.Flushing != nil {
+		count += view.Flushing.netCount()
+	}
+	if count < 0 {
+		count = 0
+	}
+	return count, nil
+}
+
 func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
 	segments []Segment,
 ) (int, error) {
@@ -2252,7 +2273,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 
 		// we can only know the full n after we have checked all segments and all memtables
-		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
+		idfs[i] = terms.Idf(float64(n), N) * float64(duplicateTextBoosts[i])
 
 		// currentBlockImpact is a max-score upper bound, so it must carry
 		// propertyBoost like Score and computeCurrentBlockImpact; bare idf

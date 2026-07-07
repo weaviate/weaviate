@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -106,7 +105,7 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 			require.DirExists(t, shardDir, "precondition: shard dir must exist")
 			require.NoError(t, os.RemoveAll(filepath.Join(shardDir, tt.removeRelPath)))
 
-			usage, err := index.usageForCollection(ctx, time.Nanosecond, true, nil)
+			usage, err := index.usageForCollection(ctx, 4, true, nil)
 			require.NoError(t, err, "one disappearing shard must not fail the whole report")
 			require.NotNil(t, usage)
 
