@@ -1602,7 +1602,7 @@ func TestObjectsByDocIDSharedView(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bucket := &fakeViewBucket{fakeBucket: genFakeBucket(t, 1000)}
+			bucket := genFakeBucket(t, 1000)
 
 			res, err := ObjectsByDocID(bucket, tt.inputIDs, additional.Properties{}, nil, logger)
 			require.NoError(t, err)
@@ -1817,10 +1817,15 @@ func FuzzObjectGet(f *testing.F) {
 
 type fakeBucket struct {
 	objects map[uint64][]byte
+	// views and released count how often a consistent view is acquired and
+	// released for a batch.
+	views    int
+	released int
 }
 
 func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
-	return f.GetBySecondaryWithBuffer, func() {}
+	f.views++
+	return f.GetBySecondaryWithBuffer, func() { f.released++ }
 }
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
@@ -1835,19 +1840,6 @@ func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, 
 
 	copy(lsmBuf, objBytes)
 	return lsmBuf[:len(objBytes)], lsmBuf, nil
-}
-
-// fakeViewBucket counts how often a consistent view is acquired and released
-// for a batch.
-type fakeViewBucket struct {
-	*fakeBucket
-	views    int
-	released int
-}
-
-func (f *fakeViewBucket) SecondaryViewLookup() (secondaryLookup, func()) {
-	f.views++
-	return f.GetBySecondaryWithBuffer, func() { f.released++ }
 }
 
 func genFakeBucket(t testing.TB, maxSize uint64) *fakeBucket {
