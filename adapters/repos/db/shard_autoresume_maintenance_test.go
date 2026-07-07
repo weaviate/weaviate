@@ -464,3 +464,275 @@ func TestShard_BackupPostFlushWritesAreLostWithoutLateFlush(t *testing.T) {
 				"the fix must persist writes made between the early flush and list-files")
 	})
 }
+
+func TestShard_ListBackupFilesExtendsInactivityDeadline(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	for range 10 {
+		require.NoError(t, shd.PutObject(ctx, testObject(className)))
+	}
+
+	s := shd.(*Shard)
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+
+	s.haltForTransferMux.Lock()
+	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
+	s.haltForTransferMux.Unlock()
+
+	_, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+	require.NoError(t, err)
+
+	s.haltForTransferMux.Lock()
+	deadline := s.haltForTransferInactivityDeadline
+	s.haltForTransferMux.Unlock()
+
+	require.True(t, deadline.After(time.Now()))
+
+	require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_InactivityFireResumesWhenIdle(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	s := shd.(*Shard)
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+
+	s.haltForTransferMux.Lock()
+	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
+	s.haltForTransferMux.Unlock()
+
+	keepWatching := s.handleInactivityFire(context.Background(), timer)
+
+	s.haltForTransferMux.Lock()
+	countAfterFire := s.haltForTransferCount
+	cancelAfterFire := s.haltForTransferCtxCancel
+	s.haltForTransferMux.Unlock()
+
+	require.False(t, keepWatching)
+	require.Zero(t, countAfterFire)
+	require.Nil(t, cancelAfterFire)
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_ResumeClearsInactivityMonitorSentinel(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	err := shd.HaltForTransfer(ctx, false, time.Hour)
+	require.NoError(t, err)
+
+	s := shd.(*Shard)
+
+	s.haltForTransferMux.Lock()
+	cancelBeforeResume := s.haltForTransferCtxCancel
+	resumeErr := s.mayForceResumeMaintenanceCycles(ctx, true)
+	cancelAfterResume := s.haltForTransferCtxCancel
+	countAfterResume := s.haltForTransferCount
+	s.haltForTransferMux.Unlock()
+
+	require.NotNil(t, cancelBeforeResume)
+	require.NoError(t, resumeErr)
+	require.Zero(t, countAfterResume)
+	require.Nil(t, cancelAfterResume)
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_DropClearsInactivityMonitorSentinel(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, _ := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	s := shd.(*Shard)
+
+	err := s.HaltForTransfer(ctx, false, time.Hour)
+	require.NoError(t, err)
+
+	err = s.drop(false)
+	require.NoError(t, err)
+
+	s.haltForTransferMux.Lock()
+	cancelAfterDrop := s.haltForTransferCtxCancel
+	s.haltForTransferMux.Unlock()
+
+	require.Nil(t, cancelAfterDrop)
+}
+
+func TestShard_ShutdownClearsInactivityMonitorSentinel(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, _ := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	s := shd.(*Shard)
+
+	err := s.HaltForTransfer(ctx, false, time.Hour)
+	require.NoError(t, err)
+
+	err = s.Shutdown(ctx)
+	require.NoError(t, err)
+
+	s.haltForTransferMux.Lock()
+	cancelAfterShutdown := s.haltForTransferCtxCancel
+	s.haltForTransferMux.Unlock()
+
+	require.Nil(t, cancelAfterShutdown)
+}
+
+func TestShard_StaleMonitorFireIsDropped(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	s := shd.(*Shard)
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+
+	staleCtx, cancelStale := context.WithCancel(context.Background())
+	cancelStale()
+
+	s.haltForTransferMux.Lock()
+	s.haltForTransferInactivityDeadline = time.Now().Add(-time.Hour)
+	s.haltForTransferMux.Unlock()
+
+	keepWatching := s.handleInactivityFire(staleCtx, timer)
+
+	s.haltForTransferMux.Lock()
+	countAfterStaleFire := s.haltForTransferCount
+	s.haltForTransferMux.Unlock()
+
+	require.False(t, keepWatching)
+	require.Equal(t, 1, countAfterStaleFire)
+
+	require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_FutureDeadlinePreventsResumeOnFire(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	s := shd.(*Shard)
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, time.Hour))
+
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+
+	s.haltForTransferMux.Lock()
+	s.haltForTransferInactivityDeadline = time.Now().Add(time.Hour)
+	s.haltForTransferMux.Unlock()
+
+	keepWatching := s.handleInactivityFire(context.Background(), timer)
+
+	s.haltForTransferMux.Lock()
+	countAfterFire := s.haltForTransferCount
+	s.haltForTransferMux.Unlock()
+
+	require.True(t, keepWatching)
+	require.Equal(t, 1, countAfterFire)
+
+	require.NoError(t, s.resumeMaintenanceCycles(ctx))
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_FullResumeResetsInactivityTimeout(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	s := shd.(*Shard)
+
+	err := s.HaltForTransfer(ctx, false, 10*time.Millisecond)
+	require.NoError(t, err)
+
+	err = s.resumeMaintenanceCycles(ctx)
+	require.NoError(t, err)
+
+	s.haltForTransferMux.Lock()
+	timeoutAfterResume := s.haltForTransferInactivityTimeout
+	deadlineAfterResume := s.haltForTransferInactivityDeadline
+	s.haltForTransferMux.Unlock()
+
+	require.Zero(t, timeoutAfterResume)
+	require.True(t, deadlineAfterResume.IsZero())
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
