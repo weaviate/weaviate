@@ -229,6 +229,73 @@ func restURIOf(compose *docker.DockerCompose, nodeIdx int) string {
 	return compose.GetWeaviateNode(nodeIdx).URI()
 }
 
+// pollPerReplicaHistogram hits each of the 3 replicas `polls` times with
+// query() and reports whether every (node, poll) returned `expected`, plus a
+// rendered per-node histogram for the failure message. A read that errors is
+// retried (a replica rejoining RAFT / reopening buckets right after a restart
+// can briefly fail one Aggregate read); a *successful* query is never retried,
+// so a wrong count is recorded as-is and still fails — GH #212 divergence
+// detection is preserved, only transient read errors are tolerated.
+func pollPerReplicaHistogram(
+	compose *docker.DockerCompose, polls, expected int,
+	query func(postURI string) (int, error),
+) (ok bool, rendered string) {
+	const (
+		readAttempts = 5
+		readBackoff  = 200 * time.Millisecond
+	)
+	ok = true
+	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+		counts := map[int]int{}
+		postURI := restURIOf(compose, nodeIdx)
+		for i := 0; i < polls; i++ {
+			var (
+				got int
+				err error
+			)
+			for a := 0; a < readAttempts; a++ {
+				if got, err = query(postURI); err == nil {
+					break
+				}
+				if a < readAttempts-1 {
+					time.Sleep(readBackoff)
+				}
+			}
+			if err != nil {
+				counts[-1]++
+				continue
+			}
+			counts[got]++
+		}
+		for value, n := range counts {
+			if value != expected || n != polls {
+				ok = false
+			}
+		}
+		rendered += fmt.Sprintf("\n  node-%d: %v", nodeIdx, counts)
+	}
+	return ok, rendered
+}
+
+// assertNoPerReplicaPathDivergence is the finalizing-journey wrapper around
+// pollPerReplicaHistogram for the `path` change-tokenization property. It
+// fails the test with the per-replica flap shape if any replica disagrees
+// after the given event (e.g. "after rolling restart during FINALIZING").
+func assertNoPerReplicaPathDivergence(
+	t *testing.T, compose *docker.DockerCompose, className, path string, expected int, afterEvent string,
+) {
+	t.Helper()
+	const pollsPerReplica = 30
+	ok, rendered := pollPerReplicaHistogram(compose, pollsPerReplica, expected,
+		func(postURI string) (int, error) {
+			return equalCount(postURI, className, "path", path)
+		})
+	if !ok {
+		t.Fatalf("per-replica divergence on %q %s (expected %d, %d polls/replica):%s",
+			"path", afterEvent, expected, pollsPerReplica, rendered)
+	}
+}
+
 // batchImportNumeric posts `total` objects in 200-object batches, each with
 // a unique `name` and a `score` produced by scoreFor(i). consistency_level=
 // ALL ensures the cluster is in a fully-replicated baseline state before
