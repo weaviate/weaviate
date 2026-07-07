@@ -22,80 +22,70 @@ import (
 
 // TestMetricsLabels pins the label values each Metrics method emits. Currying
 // query_type at construction and switching to WithLabelValues must keep the same
-// (class_name, query_type) / (query_type, operation, class_name) mapping, so a
-// wrong label order here would flip these assertions.
+// (class_name, query_type) / (query_type, operation, class_name) mapping. It
+// drives off the real monitoring.GetMetrics() vecs so that reordering a label
+// list in prometheus.go — which would silently mislabel the positional
+// AddUsageDimensions call — flips these assertions. Because those vecs live on
+// the shared default registry, assertions measure deltas around each action.
 func TestMetricsLabels(t *testing.T) {
-	newMetrics := func(group bool) (*Metrics, *prometheus.Registry) {
-		reg := prometheus.NewRegistry()
-		queriesCount := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "concurrent_queries_count",
-		}, []string{"class_name", "query_type"})
-		queriesDurations := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "queries_durations_ms",
-		}, []string{"class_name", "query_type"})
-		dimensions := prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "query_dimensions_total",
-		}, []string{"query_type", "operation", "class_name"})
-		dimensionsCombined := prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "query_dimensions_combined_total",
-		})
-		reg.MustRegister(queriesCount, queriesDurations, dimensions, dimensionsCombined)
+	prom := monitoring.GetMetrics()
 
-		m := NewMetrics(&monitoring.PrometheusMetrics{
-			QueriesCount:            queriesCount,
-			QueriesDurations:        queriesDurations,
-			QueryDimensions:         dimensions,
-			QueryDimensionsCombined: dimensionsCombined,
+	newMetrics := func(group bool) *Metrics {
+		return NewMetrics(&monitoring.PrometheusMetrics{
+			QueriesCount:            prom.QueriesCount,
+			QueriesDurations:        prom.QueriesDurations,
+			QueryDimensions:         prom.QueryDimensions,
+			QueryDimensionsCombined: prom.QueryDimensionsCombined,
 			Group:                   group,
 		})
-		return m, reg
 	}
 
 	t.Run("queries count aggregate and get use distinct query_type", func(t *testing.T) {
-		m, reg := newMetrics(false)
+		m := newMetrics(false)
+		aggregate := map[string]string{"class_name": "Foo", "query_type": "aggregate"}
+		get := map[string]string{"class_name": "Foo", "query_type": "get_graphql"}
+		beforeAggregate := gaugeValue(t, "concurrent_queries_count", aggregate)
+		beforeGet := gaugeValue(t, "concurrent_queries_count", get)
 
 		m.QueriesAggregateInc("Foo")
 		m.QueriesGetInc("Foo")
 		m.QueriesGetInc("Foo")
 		m.QueriesGetDec("Foo")
 
-		require.Equal(t, 1.0, gaugeValue(t, reg, "concurrent_queries_count", map[string]string{
-			"class_name": "Foo", "query_type": "aggregate",
-		}))
-		require.Equal(t, 1.0, gaugeValue(t, reg, "concurrent_queries_count", map[string]string{
-			"class_name": "Foo", "query_type": "get_graphql",
-		}))
+		require.Equal(t, 1.0, gaugeValue(t, "concurrent_queries_count", aggregate)-beforeAggregate)
+		require.Equal(t, 1.0, gaugeValue(t, "concurrent_queries_count", get)-beforeGet)
 	})
 
 	t.Run("observe duration records under get_graphql", func(t *testing.T) {
-		m, reg := newMetrics(false)
+		m := newMetrics(false)
+		get := map[string]string{"class_name": "Foo", "query_type": "get_graphql"}
+		before := histogramCount(t, "queries_durations_ms", get)
 
 		m.QueriesObserveDuration("Foo", 0)
 
-		require.Equal(t, uint64(1), histogramCount(t, reg, "queries_durations_ms", map[string]string{
-			"class_name": "Foo", "query_type": "get_graphql",
-		}))
+		require.Equal(t, uint64(1), histogramCount(t, "queries_durations_ms", get)-before)
 	})
 
 	t.Run("usage dimensions keep query_type/operation/class_name order", func(t *testing.T) {
-		m, reg := newMetrics(false)
+		m := newMetrics(false)
+		dims := map[string]string{"query_type": "get", "operation": "objects", "class_name": "Foo"}
+		beforeDims := counterValue(t, "query_dimensions_total", dims)
+		beforeCombined := counterValue(t, "query_dimensions_combined_total", nil)
 
 		m.AddUsageDimensions("Foo", "get", "objects", 5)
 
-		require.Equal(t, 5.0, counterValue(t, reg, "query_dimensions_total", map[string]string{
-			"query_type": "get", "operation": "objects", "class_name": "Foo",
-		}))
-		require.Equal(t, 5.0, counterValue(t, reg, "query_dimensions_combined_total", nil))
+		require.Equal(t, 5.0, counterValue(t, "query_dimensions_total", dims)-beforeDims)
+		require.Equal(t, 5.0, counterValue(t, "query_dimensions_combined_total", nil)-beforeCombined)
 	})
 
 	t.Run("group mode collapses class_name to n/a", func(t *testing.T) {
-		m, reg := newMetrics(true)
+		m := newMetrics(true)
+		na := map[string]string{"class_name": "n/a", "query_type": "get_graphql"}
+		before := gaugeValue(t, "concurrent_queries_count", na)
 
 		m.QueriesGetInc("Foo")
 
-		require.Equal(t, 1.0, gaugeValue(t, reg, "concurrent_queries_count", map[string]string{
-			"class_name": "n/a", "query_type": "get_graphql",
-		}))
+		require.Equal(t, 1.0, gaugeValue(t, "concurrent_queries_count", na)-before)
 	})
 
 	t.Run("nil metrics is a no-op", func(t *testing.T) {
@@ -110,9 +100,11 @@ func TestMetricsLabels(t *testing.T) {
 	})
 }
 
-func findMetric(t *testing.T, reg *prometheus.Registry, name string, labels map[string]string) *dto.Metric {
+// findMetric returns the sample matching name+labels from the default registry,
+// or nil if that series has not been emitted yet (so callers read 0 as baseline).
+func findMetric(t *testing.T, name string, labels map[string]string) *dto.Metric {
 	t.Helper()
-	families, err := reg.Gather()
+	families, err := prometheus.DefaultGatherer.Gather()
 	require.NoError(t, err)
 	for _, fam := range families {
 		if fam.GetName() != name {
@@ -124,7 +116,6 @@ func findMetric(t *testing.T, reg *prometheus.Registry, name string, labels map[
 			}
 		}
 	}
-	require.Failf(t, "metric not found", "%s with labels %v", name, labels)
 	return nil
 }
 
@@ -140,14 +131,14 @@ func labelsMatch(m *dto.Metric, labels map[string]string) bool {
 	return true
 }
 
-func gaugeValue(t *testing.T, reg *prometheus.Registry, name string, labels map[string]string) float64 {
-	return findMetric(t, reg, name, labels).GetGauge().GetValue()
+func gaugeValue(t *testing.T, name string, labels map[string]string) float64 {
+	return findMetric(t, name, labels).GetGauge().GetValue()
 }
 
-func counterValue(t *testing.T, reg *prometheus.Registry, name string, labels map[string]string) float64 {
-	return findMetric(t, reg, name, labels).GetCounter().GetValue()
+func counterValue(t *testing.T, name string, labels map[string]string) float64 {
+	return findMetric(t, name, labels).GetCounter().GetValue()
 }
 
-func histogramCount(t *testing.T, reg *prometheus.Registry, name string, labels map[string]string) uint64 {
-	return findMetric(t, reg, name, labels).GetHistogram().GetSampleCount()
+func histogramCount(t *testing.T, name string, labels map[string]string) uint64 {
+	return findMetric(t, name, labels).GetHistogram().GetSampleCount()
 }

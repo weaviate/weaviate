@@ -36,11 +36,23 @@ var bucketStrategiesLabels = [][]string{
 	{StrategyInverted},
 }
 
-var readOpsLabels = [][]string{
-	{readOpGet, memtableNames[0]},
-	{readOpGet, memtableNames[1]},
-	{readOpGet, componentSegmentGroup},
-}
+var (
+	readOps        = []string{readOpGet, readOpGetBySecondary}
+	readComponents = []string{memtableNames[0], memtableNames[1], componentSegmentGroup}
+)
+
+// readOpsLabels is the single source of truth for the operation/component pairs
+// the read path emits: it zero-initialises those series and, via
+// buildReadOpHandles, pre-resolves their metric handles.
+var readOpsLabels = func() [][]string {
+	labels := make([][]string, 0, len(readOps)*len(readComponents))
+	for _, op := range readOps {
+		for _, component := range readComponents {
+			labels = append(labels, []string{op, component})
+		}
+	}
+	return labels
+}()
 
 // readOpKey identifies a bucket read metric series by operation and component.
 type readOpKey struct {
@@ -100,18 +112,14 @@ func buildReadOpHandles(
 	failure *prometheus.CounterVec,
 	duration *prometheus.HistogramVec,
 ) map[readOpKey]*readOpHandle {
-	ops := []string{readOpGet, readOpGetBySecondary}
-	components := []string{memtableNames[0], memtableNames[1], componentSegmentGroup}
-
-	handles := make(map[readOpKey]*readOpHandle, len(ops)*len(components))
-	for _, op := range ops {
-		for _, component := range components {
-			handles[readOpKey{op, component}] = &readOpHandle{
-				count:    count.WithLabelValues(op, component),
-				ongoing:  ongoing.WithLabelValues(op, component),
-				failure:  failure.WithLabelValues(op, component),
-				duration: duration.WithLabelValues(op, component),
-			}
+	handles := make(map[readOpKey]*readOpHandle, len(readOpsLabels))
+	for _, label := range readOpsLabels {
+		op, component := label[0], label[1]
+		handles[readOpKey{op, component}] = &readOpHandle{
+			count:    count.WithLabelValues(op, component),
+			ongoing:  ongoing.WithLabelValues(op, component),
+			failure:  failure.WithLabelValues(op, component),
+			duration: duration.WithLabelValues(op, component),
 		}
 	}
 	return handles
