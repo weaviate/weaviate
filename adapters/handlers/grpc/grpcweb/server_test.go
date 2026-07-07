@@ -48,9 +48,18 @@ func TestCORSPreflightAllowsConfiguredHeaders(t *testing.T) {
 		"x-user-agent",
 		"grpc-timeout",
 		"x-weaviate-client",
+		// Connect protocol headers a connect-es JSON client sends: the version
+		// header is mandatory for the JSON path (vanguard classifies a bare JSON
+		// POST as REST without it), so a preflight rejecting it blocks every
+		// Connect-JSON browser call; the timeout header accompanies it whenever
+		// the client sets a deadline.
+		"connect-protocol-version",
+		"connect-timeout-ms",
 		"authorization,content-type",
 		// the full unmodified-client preflight, all at once.
 		"authorization,content-type,x-user-agent,grpc-timeout,x-weaviate-client",
+		// the full Connect-JSON browser preflight, all at once.
+		"authorization,content-type,connect-protocol-version,connect-timeout-ms",
 	}
 	for _, sh := range shapes {
 		t.Run(sh.name, func(t *testing.T) {

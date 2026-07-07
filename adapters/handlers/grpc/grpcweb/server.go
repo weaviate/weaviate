@@ -48,9 +48,13 @@ func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, erro
 // operator-configured allowlists plus the grpc-web protocol headers browsers
 // send, with the gRPC trailers exposed so the browser can read the RPC status.
 func corsOptions(cfg config.CORS) cors.Options {
-	// grpc-web protocol headers not present in the general REST allowlist.
-	headers := append([]string{"X-Grpc-Web", "X-User-Agent", "Grpc-Timeout", "X-Weaviate-Client"},
-		splitTrim(cfg.AllowHeaders)...)
+	// grpc-web/Connect protocol headers not present in the general REST
+	// allowlist. Connect-Protocol-Version is mandatory for Connect-JSON clients
+	headers := append([]string{
+		"X-Grpc-Web", "X-User-Agent", "Grpc-Timeout",
+		"Connect-Protocol-Version", "Connect-Timeout-Ms",
+		"X-Weaviate-Client",
+	}, splitTrim(cfg.AllowHeaders)...)
 	return cors.Options{
 		AllowedOrigins: splitTrim(cfg.AllowOrigin),
 		AllowedMethods: []string{http.MethodPost}, // grpc-web is POST-only
