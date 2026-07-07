@@ -1404,6 +1404,74 @@ func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
 	}
 }
 
+// TestMergeUnblocksWhenInitBailsBeforeHashtreeScan deterministically drives the
+// deadlock that TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping only hits
+// under load: holding the single init slot parks the init goroutine before
+// initHashtree, then disableAsyncReplication cancels its context so it exits
+// without ever running the scan that closes minimalHashtreeInitializationCh.
+// Without the fix the channel leaks and the in-flight merge blocks forever.
+func TestMergeUnblocksWhenInitBailsBeforeHashtreeScan(t *testing.T) {
+	ctx := context.Background()
+
+	// Scheduler with a single hashtree-init slot so the test can starve the scan.
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), entreplication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:        configRuntime.NewDynamicValue(1),
+		AsyncReplicationHashtreeInitConcurrency: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:                configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	t.Cleanup(sched.Close)
+
+	sl, _ := testShard(t, ctx, "MergeUnblocksInitBail", func(idx *Index) {
+		idx.asyncReplicationScheduler = sched
+	})
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(s.class.Class, id, tsFarPast)))
+	}
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	// Occupy the only init slot so the shard's init goroutine blocks in
+	// acquireHashtreeInitSlot before it reaches initHashtree.
+	require.NoError(t, sched.hashtreeInitSem.Acquire(context.Background(), 1))
+	defer sched.hashtreeInitSem.Release(1)
+
+	// Spawns the init goroutine, which parks on the held slot with the hashtree
+	// set but not yet initialized.
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+
+	// The merge captures the open init channel and blocks in
+	// waitForMinimalHashTreeInitialization.
+	mergeDone := make(chan error, 1)
+	go func() {
+		mergeDone <- s.MergeObject(ctx, objects.MergeDocument{
+			Class:      s.class.Class,
+			ID:         uuidLow,
+			UpdateTime: tsFarPast + 1,
+		})
+	}()
+
+	// Precondition: the merge must actually be parked while init is stalled.
+	select {
+	case <-mergeDone:
+		t.Fatal("merge completed while hashtree init was stalled — precondition not met")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Disable cancels the shard's async context; the init goroutine returns from
+	// acquireHashtreeInitSlot and exits without running initHashtree.
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	select {
+	case <-mergeDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("merge did not unblock after async replication was disabled — init channel leaked")
+	}
+}
+
 // TestDisableRacingInitLeavesNoRegistration is a targeted test for the TOCTOU
 // window between the init goroutine's WLock release and Register() returning.
 //
@@ -1598,4 +1666,195 @@ func TestLoadHashtreeIgnoresTmpFile(t *testing.T) {
 	assert.NoError(t, statErr, ".ht.tmp file must remain untouched (ignored, not consumed)")
 
 	require.NoError(t, s.disableAsyncReplication(ctx))
+}
+
+// TestResolveObjectConflictTimeBasedNoClobber pins that a TimeBased repair keeps a live local object at least as new as the remote deletion, even when the stale pre-RPC snapshot said it was older.
+func TestResolveObjectConflictTimeBasedNoClobber(t *testing.T) {
+	ctx := context.Background()
+	const (
+		class      = "TimeBasedNoClobber"
+		targetNode = "node-B"
+		snapshot   = int64(100) // stale digest-time snapshot; always < remoteDel so the outer gate passes
+		remoteDel  = int64(150)
+	)
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	tests := []struct {
+		name        string
+		liveTime    int64
+		wantDeleted bool
+		wantExists  bool
+	}{
+		{"live newer than remote deletion is kept", 200, false, true},
+		{"live older than remote deletion is deleted", 100, true, false},
+		{"live equal to remote deletion is kept", 150, false, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sl, _ := testShard(t, ctx, class)
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tc.liveTime)))
+
+			deleted, notResolved, err := s.resolveObjectConflict(
+				ctx,
+				routerTypes.RepairResponse{ID: id.String(), Deleted: true, UpdateTime: remoteDel},
+				models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+				targetNode, nil,
+				map[strfmt.UUID]int64{id: snapshot},
+			)
+			require.NoError(t, err)
+			assert.False(t, notResolved, "notResolved")
+			assert.Equal(t, tc.wantDeleted, deleted, "deleted")
+
+			obj, err := s.ObjectByID(ctx, id, nil, additional.Properties{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantExists, obj != nil, "object exists")
+		})
+	}
+}
+
+// TestDisableConcurrentReEnableConsistency is a deadlock + consistency guard for disable Deregistering under the write lock: hammer concurrent enable/disable and assert the enabled<=>registered invariant holds (see PR for why it is not a deterministic reproduction).
+func TestDisableConcurrentReEnableConsistency(t *testing.T) {
+	ctx := context.Background()
+	const class = "DisableRacesReEnable"
+	const iterations = 100
+
+	sl, _ := testShard(t, ctx, class, withAsyncSchedulerDispatchDisabled(t))
+	s := concreteShard(t, sl)
+	sched := s.index.asyncReplicationScheduler
+
+	cfg := minAsyncReplicationConfig()
+
+	awaitWg := func() {
+		t.Helper()
+		done := make(chan struct{})
+		go func() { s.asyncRepWg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("asyncRepWg did not drain within timeout — goroutine leak or deadlock")
+		}
+	}
+
+	for i := range iterations {
+		require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+		awaitHashtreeInitialized(t, s)
+		awaitWg()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = s.disableAsyncReplication(ctx) }()
+		go func() { defer wg.Done(); _ = s.enableAsyncReplication(ctx, cfg) }()
+		wg.Wait()
+
+		awaitWg()
+
+		s.asyncReplicationRWMux.RLock()
+		enabled := s.hashtree != nil
+		s.asyncReplicationRWMux.RUnlock()
+
+		sched.mu.Lock()
+		_, registered := sched.entries[s]
+		sched.mu.Unlock()
+
+		require.Equalf(t, enabled, registered,
+			"enabled<=>registered invariant violated at iteration %d: hashtree!=nil=%v registered=%v "+
+				"(enabled-but-unregistered means a disable Deregister orphaned a concurrent re-enable's registration)",
+			i, enabled, registered)
+
+		require.NoError(t, s.disableAsyncReplication(ctx))
+		awaitWg()
+	}
+}
+
+// TestUpdateReplicationConfigKeepsAsyncReplicationWhileOverridesActive verifies a config-disable does not tear down async replication while the shard holds an active target-node override.
+func TestUpdateReplicationConfigKeepsAsyncReplicationWhileOverridesActive(t *testing.T) {
+	ctx := context.Background()
+	const class = "UpdateCfgKeepsOverride"
+
+	sl, _ := testShard(t, ctx, class, withAsyncSchedulerDispatchDisabled(t))
+	s := concreteShard(t, sl)
+	sched := s.index.asyncReplicationScheduler
+
+	s.index.replicationConfigLock.Lock()
+	s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+	s.index.replicationConfigLock.Unlock()
+
+	override := additional.AsyncReplicationTargetNodeOverride{
+		CollectionID:   class,
+		ShardID:        s.name,
+		SourceNode:     "nodeA",
+		TargetNode:     "nodeB",
+		UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+	}
+	require.NoError(t, s.addTargetNodeOverride(ctx, override))
+	awaitHashtreeInitialized(t, s)
+
+	requireRegistered := func(want bool) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			sched.mu.Lock()
+			_, ok := sched.entries[s]
+			sched.mu.Unlock()
+			return ok == want
+		}, 10*time.Second, 10*time.Millisecond, "registered=%v not reached", want)
+	}
+	hashtreePresent := func() bool {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+		return s.hashtree != nil
+	}
+
+	requireRegistered(true)
+	require.True(t, hashtreePresent(), "hashtree must be present while override is active")
+
+	require.NoError(t, s.index.updateReplicationConfig(ctx,
+		&models.ReplicationConfig{Factor: 1}))
+
+	require.True(t, hashtreePresent(),
+		"hashtree must NOT be torn down by a config-disable while an override is active")
+	requireRegistered(true)
+	require.True(t, s.hasActiveAsyncReplicationTargetOverrides(),
+		"override must still be active after config-disable")
+
+	require.NoError(t, s.removeAllTargetNodeOverrides(ctx))
+	require.False(t, hashtreePresent(),
+		"hashtree must be torn down once the last override is gone and the class is disabled")
+	requireRegistered(false)
+}
+
+// TestUpdateReplicationConfigDisablesWhenNoActiveOverrides verifies the override guard does not break normal config-driven teardown when no override is held.
+func TestUpdateReplicationConfigDisablesWhenNoActiveOverrides(t *testing.T) {
+	ctx := context.Background()
+	const class = "UpdateCfgDisablesNoOverride"
+
+	sl, _ := testShard(t, ctx, class, withAsyncSchedulerDispatchDisabled(t))
+	s := concreteShard(t, sl)
+	sched := s.index.asyncReplicationScheduler
+
+	require.NoError(t, s.index.updateReplicationConfig(ctx,
+		&models.ReplicationConfig{Factor: 2}))
+	awaitHashtreeInitialized(t, s)
+	require.Eventually(t, func() bool {
+		sched.mu.Lock()
+		_, ok := sched.entries[s]
+		sched.mu.Unlock()
+		return ok
+	}, 10*time.Second, 10*time.Millisecond, "shard must be registered after config-enable")
+
+	require.NoError(t, s.index.updateReplicationConfig(ctx,
+		&models.ReplicationConfig{Factor: 1}))
+
+	require.Eventually(t, func() bool {
+		s.asyncReplicationRWMux.RLock()
+		ht := s.hashtree
+		s.asyncReplicationRWMux.RUnlock()
+		sched.mu.Lock()
+		_, ok := sched.entries[s]
+		sched.mu.Unlock()
+		return ht == nil && !ok
+	}, 10*time.Second, 10*time.Millisecond, "shard must be disabled and deregistered after config-disable with no override")
 }

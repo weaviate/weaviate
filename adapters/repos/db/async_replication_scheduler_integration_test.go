@@ -47,6 +47,26 @@ func newStartedTestScheduler(t *testing.T, workers int) *AsyncReplicationSchedul
 	return sched
 }
 
+// withAsyncSchedulerDispatchDisabled installs a scheduler that Registers shards
+// but never dispatches a cycle, so tests need no stubbed replicator/router.
+func withAsyncSchedulerDispatchDisabled(t *testing.T) func(*Index) {
+	t.Helper()
+	return func(idx *Index) {
+		logger, _ := test.NewNullLogger()
+		sched, err := NewAsyncReplicationScheduler(
+			context.Background(),
+			replication.GlobalConfig{
+				AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+				AsyncReplicationDisabled:         configRuntime.NewDynamicValue(true),
+			},
+			nil, logger,
+		)
+		require.NoError(t, err)
+		t.Cleanup(sched.Close)
+		idx.asyncReplicationScheduler = sched
+	}
+}
+
 // firstShard extracts the single shard from an Index created by testShard.
 func firstShard(t *testing.T, idx *Index) *Shard {
 	t.Helper()

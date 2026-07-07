@@ -939,6 +939,11 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		} else {
+			// An active target-node override (e.g. in-progress movement) forces async
+			// replication on; don't tear it down (removeTargetNodeOverride handles it).
+			if ctrl.hasActiveAsyncReplicationTargetOverrides() {
+				return nil
+			}
 			if err := ctrl.disableAsyncReplication(ctx); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}

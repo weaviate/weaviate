@@ -1450,15 +1450,18 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// Wait for any cycle dispatched between our Done() and the disable below.
 	s.asyncRepWg.Wait()
 
-	// Skip if the shard store is being torn down. performShutdown sets
-	// s.shut=true before calling mayStopAsyncReplication, so this is a
-	// reliable happens-before. Re-enabling now would race with store shutdown
-	// and leak an init-scan goroutine past scheduler.Close().
+	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
+	// across store teardown): enable either finishes before shutdown or is skipped.
+	s.shutdownLock.RLock()
+	defer s.shutdownLock.RUnlock()
+
 	if s.shut.Load() {
 		return
 	}
 
-	// sched.ctx so disable/enable respect scheduler shutdown.
+	// disableAsyncReplication is fsync-free (it never persists the live tree on
+	// the runtime path), so it is safe to hold across the shutdownLock.RLock
+	// region below.
 	if err := s.disableAsyncReplication(sched.ctx); err != nil {
 		if sched.logger != nil {
 			sched.logger.
@@ -1512,6 +1515,8 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// clean up; disableAsyncReplication does no disk I/O so this is bounded
 	// by the Deregister round-trip.
 	if sched.ctx.Err() != nil || s.shut.Load() {
-		s.disableAsyncReplication(sched.ctx)
+		if err := s.disableAsyncReplication(sched.ctx); err != nil {
+			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
+		}
 	}
 }

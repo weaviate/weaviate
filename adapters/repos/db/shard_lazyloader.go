@@ -328,6 +328,17 @@ func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
 	return l.shard.disableAsyncReplication(ctx)
 }
 
+func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		// An unloaded shard holds no in-memory overrides.
+		return false
+	}
+	return l.shard.hasActiveAsyncReplicationTargetOverrides()
+}
+
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if err := l.Load(ctx); err != nil {
 		return err

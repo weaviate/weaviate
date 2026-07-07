@@ -469,6 +469,9 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 
 	s.hashtreeFullyInitialized = false
 	s.minimalHashtreeInitializationCh = make(chan struct{})
+	// The init goroutine closes the channel it owns, not the shard field, which a
+	// concurrent enable may have swapped out under flapping. See closeInitCh.
+	initCh := s.minimalHashtreeInitializationCh
 
 	// asyncRepWg tracks this goroutine so that rebuildHashtree's
 	// asyncRepWg.Wait() serialises rebuilds against it, preventing the old
@@ -479,6 +482,27 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.asyncRepWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer s.asyncRepWg.Done()
+
+		// closeInitCh closes this goroutine's owned channel exactly once, unblocking
+		// merges parked in waitForMinimalHashTreeInitialization. It runs as both
+		// initHashtree's afterInMemCallback and a defer covering the early exits
+		// (scheduler nil, slot acquisition cancelled) that never reach initHashtree
+		// and would otherwise leave the channel open forever. The retry loop replaces
+		// ownedCh per attempt.
+		//
+		// No lock: ownedCh/ownedClosed are goroutine-local and close() already
+		// synchronizes with receivers. It must NOT take asyncReplicationRWMux — it
+		// runs while writes hold the RLock, so becoming a pending writer would, under
+		// Go's writer-priority RWMutex, block every new RLock and deadlock them.
+		ownedCh := initCh
+		ownedClosed := false
+		closeInitCh := func() {
+			if !ownedClosed {
+				ownedClosed = true
+				close(ownedCh)
+			}
+		}
+		defer closeInitCh()
 
 		if s.index.asyncReplicationScheduler == nil {
 			return
@@ -501,7 +525,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 			// the goroutine boundary, after the deferred release fires).
 			err := func() error {
 				defer s.index.asyncReplicationScheduler.releaseHashtreeInitSlot()
-				return s.initHashtree(ctx, effectiveConfig, bucket)
+				return s.initHashtree(ctx, effectiveConfig, bucket, closeInitCh)
 			}()
 
 			if err == nil {
@@ -544,13 +568,13 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 			s.hashtree.Reset()
-			// releaseInitialization (the afterInMemCallback passed to
-			// ApplyToObjectDigests) always closes minimalHashtreeInitializationCh
-			// before initHashtree returns — even on error — so the channel is
-			// already closed here. Closing it again would panic. Replace it with
-			// a fresh channel for the next attempt so write paths that arrive
-			// during the retry wait for that attempt's releaseInitialization.
-			s.minimalHashtreeInitializationCh = make(chan struct{})
+			// initHashtree already closed ownedCh (afterInMemCallback fires once, even
+			// on error); take ownership of a fresh channel so writes arriving during
+			// the retry block until the next attempt completes.
+			newCh := make(chan struct{})
+			s.minimalHashtreeInitializationCh = newCh
+			ownedCh = newCh
+			ownedClosed = false
 			s.asyncReplicationRWMux.Unlock()
 		}
 	}, s.index.logger)
@@ -685,12 +709,31 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 	return loaded, nil
 }
 
+// aggregateHashTreeLeaf folds one object into ht at the given height without
+// touching s.hashtree, so the init scan can run it lock-free (see initHashtree).
+func aggregateHashTreeLeaf(ht hashtree.AggregatedHashTree, height int, uuidBytes []byte, updateTime int64) error {
+	if len(uuidBytes) != 16 {
+		return fmt.Errorf("invalid object uuid")
+	}
+	if updateTime < 1 {
+		return fmt.Errorf("invalid object last update time")
+	}
+	leaf := hashtreeLeafForHeight(uuidBytes, height)
+	var objectDigest [16 + 8]byte
+	copy(objectDigest[:], uuidBytes)
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
+	return ht.AggregateLeafWith(leaf, objectDigest[:])
+}
+
 // initHashtree performs a full on-disk object scan to populate the shard's
 // hashtree. It is called from a background goroutine after the write lock is
 // released so that concurrent reads and writes are not blocked. Progress is
 // logged at loggingFrequency intervals. The scan is gated by hashtreeInitSem
 // to bound concurrent I/O across all shards at startup.
-func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
+//
+// releaseInit runs once the in-memory scan completes (as ApplyToObjectDigests'
+// afterInMemCallback, which fires exactly once even on error).
+func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket, releaseInit func()) (err error) {
 	start := time.Now()
 
 	s.metrics.IncAsyncReplicationHashTreeInitCount()
@@ -707,24 +750,21 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
 	}()
 
-	// releaseInitialization closes minimalHashtreeInitializationCh under RLock
-	// so it serializes with the write-lock path in the retry loop that replaces
-	// the channel. RLock is the correct lock here (not Lock): we are only
-	// reading the channel field and closing it; the retry path replaces the
-	// field under Lock. Invariant: this closure is called exactly once per
-	// initHashtree attempt (ApplyToObjectDigests guarantees it fires the
-	// afterInMemCallback exactly once), so there is no risk of double-close.
-	releaseInitialization := func() {
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
-		close(s.minimalHashtreeInitializationCh)
+	// Capture the tree once so the scan never takes asyncReplicationRWMux per leaf
+	// under the memtable cursor: that inverts lock order vs writes (RLock → memtable) and deadlocks.
+	s.asyncReplicationRWMux.RLock()
+	ht := s.hashtree
+	s.asyncReplicationRWMux.RUnlock()
+	if ht == nil {
+		releaseInit()
+		return nil
 	}
+	height := ht.Height()
 
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(uuidBytes []byte, updateTime int64) error {
+	err = bucket.ApplyToObjectDigests(ctx, releaseInit, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -736,7 +776,7 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			prevProgressLogging = time.Now()
 		}
 
-		if err := s.upsertHashTreeLeaf(uuidBytes, updateTime); err != nil {
+		if err := aggregateHashTreeLeaf(ht, height, uuidBytes, updateTime); err != nil {
 			return err
 		}
 
@@ -997,11 +1037,13 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		return nil
 	}
 
-	// Remove from the scheduler. The context has already been cancelled so any
-	// in-flight cycle will exit promptly; we do not wait for it here.
-	// Deregister may return context.Canceled if the scheduler is shutting down
-	// concurrently; that is safe to ignore because the rebuild path does not
-	// require a strict happens-before with the scheduler's shutdown.
+	// Deregister OUTSIDE asyncReplicationRWMux. v1.38's Deregister is
+	// channel-based: it blocks on the dispatcher, which itself acquires
+	// asyncReplicationRWMux.RLock() — so holding the write lock across it
+	// deadlocks (see the scheduler's lock-ordering note). The context has
+	// already been cancelled so any in-flight cycle exits promptly; we do not
+	// wait for it here. A context.Canceled during scheduler shutdown is safe to
+	// ignore: the rebuild path needs no happens-before with scheduler shutdown.
 	if s.index.asyncReplicationScheduler != nil {
 		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
@@ -1094,6 +1136,12 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 		return s.disableAsyncReplication(ctx)
 	}
 	return nil
+}
+
+func (s *Shard) hasActiveAsyncReplicationTargetOverrides() bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return len(s.targetNodeOverrides) > 0
 }
 
 func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
@@ -1722,13 +1770,20 @@ func (s *Shard) resolveObjectConflict(
 		// Deletion conflict detected but auto-resolution is disabled.
 		return false, true, nil
 	}
-	if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
-		(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
-			r.UpdateTime > localUpdateTimes[strfmt.UUID(r.ID)]) {
+	if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		if err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime)); err != nil {
 			return false, false, fmt.Errorf("deleting local objects: %w", err)
 		}
 		return true, false, nil
+	}
+	if deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+		r.UpdateTime > localUpdateTimes[strfmt.UUID(r.ID)] {
+		// skipIfLocalNewer re-checks the live time under docIdLock so a write landing after the propagation snapshot is not clobbered by an older tombstone.
+		deleted, err := s.deleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime), true)
+		if err != nil {
+			return false, false, fmt.Errorf("deleting local objects: %w", err)
+		}
+		return deleted, false, nil
 	}
 	return false, false, nil
 }
