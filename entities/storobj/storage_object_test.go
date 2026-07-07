@@ -1588,6 +1588,81 @@ func TestObjectsByDocID(t *testing.T) {
 	}
 }
 
+func TestObjectsByDocIDSharedView(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name     string
+		inputIDs []uint64
+	}{
+		{name: "1 object - sequential code path", inputIDs: []uint64{0}},
+		{name: "2 objects - concurrent code path", inputIDs: []uint64{0, 1}},
+		{name: "100 objects - concurrent code path", inputIDs: pickRandomIDsBetween(0, 1000, 100)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket := genFakeBucket(t, 1000)
+
+			res, err := ObjectsByDocID(bucket, tt.inputIDs, additional.Properties{}, nil, logger)
+			require.NoError(t, err)
+			require.Len(t, res, len(tt.inputIDs))
+
+			// a single consistent view is acquired and released for the whole
+			// batch, regardless of the number of objects or parallel chunks
+			assert.Equal(t, 1, bucket.views)
+			assert.Equal(t, 1, bucket.released)
+
+			for i, obj := range res {
+				expectedDocID := tt.inputIDs[i]
+				assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
+			}
+		})
+	}
+}
+
+func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	for _, name := range []string{"sequential code path", "concurrent code path"} {
+		t.Run(name, func(t *testing.T) {
+			ids := []uint64{0}
+			if name == "concurrent code path" {
+				ids = pickRandomIDsBetween(0, 1000, 100)
+			}
+
+			bucket := genFakeBucket(t, 1000)
+			bucket.lookupErr = fmt.Errorf("boom")
+
+			_, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+			require.Error(t, err)
+
+			// the view is still released exactly once when a lookup fails mid-batch
+			assert.Equal(t, 1, bucket.views)
+			assert.Equal(t, 1, bucket.released)
+		})
+	}
+}
+
+func TestObjectsByDocIDEmptyBatch(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bucket := genFakeBucket(t, 1000)
+
+	res, err := ObjectsByDocID(bucket, nil, additional.Properties{}, nil, logger)
+	require.NoError(t, err)
+	require.Empty(t, res)
+
+	// an empty batch acquires no consistent view
+	assert.Equal(t, 0, bucket.views)
+	assert.Equal(t, 0, bucket.released)
+}
+
+func TestObjectsByDocIDNilBucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	_, err := ObjectsByDocID(nil, []uint64{0}, additional.Properties{}, nil, logger)
+	require.Error(t, err)
+}
+
 func TestSkipMissingObjects(t *testing.T) {
 	bucket := genFakeBucket(t, 1000)
 	logger, _ := test.NewNullLogger()
@@ -1778,13 +1853,24 @@ func FuzzObjectGet(f *testing.F) {
 
 type fakeBucket struct {
 	objects map[uint64][]byte
+	// views and released count how often a consistent view is acquired and
+	// released for a batch.
+	views    int
+	released int
+	// lookupErr, when set, makes every lookup fail, simulating an error
+	// mid-batch.
+	lookupErr error
 }
 
-func (f *fakeBucket) GetBySecondary(_ context.Context, _ int, _ []byte) ([]byte, error) {
-	panic("not implemented")
+func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
+	f.views++
+	return f.GetBySecondaryWithBuffer, func() { f.released++ }
 }
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
+	if f.lookupErr != nil {
+		return nil, nil, f.lookupErr
+	}
 	docID := binary.LittleEndian.Uint64(docIDBytes)
 	objBytes, ok := f.objects[docID]
 	if !ok {
