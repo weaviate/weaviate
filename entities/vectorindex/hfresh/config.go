@@ -36,6 +36,30 @@ const (
 	MaximumAllowedPostingSizeKB = 1024
 )
 
+// Upper bounds for the muvera encoding parameters. The encoder cost scales
+// with repetitions x 2^ksim x dprojections (the FDE length in float32s), so
+// unbounded values are a memory-exhaustion vector: a single document would
+// try to allocate its FDE at encode time. ksim matches the bound HNSW
+// already enforces.
+//
+// These bounds are deliberately NOT enforced by UserConfig.validate() /
+// ParseAndValidateConfig: that path also parses schemas restored from disk
+// or replayed from the RAFT log at startup, and a persisted class with
+// out-of-range values must never prevent a node from starting. They are
+// enforced by the schema handler on create/update only
+// (ValidateMuveraUpperBounds); the index logs a warning when it loads such
+// a config (see hfresh.New).
+const (
+	MaximumAllowedMuveraKSim         = 10
+	MaximumAllowedMuveraDProjections = 1024
+	MaximumAllowedMuveraRepetitions  = 256
+	// MaximumAllowedMuveraFDELength caps repetitions x 2^ksim x dprojections:
+	// the individual bounds alone still allow FDEs of hundreds of MB per
+	// vector. 2^20 float32s = 4 MiB per encoded vector; the defaults
+	// (10 x 2^4 x 8 = 1280) leave ~800x headroom.
+	MaximumAllowedMuveraFDELength = 1 << 20
+)
+
 // UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
@@ -133,6 +157,48 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hfresh config: %w", errors.Join(errs...))
 	}
 
+	return nil
+}
+
+// ValidateMuveraUpperBounds enforces the muvera parameter upper bounds. It
+// runs on schema create/update only — never on startup/restore parsing, so a
+// persisted class with out-of-range values does not block a node from
+// starting (it logs a warning when the index loads instead).
+func ValidateMuveraUpperBounds(uc UserConfig) error {
+	if !uc.Multivector.MuveraConfig.Enabled {
+		return nil
+	}
+
+	var errs []error
+	cfg := uc.Multivector.MuveraConfig
+
+	if cfg.KSim > MaximumAllowedMuveraKSim {
+		errs = append(errs, fmt.Errorf("muvera ksim is %d but must be at most %d",
+			cfg.KSim, MaximumAllowedMuveraKSim))
+	}
+	if cfg.DProjections > MaximumAllowedMuveraDProjections {
+		errs = append(errs, fmt.Errorf("muvera dprojections is %d but must be at most %d",
+			cfg.DProjections, MaximumAllowedMuveraDProjections))
+	}
+	if cfg.Repetitions > MaximumAllowedMuveraRepetitions {
+		errs = append(errs, fmt.Errorf("muvera repetitions is %d but must be at most %d",
+			cfg.Repetitions, MaximumAllowedMuveraRepetitions))
+	}
+
+	// only compute the combined FDE length once the individual bounds hold,
+	// so 1<<ksim cannot overflow
+	if len(errs) == 0 && cfg.KSim > 0 && cfg.DProjections > 0 && cfg.Repetitions > 0 {
+		fdeLength := cfg.Repetitions * (1 << cfg.KSim) * cfg.DProjections
+		if fdeLength > MaximumAllowedMuveraFDELength {
+			errs = append(errs, fmt.Errorf(
+				"muvera encoded vector length (repetitions x 2^ksim x dprojections) is %d float32s but must be at most %d (%d MiB per vector)",
+				fdeLength, MaximumAllowedMuveraFDELength, MaximumAllowedMuveraFDELength*4/(1024*1024)))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid hfresh config: %w", errors.Join(errs...))
+	}
 	return nil
 }
 
