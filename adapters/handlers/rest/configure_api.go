@@ -149,8 +149,10 @@ import (
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	modusages3 "github.com/weaviate/weaviate/modules/usage-s3"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -655,6 +657,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		UsageLimitsErrorMessage: appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		DBLoadProgress:          repo.StartupLoadingProgress,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -863,11 +866,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
+	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
+	// interface so the cleanup's nil check holds.
+	var rbacLister namespacecleanup.RBACLister
+	if appState.RBAC != nil {
+		rbacLister = appState.RBAC
+	}
 	namespaceCleanupCoordinator := namespacecleanup.NewCoordinator(
 		appState.NamespacesController,
 		rCluster.NewSchemaNamespaceLister(appState.ClusterService.SchemaReader()),
 		appState.APIKey.Dynamic,
 		appState.ClusterService.Raft,
+		rbacLister,
 		appState.ClusterService.IsLeader,
 		appState.Logger,
 	)
@@ -893,7 +903,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
-			l.WithError(err).Fatal("meta store failed to become ready; cannot verify namespace startup invariants")
+			l.Fatalf("meta store failed to become ready; cannot verify namespace startup invariants: %v", err)
 		}
 		schemaSnapshot := appState.SchemaManager.GetSchemaSkipAuth()
 		var classNames []string
@@ -902,12 +912,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				classNames = append(classNames, c.Class)
 			}
 		}
+		// RBAC rows feed only the NS-disabled checks, so fetch them solely on
+		// that path — a read error then means we can't verify the invariant and
+		// must fail closed, rather than crashing an NS-enabled node that never
+		// inspects this data.
+		var roleNames, policyResources, groupingSubjects []string
+		if !appState.ServerConfig.Config.Namespaces.Enabled && appState.RBAC != nil {
+			roles, err := appState.RBAC.GetRoles()
+			if err != nil {
+				l.Fatalf("namespace startup invariants: GetRoles: %v", err)
+			}
+			for name, policies := range roles {
+				roleNames = append(roleNames, name)
+				for _, p := range policies {
+					policyResources = append(policyResources, p.Resource)
+				}
+			}
+			groupingSubjects, err = appState.RBAC.ListGroupingSubjects()
+			if err != nil {
+				l.Fatalf("namespace startup invariants: ListGroupingSubjects: %v", err)
+			}
+		}
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 			appState.ServerConfig.Config.Replication.MaximumFactor,
 			classNames,
 			appState.ClusterService.NamespaceCount(),
+			roleNames,
+			policyResources,
+			groupingSubjects,
 		); err != nil {
 			l.Fatal(err)
 		}
@@ -1176,7 +1210,7 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 // A class name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
 // by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int) error {
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1208,7 +1242,53 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		// Guards against disabling namespaces on a namespaced cluster.
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
+
+	// Role names, policy resources (what a role's permissions grant access to)
+	// and grouping subjects (who a role assignment binds) may each be
+	// namespace-qualified when NAMESPACES_ENABLED=true. With namespaces disabled
+	// they would be misinterpreted, so the rows are only inspected in that case.
+	if !enabled {
+		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+		// A users/<id> or groups/<type>/<name> resource may carry a ':' inside the
+		// id itself (e.g. an OIDC username), so its colon is not a namespace
+		// qualifier and the resource is skipped; collection/role shapes still count.
+		if n, ex := countQualified(policyResources, func(r string) bool {
+			return !conv.IsOpaqueIDResource(r) && conv.ContainsNamespaceSeparator(r)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role permission(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+		// Only a colon in a direct db user (e.g. db:customer1:alice) is a namespace
+		// qualifier — db names forbid ':'. OIDC names may contain ':', so oidc:
+		// subjects are ambiguous and skipped; groups are global regardless of name.
+		if n, ex := countQualified(groupingSubjects, func(s string) bool {
+			user, prefix, err := conv.GetUserAndPrefix(s)
+			if err != nil || prefix != string(authentication.AuthTypeDb) {
+				return false
+			}
+			return conv.ContainsNamespaceSeparator(user)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d role assignment(s) to a namespace-qualified principal (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+	}
 	return nil
+}
+
+// countQualified returns how many values satisfy isQualified and the first such
+// value, for a count + example diagnostic.
+func countQualified(values []string, isQualified func(string) bool) (int, string) {
+	var count int
+	var example string
+	for _, v := range values {
+		if isQualified(v) {
+			if count == 0 {
+				example = v
+			}
+			count++
+		}
+	}
+	return count, example
 }
 
 type metaStoreReady struct {
@@ -1545,7 +1625,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	monitoring.InitConfig(serverConfig.Config.Monitoring)
 
-	if serverConfig.Config.DisableGraphQL {
+	if serverConfig.Config.DisableGraphQL.Get() {
 		logger.WithFields(logrus.Fields{
 			"action":          "startup",
 			"disable_graphql": true,
@@ -2564,6 +2644,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2629,6 +2710,17 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 					appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
 				}
 			}, appState.Logger)
+			return nil
+		}
+		// GraphQL is loaded lazily on toggle: makeUpdateSchemaCall skips the build
+		// while disabled, so on enable rebuild from the current schema, and on
+		// disable drop the graph (it's no longer served).
+		hooks["DisableGraphQL"] = func() error {
+			if appState.ServerConfig.Config.DisableGraphQL.Get() {
+				appState.SetGraphQL(nil)
+			} else {
+				rebuildGraphQLOnEnable(appState)
+			}
 			return nil
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())

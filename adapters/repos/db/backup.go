@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -45,14 +44,7 @@ var errShardNoLocalData = errors.New("shard has no local data")
 const (
 	lsmDir        = "lsm"
 	migrationsDir = ".migrations"
-	dbExt         = ".db"
-	bloomExt      = ".bloom"
 	tmpExt        = ".tmp"
-	cnaExt        = ".cna"
-	metadataExt   = ".metadata"
-	condensedExt  = ".condensed"
-	snapshotExt   = ".snapshot"
-	sortedExt     = ".sorted"
 )
 
 // Backupable returns whether all given class can be backed up.
@@ -433,7 +425,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	for _, relPath := range files {
 		src := filepath.Join(i.Config.RootPath, relPath)
 		dst := filepath.Join(stagingRoot, relPath)
-		if isImmutableFile(relPath) {
+		if backup.IsImmutableFile(relPath) {
 			hardlinks = append(hardlinks, file.HardlinkPair{Src: src, Dst: dst})
 			continue
 		}
@@ -443,8 +435,14 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if err := file.CopyFile(src, dst); err != nil {
-			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
+		if backup.IsImmutableFile(relPath) {
+			if err := os.Link(src, dst); err != nil {
+				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
+			}
+		} else {
+			if err := file.CopyFile(src, dst); err != nil {
+				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
+			}
 		}
 	}
 	if err := file.HardlinkFiles(hardlinks); err != nil {
@@ -456,40 +454,6 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	}
 
 	return nil
-}
-
-// isImmutableFile reports whether a backup file (relative path) is guaranteed
-// never to be modified in place after a COLD/INACTIVE shard is activated.
-// Only these files are safe to hard-link during backup; all other files are
-// copied to avoid post-snapshot corruption from in-place writes.
-func isImmutableFile(relPath string) bool {
-	base := filepath.Base(relPath)
-	ext := filepath.Ext(base)
-
-	// LSM segment data files — written once during flush/compaction, never modified.
-	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
-	if ext == dbExt && !strings.HasPrefix(base, "meta") && base != "index.db" {
-		return true
-	}
-	// LSM segment companion files — written once during segment init, never modified.
-	// .bloom = bloom filter, .cna = count net additions, .metadata = combined metadata.
-	if ext == bloomExt || ext == cnaExt || ext == metadataExt {
-		return true
-	}
-	// Condensed HNSW commitlogs — produced by compaction, never reopened for writes.
-	if ext == condensedExt {
-		return true
-	}
-	// HNSW snapshots — point-in-time captures, never modified after creation.
-	if ext == snapshotExt {
-		return true
-	}
-	// Compact-v2 sorted commit-log files — produced by compact.SortedWriter via
-	// SafeFileWriter (atomic rename-in), never reopened for writes.
-	if ext == sortedExt {
-		return true
-	}
-	return false
 }
 
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support

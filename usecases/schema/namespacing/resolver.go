@@ -62,12 +62,21 @@ func StripQualification(name string) string {
 	return name
 }
 
-// qualify prepends principal.Namespace to name.
-func qualify(principal *models.Principal, name string) string {
-	if principal == nil {
-		return name
+// ConfinedNamespace returns the namespace a caller's RBAC reads and writes are
+// confined to, or "" when the caller is unconfined: nil, a global operator, or
+// namespace-less. An operator is unconfined even if a namespace were ever set on
+// it, so the confine decision and the read-strip decision share one predicate.
+func ConfinedNamespace(principal *models.Principal) string {
+	if principal == nil || principal.IsGlobalOperator {
+		return ""
 	}
-	return QualifiedName(principal.Namespace, name)
+	return principal.Namespace
+}
+
+// qualify prepends the caller's confined namespace to name; operators and
+// unconfined callers (nil, global operator, namespace-less) get name unchanged.
+func qualify(principal *models.Principal, name string) string {
+	return QualifiedName(ConfinedNamespace(principal), name)
 }
 
 // QualifyRefTarget normalises a cross-reference target. Refs can't cross
@@ -108,7 +117,7 @@ func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourc
 // raw passthrough for NS-disabled / global principals, prepended with
 // principal.Namespace for a namespaced principal.
 func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool, raw string) string {
-	if !namespacesEnabled || principal == nil || principal.Namespace == "" {
+	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
 		return raw
 	}
 	return QualifiedName(principal.Namespace, raw)
@@ -195,7 +204,7 @@ func QualifyPropertyDataTypes(
 	namespacesEnabled bool,
 	properties []*models.Property,
 ) error {
-	if !namespacesEnabled || principal == nil || principal.Namespace == "" {
+	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
 		return nil
 	}
 	for _, p := range properties {
@@ -228,7 +237,7 @@ func QualifyPropertyDataTypes(
 // or short input). A foreign prefix is left intact so downstream
 // ValidateClassName fails closed on the embedded ":".
 func StripOwnNamespace(principal *models.Principal, name string) string {
-	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return name
 	}
 	return strings.TrimPrefix(name, principal.Namespace+schema.NamespaceSeparator)
@@ -241,7 +250,7 @@ func StripOwnNamespace(principal *models.Principal, name string) string {
 // pass-through. The input is never mutated: callers can safely pass cached
 // schema pointers without affecting concurrent readers.
 func StripClassResponse(principal *models.Principal, src *models.Class) *models.Class {
-	if src == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if src == nil || ConfinedNamespace(principal) == "" {
 		return src
 	}
 	out := *src
@@ -260,7 +269,7 @@ func StripClassResponse(principal *models.Principal, src *models.Class) *models.
 // namespace prefix. Primitive types (text, int, …) never carry a namespace
 // prefix, so StripOwnNamespace is a no-op on them. The input is never mutated.
 func StripPropertyResponse(principal *models.Principal, src *models.Property) *models.Property {
-	if src == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if src == nil || ConfinedNamespace(principal) == "" {
 		return src
 	}
 	out := *src
@@ -305,7 +314,7 @@ func stripDataTypes(principal *models.Principal, src []string) []string {
 // mutated: callers can safely pass cached schema pointers without affecting
 // concurrent readers.
 func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.Alias {
-	if src == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if src == nil || ConfinedNamespace(principal) == "" {
 		return src
 	}
 	out := *src
@@ -319,7 +328,7 @@ func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.
 // objects manager — there are no shared pointers to protect — so in-place
 // mutation is safe.
 func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
-	if obj == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if obj == nil || ConfinedNamespace(principal) == "" {
 		return
 	}
 	obj.Class = StripOwnNamespace(principal, obj.Class)
@@ -333,7 +342,7 @@ func StripRefSourceBeacon(principal *models.Principal, src *crossref.RefSource) 
 	if src == nil {
 		return ""
 	}
-	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return strfmt.URI(src.String())
 	}
 	out := *src
@@ -349,7 +358,7 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	if r == nil {
 		return ""
 	}
-	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return strfmt.URI(r.String())
 	}
 	out := *r
@@ -371,7 +380,7 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 // entry as a bare class name and stripping own NS as a string prefix. Input
 // is not mutated.
 func StripPointingTo(principal *models.Principal, entries []string) []string {
-	if len(entries) == 0 || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if len(entries) == 0 || ConfinedNamespace(principal) == "" {
 		return entries
 	}
 	out := make([]string, len(entries))
@@ -390,7 +399,7 @@ func StripPointingTo(principal *models.Principal, entries []string) []string {
 // "<namespace>:" prefix from msg. Returns msg unchanged when principal is
 // nil or has no namespace.
 func StripErrorMessage(principal *models.Principal, msg string) string {
-	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return msg
 	}
 	return strings.ReplaceAll(msg, principal.Namespace+schema.NamespaceSeparator, "")

@@ -121,6 +121,9 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
+	StartupShardsLoaded prometheus.Gauge
+	StartupShardsToLoad prometheus.Gauge
+
 	ShardsLoaded    prometheus.Gauge
 	ShardsUnloaded  prometheus.Gauge
 	ShardsLoading   prometheus.Gauge
@@ -705,6 +708,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "startup_diskio_throughput",
 			Help: "Disk I/O throuhput in bytes per second",
 		}, []string{"operation", "class_name", "shard_name"}),
+		StartupShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_startup_shards_loaded",
+			Help: "Number of eagerly-loaded local shards that have finished loading during startup",
+		}),
+		StartupShardsToLoad: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_startup_shards_to_load",
+			Help: "Number of local shards expected to load eagerly during startup",
+		}),
 		QueryDimensions: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
