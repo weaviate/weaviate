@@ -1455,3 +1455,45 @@ func TestUserNameWithTypeScoped(t *testing.T) {
 		})
 	}
 }
+
+// TestUserNameWithTypeFromPrincipal pins the enforcement-side subject: a global
+// OIDC principal (IsGlobalOperator) gets the empty-namespace slot; namespaced
+// OIDC, any DB, and NS-disabled principals are unchanged.
+func TestUserNameWithTypeFromPrincipal(t *testing.T) {
+	tests := []struct {
+		name        string
+		principal   *models.Principal
+		wantSubject string
+	}{
+		{
+			name:        "global oidc bare name gets slot",
+			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: true},
+			wantSubject: "oidc::carol",
+		},
+		{
+			name:        "global oidc colon-bearing name gets slot",
+			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: true},
+			wantSubject: "oidc::customer1:carol",
+		},
+		{
+			name:        "namespaced oidc: no slot",
+			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: false},
+			wantSubject: "oidc:customer1:carol",
+		},
+		{
+			name:        "global db: no slot",
+			principal:   &models.Principal{UserType: models.UserTypeInputDb, Username: "bob", IsGlobalOperator: true},
+			wantSubject: "db:bob",
+		},
+		{
+			name:        "ns-disabled oidc: no slot",
+			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: false},
+			wantSubject: "oidc:carol",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.wantSubject, UserNameWithTypeFromPrincipal(tt.principal))
+		})
+	}
+}

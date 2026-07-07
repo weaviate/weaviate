@@ -123,6 +123,15 @@ func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool,
 	return QualifiedName(principal.Namespace, raw)
 }
 
+// GlobalSubjectTarget reports whether a resolved (already-qualified) user id has
+// no namespace — the condition under which a global OIDC subject carries the
+// empty-namespace slot. It keys off the target id, not the calling principal: a
+// global operator addressing "customer1:carol" resolves to that namespaced
+// subject, not a global one.
+func GlobalSubjectTarget(namespacesEnabled bool, internalID string) bool {
+	return namespacesEnabled && NamespaceFromQualified(internalID) == ""
+}
+
 // Resolve is the read-side entry point used everywhere a user-supplied
 // class/alias name needs to become an internal class name:
 //

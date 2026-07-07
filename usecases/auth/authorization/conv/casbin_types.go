@@ -578,7 +578,7 @@ func NameHasPrefix(name string) bool {
 }
 
 func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
-	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
+	return UserNameWithTypeScoped(authentication.AuthType(principal.UserType), principal.Username, principal.IsGlobalOperator)
 }
 
 func UserNameWithTypeFromId(username string, authType authentication.AuthType) string {

@@ -34,18 +34,16 @@ func TestCallerConfined(t *testing.T) {
 		namespacesEnabled bool
 		principal         *models.Principal
 		want              bool
-		wantGlobal        bool
 	}{
-		{name: "namespaces disabled", namespacesEnabled: false, principal: &models.Principal{Username: "alice", Namespace: "customer1"}, want: false, wantGlobal: false},
-		{name: "nil principal", namespacesEnabled: true, principal: nil, want: false, wantGlobal: true},
-		{name: "global operator", namespacesEnabled: true, principal: &models.Principal{Username: "op", Namespace: "customer1", IsGlobalOperator: true}, want: false, wantGlobal: true},
-		{name: "namespace-less principal", namespacesEnabled: true, principal: &models.Principal{Username: "root"}, want: false, wantGlobal: true},
-		{name: "confined non-operator", namespacesEnabled: true, principal: &models.Principal{Username: "alice", Namespace: "customer1"}, want: true, wantGlobal: false},
+		{name: "namespaces disabled", namespacesEnabled: false, principal: &models.Principal{Username: "alice", Namespace: "customer1"}, want: false},
+		{name: "nil principal", namespacesEnabled: true, principal: nil, want: false},
+		{name: "global operator", namespacesEnabled: true, principal: &models.Principal{Username: "op", Namespace: "customer1", IsGlobalOperator: true}, want: false},
+		{name: "namespace-less principal", namespacesEnabled: true, principal: &models.Principal{Username: "root"}, want: false},
+		{name: "confined non-operator", namespacesEnabled: true, principal: &models.Principal{Username: "alice", Namespace: "customer1"}, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, CallerConfined(tt.namespacesEnabled, tt.principal))
-			require.Equal(t, tt.wantGlobal, CallerGlobal(tt.namespacesEnabled, tt.principal))
 		})
 	}
 }

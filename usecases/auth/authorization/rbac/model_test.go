@@ -959,6 +959,53 @@ func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *t
 		"read-only group assignment removed from config must be gone after restart")
 }
 
+// TestApplyPredefinedRoles_OIDCEnvUsersSlotted asserts env-var root/admin/viewer
+// OIDC users are stored under the slotted subject (oidc::alice) on NS-enabled
+// clusters and unslotted (oidc:alice) on NS-disabled ones, matching the
+// enforcement subject built by UserNameWithTypeFromPrincipal for a global OIDC
+// operator.
+func TestApplyPredefinedRoles_OIDCEnvUsersSlotted(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		namespacesEnabled bool
+		user              string
+		wantSubject       string
+	}{
+		{"NS-disabled bare: unslotted", false, "alice", conv.UserNameWithTypeFromId("alice", authentication.AuthTypeOIDC)},
+		{"NS-enabled bare: slotted", true, "alice", "oidc::alice"},
+		// A colon-bearing global OIDC admin/viewer keeps its full name after the
+		// empty-namespace marker (oidc::customer1:carol), so it can't collide with
+		// a namespaced "carol"@customer1 (oidc:customer1:carol). Such a name can
+		// only be granted via AdminUsers/ViewerUsers — RootUsers rejects ':'.
+		{"NS-enabled colon-name: slotted with full name", true, "customer1:carol", "oidc::customer1:carol"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			isRoot := !strings.Contains(tc.user, ":")
+			conf := rbacconf.Config{
+				Enabled:     true,
+				AdminUsers:  []string{tc.user},
+				ViewerUsers: []string{tc.user},
+			}
+			if isRoot {
+				conf.RootUsers = []string{tc.user}
+			}
+			authNconf := config.Authentication{OIDC: config.OIDC{Enabled: true}}
+
+			enforcer, err := Init(conf, dir, authNconf, tc.namespacesEnabled)
+			require.NoError(t, err)
+
+			roles, err := enforcer.GetRolesForUser(tc.wantSubject)
+			require.NoError(t, err)
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Admin))
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Viewer))
+			if isRoot {
+				require.Contains(t, roles, conv.PrefixRoleName(authorization.Root))
+			}
+		})
+	}
+}
+
 // TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate asserts
 // env-var add-only behaviour for admin/viewer: removing the env var between
 // boots does not revoke the grouping (Casbin rows aren't tagged by source,

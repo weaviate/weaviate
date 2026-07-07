@@ -219,7 +219,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 
 		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Root)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, conf.RootUsers[i], namespacesEnabled), conv.PrefixRoleName(authorization.Root)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
@@ -238,7 +238,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 
 		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Admin)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, conf.AdminUsers[i], namespacesEnabled), conv.PrefixRoleName(authorization.Admin)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
@@ -256,7 +256,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 
 		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, conf.ViewerUsers[i], namespacesEnabled), conv.PrefixRoleName(authorization.Viewer)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}

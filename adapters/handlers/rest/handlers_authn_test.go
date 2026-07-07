@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -80,6 +81,53 @@ func TestGetOwnInfo(t *testing.T) {
 			require.Len(t, parsed.Payload.Roles[0].Permissions, 1)
 			require.NotNil(t, parsed.Payload.Roles[0].Permissions[0].Users)
 			require.Equal(t, tt.wantUser, *parsed.Payload.Roles[0].Permissions[0].Users.Users)
+		})
+	}
+}
+
+// TestGetOwnInfo_OIDCSlot pins the two distinct ids in the OIDC self-read: the
+// internal casbin lookup key, which must match how the roles are stored (slotted
+// ":carol" for a global operator, qualified "customer1:carol" for a namespaced
+// caller — otherwise the self-read misses its own roles), and the user-facing
+// response Username, which is always the short name with the namespace stripped.
+func TestGetOwnInfo_OIDCSlot(t *testing.T) {
+	tests := []struct {
+		name         string
+		principal    *models.Principal
+		wantSubject  string // internal casbin lookup key
+		wantUsername string // user-facing response username
+	}{
+		{
+			name:         "global oidc operator: slotted lookup, raw username",
+			principal:    &models.Principal{Username: "carol", UserType: "oidc", IsGlobalOperator: true},
+			wantSubject:  ":carol",
+			wantUsername: "carol",
+		},
+		{
+			name:         "namespaced oidc caller: qualified lookup, stripped username",
+			principal:    &models.Principal{Username: "customer1:carol", UserType: "oidc", Namespace: "customer1"},
+			wantSubject:  "customer1:carol",
+			wantUsername: "carol",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			controller := authorization.NewMockController(t)
+			controller.On("GetRolesForUserOrGroup", tt.wantSubject, authentication.AuthTypeOIDC, false).
+				Return(map[string][]authorization.Policy{}, nil)
+
+			logger, _ := test.NewNullLogger()
+			h := &authNHandlers{
+				authzController: controller,
+				rbacConfig:      rbacconf.Config{Enabled: true},
+				logger:          logger,
+			}
+
+			res := h.getOwnInfo(users.GetOwnInfoParams{}, tt.principal)
+			parsed, ok := res.(*users.GetOwnInfoOK)
+			require.True(t, ok, "got %T", res)
+			controller.AssertCalled(t, "GetRolesForUserOrGroup", tt.wantSubject, authentication.AuthTypeOIDC, false)
+			require.Equal(t, tt.wantUsername, *parsed.Payload.Username)
 		})
 	}
 }

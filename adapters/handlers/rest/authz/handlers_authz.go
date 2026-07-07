@@ -800,7 +800,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		}
 	}
 
-	if err := h.validateUserIDForNamespaces(internalID); err != nil {
+	if err := h.validateUserIDForNamespaces(internalID, params.Body.UserType); err != nil {
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -853,8 +853,9 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("username to assign role to doesn't exist")))
 	}
 
+	isGlobal := namespacing.GlobalSubjectTarget(h.namespacesEnabled, internalID)
 	for _, userType := range userTypes {
-		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), roleNames); err != nil {
+		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeScoped(userType, internalID, isGlobal), roleNames); err != nil {
 			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("AddRolesForUser: %w", err)))
 		}
 	}
@@ -1065,11 +1066,18 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	ctx := params.HTTPRequest.Context()
 	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
 
-	if err := h.validateUserIDForNamespaces(internalID); err != nil {
+	if err := h.validateUserIDForNamespaces(internalID, models.UserTypeInput(params.UserType)); err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	ownUser := internalID == principal.Username && params.UserType == string(principal.UserType)
+	// A self-read skips the per-user authz check only when caller and resolved
+	// target are the same subject — on NS-enabled clusters, the same slot too, so
+	// a global caller can't self-match a namespaced target of a same-looking id.
+	callerGlobal := namespacing.ConfinedNamespace(principal) == ""
+	targetGlobal := namespacing.GlobalSubjectTarget(h.namespacesEnabled, internalID)
+	ownUser := internalID == principal.Username &&
+		params.UserType == string(principal.UserType) &&
+		(!h.namespacesEnabled || callerGlobal == targetGlobal)
 
 	if !ownUser {
 		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(internalID)...); err != nil {
@@ -1092,7 +1100,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserNotFound()
 	}
 
-	existingRoles, err := h.controller.GetRolesForUserOrGroup(internalID, userType, false)
+	existingRoles, err := h.controller.GetRolesForUserOrGroup(conv.ScopedSubjectUser(userType, internalID, targetGlobal), userType, false)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
@@ -1147,15 +1155,34 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 		}
 
+		// De-slotting collapses a global (":carol") and a namespaced
+		// ("customer1:carol") OIDC subject to the same display id, so the
+		// self-check compares the caller's own slot-aware subject against the
+		// stored id before that happens; the authz resource and response body use
+		// the de-slotted id.
+		ownTypeMatch := string(userType) == string(principal.UserType)
+		var ownSubject string
+		if ownTypeMatch {
+			ownSubject = conv.ScopedSubjectUser(userType, principal.Username, namespacing.ConfinedNamespace(principal) == "")
+		}
+
 		filteredUsers := make([]string, 0, len(users))
-		for _, userName := range users {
-			if userName == principal.Username {
-				// own username
-				filteredUsers = append(filteredUsers, userName)
+		for _, stored := range users {
+			displayName := stored
+			if userType == authentication.AuthTypeOIDC && h.namespacesEnabled {
+				displayName = conv.StripGlobalOIDCSlot(stored)
+			}
+
+			self := displayName == principal.Username
+			if h.namespacesEnabled {
+				self = ownTypeMatch && stored == ownSubject
+			}
+			if self {
+				filteredUsers = append(filteredUsers, displayName)
 				continue
 			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(userName)...); err == nil {
-				filteredUsers = append(filteredUsers, userName)
+			if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(displayName)...); err == nil {
+				filteredUsers = append(filteredUsers, displayName)
 			}
 		}
 		slices.Sort(filteredUsers)
@@ -1318,7 +1345,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		}
 	}
 
-	if err := h.validateUserIDForNamespaces(internalID); err != nil {
+	if err := h.validateUserIDForNamespaces(internalID, params.Body.UserType); err != nil {
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -1362,8 +1389,9 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	if userTypes == nil {
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("username to revoke role from doesn't exist")))
 	}
+	isGlobal := namespacing.GlobalSubjectTarget(h.namespacesEnabled, internalID)
 	for _, userType := range userTypes {
-		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), roleNames...); err != nil {
+		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeScoped(userType, internalID, isGlobal), roleNames...); err != nil {
 			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("RevokeRolesForUser: %w", err)))
 		}
 	}
@@ -1597,11 +1625,17 @@ func validateEnvVarRoles(name string) error {
 	return nil
 }
 
-// validateUserIDForNamespaces rejects bare-form user IDs on
-// namespace-enabled clusters. Static API-key users are intentionally bare
-// and global; they pass through unchanged.
-func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
+// validateUserIDForNamespaces rejects bare-form DB user IDs on
+// namespace-enabled clusters. Static API-key users are intentionally bare and
+// global; they pass through unchanged. A bare OIDC id names a global OIDC user
+// (subject oidc::<name>), so OIDC targets skip the prefix requirement: only a
+// global caller can produce a bare id here, a namespaced caller's input is
+// already qualified by QualifyUserIDForLookup.
+func (h *authZHandlers) validateUserIDForNamespaces(userID string, userType models.UserTypeInput) error {
 	if !h.namespacesEnabled {
+		return nil
+	}
+	if userType == models.UserTypeInputOidc {
 		return nil
 	}
 	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {

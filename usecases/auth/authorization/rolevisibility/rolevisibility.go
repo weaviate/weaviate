@@ -31,14 +31,6 @@ func CallerConfined(namespacesEnabled bool, principal *models.Principal) bool {
 	return namespacesEnabled && namespacing.ConfinedNamespace(principal) != ""
 }
 
-// CallerGlobal reports whether the caller addresses the global (empty)
-// namespace on a namespace-enabled cluster — the complement of CallerConfined.
-// False on NS-disabled clusters. Used to decide the empty-namespace slot for a
-// write/admin-read target, whose namespace tracks the caller's confinement.
-func CallerGlobal(namespacesEnabled bool, principal *models.Principal) bool {
-	return namespacesEnabled && namespacing.ConfinedNamespace(principal) == ""
-}
-
 // RoleHiddenFromCaller reports whether storedRoleName belongs to a namespace
 // other than the caller's, so its very existence must not be revealed.
 // Own-namespace and global roles are visible; only foreign-namespace roles are
