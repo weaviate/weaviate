@@ -698,6 +698,133 @@ func TestCorruptChunkHeaderRecoveryUnreadableFile(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist, "an unreadable chunk file must not be quarantined")
 }
 
+// A sealed chunk can be torn mid-file by a crash (e.g. power loss before its
+// tail reached disk). The records before the tear are still valid and must be
+// salvaged, and the file must be quarantined: otherwise the chunk is never
+// removed and its records stay counted, so the queue never drains and the
+// shard reports INDEXING forever.
+func TestDequeueBatchTornChunk(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	truncateBy := func(t *testing.T, path string, delta int64) {
+		t.Helper()
+
+		fi, err := os.Stat(path)
+		require.NoError(t, err)
+		err = os.Truncate(path, fi.Size()+delta)
+		require.NoError(t, err)
+	}
+
+	// each record is 4 bytes of length prefix + 9 bytes of payload
+	tests := []struct {
+		name    string
+		corrupt func(t *testing.T, path string)
+		tasks   int
+	}{
+		{
+			name: "torn mid record",
+			corrupt: func(t *testing.T, path string) {
+				truncateBy(t, path, -2)
+			},
+			tasks: 2,
+		},
+		{
+			name: "torn mid length prefix",
+			corrupt: func(t *testing.T, path string) {
+				truncateBy(t, path, -11)
+			},
+			tasks: 2,
+		},
+		{
+			name: "torn before first record",
+			corrupt: func(t *testing.T, path string) {
+				fi, err := os.Stat(path)
+				require.NoError(t, err)
+				err = os.Truncate(path, fi.Size()-3*13+1)
+				require.NoError(t, err)
+			},
+			tasks: 0,
+		},
+		{
+			name: "zero record length",
+			corrupt: func(t *testing.T, path string) {
+				// zero out the third record's length prefix
+				f, err := os.OpenFile(path, os.O_RDWR, 0o644)
+				require.NoError(t, err)
+				defer f.Close()
+				_, err = f.WriteAt(make([]byte, 4), int64(chunkHeaderSize+2*13))
+				require.NoError(t, err)
+			},
+			tasks: 2,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			decoder := discardExecutor()
+
+			// write one sealed chunk with 3 records
+			q := makeQueueWith(t, s, decoder, 50, tmpDir)
+			q.Pause(t.Context())
+			pushMany(t, q, 1, 100, 200, 300)
+			err := q.w.Promote()
+			require.NoError(t, err)
+			err = q.Close(t.Context())
+			require.NoError(t, err)
+
+			entries, err := os.ReadDir(tmpDir)
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+			chunkFile := filepath.Join(tmpDir, entries[0].Name())
+
+			test.corrupt(t, chunkFile)
+
+			// reopen the queue: the header is intact, so the chunk is listed
+			// with its full record count
+			q, err = NewDiskQueue(DiskQueueOptions{
+				ID:           "test_queue",
+				Scheduler:    s,
+				Logger:       newTestLogger(),
+				Dir:          tmpDir,
+				TaskDecoder:  decoder,
+				StaleTimeout: 500 * time.Millisecond,
+				ChunkSize:    50,
+			})
+			require.NoError(t, err)
+			err = q.Init()
+			require.NoError(t, err)
+			require.EqualValues(t, 3, q.Size())
+
+			// the records before the tear must be salvaged
+			batch, err := q.DequeueBatch()
+			require.NoError(t, err, "a torn chunk must be salvaged, not fail the dequeue")
+			if test.tasks == 0 {
+				require.Nil(t, batch)
+			} else {
+				require.NotNil(t, batch)
+				require.Len(t, batch.Tasks, test.tasks)
+				batch.Done()
+			}
+
+			// the torn chunk must be quarantined so it is no longer scheduled
+			_, err = os.Stat(chunkFile + ".corrupt")
+			require.NoError(t, err, "torn chunk should be quarantined as .corrupt")
+			_, err = os.Stat(chunkFile)
+			require.ErrorIs(t, err, os.ErrNotExist)
+
+			// its records must no longer be counted, so the queue can drain
+			require.EqualValues(t, 0, q.Size())
+
+			batch, err = q.DequeueBatch()
+			require.NoError(t, err)
+			require.Nil(t, batch)
+		})
+	}
+}
+
 func TestQueueAutoReleaseResources(t *testing.T) {
 	t.Parallel()
 
