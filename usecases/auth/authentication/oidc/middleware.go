@@ -29,7 +29,6 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -174,7 +173,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	groups := c.extractGroups(claims)
 
-	namespace, isGlobal, err := c.classifyPrincipal(claims, username)
+	namespace, isGlobal, err := c.classifyPrincipal(claims)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +182,13 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	if err := c.rejectNamespacedRoot(namespace, qualifiedUsername, groups); err != nil {
 		return nil, err
+	}
+
+	// IsGlobalOperator must equal (Namespace == ""): assignment and enforcement
+	// derive the RBAC subject's global slot from each field independently, so a
+	// mismatch stores a grant enforcement never finds. Fail closed.
+	if c.namespacesEnabled && isGlobal != (namespace == "") {
+		return nil, errors.New(500, "oidc: inconsistent principal: global-operator=%t but namespace=%q", isGlobal, namespace)
 	}
 
 	return &models.Principal{
@@ -209,9 +215,8 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 
 // classifyPrincipal resolves the namespace and global-operator flag for an
 // OIDC token's claims. On namespace-disabled clusters it short-circuits to
-// the legacy "global, no namespace" shape — startup validation guarantees
-// the claim env vars are empty in that case, so the classifier has nothing
-// to inspect.
+// the "global, no namespace" shape — startup validation guarantees the claim
+// env vars are empty in that case, so the classifier has nothing to inspect.
 //
 // On namespace-enabled clusters the rule matrix is:
 //
@@ -229,16 +234,9 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 // bool) return 401 — a malformed claim is a token the server cannot
 // interpret, which is an authentication failure from the caller's
 // perspective.
-//
-// On namespace-enabled clusters, the resolved username must not contain
-// ':' (the namespace separator); reject with 401.
-func (c *Client) classifyPrincipal(claims map[string]interface{}, username string) (namespace string, isGlobal bool, err error) {
+func (c *Client) classifyPrincipal(claims map[string]interface{}) (namespace string, isGlobal bool, err error) {
 	if !c.namespacesEnabled {
 		return "", false, nil
-	}
-
-	if strings.Contains(username, schema.NamespaceSeparator) {
-		return "", false, errors.New(401, "unauthorized: OIDC username '%s' must not contain ':' on a namespace-enabled cluster", username)
 	}
 
 	nsClaimKey := ""

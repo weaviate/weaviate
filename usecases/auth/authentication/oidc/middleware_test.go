@@ -226,6 +226,92 @@ func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, cl
 	return token
 }
 
+// nsClaims carries the namespace/global-principal claims used on
+// namespace-enabled clusters. `omitempty` on Global means false is absent,
+// matching the classifier's "empty == absent" rule.
+type nsClaims struct {
+	jwt.StandardClaims
+	Namespace string `json:"weaviate_namespace,omitempty"`
+	Global    bool   `json:"weaviate_global_principal,omitempty"`
+}
+
+func tokenWithNamespace(t *testing.T, subject, issuer, aud, namespace string, global bool) string {
+	c := nsClaims{
+		StandardClaims: jwt.StandardClaims{
+			Subject:   subject,
+			Issuer:    issuer,
+			Audience:  aud,
+			ExpiresAt: time.Now().Add(10 * time.Second).Unix(),
+		},
+		Namespace: namespace,
+		Global:    global,
+	}
+
+	token, err := signToken(c)
+	require.NoError(t, err, "signing token should not error")
+
+	return token
+}
+
+// Test_Middleware_ColonUsername pins that a ':' in the OIDC username is accepted
+// on a namespace-enabled cluster: a namespaced token's username is qualified
+// with its namespace, and a global token keeps its raw colon-bearing name with
+// the operator flag set.
+func Test_Middleware_ColonUsername(t *testing.T) {
+	tests := []struct {
+		name         string
+		subject      string
+		namespace    string // namespace claim; also the expected principal.Namespace
+		global       bool   // global claim; also the expected principal.IsGlobalOperator
+		wantUsername string
+	}{
+		{
+			name:         "namespaced colon username is qualified",
+			subject:      "foo:bar",
+			namespace:    "customer1",
+			wantUsername: "customer1:foo:bar",
+		},
+		{
+			name:         "global colon username stays raw, operator flag set",
+			subject:      "customer1:carol",
+			global:       true,
+			wantUsername: "customer1:carol",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := newOIDCServer(t)
+			defer server.Close()
+
+			cfg := config.Config{
+				Authentication: config.Authentication{
+					OIDC: config.OIDC{
+						Enabled:              true,
+						Issuer:               runtime.NewDynamicValue(server.URL),
+						ClientID:             runtime.NewDynamicValue("best_client"),
+						SkipClientIDCheck:    runtime.NewDynamicValue(false),
+						UsernameClaim:        runtime.NewDynamicValue("sub"),
+						NamespaceClaim:       runtime.NewDynamicValue("weaviate_namespace"),
+						GlobalPrincipalClaim: runtime.NewDynamicValue("weaviate_global_principal"),
+					},
+				},
+			}
+
+			tok := tokenWithNamespace(t, tt.subject, server.URL, "best_client", tt.namespace, tt.global)
+			logger, _ := logrustest.NewNullLogger()
+			client, err := New(cfg, newFakeExister("customer1"), true, logger)
+			require.NoError(t, err)
+
+			principal, err := client.ValidateAndExtract(tok, []string{})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantUsername, principal.Username)
+			assert.Equal(t, tt.namespace, principal.Namespace)
+			assert.Equal(t, tt.global, principal.IsGlobalOperator)
+		})
+	}
+}
+
 func Test_Middleware_SkipTLSVerify_BuildsInsecureClient(t *testing.T) {
 	t.Run("InsecureSkipVerify is true when SkipTLSVerify is set", func(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
@@ -470,7 +556,6 @@ func TestClassifyPrincipal(t *testing.T) {
 	tests := []struct {
 		name              string
 		namespacesEnabled bool
-		username          string
 		claims            map[string]any
 		markDeleting      string // optional: flip this namespace to deleting before classify
 		want              want
@@ -478,77 +563,66 @@ func TestClassifyPrincipal(t *testing.T) {
 		{
 			name:              "NS-disabled short-circuits to global with empty namespace",
 			namespacesEnabled: false,
-			username:          "alice",
 			claims:            map[string]any{},
 			want:              want{namespace: "", isGlobal: false},
 		},
 		{
 			name:              "NS-disabled ignores claims even if present",
 			namespacesEnabled: false,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: true},
 			want:              want{namespace: "", isGlobal: false},
 		},
 		{
 			name:              "NS-enabled, namespace claim resolves to existing namespace",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "customer1"},
 			want:              want{namespace: "customer1", isGlobal: false},
 		},
 		{
 			name:              "NS-enabled, namespace + global=false → namespaced",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: false},
 			want:              want{namespace: "customer1", isGlobal: false},
 		},
 		{
 			name:              "NS-enabled, global=true alone → global operator",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{globalClaimKey: true},
 			want:              want{namespace: "", isGlobal: true},
 		},
 		{
 			name:              "NS-enabled, both claims → reject",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: true},
 			want:              want{errCode: 401, errSubstr: "must not carry both"},
 		},
 		{
 			name:              "NS-enabled, neither claim → reject",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{},
 			want:              want{errCode: 401, errSubstr: "must carry either"},
 		},
 		{
 			name:              "NS-enabled, namespace empty + global absent → reject (empty == absent)",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: ""},
 			want:              want{errCode: 401, errSubstr: "must carry either"},
 		},
 		{
 			name:              "NS-enabled, namespace absent + global=false → reject",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{globalClaimKey: false},
 			want:              want{errCode: 401, errSubstr: "must carry either"},
 		},
 		{
 			name:              "NS-enabled, namespace claim names unknown namespace → reject",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "ghost"},
 			want:              want{errCode: 401, errSubstr: "namespace 'ghost'"},
 		},
 		{
 			name:              "NS-enabled, namespace claim names a deleting namespace → reject",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "customer1"},
 			markDeleting:      "customer1",
 			want:              want{errCode: 401, errSubstr: "namespace 'customer1'"},
@@ -556,23 +630,14 @@ func TestClassifyPrincipal(t *testing.T) {
 		{
 			name:              "NS-enabled, namespace claim type mismatch → reject",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{nsClaimKey: 42},
 			want:              want{errCode: 401, errSubstr: "namespace claim"},
 		},
 		{
 			name:              "NS-enabled, global-principal claim type mismatch → reject",
 			namespacesEnabled: true,
-			username:          "alice",
 			claims:            map[string]any{globalClaimKey: "yes"},
 			want:              want{errCode: 401, errSubstr: "global-principal claim"},
-		},
-		{
-			name:              "NS-enabled, username contains ':' → reject",
-			namespacesEnabled: true,
-			username:          "customer2:bob",
-			claims:            map[string]any{nsClaimKey: "customer1"},
-			want:              want{errCode: 401, errSubstr: "must not contain ':'"},
 		},
 	}
 
@@ -597,7 +662,7 @@ func TestClassifyPrincipal(t *testing.T) {
 				c.Config.GlobalPrincipalClaim = runtime.NewDynamicValue("")
 			}
 
-			ns, isGlobal, err := c.classifyPrincipal(tt.claims, tt.username)
+			ns, isGlobal, err := c.classifyPrincipal(tt.claims)
 			if tt.want.errCode != 0 {
 				require.Error(t, err)
 				var apiErr errors.Error
@@ -612,6 +677,11 @@ func TestClassifyPrincipal(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.want.namespace, ns)
 			assert.Equal(t, tt.want.isGlobal, isGlobal)
+			if tt.namespacesEnabled {
+				// Enforcement slots off IsGlobalOperator, the write path off
+				// the namespace; they agree only when this holds.
+				require.Equal(t, isGlobal, ns == "")
+			}
 		})
 	}
 }
@@ -656,7 +726,7 @@ func TestClassifyPrincipal_NoGroupNamespaceInference(t *testing.T) {
 				namespacesEnabled: true,
 			}
 
-			_, _, err := c.classifyPrincipal(tt.claims, "alice")
+			_, _, err := c.classifyPrincipal(tt.claims)
 			require.Error(t, err, "groups must never substitute for the namespace claim")
 			var apiErr errors.Error
 			require.ErrorAs(t, err, &apiErr)
@@ -690,7 +760,7 @@ func TestClassifyPrincipal_SameGroupDifferentNamespaces(t *testing.T) {
 	ns1, isGlobal1, err := c.classifyPrincipal(map[string]any{
 		nsClaimKey:     "customer1",
 		groupsClaimKey: []string{sharedGroup},
-	}, "alice")
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "customer1", ns1)
 	assert.False(t, isGlobal1)
@@ -698,7 +768,7 @@ func TestClassifyPrincipal_SameGroupDifferentNamespaces(t *testing.T) {
 	ns2, isGlobal2, err := c.classifyPrincipal(map[string]any{
 		nsClaimKey:     "customer2",
 		groupsClaimKey: []string{sharedGroup},
-	}, "bob")
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "customer2", ns2)
 	assert.False(t, isGlobal2)
