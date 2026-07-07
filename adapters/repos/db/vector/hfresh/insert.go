@@ -49,6 +49,20 @@ func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32
 }
 
 func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
+	if h.muvera.Load() {
+		// A single vector inserted into a muvera index would initialize the
+		// index with the token dimensionality instead of the FDE
+		// dimensionality, corrupting every subsequent AddMulti (issue #278).
+		// AddMulti encodes documents into FDEs and inserts them via add.
+		return errors.New("collection is configured as multi-vector: single vectors are not supported")
+	}
+	return h.add(ctx, id, vector)
+}
+
+// add inserts an already-encoded vector into the index. It is the shared
+// implementation behind Add (plain single-vector indexes) and AddMulti
+// (muvera-encoded FDEs).
+func (h *HFresh) add(ctx context.Context, id uint64, vector []float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -295,7 +309,7 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 		return errors.Wrap(err, "put muvera vector into bucket")
 	}
 
-	return h.Add(ctx, docID, encoded)
+	return h.add(ctx, docID, encoded)
 }
 
 func (h *HFresh) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
@@ -331,6 +345,10 @@ func (h *HFresh) ValidateMultiBeforeInsert(vectors [][]float32) error {
 	}
 
 	firstDim := len(vectors[0])
+	if firstDim == 0 {
+		// mirror AddMulti: [[]] and friends have no valid encoding
+		return errors.New("multi-vector cannot be empty")
+	}
 	for i, v := range vectors[1:] {
 		if len(v) != firstDim {
 			return fmt.Errorf("multi-vector has inconsistent dimensions: vector[0] has %d but vector[%d] has %d",
@@ -358,6 +376,11 @@ func (m *muveraDataCapture) AddMuvera(data compression.MuveraData) error {
 }
 
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
+	if h.muvera.Load() {
+		// see Add: single vectors must never reach a muvera index (issue #278)
+		return errors.New("collection is configured as multi-vector: single vectors are not supported")
+	}
+
 	dims := atomic.LoadUint32(&h.dims)
 	if dims == 0 {
 		return nil

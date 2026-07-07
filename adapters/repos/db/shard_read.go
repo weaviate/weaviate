@@ -627,6 +627,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
+					if vidx.Multivector() {
+						return fmt.Errorf("target vector %q is configured as multi-vector: near-vector search requires a multi-vector query", targetVector)
+					}
 					ids, dists, err = vidx.SearchByVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
@@ -654,6 +657,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
+					if vidx.Multivector() {
+						return fmt.Errorf("target vector %q is configured as multi-vector: near-vector search requires a multi-vector query", targetVector)
+					}
 					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
