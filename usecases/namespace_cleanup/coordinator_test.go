@@ -267,12 +267,17 @@ func TestCoordinator_Tick_CleansNamespaceRBAC(t *testing.T) {
 	rbac := stubRBAC{
 		roles: []string{"customer1:editor", "global-auditor"},
 		subjectsByAuth: map[authentication.AuthType][]string{
-			authentication.AuthTypeDb:   {"customer1:alice", "bob"},
-			authentication.AuthTypeOIDC: {"customer1:carol"},
+			authentication.AuthTypeDb: {"customer1:alice", "bob"},
+			// ":customer1:carol" is a global OIDC user literally named
+			// "customer1:carol": its empty-namespace slot makes it distinct
+			// from the namespaced "customer1:carol" and keeps it out of the
+			// cascade even though the two look alike.
+			authentication.AuthTypeOIDC: {"customer1:carol", ":customer1:carol"},
 		},
 		rolesBySubject: map[string][]string{
-			"customer1:alice": {"customer1:editor", "viewer"},
-			"customer1:carol": {"admin"},
+			"customer1:alice":  {"customer1:editor", "viewer"},
+			"customer1:carol":  {"admin"},
+			":customer1:carol": {"admin"},
 		},
 	}
 	ns := stubNamespaces{deleting: []string{"customer1"}}
@@ -295,7 +300,8 @@ func TestCoordinator_Tick_CleansNamespaceRBAC(t *testing.T) {
 		}
 	}
 
-	// Namespaced subjects revoked (db + oidc); the global subject "bob" is not.
+	// Namespaced subjects revoked (db + oidc); global subjects — plain "bob"
+	// and the slotted global OIDC ":customer1:carol" — are left untouched.
 	assert.ElementsMatch(t, []string{"db:customer1:alice", "oidc:customer1:carol"}, revoked)
 	// Only the local role is deleted; the global role survives.
 	assert.Equal(t, []string{"customer1:editor"}, deleted)

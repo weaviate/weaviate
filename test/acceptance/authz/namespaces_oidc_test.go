@@ -14,6 +14,7 @@ package authz
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,10 @@ func TestNamespacesOIDC(t *testing.T) {
 		WithDbUsers().
 		WithRBAC().
 		WithRbacRoots(adminUser, "oidc-global").
+		// A colon-named global OIDC user is grantable only via env (not the
+		// assign API): these seed the global side of the collision pairs as
+		// viewers.
+		WithWeaviateEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS", "customer1:carol,colonns:dave").
 		WithMockOIDC().
 		WithMockOIDCNamespacedUsers().
 		WithNamespaces().
@@ -116,14 +121,28 @@ func TestNamespacesOIDC(t *testing.T) {
 		require.True(t, errors.As(err, &unauth), "expected GetOwnInfoUnauthorized, got %T: %v", err, err)
 	})
 
-	t.Run("bare-form OIDC user ID: assignment rejected at the API", func(t *testing.T) {
-		// validateUserIDForNamespaces rejects bare-form IDs on NS-enabled.
+	t.Run("bare-form user ID: OIDC accepted (global user), DB rejected", func(t *testing.T) {
+		// A bare OIDC id names a global OIDC user (subject oidc::alice) and is
+		// accepted — OIDC names are freeform and a bare global identity is
+		// legitimate.
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, "alice")
+
+		// The grant actually landed on the slotted subject: reading it back
+		// returns admin, and revoking then removes it.
+		assert.Contains(t, roleNames(helper.GetRolesForUserOIDC(t, "alice", adminKey)), authorization.Admin,
+			"bare OIDC id must actually receive the assigned admin role")
+		helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, "alice")
+		assert.NotContains(t, roleNames(helper.GetRolesForUserOIDC(t, "alice", adminKey)), authorization.Admin,
+			"revoke must remove the role from the bare OIDC user")
+
+		// A bare DB id still requires a namespace prefix (only static API-key
+		// users are intentionally bare).
 		_, err := helper.Client(t).Authz.AssignRoleToUser(
 			clauthz.NewAssignRoleToUserParams().
 				WithID("alice"). // bare; no namespace prefix
 				WithBody(clauthz.AssignRoleToUserBody{
 					Roles:    []string{authorization.Admin},
-					UserType: models.UserTypeInputOidc,
+					UserType: models.UserTypeInputDb,
 				}),
 			helper.CreateAuth(adminKey),
 		)
@@ -370,6 +389,165 @@ func TestNamespacesOIDC(t *testing.T) {
 		assert.True(t, found, "namespaced DB user %q must appear in GET roles/{name}/users; got %+v", qualifiedID, users)
 	})
 
+	// A namespaced OIDC user whose short subject itself contains ':' round-trips
+	// through assign, enforcement, and role-membership listing. Its qualified id
+	// is "customer1:foo:bar" — namespace is the segment before the first ':',
+	// name is the rest. No leading slot (that is reserved for global users).
+	t.Run("namespaced OIDC user with a colon in its short name", func(t *testing.T) {
+		const oidcUserID = "customer1:foo:bar"
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
+		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "foo:bar")
+
+		// own-info strips the caller's own namespace, surfacing the short
+		// subject (which itself contains ':').
+		info := helper.GetInfoForOwnUser(t, token)
+		require.NotNil(t, info.Username)
+		assert.Equal(t, "foo:bar", *info.Username)
+
+		// Admin enforces: the narrowed admin creates a collection in its
+		// namespace, proving the assigned subject matches what it enforces as.
+		helper.CreateClassAuth(t, &models.Class{Class: "Ledger"}, token)
+		defer helper.DeleteClassAuth(t, "customer1:Ledger", adminKey)
+		assert.Equal(t, "customer1:Ledger", helper.GetClassAuth(t, "customer1:Ledger", adminKey).Class)
+
+		// The user appears in the role's membership under its qualified id, with
+		// no stray leading ':' — the empty-namespace slot is only for globals.
+		members := helper.GetUserForRolesBoth(t, authorization.Admin, adminKey)
+		var found bool
+		for _, u := range members {
+			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading namespace slot: %q", u.UserID)
+			if u.UserType != nil && *u.UserType == models.UserTypeOutputOidc && u.UserID == oidcUserID {
+				found = true
+			}
+		}
+		assert.True(t, found, "colon-in-name OIDC user %q must appear in role membership; got %+v", oidcUserID, members)
+	})
+
+	// A global BARE OIDC user granted a role via the assign API round-trips to
+	// enforcement: the write-side target slot (GlobalSubjectTarget →
+	// oidc::bare-admin) matches the enforce-side operator slot (IsGlobalOperator
+	// → oidc::bare-admin), so the user sees the grant when it authenticates.
+	t.Run("global bare OIDC user granted via API sees it at its enforce subject", func(t *testing.T) {
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, "bare-admin")
+		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, "bare-admin")
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "bare-admin")
+		assert.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, token).Roles, authorization.Admin),
+			"API-granted admin must be visible to the bare global user at its own enforce subject")
+	})
+
+	// No-bleed for the collision pair: a global operator literally named
+	// "customer1:carol" (viewer via env → oidc::customer1:carol) and a namespaced
+	// "carol"@customer1 (admin via API → oidc:customer1:carol) resolve to
+	// distinct casbin subjects, so neither inherits the other's role.
+	t.Run("collision pair global customer1:carol vs namespaced carol@customer1 does not bleed", func(t *testing.T) {
+		const namespacedID = "customer1:carol"
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, namespacedID)
+		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, namespacedID)
+
+		globalToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "customer1:carol")
+		namespacedToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "carol")
+
+		// The global user holds only viewer (env); the namespaced user holds only
+		// admin (API). Neither role crosses to the other subject.
+		globalRoles := helper.GetInfoForOwnUser(t, globalToken).Roles
+		namespacedRoles := helper.GetInfoForOwnUser(t, namespacedToken).Roles
+
+		assert.True(t, hasRoleNamed(globalRoles, authorization.Viewer), "global user must keep its env viewer; got %v", roleNames(globalRoles))
+		assert.False(t, hasRoleNamed(globalRoles, authorization.Admin), "admin on the namespaced user must not bleed to the global user; got %v", roleNames(globalRoles))
+		assert.True(t, hasRoleNamed(namespacedRoles, authorization.Admin), "namespaced user must hold its assigned admin; got %v", roleNames(namespacedRoles))
+		assert.False(t, hasRoleNamed(namespacedRoles, authorization.Viewer), "env viewer on the global user must not bleed to the namespaced user; got %v", roleNames(namespacedRoles))
+
+		// Admin-read (getRolesForUser) by a global operator resolves by TARGET
+		// namespace: reading "customer1:carol" returns the namespaced admin
+		// (oidc:customer1:carol), never the global user's env viewer
+		// (oidc::customer1:carol) — the read path slots by target, not caller.
+		adminRead := roleNames(helper.GetRolesForUserOIDC(t, namespacedID, adminKey))
+		assert.Contains(t, adminRead, authorization.Admin, "admin-read of the namespaced target must return its admin; got %v", adminRead)
+		assert.NotContains(t, adminRead, authorization.Viewer, "admin-read must resolve by target, not surface the global user's viewer; got %v", adminRead)
+
+		// The global slotted OIDC user is listed in the viewer role's membership
+		// de-slotted — "customer1:carol", not the stored ":customer1:carol".
+		var globalListed bool
+		for _, u := range helper.GetUserForRolesBoth(t, authorization.Viewer, adminKey) {
+			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading namespace slot: %q", u.UserID)
+			if u.UserType != nil && *u.UserType == models.UserTypeOutputOidc && u.UserID == "customer1:carol" {
+				globalListed = true
+			}
+		}
+		assert.True(t, globalListed, "global slotted OIDC user must be listed de-slotted as customer1:carol in viewer membership")
+
+		// "customer1:carol" is also the global user's own name, but it resolves to
+		// the namespaced subject — a different user sharing the id string. The read
+		// must go through the visibility gate (which hides the namespaced admin the
+		// global viewer isn't allowed to see), not be short-circuited as a self-read
+		// that returns everything.
+		noFull := false
+		selfRead, err := helper.Client(t).Authz.GetRolesForUser(
+			clauthz.NewGetRolesForUserParams().
+				WithID("customer1:carol").
+				WithUserType(string(models.UserTypeInputOidc)).
+				WithIncludeFullRoles(&noFull),
+			helper.CreateAuth(globalToken))
+		require.NoError(t, err)
+		assert.NotContains(t, roleNames(selfRead.Payload), authorization.Admin,
+			"global user's self-read must not disclose the namespaced twin's admin role")
+	})
+
+	// Namespace-delete cascade honours the slot: a global operator named
+	// "colonns:dave" (viewer via env → oidc::colonns:dave) survives deletion of
+	// namespace "colonns", while the namespaced colon-in-name user
+	// "baz:qux"@colonns (admin via API → oidc:colonns:baz:qux) is cleaned up.
+	t.Run("namespace delete keeps the slotted global user and cleans the namespaced one", func(t *testing.T) {
+		const ns = "colonns"
+		const namespacedID = ns + ":baz:qux"
+		helper.CreateNamespace(t, ns, adminKey)
+		nsDeleted := false
+		defer func() {
+			if !nsDeleted {
+				helper.DeleteNamespace(t, ns, adminKey)
+			}
+		}()
+
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, namespacedID)
+
+		// Pre-delete: the namespaced colon-in-name user holds admin and is listed
+		// in the role membership under its qualified id (no leading slot).
+		nsToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "baz:qux")
+		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, nsToken).Roles, authorization.Admin),
+			"namespaced colon-name user must hold its assigned admin pre-delete")
+		var listed bool
+		for _, u := range helper.GetUserForRolesBoth(t, authorization.Admin, adminKey) {
+			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading slot: %q", u.UserID)
+			if u.UserType != nil && *u.UserType == models.UserTypeOutputOidc && u.UserID == namespacedID {
+				listed = true
+			}
+		}
+		assert.True(t, listed, "namespaced colon-name user %q must be listed pre-delete", namespacedID)
+
+		// The global operator holds viewer (env) before the delete.
+		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, mustGlobalToken(t, helperURI, "colonns:dave")).Roles, authorization.Viewer),
+			"global operator must hold its env viewer role pre-delete")
+
+		helper.DeleteNamespace(t, ns, adminKey)
+		nsDeleted = true
+
+		// The global operator STILL holds viewer — its slotted subject
+		// (oidc::colonns:dave) is not part of the deleted namespace's local RBAC.
+		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, mustGlobalToken(t, helperURI, "colonns:dave")).Roles, authorization.Viewer),
+			"slotted global operator must retain its role after the namespace is deleted")
+
+		// The namespaced user's admin binding is revoked: it no longer appears in
+		// the role membership.
+		for _, u := range helper.GetUserForRolesBoth(t, authorization.Admin, adminKey) {
+			if u.UserType != nil && *u.UserType == models.UserTypeOutputOidc {
+				assert.NotEqual(t, namespacedID, u.UserID, "namespaced user's admin binding must be revoked on namespace delete")
+			}
+		}
+	})
+
 	// The namespace comes from the token claim, not a stored DB-user id; role
 	// qualification and matcher confinement must work the same on this path.
 	t.Run("namespaced OIDC admin manages its own namespace-local role", func(t *testing.T) {
@@ -547,6 +725,35 @@ func TestNamespacesOIDC(t *testing.T) {
 		require.False(t, hasRole(helper.GetRoles(t, token), reserved),
 			"reserved role must not appear in the member's getRoles list")
 	})
+}
+
+// roleNames returns each role's name (nil names skipped).
+func roleNames(roles []*models.Role) []string {
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		if r.Name != nil {
+			out = append(out, *r.Name)
+		}
+	}
+	return out
+}
+
+// hasRoleNamed reports whether roles contains one named name.
+func hasRoleNamed(roles []*models.Role, name string) bool {
+	for _, r := range roles {
+		if r.Name != nil && *r.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// mustGlobalToken fetches a fresh OIDC token for subject from the mock — used
+// when a token must be re-minted (e.g. after a wait) to avoid expiry.
+func mustGlobalToken(t *testing.T, helperURI, subject string) string {
+	t.Helper()
+	token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, subject)
+	return token
 }
 
 // collectionNames returns each collections permission's collection.

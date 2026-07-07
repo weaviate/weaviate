@@ -106,6 +106,46 @@ var namespacePreseedUsers = []mockoidc.User{
 		MockUser:  mockoidc.MockUser{Subject: "user"},
 		Namespace: "customer1",
 	},
+	// A namespaced user whose short subject itself contains ':' — the
+	// qualified username is "customer1:foo:bar"; the namespace is still the
+	// segment before the first ':'.
+	&namespacedUser{
+		MockUser:  mockoidc.MockUser{Subject: "foo:bar"},
+		Namespace: "customer1",
+	},
+	// Collision pair in customer1: a global operator literally named
+	// "customer1:carol" and a namespaced "carol"@customer1 whose qualified
+	// username is also "customer1:carol". Distinct casbin subjects
+	// (oidc::customer1:carol vs oidc:customer1:carol) keep their roles apart.
+	// The global side is granted its role via VIEWER_USERS env (a colon-named
+	// global user is not addressable through the assign API).
+	&namespacedUser{
+		MockUser:        mockoidc.MockUser{Subject: "customer1:carol"},
+		GlobalPrincipal: boolPtr(true),
+	},
+	&namespacedUser{
+		MockUser:  mockoidc.MockUser{Subject: "carol"},
+		Namespace: "customer1",
+	},
+	// A bare global operator (no namespace, no ':') used to prove an OIDC role
+	// granted via the assign API (subject oidc::bare-admin) round-trips to the
+	// user's enforce subject on authentication.
+	&namespacedUser{
+		MockUser:        mockoidc.MockUser{Subject: "bare-admin"},
+		GlobalPrincipal: boolPtr(true),
+	},
+	// Throwaway-namespace fixtures for the namespace-delete cascade: a global
+	// operator named "colonns:dave" (survives the delete) alongside a
+	// namespaced "baz:qux"@colonns (colon-in-name, cleaned up on delete).
+	// Subjects are unique across the preseed list (the mock indexes by subject).
+	&namespacedUser{
+		MockUser:        mockoidc.MockUser{Subject: "colonns:dave"},
+		GlobalPrincipal: boolPtr(true),
+	},
+	&namespacedUser{
+		MockUser:  mockoidc.MockUser{Subject: "baz:qux"},
+		Namespace: "colonns",
+	},
 }
 
 // pickPreseedUsers selects the active preseed list from the
