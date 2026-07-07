@@ -125,6 +125,9 @@ func TestGRPCWebSearchOverRESTPort(t *testing.T) {
 // grpcWebSearch POSTs a Connect-protocol JSON Search request to the grpc-web mount on
 // the REST port and returns the status, content type and raw body for strict validation.
 func grpcWebSearch(ctx context.Context, endpoint, reqJSON string) (int, string, []byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(reqJSON))
 	if err != nil {
 		return 0, "", nil, err
