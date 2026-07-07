@@ -442,7 +442,10 @@ func (h *Handler) enqueueDropVectorIndexCleanup(ctx context.Context, collection,
 
 // retriggerDropVectorIndexCleanup handles a drop re-issued on a vector whose marker
 // is already set: a still-running cleanup is a no-op; a failed/absent one is
-// re-enqueued with a fresh task ID.
+// re-enqueued with a fresh task ID. An unverifiable in-flight state (HasActiveDrop
+// error) surfaces — the caller should retry — but an enqueue failure logs and
+// succeeds, matching the fresh-drop path: the marker is already durable and
+// periodic reconciliation retries the cleanup.
 func (h *Handler) retriggerDropVectorIndexCleanup(ctx context.Context, collection, targetVector string) error {
 	if h.dropVectorEnqueuer == nil {
 		return nil
@@ -454,5 +457,9 @@ func (h *Handler) retriggerDropVectorIndexCleanup(ctx context.Context, collectio
 	if active {
 		return nil
 	}
-	return h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector})
+	if err := h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector}); err != nil {
+		h.logger.WithField("class", collection).WithField("targetVector", targetVector).
+			Warnf("drop vector index re-trigger: cleanup enqueue failed; reconciliation will retry: %v", err)
+	}
+	return nil
 }

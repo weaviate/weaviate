@@ -63,6 +63,11 @@ func LivenessProviderInstalled() bool {
 // LiveOps resolves the live-op set, or (nil, nil) when no provider is installed
 // — callers treat nil as "sweep disabled". Results are cached briefly so
 // per-shard-load callers don't fan a mass load out into per-shard leader RPCs.
+//
+// A cached set may PREDATE an op's task commit, so it must never be the basis
+// for deleting an op — use LiveOpsFresh to confirm before destroying. Returns a
+// defensive copy: callers may extend it (Recover's type protection) without
+// poisoning the cache.
 func LiveOps(ctx context.Context) (map[string]struct{}, error) {
 	livenessMu.RLock()
 	p := livenessProvider
@@ -72,7 +77,21 @@ func LiveOps(ctx context.Context) (map[string]struct{}, error) {
 		return nil, nil
 	}
 	if cached != nil && time.Since(fetched) < livenessCacheTTL {
-		return cached, nil
+		return copySet(cached), nil
+	}
+	return LiveOpsFresh(ctx)
+}
+
+// LiveOpsFresh always asks the provider, refreshing the cache. Destructive
+// decisions (sweeping an op) must use this: an op observed in a sidecar implies
+// its task already committed, so a read taken NOW is authoritative, while a
+// cached set fetched before the commit would wrongly report it dead.
+func LiveOpsFresh(ctx context.Context) (map[string]struct{}, error) {
+	livenessMu.RLock()
+	p := livenessProvider
+	livenessMu.RUnlock()
+	if p == nil {
+		return nil, nil
 	}
 	live, err := p(ctx)
 	if err != nil {
@@ -81,5 +100,13 @@ func LiveOps(ctx context.Context) (map[string]struct{}, error) {
 	livenessMu.Lock()
 	livenessCached, livenessFetched = live, time.Now()
 	livenessMu.Unlock()
-	return live, nil
+	return copySet(live), nil
+}
+
+func copySet(in map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(in))
+	for k := range in {
+		out[k] = struct{}{}
+	}
+	return out
 }

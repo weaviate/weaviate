@@ -501,7 +501,43 @@ func TestStartTask_ProcessesOnlyLocalUnits(t *testing.T) {
 	require.Empty(t, rec.failed, "the remote node's unit is not touched")
 }
 
-// --- OnGroupCompleted ---// --- OnGroupCompleted ---
+// TestProcessUnits_PartialArm_DrainsArmedFailsMissing pins the partial-arm
+// journey: one shard unavailable fails ONLY its unit; the available unit still
+// arms and drains to completion (the task fails overall, terminal-status op
+// deletion + reconciliation handle the rest).
+func TestProcessUnits_PartialArm_DrainsArmedFailsMissing(t *testing.T) {
+	bucket2 := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+	shards := &fakeShards{buckets: map[string]editOpBucket{"shard2": bucket2}} // shard1 absent
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+	p.sharding = &fakeShardingReader{shards: []string{"shard1", "shard2"}}
+
+	payload := &DropVectorIndexTaskPayload{
+		Collection: "Collection", Targets: []string{"v1"}, OpID: "op1",
+		UnitToNode:  map[string]string{"u1": "node1", "u2": "node1"},
+		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
+	}
+	enc, _ := payload.encode()
+	task := &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+		Payload:        enc,
+		Status:         distributedtask.TaskStatusStarted,
+		Units: map[string]*distributedtask.Unit{
+			"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+			"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
+		},
+	}
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1", "the unavailable shard's unit fails")
+	require.Equal(t, []string{"u2"}, rec.completed, "the available unit still arms and drains")
+	require.Contains(t, bucket2.registered, "op1")
+}
+
+// --- OnGroupCompleted ---// --- OnGroupCompleted ---// --- OnGroupCompleted ---
 
 func TestOnGroupCompleted_PerTenantIndexFilesRemoved(t *testing.T) {
 	shards := &fakeShards{}

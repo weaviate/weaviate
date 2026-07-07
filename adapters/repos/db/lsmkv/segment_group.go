@@ -649,14 +649,16 @@ func (sg *SegmentGroup) recoverEditOps(ctx context.Context) error {
 	sg.maintenanceLock.RLock()
 	ids := sg.currentSegmentIDsLocked()
 	sg.maintenanceLock.RUnlock()
-	return sg.editOps.Recover(ids, func() map[string]struct{} { return sg.liveEditOpIDs(ctx) })
+	return sg.editOps.Recover(ids,
+		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, false) },
+		func() map[string]struct{} { return sg.liveEditOpIDs(ctx, true) })
 }
 
 // liveEditOpIDs resolves the live-op set for the orphan sweep via the package
 // provider (editops.SetLivenessProvider), or nil to skip it (no provider, or a
 // lookup failure — sweeping on a bad read could drop a still-live op, so we
 // prefer to re-arm and let a later load reconcile).
-func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context) map[string]struct{} {
+func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context, fresh bool) map[string]struct{} {
 	if !editops.LivenessProviderInstalled() {
 		// Only reached with edit ops present: a missing provider silently disables
 		// the orphan sweep, which the startup wiring is supposed to prevent — warn
@@ -664,7 +666,13 @@ func (sg *SegmentGroup) liveEditOpIDs(ctx context.Context) map[string]struct{} {
 		sg.logger.Warnf("drop-vector: no edit-op liveness provider installed; orphan sweep disabled for this load")
 		return nil
 	}
-	live, err := editops.LiveOps(ctx)
+	var live map[string]struct{}
+	var err error
+	if fresh {
+		live, err = editops.LiveOpsFresh(ctx)
+	} else {
+		live, err = editops.LiveOps(ctx)
+	}
 	if err != nil {
 		sg.logger.Warnf("drop-vector: live edit-op lookup failed; skipping orphan sweep this load: %v", err)
 		return nil

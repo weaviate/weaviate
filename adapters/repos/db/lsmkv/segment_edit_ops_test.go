@@ -535,7 +535,7 @@ func TestSegmentEditOps_QuarantineSurvivesReSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"200"}, pending, "re-snapshot must not resurrect the quarantined segment")
 
-	require.NoError(t, s.Recover([]string{"100", "200"}, func() map[string]struct{} { return nil }))
+	require.NoError(t, s.Recover([]string{"100", "200"}, func() map[string]struct{} { return nil }, func() map[string]struct{} { return nil }))
 	pending, err = s.Pending("op1")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"200"}, pending, "Recover must not resurrect the quarantined segment")

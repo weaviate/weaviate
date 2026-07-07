@@ -712,7 +712,7 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 // indistinguishable from the crash-window merged output this recovery exists to
 // re-queue. Re-cleaning is idempotent; correctness is bought with restart-time
 // rework. Quarantined segments are NOT re-pended (see addPendingRowsTx).
-func (s *SegmentEditOps) Recover(segIDs []string, resolveLive func() map[string]struct{}) error {
+func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
 	ops, err := s.LoadOps()
 	if err != nil {
 		return err
@@ -726,6 +726,12 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive func() map[string]
 		existing[id] = struct{}{}
 	}
 	liveOpIDs := resolveLive()
+	if liveOpIDs != nil && len(suspectedOrphans(ops, liveOpIDs)) > 0 {
+		// About to sweep: the (possibly cached) set may predate a suspect's task
+		// commit. Re-resolve fresh; if that fails, skip the sweep this load rather
+		// than destroy on stale evidence.
+		liveOpIDs = resolveLiveFresh()
+	}
 	if liveOpIDs != nil {
 		// Op types the liveness provider does not cover must survive the sweep
 		// (see SetLivenessProvider); treat them as live.
@@ -782,15 +788,19 @@ func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
 	if err != nil || live == nil {
 		return
 	}
-	for _, op := range ops {
-		// Only op types the liveness provider is known to cover may be swept; an
-		// unknown (future) type fails safe until its producer extends the provider.
-		if op.Descriptor.Type != OpTypeRemoveTargetVectors {
-			continue
-		}
-		if _, ok := live[op.ID]; ok {
-			continue
-		}
+	suspected := suspectedOrphans(ops, live)
+	if len(suspected) == 0 {
+		return
+	}
+	// The cached set may predate a suspect's task commit (the op is registered
+	// strictly after the commit) — deleting on it would kill a live op whose
+	// draining unit then reads the empty pending set as "done" and the drop
+	// finalizes without stripping. Confirm with a fresh read before destroying.
+	live, err = editops.LiveOpsFresh(ctx)
+	if err != nil || live == nil {
+		return
+	}
+	for _, op := range suspectedOrphans(suspected, live) {
 		if err := s.DeleteOp(op.ID); err != nil {
 			if s.logger != nil {
 				s.logger.WithField("op_id", op.ID).Warnf("edit-ops orphan sweep: delete failed: %v", err)
@@ -801,6 +811,22 @@ func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
 			s.logger.WithField("op_id", op.ID).Info("edit-ops orphan sweep: removed op with no live task")
 		}
 	}
+}
+
+// suspectedOrphans returns the sweepable ops (liveness-covered types only; an
+// unknown future type fails safe until its producer extends the provider) that
+// are absent from live.
+func suspectedOrphans(ops []ActiveOp, live map[string]struct{}) []ActiveOp {
+	var out []ActiveOp
+	for _, op := range ops {
+		if op.Descriptor.Type != OpTypeRemoveTargetVectors {
+			continue
+		}
+		if _, ok := live[op.ID]; !ok {
+			out = append(out, op)
+		}
+	}
+	return out
 }
 
 // Reconcile repairs the store against ground truth at open time (C1):

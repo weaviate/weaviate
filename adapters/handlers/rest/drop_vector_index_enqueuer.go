@@ -309,11 +309,20 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 		// startup the local schema is restored by the same background open the
 		// probe waits for, so an early read would see an empty/stale snapshot and
 		// silently skip markers — and this is the sole recovery path for every
-		// "reconciliation retries" deferral.
-		sch := lister.GetSchemaSkipAuth()
-		if sch.Objects != nil && len(sch.Objects.Classes) > 0 {
-			reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
-		}
+		// "reconciliation retries" deferral. Each round is panic-contained: this
+		// goroutine is that sole recovery path, so one bad round must not kill the
+		// loop until restart.
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Errorf("drop-vector reconcile: round panicked (loop continues): %v", r)
+				}
+			}()
+			sch := lister.GetSchemaSkipAuth()
+			if sch.Objects != nil && len(sch.Objects.Classes) > 0 {
+				reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
+			}
+		}()
 		select {
 		case <-ctx.Done():
 			return

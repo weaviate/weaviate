@@ -157,3 +157,28 @@ func TestDeepCopyClass(t *testing.T) {
 		"mutating the copy's nested pointer must not touch the original")
 	require.Contains(t, orig.VectorConfig, "v1")
 }
+
+// TestRemoveDroppedVectorConfig_UpdatedClassDoesNotAliasOriginal pins the
+// deep-copy-defeated fix: the class handed to the update path must not share
+// nested state with the (shallow-cloned, live-FSM-backed) original — rebuilding
+// the retained VectorConfig entries from orig carried its interface fields back
+// into the copy.
+func TestRemoveDroppedVectorConfig_UpdatedClassDoesNotAliasOriginal(t *testing.T) {
+	nested := map[string]interface{}{"distance": "cosine"}
+	orig := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+		"drop": droppedCfg(),
+		"keep": {VectorIndexType: "hnsw", VectorIndexConfig: nested},
+	}}
+	up := &fakeClassUpdater{class: orig}
+	f := &schemaVectorConfigFinalizer{mgr: up}
+
+	require.NoError(t, f.RemoveDroppedVectorConfig(context.Background(), "C", []string{"drop"}))
+	require.NotNil(t, up.updated)
+
+	keptCfg, ok := up.updated.VectorConfig["keep"].VectorIndexConfig.(map[string]interface{})
+	require.True(t, ok)
+	keptCfg["distance"] = "mutated-through-the-update-path"
+
+	require.Equal(t, "cosine", nested["distance"],
+		"mutating the updated class's nested config must not reach the original (live FSM) object")
+}

@@ -146,3 +146,19 @@ func TestDeleteClassVectorIndex_FreshDrop_EnqueueFailure_StillSucceeds(t *testin
 		"the drop is in effect once the marker is applied; enqueue failure must not fail it")
 	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 }
+
+// TestDeleteClassVectorIndex_ReTrigger_EnqueueFailure_StillSucceeds pins the
+// symmetric contract with the fresh path: on re-drop the marker is already
+// durable, so a transient enqueue failure logs and succeeds (reconciliation
+// retries) instead of surfacing an effective drop as failed.
+func TestDeleteClassVectorIndex_ReTrigger_EnqueueFailure_StillSucceeds(t *testing.T) {
+	cls := classWithVectors(map[string]models.VectorConfig{
+		"foo": {VectorIndexType: vectorindex.VectorIndexTypeNone},
+	})
+	h, sm, enq := newDropVectorHandler(t, cls)
+	enq.active = false
+	enq.enqueueErr = errors.New("dtm unreachable")
+
+	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"))
+	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+}

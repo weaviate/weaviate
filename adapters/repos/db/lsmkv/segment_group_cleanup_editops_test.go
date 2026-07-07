@@ -378,3 +378,65 @@ func TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts(t *testing.T) {
 	require.Len(t, quarantined, 1)
 	require.Equal(t, segID, quarantined[0].SegmentID)
 }
+
+// TestSegmentEditOps_SweepOrphans_StaleCacheDoesNotDeleteLiveOp pins the
+// silent-incomplete-drop fix: a cached liveness set fetched BEFORE an op's task
+// committed must not be the basis for deleting that op — a fresh confirmation
+// read (which sees the now-committed task) must save it. Without the confirm,
+// the draining unit would read the deleted op's empty pending set as "done" and
+// the drop would finalize without stripping.
+func TestSegmentEditOps_SweepOrphans_StaleCacheDoesNotDeleteLiveOp(t *testing.T) {
+	ctx := context.Background()
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	t.Cleanup(func() { editops.SetLivenessProvider(nil) })
+
+	// Provider: first call (cache warm-up, pre-commit) sees no live ops; later
+	// calls (post-commit) see opX.
+	calls := 0
+	editops.SetLivenessProvider(func(context.Context) (map[string]struct{}, error) {
+		calls++
+		if calls == 1 {
+			return map[string]struct{}{}, nil
+		}
+		return map[string]struct{}{"opX": {}}, nil
+	})
+
+	// Warm the shared cache before the "commit".
+	_, err := editops.LiveOps(ctx)
+	require.NoError(t, err)
+
+	// Task commits, op arms.
+	require.NoError(t, s.RegisterOp("opX", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+
+	// Sweep within the cache TTL: the stale set is missing opX; the fresh
+	// confirmation read must keep it alive.
+	s.SweepOrphans(ctx)
+
+	ops, err := s.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, 1, "a live op must survive a sweep that consulted a pre-commit cache")
+	require.Equal(t, "opX", ops[0].ID)
+	require.GreaterOrEqual(t, calls, 2, "the sweep must have confirmed with a fresh read")
+}
+
+// TestSegmentEditOps_Recover_StaleCacheDoesNotDeleteLiveOp is the shard-load
+// variant of the same window: Recover's sweep must confirm suspects fresh.
+func TestSegmentEditOps_Recover_StaleCacheDoesNotDeleteLiveOp(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("opX", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("opX", []string{"100"}))
+
+	stale := func() map[string]struct{} { return map[string]struct{}{} }          // pre-commit view
+	fresh := func() map[string]struct{} { return map[string]struct{}{"opX": {}} } // authoritative
+	require.NoError(t, s.Recover([]string{"100"}, stale, fresh))
+
+	ops, err := s.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, 1, "the fresh confirmation must overrule the stale set")
+	pending, err := s.Pending("opX")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"100"}, pending, "the live op stays armed")
+}

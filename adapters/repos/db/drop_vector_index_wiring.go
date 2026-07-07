@@ -171,17 +171,18 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		if err != nil {
 			return fmt.Errorf("drop-vector finalize: copy class %q: %w", collection, err)
 		}
-		next.VectorConfig = make(map[string]models.VectorConfig, len(orig.VectorConfig))
+		// Filter ON THE COPY: rebuilding from orig's entries would carry orig's
+		// interface fields — which alias the live FSM class — back into next,
+		// defeating the deep copy (the update path mutates through them).
 		changed := false
-		for name, cfg := range orig.VectorConfig {
+		for name, cfg := range next.VectorConfig {
 			// Exact-case match (target vector names are case-sensitive identifiers:
 			// a case-differing sibling is a DIFFERENT vector whose marker must stay);
 			// only remove an entry still marked dropped (keep a live re-creation).
 			if slices.Contains(targets, name) && modelsext.IsVectorIndexDropped(cfg) {
+				delete(next.VectorConfig, name)
 				changed = true
-				continue
 			}
-			next.VectorConfig[name] = cfg
 		}
 		if !changed {
 			return nil // idempotent: entries already gone
