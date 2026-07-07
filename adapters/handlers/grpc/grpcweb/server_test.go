@@ -61,7 +61,7 @@ func TestCORSPreflightAllowsConfiguredHeaders(t *testing.T) {
 			})).Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 			for _, reqHeaders := range requestHeaderCases {
 				t.Run(reqHeaders, func(t *testing.T) {
-					req := httptest.NewRequest(http.MethodOptions, "/grpc-web/weaviate.v1.Weaviate/Search", nil)
+					req := httptest.NewRequest(http.MethodOptions, "/v1/grpc-web/weaviate.v1.Weaviate/Search", nil)
 					req.Header.Set("Origin", "http://localhost:3000")
 					req.Header.Set("Access-Control-Request-Method", http.MethodPost)
 					req.Header.Set("Access-Control-Request-Headers", reqHeaders)
@@ -80,19 +80,19 @@ func TestCORSPreflightAllowsConfiguredHeaders(t *testing.T) {
 }
 
 func TestMount(t *testing.T) {
-	const prefix = "/grpc-web"
+	const prefix = "/v1/grpc-web"
 	tests := []struct {
 		name      string
 		path      string
 		wantRoute string // "grpcweb" or "next"
 		wantPath  string // path the grpc-web handler observes after prefix strip
 	}{
-		{"service method", "/grpc-web/weaviate.v1.Weaviate/Search", "grpcweb", "/weaviate.v1.Weaviate/Search"},
-		{"bare prefix", "/grpc-web", "grpcweb", ""},
-		{"prefix root slash", "/grpc-web/", "grpcweb", "/"},
+		{"service method", "/v1/grpc-web/weaviate.v1.Weaviate/Search", "grpcweb", "/weaviate.v1.Weaviate/Search"},
+		{"bare prefix", "/v1/grpc-web", "grpcweb", ""},
+		{"prefix root slash", "/v1/grpc-web/", "grpcweb", "/"},
 		{"rest path", "/v1/objects", "next", ""},
 		{"root", "/", "next", ""},
-		{"prefix lookalike not stolen", "/grpc-web-extra", "next", ""},
+		{"prefix lookalike not stolen", "/v1/grpc-web-extra", "next", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,7 +130,7 @@ func TestMountRuntimeToggle(t *testing.T) {
 	var gotRoute string
 	grpcWeb := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { gotRoute = "grpcweb" })
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { gotRoute = "next" })
-	handler := Mount("/grpc-web", grpcWeb, next, enabled.Get)
+	handler := Mount("/v1/grpc-web", grpcWeb, next, enabled.Get)
 
 	route := func(path string) string {
 		gotRoute = ""
@@ -138,7 +138,7 @@ func TestMountRuntimeToggle(t *testing.T) {
 		return gotRoute
 	}
 
-	const grpcPath = "/grpc-web/weaviate.v1.Weaviate/Search"
+	const grpcPath = "/v1/grpc-web/weaviate.v1.Weaviate/Search"
 	const restPath = "/v1/objects"
 
 	// default (enabled): grpc-web served, REST untouched

@@ -874,12 +874,12 @@ type GRPC struct {
 	MaxMsgSize      int                         `json:"maxMsgSize" yaml:"maxMsgSize"`
 	MaxOpenConns    int                         `json:"maxOpenConns" yaml:"maxOpenConns"`
 	IdleConnTimeout time.Duration               `json:"idleConnTimeout" yaml:"idleConnTimeout"`
-	WebEnabled      *runtime.DynamicValue[bool] `json:"webEnabled" yaml:"webEnabled"`
+	GrpcWebEnabled  *runtime.DynamicValue[bool] `json:"grpcWebEnabled" yaml:"grpcWebEnabled"`
 }
 
-// WebEnabledOrDefault reports whether grpc-web serving is enabled, defaulting to true
-func (g GRPC) WebEnabledOrDefault() bool {
-	return g.WebEnabled == nil || g.WebEnabled.Get()
+// GrpcWebEnabledOrDefault reports whether grpc-web serving is enabled, defaulting to true
+func (g GRPC) GrpcWebEnabledOrDefault() bool {
+	return g.GrpcWebEnabled == nil || g.GrpcWebEnabled.Get()
 }
 
 type MCP struct {

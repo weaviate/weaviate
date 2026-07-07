@@ -32,7 +32,7 @@ import (
 )
 
 // TestGRPCWebSearchOverRESTPort exercises the grpc-web feature end to end: a
-// browser-shaped Connect-protocol JSON POST to /grpc-web/weaviate.v1.Weaviate/Search
+// browser-shaped Connect-protocol JSON POST to /v1/grpc-web/weaviate.v1.Weaviate/Search
 // on the REST port must be transcoded to the in-process gRPC Search and return the
 // objects that were inserted over REST. It is deliberately non-vacuous: a REST 404
 // fallthrough (grpc-web unmounted/misrouted), an empty result set, or an undecodable
@@ -87,7 +87,7 @@ func TestGRPCWebSearchOverRESTPort(t *testing.T) {
 		want[b.title] = b.wordCount
 	}
 
-	endpoint := fmt.Sprintf("http://%s/grpc-web/weaviate.v1.Weaviate/Search", compose.GetWeaviate().URI())
+	endpoint := fmt.Sprintf("http://%s/v1/grpc-web/weaviate.v1.Weaviate/Search", compose.GetWeaviate().URI())
 	// Connect-protocol unary JSON body (protojson lowerCamelCase field names). uses127Api
 	// is the modern, non-deprecated variant of the uses_12X_api flags used by the sibling
 	// gRPC search tests; returnAllNonrefProperties makes the values come back under
