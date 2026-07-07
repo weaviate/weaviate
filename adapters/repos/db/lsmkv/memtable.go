@@ -55,6 +55,7 @@ type memtable interface {
 	DirtyDuration() time.Duration
 	updateDirtyAt()
 	countStats() *countStats
+	netCount() int
 	getStrategy() string
 	commitlogSize() int64
 	commitlogWalPath() string
@@ -110,15 +111,21 @@ type memtable interface {
 
 type Memtable struct {
 	sync.RWMutex
-	key                *binarySearchTree
-	keyMulti           *binarySearchTreeMulti
-	keyMap             *binarySearchTreeMap
-	primaryIndex       *binarySearchTree
-	roaringSet         *roaringset.BinarySearchTree
-	roaringSetRange    *roaringsetrange.Memtable
-	commitlog          memtableCommitLogger
-	allocChecker       memwatch.AllocChecker
-	size               uint64
+	key             *binarySearchTree
+	keyMulti        *binarySearchTreeMulti
+	keyMap          *binarySearchTreeMap
+	primaryIndex    *binarySearchTree
+	roaringSet      *roaringset.BinarySearchTree
+	roaringSetRange *roaringsetrange.Memtable
+	commitlog       memtableCommitLogger
+	allocChecker    memwatch.AllocChecker
+	size            uint64
+	// netCountAdditions approximates the net live keys this memtable adds on
+	// top of the rest of the LSM tree. Whether a key already exists further
+	// down is unknown at write time: updates of flushed keys over-count,
+	// deletes of never-written keys under-count, and the drift is corrected by
+	// the exact per-segment count at flush. StrategyReplace only.
+	netCountAdditions  int
 	path               string
 	strategy           string
 	secondaryIndices   uint16
@@ -288,8 +295,11 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
+	netAdditions, previousKeys, wasLive := m.key.insert(key, value, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasLive {
+		m.netCountAdditions++
+	}
 
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
@@ -327,8 +337,11 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	previousKeys := m.key.setTombstone(key, nil, secondaryKeys)
+	previousKeys, wasTombstoned := m.key.setTombstone(key, nil, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasTombstoned {
+		m.netCountAdditions--
+	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
@@ -367,8 +380,11 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	previousKeys := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
+	previousKeys, wasTombstoned := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasTombstoned {
+		m.netCountAdditions--
+	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
@@ -621,6 +637,12 @@ func (m *Memtable) countStats() *countStats {
 	m.RLock()
 	defer m.RUnlock()
 	return m.key.countStats()
+}
+
+func (m *Memtable) netCount() int {
+	m.RLock()
+	defer m.RUnlock()
+	return m.netCountAdditions
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
