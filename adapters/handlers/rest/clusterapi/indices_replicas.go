@@ -524,12 +524,23 @@ func (i *replicatedIndices) postCompareHashTreeRoots() http.Handler {
 		defer r.Body.Close()
 
 		var req replica.CompareHashTreeRootsReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		body := http.MaxBytesReader(w, r.Body, maxDecompressedReplicaBody)
+		if err := json.NewDecoder(body).Decode(&req); err != nil {
 			http.Error(w, "unmarshal compare hashtree roots request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if len(req.Roots) > replica.CompareHashTreeRootsMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards: %d exceeds maximum %d",
+				len(req.Roots), replica.CompareHashTreeRootsMaxShardsPerRequest), http.StatusBadRequest)
+			return
+		}
 
-		diverging, err := i.replicator.CompareHashTreeRoots(r.Context(), index, req.Roots)
+		roots := make(map[string]hashtree.Digest, len(req.Roots))
+		for shard, root := range req.Roots {
+			roots[shard] = hashtree.Digest(root)
+		}
+
+		diverging, err := i.replicator.CompareHashTreeRoots(r.Context(), index, roots)
 		if err != nil {
 			http.Error(w, "compare hashtree roots: "+err.Error(), http.StatusInternalServerError)
 			return

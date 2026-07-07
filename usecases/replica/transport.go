@@ -173,10 +173,9 @@ type DigestObjectsInRangeResp struct {
 	Digests []types.RepairResponse `json:"digests,omitempty"`
 }
 
-// CompareHashTreeRootsReq / Resp are the REST-transport payloads for the batched
-// root pre-filter, keyed by shard.
+// CompareHashTreeRootsReq / Resp are the REST payloads for the batched root pre-filter; roots use raw [high,low] pairs since Digest's pointer-receiver JSON breaks for map values.
 type CompareHashTreeRootsReq struct {
-	Roots map[string]hashtree.Digest `json:"roots"`
+	Roots map[string][2]uint64 `json:"roots"`
 }
 
 type CompareHashTreeRootsResp struct {
