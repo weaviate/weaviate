@@ -204,8 +204,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Error("failed to initialize OpenTelemetry")
+			WithField("action", "startup").
+			Errorf("failed to initialize OpenTelemetry: %v", err)
 	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -2564,6 +2564,9 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.TraceVectorSearch = appState.ServerConfig.Config.TraceVectorSearch
+		registered.TraceBM25Search = appState.ServerConfig.Config.TraceBM25Search
+		registered.TraceHybridSearch = appState.ServerConfig.Config.TraceHybridSearch
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

@@ -530,7 +530,10 @@ type MetadataRequest struct {
 	Vectors            []string               `protobuf:"bytes,10,rep,name=vectors,proto3" json:"vectors,omitempty"`
 	// query_profile enables per-shard query profiling. When true, the response includes
 	// timing breakdowns for each shard and search type.
-	QueryProfile  bool `protobuf:"varint,11,opt,name=query_profile,json=queryProfile,proto3" json:"query_profile,omitempty"`
+	QueryProfile bool `protobuf:"varint,11,opt,name=query_profile,json=queryProfile,proto3" json:"query_profile,omitempty"`
+	// trace_spans forces OTel span emission for this request only, independent of
+	// the runtime tracing toggles.
+	TraceSpans    bool `protobuf:"varint,12,opt,name=trace_spans,json=traceSpans,proto3" json:"trace_spans,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -638,6 +641,13 @@ func (x *MetadataRequest) GetVectors() []string {
 func (x *MetadataRequest) GetQueryProfile() bool {
 	if x != nil {
 		return x.QueryProfile
+	}
+	return false
+}
+
+func (x *MetadataRequest) GetTraceSpans() bool {
+	if x != nil {
+		return x.TraceSpans
 	}
 	return false
 }
@@ -2176,7 +2186,7 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x11objects_per_group\x18\x03 \x01(\x05R\x0fobjectsPerGroup\":\n" +
 	"\x06SortBy\x12\x1c\n" +
 	"\tascending\x18\x01 \x01(\bR\tascending\x12\x12\n" +
-	"\x04path\x18\x02 \x03(\tR\x04path\"\xf7\x02\n" +
+	"\x04path\x18\x02 \x03(\tR\x04path\"\x98\x03\n" +
 	"\x0fMetadataRequest\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\bR\x04uuid\x12\x16\n" +
 	"\x06vector\x18\x02 \x01(\bR\x06vector\x12,\n" +
@@ -2189,7 +2199,9 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\ris_consistent\x18\t \x01(\bR\fisConsistent\x12\x18\n" +
 	"\avectors\x18\n" +
 	" \x03(\tR\avectors\x12#\n" +
-	"\rquery_profile\x18\v \x01(\bR\fqueryProfile\"\x9f\x02\n" +
+	"\rquery_profile\x18\v \x01(\bR\fqueryProfile\x12\x1f\n" +
+	"\vtrace_spans\x18\f \x01(\bR\n" +
+	"traceSpans\"\x9f\x02\n" +
 	"\x11PropertiesRequest\x12,\n" +
 	"\x12non_ref_properties\x18\x01 \x03(\tR\x10nonRefProperties\x12H\n" +
 	"\x0eref_properties\x18\x02 \x03(\v2!.weaviate.v1.RefPropertiesRequestR\rrefProperties\x12Q\n" +

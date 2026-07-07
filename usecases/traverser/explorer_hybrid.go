@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -30,11 +32,16 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/tracing"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm
 func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.AreaBM25, "weaviate.explorer.hybrid.sparseSearch",
+		trace.WithAttributes(attribute.String("weaviate.collection", params.ClassName)))
+	defer span.End()
+
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
 		Type:       "bm25",
@@ -85,6 +92,10 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
 func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.AreaVector, "weaviate.explorer.hybrid.denseSearch",
+		trace.WithAttributes(attribute.String("weaviate.collection", params.ClassName)))
+	defer span.End()
+
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
 		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
@@ -196,6 +207,10 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.AreaHybrid, "weaviate.explorer.Hybrid",
+		trace.WithAttributes(attribute.String("weaviate.collection", params.ClassName)))
+	defer span.End()
+
 	if params.AdditionalProperties.QueryProfile {
 		ctx = helpers.InitQueryProfileCollector(ctx)
 	}

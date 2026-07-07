@@ -1398,6 +1398,11 @@ func FromEnv(config *Config) error {
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
+	// Tracing per-area toggles: env default, then hot-reloadable via runtime config.
+	config.TraceVectorSearch = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("TRACE_VECTOR_SEARCH")))
+	config.TraceBM25Search = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("TRACE_BM25_SEARCH")))
+	config.TraceHybridSearch = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("TRACE_HYBRID_SEARCH")))
+
 	return nil
 }
 

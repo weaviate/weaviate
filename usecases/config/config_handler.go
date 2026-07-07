@@ -335,6 +335,12 @@ type Config struct {
 
 	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
+
+	// Tracing per-area toggles. Each enables OTel span emission for one query
+	// area, hot-reloadable via runtime config and seeded from a TRACE_* env var.
+	TraceVectorSearch *runtime.DynamicValue[bool] `json:"trace_vector_search" yaml:"trace_vector_search"`
+	TraceBM25Search   *runtime.DynamicValue[bool] `json:"trace_bm25_search" yaml:"trace_bm25_search"`
+	TraceHybridSearch *runtime.DynamicValue[bool] `json:"trace_hybrid_search" yaml:"trace_hybrid_search"`
 }
 
 type MapToBlockamaxConfig struct {
