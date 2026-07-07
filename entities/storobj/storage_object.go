@@ -341,6 +341,9 @@ func objectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
+	if len(ids) == 0 { // avoid acquiring a consistent view for an empty batch
+		return []*Object{}, nil
+	}
 	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
 		if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
 			return objectsByDocIDSequentialInner(lookup, ids, additional, properties, includeEmpty)

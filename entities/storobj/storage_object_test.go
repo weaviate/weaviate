@@ -1621,6 +1621,42 @@ func TestObjectsByDocIDSharedView(t *testing.T) {
 	}
 }
 
+func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	for _, name := range []string{"sequential code path", "concurrent code path"} {
+		t.Run(name, func(t *testing.T) {
+			ids := []uint64{0}
+			if name == "concurrent code path" {
+				ids = pickRandomIDsBetween(0, 1000, 100)
+			}
+
+			bucket := genFakeBucket(t, 1000)
+			bucket.lookupErr = fmt.Errorf("boom")
+
+			_, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+			require.Error(t, err)
+
+			// the view is still released exactly once when a lookup fails mid-batch
+			assert.Equal(t, 1, bucket.views)
+			assert.Equal(t, 1, bucket.released)
+		})
+	}
+}
+
+func TestObjectsByDocIDEmptyBatch(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bucket := genFakeBucket(t, 1000)
+
+	res, err := ObjectsByDocID(bucket, nil, additional.Properties{}, nil, logger)
+	require.NoError(t, err)
+	require.Empty(t, res)
+
+	// an empty batch acquires no consistent view
+	assert.Equal(t, 0, bucket.views)
+	assert.Equal(t, 0, bucket.released)
+}
+
 func TestObjectsByDocIDNilBucket(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	_, err := ObjectsByDocID(nil, []uint64{0}, additional.Properties{}, nil, logger)
@@ -1821,6 +1857,9 @@ type fakeBucket struct {
 	// released for a batch.
 	views    int
 	released int
+	// lookupErr, when set, makes every lookup fail, simulating an error
+	// mid-batch.
+	lookupErr error
 }
 
 func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
@@ -1829,6 +1868,9 @@ func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
 }
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
+	if f.lookupErr != nil {
+		return nil, nil, f.lookupErr
+	}
 	docID := binary.LittleEndian.Uint64(docIDBytes)
 	objBytes, ok := f.objects[docID]
 	if !ok {
