@@ -158,6 +158,15 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
 	if uc.Multivector.MuveraConfig.Enabled {
+		// The schema handler enforces these bounds on create/update, but a
+		// class persisted before the bounds existed may exceed them. Loading
+		// must not fail (the node has to start), so only warn.
+		if err := ent.ValidateMuveraUpperBounds(uc); err != nil {
+			logger.WithFields(logrus.Fields{
+				"action": "hfresh_load_config",
+				"id":     cfg.ID,
+			}).Warnf("muvera config exceeds the allowed bounds; the index will load, but encoding may exhaust memory: %v", err)
+		}
 		h.muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
 		if err = store.CreateOrLoadBucket(
 			context.Background(),

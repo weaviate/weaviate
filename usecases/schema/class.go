@@ -27,6 +27,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"golang.org/x/text/unicode/norm"
 
@@ -1426,6 +1427,13 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed == nil {
 			continue
 		}
+		// Create/update-only hard limits. They must not live in the config
+		// parser itself: that also runs on startup/restore, where a
+		// persisted out-of-range class must not prevent the node from
+		// starting.
+		if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
 		// Grandfather: same VectorIndexType + same compressions on this
 		// named-vector entry ⇒ skip the policy check.
 		if namedCompressionUnchanged(parsed, name, initial, h) {
@@ -1434,6 +1442,16 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
+	}
+	return nil
+}
+
+// validateCreateUpdateOnlyBounds enforces limits that only apply to schema
+// writes (AddClass/UpdateClass), never to parsing persisted schemas at
+// startup or during RAFT log replay.
+func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
+	if uc, ok := parsed.(enthfresh.UserConfig); ok {
+		return enthfresh.ValidateMuveraUpperBounds(uc)
 	}
 	return nil
 }
