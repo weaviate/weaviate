@@ -938,6 +938,12 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 // completion should use mayStopAsyncReplication instead, or call Deregister
 // followed by asyncRepWg.Wait() explicitly.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
+	return s.disableAsyncReplicationWithPersist(true)
+}
+
+// disableAsyncReplicationWithPersist is disableAsyncReplication with control over
+// the dump: persist=false discards the captured tree instead of fsync'ing it.
+func (s *Shard) disableAsyncReplicationWithPersist(persist bool) error {
 	var afterRelease func()
 	var needDeregister bool
 
@@ -954,12 +960,20 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		// Capture before clearing so afterRelease can persist the hashtree
 		// outside the write lock (same pattern as mayStopAsyncReplication).
 		var capturedHT hashtree.AggregatedHashTree
-		if s.hashtreeFullyInitialized {
+		if persist && s.hashtreeFullyInitialized {
 			capturedHT = s.hashtree
 		}
 
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
+
+		// Deregister under the write lock so {hashtree=nil, Deregister} is atomic:
+		// else a concurrent enable's fresh registration could be orphaned here.
+		if s.index.asyncReplicationScheduler != nil {
+			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+				s.index.logger.WithField("action", "async_replication").Error(err)
+			}
+		}
 
 		needDeregister = true
 
@@ -975,16 +989,6 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		return err
 	}
 	if needDeregister {
-		// Remove from the scheduler. The context has already been cancelled so
-		// any in-flight cycle will exit promptly; we do not wait for it here.
-		// Deregister may return context.Canceled if the scheduler is shutting
-		// down concurrently; that is safe to ignore because the rebuild path
-		// does not require a strict happens-before with the scheduler's shutdown.
-		if s.index.asyncReplicationScheduler != nil {
-			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
-				s.index.logger.WithField("action", "async_replication").Error(err)
-			}
-		}
 		// Clear stats outside asyncReplicationRWMux to avoid nesting
 		// asyncReplicationStatsMux inside a write lock.
 		s.asyncReplicationStatsMux.Lock()
@@ -1082,6 +1086,12 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 		return s.disableAsyncReplication(ctx)
 	}
 	return nil
+}
+
+func (s *Shard) hasActiveAsyncReplicationTargetOverrides() bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return len(s.targetNodeOverrides) > 0
 }
 
 func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
