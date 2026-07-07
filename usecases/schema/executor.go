@@ -161,62 +161,77 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
 
-	if cfg, ok := req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
-		if err := e.migrator.UpdateVectorIndexConfig(ctx, className, cfg); err != nil {
-			return fmt.Errorf("vector index config update: %w", err)
-		}
-	}
+	// FieldsToUpdate mask: targeted migration callers (e.g. the BlockMax
+	// flag flip in adapters/repos/db.updateToBlockMaxInvertedIndexConfig)
+	// limit the downstream migrator dispatch to the listed sub-configs.
+	// Legacy unmasked callers (nil/empty mask) keep the historical
+	// "apply every non-nil sub-config" behaviour.
+	shouldUpdate := api.ClassFieldUpdaterFromMask(req.FieldsToUpdate)
 
-	if cfgs := asVectorIndexConfigs(req.Class); cfgs != nil {
-		// When a vector index is being dropped, skip UpdateVectorIndexConfigs
-		// for the remaining active vectors. A drop operation only clears
-		// VectorIndexType/Config for the dropped entry and never modifies
-		// active vectors. Re-applying unchanged quantized configs triggers
-		// async compression operations that corrupt the schema state in
-		// cluster setups.
-		hasDroppedVector := false
-		for _, vc := range req.Class.VectorConfig {
-			if modelsext.IsVectorIndexDropped(vc) {
-				hasDroppedVector = true
-				break
-			}
-		}
-
-		if !hasDroppedVector {
-			if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, cfgs); err != nil {
-				return fmt.Errorf("vector index configs update: %w", err)
+	if shouldUpdate(api.ClassFieldVectorIndexConfig) {
+		if cfg, ok := req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+			if err := e.migrator.UpdateVectorIndexConfig(ctx, className, cfg); err != nil {
+				return fmt.Errorf("vector index config update: %w", err)
 			}
 		}
 	}
 
-	// Detect vector configs that have been explicitly dropped (VectorIndexType
-	// set to "none") and drop the corresponding indexes from disk. We read
-	// the current vector index names from the DB layer (not the schema, which
-	// has already been updated by this point in the RAFT apply flow). Skip the
-	// legacy vector (empty string key) — it is not managed through VectorConfig
-	// but through the class-level fields.
-	// NOTE: We only drop when the config is explicitly marked as dropped
-	// (IsVectorIndexDropped), not when it's merely absent from VectorConfig.
-	// A missing entry could be caused by serialization bugs or older clients
-	// that omit configs, and should not trigger silent data deletion.
-	for _, targetVector := range e.migrator.GetVectorIndexNames(className) {
-		if targetVector == "" {
-			continue
+	if shouldUpdate(api.ClassFieldVectorConfig) {
+		if cfgs := asVectorIndexConfigs(req.Class); cfgs != nil {
+			// When a vector index is being dropped, skip UpdateVectorIndexConfigs
+			// for the remaining active vectors. A drop operation only clears
+			// VectorIndexType/Config for the dropped entry and never modifies
+			// active vectors. Re-applying unchanged quantized configs triggers
+			// async compression operations that corrupt the schema state in
+			// cluster setups.
+			hasDroppedVector := false
+			for _, vc := range req.Class.VectorConfig {
+				if modelsext.IsVectorIndexDropped(vc) {
+					hasDroppedVector = true
+					break
+				}
+			}
+
+			if !hasDroppedVector {
+				if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, cfgs); err != nil {
+					return fmt.Errorf("vector index configs update: %w", err)
+				}
+			}
 		}
-		if cfg, exists := req.Class.VectorConfig[targetVector]; exists && modelsext.IsVectorIndexDropped(cfg) {
-			if err := e.migrator.DropVectorIndex(ctx, className, targetVector); err != nil {
-				return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+
+		// Detect vector configs that have been explicitly dropped (VectorIndexType
+		// set to "none") and drop the corresponding indexes from disk. We read
+		// the current vector index names from the DB layer (not the schema, which
+		// has already been updated by this point in the RAFT apply flow). Skip the
+		// legacy vector (empty string key) — it is not managed through VectorConfig
+		// but through the class-level fields.
+		// NOTE: We only drop when the config is explicitly marked as dropped
+		// (IsVectorIndexDropped), not when it's merely absent from VectorConfig.
+		// A missing entry could be caused by serialization bugs or older clients
+		// that omit configs, and should not trigger silent data deletion.
+		for _, targetVector := range e.migrator.GetVectorIndexNames(className) {
+			if targetVector == "" {
+				continue
+			}
+			if cfg, exists := req.Class.VectorConfig[targetVector]; exists && modelsext.IsVectorIndexDropped(cfg) {
+				if err := e.migrator.DropVectorIndex(ctx, className, targetVector); err != nil {
+					return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+				}
 			}
 		}
 	}
 
-	if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
-		req.Class.InvertedIndexConfig); err != nil {
-		return fmt.Errorf("inverted index config: %w", err)
+	if shouldUpdate(api.ClassFieldInvertedIndexConfig) {
+		if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
+			req.Class.InvertedIndexConfig); err != nil {
+			return fmt.Errorf("inverted index config: %w", err)
+		}
 	}
 
-	if err := e.migrator.UpdateReplicationConfig(ctx, className, req.Class.ReplicationConfig); err != nil {
-		return fmt.Errorf("update replication config: %w", err)
+	if shouldUpdate(api.ClassFieldReplicationConfig) {
+		if err := e.migrator.UpdateReplicationConfig(ctx, className, req.Class.ReplicationConfig); err != nil {
+			return fmt.Errorf("update replication config: %w", err)
+		}
 	}
 
 	return nil
