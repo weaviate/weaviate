@@ -30,9 +30,16 @@ import (
 // This method could be called multiple times with different inactivity timeouts,
 // a zeroed `inactivityTimeout` implies no timeout.
 // If inactivity timeout is reached it will resume maintenance cycle independently on how many halt request has been made.
+// The preparation work (pausing compaction, flushing memtables, readying vector indexes and queues)
+// is additionally bounded by `HaltForTransferTimeout`, independent of `inactivityTimeout`;
+// a zeroed `HaltForTransferTimeout` implies no bound.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
-	innerCtx, cancel := context.WithTimeout(ctx, s.index.Config.HaltForTransferTimeout)
-	defer cancel()
+	innerCtx := ctx
+	if timeout := s.index.Config.HaltForTransferTimeout; timeout > 0 {
+		var cancel context.CancelFunc
+		innerCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
@@ -59,7 +66,8 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("pause compaction: %w", err)
+			// each preparation step below wraps its own error; only append
+			// the outcome of the cleanup attempt here
 			if err2 := s.mayForceResumeMaintenanceCycles(ctx, false); err2 != nil {
 				err = fmt.Errorf("%w: resume maintenance: %w", err, err2)
 			}

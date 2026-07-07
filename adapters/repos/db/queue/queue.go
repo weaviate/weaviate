@@ -488,11 +488,6 @@ func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
 	}
 	defer q.Resume()
 
-	err = q.Wait(ctx)
-	if err != nil {
-		return err
-	}
-
 	err = q.Flush()
 	if err != nil {
 		return err
