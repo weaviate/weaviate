@@ -207,6 +207,9 @@ type ShardLike interface {
 type asyncReplicationController interface {
 	enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error
 	disableAsyncReplication(ctx context.Context) error
+	// hasActiveAsyncReplicationTargetOverrides reports whether the shard holds
+	// target-node overrides that force async replication on.
+	hasActiveAsyncReplicationTargetOverrides() bool
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
