@@ -271,8 +271,9 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 }
 
 // AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
-// Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
-// the same namespace/ID is already running, or if no units are provided.
+// Version, used to distinguish re-runs of the same task ID. A re-apply of a still-running
+// task's own submit (e.g. a RAFT retry across a leadership change) is an idempotent no-op;
+// an error is returned only for a stale re-run of a finished task, or if no units are given.
 func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	var r api.AddDistributedTaskRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -285,7 +286,13 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
 		if task.Status == TaskStatusStarted {
-			return fmt.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version)
+			// Idempotent re-apply: a RAFT Execute retry across a leadership
+			// change can re-append this same submit at a later log index
+			// (raft.Apply reports ErrLeadershipLost even when the entry already
+			// committed via quorum). The task id's per-request random suffix
+			// means a duplicate id is always this same submit, already started
+			// by the first apply — so a no-op, not a spurious 500.
+			return nil
 		}
 
 		if seqNum <= task.Version {
