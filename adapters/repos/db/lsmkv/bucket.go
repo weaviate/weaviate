@@ -2252,7 +2252,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 					n += n2
 
 					if !flushing.Exhausted() {
-						flushing.tombstones = activeTombstones
+						flushing.setTombstones(activeTombstones)
 						flushing.advanceOnTombstoneOrFilter()
 					}
 				}

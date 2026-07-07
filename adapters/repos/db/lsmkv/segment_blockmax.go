@@ -185,6 +185,18 @@ type SegmentBlockMax struct {
 	memTombstones *sroar.Bitmap
 	filterDocIds  helpers.AllowList
 
+	// Probed at this term's monotonically advancing idPointer, the access
+	// pattern ContainsCursor is built for. Primed lazily on first probe.
+	tombCur      sroar.ContainsCursor
+	memTombCur   sroar.ContainsCursor
+	tombCurReady bool
+
+	// filterBm is the AllowList's bitmap when it is a *BitmapAllowList, else nil
+	// — a non-bitmap AllowList keeps the interface probe.
+	filterCur      sroar.ContainsCursor
+	filterBm       *sroar.Bitmap
+	filterCurReady bool
+
 	// stateless reusable-decode functions, resolved once from the segment's
 	// codecs (doc ids and term frequencies). Func values, not an encoder
 	// interface slice, so the query path allocates no per-term decoder buffers.
@@ -365,7 +377,7 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 		// read the current doc id once instead of re-indexing the slice in each
 		// of the up-to-three membership checks below
 		docID := s.blockDataDecoded.DocIds[s.blockDataIdx]
-		passes := s.filterDocIds == nil || s.filterDocIds.Contains(docID)
+		passes := s.filterDocIds == nil || s.filterContains(docID)
 		if passes && checkTomb {
 			passes = !s.tombstoned(docID)
 		}
@@ -393,8 +405,38 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 // in a segment share the same tombstone bitmaps, so any one of them can report
 // tombstone status for a pivot they all align on.
 func (s *SegmentBlockMax) tombstoned(docID uint64) bool {
-	return (s.tombstones != nil && s.tombstones.Contains(docID)) ||
-		(s.memTombstones != nil && s.memTombstones.Contains(docID))
+	if !s.tombCurReady {
+		// Reset(nil) yields an always-false cursor, so an absent bitmap is a no-op.
+		s.tombCur.Reset(s.tombstones)
+		s.memTombCur.Reset(s.memTombstones)
+		s.tombCurReady = true
+	}
+	return s.tombCur.Contains(docID) || s.memTombCur.Contains(docID)
+}
+
+// setTombstones rebinds the bitmap and clears the cursor latch so the next
+// tombstoned() re-primes on it — the flushing term assigns its tombstones
+// after construction, when tombCur could otherwise stay bound to the old one.
+func (s *SegmentBlockMax) setTombstones(tombstones *sroar.Bitmap) {
+	s.tombstones = tombstones
+	s.tombCurReady = false
+}
+
+// filterContains reports whether docID passes the filter; the caller guarantees
+// s.filterDocIds != nil. A *BitmapAllowList is cursored, other kinds probe the
+// interface.
+func (s *SegmentBlockMax) filterContains(docID uint64) bool {
+	if !s.filterCurReady {
+		if bl, ok := s.filterDocIds.(*helpers.BitmapAllowList); ok {
+			s.filterBm = bl.Bm
+			s.filterCur.Reset(bl.Bm)
+		}
+		s.filterCurReady = true
+	}
+	if s.filterBm != nil {
+		return s.filterCur.Contains(docID)
+	}
+	return s.filterDocIds.Contains(docID)
 }
 
 func (s *SegmentBlockMax) reset() error {
