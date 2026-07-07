@@ -60,7 +60,23 @@ type TestHFresh struct {
 	mvStore *muveraTestStore
 }
 
-func createHFreshIndex(t *testing.T) TestHFresh {
+// testIndexOption mutates the index config before the index is created.
+// The default distance provider is L2; cosine-sensitive behavior (token
+// normalization, cosine-dot semantics) is only exercised when tests opt in
+// via withDistanceProvider, so prefer testing both where distance matters.
+type testIndexOption func(*Config)
+
+// withDistanceProvider sets the distance provider for both the index itself
+// and its centroid HNSW, keeping the two consistent like production wiring
+// does (shard_init_vector.go uses the same provider for both).
+func withDistanceProvider(provider distancer.Provider) testIndexOption {
+	return func(cfg *Config) {
+		cfg.DistanceProvider = provider
+		cfg.Centroids.HNSWConfig.DistanceProvider = provider
+	}
+}
+
+func createHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
 	t.Helper()
 
 	logger, hook := test.NewNullLogger()
@@ -88,6 +104,10 @@ func createHFreshIndex(t *testing.T) TestHFresh {
 
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	cfg.Logger = logger
+
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
 	scheduler.Start()
 	t.Cleanup(func() {
@@ -178,7 +198,7 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 	return postingID, posting
 }
 
-func createMuveraHFreshIndex(t *testing.T) TestHFresh {
+func createMuveraHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
 	t.Helper()
 
 	logger, hook := test.NewNullLogger()
@@ -209,6 +229,10 @@ func createMuveraHFreshIndex(t *testing.T) TestHFresh {
 	cfg.Logger = logger
 	cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
 		return mvStore.getMultiVector(id)
+	}
+
+	for _, opt := range opts {
+		opt(cfg)
 	}
 
 	scheduler.Start()
