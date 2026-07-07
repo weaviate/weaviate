@@ -275,34 +275,38 @@ func NewResultSet(k int) *ResultSet {
 	}
 }
 
-// Insert adds a new element, maintaining only k smallest elements by distance
+// Insert adds a new element, maintaining only k smallest elements by
+// (distance, id). Ties on distance are broken by ascending id so that result
+// ordering is deterministic regardless of insertion order.
 func (ks *ResultSet) Insert(id uint64, dist float32) {
 	item := Result{ID: id, Distance: dist}
 
 	// If array isn't full yet, just insert in sorted position
 	if len(ks.data) < ks.k {
-		pos := ks.searchByDistance(dist)
+		pos := ks.searchByDistance(dist, id)
 		ks.data = append(ks.data, Result{})
 		copy(ks.data[pos+1:], ks.data[pos:])
 		ks.data[pos] = item
 		return
 	}
 
-	// If array is full, only insert if distance is smaller than max (last element)
-	if dist < ks.data[ks.k-1].Distance {
-		pos := ks.searchByDistance(dist)
+	// If array is full, only insert if (dist, id) sorts before the max (last element)
+	last := ks.data[ks.k-1]
+	if dist < last.Distance || (dist == last.Distance && id < last.ID) {
+		pos := ks.searchByDistance(dist, id)
 		// Shift elements to the right and insert
 		copy(ks.data[pos+1:], ks.data[pos:ks.k-1])
 		ks.data[pos] = item
 	}
 }
 
-// searchByDistance finds the insertion position for a given distance
-func (ks *ResultSet) searchByDistance(dist float32) int {
+// searchByDistance finds the insertion position for a given (distance, id) pair
+func (ks *ResultSet) searchByDistance(dist float32, id uint64) int {
 	left, right := 0, len(ks.data)
 	for left < right {
 		mid := (left + right) / 2
-		if ks.data[mid].Distance < dist {
+		if ks.data[mid].Distance < dist ||
+			(ks.data[mid].Distance == dist && ks.data[mid].ID < id) {
 			left = mid + 1
 		} else {
 			right = mid
@@ -338,6 +342,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 		return nil, nil, ErrMuveraNotEnabled
 	}
 
+	vectors = h.normalizeMultiVec(vectors)
 	queryFlat := h.muveraEncoder.EncodeQuery(vectors)
 	candidateIDs, _, err := h.SearchByVector(ctx, queryFlat, int(h.rescoreLimit), allow)
 	if err != nil {
@@ -414,6 +419,7 @@ func (h *HFresh) QueryMultiVectorDistancer(queryVectors [][]float32) common.Quer
 		}
 	}
 
+	queryVectors = h.normalizeMultiVec(queryVectors)
 	distFunc := func(id uint64) (float32, error) {
 		docVectors, err := h.multivectorForIdThunk(h.ctx, id)
 		if err != nil {
@@ -455,7 +461,10 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 // maxSimScore computes the MaxSim score between query and document multi-vectors.
 // For each query token, it finds the minimum distance to any document token, then
 // sums across all query tokens. Lower score = more similar.
+// Callers must pass query tokens already normalized (normalizeMultiVec); document
+// tokens are fetched raw from object storage and normalized here.
 func (h *HFresh) maxSimScore(queryVectors [][]float32, docVectors [][]float32) (float32, error) {
+	docVectors = h.normalizeMultiVec(docVectors)
 	var score float32
 	for _, queryToken := range queryVectors {
 		d := h.config.DistanceProvider.New(queryToken)

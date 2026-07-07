@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -407,6 +408,21 @@ func (h *HFresh) ContainsDoc(id uint64) bool {
 
 func (h *HFresh) Iterate(fn func(id uint64) bool) {
 	h.logger.Warn("Iterate is not implemented for HFresh index")
+}
+
+// normalizeMultiVec normalizes each token of a multi-vector when the
+// configured distance requires normalized vectors (cosine-dot). The distance
+// provider computes 1-dot, which only equals the cosine distance on unit
+// vectors, so every token must be normalized before encoding or scoring.
+func (h *HFresh) normalizeMultiVec(vecs [][]float32) [][]float32 {
+	if h.config.DistanceProvider.Type() != "cosine-dot" {
+		return vecs
+	}
+	normalized := make([][]float32, len(vecs))
+	for i, vec := range vecs {
+		normalized[i] = distancer.Normalize(vec)
+	}
+	return normalized
 }
 
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {

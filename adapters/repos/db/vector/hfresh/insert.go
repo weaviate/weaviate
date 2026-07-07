@@ -266,6 +266,11 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 		return errors.New("multi-vector cannot be empty")
 	}
 
+	// the muvera encoding must operate on normalized tokens for cosine so
+	// that the FDE dot product approximates the cosine-based MaxSim used
+	// during rescoring
+	vectors = h.normalizeMultiVec(vectors)
+
 	var initErr error
 	h.trackMuveraOnce.Do(func() {
 		h.muveraEncoder.InitEncoder(len(vectors[0]))
