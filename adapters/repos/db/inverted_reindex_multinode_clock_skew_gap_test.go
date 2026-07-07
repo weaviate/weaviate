@@ -31,6 +31,24 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// gapFixed toggles the characterization assertions between "gap still open"
+// (false, the state of current main) and "gap closed" (true, what a
+// skew-immune fix must deliver).
+//
+// This is an INVERTED characterization pin, not a red repro. With gapFixed
+// == false every case below asserts the outcome current main actually
+// produces, so the whole test is GREEN on main and stays mergeable — an RFC
+// needs green CI. Gap cases (the ones whose behavior a fix must change) log a
+// loud KNOWN-GAP line when they pass so the reproduction is never silent.
+//
+// The moment a fix makes a lost write survive (add side) or prunes a
+// resurrected posting (delete side), the corresponding assertion flips and
+// this test goes RED against gapFixed == false — forcing whoever lands the
+// fix to flip this const to true (which then asserts the skew-immune
+// outcome). Flip it ONLY once every gap case delivers the skew-immune result;
+// a partial fix must keep the pin red.
+const gapFixed = false
+
 // readRangeableDocIDs returns the docIDs indexed under a single int64 value in
 // a RoaringSetRange (rangeable) bucket. Same read path as
 // [filterableToRangeableFingerprint], narrowed to one value so a test can
@@ -55,17 +73,53 @@ func readRangeableDocIDs(t *testing.T, b *lsmkv.Bucket, value int64) []uint64 {
 	return ids
 }
 
-// TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap is the reproduction pin
-// for weaviate/weaviate#11692 — the multi-node residual that the single-clock
-// fix (weaviate/weaviate#11688, capture reindexStarted after registration,
-// ms-ceiled) does NOT close.
+// skewGapHarness is the shared scaffolding every case in
+// [TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap] drives: one shard,
+// one FilterableToRangeable migration task, and the helpers a case needs to
+// stage a write or a delete relative to the double-write callback
+// registration boundary (OnAfterLsmInit).
+type skewGapHarness struct {
+	ctx       context.Context
+	shard     *Shard
+	task      *ShardReindexTaskGeneric
+	className string
+	propName  string
+}
+
+// putWithTimestamp writes an object carrying an explicit coordinator
+// timestamp. A replica preserves whatever LastUpdateTimeUnix the coordinator
+// stamped, so a coordinator whose clock is ahead is modeled exactly by an
+// object with a future LastUpdateTimeUnix.
+func (h *skewGapHarness) putWithTimestamp(t *testing.T, value, tsMillis int64) strfmt.UUID {
+	t.Helper()
+	id := strfmt.UUID(uuid.NewString())
+	require.NoError(t, h.shard.PutObject(h.ctx, &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:                 id,
+			Class:              h.className,
+			Properties:         map[string]interface{}{h.propName: value},
+			CreationTimeUnix:   tsMillis,
+			LastUpdateTimeUnix: tsMillis,
+		},
+	}))
+	return id
+}
+
+// bypassDeleteTee drops every delete callback so a subsequent DeleteObject
+// does NOT mirror a tombstone into the ingest bucket. It models a delete that
+// never reaches the double-write tee (the delete-side analog of an unmirrored
+// write); the add tee is left armed, so only the delete escapes the mirror.
+func (h *skewGapHarness) bypassDeleteTee() {
+	h.shard.callbacksRemoveFromPropertyValueIndex.Store([]onDeleteFromPropertyValueIndex{})
+}
+
+// TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap pins the multi-node
+// residual of weaviate/weaviate#11692 — the gap the single-clock fix
+// (weaviate/weaviate#11688, capture reindexStarted after callback
+// registration, ms-ceiled) does NOT close.
 //
-// RED PIN. This test asserts the CORRECT (skew-immune) behavior and therefore
-// FAILS against current main. It is committed red on purpose: it is the
-// reproduction case for the architectural gap, not a regression against a fix
-// that already exists. See the PR body (issue #11692) for the design options.
-//
-// # The invariant and why skew breaks it
+// # The invariant and why cross-node skew breaks it
 //
 // The backfill iterator ([uuidObjectsIteratorAsync]) classifies every object
 // it scans by one comparison:
@@ -73,132 +127,227 @@ func readRangeableDocIDs(t *testing.T, b *lsmkv.Bucket, value int64) []uint64 {
 //	obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli()  → backfill (analyze)
 //	obj.LastUpdateTimeUnix() >= reindexStarted.UnixMilli() → skip (assume mirrored)
 //
-// The "skip" branch is only sound if every object with a timestamp at/after
-// reindexStarted was in fact captured by the double-write callbacks. That holds
-// under a SINGLE clock: reindexStarted is captured after callback registration,
-// so any write timestamped >= reindexStarted physically happened after the
-// callbacks were live and was mirrored.
+// The "skip" branch is only sound if every object timestamped at/after
+// reindexStarted was in fact captured by the double-write callbacks. That
+// holds under a SINGLE clock: reindexStarted is captured after callback
+// registration, so any write timestamped >= reindexStarted physically
+// happened after the callbacks were live and was mirrored. It does NOT hold
+// across nodes. LastUpdateTimeUnix is stamped on the coordinator that received
+// the write (usecases/objects/*.go: LastUpdateTimeUnix = m.timeSource.Now())
+// and the replica preserves that stamp verbatim; reindexStarted is stamped on
+// the replica's own clock (markStarted(time.Now())). With the coordinator's
+// clock ahead of the replica's, a write can arrive at the replica BEFORE
+// callback registration (so it is NOT mirrored) yet carry a coordinator
+// timestamp >= reindexStarted (so the backfill SKIPS it, assuming mirrored) —
+// permanently missing from the migrated index after the migration reports
+// FINISHED.
 //
-// It does NOT hold across nodes. LastUpdateTimeUnix is stamped on the
-// coordinator that received the write (usecases/objects/*.go: `LastUpdateTimeUnix
-// = m.timeSource.Now()`), and the replica preserves that stamp verbatim
-// (no re-stamp on the shard write path). reindexStarted is stamped on the
-// replica's own clock (markStarted(time.Now())). With the coordinator's clock
-// ahead of the replica's, a write can:
+// # What this pin does and does NOT demonstrate
 //
-//   - arrive at the replica BEFORE callback registration (so it is NOT
-//     mirrored), yet
-//   - carry a coordinator timestamp >= reindexStarted (so the backfill SKIPS
-//     it, assuming it was mirrored).
+// It reproduces the add-path CLASSIFICATION bug deterministically: the skip
+// decision is a pure local timestamp comparison and the replica preserves the
+// coordinator stamp, so a crafted future timestamp is a faithful stand-in for
+// a coordinator clock that is ahead. It does NOT (and cannot) demonstrate
+// reachability of the write-arrives-before-registration interleaving under
+// real replication timing — that ordering is hard-coded here (writes are
+// staged before OnAfterLsmInit), and its reachability rests on the code
+// reading of the markStarted-after-registration ordering
+// (weaviate/weaviate#11985), not on this test.
 //
-// Skipped AND unmirrored ⇒ the row is permanently missing from the migrated
-// index after the migration reports FINISHED.
+// # The cases
 //
-// # How this test models the skew
-//
-// A replica preserves whatever LastUpdateTimeUnix the coordinator stamped, so a
-// coordinator whose clock is ahead is modeled exactly by putting an object with
-// a future LastUpdateTimeUnix. Both the skewed object and a control object are
-// written BEFORE the migration starts, i.e. before callback registration — so
-// neither is mirrored; the double-write path cannot save either. The ONLY
-// difference between them is the timestamp:
-//
-//   - control (value controlValue): a normal past timestamp → below cutoff →
-//     backfilled → survives.
-//   - skewed  (value skewValue):    a future coordinator timestamp → at/above
-//     cutoff → skipped → LOST.
-//
-// control present + skewed absent isolates cross-node skew as the sole cause.
-// (On current main the object would also be lost via the pre-#11688 ordering
-// bug; the skew here is a full day so the gap survives #11688's fix too — the
-// residual this pin is about.)
+// Every case runs the production migration path on its own shard and asserts
+// whether one sentinel value survives the migration. Add-side cases stage
+// unmirrored pre-registration writes; delete-side cases seed the ingest
+// bucket through the live double-write mirror and then vary whether the delete
+// reaches the tee. gapFixed selects the current (gap-open) or skew-immune
+// (gap-closed) expectation; see the const doc.
 func TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap(t *testing.T) {
-	t.Skip("RFC weaviate/weaviate#11692: reproduces the multi-node clock-skew double-write gap (a coordinator-stamped write with timestamp >= the replica's reindexStarted is skipped by backfill AND unmirrored). Un-skip when the skew-immune cutoff fix lands.")
-
 	const (
 		numCorpus    = 25         // baseline population, all timestamp 0 → all backfilled
-		controlValue = int64(100) // distinct from corpus values 0..4 and from skewValue
-		skewValue    = int64(999) // distinct sentinel; its loss is unambiguous
+		controlValue = int64(100) // add-side reverse-skew control (honest past timestamp)
+		skewValue    = int64(999) // add-side forward-skew gap (future coordinator timestamp)
+		delConverge  = int64(888) // delete-side control (delete reaches the tee)
+		delResurrect = int64(777) // delete-side gap (delete bypasses the tee)
 	)
-	propName := filterableToRangeablePropName
 
-	ctx := testCtx()
-	className := "MultiNodeClockSkewGap_" + uuid.NewString()[:8]
-	class := newFilterableToRangeableTestClass(className)
+	pastTs := time.Now().Add(-time.Hour).UnixMilli()       // coordinator behind → below cutoff
+	futureTs := time.Now().Add(24 * time.Hour).UnixMilli() // coordinator ahead → above cutoff
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(context.Background())
-
-	// Positive-control corpus: all timestamp 0, all strictly below any
-	// reindexStarted, so the backfill indexes every one. If the bucket ends up
-	// empty the skew assertion would be vacuous, so we assert one corpus value
-	// is present below.
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numCorpus, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	putWithTimestamp := func(value, tsMillis int64) {
-		require.NoError(t, shard.PutObject(ctx, &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				ID:                 strfmt.UUID(uuid.NewString()),
-				Class:              className,
-				Properties:         map[string]interface{}{propName: value},
-				CreationTimeUnix:   tsMillis,
-				LastUpdateTimeUnix: tsMillis,
+	cases := []struct {
+		name     string
+		sentinel int64
+		// arrangeUnmirrored runs BEFORE OnAfterLsmInit: the double-write
+		// callbacks are not armed yet, so these writes are visible to the
+		// backfill only via the objects snapshot, never mirrored.
+		arrangeUnmirrored func(t *testing.T, h *skewGapHarness)
+		// arrangeMirrored runs AFTER OnAfterLsmInit (callbacks armed) but
+		// before the async backfill loop: delete-side cases use it to seed
+		// the ingest bucket through the live mirror.
+		arrangeMirrored func(t *testing.T, h *skewGapHarness)
+		// wantPresentWithGap is the outcome current main produces.
+		// wantPresentWhenFixed is the skew-immune outcome a fix must deliver.
+		// When they differ the case is a GAP case (logs KNOWN-GAP); when they
+		// match it is a live control that must hold in both worlds.
+		wantPresentWithGap   bool
+		wantPresentWhenFixed bool
+		// gapDoc is the KNOWN-GAP explanation logged while the gap is open.
+		gapDoc string
+	}{
+		{
+			// Directional negative control: coordinator BEHIND the replica.
+			// An unmirrored pre-registration write with an honest past
+			// timestamp is below the cutoff, analyzed, and backfilled — it
+			// survives. Documents that the gap is directional: only a
+			// coordinator AHEAD of the replica loses writes.
+			name:     "add_reverse_skew_below_cutoff_control_survives",
+			sentinel: controlValue,
+			arrangeUnmirrored: func(t *testing.T, h *skewGapHarness) {
+				h.putWithTimestamp(t, controlValue, pastTs)
 			},
-		}))
+			wantPresentWithGap:   true,
+			wantPresentWhenFixed: true,
+		},
+		{
+			// THE add-side gap: coordinator AHEAD of the replica. An
+			// unmirrored pre-registration write whose future coordinator
+			// timestamp lands at/above the cutoff is skipped by the backfill
+			// as "already mirrored" while the mirror never saw it — lost.
+			// A skew-immune backfill must index it anyway.
+			name:     "add_forward_skew_above_cutoff_gap_lost",
+			sentinel: skewValue,
+			arrangeUnmirrored: func(t *testing.T, h *skewGapHarness) {
+				h.putWithTimestamp(t, skewValue, futureTs)
+			},
+			wantPresentWithGap:   false, // skipped-and-unmirrored ⇒ absent (known-bad)
+			wantPresentWhenFixed: true,  // skew-immune ⇒ backfilled ⇒ present
+			gapDoc: "add-side: an unmirrored pre-registration write whose coordinator " +
+				"timestamp is ahead of the replica's reindexStarted is skipped by the " +
+				"backfill AND missed by the double-write callbacks — permanently lost " +
+				"(missing-row symptom)",
+		},
+		{
+			// Delete-side negative control: the delete reaches the tee. A
+			// live write mirrors delConverge into the ingest bucket, then a
+			// future-timestamped delete mirrors a tombstone into the same
+			// bucket. The tombstone shadows the mirrored add (ingest wins per
+			// key at merge), so the posting converges to absent — even though
+			// the delete carries a future coordinator timestamp. Documents
+			// that skew alone does NOT break the delete side; the tombstone
+			// is position-based, not timestamp-based.
+			name:     "delete_mirrored_future_skew_converges_control",
+			sentinel: delConverge,
+			arrangeMirrored: func(t *testing.T, h *skewGapHarness) {
+				id := h.putWithTimestamp(t, delConverge, pastTs)
+				require.NoError(t, h.shard.DeleteObject(h.ctx, id, time.Now().Add(24*time.Hour)))
+			},
+			wantPresentWithGap:   false,
+			wantPresentWhenFixed: false,
+		},
+		{
+			// THE delete-side gap: a resurrected stale posting (false-positive
+			// filter match), the distinct failure mode from the missing row
+			// above. A live write mirrors delResurrect into the ingest
+			// bucket; the delete then BYPASSES the tee (models a delete that
+			// never reaches the double-write mirror). No compensating
+			// tombstone is written, so the mirrored posting survives the
+			// migration and a filter on delResurrect matches a deleted
+			// object.
+			//
+			// NOTE: unlike the add-side gap this is not closed by an
+			// always-backfill skip-predicate change — the deleted object is
+			// gone from the objects snapshot, so no backfill decision touches
+			// it. Closing it requires the double-write tee to cover the
+			// delete path. The batch-references / nested-property direct-write
+			// bypass is the concrete production instance of a delete that
+			// escapes the tee; it is tracked separately (it blocks any
+			// "closes #11692 for ref-property migrations" claim).
+			name:     "delete_tee_bypass_resurrection_gap",
+			sentinel: delResurrect,
+			arrangeMirrored: func(t *testing.T, h *skewGapHarness) {
+				id := h.putWithTimestamp(t, delResurrect, pastTs)
+				h.bypassDeleteTee()
+				require.NoError(t, h.shard.DeleteObject(h.ctx, id, time.Now().Add(24*time.Hour)))
+			},
+			wantPresentWithGap:   true,  // stale posting resurrected (known-bad)
+			wantPresentWhenFixed: false, // tee covers the delete ⇒ pruned
+			gapDoc: "delete-side: a posting the double-write mirror added survives a " +
+				"delete that never reached the tee — a resurrected stale posting / " +
+				"false-positive filter match on a deleted object",
+		},
 	}
 
-	// Both written BEFORE the migration → before callback registration → neither
-	// is mirrored. The only variable is the timestamp.
-	//
-	//   control: an hour in the PAST → below cutoff → must be backfilled.
-	//   skewed:  a DAY in the FUTURE, modeling a coordinator clock far ahead of
-	//            this replica → at/above cutoff → skipped by the backfill.
-	controlTs := time.Now().Add(-time.Hour).UnixMilli()
-	skewTs := time.Now().Add(24 * time.Hour).UnixMilli()
-	putWithTimestamp(controlValue, controlTs)
-	putWithTimestamp(skewValue, skewTs)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "MultiNodeClockSkewGap_" + uuid.NewString()[:8]
+			class := newFilterableToRangeableTestClass(className)
 
-	// Drive the production migration path to completion.
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+
+			// Positive-control corpus: all timestamp 0, strictly below any
+			// reindexStarted, so the backfill indexes every one. Guards
+			// against a vacuous pass (if the bucket ended up empty the
+			// sentinel assertion would prove nothing).
+			for _, obj := range makeFilterableToRangeableTestObjects(t, numCorpus, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			h := &skewGapHarness{ctx: ctx, className: className, propName: filterableToRangeablePropName}
+			h.shard = shard
+
+			if tc.arrangeUnmirrored != nil {
+				tc.arrangeUnmirrored(t, h)
+			}
+
+			task, wrapped := newFilterableToRangeableTask(t, idx, className, filterableToRangeablePropName)
+			h.task = task
+			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+
+			if tc.arrangeMirrored != nil {
+				tc.arrangeMirrored(t, h)
+			}
+
+			for {
+				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+				require.NoError(t, err)
+				if rerunAt.IsZero() {
+					break
+				}
+			}
+			require.True(t, wrapped.migrationCompleted, "migration must complete")
+
+			rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName))
+			require.NotNil(t, rangeBucket, "post-migration rangeable bucket must exist")
+
+			// Vacuity guard: a corpus value must be backfilled, else the
+			// migration populated nothing and the sentinel assertion below
+			// would prove nothing.
+			require.NotEmpty(t, readRangeableDocIDs(t, rangeBucket, 0),
+				"positive control: backfilled corpus value 0 must be present")
+
+			isGap := tc.wantPresentWithGap != tc.wantPresentWhenFixed
+			wantPresent := tc.wantPresentWhenFixed
+			if !gapFixed {
+				wantPresent = tc.wantPresentWithGap
+				if isGap {
+					t.Logf("KNOWN-GAP (weaviate/weaviate#11692) %s: %s. Asserting the "+
+						"current (gap-open) outcome; this line disappears and the "+
+						"assertion flips when the fix lands.", tc.name, tc.gapDoc)
+				}
+			}
+
+			got := readRangeableDocIDs(t, rangeBucket, tc.sentinel)
+			if wantPresent {
+				assert.Lenf(t, got, 1,
+					"sentinel value %d must be present (case %q)", tc.sentinel, tc.name)
+			} else {
+				assert.Emptyf(t, got,
+					"sentinel value %d must be absent (case %q)", tc.sentinel, tc.name)
+			}
+		})
 	}
-	require.True(t, wrapped.migrationCompleted, "migration must complete")
-
-	rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
-	require.NotNil(t, rangeBucket, "post-migration rangeable bucket must exist")
-
-	// Positive control 1: a corpus value must be backfilled, else the migration
-	// populated nothing and the skew assertion below would prove nothing.
-	require.NotEmpty(t, readRangeableDocIDs(t, rangeBucket, 0),
-		"positive control: backfilled corpus value 0 must be present")
-
-	// Positive control 2: the un-skewed pre-registration write (past timestamp)
-	// is picked up by the backfill. This is the SAME situation as the skewed
-	// write minus the clock skew — it survives, proving the harness indexes
-	// pre-registration writes when the timestamp is honest.
-	assert.Lenf(t, readRangeableDocIDs(t, rangeBucket, controlValue), 1,
-		"control: an unmirrored pre-registration write with an honest (past) "+
-			"timestamp must be backfilled under value %d", controlValue)
-
-	// THE GAP (RED). Same unmirrored pre-registration write, only the timestamp
-	// is coordinator-ahead. Under skew the backfill skips it as "already
-	// mirrored" while the mirror never saw it. A skew-immune mechanism must
-	// still index it.
-	assert.Lenf(t, readRangeableDocIDs(t, rangeBucket, skewValue), 1,
-		"GAP (weaviate/weaviate#11692): an unmirrored pre-registration write whose "+
-			"coordinator timestamp (%d) is ahead of the replica's reindexStarted is "+
-			"skipped by the backfill AND missed by the double-write callbacks — "+
-			"permanently lost from the migrated index. value %d absent",
-		skewTs, skewValue)
 }
