@@ -2295,6 +2295,24 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
+	// Fold tombstones into the filter when it pays: one membership check per
+	// candidate instead of up to three, against an upfront AndNot per segment.
+	// Amortized only by scan volume, so gate on summed doc frequency vs filter
+	// cardinality. Skipped under deferTombstoneToScore, which deliberately keeps
+	// tombstones out of the advance-time checks the merge would fold into.
+	filterBl, _ := filterDocIds.(*helpers.BitmapAllowList)
+	mergeThisQuery := false
+	if filterBl != nil && !deferTombstoneToScore {
+		var sumDf uint64
+		for _, n := range idfCounts {
+			sumDf += n
+		}
+		mergeThisQuery = float64(sumDf) >= bm25MergeGateRatio*float64(filterBl.Bm.GetCardinality())
+	}
+	// Loop-invariant: segments without their own tombstones share one
+	// (filter minus memtable tombstones) build.
+	var memOnlyMerged helpers.AllowList
+
 	var segTombstones *sroar.Bitmap
 	for j := len(view.Disk) - 1; j >= 0; j-- {
 		segment := view.Disk[j]
@@ -2304,6 +2322,30 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			if err != nil {
 				view.ReleaseView()
 				return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", err)
+			}
+		}
+
+		// Fold this segment's tombstones into a private filter clone. sroar.AndNot
+		// (free function) returns a fresh filter \ tombstones and never mutates the
+		// shared filter — the in-place method did, causing the #10172 revert.
+		segFilter, segTomb, segMemTomb := filterDocIds, segTombstones, memTombstones
+		if mergeThisQuery { // implies filterBl != nil
+			segHasTomb := segTombstones != nil && !segTombstones.IsEmpty()
+			memHasTomb := memTombstones != nil && !memTombstones.IsEmpty()
+			if segHasTomb || memHasTomb {
+				if segHasTomb {
+					m := sroar.AndNot(filterBl.Bm, segTombstones)
+					if memHasTomb {
+						m.AndNot(memTombstones)
+					}
+					segFilter = helpers.NewAllowListFromBitmap(m)
+				} else {
+					if memOnlyMerged == nil {
+						memOnlyMerged = helpers.NewAllowListFromBitmap(sroar.AndNot(filterBl.Bm, memTombstones))
+					}
+					segFilter = memOnlyMerged
+				}
+				segTomb, segMemTomb = nil, nil
 			}
 		}
 
@@ -2318,7 +2360,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			if diskNodeOk[idx] {
 				node = &diskNodes[idx]
 			}
-			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
+			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTomb, segMemTomb, segFilter, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}

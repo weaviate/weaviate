@@ -37,6 +37,11 @@ var collectBlockMetrics = false
 // a multi-x regression on update-heavy (high-tombstone) segments. Bit-identical either way.
 var deferTombstoneToScore = false
 
+// bm25MergeGateRatio gates the merged filter in createDiskTermFromCV: merge only
+// when summed query doc frequency >= this * filter cardinality. A var, not a
+// const, so identity tests can force merge on (0) or off (+Inf); production is 1.
+var bm25MergeGateRatio = 1.0
+
 // decodeFuncsFromCodecs resolves the stateless doc-id and tf decode functions for
 // a segment's codecs once, so per-term iterators carry func values instead of
 // allocating decoder instances.
