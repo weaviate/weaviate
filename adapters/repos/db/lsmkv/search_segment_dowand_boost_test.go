@@ -13,14 +13,13 @@ package lsmkv
 
 import (
 	"context"
-	"io"
 	"math"
 	"math/rand"
 	"sort"
 	"strconv"
 	"testing"
 
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -115,8 +114,7 @@ func requireWandTopK(t *testing.T, brute map[uint64]float64, wand map[uint64]flo
 // Fails on a bare-idf pivot bound at boost > 1.
 func TestDoWandPropertyBoost(t *testing.T) {
 	ctx := context.Background()
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
+	logger, _ := test.NewNullLogger()
 	bm25 := schema.BM25Config{K1: 1.2, B: 0.75}
 
 	const nDocs, limit = 4000, 10

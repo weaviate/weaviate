@@ -15,11 +15,10 @@ package lsmkv
 
 import (
 	"context"
-	"io"
 	"strconv"
 	"testing"
 
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -32,8 +31,7 @@ import (
 // the unflushed active/flushing bounds. Fails on any bare-idf bound at boost > 1.
 func TestBlockMaxWandPropertyBoost(t *testing.T) {
 	ctx := context.Background()
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
+	logger, _ := test.NewNullLogger()
 	bm25 := schema.BM25Config{K1: 1.2, B: 0.75}
 
 	const nDocs, limit = 4000, 10
