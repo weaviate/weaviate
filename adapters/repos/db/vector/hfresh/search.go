@@ -35,7 +35,13 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
 
-	rescoreLimit := int(h.rescoreLimit)
+	// The candidate pool must be at least as large as the requested k:
+	// rescoreLimit is a quality floor for the RQ1 candidate depth, not a cap
+	// on results. Using rescoreLimit alone silently capped searches with
+	// k > rescoreLimit at rescoreLimit results (issue #277). Any rework of
+	// this path (e.g. decoupled routing/rerank budgets) must preserve
+	// max(k, rescoreLimit) semantics for the candidate depth.
+	rescoreLimit := max(k, int(h.rescoreLimit))
 	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
 		if atomic.LoadUint32(&h.dims) == 0 {
@@ -344,7 +350,10 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 
 	vectors = h.normalizeMultiVec(vectors)
 	queryFlat := h.muveraEncoder.EncodeQuery(vectors)
-	candidateIDs, _, err := h.SearchByVector(ctx, queryFlat, int(h.rescoreLimit), allow)
+	// pass the user-requested k, not rescoreLimit: SearchByVector widens the
+	// candidate pool to max(k, rescoreLimit), so k > rescoreLimit is not
+	// silently capped (issue #277)
+	candidateIDs, _, err := h.SearchByVector(ctx, queryFlat, k, allow)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "muvera candidate search")
 	}
