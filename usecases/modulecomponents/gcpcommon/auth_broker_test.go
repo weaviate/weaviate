@@ -48,8 +48,8 @@ func TestFetchTokenSuccess(t *testing.T) {
 	assert.Equal(t, expected.Expiry, tok.Expiry)
 }
 
-func TestFetchToken5xxReturnsRetryable(t *testing.T) {
-	for _, status := range []int{500, 502, 503, 504} {
+func TestFetchTokenRetryableStatuses(t *testing.T) {
+	for _, status := range []int{429, 500, 502, 503, 504} {
 		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(status)
