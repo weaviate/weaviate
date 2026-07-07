@@ -511,6 +511,12 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 // gRPC/REST message size.
 const prefilterMaxShardsPerRPC = 1000
 
+// CompareHashTreeRootsMaxShardsPerRequest bounds the shard map a receiver accepts
+// in one CompareHashTreeRoots request, so a misbehaving peer can't force an
+// unbounded allocation. Kept well above prefilterMaxShardsPerRPC (the sender's cap)
+// for headroom.
+const CompareHashTreeRootsMaxShardsPerRequest = 10_000
+
 // PrefilterStats reports the per-host root-compare RPC outcomes for observability.
 type PrefilterStats struct {
 	OK          int
