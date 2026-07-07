@@ -921,26 +921,29 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				classNames = append(classNames, c.Class)
 			}
 		}
-		// RBAC rows feed only the NS-disabled checks, so fetch them solely on
-		// that path — a read error then means we can't verify the invariant and
-		// must fail closed, rather than crashing an NS-enabled node that never
-		// inspects this data.
+		// Grouping subjects feed both the NS-disabled db-qualifier check and the
+		// NS-enabled OIDC empty-namespace-slot check, so fetch them on either
+		// flag. Role names and policy resources feed only the NS-disabled checks.
+		// A read error means we can't verify the invariant and must fail closed.
 		var roleNames, policyResources, groupingSubjects []string
-		if !appState.ServerConfig.Config.Namespaces.Enabled && appState.RBAC != nil {
-			roles, err := appState.RBAC.GetRoles()
-			if err != nil {
-				l.Fatalf("namespace startup invariants: GetRoles: %v", err)
-			}
-			for name, policies := range roles {
-				roleNames = append(roleNames, name)
-				for _, p := range policies {
-					policyResources = append(policyResources, p.Resource)
+		if appState.RBAC != nil {
+			if !appState.ServerConfig.Config.Namespaces.Enabled {
+				roles, err := appState.RBAC.GetRoles()
+				if err != nil {
+					l.Fatalf("namespace startup invariants: GetRoles: %v", err)
+				}
+				for name, policies := range roles {
+					roleNames = append(roleNames, name)
+					for _, p := range policies {
+						policyResources = append(policyResources, p.Resource)
+					}
 				}
 			}
-			groupingSubjects, err = appState.RBAC.ListGroupingSubjects()
+			subjects, err := appState.RBAC.ListGroupingSubjects()
 			if err != nil {
 				l.Fatalf("namespace startup invariants: ListGroupingSubjects: %v", err)
 			}
+			groupingSubjects = subjects
 		}
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
@@ -1252,10 +1255,26 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
 
+	// Reject unslotted OIDC grouping subjects: with namespaces enabled every OIDC
+	// subject's user-portion must be namespaced ("customer1:carol") or carry the
+	// global empty-namespace slot (":carol"). A bare "oidc:carol" enforces as
+	// ":carol" and silently misses its grant.
+	if enabled {
+		if n, ex := countQualified(groupingSubjects, func(s string) bool {
+			user, prefix, err := conv.GetUserAndPrefix(s)
+			if err != nil || prefix != string(authentication.AuthTypeOIDC) {
+				return false
+			}
+			return !conv.ContainsNamespaceSeparator(user)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d OIDC role assignment(s) with an unslotted subject (e.g. %q); every OIDC subject must be namespaced or carry the global empty-namespace slot", n, ex)
+		}
+	}
+
 	// Role names, policy resources (what a role's permissions grant access to)
 	// and grouping subjects (who a role assignment binds) may each be
 	// namespace-qualified when NAMESPACES_ENABLED=true. With namespaces disabled
-	// they would be misinterpreted, so the rows are only inspected in that case.
+	// they would be misinterpreted, so these rows are only inspected in that case.
 	if !enabled {
 		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)

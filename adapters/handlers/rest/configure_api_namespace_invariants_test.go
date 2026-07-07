@@ -226,6 +226,67 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			policyResources:              []string{"data/collections/tenant1:Movies/shards/*/objects/*"},
 			groupingSubjects:             []string{"db:tenant1:bob"},
 		},
+		{
+			// A bare "oidc:carol" enforces as ":carol" (slotted) on an NS-enabled
+			// cluster, so the grant would be silently missed — reject it at boot.
+			name:                         "enabled, unslotted OIDC grouping subject is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:carol"},
+			wantErr:                      true,
+			errSubstr:                    "unslotted subject",
+		},
+		{
+			// A single unslotted subject among otherwise-valid ones is still
+			// rejected, and the error names the offender (not the valid siblings).
+			name:                         "enabled, unslotted OIDC subject among valid ones is named",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::carol", "oidc:customer1:dave", "oidc:bob"},
+			wantErr:                      true,
+			errSubstr:                    `(e.g. "oidc:bob")`,
+		},
+		{
+			// Every unslotted subject is counted, not just the first.
+			name:                         "enabled, multiple unslotted OIDC subjects are counted",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:bob", "oidc:dave"},
+			wantErr:                      true,
+			errSubstr:                    "2 OIDC role assignment",
+		},
+		{
+			name:                         "enabled, slotted global OIDC subject is fine",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::carol"},
+		},
+		{
+			name:                         "enabled, slotted global colon-name OIDC subject is fine",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::customer1:carol"},
+		},
+		{
+			name:                         "enabled, namespaced OIDC subject is fine",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:customer1:carol"},
+		},
+		{
+			// The OIDC slot check must not fire on db users or groups.
+			name:                         "enabled, bare db and group subjects are fine",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"db:alice", "group:engineers"},
+		},
 	}
 
 	for _, tt := range tests {
