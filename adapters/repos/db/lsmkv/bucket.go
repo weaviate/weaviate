@@ -67,6 +67,14 @@ const (
 // memtableNames is used for error messages and metrics when iterating memtables
 var memtableNames = [2]string{"active_memtable", "flushing_memtable"}
 
+// Read-op metric label values. Bundled with memtableNames into the pre-resolved
+// metric handles built in NewMetrics.
+const (
+	readOpGet             = "get"
+	readOpGetBySecondary  = "getbysecondary"
+	componentSegmentGroup = "segment_group"
+)
+
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
@@ -797,11 +805,11 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 }
 
 func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string) (v []byte, err error) {
-	op := "get"
+	metrics := b.metrics.readOp(readOpGet, component)
 
 	start := time.Now()
-	b.metrics.IncBucketReadOpCountByComponent(op, component)
-	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+	metrics.incCount()
+	metrics.incOngoing()
 
 	defer func() {
 		if duration := time.Since(start); duration > 100*time.Millisecond {
@@ -811,12 +819,12 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 			}).Debug("Waited more than 100ms to retrieve object from memtable")
 		}
 
-		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		metrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			metrics.incFailure()
 			return
 		}
-		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+		metrics.observeDuration(time.Since(start))
 	}()
 
 	return memtable.get(key)
@@ -824,11 +832,11 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 
 func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable memtable, component string,
 ) (k []byte, v []byte, err error) {
-	op := "getbysecondary"
+	metrics := b.metrics.readOp(readOpGetBySecondary, component)
 
 	start := time.Now()
-	b.metrics.IncBucketReadOpCountByComponent(op, component)
-	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+	metrics.incCount()
+	metrics.incOngoing()
 
 	defer func() {
 		if duration := time.Since(start); duration > 100*time.Millisecond {
@@ -838,32 +846,31 @@ func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable mem
 			}).Debug("Waited more than 100ms to retrieve object from memtable")
 		}
 
-		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		metrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			metrics.incFailure()
 			return
 		}
-		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+		metrics.observeDuration(time.Since(start))
 	}()
 
 	return memtable.getBySecondary(pos, seckey)
 }
 
 func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, err error) {
-	op := "get"
-	component := "segment_group"
+	metrics := b.metrics.readOp(readOpGet, componentSegmentGroup)
 
 	start := time.Now()
-	b.metrics.IncBucketReadOpCountByComponent(op, component)
-	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+	metrics.incCount()
+	metrics.incOngoing()
 
 	defer func() {
-		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		metrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			metrics.incFailure()
 			return
 		}
-		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+		metrics.observeDuration(time.Since(start))
 	}()
 
 	return b.disk.getWithSegmentList(key, segments)
@@ -871,20 +878,19 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
 ) (k, v []byte, buf []byte, segmentId int, err error) {
-	op := "getbysecondary"
-	component := "segment_group"
+	metrics := b.metrics.readOp(readOpGetBySecondary, componentSegmentGroup)
 
 	start := time.Now()
-	b.metrics.IncBucketReadOpCountByComponent(op, component)
-	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+	metrics.incCount()
+	metrics.incOngoing()
 
 	defer func() {
-		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		metrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			metrics.incFailure()
 			return
 		}
-		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+		metrics.observeDuration(time.Since(start))
 	}()
 
 	return b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, segments)

@@ -37,9 +37,84 @@ var bucketStrategiesLabels = [][]string{
 }
 
 var readOpsLabels = [][]string{
-	{"get", "active_memtable"},
-	{"get", "flushing_memtable"},
-	{"get", "segment_group"},
+	{readOpGet, memtableNames[0]},
+	{readOpGet, memtableNames[1]},
+	{readOpGet, componentSegmentGroup},
+}
+
+// readOpKey identifies a bucket read metric series by operation and component.
+type readOpKey struct {
+	op        string
+	component string
+}
+
+// readOpHandle bundles the metric children for one bucket read operation so the
+// read path resolves them once instead of looking each up per call.
+type readOpHandle struct {
+	count    prometheus.Counter
+	ongoing  prometheus.Gauge
+	failure  prometheus.Counter
+	duration prometheus.Observer
+}
+
+func (h *readOpHandle) incCount() {
+	if h == nil {
+		return
+	}
+	h.count.Inc()
+}
+
+func (h *readOpHandle) incOngoing() {
+	if h == nil {
+		return
+	}
+	h.ongoing.Inc()
+}
+
+func (h *readOpHandle) decOngoing() {
+	if h == nil {
+		return
+	}
+	h.ongoing.Dec()
+}
+
+func (h *readOpHandle) incFailure() {
+	if h == nil {
+		return
+	}
+	h.failure.Inc()
+}
+
+func (h *readOpHandle) observeDuration(duration time.Duration) {
+	if h == nil {
+		return
+	}
+	h.duration.Observe(duration.Seconds())
+}
+
+// buildReadOpHandles resolves the metric children for every operation/component
+// pair the read path emits, so per-read calls skip the per-metric vec lookup.
+func buildReadOpHandles(
+	count *prometheus.CounterVec,
+	ongoing *prometheus.GaugeVec,
+	failure *prometheus.CounterVec,
+	duration *prometheus.HistogramVec,
+) map[readOpKey]*readOpHandle {
+	ops := []string{readOpGet, readOpGetBySecondary}
+	components := []string{memtableNames[0], memtableNames[1], componentSegmentGroup}
+
+	handles := make(map[readOpKey]*readOpHandle, len(ops)*len(components))
+	for _, op := range ops {
+		for _, component := range components {
+			handles[readOpKey{op, component}] = &readOpHandle{
+				count:    count.WithLabelValues(op, component),
+				ongoing:  ongoing.WithLabelValues(op, component),
+				failure:  failure.WithLabelValues(op, component),
+				duration: duration.WithLabelValues(op, component),
+			}
+		}
+	}
+	return handles
 }
 
 var writeOpsLabels = [][]string{
@@ -77,6 +152,7 @@ type Metrics struct {
 	bucketReadOpOngoingByComponent      *prometheus.GaugeVec
 	bucketReadOpFailureCountByComponent *prometheus.CounterVec
 	bucketReadOpDurationByComponent     *prometheus.HistogramVec
+	readOpHandles                       map[readOpKey]*readOpHandle
 
 	bucketWriteOpCount        *prometheus.CounterVec
 	bucketWriteOpOngoing      *prometheus.GaugeVec
@@ -651,6 +727,12 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		bucketReadOpOngoingByComponent:      bucketReadOpOngoingByComponent,
 		bucketReadOpFailureCountByComponent: bucketReadOpFailureCountByComponent,
 		bucketReadOpDurationByComponent:     bucketReadOpDurationByComponent,
+		readOpHandles: buildReadOpHandles(
+			bucketReadOpCountByComponent,
+			bucketReadOpOngoingByComponent,
+			bucketReadOpFailureCountByComponent,
+			bucketReadOpDurationByComponent,
+		),
 
 		bucketWriteOpCount:        bucketWriteOpCount,
 		bucketWriteOpOngoing:      bucketWriteOpOngoing,
@@ -835,39 +917,23 @@ func (m *Metrics) ObserveBucketCursorDurationByStrategy(strategy string, duratio
 	m.bucketCursorDurationByStrategy.WithLabelValues(strategy).Observe(duration.Seconds())
 }
 
-func (m *Metrics) IncBucketReadOpCountByComponent(op, component string) {
+// readOp returns the metric handle for a bucket read operation. Handles for the
+// operation/component pairs the read path emits are resolved once in
+// NewMetrics; any other pair is resolved on demand. A nil receiver yields a nil
+// handle, whose methods are no-ops.
+func (m *Metrics) readOp(op, component string) *readOpHandle {
 	if m == nil {
-		return
+		return nil
 	}
-	m.bucketReadOpCountByComponent.WithLabelValues(op, component).Inc()
-}
-
-func (m *Metrics) IncBucketReadOpOngoingByComponent(op, component string) {
-	if m == nil {
-		return
+	if h, ok := m.readOpHandles[readOpKey{op, component}]; ok {
+		return h
 	}
-	m.bucketReadOpOngoingByComponent.WithLabelValues(op, component).Inc()
-}
-
-func (m *Metrics) DecBucketReadOpOngoingByComponent(op, component string) {
-	if m == nil {
-		return
+	return &readOpHandle{
+		count:    m.bucketReadOpCountByComponent.WithLabelValues(op, component),
+		ongoing:  m.bucketReadOpOngoingByComponent.WithLabelValues(op, component),
+		failure:  m.bucketReadOpFailureCountByComponent.WithLabelValues(op, component),
+		duration: m.bucketReadOpDurationByComponent.WithLabelValues(op, component),
 	}
-	m.bucketReadOpOngoingByComponent.WithLabelValues(op, component).Dec()
-}
-
-func (m *Metrics) IncBucketReadOpFailureCountByComponent(op, component string) {
-	if m == nil {
-		return
-	}
-	m.bucketReadOpFailureCountByComponent.WithLabelValues(op, component).Inc()
-}
-
-func (m *Metrics) ObserveBucketReadOpDurationByComponent(op, component string, duration time.Duration) {
-	if m == nil {
-		return
-	}
-	m.bucketReadOpDurationByComponent.WithLabelValues(op, component).Observe(duration.Seconds())
 }
 
 func (m *Metrics) IncBucketWriteOpCount(op string) {
