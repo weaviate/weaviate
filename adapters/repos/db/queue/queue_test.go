@@ -942,6 +942,7 @@ func TestDequeueBatchTornChunk(t *testing.T) {
 		})
 	}
 }
+
 func TestQueueAutoReleaseResources(t *testing.T) {
 	t.Parallel()
 
