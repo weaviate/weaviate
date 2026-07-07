@@ -777,6 +777,23 @@ func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, s
 	return v, allocBuf, err
 }
 
+// SecondaryViewLookup acquires a single consistent view and returns a lookup
+// function bound to it, together with a release function. Reusing one view
+// across many secondary-key lookups avoids acquiring a fresh view (flush lock,
+// segment snapshot, and per-segment refcount churn) for every lookup. The
+// returned lookup is safe for concurrent use; call release exactly once, after
+// all lookups are done.
+func (b *Bucket) SecondaryViewLookup() (
+	func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error),
+	func(),
+) {
+	view := b.GetConsistentView()
+	lookup := func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error) {
+		return b.GetBySecondaryWithBufferAndView(ctx, pos, seckey, buffer, view)
+	}
+	return lookup, view.ReleaseView
+}
+
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	beforeAll := time.Now()
 	view := b.GetConsistentView()
@@ -2342,13 +2359,16 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		// we can only know the full n after we have checked all segments and all memtables
 		idfs[i] = terms.Idf(float64(n), N) * float64(duplicateTextBoosts[i])
 
+		// currentBlockImpact is a max-score upper bound, so it must carry
+		// propertyBoost like Score and computeCurrentBlockImpact; bare idf
+		// under-counts boosted terms and prunes genuine top-K docs.
 		if active != nil {
 			active.idf = idfs[i]
-			active.currentBlockImpact = float32(idfs[i])
+			active.currentBlockImpact = float32(idfs[i] * active.propertyBoost)
 		}
 		if flushing != nil {
 			flushing.idf = idfs[i]
-			flushing.currentBlockImpact = float32(idfs[i])
+			flushing.currentBlockImpact = float32(idfs[i] * flushing.propertyBoost)
 		}
 
 		idfCounts[queryTerm] = n

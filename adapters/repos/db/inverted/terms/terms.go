@@ -348,7 +348,9 @@ func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 		if term.Exhausted() {
 			continue
 		}
-		cumScore += term.Idf()
+		// compared against minScore, a boosted score, so use idf*propertyBoost
+		// (CurrentBlockImpact); bare Idf skips top-K docs for boosted properties.
+		cumScore += float64(term.CurrentBlockImpact())
 		if cumScore >= minScore {
 			return term.IdPointer(), i, false
 		}
