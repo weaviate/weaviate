@@ -132,7 +132,7 @@ func TestBucket_RegisterEditOp_SnapshotsAndResumes(t *testing.T) {
 	require.ElementsMatch(t, first, pending2)
 }
 
-// TestBucket_RegisterEditOp_CompletesInterruptedSnapshot pins B1: if a prior
+// TestBucket_RegisterEditOp_CompletesInterruptedSnapshot pins: if a prior
 // register persisted the op descriptor but not its pending rows (a two-step
 // register interrupted between the writes), a resume must still take the snapshot.
 // The guard keys off the snapshot, not the descriptor — otherwise EditOpPending

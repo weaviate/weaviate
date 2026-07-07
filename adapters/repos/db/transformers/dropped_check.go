@@ -32,8 +32,8 @@ var (
 	droppedCheck   DroppedTargetCheck
 )
 
-// SetDroppedTargetCheck installs the schema-backed check. Like the registry it is
-// package-level so per-bucket wiring stays free of task-specific plumbing; nil
+// SetDroppedTargetCheck installs the schema-backed check. It is package-level so
+// per-bucket wiring stays free of task-specific plumbing; nil
 // (the default, and in unit tests) disables the guard and ops strip unfiltered.
 func SetDroppedTargetCheck(fn DroppedTargetCheck) {
 	droppedCheckMu.Lock()

@@ -12,6 +12,7 @@
 package db
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -158,5 +159,6 @@ func TestStripDroppedVectors(t *testing.T) {
 	before := obj2.Vectors
 	stripDroppedVectors(class, obj2)
 	require.Equal(t, map[string][]float32{"live": {2}}, obj2.Vectors)
-	_ = before
+	require.Equal(t, reflect.ValueOf(before).Pointer(), reflect.ValueOf(obj2.Vectors).Pointer(),
+		"nothing dropped: the original map must be kept, not rebuilt")
 }

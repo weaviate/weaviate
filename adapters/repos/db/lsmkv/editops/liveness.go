@@ -34,9 +34,9 @@ var (
 	livenessFetched  time.Time
 )
 
-// SetLivenessProvider installs the cluster-level live-op lookup. Like the
-// transformers registry, it is package-level so per-bucket wiring stays free of
-// task-specific plumbing. Must be installed before shards load (in production:
+// SetLivenessProvider installs the cluster-level live-op lookup. It is
+// package-level so per-bucket wiring stays free of task-specific plumbing.
+// Must be installed before shards load (in production:
 // before the RAFT store opens), or restore-time loads skip the sweep.
 //
 // The provider must return the live op IDs of EVERY task type that registers

@@ -200,10 +200,11 @@ func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, na
 // `shards` (the coverage guard compares it against the task's units) and a class
 // whose VectorConfig is `vectorCfg` (the arm-time still-dropped guard reads it).
 type fakeShardingReader struct {
-	shards      []string
-	vectorCfg   map[string]models.VectorConfig
-	activeTasks []*distributedtask.Task // returned by ListDistributedTasks
-	err         error
+	shards        []string
+	vectorCfg     map[string]models.VectorConfig
+	activeTasks   []*distributedtask.Task // returned by ListDistributedTasks
+	err           error
+	readClassErrs int // QueryReadOnlyClasses fails this many times, then succeeds
 }
 
 func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, uint64, error) {
@@ -222,6 +223,10 @@ func (f *fakeShardingReader) ListDistributedTasks(ctx context.Context) (map[stri
 }
 
 func (f *fakeShardingReader) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	if f.readClassErrs > 0 {
+		f.readClassErrs--
+		return nil, errors.New("transient leader read failure")
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -245,6 +250,7 @@ func newTestDropProviderCtx(shards dropVectorShards, fin dropVectorSchemaFinaliz
 	// Default sharding state: exactly the shard the default dropTask covers.
 	p := NewDropVectorIndexProvider(shards, fin, &fakeShardingReader{shards: []string{"shard1"}}, logger, "node1", serverCtx)
 	p.pollInterval = time.Millisecond
+	p.verifyRetryBackoff = time.Millisecond
 	p.SetCompletionRecorder(rec)
 	return p
 }
@@ -466,6 +472,50 @@ func TestStartTask_TargetNoLongerDropped_RefusesToArm(t *testing.T) {
 	require.Empty(t, bucket.registered, "op must not be armed against a live vector")
 	require.Contains(t, rec.failed, "u1")
 	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_VerifyErrorPersistent_UnitsFailWithoutArming pins the arm-time
+// tolerance ceiling: a persistent leader-read failure exhausts the bounded
+// retries, fails every unit, and never arms an op.
+func TestStartTask_VerifyErrorPersistent_UnitsFailWithoutArming(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("leader unreachable")}
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Empty(t, bucket.registered, "op must not be armed when the marker can't be verified")
+	require.Contains(t, rec.failed, "u1")
+	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_VerifyErrorTransient_RecoversAndArms pins the tolerance itself:
+// a single leader-read blip is retried, the verify succeeds, and the unit arms
+// and drains normally.
+func TestStartTask_VerifyErrorTransient_RecoversAndArms(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{}}}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, readClassErrs: 1}
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.NotEmpty(t, bucket.registered, "a transient blip must not stop the arm")
+	require.Contains(t, rec.completed, "u1")
+	require.Empty(t, rec.failed)
 }
 
 // TestStartTask_ProcessesOnlyLocalUnits pins the node filter: units owned by

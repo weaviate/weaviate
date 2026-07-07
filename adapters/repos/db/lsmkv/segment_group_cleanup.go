@@ -602,6 +602,13 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 // a permanently-failing segment can't retry forever.
 const maxCleanupAttempts = 5
 
+// editOpsSweepTimeout bounds the orphan sweep's liveness lookup. The lookup is a
+// leader call (list distributed tasks); without a deadline a slow or partitioned
+// leader would block this segment group's shared compact-or-cleanup goroutine —
+// and shutdown — indefinitely, since the sweep runs outside the
+// shouldAbort-bridged part of the pass.
+const editOpsSweepTimeout = 15 * time.Second
+
 // cleanupOnceEditOps drives cleanup from the edit-ops pending set, rewriting ONE
 // pending segment per pass through the transformer, marking it done on success
 // and bumping/quarantining on failure. handled is false (so the caller falls back
@@ -621,7 +628,9 @@ const maxCleanupAttempts = 5
 // next pass re-cleans idempotently (no S8-style orphaning onto a renamed output).
 func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.ShouldAbortCallback,
 ) (cleaned bool, handled bool, err error) {
-	c.sg.editOps.SweepOrphans(context.Background())
+	sweepCtx, sweepCancel := context.WithTimeout(context.Background(), editOpsSweepTimeout)
+	c.sg.editOps.SweepOrphans(sweepCtx)
+	sweepCancel()
 
 	pending, err := c.sg.editOps.AllPending()
 	if err != nil {

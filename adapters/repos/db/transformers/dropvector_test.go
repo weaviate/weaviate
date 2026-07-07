@@ -77,7 +77,7 @@ func TestDropVectorTransformer(t *testing.T) {
 				require.Equal(t, []float32{1, 2}, got.Vectors["keep"])
 			})
 
-			t.Run("strips multiple targets across vectors and multi-vectors (C3)", func(t *testing.T) {
+			t.Run("strips multiple targets across vectors and multi-vectors", func(t *testing.T) {
 				in := marshal(t, enc.skipClassName,
 					map[string][]float32{"keep": {1, 2}, "drop": {3, 4}},
 					map[string][][]float32{"mkeep": {{5, 6}}, "mdrop": {{7, 8}}})
@@ -95,14 +95,14 @@ func TestDropVectorTransformer(t *testing.T) {
 				require.Equal(t, in, out, "unchanged object must return the original bytes unmodified")
 			})
 
-			t.Run("idempotent under repeated application (C2)", func(t *testing.T) {
+			t.Run("idempotent under repeated application", func(t *testing.T) {
 				in := marshal(t, enc.skipClassName, map[string][]float32{"keep": {1, 2}, "drop": {3, 4}}, nil)
 				once := transform(t, in, op("drop"))
 				twice := transform(t, once, op("drop"))
 				require.Equal(t, once, twice, "re-running the drop on already-clean bytes must be a no-op")
 			})
 
-			t.Run("composition is order-independent (C2)", func(t *testing.T) {
+			t.Run("composition is order-independent", func(t *testing.T) {
 				in := marshal(t, enc.skipClassName, map[string][]float32{"a": {1}, "b": {2}, "c": {3}}, nil)
 				forward := transform(t, in, op("a"), op("b"))
 				reverse := transform(t, in, op("b"), op("a"))

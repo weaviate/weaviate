@@ -162,3 +162,54 @@ func TestDeleteClassVectorIndex_ReTrigger_EnqueueFailure_StillSucceeds(t *testin
 	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"))
 	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 }
+
+// TestDeleteClassVectorIndex_GuardBranches pins every early-return guard: none
+// may set the marker (UpdateClass) or reach the enqueuer.
+func TestDeleteClassVectorIndex_GuardBranches(t *testing.T) {
+	t.Run("endpoint disabled", func(t *testing.T) {
+		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "false")
+		h, sm := newTestHandler(t, nil)
+		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
+		require.ErrorContains(t, err, "experimental")
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	})
+
+	t.Run("empty vector index name", func(t *testing.T) {
+		cls := classWithVectors(map[string]models.VectorConfig{"foo": {VectorIndexType: "hnsw"}})
+		h, sm, enq := newDropVectorHandler(t, cls)
+		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "")
+		require.ErrorIs(t, err, ErrValidation)
+		require.ErrorContains(t, err, "cannot be empty")
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		require.Empty(t, enq.enqueued)
+	})
+
+	t.Run("class not found", func(t *testing.T) {
+		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
+		h, sm := newTestHandler(t, nil)
+		sm.On("QueryReadOnlyClasses", []string{"C"}).Return(map[string]versioned.Class{}, nil)
+		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
+		require.ErrorIs(t, err, ErrNotFound)
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	})
+
+	t.Run("no named vector configs", func(t *testing.T) {
+		cls := classWithVectors(nil)
+		h, sm, enq := newDropVectorHandler(t, cls)
+		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
+		require.ErrorIs(t, err, ErrValidation)
+		require.ErrorContains(t, err, "no named vector")
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		require.Empty(t, enq.enqueued)
+	})
+
+	t.Run("target vector not found", func(t *testing.T) {
+		cls := classWithVectors(map[string]models.VectorConfig{"other": {VectorIndexType: "hnsw"}})
+		h, sm, enq := newDropVectorHandler(t, cls)
+		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
+		require.ErrorIs(t, err, ErrNotFound)
+		require.ErrorContains(t, err, "not found in class")
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		require.Empty(t, enq.enqueued)
+	})
+}

@@ -82,7 +82,7 @@ func errDroppedVectorIndex(targetVector string) error {
 // it before any storage mutation. It also catches the window where the marker
 // has applied but the queue teardown has not, during which GetVectorIndexQueue
 // still returns a live queue (the marker is applied before the queue is dropped
-// in cluster/schema/manager.go::apply). Callers gate on named vectors being
+// within the same schema apply). Callers gate on named vectors being
 // present so the schema read is skipped otherwise.
 func rejectDroppedObjectVectors(class *models.Class, object *storobj.Object) error {
 	for targetVector := range object.Vectors {

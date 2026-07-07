@@ -94,6 +94,9 @@ type DropVectorIndexProvider struct {
 	serverCtx context.Context
 
 	pollInterval time.Duration
+	// verifyRetryBackoff spaces the arm-time verify retries (leader-read blips);
+	// overridable in tests.
+	verifyRetryBackoff time.Duration
 }
 
 // NewDropVectorIndexProvider builds the provider. localNode filters units to the
@@ -107,13 +110,14 @@ func NewDropVectorIndexProvider(
 	serverCtx context.Context,
 ) *DropVectorIndexProvider {
 	return &DropVectorIndexProvider{
-		shards:       shards,
-		schema:       schema,
-		sharding:     sharding,
-		logger:       logger,
-		localNode:    localNode,
-		serverCtx:    serverCtx,
-		pollInterval: defaultDropVectorPollInterval,
+		shards:             shards,
+		schema:             schema,
+		sharding:           sharding,
+		logger:             logger,
+		localNode:          localNode,
+		serverCtx:          serverCtx,
+		pollInterval:       defaultDropVectorPollInterval,
+		verifyRetryBackoff: 2 * time.Second,
 	}
 }
 
@@ -195,7 +199,7 @@ func (p *DropVectorIndexProvider) processUnits(
 		select {
 		case <-ctx.Done():
 			return // shutdown: leave units in place, the task resumes after restart
-		case <-time.After(2 * time.Second):
+		case <-time.After(p.verifyRetryBackoff):
 		}
 	}
 	if verifyErr != nil {
@@ -211,7 +215,7 @@ func (p *DropVectorIndexProvider) processUnits(
 		return
 	}
 
-	// Phase 1: arm every unit up front so all shards' compaction/cleanup cycles
+	// Arm every unit up front so all shards' compaction/cleanup cycles
 	// drain concurrently — arming lazily while polling unit-by-unit would
 	// serialize days of rewrite work on multi-tenant nodes.
 	armed := make([]string, 0, len(pending))
@@ -224,7 +228,7 @@ func (p *DropVectorIndexProvider) processUnits(
 		}
 	}
 
-	// Phase 2: watch the pending sets drain.
+	// Then watch the pending sets drain.
 	for _, unitID := range armed {
 		if ctx.Err() != nil {
 			return
