@@ -1610,3 +1610,143 @@ func mustMarshal(v interface{}) []byte {
 	}
 	return data
 }
+
+// restoreOp is the shape a determinism-row builder uses to declare an op it
+// wants present in the source snapshot.
+type restoreOp struct {
+	id           uint64
+	srcNode      string
+	tgtNode      string
+	collection   string
+	shard        string
+	transferType api.ShardReplicationTransferType
+	// state the op should be driven to before the snapshot is taken; CANCELLED is
+	// driven via CancellationComplete (the FSM rejects CANCELLED via UpdateOpState).
+	state api.ShardReplicationState
+}
+
+// targetExpect is the per-target-replica expectation a determinism row asserts after
+// every restore. opCount reads the per-node target index (opsByTarget, the append slice
+// the producer builds work sets from); routable reads the per-FQDN routing index
+// (opsByTargetFQDN) — the only index the Part B last-writer-wins clobber touches.
+type targetExpect struct {
+	node       string
+	collection string
+	shard      string
+	opCount    int  // ops reconstructed into the per-node target index
+	routable   bool // an active op survives on this FQDN ⇒ target is read+write routable
+}
+
+func TestManager_SnapshotRestore_Deterministic(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name string
+		// seeded in id order; a terminal op must precede the active op sharing its FQDN.
+		ops []restoreOp
+		// one routable + one non-routable op per shared target replica.
+		wantTargets []targetExpect
+	}{
+		{
+			name: "cancelled MOVE + active MOVE on same source+target",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.CANCELLED},
+				{id: 2, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.INTEGRATING},
+			},
+			wantTargets: []targetExpect{{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true}},
+		},
+		{
+			name: "cancelled MOVE + active MOVE from a distinct source into the same target",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.CANCELLED},
+				{id: 2, srcNode: "node3", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.INTEGRATING},
+			},
+			wantTargets: []targetExpect{{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true}},
+		},
+		{
+			name: "completed COPY (READY) + active recopy COPY into the same target",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.COPY, state: api.READY},
+				{id: 2, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.COPY, state: api.HYDRATING},
+			},
+			wantTargets: []targetExpect{{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true}},
+		},
+		{
+			name: "combined snapshot mixing the above coexistences",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.CANCELLED},
+				{id: 2, srcNode: "node3", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.INTEGRATING},
+				{id: 3, srcNode: "node4", tgtNode: "node5", collection: coll, shard: shard, transferType: api.COPY, state: api.READY},
+				{id: 4, srcNode: "node4", tgtNode: "node5", collection: coll, shard: shard, transferType: api.COPY, state: api.HYDRATING},
+			},
+			wantTargets: []targetExpect{
+				{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true},
+				{node: "node5", collection: coll, shard: shard, opCount: 2, routable: true},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Build the committed snapshot on a source FSM.
+			src := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			for _, op := range tc.ops {
+				seedOpFull(t, src, op.id, op.srcNode, op.tgtNode, op.collection, op.shard, op.transferType)
+				switch op.state {
+				case api.REGISTERED:
+				case api.CANCELLED:
+					driveToCancelled(t, src, op.id)
+				default:
+					driveToState(t, src, op.id, op.state)
+				}
+			}
+			blob, err := src.Snapshot()
+			require.NoError(t, err)
+
+			// Restore the same bytes 100 times; each restore ranges a freshly randomized map.
+			const restores = 100
+			var prevStatus map[replication.ShardReplicationOp]replication.ShardReplicationOpStatus
+			for i := 0; i < restores; i++ {
+				dst := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+				err := dst.Restore(blob)
+				require.NoErrorf(t, err, "restore %d/%d must not error", i+1, restores)
+
+				// Every op is present in opsById/statusById.
+				gotStatus := dst.GetStatusByOps()
+				require.Lenf(t, gotStatus, len(tc.ops), "restore %d: op count", i+1)
+				for _, op := range tc.ops {
+					_, ok := dst.GetOpById(op.id)
+					require.Truef(t, ok, "restore %d: op %d present", i+1, op.id)
+				}
+
+				// per-node index (append-based) — holds both ops even under the clobber.
+				for _, tgt := range tc.wantTargets {
+					require.Lenf(t, dst.GetOpsForTarget(tgt.node), tgt.opCount,
+						"restore %d: per-node target index count for %s", i+1, tgt.node)
+				}
+
+				// routing reads opsByTargetFQDN, the clobbered index: a clobber drops one
+				// op, so ~half the random orders leave the non-routable op and return empty.
+				for _, tgt := range tc.wantTargets {
+					want := []string{}
+					if tgt.routable {
+						want = []string{tgt.node}
+					}
+					require.Equalf(t, want, dst.FilterOneShardReplicasRead(tgt.collection, tgt.shard, []string{tgt.node}),
+						"restore %d: target %s read routing", i+1, tgt.node)
+					require.Equalf(t, want, dst.FilterOneShardReplicasWrite(tgt.collection, tgt.shard, []string{tgt.node}),
+						"restore %d: target %s write routing", i+1, tgt.node)
+				}
+
+				// Every restore reconstructs the identical FSM state.
+				if prevStatus != nil {
+					require.Equalf(t, prevStatus, gotStatus, "restore %d state must match restore %d", i+1, i)
+				}
+				prevStatus = gotStatus
+			}
+		})
+	}
+}

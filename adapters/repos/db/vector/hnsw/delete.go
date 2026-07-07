@@ -650,12 +650,13 @@ func (h *hnsw) reassignNeighbor(
 	// the new recursive implementation no longer needs an entrypoint, so we can
 	// just pass this dummy value to make the neighborFinderConnector happy
 	neighborNode.markAsMaintenance()
+	defer neighborNode.unmarkAsMaintenance()
+
 	dummyEntrypoint := uint64(0)
 	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
-	neighborNode.unmarkAsMaintenance()
 
 	h.metrics.CleanedUp()
 	return true, nil

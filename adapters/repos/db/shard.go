@@ -103,9 +103,14 @@ type ShardLike interface {
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
+	// MayResetTransferInactivityTimer counts external transfer activity
+	// against the halt watchdog. No-op on unhalted shards.
+	MayResetTransferInactivityTimer()
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
 	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
+	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
+	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
@@ -340,11 +345,11 @@ type Shard struct {
 	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
 	asyncReplicationStatsMux sync.RWMutex
 
-	haltForTransferMux               sync.Mutex
-	haltForTransferInactivityTimeout time.Duration
-	haltForTransferInactivityTimer   *time.Timer
-	haltForTransferCount             int
-	haltForTransferCancel            func()
+	haltForTransferMux                sync.Mutex
+	haltForTransferInactivityTimeout  time.Duration
+	haltForTransferInactivityDeadline time.Time
+	haltForTransferCount              int
+	haltForTransferCtxCancel          context.CancelFunc
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

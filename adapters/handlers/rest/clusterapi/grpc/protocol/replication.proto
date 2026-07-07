@@ -228,6 +228,10 @@ message OverwriteObjectsRequest {
   string index = 1;
   string shard = 2;
   bytes vobjects_data = 3; // versionedObjectListPayload.Marshal output
+  // Encoding of vobjects_data. 0 (default, used by older senders) = JSON
+  // VObject list; 1 = raw on-disk object bytes (MarshalRaw). Decoding both is
+  // always supported; senders only emit 1 when the runtime flag is enabled.
+  uint32 encoding = 4;
 }
 
 message OverwriteObjectsResponse {

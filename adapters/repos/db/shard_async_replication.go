@@ -1746,6 +1746,21 @@ type objectToPropagate struct {
 	remoteStaleUpdateTime int64
 }
 
+// propagationScratch holds buffers reused across all diff ranges of a hashBeat, allocating them per-beat not per-range.
+type propagationScratch struct {
+	filteredDigests    []types.RepairResponse
+	localDigestsByUUID map[uuid.UUID]int64
+	objectsToPropagate []objectToPropagate
+}
+
+func newPropagationScratch(diffBatchSize int) *propagationScratch {
+	return &propagationScratch{
+		filteredDigests:    make([]types.RepairResponse, 0, diffBatchSize),
+		localDigestsByUUID: make(map[uuid.UUID]int64, diffBatchSize),
+		objectsToPropagate: make([]objectToPropagate, 0, diffBatchSize),
+	}
+}
+
 // collectObjectsToPropagate scans the hashtree diff ranges and returns the local
 // objects that must be propagated. It owns a single reusable objects-bucket
 // cursor for the whole scan (released before propagation begins) so the cursor,
@@ -1773,6 +1788,8 @@ func (s *Shard) collectObjectsToPropagate(
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
 	defer cursor.Close()
 
+	scratch := newPropagationScratch(config.diffBatchSize)
+
 	for len(localObjectsToPropagate) < config.propagationLimit {
 		initialLeaf, finalLeaf, rangeErr := rangeReader.Next()
 		if rangeErr != nil {
@@ -1786,6 +1803,7 @@ func (s *Shard) collectObjectsToPropagate(
 			ctx,
 			config,
 			cursor,
+			scratch,
 			targetNodeAddress,
 			targetNodeName,
 			initialLeaf,
@@ -1826,12 +1844,13 @@ func (s *Shard) collectObjectsToPropagate(
 // returned entry is queued; tombstone resolution is left to the post-Overwrite
 // resolveObjectConflict path.
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
-	cursor *lsmkv.CursorReplace,
+	cursor *lsmkv.CursorReplace, scratch *propagationScratch,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
 	asyncCheckpointCutoff int64,
 ) (localObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
-	objectsToPropagate = make([]objectToPropagate, 0, min(limit, config.diffBatchSize))
+	// Returned buffer must start empty; caller copies it out before the next range reuses it.
+	objectsToPropagate = scratch.objectsToPropagate[:0]
 
 	hashtreeHeight := config.hashtreeHeight
 
@@ -1851,9 +1870,9 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))
 
-	// Reused (reset) each iteration to avoid per-batch allocations.
-	filteredDigests := make([]types.RepairResponse, 0, config.diffBatchSize)
-	localDigestsByUUID := make(map[uuid.UUID]int64, config.diffBatchSize)
+	// From scratch: reset before use each batch (below), so per-beat not per-range.
+	filteredDigests := scratch.filteredDigests
+	localDigestsByUUID := scratch.localDigestsByUUID
 
 	for limit > 0 && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
@@ -1983,6 +2002,31 @@ func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNo
 	return time.Now().Add(-config.propagationDelay).UnixMilli()
 }
 
+// buildPropagationBatch wraps each local object's raw on-disk bytes as a VObject
+// to overwrite on the target. Objects deleted locally in the meantime are
+// skipped. An older target that cannot decode raw fails gracefully and converges
+// once upgraded (see VObject.MarshalBinaryRaw).
+func (s *Shard) buildPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
+	remoteStaleUpdateTime map[strfmt.UUID]int64,
+) ([]*objects.VObject, error) {
+	rawObjs, err := s.MultiObjectRawByID(ctx, uuidBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	batch := make([]*objects.VObject, 0, len(rawObjs))
+	for j, raw := range rawObjs {
+		if raw == nil {
+			continue
+		}
+		batch = append(batch, &objects.VObject{
+			StaleUpdateTime: remoteStaleUpdateTime[uuidBatch[j]],
+			RawBytes:        raw,
+		})
+	}
+	return batch, nil
+}
+
 func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationConfig, host string,
 	objectsToPropagate []strfmt.UUID, remoteStaleUpdateTime map[strfmt.UUID]int64,
 ) (res []types.RepairResponse, err error) {
@@ -2052,7 +2096,7 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 					continue
 				}
 
-				localObjs, err := s.MultiObjectByID(workerCtx, wrapIDsInMulti(uuidBatch))
+				batch, err := s.buildPropagationBatch(workerCtx, uuidBatch, remoteStaleUpdateTime)
 				if err != nil {
 					// Skip ctx-cancellation errors: the parent surfaces the cancel
 					// cause via context.Cause(workerCtx) once workers drain.
@@ -2065,43 +2109,6 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 						err: fmt.Errorf("fetching local objects: %w", err),
 					}
 					continue
-				}
-
-				batch := make([]*objects.VObject, 0, len(localObjs))
-
-				for _, obj := range localObjs {
-					if obj == nil {
-						// local object was deleted meanwhile
-						continue
-					}
-
-					var vectors map[string][]float32
-					var multiVectors map[string][][]float32
-
-					if obj.Vectors != nil {
-						vectors = make(map[string][]float32, len(obj.Vectors))
-						for targetVector, v := range obj.Vectors {
-							vectors[targetVector] = v
-						}
-					}
-					if obj.MultiVectors != nil {
-						multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
-						for targetVector, v := range obj.MultiVectors {
-							multiVectors[targetVector] = v
-						}
-					}
-
-					obj := &objects.VObject{
-						ID:                      obj.ID(),
-						LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-						LatestObject:            &obj.Object,
-						Vector:                  obj.Vector,
-						Vectors:                 vectors,
-						MultiVectors:            multiVectors,
-						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
-					}
-
-					batch = append(batch, obj)
 				}
 
 				if len(batch) > 0 {

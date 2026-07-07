@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func prefixTransformerBuilder(ops []ActiveOp) valueTransformer {
+func prefixTransformer(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
 	return func(v []byte) ([]byte, error) { return append([]byte("X:"), v...), nil }
 }
 
@@ -34,9 +34,12 @@ func (denyAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
 func (denyAllocChecker) Refresh(bool)                            {}
 
 // newReplaceBucketWithEditOps wires a real cleaner (cleanupInterval > 0) plus an
-// edit-ops facility, with a long interval so the time/size heuristic would never
-// fire — proving the edit-ops path bypasses it.
-func newReplaceBucketWithEditOps(t *testing.T, builder transformerBuilder) (*Bucket, *SegmentEditOps) {
+// edit-ops facility, with a long cleanup interval so the time/size heuristic would
+// never fire — proving the edit-ops path bypasses it. The facility is attached
+// directly with an injected resolver so tests can use a fake transformer (and, for
+// factory == nil, an empty resolver that yields a nil transformer to exercise the
+// don't-mark-done guard). Owned by the segment group and closed on bucket shutdown.
+func newReplaceBucketWithEditOps(t *testing.T, factory OpTransformerFactory) (*Bucket, *SegmentEditOps) {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -48,15 +51,14 @@ func newReplaceBucketWithEditOps(t *testing.T, builder transformerBuilder) (*Buc
 	require.NoError(t, err)
 	bucket.SetMemtableThreshold(1e9)
 
-	editOps, err := openSegmentEditOps(bucket.disk.dir, builder)
-	require.NoError(t, err)
-	bucket.disk.editOps = editOps
+	transformers := map[OpType]OpTransformerFactory{}
+	if factory != nil {
+		transformers[OpTypeRemoveTargetVectors] = factory
+	}
+	bucket.disk.editOps = newSegmentEditOpsWithLookup(bucket.disk.dir, "TestClass", staticResolver(transformers))
 
-	t.Cleanup(func() {
-		require.NoError(t, editOps.Close())
-		require.NoError(t, bucket.Shutdown(ctx))
-	})
-	return bucket, editOps
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+	return bucket, bucket.disk.editOps
 }
 
 func segIDsOf(bucket *Bucket) []string {
@@ -71,7 +73,7 @@ func segIDsOf(bucket *Bucket) []string {
 // segment through the transformer — including the last segment, which the
 // time/size heuristic skips — even though the cleanup interval has not elapsed.
 func TestSegmentCleanerEditOps_PicksPendingRegardlessOfInterval(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
@@ -119,7 +121,7 @@ func drainEditOpsCleanup(t *testing.T, bucket *Bucket) {
 // transformer is applied a single time, not twice) and every op's row for it is
 // marked done.
 func TestSegmentCleanerEditOps_MultiOpSameSegment(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
@@ -175,7 +177,7 @@ func TestSegmentCleanerEditOps_NilTransformerDoesNotMarkDone(t *testing.T) {
 // guard hit pauses the pass (nothing cleaned) without counting as a failed
 // attempt — so a transient low-memory window can't quarantine a healthy segment.
 func TestSegmentCleanerEditOps_MemoryPressurePausesWithoutBumping(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 	bucket.disk.allocChecker = denyAllocChecker{}
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
@@ -208,7 +210,7 @@ func TestSegmentCleanerEditOps_MemoryPressurePausesWithoutBumping(t *testing.T) 
 // pauses the pass WITHOUT counting as a failed attempt — an interrupted rewrite
 // must not push a healthy segment toward quarantine. Mirrors the OOM-pause test.
 func TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	// >=100 keys so writeKeys reaches its i%100==0 shouldAbort check mid-rewrite
 	// (a smaller segment would finish before the check ever fires).
@@ -246,7 +248,7 @@ func TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump(t *testing.T) {
 // TestSegmentCleanerEditOps_ENOENTRemovesStaleRow drops a pending row whose
 // segment is no longer on disk (merged away by a concurrent compaction).
 func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
-	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformerBuilder)
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
@@ -266,7 +268,7 @@ func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
 // TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts quarantines a segment
 // whose rewrite keeps failing, so it stops being retried (C6).
 func TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts(t *testing.T) {
-	failing := func(ops []ActiveOp) valueTransformer {
+	failing := func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
 		return func(v []byte) ([]byte, error) { return nil, errors.New("boom") }
 	}
 	bucket, editOps := newReplaceBucketWithEditOps(t, failing)

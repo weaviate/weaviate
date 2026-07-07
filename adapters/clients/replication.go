@@ -24,7 +24,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,39 +57,24 @@ const (
 
 type replicationClient struct {
 	retryClient
-	zstdEncoderPool sync.Pool
+	// Shared instance: EncodeAll is concurrency-safe and internally multiplexes GOMAXPROCS sub-encoders.
+	zstdEncoder *zstd.Encoder
 }
 
 var _ replica.Client = (*replicationClient)(nil)
 
 func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
-	// Verify encoder creation works at startup before returning the client.
 	enc, err := zstd.NewWriter(nil)
 	if err != nil {
 		return nil, fmt.Errorf("create zstd encoder: %w", err)
 	}
-	c := &replicationClient{
+	return &replicationClient{
 		retryClient: retryClient{
 			client:  httpClient,
 			retryer: newRetryer(),
 		},
-	}
-	// zstdEncoderPool amortizes *zstd.Encoder creation cost across calls.
-	// EncodeAll is safe for concurrent use on a single encoder, but allocating
-	// a fresh encoder on every RPC has measurable overhead; the pool reuses
-	// instances instead. New returns nil on failure; call sites guard with an
-	// ok+nil check and fall back to creating a fresh encoder.
-	c.zstdEncoderPool = sync.Pool{
-		New: func() any {
-			e, err := zstd.NewWriter(nil)
-			if err != nil {
-				return nil
-			}
-			return e
-		},
-	}
-	c.zstdEncoderPool.Put(enc)
-	return c, nil
+		zstdEncoder: enc,
+	}, nil
 }
 
 // FetchObject fetches one object it exits
@@ -308,15 +292,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
 	}
 
-	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
-	if !ok || enc == nil {
-		enc, err = zstd.NewWriter(nil)
-		if err != nil {
-			return nil, fmt.Errorf("create zstd encoder: %w", err)
-		}
-	}
-	bodyBytes := enc.EncodeAll(body, make([]byte, 0, len(body)))
-	c.zstdEncoderPool.Put(enc)
+	bodyBytes := c.zstdEncoder.EncodeAll(body, make([]byte, 0, len(body)))
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
 	defer cancel()
@@ -500,20 +476,21 @@ func (c *replicationClient) GetAsyncCheckpointStatus(ctx context.Context,
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	body, err := clusterapi.IndicesPayloads.VersionedObjectList.MarshalV2(vobjects)
+	raw := isRawVObjectBatch(vobjects)
+	var (
+		body []byte
+		err  error
+	)
+	if raw {
+		body, err = clusterapi.IndicesPayloads.VersionedObjectList.MarshalRaw(vobjects)
+	} else {
+		body, err = clusterapi.IndicesPayloads.VersionedObjectList.MarshalV2(vobjects)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
 
-	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
-	if !ok || enc == nil {
-		enc, err = zstd.NewWriter(nil)
-		if err != nil {
-			return nil, fmt.Errorf("create zstd encoder: %w", err)
-		}
-	}
-	bodyCompressed := enc.EncodeAll(body, make([]byte, 0, len(body)))
-	c.zstdEncoderPool.Put(enc)
+	bodyCompressed := c.zstdEncoder.EncodeAll(body, make([]byte, 0, len(body)))
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,
@@ -523,7 +500,11 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	}
 
 	req.Header.Set("X-Request-Compression", "zstd")
-	req.Header.Set("X-Request-Encoding", "binary")
+	if raw {
+		req.Header.Set("X-Request-Encoding", clusterapi.OverwriteEncodingHeaderRaw)
+	} else {
+		req.Header.Set("X-Request-Encoding", "binary")
+	}
 
 	var resp []types.RepairResponse
 	err = c.doRetry(req, bodyCompressed, &resp, MAX_RETRIES)

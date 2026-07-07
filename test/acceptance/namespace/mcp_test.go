@@ -12,9 +12,14 @@
 package namespace
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,7 +42,7 @@ const (
 // qualified name is rejected up front with "is not a valid class name".
 func TestNamespaces_MCP(t *testing.T) {
 	t.Parallel()
-	ns1, ns2, user1Key, _ := twoNamespaces(t)
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	alpha0 := 0.0
 	const short = "Movies"
@@ -253,4 +258,174 @@ func TestNamespaces_MCP(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
+
+	// Cross-namespace isolation backstop. The RBAC matcher does not confine the
+	// mcp domain (it is neither namespace-qualified on write nor operator-only),
+	// so confinement rests entirely on each tool self-scoping its collection
+	// argument to the caller's namespace. Create the same short name in both
+	// namespaces with distinct content and assert a caller only ever reaches its
+	// own namespace's data through every collection-scoped tool. A future tool
+	// that forgets to scope would leak across namespaces and fail here.
+	t.Run("cross-namespace isolation on colliding short name", func(t *testing.T) {
+		const collide = "IsoFilms"
+		setupCollidingClassInBothNamespaces(t, ns1, ns2, collide, "ns1prop", "ns2prop", user1Key, user2Key)
+		id := strfmt.UUID("cccccccc-1111-1111-1111-111111111111")
+		seedTwo(t, collide, id, "collide onlyns1", "collide onlyns2", user1Key, user2Key)
+
+		// hybrid: each caller sees only its own object.
+		var r1 *search.QueryHybridResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
+			CollectionName: collide, Query: "collide", Alpha: &alpha0,
+		}, &r1, user1Key))
+		assert.Equal(t, []string{"collide onlyns1"}, hybridTitles(t, r1))
+
+		var r2 *search.QueryHybridResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
+			CollectionName: collide, Query: "collide", Alpha: &alpha0,
+		}, &r2, user2Key))
+		assert.Equal(t, []string{"collide onlyns2"}, hybridTitles(t, r2))
+
+		// get-config: each caller sees only its own namespace's schema.
+		var c1 *read.GetCollectionConfigResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolGetConfig,
+			&read.GetCollectionConfigArgs{CollectionName: collide}, &c1, user1Key))
+		require.Len(t, c1.Collections, 1)
+		assert.Contains(t, propNames(c1.Collections[0]), "ns1prop")
+		assert.NotContains(t, propNames(c1.Collections[0]), "ns2prop")
+
+		// upsert: the write lands only in the caller's namespace.
+		var up *create.UpsertObjectResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolUpsert, &create.UpsertObjectArgs{
+			CollectionName: collide,
+			Objects:        []create.ObjectToUpsert{{Properties: map[string]any{"title": "written by uniqueterm"}}},
+		}, &up, user1Key))
+		require.Len(t, up.Results, 1)
+		require.Empty(t, up.Results[0].Error)
+
+		var seen *search.QueryHybridResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
+			CollectionName: collide, Query: "uniqueterm", Alpha: &alpha0,
+		}, &seen, user1Key))
+		assert.Equal(t, []string{"written by uniqueterm"}, hybridTitles(t, seen))
+
+		var absent *search.QueryHybridResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
+			CollectionName: collide, Query: "uniqueterm", Alpha: &alpha0,
+		}, &absent, user2Key))
+		assert.Empty(t, hybridTitles(t, absent))
+
+		// tenants-list: each caller sees only its own namespace's tenants.
+		const collideMT = "IsoTheaters"
+		setupMTClassInBothNamespaces(t, ns1, ns2, collideMT, user1Key, user2Key)
+		require.NoError(t, addTenantsAuth(t, collideMT,
+			[]*models.Tenant{{Name: "tns1", ActivityStatus: models.TenantActivityStatusHOT}}, user1Key))
+		require.NoError(t, addTenantsAuth(t, collideMT,
+			[]*models.Tenant{{Name: "tns2", ActivityStatus: models.TenantActivityStatusHOT}}, user2Key))
+
+		var tr1 *read.GetTenantsResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolGetTenants,
+			&read.GetTenantsArgs{CollectionName: collideMT}, &tr1, user1Key))
+		assert.Equal(t, []string{"tns1"}, tenantNames(tr1.Tenants))
+
+		var tr2 *read.GetTenantsResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolGetTenants,
+			&read.GetTenantsArgs{CollectionName: collideMT}, &tr2, user2Key))
+		assert.Equal(t, []string{"tns2"}, tenantNames(tr2.Tenants))
+	})
+}
+
+// mcpCollectionScopedTools are the MCP tools exercised by the cross-namespace
+// isolation subtest in TestNamespaces_MCP. Each accepts a collection_name and
+// must confine that argument to the caller's namespace. Kept in sync with the
+// registry by TestNamespaces_MCP_IsolationCoversAllCollectionTools.
+var mcpCollectionScopedTools = map[string]bool{
+	mcpToolHybrid:     true,
+	mcpToolGetConfig:  true,
+	mcpToolUpsert:     true,
+	mcpToolGetTenants: true,
+}
+
+// setupCollidingClassInBothNamespaces creates a class with the same short name
+// under each namespaced user, each carrying a distinct extra property so a
+// get-config response reveals which namespace's schema was returned.
+func setupCollidingClassInBothNamespaces(t *testing.T, ns1, ns2, name, extra1, extra2, k1, k2 string) {
+	t.Helper()
+	mk := func(extra string) *models.Class {
+		return &models.Class{
+			Class: name,
+			Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: extra, DataType: []string{"text"}},
+			},
+		}
+	}
+	helper.CreateClassAuth(t, mk(extra1), k1)
+	helper.CreateClassAuth(t, mk(extra2), k2)
+	t.Cleanup(func() {
+		helper.DeleteClassAuth(t, ns1+":"+name, adminKey)
+		helper.DeleteClassAuth(t, ns2+":"+name, adminKey)
+	})
+}
+
+func hybridTitles(t *testing.T, resp *search.QueryHybridResp) []string {
+	t.Helper()
+	titles := make([]string, 0, len(resp.Results))
+	for _, r := range resp.Results {
+		m, ok := r.(map[string]any)
+		require.True(t, ok, "hybrid result should be a JSON object")
+		if title, ok := m["title"].(string); ok {
+			titles = append(titles, title)
+		}
+	}
+	return titles
+}
+
+func propNames(class *models.Class) []string {
+	names := make([]string, 0, len(class.Properties))
+	for _, p := range class.Properties {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+// TestNamespaces_MCP_IsolationCoversAllCollectionTools guards the isolation
+// subtest above. Every registered MCP tool that accepts a collection_name must
+// be listed in mcpCollectionScopedTools (and thus exercised for cross-namespace
+// isolation). Because the mcp authz domain provides no namespace confinement,
+// adding a collection-scoped tool without proving its isolation is a latent
+// cross-namespace escape; this test fails until the new tool is covered, turning
+// a review checklist item into a CI gate.
+func TestNamespaces_MCP_IsolationCoversAllCollectionTools(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	c, err := client.NewStreamableHttpClient(helper.GetWeaviateURL()+"/v1/mcp",
+		transport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + adminKey}))
+	require.NoError(t, err)
+	_, err = c.Initialize(ctx, mcp.InitializeRequest{})
+	require.NoError(t, err)
+	list, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, list)
+
+	registered := make(map[string]bool)
+	for _, tool := range list.Tools {
+		if _, ok := tool.InputSchema.Properties["collection_name"]; !ok {
+			continue
+		}
+		registered[tool.Name] = true
+		assert.Truef(t, mcpCollectionScopedTools[tool.Name],
+			"MCP tool %q accepts a collection_name but is not covered by the "+
+				"cross-namespace isolation subtest; the mcp authz domain has no namespace "+
+				"backstop, so exercise it there and list it in mcpCollectionScopedTools", tool.Name)
+	}
+
+	// Guard against a stale coverage entry that would let the check above pass
+	// vacuously for a tool that was renamed or dropped.
+	for name := range mcpCollectionScopedTools {
+		assert.Truef(t, registered[name],
+			"MCP tool %q is listed in mcpCollectionScopedTools but is not a registered "+
+				"collection-scoped tool", name)
+	}
 }

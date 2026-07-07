@@ -47,6 +47,9 @@ type movementFakeUpgradable struct {
 	indexed       uint64
 	upgraded      bool
 	upgradeCalled bool
+	// upgradeErr, when set, is returned by Upgrade without invoking callback —
+	// the misbehaving-indexer case BeforeSchedule must not leak a pause on.
+	upgradeErr error
 }
 
 func (f *movementFakeUpgradable) ShouldUpgrade() (bool, int) { return f.shouldUpgrade, f.upgradeAt }
@@ -56,6 +59,9 @@ func (f *movementFakeUpgradable) UpgradeInProgress() bool    { return false }
 
 func (f *movementFakeUpgradable) Upgrade(callback func()) error {
 	f.upgradeCalled = true
+	if f.upgradeErr != nil {
+		return f.upgradeErr
+	}
 	if callback != nil {
 		callback()
 	}

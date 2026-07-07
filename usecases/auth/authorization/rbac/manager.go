@@ -199,18 +199,105 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	return policies, nil
 }
 
+// ListGroupingSubjects returns the subject key of every role-assignment row
+// (each a `<prefix>:<user>` or `<prefix>:<group>` string).
+func (m *Manager) ListGroupingSubjects() ([]string, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	rows, err := m.casbin.GetGroupingPolicy()
+	if err != nil {
+		return nil, fmt.Errorf("GetGroupingPolicy: %w", err)
+	}
+	subjects := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r) > 0 {
+			subjects = append(subjects, r[0])
+		}
+	}
+	return subjects, nil
+}
+
+// NamespaceSubject is a direct (db/oidc) principal holding at least one role
+// assignment bound to a namespace. ID is the user id without the auth-type
+// prefix, e.g. "customer1:bob".
+type NamespaceSubject struct {
+	ID       string
+	AuthType authentication.AuthType
+}
+
+// NamespaceLocalRBAC returns the namespace-local role names and the distinct
+// direct (db/oidc) principals whose role assignments belong to namespace. It is
+// the single source of "what RBAC belongs to a namespace": the removal-block
+// gate counts this set and the delete cascade revokes/deletes exactly it, so
+// the two stay consistent by construction. Group assignments are global and so
+// are excluded — a namespace-named group can't block its namespace's removal.
+func (m *Manager) NamespaceLocalRBAC(namespace string) (roles []string, subjects []NamespaceSubject, err error) {
+	all, err := m.GetRoles()
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetRoles: %w", err)
+	}
+	for name := range all {
+		if namespacing.NamespaceFromQualified(name) == namespace {
+			roles = append(roles, name)
+		}
+	}
+	rows, err := m.ListGroupingSubjects()
+	if err != nil {
+		return nil, nil, fmt.Errorf("ListGroupingSubjects: %w", err)
+	}
+	seen := map[NamespaceSubject]struct{}{}
+	for _, s := range rows {
+		user, authType, ns, err := conv.SubjectNamespace(s)
+		if err != nil {
+			// A row we can't parse must not be silently dropped: an undercount
+			// here lets the removal-block gate read zero and remove a namespace
+			// while an assignment survives.
+			return nil, nil, fmt.Errorf("SubjectNamespace %q: %w", s, err)
+		}
+		// A zero auth type marks a global group subject.
+		if authType == "" || ns != namespace {
+			continue
+		}
+		subject := NamespaceSubject{ID: user, AuthType: authType}
+		if _, ok := seen[subject]; ok {
+			continue
+		}
+		seen[subject] = struct{}{}
+		subjects = append(subjects, subject)
+	}
+	return roles, subjects, nil
+}
+
+// CountNamespaceLocalRBAC returns the number of namespace-local roles plus
+// direct-principal assignments in the namespace. Removal of a namespace entity
+// is blocked while this is non-zero.
+func (m *Manager) CountNamespaceLocalRBAC(namespace string) (int, error) {
+	roles, subjects, err := m.NamespaceLocalRBAC(namespace)
+	if err != nil {
+		return 0, err
+	}
+	return len(roles) + len(subjects), nil
+}
+
 func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	changed := false
 	for _, permission := range permissions {
 		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
 			return fmt.Errorf("RemoveNamedPolicy: %w", err)
 		}
-		if !ok {
-			return nil // deletes are idempotent
+		// Removing an already-absent permission is a no-op; keep going so the
+		// rest of the batch is still removed.
+		if ok {
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return fmt.Errorf("SavePolicy: %w", err)
@@ -236,6 +323,7 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	changed := false
 	for _, roleName := range roles {
 		// remove role
 		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
@@ -248,9 +336,14 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
 		}
 
-		if !roleRemoved && !roleAssignmentsRemoved {
-			return nil // deletes are idempotent
+		// deletes are idempotent: an already-absent role is a no-op, but other
+		// roles in the batch may still have been removed, so keep going.
+		if roleRemoved || roleAssignmentsRemoved {
+			changed = true
 		}
+	}
+	if !changed {
+		return nil
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return fmt.Errorf("SavePolicy: %w", err)
@@ -473,7 +566,7 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	ns := principal.Namespace
+	ns := namespacing.ConfinedNamespace(principal)
 
 	// first check group permissions
 	for _, group := range principal.Groups {

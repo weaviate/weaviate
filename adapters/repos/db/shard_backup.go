@@ -137,6 +137,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	return nil
 }
 
+// MayResetTransferInactivityTimer counts an in-flight transfer RPC as
+// activity so the halt watchdog doesn't force-resume mid-stream.
+func (s *Shard) MayResetTransferInactivityTimer() {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+	s.mayResetInactivityDeadline()
+}
+
 // structuralVectorOpInFlight reports whether any vector index is mid-restructure
 // (HNSW compression or dynamic flat→HNSW upgrade) — a snapshot taken now would
 // be structurally inconsistent. reason names the first offending index.
@@ -159,64 +167,77 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 
 	s.haltForTransferInactivityTimeout = inactivityTimeout
 
-	s.mayResetInactivityTimer()
+	// restart any running monitor so the shorter timeout takes effect; the immediately-following
+	// mayInitInactivityMonitoring respawns it. cancelling only stops the goroutine, not maintenance.
+	s.mayStopInactivityMonitoring()
 }
 
-func (s *Shard) mayResetInactivityTimer() {
-	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
+// mayStopInactivityMonitoring cancels the running inactivity monitor and clears the sentinel.
+// Caller must hold haltForTransferMux; must not lock here (callers hold it across a wider section).
+func (s *Shard) mayStopInactivityMonitoring() {
+	if s.haltForTransferCtxCancel != nil {
+		s.haltForTransferCtxCancel()
+		s.haltForTransferCtxCancel = nil
+	}
 }
 
-func resetTimer(t *time.Timer, d time.Duration) {
-	if t == nil {
+// mayResetInactivityDeadline records file activity by pushing the inactivity deadline forward.
+// The monitor re-arms against this deadline, so a reset can never race a fire into a spurious resume.
+func (s *Shard) mayResetInactivityDeadline() {
+	if s.haltForTransferInactivityTimeout <= 0 {
 		return
 	}
-
-	// if Stop returns false, the timer has either already fired or been stopped.
-	// in the "already fired" case, there may be a value in t.C that we need to drain.
-	if !t.Stop() {
-		select {
-		case <-t.C:
-			// drained a pending tick.
-		default:
-			// channel was already drained; nothing to do.
-		}
-	}
-
-	t.Reset(d)
+	s.haltForTransferInactivityDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {
-	if s.haltForTransferCancel != nil {
+	if s.haltForTransferCtxCancel != nil {
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	s.haltForTransferCancel = cancel
+	s.haltForTransferCtxCancel = cancel
 
-	s.haltForTransferInactivityTimer = time.NewTimer(s.haltForTransferInactivityTimeout)
+	s.haltForTransferInactivityDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
+
+	timer := time.NewTimer(s.haltForTransferInactivityTimeout)
 
 	enterrors.GoWrapper(func() {
-		// this goroutine will release maintenance cycles if no file activity
-		// is detected in the specified inactivity timeout
-		defer func() {
-			s.haltForTransferMux.Lock()
-			s.haltForTransferInactivityTimer.Stop()
-			s.haltForTransferCancel = nil
-			s.haltForTransferMux.Unlock()
-		}()
+		// supersession and teardown cancel this ctx before any successor, so a stale fire is dropped.
+		defer timer.Stop()
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.haltForTransferInactivityTimer.C:
-			func() {
-				s.haltForTransferMux.Lock()
-				defer s.haltForTransferMux.Unlock()
-				s.mayForceResumeMaintenanceCycles(context.Background(), true)
-			}()
-			return
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				if !s.handleInactivityFire(ctx, timer) {
+					return
+				}
+			}
 		}
 	}, s.index.logger)
+}
+
+// handleInactivityFire resolves an inactivity-timer fire, returning true to keep watching
+// (activity re-armed the timer) or false to stop (ctx cancelled, or the shard was resumed).
+func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (keepWatching bool) {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+
+	if ctx.Err() != nil {
+		// superseded or torn down while this fire waited on the mux; stop without resuming.
+		return false
+	}
+	if remaining := time.Until(s.haltForTransferInactivityDeadline); remaining > 0 {
+		// activity pushed the deadline forward; re-arm and keep watching.
+		timer.Reset(remaining)
+		return true
+	}
+	if err := s.mayForceResumeMaintenanceCycles(context.Background(), true); err != nil {
+		s.index.logger.Error(err)
+	}
+	return false
 }
 
 // CreateBackupSnapshot halts compaction, lists backup files, hardlinks them into
@@ -268,19 +289,19 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		}
 	}
 
+	pairs := make([]file.HardlinkPair, 0, len(files))
 	for _, relPath := range files {
 		if _, ok := staged[relPath]; ok {
 			// already written as a consistent copy above; do not hardlink over it
 			continue
 		}
-		src := filepath.Join(s.index.Config.RootPath, relPath)
-		dst := filepath.Join(stagingRoot, relPath)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return nil, fmt.Errorf("create staging subdir for %s: %w", relPath, err)
-		}
-		if err := os.Link(src, dst); err != nil {
-			return nil, fmt.Errorf("hardlink %s to staging: %w", relPath, err)
-		}
+		pairs = append(pairs, file.HardlinkPair{
+			Src: filepath.Join(s.index.Config.RootPath, relPath),
+			Dst: filepath.Join(stagingRoot, relPath),
+		})
+	}
+	if err := file.HardlinkFiles(pairs); err != nil {
+		return nil, fmt.Errorf("hardlink backup files to staging: %w", err)
 	}
 
 	return files, nil
@@ -295,7 +316,7 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 		return nil, fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
 	}
 
-	s.mayResetInactivityTimer()
+	s.mayResetInactivityDeadline()
 
 	if err := s.readBackupMetadata(ret); err != nil {
 		return nil, err
@@ -359,6 +380,13 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	if forced {
 		s.haltForTransferCount = 0
+		// Non-zero in steady state means a transfer was force-resumed
+		// mid-stream — i.e. the read-path timer reset isn't reaching us.
+		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
+			s.promMetrics.ShardHaltForTransferForceResume.
+				WithLabelValues().
+				Inc()
+		}
 	} else {
 		s.haltForTransferCount--
 
@@ -368,10 +396,13 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		}
 	}
 
-	if s.haltForTransferCancel != nil {
-		// terminate background goroutine checking for inactivity timeout
-		s.haltForTransferCancel()
-	}
+	// terminate the inactivity monitor synchronously under the mux, so a subsequent
+	// HaltForTransfer reliably starts a new monitor.
+	s.mayStopInactivityMonitoring()
+
+	// fully resumed: reset so the next halt cycle uses its own timeout, not the shortest ever seen.
+	s.haltForTransferInactivityTimeout = 0
+	s.haltForTransferInactivityDeadline = time.Time{}
 
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
@@ -459,7 +490,7 @@ func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (f
 			relativeFilePath, s.name)
 	}
 
-	s.mayResetInactivityTimer()
+	s.mayResetInactivityDeadline()
 
 	finalPath, err := s.sanitizeFilePath(relativeFilePath)
 	if err != nil {
@@ -477,7 +508,7 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 			relativeFilePath, s.name)
 	}
 
-	s.mayResetInactivityTimer()
+	s.mayResetInactivityDeadline()
 
 	finalPath, err := s.sanitizeFilePath(relativeFilePath)
 	if err != nil {
