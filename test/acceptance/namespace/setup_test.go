@@ -39,6 +39,16 @@ func uniqueNS() string {
 	return fmt.Sprintf("ns%d", nsCounter.Add(1))
 }
 
+// roleCounter backs uniqueRole.
+var roleCounter atomic.Int64
+
+// uniqueRole returns a process-unique global role short name. Operator-created
+// global roles share a cluster-wide short-name reservation, so a hardcoded name
+// would collide once tests run in parallel against the shared cluster.
+func uniqueRole() string {
+	return fmt.Sprintf("role%d", roleCounter.Add(1))
+}
+
 // retryOnAliasLag retries op until it returns no error. Used after
 // CreateAliasAuth on the multi-node cluster: the create returns when the
 // leader has applied, but the follower the test client talks to may still
@@ -65,6 +75,12 @@ const (
 	gTarget, gTargetKey = "gtarget", "gtarget-key"
 )
 
+// gAdmin is a global static-key operator that is NOT a root (only adminUser is,
+// via WithRbacRoots). TestNamespaceGlobalAdminDeniedGroupOps grants it the
+// built-in admin role at runtime to prove the narrowed admin cannot manage
+// groups; a dedicated identity keeps that grant from leaking into other tests.
+const gAdmin, gAdminKey = "gadmin", "gadmin-key"
+
 var sharedCompose *docker.DockerCompose
 
 func TestMain(m *testing.M) {
@@ -82,6 +98,7 @@ func TestMain(m *testing.M) {
 		WithUserApiKey(adminUser, adminKey).
 		WithUserApiKey(gCaller, gCallerKey).
 		WithUserApiKey(gTarget, gTargetKey).
+		WithUserApiKey(gAdmin, gAdminKey).
 		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().

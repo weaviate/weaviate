@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -68,7 +67,7 @@ type modulesProvider interface {
 }
 
 type targetVectorParamHelper interface {
-	GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error)
+	GetTargetVectorOrDefault(getClass func(string) *models.Class, className string, targetVector []string) ([]string, error)
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
@@ -254,7 +253,7 @@ func decideSearchVector(ctx context.Context,
 		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
-			targetVectors, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+			targetVectors, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.ReadOnlyClass,
 				class, targetVectors)
 			targetVector := getTargetVector(targetVectors)
 			if err != nil {

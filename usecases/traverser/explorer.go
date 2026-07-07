@@ -267,7 +267,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass,
 		params.ClassName, targetVectors)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
