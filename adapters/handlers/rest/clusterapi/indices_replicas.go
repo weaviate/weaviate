@@ -83,8 +83,10 @@ var (
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
 	regexCompareDigests = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/compareDigests`)
-	regxAsyncCheckpoint = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)\/async-checkpoint`)
-	regxObjects         = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
+	regxAsyncCheckpoint       = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)\/async-checkpoint`)
+	regexCompareHashTreeRoots = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/objects/_compareHashTreeRoots`)
+	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/references`)
@@ -169,6 +171,14 @@ func (i *replicatedIndices) handleRequest(w http.ResponseWriter, r *http.Request
 	case regexCompareDigests.MatchString(path):
 		if r.Method == http.MethodPost {
 			i.postCompareDigests().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regexCompareHashTreeRoots.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.postCompareHashTreeRoots().ServeHTTP(w, r)
 			return
 		}
 
@@ -511,6 +521,38 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 		}
 
 		writeHashTreeLevelResponse(w, r, results)
+	})
+}
+
+func (i *replicatedIndices) postCompareHashTreeRoots() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regexCompareHashTreeRoots.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		index := args[1]
+
+		defer r.Body.Close()
+
+		var req replica.CompareHashTreeRootsReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "unmarshal compare hashtree roots request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		diverging, err := i.replicator.CompareHashTreeRoots(r.Context(), index, req.Roots)
+		if err != nil {
+			http.Error(w, "compare hashtree roots: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(replica.CompareHashTreeRootsResp{DivergingShards: diverging})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write(resBytes) //nolint:errcheck
 	})
 }
 
