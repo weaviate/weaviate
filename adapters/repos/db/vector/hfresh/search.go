@@ -370,23 +370,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	// Encode query vectors into FDE (Fast Dense Encoding) representation
 	queryFDE := h.muveraEncoder.EncodeQuery(vectors)
 
-	// Compute decoupled budgets:
-	// - routingBudget: controls centroid selection and posting scan breadth
-	// - rerankBudget: controls RQ1 candidate depth and MaxSim candidates
-	//
-	// For backward compatibility, routingBudget defaults to max(searchProbe, rescoreLimit)
-	// to preserve the current effective centroid count. This can be tuned separately
-	// in future versions.
-	//
-	// Both budgets must include the user-requested k: rescoreLimit is a
-	// quality floor for the RQ1 candidate depth, not a cap on results.
-	// Budgets below k silently capped searches with k > rescoreLimit at
-	// rescoreLimit results (issue #277). Any further rework of this path
-	// must preserve max(k, ...) semantics for both budgets.
-	searchProbe := int(h.searchProbe)
-	rescoreLimit := int(h.rescoreLimit)
-	routingBudget := max(k, searchProbe, rescoreLimit)
-	rerankBudget := max(k, rescoreLimit)
+	routingBudget, rerankBudget := h.muveraSearchBudgets(k)
 
 	candidateIDs, err := h.searchByFDE(ctx, queryFDE, routingBudget, rerankBudget, allow)
 	if err != nil {
@@ -394,6 +378,28 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	}
 
 	return h.computeLateInteraction(ctx, vectors, k, candidateIDs)
+}
+
+// muveraSearchBudgets computes the decoupled budgets for a multi-vector
+// search:
+//   - routingBudget (centroid selection and posting scan breadth) is
+//     max(k, searchProbe). searchProbe defaults to 256 at schema parse time
+//     and is respected in BOTH directions: a low explicit probe genuinely
+//     reduces routing work (latency/recall knob), it is not floored by
+//     rescoreLimit. This matches the pre-decoupling behavior, where the
+//     centroid count was max(k, searchProbe).
+//   - rerankBudget (RQ1 candidate depth for the MaxSim rescore) is
+//     max(k, rescoreLimit).
+//
+// Both budgets must include the user-requested k: rescoreLimit is a quality
+// floor for the RQ1 candidate depth, not a cap on results. Budgets below k
+// silently capped searches with k > rescoreLimit at rescoreLimit results
+// (issue #277). Any further rework of this path must preserve max(k, ...)
+// semantics for both budgets.
+func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
+	searchProbe := int(atomic.LoadUint32(&h.searchProbe))
+	rescoreLimit := int(atomic.LoadUint32(&h.rescoreLimit))
+	return max(k, searchProbe), max(k, rescoreLimit)
 }
 
 // searchByFDE performs FDE-based search with explicitly decoupled budgets.
