@@ -86,6 +86,14 @@ func (b *Bucket) listFiles(bucketRoot, basePath string) ([]string, error) {
 			continue
 		}
 
+		// The edit-ops sidecar is live-writable bolt state — streaming it mid-write
+		// yields a torn copy — and it is derived: after a restore, reconciliation
+		// re-enqueues the cleanup task from the schema marker and the op re-registers
+		// with a fresh snapshot.
+		if entry.Name() == segmentEditOpsFileName {
+			continue
+		}
+
 		files = append(files, path.Join(basePath, entry.Name()))
 	}
 

@@ -66,7 +66,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -75,6 +77,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -651,7 +654,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace: db.ExtractReindexTaskCollection,
+			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
 		},
 		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -716,6 +720,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger,
 	)
 
+	// Created here (not in the DTM wiring) so it can be injected into the schema
+	// manager at construction, and so the edit-op liveness provider is installed
+	// before ClusterService.Open drives restore-time shard loads.
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft, appState.Logger)
+	editops.SetLivenessProvider(dropVectorEnqueuer.LiveOpIDs)
+
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -726,6 +736,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
+		dropVectorEnqueuer,
 	)
 	if err != nil {
 		appState.Logger.
@@ -735,6 +746,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.SchemaManager = schemaManager
+
+	// Last-line transformer guard: strip only targets the local schema still marks
+	// dropped, so an edit op that outlived its drop (failed delete, missed sweep)
+	// no-ops instead of stripping a re-created vector. Installed before
+	// ClusterService.Open so restore-time compactions are covered.
+	transformers.SetDroppedTargetCheck(func(className, targetVector string) bool {
+		class := schemaManager.ReadOnlyClass(className)
+		if class == nil {
+			return false
+		}
+		return modelsext.IsVectorIndexDropped(class.VectorConfig[targetVector])
+	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
@@ -973,7 +996,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1130,6 +1153,7 @@ func initReindexAndDistributedTasks(
 	recoveredReindexes []db.RecoveredReindex,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
+	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
 		repo, appState.SchemaManager, appState.Logger,
@@ -1143,6 +1167,24 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Drop-vector-index distributed-task provider. Added to the providers map so the
+	// conflict/schema-mutation detector loops below auto-register it.
+	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
+		repo,
+		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		appState.ClusterService.Raft,
+		appState.Logger,
+		appState.Cluster.LocalName(),
+		serverShutdownCtx,
+	)
+	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
+	// is missing (crash, upgrade, or restore).
+	enterrors.GoWrapper(func() {
+		runDropVectorIndexReconciliation(
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
+			dropVectorReconcileInterval)
+	}, appState.Logger)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,

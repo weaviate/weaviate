@@ -90,7 +90,7 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		}
 	}
 
-	obj, status, err := s.mergeObjectInStorage(ctx, doc, idBytes)
+	obj, status, err := s.mergeObjectInStorage(ctx, doc, idBytes, class)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 }
 
 func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
-	idBytes []byte,
+	idBytes []byte, class *models.Class,
 ) (*storobj.Object, objectInsertStatus, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
@@ -172,6 +172,10 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		if err != nil {
 			return errors.Wrap(err, "merge object data")
 		}
+
+		// A property-only merge carries the previous version's vectors forward;
+		// a dropped one must not be re-persisted into a new segment.
+		stripDroppedVectors(class, obj)
 
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
@@ -267,6 +271,10 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	if err != nil {
 		return out, errors.Wrap(err, "merge object data")
 	}
+
+	// Same carry-over hazard as mergeObjectInStorage: reference-only merges must
+	// not re-persist a dropped vector.
+	stripDroppedVectors(s.index.getClass(), obj)
 
 	out.next = obj
 	out.previous = notEmptyPrevObj
