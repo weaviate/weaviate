@@ -144,7 +144,13 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	for range 4 {
 		guard(func() {
 			for !stop.Load() {
-				got := runBlockMaxWand(t, bucket, queries, filter, nDocs, 10, nil)
+				// queryBlockMaxWand, not runBlockMaxWand: require's FailNow is
+				// illegal off the test goroutine.
+				got, err := queryBlockMaxWand(bucket, queries, filter, nDocs, 10, nil)
+				if err != nil {
+					t.Errorf("query: %v", err)
+					return
+				}
 				for id := range got {
 					if !inFilter(id) {
 						t.Errorf("merged query returned doc %d outside the filter", id)
