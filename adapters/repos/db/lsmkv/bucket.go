@@ -2318,7 +2318,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// cardinality. Skipped under deferTombstoneToScore, which deliberately keeps
 	// tombstones out of the advance-time checks the merge would fold into.
 	filterBl, _ := filterDocIds.(*helpers.BitmapAllowList)
-	mergeThisQuery := false
+	mergeFilterAndTombstones := false
 	if filterBl != nil && !deferTombstoneToScore {
 		// An empty filter already admits nothing, so folding would only burn
 		// AndNots on a query that returns no results.
@@ -2327,12 +2327,21 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			for _, n := range idfCounts {
 				sumDf += n
 			}
-			mergeThisQuery = float64(sumDf) >= bm25MergeGateRatio*float64(filterCard)
+			mergeFilterAndTombstones = float64(sumDf) >= bm25MergeGateRatio*float64(filterCard)
 		}
 	}
-	// Loop-invariant: segments without their own tombstones share one
-	// (filter minus memtable tombstones) build.
-	var memOnlyMerged helpers.AllowList
+
+	// Memtable tombstones are loop-invariant, so fold them into the filter once
+	// (filter \ memTombstones) and share the result read-only: segments without
+	// their own tombstones use it directly, segments with tombstones subtract
+	// those from it.
+	memHasTomb := mergeFilterAndTombstones && !memTombstones.IsEmpty()
+	var filterMinusMem *sroar.Bitmap
+	var filterMinusMemList helpers.AllowList
+	if memHasTomb {
+		filterMinusMem = sroar.AndNot(filterBl.Bm, memTombstones)
+		filterMinusMemList = helpers.NewAllowListFromBitmap(filterMinusMem)
+	}
 
 	var segTombstones *sroar.Bitmap
 	for j := len(view.Disk) - 1; j >= 0; j-- {
@@ -2351,22 +2360,20 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		// mutates the shared filter, which concurrent readers depend on (unlike
 		// the in-place method).
 		segFilter, segTomb, segMemTomb := filterDocIds, segTombstones, memTombstones
-		if mergeThisQuery { // implies filterBl != nil
-			segHasTomb := segTombstones != nil && !segTombstones.IsEmpty()
-			memHasTomb := memTombstones != nil && !memTombstones.IsEmpty()
-			if segHasTomb || memHasTomb {
-				if segHasTomb {
-					m := sroar.AndNot(filterBl.Bm, segTombstones)
-					if memHasTomb {
-						m.AndNot(memTombstones)
-					}
-					segFilter = helpers.NewAllowListFromBitmap(m)
-				} else {
-					if memOnlyMerged == nil {
-						memOnlyMerged = helpers.NewAllowListFromBitmap(sroar.AndNot(filterBl.Bm, memTombstones))
-					}
-					segFilter = memOnlyMerged
+		if mergeFilterAndTombstones { // implies filterBl != nil
+			switch {
+			case !segTombstones.IsEmpty(): // IsEmpty is nil-safe
+				// filter \ memTombstones \ segTombstones; start from the shared
+				// filterMinusMem when the memtable had tombstones so they are
+				// folded only once.
+				base := filterBl.Bm
+				if memHasTomb {
+					base = filterMinusMem
 				}
+				segFilter = helpers.NewAllowListFromBitmap(sroar.AndNot(base, segTombstones))
+				segTomb, segMemTomb = nil, nil
+			case memHasTomb:
+				segFilter = filterMinusMemList
 				segTomb, segMemTomb = nil, nil
 			}
 		}
