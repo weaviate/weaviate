@@ -22,7 +22,7 @@ type mapIndex interface {
 }
 
 // var, not const, so benchmarks can A/B it; captured per memtable at construction.
-var useSkipListMemtable = false
+var useSkipListMemtable = true
 
 func newMapIndex() mapIndex {
 	if useSkipListMemtable {
