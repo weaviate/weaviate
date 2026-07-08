@@ -18,6 +18,8 @@ import (
 	"io/fs"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -26,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -33,7 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, shardConcurrency int, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -56,13 +59,17 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jit
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, jitterInterval, exactObjectCount, vectorsConfig)
+	return index.usageForCollection(ctx, shardConcurrency, exactObjectCount, vectorsConfig)
 }
 
-func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (i *Index) usageForCollection(ctx context.Context, shardConcurrency int, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	collectionUsage := &types.CollectionUsage{
 		Name:              i.Config.ClassName.String(),
 		ReplicationFactor: int(i.Config.ReplicationFactor),
+	}
+
+	if shardConcurrency < 1 {
+		shardConcurrency = 1
 	}
 
 	localShards := map[string]struct{}{}
@@ -86,134 +93,166 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 		return nil, fmt.Errorf("schemareader: %w", err)
 	}
 
-	i.logger.WithField("class", i.Config.ClassName.String()).Debugf("creating usage report with %d shards", len(localShards))
-	var uniqueShardCount int
-
-	// There is an important distinction between the state of the shard in the schema (in schemaReader) and the local
-	// state, which corresponds to which shard is loaded in memory and both can be out of sync.
-	//
-	// After collection all local shards from the sharding state, we now need to iterate through these shards, lock them
-	// individually against changes in the _local_ state (i.e. loading/unloading) and then collect their usage based
-	// on this local state.
-	start := time.Now()
-	for shardName := range localShards {
-		if err := func() error {
-			// Add jitter between tenant processing to not overload the system if there are many shards
-			if len(collectionUsage.Shards) > 0 {
-				addJitter(jitterInterval)
-			}
-
-			i.shardCreateLocks.RLock(shardName)
-			defer i.shardCreateLocks.RUnlock(shardName)
-
-			uniqueShardCount++
-
-			shard := i.shards.Load(shardName)
-			var localStatus string
-			if shard != nil {
-				localStatus = models.TenantActivityStatusACTIVE
-			} else {
-				// this might also be offloaded, we need to check this later
-				localStatus = models.TenantActivityStatusINACTIVE
-			}
-
-			// case1: newly created empty tenant - status does not matter as there is no data yet. This also includes
-			// tenants that were deleted in the meantime, but as we record zero usage, it doesn't matter
-			exists, err := i.tenantDirExists(shardName)
-			if err != nil {
-				return fmt.Errorf("tenant exists: %w", err)
-			}
-			if !exists {
-				collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, localStatus))
-				return nil
-			}
-
-			var err2 error
-			var shardUsage *types.ShardUsage
-			switch localStatus {
-			case models.TenantActivityStatusACTIVE, models.TenantActivityStatusHOT:
-				// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
-				// usage calculation and are treated like inactive shards
-				lazyShard, isLazy := shard.(*LazyLoadShard)
-				if isLazy {
-					// distinguish between loaded and unloaded lazy shards - make sure that the shard is not loaded
-					// while we calculate usage for the unloaded case by blocking loading
-					func() {
-						release := lazyShard.blockLoading()
-						defer release()
-
-						if lazyShard.loaded {
-							shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
-							if err2 != nil {
-								err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
-							}
-						} else {
-							shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
-							if err2 != nil {
-								err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
-							}
-						}
-					}()
-				} else {
-					loadedShard, ok := shard.(*Shard)
-					if !ok {
-						return fmt.Errorf("expected loaded shard, got %T", shard)
-					}
-					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, loadedShard, exactObjectCount)
-					if err2 != nil {
-						err2 = fmt.Errorf("non-lazy shard %s: %w", shardName, err2)
-					}
-				}
-			case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
-				shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
-				if err2 != nil {
-					err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
-				}
-			case models.TenantActivityStatusFROZEN, models.TenantActivityStatusOFFLOADING, models.TenantActivityStatusOFFLOADED, models.TenantActivityStatusONLOADING, models.TenantActivityStatusUNFREEZING, models.TenantActivityStatusFREEZING:
-				// skip for now and handle after we stabilized them
-			default:
-				// should not happen as we only collected local shards from the sharding state
-				return fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
-			}
-			if err2 != nil {
-				// Files vanished mid-deletion: record zero usage instead of failing
-				// the whole report (same as the tenantDirExists check above).
-				if errors.Is(err2, fs.ErrNotExist) {
-					i.logger.WithFields(logrus.Fields{
-						"class": i.Config.ClassName.String(),
-						"shard": shardName,
-					}).Warnf("shard files missing during usage calculation, likely deleted concurrently; recording empty usage: %v", err2)
-					collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, localStatus))
-					return nil
-				}
-				return err2
-			}
-			collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-
-			return nil
-		}(); err != nil {
-			return nil, err
-		}
-		if uniqueShardCount%1000 == 0 {
-			i.logger.WithFields(
-				logrus.Fields{
-					"class":            i.Config.ClassName.String(),
-					"processed_shards": uniqueShardCount,
-					"took":             time.Since(start).Seconds(),
-				}).Debugf("processed %d/%d shards for usage report", uniqueShardCount, len(localShards))
-		}
-	}
-
 	i.logger.WithFields(
 		logrus.Fields{
-			"class":            i.Config.ClassName.String(),
-			"processed_shards": uniqueShardCount,
-			"took":             time.Since(start).Seconds(),
-		}).Debugf("finished processing %d/%d shards for usage report", uniqueShardCount, len(localShards))
+			"class":             i.Config.ClassName.String(),
+			"shard_concurrency": shardConcurrency,
+		}).Infof("creating usage report with %d shards", len(localShards))
+
+	shardNames := make([]string, 0, len(localShards))
+	for shardName := range localShards {
+		shardNames = append(shardNames, shardName)
+	}
+
+	// process the local shards with a bounded number of concurrent readers
+	var (
+		mu        sync.Mutex
+		processed atomic.Int64
+	)
+	start := time.Now()
+
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(shardConcurrency)
+	for _, shardName := range shardNames {
+		eg.Go(func() error {
+			if err := egCtx.Err(); err != nil {
+				return err
+			}
+
+			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, vectorConfig)
+			if err != nil {
+				return err
+			}
+
+			count := processed.Add(1)
+			if shardUsage != nil {
+				func() {
+					mu.Lock()
+					defer mu.Unlock()
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
+				}()
+			}
+
+			if count%1000 == 0 {
+				i.logger.WithFields(
+					logrus.Fields{
+						"class":             i.Config.ClassName.String(),
+						"shard_concurrency": shardConcurrency,
+						"processed_shards":  count,
+						"took":              time.Since(start).Seconds(),
+					}).Debugf("processed %d/%d shards for usage report", count, len(shardNames))
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	uniqueShardCount := int(processed.Load())
+	i.logger.WithFields(
+		logrus.Fields{
+			"class":             i.Config.ClassName.String(),
+			"shard_concurrency": shardConcurrency,
+			"processed_shards":  uniqueShardCount,
+			"took":              time.Since(start).Seconds(),
+		}).Infof("finished processing %d/%d shards for usage report", uniqueShardCount, len(shardNames))
 
 	collectionUsage.UniqueShardCount = uniqueShardCount
 	sort.Sort(collectionUsage.Shards)
 	return collectionUsage, nil
+}
+
+// usageForShard computes usage for a single local shard. There is an important distinction between
+// the state of the shard in the schema (in schemaReader) and the local state, which corresponds to
+// which shard is loaded in memory — both can be out of sync, so the shard is locked against changes
+// in the _local_ state (i.e. loading/unloading) for the duration of the calculation. A nil
+// *ShardUsage with a nil error means the shard should be skipped (transitional states like
+// FREEZING/OFFLOADING). Safe to call concurrently for distinct shards.
+func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.ShardUsage, error) {
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard := i.shards.Load(shardName)
+	var localStatus string
+	if shard != nil {
+		localStatus = models.TenantActivityStatusACTIVE
+	} else {
+		// this might also be offloaded, we need to check this later
+		localStatus = models.TenantActivityStatusINACTIVE
+	}
+
+	// case1: newly created empty tenant - status does not matter as there is no data yet. This also includes
+	// tenants that were deleted in the meantime, but as we record zero usage, it doesn't matter
+	exists, err := i.tenantDirExists(shardName)
+	if err != nil {
+		return nil, fmt.Errorf("tenant exists: %w", err)
+	}
+	if !exists {
+		return emptyShardUsageWithNameAndActivity(shardName, localStatus), nil
+	}
+
+	var err2 error
+	var shardUsage *types.ShardUsage
+	switch localStatus {
+	case models.TenantActivityStatusACTIVE, models.TenantActivityStatusHOT:
+		// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
+		// usage calculation and are treated like inactive shards
+		lazyShard, isLazy := shard.(*LazyLoadShard)
+		if isLazy {
+			// distinguish between loaded and unloaded lazy shards - make sure that the shard is not loaded
+			// while we calculate usage for the unloaded case by blocking loading
+			func() {
+				release := lazyShard.blockLoading()
+				defer release()
+
+				if lazyShard.loaded {
+					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
+					if err2 != nil {
+						err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
+					}
+				} else {
+					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
+					if err2 != nil {
+						err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
+					}
+				}
+			}()
+		} else {
+			loadedShard, ok := shard.(*Shard)
+			if !ok {
+				return nil, fmt.Errorf("expected loaded shard, got %T", shard)
+			}
+			shardUsage, err2 = i.calculateLoadedShardUsage(ctx, loadedShard, exactObjectCount)
+			if err2 != nil {
+				err2 = fmt.Errorf("non-lazy shard %s: %w", shardName, err2)
+			}
+		}
+	case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
+		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
+		if err2 != nil {
+			err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
+		}
+	case models.TenantActivityStatusFROZEN, models.TenantActivityStatusOFFLOADING, models.TenantActivityStatusOFFLOADED, models.TenantActivityStatusONLOADING, models.TenantActivityStatusUNFREEZING, models.TenantActivityStatusFREEZING:
+		// skip for now and handle after we stabilized them
+		return nil, nil
+	default:
+		// should not happen as we only collected local shards from the sharding state
+		return nil, fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
+	}
+	if err2 != nil {
+		// Files vanished mid-deletion: record zero usage instead of failing
+		// the whole report (same as the tenantDirExists check above).
+		if errors.Is(err2, fs.ErrNotExist) {
+			i.logger.WithFields(logrus.Fields{
+				"class": i.Config.ClassName.String(),
+				"shard": shardName,
+			}).Warnf("shard files missing during usage calculation, likely deleted concurrently; recording empty usage: %v", err2)
+			return emptyShardUsageWithNameAndActivity(shardName, localStatus), nil
+		}
+		return nil, err2
+	}
+	return shardUsage, nil
 }
 
 func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exactCount bool) (*types.ShardUsage, error) {
@@ -410,15 +449,6 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}
 	return shardUsage, err
-}
-
-// addJitter adds a small random delay if jitter interval is set
-func addJitter(jitterInterval time.Duration) {
-	if jitterInterval <= 0 {
-		return // No jitter if interval is 0 or negative
-	}
-	jitter := time.Duration(time.Now().UnixNano() % int64(jitterInterval))
-	time.Sleep(jitter)
 }
 
 func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {

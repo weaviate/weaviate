@@ -203,6 +203,7 @@ type Config struct {
 	LazyLoadShardSizeThresholdGB        float64                     `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
 	ForceFullReplicasSearch             bool                        `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration               `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
+	HaltForTransferTimeout              time.Duration               `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
 	RecountPropertiesAtStartup          bool                        `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                        `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	ReindexerGoroutinesFactor           float64                     `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
@@ -868,12 +869,18 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port            int           `json:"port" yaml:"port"`
-	CertFile        string        `json:"certFile" yaml:"certFile"`
-	KeyFile         string        `json:"keyFile" yaml:"keyFile"`
-	MaxMsgSize      int           `json:"maxMsgSize" yaml:"maxMsgSize"`
-	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
-	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
+	Port            int                         `json:"port" yaml:"port"`
+	CertFile        string                      `json:"certFile" yaml:"certFile"`
+	KeyFile         string                      `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize      int                         `json:"maxMsgSize" yaml:"maxMsgSize"`
+	MaxOpenConns    int                         `json:"maxOpenConns" yaml:"maxOpenConns"`
+	IdleConnTimeout time.Duration               `json:"idleConnTimeout" yaml:"idleConnTimeout"`
+	GrpcWebEnabled  *runtime.DynamicValue[bool] `json:"grpcWebEnabled" yaml:"grpcWebEnabled"`
+}
+
+// GrpcWebEnabledOrDefault reports whether grpc-web serving is enabled, defaulting to true
+func (g GRPC) GrpcWebEnabledOrDefault() bool {
+	return g.GrpcWebEnabled == nil || g.GrpcWebEnabled.Get()
 }
 
 type MCP struct {
@@ -1076,7 +1083,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

@@ -14,11 +14,12 @@ package queue
 import (
 	"context"
 	"errors"
-	"slices"
+	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
@@ -54,6 +55,18 @@ func (w *Worker) Run(ctx context.Context) {
 
 func (w *Worker) do(batch *Batch) (err error) {
 	defer func() {
+		// a panicking task must not kill the worker goroutine: it is never
+		// restarted, and the batch would never be marked done or canceled,
+		// leaving the queue's active tasks gauge stuck so the queue is never
+		// scheduled again.
+		if r := recover(); r != nil {
+			w.logger.Errorf("recovered from panic while executing batch: %v", r)
+			entsentry.Recover(r)
+			enterrors.PrintStack(w.logger)
+			err = fmt.Errorf("panic while executing batch: %v", r)
+			batch.Cancel()
+			return
+		}
 		if err != nil {
 			batch.Cancel()
 		} else {
@@ -107,27 +120,29 @@ func (w *Worker) do(batch *Batch) (err error) {
 			return nil
 		}
 
-		hasTransientErrs := hasTransientErrors(errs)
-		if hasTransientErrs {
-			retryIn := w.calculateBackoff(attempts)
-			w.logger.
-				WithError(errors.Join(errs...)).
-				WithField("failed", len(failed)).
-				WithField("attempts", attempts).
-				WithField("retry_in", retryIn).
-				Warnf("transient errors detected, retrying batch in %s", retryIn)
+		// the remaining errors are recoverable: transient errors, or timeouts,
+		// which are deliberately excluded from the permanent classification.
+		// Retry the failed tasks with a backoff. Every failure must either
+		// discard the batch, return, or sleep before the next attempt,
+		// otherwise this loop spins at full speed.
+		retryIn := w.calculateBackoff(attempts)
+		w.logger.
+			WithError(errors.Join(errs...)).
+			WithField("failed", len(failed)).
+			WithField("attempts", attempts).
+			WithField("retry_in", retryIn).
+			Warnf("recoverable errors detected, retrying batch in %s", retryIn)
 
-			attempts++
-			retryTimer := time.NewTimer(retryIn)
-			select {
-			case <-batch.Ctx.Done():
-				if !retryTimer.Stop() {
-					<-retryTimer.C
-				}
-				return batch.Ctx.Err()
-			case <-retryTimer.C:
-				// try again
+		attempts++
+		retryTimer := time.NewTimer(retryIn)
+		select {
+		case <-batch.Ctx.Done():
+			if !retryTimer.Stop() {
+				<-retryTimer.C
 			}
+			return batch.Ctx.Err()
+		case <-retryTimer.C:
+			// try again
 		}
 	}
 }
@@ -141,10 +156,6 @@ func (w *Worker) calculateBackoff(attempts int) time.Duration {
 	}
 
 	return time.Second << (attempts - 1)
-}
-
-func hasTransientErrors(errs []error) bool {
-	return slices.ContainsFunc(errs, enterrors.IsTransient)
 }
 
 func hasPermanentErrors(errs []error) bool {

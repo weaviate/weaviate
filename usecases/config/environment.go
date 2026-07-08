@@ -58,6 +58,7 @@ const (
 	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+	DefaultHaltForTransferTimeout    = time.Hour
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
@@ -177,6 +178,15 @@ func FromEnv(config *Config) error {
 		config.TransferInactivityTimeout = timeout
 	} else {
 		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+	}
+
+	err := parsePositiveDuration(
+		"HALT_FOR_TRANSFER_TIMEOUT",
+		func(val time.Duration) { config.HaltForTransferTimeout = val },
+		DefaultHaltForTransferTimeout,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
@@ -940,6 +950,9 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
 		config.GRPC.KeyFile = v
 	}
+	if config.GRPC.GrpcWebEnabled == nil {
+		config.GRPC.GrpcWebEnabled = configRuntime.NewDynamicValue(true)
+	}
 
 	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
@@ -1031,6 +1044,18 @@ func FromEnv(config *Config) error {
 			config.Replication.AsyncReplicationHashtreeInitConcurrency = configRuntime.NewDynamicValue(val)
 		},
 		DefaultAsyncReplicationHashtreeInitConcurrency,
+	); err != nil {
+		return err
+	}
+
+	// Out-of-range values are clamped (and warned) by the scheduler on read, so
+	// only a non-numeric override fails here.
+	if err := parseInt(
+		"ASYNC_REPLICATION_ROOT_PREFILTER_BATCH_SIZE",
+		func(val int) {
+			config.Replication.AsyncReplicationRootPrefilterBatchSize = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationRootPrefilterBatchSize,
 	); err != nil {
 		return err
 	}
@@ -1825,12 +1850,16 @@ const (
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
 	DefaultAsyncReplicationHashtreeInitConcurrency = 10
-	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
-	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
-	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
-	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
-	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
-	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	// Root pre-filter batch size: cluster-wide cap on same-collection hashtree roots
+	// compared per batched RPC. 1 disables it; <= 0 falls back to the default.
+	DefaultAsyncReplicationRootPrefilterBatchSize = 512
+	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
+	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
+	DefaultMaximumAllowedObjectsCount             = -1 // unlimited
+	DefaultMaximumAllowedTenantsPerCollection     = -1 // unlimited
+	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
+	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
