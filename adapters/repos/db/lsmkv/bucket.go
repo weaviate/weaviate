@@ -548,7 +548,10 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+	// logger nil-guard: test buckets are built as bare literals without one, and
+	// under load this slow-lock branch can fire (RLock timed >100ms) where it never
+	// would in production; a nil FieldLogger would then panic on WithFields.
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond && b.logger != nil {
 		b.logger.WithFields(logrus.Fields{
 			"duration": duration,
 			"action":   "lsm_bucket_get_acquire_flush_lock",
