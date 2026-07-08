@@ -69,6 +69,7 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 			},
 		},
 	})
+	defer helper.DeleteClass(t, collectionNameLVR)
 
 	var buf bytes.Buffer
 	err := binary.Write(&buf, binary.LittleEndian, []float64{1.1, 2.2})

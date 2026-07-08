@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -41,20 +40,9 @@ import (
 func TestGRPCWebSearchOverRESTPort(t *testing.T) {
 	ctx := context.Background()
 
-	// REST-port-only node: the transcoder wraps the in-process gRPC server object,
-	// so grpc-web is served on the REST listener with no gRPC port exposed.
-	compose, err := docker.New().
-		WithWeaviate().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-
+	collectionName := "GRPCWebSearch"
 	class := &models.Class{
-		Class:      "GRPCWebSearch",
+		Class:      collectionName,
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{Name: "title", DataType: []string{"text"}},
@@ -87,7 +75,7 @@ func TestGRPCWebSearchOverRESTPort(t *testing.T) {
 		want[b.title] = b.wordCount
 	}
 
-	endpoint := fmt.Sprintf("http://%s/v1/grpc-web/weaviate.v1.Weaviate/Search", compose.GetWeaviate().URI())
+	endpoint := "http://localhost:8080/v1/grpc-web/weaviate.v1.Weaviate/Search"
 	// Connect-protocol unary JSON body (protojson lowerCamelCase field names). uses127Api
 	// is the modern, non-deprecated variant of the uses_12X_api flags used by the sibling
 	// gRPC search tests; returnAllNonrefProperties makes the values come back under
