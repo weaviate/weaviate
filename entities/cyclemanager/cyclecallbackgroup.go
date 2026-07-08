@@ -12,11 +12,13 @@
 package cyclemanager
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -42,7 +44,7 @@ type cycleCallbackGroup struct {
 	customId      string
 	routinesLimit int
 	nextId        uint32
-	callbackIds   []uint32
+	dueHeap       dueHeap
 	callbacks     map[uint32]*cycleCallbackMeta
 }
 
@@ -52,7 +54,7 @@ func NewCallbackGroup(id string, logger logrus.FieldLogger, routinesLimit int) C
 		customId:      id,
 		routinesLimit: routinesLimit,
 		nextId:        0,
-		callbackIds:   []uint32{},
+		dueHeap:       dueHeap{},
 		callbacks:     map[uint32]*cycleCallbackMeta{},
 	}
 }
@@ -68,6 +70,7 @@ func (c *cycleCallbackGroup) Register(id string, cycleCallback CycleCallback, op
 		runningCtx:    nil,
 		started:       time.Now(),
 		intervals:     nil,
+		heapIndex:     -1,
 	}
 	for _, option := range options {
 		if option != nil {
@@ -76,9 +79,10 @@ func (c *cycleCallbackGroup) Register(id string, cycleCallback CycleCallback, op
 	}
 
 	callbackId := c.nextId
-	c.callbackIds = append(c.callbackIds, callbackId)
+	meta.callbackId = callbackId
 	c.callbacks[callbackId] = meta
 	c.nextId++
+	c.pushDue(meta)
 
 	return &cycleCallbackCtrl{
 		callbackId:       callbackId,
@@ -99,144 +103,52 @@ func (c *cycleCallbackGroup) CycleCallback(shouldAbort ShouldAbortCallback) bool
 }
 
 func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCallback) bool {
+	due := c.drainDue(time.Now())
 	anyExecuted := false
-	i := 0
-	for {
+	for _, meta := range due {
 		if shouldAbort() {
-			break
-		}
-
-		c.Lock()
-		// no more callbacks left, exit the loop
-		if i >= len(c.callbackIds) {
-			c.Unlock()
-			break
-		}
-
-		callbackId := c.callbackIds[i]
-		meta, ok := c.callbacks[callbackId]
-		// callback deleted in the meantime, remove its id
-		// and proceed to the next one (no "i" increment required)
-		if !ok {
-			c.callbackIds = append(c.callbackIds[:i], c.callbackIds[i+1:]...)
-			c.Unlock()
+			// restore the un-run remainder so it is retried next tick
+			c.repushDue(meta)
 			continue
 		}
-		i++
-		// callback deactivated, proceed to the next one
-		if !meta.active {
-			c.Unlock()
-			continue
+		if c.execute(meta, shouldAbort) {
+			anyExecuted = true
 		}
-		now := time.Now()
-		// not enough time passed since previous execution
-		if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
-			c.Unlock()
-			continue
-		}
-		// callback active, mark as running
-		runningCtx, cancel := context.WithCancel(context.Background())
-		meta.runningCtx = runningCtx
-		meta.started = now
-		c.Unlock()
-
-		func() {
-			// cancel called in recover, regardless of panic occurred or not
-			defer c.recover(meta.customId, cancel)
-			executed := meta.cycleCallback(func() bool {
-				if shouldAbort() {
-					return true
-				}
-
-				c.Lock()
-				defer c.Unlock()
-
-				return meta.shouldAbort
-			})
-			anyExecuted = executed || anyExecuted
-
-			if meta.intervals != nil {
-				if executed {
-					meta.intervals.Reset()
-				} else {
-					meta.intervals.Advance()
-				}
-			}
-		}()
+		c.repushDue(meta)
 	}
-
 	return anyExecuted
 }
 
 func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
-	// snapshot the due callbacks under a single lock, then dispatch without it,
-	// so the scan does not serialize Register/execution
-	dueIds := c.collectDueCallbacks()
+	due := c.drainDue(time.Now())
 	// spawn no workers when nothing is due; callbacks becoming due right after
-	// the snapshot are picked up on the next tick
-	if len(dueIds) == 0 {
+	// the drain are picked up on the next tick
+	if len(due) == 0 {
 		return false
 	}
 
-	anyExecuted := false
-	lock := new(sync.Mutex)
+	var anyExecuted atomic.Bool
 	wg := new(sync.WaitGroup)
-	ch := make(chan uint32)
+	ch := make(chan *cycleCallbackMeta)
 
 	worker := func() {
 		defer wg.Done()
-		for callbackId := range ch {
+		for meta := range ch {
 			if shouldAbort() {
-				// keep reading from channel until it is closed
+				// restore the un-run entry so it is retried next tick
+				c.repushDue(meta)
 				continue
 			}
-
-			c.Lock()
-			meta, ok := c.callbacks[callbackId]
-			// callback missing or deactivated, proceed to the next one
-			if !ok || !meta.active {
-				c.Unlock()
-				continue
+			if c.execute(meta, shouldAbort) {
+				anyExecuted.Store(true)
 			}
-			// callback active, mark as running
-			runningCtx, cancel := context.WithCancel(context.Background())
-			meta.runningCtx = runningCtx
-			meta.started = time.Now()
-			c.Unlock()
-
-			func() {
-				// cancel called in recover, regardless of panic occurred or not
-				defer c.recover(meta.customId, cancel)
-				executed := meta.cycleCallback(func() bool {
-					if shouldAbort() {
-						return true
-					}
-
-					c.Lock()
-					defer c.Unlock()
-
-					return meta.shouldAbort
-				})
-
-				if executed {
-					lock.Lock()
-					anyExecuted = true
-					lock.Unlock()
-				}
-				if meta.intervals != nil {
-					if executed {
-						meta.intervals.Reset()
-					} else {
-						meta.intervals.Advance()
-					}
-				}
-			}()
+			c.repushDue(meta)
 		}
 	}
 
 	// no need for more workers than callbacks due
-	if routinesLimit > len(dueIds) {
-		routinesLimit = len(dueIds)
+	if routinesLimit > len(due) {
+		routinesLimit = len(due)
 	}
 
 	wg.Add(routinesLimit)
@@ -244,51 +156,100 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 		enterrors.GoWrapper(worker, c.logger)
 	}
 
-	// dispatch only due ids, so workers re-lock per due id rather than per
-	// registered callback
-	for _, callbackId := range dueIds {
-		if shouldAbort() {
-			break
-		}
-		ch <- callbackId
+	// every drained meta must be handed to a worker so it is executed or
+	// restored; an early break would orphan the remainder outside the heap
+	for _, meta := range due {
+		ch <- meta
 	}
 	close(ch)
 	wg.Wait()
-	return anyExecuted
+	return anyExecuted.Load()
 }
 
-// collectDueCallbacks prunes ids of deleted callbacks and returns a snapshot of
-// the ids that are active and whose interval has elapsed. Workers re-verify each
-// under lock before executing, so ids deactivated or unregistered after the
-// snapshot are skipped. Callbacks registered after the snapshot run on the next
-// tick rather than the current one.
-func (c *cycleCallbackGroup) collectDueCallbacks() []uint32 {
+// pushDue caches meta's next-due time and inserts it into the heap. Caller holds
+// the lock.
+func (c *cycleCallbackGroup) pushDue(meta *cycleCallbackMeta) {
+	meta.nextDue = computeNextDue(meta)
+	heap.Push(&c.dueHeap, meta)
+}
+
+// drainDue pops every callback whose next-due time has arrived and returns those
+// still registered and active. Popped entries are removed from the heap, so each
+// caller must execute or repush them (see execute / repushDue). Draining the whole
+// due set up front runs each entry at most once per tick, which is what keeps a
+// nil-interval "always due" entry from being re-popped within the same tick.
+func (c *cycleCallbackGroup) drainDue(now time.Time) []*cycleCallbackMeta {
 	c.Lock()
 	defer c.Unlock()
 
-	var dueIds []uint32
-	now := time.Now()
-	i := 0
-	for _, callbackId := range c.callbackIds {
-		meta, ok := c.callbacks[callbackId]
-		// callback deleted in the meantime, drop its id
-		if !ok {
+	var due []*cycleCallbackMeta
+	for c.dueHeap.Len() > 0 {
+		if c.dueHeap[0].nextDue.After(now) {
+			break
+		}
+		meta := heap.Pop(&c.dueHeap).(*cycleCallbackMeta)
+		// drop callbacks unregistered or deactivated since they were queued
+		if _, ok := c.callbacks[meta.callbackId]; !ok || !meta.active {
 			continue
 		}
-		c.callbackIds[i] = callbackId
-		i++
-		// callback deactivated
-		if !meta.active {
-			continue
-		}
-		// not enough time passed since previous execution
-		if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
-			continue
-		}
-		dueIds = append(dueIds, callbackId)
+		due = append(due, meta)
 	}
-	c.callbackIds = c.callbackIds[:i]
-	return dueIds
+	return due
+}
+
+// execute runs a single drained callback and returns whether it did work. It
+// rechecks registration and active state under the lock, since the entry can be
+// unregistered or deactivated between drainDue and here (it is no longer in the
+// heap, so those paths cannot remove it).
+func (c *cycleCallbackGroup) execute(meta *cycleCallbackMeta, shouldAbort ShouldAbortCallback) bool {
+	c.Lock()
+	if _, ok := c.callbacks[meta.callbackId]; !ok || !meta.active {
+		c.Unlock()
+		return false
+	}
+	// callback active, mark as running
+	runningCtx, cancel := context.WithCancel(context.Background())
+	meta.runningCtx = runningCtx
+	meta.started = time.Now()
+	c.Unlock()
+
+	executed := false
+	func() {
+		// cancel called in recover, regardless of panic occurred or not
+		defer c.recover(meta.customId, cancel)
+		executed = meta.cycleCallback(func() bool {
+			if shouldAbort() {
+				return true
+			}
+
+			c.Lock()
+			defer c.Unlock()
+
+			return meta.shouldAbort
+		})
+
+		if meta.intervals != nil {
+			if executed {
+				meta.intervals.Reset()
+			} else {
+				meta.intervals.Advance()
+			}
+		}
+	}()
+	return executed
+}
+
+// repushDue returns a drained callback to the heap. It drops the callback if it
+// was unregistered or deactivated in the meantime, and skips a re-push if a
+// concurrent activate already re-queued it (heapIndex tracks a single membership).
+func (c *cycleCallbackGroup) repushDue(meta *cycleCallbackMeta) {
+	c.Lock()
+	defer c.Unlock()
+
+	if _, ok := c.callbacks[meta.callbackId]; !ok || !meta.active || meta.heapIndex != -1 {
+		return
+	}
+	c.pushDue(meta)
 }
 
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
@@ -363,6 +324,9 @@ func (c *cycleCallbackGroup) unregister(ctx context.Context, callbackId uint32, 
 		func(callbackId uint32, meta *cycleCallbackMeta, running bool) error {
 			meta.shouldAbort = true
 			if !running {
+				if meta.heapIndex >= 0 {
+					heap.Remove(&c.dueHeap, meta.heapIndex)
+				}
 				meta.active = false
 				delete(c.callbacks, callbackId)
 			}
@@ -380,6 +344,9 @@ func (c *cycleCallbackGroup) deactivate(ctx context.Context, callbackId uint32, 
 		func(callbackId uint32, meta *cycleCallbackMeta, running bool) error {
 			meta.shouldAbort = true
 			if !running {
+				if meta.heapIndex >= 0 {
+					heap.Remove(&c.dueHeap, meta.heapIndex)
+				}
 				meta.active = false
 			}
 			return nil
@@ -399,6 +366,10 @@ func (c *cycleCallbackGroup) activate(callbackId uint32, callbackCustomId string
 
 	meta.shouldAbort = false
 	meta.active = true
+	// push only if not already queued, keeping each callback in the heap at most once
+	if meta.heapIndex == -1 {
+		c.pushDue(meta)
+	}
 	return nil
 }
 
