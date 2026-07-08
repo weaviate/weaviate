@@ -143,6 +143,11 @@ type Memtable struct {
 	// atomic so the read fast path touches neither the memtable RWMutex nor a copy.
 	tombstonesSnapshot atomic.Pointer[sroar.Bitmap]
 	tombstonesDirty    atomic.Bool
+	// invMu guards the inverted-strategy delete/prop-length state (tombstones,
+	// propLengthExists, currPropLength*) independently of the tree RWMutex, so
+	// SetTombstone does not take the exclusive lock that getMap readers wait on.
+	// Lock order when both are held: the tree lock first, then invMu (appendMapSorted).
+	invMu sync.Mutex
 
 	enableChecksumValidation bool
 
@@ -591,10 +596,14 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	if m.strategy == StrategyInverted && !pair.Tombstone {
 		docID := binary.LittleEndian.Uint64(pair.Key)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
+		// propLengthExists + currPropLength* are shared with SetTombstone, which no
+		// longer holds the tree lock; guard them with invMu (nested inside m.Lock).
+		m.invMu.Lock()
 		if m.propLengthExists.Set(docID) {
 			m.currPropLengthSum += uint64(fieldLength)
 			m.currPropLengthCount++
 		}
+		m.invMu.Unlock()
 	}
 
 	return nil
@@ -679,10 +688,11 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 		}
 	}
 
-	// Rebuild under the write lock. The snapshot is stored before the dirty flag is
-	// cleared, so a reader that observes !dirty is guaranteed to load that snapshot.
-	m.Lock()
-	defer m.Unlock()
+	// Rebuild under invMu (the same lock SetTombstone takes). The snapshot is stored
+	// before the dirty flag is cleared, so a reader that observes !dirty is guaranteed
+	// to load that snapshot.
+	m.invMu.Lock()
+	defer m.invMu.Unlock()
 	if m.tombstones == nil {
 		return nil, lsmkv.NotFound
 	}
@@ -698,8 +708,8 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 		return fmt.Errorf("Memtable::SetTombstone(): %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	m.invMu.Lock()
+	defer m.invMu.Unlock()
 
 	m.tombstones.Set(docId)
 	m.tombstonesDirty.Store(true)
