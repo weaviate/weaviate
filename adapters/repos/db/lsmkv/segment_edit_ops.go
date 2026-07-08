@@ -665,6 +665,25 @@ func (s *SegmentEditOps) Quarantine(opID, segID string) error {
 	})
 }
 
+// QuarantinedFor returns opID's quarantined segment IDs (scoped sub-bucket
+// read, mirroring Pending).
+func (s *SegmentEditOps) QuarantinedFor(opID string) ([]string, error) {
+	var out []string
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
+		sub := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(opID))
+		if sub == nil {
+			return nil
+		}
+		return sub.ForEach(func(segID, v []byte) error {
+			out = append(out, string(segID))
+			return nil
+		})
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Quarantined returns the quarantined segments across all operations.
 func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 	var out []PendingSegment

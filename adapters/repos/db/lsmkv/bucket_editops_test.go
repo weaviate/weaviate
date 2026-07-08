@@ -397,3 +397,40 @@ func TestBucket_ListFiles_ExcludesEditOpsSidecar(t *testing.T) {
 	}
 	require.NotEmpty(t, files, "segments must still be listed")
 }
+
+// TestBucket_EditOpQuarantined_ScopedByOp pins the per-op scoping: op B must not
+// see op A's quarantine verdicts (a re-triggered drop gets a fresh op ID and
+// must not fail on stale rows from a failed predecessor).
+func TestBucket_EditOpQuarantined_ScopedByOp(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	require.NoError(t, editOps.RegisterOp("opA", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("opA", segs))
+	require.NoError(t, editOps.Quarantine("opA", segs[0]))
+
+	got, err := bucket.EditOpQuarantined("opA")
+	require.NoError(t, err)
+	require.Equal(t, []string{segs[0]}, got)
+
+	got, err = bucket.EditOpQuarantined("opB")
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestBucket_EditOpQuarantined_RequiresEditOps(t *testing.T) {
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	bucket, err := NewBucketCreator().NewBucket(context.Background(), dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(context.Background())) })
+
+	_, err = bucket.EditOpQuarantined("op1")
+	require.ErrorContains(t, err, "edit ops not enabled")
+}

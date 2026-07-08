@@ -43,6 +43,7 @@ const maxConsecutivePollErrors = 3
 type editOpBucket interface {
 	RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error
 	EditOpPending(opID string) ([]string, error)
+	EditOpQuarantined(opID string) ([]string, error)
 	DeleteEditOp(opID string) error
 }
 
@@ -309,6 +310,8 @@ func (p *DropVectorIndexProvider) drainUnit(
 // pollUntilEmpty waits until the op has no pending segments on the bucket,
 // reporting progress each tick. The bucket's own compaction/cleanup transformer
 // does the actual rewriting; this only observes the pending set shrink to zero.
+// A quarantined segment fails the unit instead: it left the pending set
+// unstripped, so empty pending with a quarantine row is not success.
 func (p *DropVectorIndexProvider) pollUntilEmpty(
 	ctx context.Context, bucket editOpBucket, task *distributedtask.Task,
 	unitID, opID string,
@@ -320,13 +323,21 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 	consecutiveErrors := 0
 	for {
 		pending, err := bucket.EditOpPending(opID)
+		if err == nil {
+			// The quarantine read shares the blip tolerance below.
+			var quarantined []string
+			if quarantined, err = bucket.EditOpQuarantined(opID); err == nil && len(quarantined) > 0 {
+				return fmt.Errorf("cleanup quarantined %d segment(s) after exhausting the retry budget: %v",
+					len(quarantined), quarantined)
+			}
+		}
 		switch {
 		case err != nil:
 			// Tolerate a few consecutive blips (incl. the first read); only
 			// persistent errors fail the unit.
 			consecutiveErrors++
 			if consecutiveErrors >= maxConsecutivePollErrors {
-				return fmt.Errorf("read pending after %d consecutive errors: %w", consecutiveErrors, err)
+				return fmt.Errorf("read pending/quarantine set after %d consecutive errors: %w", consecutiveErrors, err)
 			}
 			p.unitLogger(task, nil, unitID).Warnf("drop-vector: pending read failed (%d/%d), retrying: %v",
 				consecutiveErrors, maxConsecutivePollErrors, err)

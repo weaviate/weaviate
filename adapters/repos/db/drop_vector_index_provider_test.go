@@ -35,16 +35,20 @@ type pendingStep struct {
 }
 
 type fakeEditOpBucket struct {
-	mu         sync.Mutex
-	registered map[string]lsmkv.OpDescriptor
-	pendingSeq [][]string    // successive EditOpPending responses; last repeats
-	script     []pendingStep // if set, takes precedence over pendingSeq (per-call val/err; last repeats)
-	callIdx    int
-	deleted    []string // opIDs passed to DeleteEditOp
-	deleteErr  error
-	pendingErr error                          // when set, EditOpPending returns it
-	pendingFn  func(string) ([]string, error) // when set, overrides all other pending sources
-	polled     chan struct{}                  // if set, a non-blocking signal per EditOpPending call
+	mu             sync.Mutex
+	registered     map[string]lsmkv.OpDescriptor
+	pendingSeq     [][]string    // successive EditOpPending responses; last repeats
+	script         []pendingStep // if set, takes precedence over pendingSeq (per-call val/err; last repeats)
+	callIdx        int
+	deleted        []string // opIDs passed to DeleteEditOp
+	deleteErr      error
+	quarantined    []string   // EditOpQuarantined response (nil = none)
+	quarantinedSeq [][]string // successive responses; last repeats (precedence over quarantined)
+	quarantinedErr error      // when set, EditOpQuarantined returns it
+	quarantineIdx  int
+	pendingErr     error                          // when set, EditOpPending returns it
+	pendingFn      func(string) ([]string, error) // when set, overrides all other pending sources
+	polled         chan struct{}                  // if set, a non-blocking signal per EditOpPending call
 }
 
 func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error {
@@ -86,6 +90,23 @@ func (f *fakeEditOpBucket) EditOpPending(opID string) ([]string, error) {
 	}
 	f.callIdx++
 	return f.pendingSeq[i], nil
+}
+
+func (f *fakeEditOpBucket) EditOpQuarantined(opID string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.quarantinedErr != nil {
+		return nil, f.quarantinedErr
+	}
+	if len(f.quarantinedSeq) > 0 {
+		i := f.quarantineIdx
+		if i >= len(f.quarantinedSeq) {
+			i = len(f.quarantinedSeq) - 1
+		}
+		f.quarantineIdx++
+		return f.quarantinedSeq[i], nil
+	}
+	return f.quarantined, nil
 }
 
 func (f *fakeEditOpBucket) DeleteEditOp(opID string) error {
@@ -587,7 +608,77 @@ func TestProcessUnits_PartialArm_DrainsArmedFailsMissing(t *testing.T) {
 	require.Contains(t, bucket2.registered, "op1")
 }
 
-// --- OnGroupCompleted ---// --- OnGroupCompleted ---// --- OnGroupCompleted ---
+// TestStartTask_QuarantinedSegment_UnitFailed pins the quarantine->FAILED
+// handoff: the unit must fail, not complete, when a segment is quarantined.
+func TestStartTask_QuarantinedSegment_UnitFailed(t *testing.T) {
+	bucket := &fakeEditOpBucket{
+		pendingSeq:  [][]string{{"s1"}}, // never drains on its own
+		quarantined: []string{"s1"},
+	}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1", "a quarantined segment must fail the unit")
+	require.Contains(t, rec.failed["u1"], "quarantined")
+	require.Empty(t, rec.completed, "the unit must not complete when a segment is quarantined")
+}
+
+// TestStartTask_QuarantineAppearsMidDrain_UnitFailed pins that the check runs
+// every tick, not only at start.
+func TestStartTask_QuarantineAppearsMidDrain_UnitFailed(t *testing.T) {
+	bucket := &fakeEditOpBucket{
+		pendingSeq:     [][]string{{"s1", "s2"}, {"s1"}},
+		quarantinedSeq: [][]string{{}, {"s1"}},
+	}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1")
+	require.Contains(t, rec.failed["u1"], "quarantined")
+	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_QuarantineReadErrorPersistent_UnitFailed pins that a
+// quarantine-read failure shares the poll's blip tolerance: persistent errors
+// fail the unit after maxConsecutivePollErrors.
+func TestStartTask_QuarantineReadErrorPersistent_UnitFailed(t *testing.T) {
+	bucket := &fakeEditOpBucket{
+		pendingSeq:     [][]string{{"s1"}},
+		quarantinedErr: errors.New("bolt read failed"),
+	}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1")
+	require.Contains(t, rec.failed["u1"], "consecutive errors")
+	require.Empty(t, rec.completed)
+}
+
+// --- OnGroupCompleted ---
 
 func TestOnGroupCompleted_PerTenantIndexFilesRemoved(t *testing.T) {
 	shards := &fakeShards{}
