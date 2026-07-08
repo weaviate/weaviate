@@ -137,11 +137,12 @@ type Memtable struct {
 	writesSinceLastSync bool
 
 	tombstones *sroar.Bitmap
-	// tombstonesSnapshot is an immutable copy of tombstones shared by all readers.
-	// ReadOnlyTombstones rebuilds it lazily when tombstonesDirty; it is never mutated
-	// in place, so a delete-heavy write load no longer clones the bitmap per query.
-	tombstonesSnapshot *sroar.Bitmap
-	tombstonesDirty    bool
+	// tombstonesSnapshot is an immutable copy of tombstones published for lock-free
+	// reads. ReadOnlyTombstones rebuilds it lazily when tombstonesDirty is set; it is
+	// never mutated in place, so readers share it without cloning or locking. Both are
+	// atomic so the read fast path touches neither the memtable RWMutex nor a copy.
+	tombstonesSnapshot atomic.Pointer[sroar.Bitmap]
+	tombstonesDirty    atomic.Bool
 
 	enableChecksumValidation bool
 
@@ -668,31 +669,28 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
 
-	m.RLock()
-	if m.tombstones == nil {
-		m.RUnlock()
-		return nil, lsmkv.NotFound
+	// Lock-free fast path: a clean, already-published snapshot is served without
+	// touching the memtable RWMutex. A tombstone set concurrently with this load may
+	// not yet be visible, which is within consistent-view semantics — the query fixes
+	// its tombstone view at setup, and a delete racing the query may order either way.
+	if !m.tombstonesDirty.Load() {
+		if snap := m.tombstonesSnapshot.Load(); snap != nil {
+			return snap, nil
+		}
 	}
-	if !m.tombstonesDirty && m.tombstonesSnapshot != nil {
-		snap := m.tombstonesSnapshot
-		m.RUnlock()
-		return snap, nil
-	}
-	m.RUnlock()
 
-	// A writer (SetTombstone) holds the exclusive lock while flipping tombstonesDirty,
-	// so observing !dirty under RLock guarantees the snapshot already reflects every
-	// tombstone visible to this reader — same freshness as cloning, without the copy.
+	// Rebuild under the write lock. The snapshot is stored before the dirty flag is
+	// cleared, so a reader that observes !dirty is guaranteed to load that snapshot.
 	m.Lock()
 	defer m.Unlock()
 	if m.tombstones == nil {
 		return nil, lsmkv.NotFound
 	}
-	if m.tombstonesDirty || m.tombstonesSnapshot == nil {
-		m.tombstonesSnapshot = m.tombstones.Clone()
-		m.tombstonesDirty = false
+	if m.tombstonesDirty.Load() || m.tombstonesSnapshot.Load() == nil {
+		m.tombstonesSnapshot.Store(m.tombstones.Clone())
+		m.tombstonesDirty.Store(false)
 	}
-	return m.tombstonesSnapshot, nil
+	return m.tombstonesSnapshot.Load(), nil
 }
 
 func (m *Memtable) SetTombstone(docId uint64) error {
@@ -704,7 +702,7 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
-	m.tombstonesDirty = true
+	m.tombstonesDirty.Store(true)
 	m.propLengthExists.Remove(docId)
 
 	return nil
