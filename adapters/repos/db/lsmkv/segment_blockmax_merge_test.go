@@ -73,10 +73,15 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 
 	cases := []struct {
 		name             string
-		flushAfterDelete bool // true => segment tombstones, false => memtable tombstones
+		flushAfterDelete bool // flush the first deletes into a segment (segment tombstones)
+		extraMemDeletes  bool // after flushing, tombstone more docs in the active memtable
 	}{
 		{name: "memtable_tombstones", flushAfterDelete: false},
 		{name: "segment_tombstones", flushAfterDelete: true},
+		// Both at once: the only case that reaches the two-level fold
+		// (sroar.AndNot(filter, segTomb) then .AndNot(memTomb)); the other two
+		// each exercise a single tombstone source.
+		{name: "segment_and_memtable_tombstones", flushAfterDelete: true, extraMemDeletes: true},
 	}
 
 	for _, tc := range cases {
@@ -110,6 +115,19 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 			}
 			if tc.flushAfterDelete {
 				require.NoError(t, bucket.FlushAndSwitch())
+			}
+
+			// A second, disjoint delete stride left unflushed in the active
+			// memtable, so this run carries a segment tombstone set (i%4==0) and a
+			// memtable tombstone set (i%8==2) at once — both intersecting the
+			// filter, disjoint, and leaving the i%8==6 docs alive so the result is
+			// non-empty.
+			if tc.extraMemDeletes {
+				for i := 2; i < len(docIDs); i += 8 {
+					mapKey := make([]byte, 8)
+					binary.BigEndian.PutUint64(mapKey, docIDs[i])
+					require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), mapKey))
+				}
 			}
 
 			// bitmap filter keeping every other doc, so the merge's AndNot has both
