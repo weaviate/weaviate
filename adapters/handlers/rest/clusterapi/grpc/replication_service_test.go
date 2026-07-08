@@ -14,6 +14,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -121,5 +122,24 @@ func TestCompareHashTreeRootsRoundTrip(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.Internal, st.Code())
+	})
+
+	t.Run("rejects a request exceeding the shard cap without calling the replicator", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		shards := make([]*pb.ShardRootDigest, replica.CompareHashTreeRootsMaxShardsPerRequest+1)
+		for i := range shards {
+			shards[i] = &pb.ShardRootDigest{Shard: fmt.Sprintf("shard-%d", i)}
+		}
+
+		_, err := svc.CompareHashTreeRoots(context.Background(), &pb.CompareHashTreeRootsRequest{
+			Index:            index,
+			ShardRootDigests: shards,
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
 	})
 }
