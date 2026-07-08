@@ -71,6 +71,11 @@ type ClassSettings interface {
 	TopK() int
 	// 0.0 - 1.0
 	TopP() float64
+
+	TemperaturePointer() *float64
+	TokenLimitPointer() *int
+	TopKPointer() *int
+	TopPPointer() *float64
 }
 
 type classSettings struct {
@@ -212,3 +217,28 @@ func (ic *classSettings) TopK() int {
 func (ic *classSettings) TopP() float64 {
 	return ic.getFloatProperty(topPProperty, DefaultGoogleTopP)
 }
+
+func (ic *classSettings) TemperaturePointer() *float64 {
+	return ic.getFloatPropertyPointer(temperatureProperty)
+}
+
+func (ic *classSettings) TokenLimitPointer() *int {
+	return ic.getIntPropertyPointer(tokenLimitProperty)
+}
+
+func (ic *classSettings) TopKPointer() *int {
+	return ic.getIntPropertyPointer(topKProperty)
+}
+
+func (ic *classSettings) TopPPointer() *float64 {
+	return ic.getFloatPropertyPointer(topPProperty)
+}
+
+func (ic *classSettings) getFloatPropertyPointer(name string) *float64 {
+	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, nil, nil)
+}
+
+func (ic *classSettings) getIntPropertyPointer(name string) *int {
+	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, nil, nil)
+}
+

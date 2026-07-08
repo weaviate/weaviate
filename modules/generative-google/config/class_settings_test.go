@@ -199,6 +199,22 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantTokenLimit, ic.TokenLimit())
 				assert.Equal(t, tt.wantTopK, ic.TopK())
 				assert.Equal(t, tt.wantTopP, ic.TopP())
+
+				if tt.name == "custom values" {
+					assert.NotNil(t, ic.TemperaturePointer())
+					assert.Equal(t, 0.25, *ic.TemperaturePointer())
+					assert.NotNil(t, ic.TokenLimitPointer())
+					assert.Equal(t, 254, *ic.TokenLimitPointer())
+					assert.NotNil(t, ic.TopKPointer())
+					assert.Equal(t, 30, *ic.TopKPointer())
+					assert.NotNil(t, ic.TopPPointer())
+					assert.Equal(t, 0.97, *ic.TopPPointer())
+				} else if tt.name == "default settings" {
+					assert.Nil(t, ic.TemperaturePointer())
+					assert.Nil(t, ic.TokenLimitPointer())
+					assert.Nil(t, ic.TopKPointer())
+					assert.Nil(t, ic.TopPPointer())
+				}
 			}
 		})
 	}
