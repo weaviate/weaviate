@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -284,6 +285,29 @@ func TestUpdateIndexShards(t *testing.T) {
 			for _, shardName := range tt.initialShards {
 				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false)
 				require.NoError(t, err)
+			}
+
+			// In eager (non-lazy) mode, empty HOT multi-tenant shards are deferred
+			// at startup as unloaded *LazyLoadShard wrappers to save memory (see
+			// Index.initAndStoreShards). These cases exercise updateIndexShards'
+			// add/remove/keep behavior against the "eager ⇒ *Shard" contract, which
+			// only holds for shards that actually hold data. Write one object into
+			// each initial shard so it is materialized (and stays) a raw *Shard
+			// rather than a deferred wrapper. Lazy-load mode is intentionally left
+			// out: it keeps every shard as an unloaded wrapper regardless of
+			// emptiness, and those cases assert exactly that below.
+			if !tt.lazyLoading {
+				for shardIdx, shardName := range tt.initialShards {
+					err := index.IncomingPutObject(ctx, shardName, &storobj.Object{
+						MarshallerVersion: 1,
+						DocID:             uint64(shardIdx),
+						Object: models.Object{
+							ID:    strfmt.UUID(uuid.New().String()),
+							Class: "TestClass",
+						},
+					}, 0)
+					require.NoError(t, err)
+				}
 			}
 
 			migrator := &Migrator{
