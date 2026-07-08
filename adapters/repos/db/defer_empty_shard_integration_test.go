@@ -153,8 +153,10 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 
 				require.NoError(t, lazy.Load(ctx))
 				require.True(t, lazy.isLoaded(), "deferred tenant should materialize on access")
-			} else if lazy, isLazy := stored.(*LazyLoadShard); isLazy {
-				require.True(t, lazy.isLoaded(), "non-deferred tenant should be loaded after init")
+			} else {
+				// Loaded eagerly, so it is stored as the raw shard, not a wrapper.
+				_, stillLazy := stored.(*LazyLoadShard)
+				require.False(t, stillLazy, "loaded tenant should be stored as a raw *Shard, got %T", stored)
 			}
 		})
 	}

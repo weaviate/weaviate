@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -488,25 +489,17 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	for idx, shardName := range hotShards {
 		eg.Go(func() error {
 			// Multi-tenant collections defer empty (e.g. pre-provisioned) tenants:
-			// ObjectCountAsync reads the on-disk count without materializing the
-			// shard, so empty ones stay unloaded until first accessed instead of
-			// paying the fixed per-shard footprint.
+			// read the on-disk object count without materializing the shard and, if
+			// empty, leave it as an unloaded wrapper until first accessed. Non-empty
+			// tenants (and non-MT collections) fall through to the normal load path.
 			if i.partitioningEnabled {
-				// lazyLoadSegments mirrors EnableLazyLoadShards to keep prior
-				// segment-loading behavior once materialized.
-				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, i.Config.EnableLazyLoadShards, i.bitmapBufPool)
-				i.shards.Store(shardName, lazyShard)
-
-				if count, err := lazyShard.ObjectCountAsync(ctx); err == nil && count == 0 {
-					return nil // deferred: leave toLoad[idx] empty
+				usage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName, true)
+				if err == nil && usage.Count == 0 {
+					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+						i.shardReindexer, i.Config.EnableLazyLoadShards, i.bitmapBufPool))
+					return nil
 				}
-
-				toLoad[idx] = shardName
-				if i.Config.EnableLazyLoadShards {
-					return nil // background loader materializes it (staggered)
-				}
-				return lazyShard.Load(ctx)
 			}
 
 			toLoad[idx] = shardName
