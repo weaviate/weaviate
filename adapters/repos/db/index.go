@@ -968,6 +968,7 @@ type IndexConfig struct {
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
+	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
