@@ -328,6 +328,17 @@ func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
 	return l.shard.disableAsyncReplication(ctx)
 }
 
+func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		// An unloaded shard holds no in-memory overrides.
+		return false
+	}
+	return l.shard.hasActiveAsyncReplicationTargetOverrides()
+}
+
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if err := l.Load(ctx); err != nil {
 		return err
@@ -802,6 +813,13 @@ func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.
 // distinguish unloaded shards from "loaded but inactive".
 func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
 	return l.isLoaded()
+}
+
+func (l *LazyLoadShard) HashTreeRoot() (root hashtree.Digest, ok bool) {
+	if !l.isLoaded() {
+		return hashtree.Digest{}, false
+	}
+	return l.shard.HashTreeRoot()
 }
 
 func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
