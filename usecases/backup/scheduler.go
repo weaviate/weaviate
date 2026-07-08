@@ -27,8 +27,11 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 var (
@@ -235,9 +238,13 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		meta.Include(allowed)
 	}
 
-	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
+	schema, userBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := s.validateNamespaceStripping(ctx, schema, userBlobs, meta.Classes(), req.UserRestoreOption); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
 	}
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
@@ -811,16 +818,166 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	return meta, nil
 }
 
+// validateNamespaceStripping fails a restore into a namespace-disabled
+// cluster when stripping the "<namespace>:" qualification would collide
+// distinct backup entities (usecases/schema.Handler.RestoreClass and the
+// dynamic-user snapshot restore strip at apply time).
+//
+// Everything is validated from the per-node descriptors — the payload nodes
+// actually restore — filtered down to the selected classes.
+func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors []backup.ClassDescriptor, userBlobs [][]byte, selectedClasses []string, userRestoreOption string) error {
+	if s.schema.NamespacesEnabled() {
+		return nil // restore does not strip namespaces
+	}
+
+	selected := make(map[string]struct{}, len(selectedClasses))
+	for _, name := range selectedClasses {
+		selected[name] = struct{}{}
+	}
+
+	type group struct {
+		sources  []string
+		short    string
+		stripped bool
+	}
+	classes := make(map[string]*group, len(descriptors)) // fold key -> post-strip identity
+	aliases := make(map[string]*group, 8)
+	collect := func(m map[string]*group, source, short string) *group {
+		key := strings.ToLower(short)
+		g, ok := m[key]
+		if !ok {
+			g = &group{short: short}
+			m[key] = g
+		}
+		g.sources = append(g.sources, source)
+		if short != source {
+			g.stripped = true
+		}
+		return g
+	}
+
+	anyAliasStripped := false
+	for i := range descriptors {
+		d := &descriptors[i]
+		if _, ok := selected[d.Name]; !ok {
+			continue
+		}
+		collect(classes, d.Name, schema.UppercaseClassName(namespacing.StripQualification(d.Name)))
+		if !d.AliasesIncluded || len(d.Aliases) == 0 {
+			continue
+		}
+		var classAliases []*models.Alias
+		if err := json.Unmarshal(d.Aliases, &classAliases); err != nil {
+			return fmt.Errorf("unmarshal aliases of class %q: %w", d.Name, err)
+		}
+		for _, a := range classAliases {
+			if collect(aliases, a.Alias, namespacing.StripQualification(a.Alias)).stripped {
+				anyAliasStripped = true
+			}
+		}
+	}
+
+	var errs []string
+	for _, g := range classes {
+		if len(g.sources) > 1 {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("classes %v strip to the same name %q", g.sources, g.short))
+		}
+	}
+
+	// A stripped class may also take the name of an entity already in the
+	// cluster. ClassEqual is the predicate the RAFT pre-apply gate rejects
+	// RESTORE_CLASS with — folding over live classes AND live aliases — so
+	// this reproduces exactly the rejection that would otherwise fire
+	// mid-restore, per class, after earlier classes had already committed.
+	// Unqualified names are skipped: those keep the pre-existing lazy
+	// per-class semantics, so namespace-free restores behave as before.
+	for _, g := range classes {
+		if !g.stripped {
+			continue
+		}
+		if cur := s.schema.ClassEqual(g.short); cur != "" {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("classes %v strip to %q, which already exists in the cluster as %q", g.sources, g.short, cur))
+		}
+	}
+
+	// A stripped alias landing on a live class hard-errors in CreateAlias
+	// after its class's data is already committed — this bites the
+	// recommended one-namespace-at-a-time workflow, where an earlier
+	// restore's class takes the name a later namespace's alias strips to.
+	// Live classes are the only conflict that matters here (alias-vs-live-
+	// alias completes under the overwriteAlias semantics), so the check
+	// reads ListClasses, and only when an alias actually stripped.
+	if anyAliasStripped {
+		live := s.restorer.selector.ListClasses(ctx)
+		liveByFold := make(map[string]string, len(live))
+		for _, c := range live {
+			liveByFold[strings.ToLower(c)] = c
+		}
+		for key, g := range aliases {
+			if !g.stripped {
+				continue
+			}
+			if cur, ok := liveByFold[key]; ok {
+				slices.Sort(g.sources)
+				errs = append(errs, fmt.Sprintf("aliases %v strip to %q, which already exists as class %q in the cluster", g.sources, g.short, cur))
+			}
+		}
+	}
+
+	// Without the checks below, two aliases stripping to the same name make
+	// the later CreateAlias silently skip (or overwrite, with overwriteAlias),
+	// and an alias stripping onto a restored class name fails that class
+	// mid-restore after its data is already committed. Collisions with live
+	// ALIASES are deliberately not checked: those complete without a partial
+	// commit under the pre-existing overwriteAlias semantics (skip or
+	// delete-and-recreate), and failing them would block the legitimate
+	// overwrite workflow.
+	for key, g := range aliases {
+		if len(g.sources) > 1 {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("aliases %v strip to the same name %q", g.sources, g.short))
+		}
+		if cls, ok := classes[key]; ok && (g.stripped || cls.stripped) {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("aliases %v strip to %q, which collides with backup class %v", g.sources, g.short, cls.sources))
+		}
+	}
+
+	// The user snapshot blobs are opaque here; the dry-run reuses the exact
+	// strip-and-collide logic the real restore runs, covering every id-keyed
+	// field and both filtered (includeUsers) and whole-cluster snapshots.
+	// Gated only on the opt-out, mirroring the restorer: participants apply
+	// a present snapshot even when dynamic users are disabled on the target,
+	// so s.userLister being nil must not skip this.
+	if userRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
+		for _, blob := range userBlobs {
+			if err := apikey.ValidateNamespaceStrip(blob); err != nil {
+				errs = append(errs, fmt.Sprintf("dynamic users: %v", err))
+			}
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	slices.Sort(errs)
+	return fmt.Errorf("restoring into a cluster without namespaces strips namespace qualifications, which would cause name collisions: %s. Restore one namespace at a time using 'include'/'exclude', or remove the conflicting entities from the target cluster first", strings.Join(errs, "; "))
+}
+
 // fetchSchema retrieves and returns the latest schema for all classes
-// In pre-raft scenarios where schema may diverge, some guesswork is necessary
+// In pre-raft scenarios where schema may diverge, some guesswork is necessary.
+// It also returns the per-node dynamic-user snapshot blobs (deduped; empty
+// when the backup carries no users).
 func (s *Scheduler) fetchSchema(
 	ctx context.Context,
 	backend string,
 	overrideBucket string,
 	overridePath string,
 	req *backup.DistributedBackupDescriptor,
-) ([]backup.ClassDescriptor, error) {
-	f := func(node string) ([]backup.ClassDescriptor, error) {
+) ([]backup.ClassDescriptor, [][]byte, error) {
+	f := func(node string) (*backup.BackupDescriptor, error) {
 		store, err := nodeBackend(node, s.backends, backend, req.ID, overrideBucket, overridePath)
 		if err != nil {
 			return nil, err
@@ -829,27 +986,43 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		return meta.Classes, nil
+		return meta, nil
 	}
 
 	if req.Leader != "" {
-		return f(req.Leader) // raft version of the backup
+		meta, err := f(req.Leader) // raft version of the backup
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", req.Leader, err)
+		}
+		var userBlobs [][]byte
+		if len(meta.UserBackups) > 0 {
+			userBlobs = [][]byte{meta.UserBackups}
+		}
+		return meta.Classes, userBlobs, nil
 	}
 
 	// union
 	m := make(map[string]backup.ClassDescriptor, 64)
+	var userBlobs [][]byte
+	seenBlobs := make(map[string]struct{}, 1)
 	for k := range req.Nodes {
-		xs, err := f(k)
+		meta, err := f(k)
 		if err != nil {
-			break
+			// Fail closed: a partial union would silently skip the missing
+			// node's classes at restore time and blind the strip validation.
+			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", k, err)
 		}
 		// guess the most up to date version
-		for _, x := range xs {
+		for _, x := range meta.Classes {
 			c, ok := m[x.Name]
 			if !ok || len(x.ShardingState) > len(c.ShardingState) {
 				m[x.Name] = x
 				continue
 			}
+		}
+		if _, ok := seenBlobs[string(meta.UserBackups)]; len(meta.UserBackups) > 0 && !ok {
+			seenBlobs[string(meta.UserBackups)] = struct{}{}
+			userBlobs = append(userBlobs, meta.UserBackups)
 		}
 	}
 	xs := make([]backup.ClassDescriptor, len(m))
@@ -858,7 +1031,7 @@ func (s *Scheduler) fetchSchema(
 		xs[i] = v
 		i++
 	}
-	return xs, nil
+	return xs, userBlobs, nil
 }
 
 func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {

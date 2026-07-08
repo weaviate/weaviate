@@ -689,6 +689,29 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	return nil
 }
 
+// ValidateNamespaceStrip dry-runs the stripNamespaces arm of [DBUser.Restore]
+// against snapshot without mutating any state: it unmarshals, checks the
+// snapshot version, and attempts the namespace strip, returning the exact
+// collision error a real restore would hit.
+func ValidateNamespaceStrip(snapshot []byte) error {
+	// Restore treats an empty snapshot as a no-op.
+	if len(snapshot) == 0 {
+		return nil
+	}
+
+	snapshotRestore := DBUserSnapshot{}
+	if err := json.Unmarshal(snapshot, &snapshotRestore); err != nil {
+		return err
+	}
+
+	if snapshotRestore.Version != SnapshotVersion {
+		return fmt.Errorf("invalid snapshot version")
+	}
+
+	_, err := stripDBUserNamespace(snapshotRestore.Data)
+	return err
+}
+
 // stripDBUserNamespace drops the "<namespace>:" prefix from every field containing an ID;
 // non-namespace prefix or bare ids pass through. A collision between IDs after stripping
 // returns a clear error.

@@ -910,6 +910,50 @@ func TestSnapshotRestore_IncludeUsers_GraduationAliasCollision(t *testing.T) {
 	requireLogin(t, dst, loginIncumbent, identIncumbent, "incumbent", "")
 }
 
+// TestValidateNamespaceStrip: the dry-run must return exactly the error a
+// real Restore(snap, true) would hit — backup restore uses it to reject a
+// doomed restore at scheduling time. It is a package function with no user
+// store at all, mirroring the scheduler on clusters where dynamic users are
+// disabled yet a restored snapshot would still be applied.
+func TestValidateNamespaceStrip(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+	seedUser(t, src, MakeUserKey("alice", "ns1"), "ns1")
+	seedUser(t, src, MakeUserKey("alice", "ns2"), "ns2")
+	seedUser(t, src, MakeUserKey("bob", "ns2"), "ns2")
+
+	colliding, err := src.Snapshot(MakeUserKey("alice", "ns1"), MakeUserKey("alice", "ns2"))
+	require.NoError(t, err)
+	clean, err := src.Snapshot(MakeUserKey("alice", "ns1"), MakeUserKey("bob", "ns2"))
+	require.NoError(t, err)
+
+	t.Run("CollidingSnapshotErrors", func(t *testing.T) {
+		err := ValidateNamespaceStrip(colliding)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "alias")
+	})
+
+	t.Run("CleanSnapshotPasses", func(t *testing.T) {
+		require.NoError(t, ValidateNamespaceStrip(clean))
+	})
+
+	t.Run("EmptySnapshotIsNoOp", func(t *testing.T) {
+		require.NoError(t, ValidateNamespaceStrip(nil))
+	})
+
+	t.Run("MalformedSnapshotErrors", func(t *testing.T) {
+		require.Error(t, ValidateNamespaceStrip([]byte("{")))
+	})
+
+	t.Run("WrongVersionErrors", func(t *testing.T) {
+		snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
+		require.NoError(t, err)
+		err = ValidateNamespaceStrip(snap)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid snapshot version")
+	})
+}
+
 // TestSnapshotRestore_IncludeUsers_RestoreReplacesTarget: restoring an
 // includeUsers subset REPLACES the target's user store, it does not merge. An
 // incumbent user in the target is wiped, so stale credentials cannot linger

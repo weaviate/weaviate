@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ type fakeSchemaManger struct {
 	lastNodeMapping     map[string]string
 	lastStripNamespaces bool
 	namespacesEnabled   bool
+	liveEntities        []string
 }
 
 func (f *fakeSchemaManger) RestoreClass(ctx context.Context, desc *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error {
@@ -44,6 +46,15 @@ func (f *fakeSchemaManger) NodeName() string {
 
 func (f *fakeSchemaManger) NamespacesEnabled() bool {
 	return f.namespacesEnabled
+}
+
+func (f *fakeSchemaManger) ClassEqual(name string) string {
+	for _, n := range f.liveEntities {
+		if strings.EqualFold(n, name) {
+			return n
+		}
+	}
+	return ""
 }
 
 func TestFilterClasses(t *testing.T) {
