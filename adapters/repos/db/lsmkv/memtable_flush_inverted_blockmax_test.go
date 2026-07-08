@@ -76,7 +76,7 @@ func TestInvertedFlushBakesImpactArgmax(t *testing.T) {
 	require.Equal(t, uint32(150), sbm.blockEntries[0].MaxImpactPropLength,
 		"flushed block must bake the impact-argmax pair (k1/b order)")
 
-	got := runBlockMaxWand(t, b, []string{term}, nil, 152, 1, nil)
+	got := runBlockMaxWand(t, b, []string{term}, nil, 152, 1)
 	require.Len(t, got, 1)
 	require.Contains(t, got, uint64(13), "true top-1 pruned: flush baked an unsound block-max bound")
 }
