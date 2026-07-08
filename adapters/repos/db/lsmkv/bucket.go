@@ -2208,25 +2208,34 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// active memtable
 	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	// Memtable tombstones are invariant within a consistent view: read once and
-	// OR into a single bitmap shared by every term.
-	memTombstones := sroar.NewBitmap()
-	var activeTombstones *sroar.Bitmap
+	// Memtable tombstones are invariant within a consistent view. ReadOnlyTombstones
+	// returns a shared immutable snapshot, so reuse it directly when only one memtable
+	// carries tombstones; allocate a merged bitmap only when both are present.
+	var activeTombstones, flushingTombstones *sroar.Bitmap
 	if view.Active != nil {
 		activeTombstones, err = view.Active.ReadOnlyTombstones()
 		if err != nil {
 			view.ReleaseView()
 			return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
 		}
-		memTombstones.Or(activeTombstones)
 	}
 	if view.Flushing != nil {
-		flushingTombstones, err := view.Flushing.ReadOnlyTombstones()
+		flushingTombstones, err = view.Flushing.ReadOnlyTombstones()
 		if err != nil {
 			view.ReleaseView()
 			return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
 		}
-		memTombstones.Or(flushingTombstones)
+	}
+	var memTombstones *sroar.Bitmap
+	switch {
+	case activeTombstones != nil && flushingTombstones != nil:
+		memTombstones = sroar.Or(activeTombstones, flushingTombstones)
+	case activeTombstones != nil:
+		memTombstones = activeTombstones
+	case flushingTombstones != nil:
+		memTombstones = flushingTombstones
+	default:
+		memTombstones = sroar.NewBitmap()
 	}
 
 	// One index descent per (segment, term): diskNodes/diskNodeOk cache the node
