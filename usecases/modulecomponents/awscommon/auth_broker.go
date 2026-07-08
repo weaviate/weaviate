@@ -143,9 +143,9 @@ func (b *AuthBrokerCredentials) fetchCredentials(ctx context.Context, identityTo
 }
 
 func (b *AuthBrokerCredentials) getIdentityToken() (string, error) {
-	path := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+	path := os.Getenv("BACKUP_S3_AUTH_PROXY_TOKEN_FILE")
 	if path == "" {
-		return "", errors.New("AWS_WEB_IDENTITY_TOKEN_FILE not set; auth broker requires an IRSA web identity token")
+		return "", errors.New("BACKUP_S3_AUTH_PROXY_TOKEN_FILE not set; auth broker requires token file")
 	}
 
 	tok, err := os.ReadFile(path)

@@ -32,7 +32,7 @@ func writeIdentityTokenFile(t *testing.T, contents string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "token")
 	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
-	t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", path)
+	t.Setenv("BACKUP_S3_AUTH_PROXY_TOKEN_FILE", path)
 }
 
 func TestFetchCredentialsSuccess(t *testing.T) {
@@ -183,7 +183,7 @@ func TestRetrieveRefreshesIdentityTokenFromFile(t *testing.T) {
 	// Simulate kubelet rotation by rewriting the token file between calls.
 	path := filepath.Join(t.TempDir(), "token")
 	require.NoError(t, os.WriteFile(path, []byte("token-v1"), 0o600))
-	t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", path)
+	t.Setenv("BACKUP_S3_AUTH_PROXY_TOKEN_FILE", path)
 
 	seen := make([]string, 0, 2)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -212,10 +212,10 @@ func TestRetrieveRefreshesIdentityTokenFromFile(t *testing.T) {
 }
 
 func TestRetrieveMissingTokenFile(t *testing.T) {
-	t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
+	t.Setenv("BACKUP_S3_AUTH_PROXY_TOKEN_FILE", "")
 
 	b := NewAuthBrokerCredentials("http://unused")
 	_, err := b.RetrieveWithCredContext(nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "AWS_WEB_IDENTITY_TOKEN_FILE")
+	assert.Contains(t, err.Error(), "BACKUP_S3_AUTH_PROXY_TOKEN_FILE")
 }
