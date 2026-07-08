@@ -124,16 +124,19 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 ) (*BatchDeleteParams, uint64, error) {
+	// Missing required match fields are caller input, so classify them as
+	// ErrInvalidUserInput (→ 422). Otherwise the REST handler maps these to a
+	// 500. The message wording is preserved for callers/tests.
 	if match == nil {
-		return nil, 0, errors.New("empty match clause")
+		return nil, 0, NewErrInvalidUserInput("empty match clause")
 	}
 
 	if len(match.Class) == 0 {
-		return nil, 0, errors.New("empty match.class clause")
+		return nil, 0, NewErrInvalidUserInput("empty match.class clause")
 	}
 
 	if match.Where == nil {
-		return nil, 0, errors.New("empty match.where clause")
+		return nil, 0, NewErrInvalidUserInput("empty match.where clause")
 	}
 
 	// GetCachedClass authorizes READ; preserve Forbidden (→ 403), classify
