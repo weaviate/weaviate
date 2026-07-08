@@ -244,8 +244,8 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *
 	// swapForEfficiency puts the larger bitmap in `a` for Or (fewer union ops),
 	// or the smaller bitmap in `a` for And (fewer intersection ops).
 	swapForEfficiency := func(op filters.Operator) {
-		if (op == filters.OperatorOr && a.docIDs.CompareNumKeys(b.docIDs) < 0) ||
-			(op == filters.OperatorAnd && a.docIDs.CompareNumKeys(b.docIDs) > 0) {
+		if (op == filters.OperatorOr && a.docIDs.NumContainers() < b.docIDs.NumContainers()) ||
+			(op == filters.OperatorAnd && a.docIDs.NumContainers() > b.docIDs.NumContainers()) {
 			a, b = b, a
 		}
 	}
