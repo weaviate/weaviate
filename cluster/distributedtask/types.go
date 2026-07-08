@@ -236,19 +236,15 @@ type SchemaMutationDetector interface {
 }
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
-// implements to gate removal of a dropped ("none") VectorConfig entry. Inverse
-// polarity of the SchemaMutationDetector checks: those block a mutation while a
-// task is in flight; this permits removal only once the cleanup task is FINISHED,
-// so the marker can't vanish before the on-disk vectors are stripped (and a
-// manual PATCH that skips cleanup is rejected). Dispatched by type assertion from
-// the SchemaMutationDetector registry (see [Manager.CheckVectorConfigRemoval]).
-//
-// Same FSM-determinism contract as [SchemaMutationDetector]: a pure function of
-// its arguments.
+// implements to gate removal of a dropped ("none") VectorConfig entry: removal
+// is permitted only once a completed cleanup task covers it, so the marker can't
+// vanish before the on-disk vectors are stripped. Dispatched by type assertion
+// from the SchemaMutationDetector registry. Same FSM-determinism contract as
+// [SchemaMutationDetector]: a pure function of its arguments.
 type VectorConfigRemovalGate interface {
 	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
-	// UpdateClass apply. Return non-nil to reject (e.g. no FINISHED task covers a
-	// removed vector). existingTasks is the namespace-scoped list at apply time.
+	// UpdateClass apply; non-nil rejects. existingTasks is the namespace-scoped
+	// list at apply time.
 	CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*Task) error
 }
 

@@ -154,10 +154,9 @@ func (m *Manager) CheckTenantMutation(className string, tenants []string) error 
 }
 
 // CheckVectorConfigRemoval consults every registered [SchemaMutationDetector]
-// that also implements [VectorConfigRemovalGate], gating removal of dropped
-// ("none") VectorConfig entries on the cleanup task being FINISHED. Called from
-// the schema FSM's UpdateClass apply; a non-nil error rejects the update. Same
-// RAFT-determinism contract as [Manager.CheckClassMutation].
+// that also implements [VectorConfigRemovalGate]. Called from the schema FSM's
+// UpdateClass apply; a non-nil error rejects the update. Same RAFT-determinism
+// contract as [Manager.CheckClassMutation].
 func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors []string) error {
 	if len(removedVectors) == 0 {
 		return nil

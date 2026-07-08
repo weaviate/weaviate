@@ -73,7 +73,7 @@ type MutationGuard interface {
 	CheckTenantMutation(className string, tenants []string) error
 
 	// CheckVectorConfigRemoval gates removal of dropped ("none") VectorConfig
-	// entries on the Phase-2 cleanup task being FINISHED. Returns non-nil to reject.
+	// entries on a completed cleanup task. Returns non-nil to reject.
 	CheckVectorConfigRemoval(className string, removedVectors []string) error
 }
 
@@ -446,9 +446,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
-		// Removing a dropped ("none") vector config is gated on the Phase-2 cleanup
-		// task being FINISHED: the marker must not vanish before the on-disk vectors
-		// are stripped. At apply time so the verdict is RAFT-deterministic.
+		// Gate at apply time so the verdict is RAFT-deterministic.
 		if s.mutationGuard != nil {
 			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
 				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed); err != nil {
