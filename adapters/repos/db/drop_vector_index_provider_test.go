@@ -595,9 +595,7 @@ func TestProcessUnits_PartialArm_DrainsArmedFailsMissing(t *testing.T) {
 }
 
 // TestStartTask_QuarantinedSegment_UnitFailed pins the quarantine->FAILED
-// handoff: a quarantined segment left the pending set unstripped, so the unit
-// must fail rather than complete (else the task would falsely reach FINISHED
-// with vectors still on disk).
+// handoff: the unit must fail, not complete, when a segment is quarantined.
 func TestStartTask_QuarantinedSegment_UnitFailed(t *testing.T) {
 	bucket := &fakeEditOpBucket{
 		pendingSeq:  [][]string{{"s1"}}, // never drains on its own
@@ -619,7 +617,7 @@ func TestStartTask_QuarantinedSegment_UnitFailed(t *testing.T) {
 	require.Empty(t, rec.completed, "the unit must not complete when a segment is quarantined")
 }
 
-// --- OnGroupCompleted ---// --- OnGroupCompleted ---// --- OnGroupCompleted ---// --- OnGroupCompleted ---
+// --- OnGroupCompleted ---
 
 func TestOnGroupCompleted_PerTenantIndexFilesRemoved(t *testing.T) {
 	shards := &fakeShards{}
