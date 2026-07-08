@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,7 +24,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -40,9 +40,10 @@ import (
 )
 
 // TestDeferEmptyMultiTenantShardOnInit checks that startup leaves an empty MT
-// tenant unloaded (and materializes it on first access), while loading a tenant it
-// cannot prove empty. It runs in eager mode, the path that would otherwise load
-// every HOT shard on init.
+// tenant (index counter 0) unloaded and materializes it on first access, while a
+// tenant that has written objects (counter > 0, including data that would only be
+// in an unflushed WAL) is loaded eagerly as a raw shard. It runs in eager mode,
+// the path that would otherwise load every HOT shard on init.
 func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -54,19 +55,21 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// emptyShardOnDisk pre-creates the tenant's empty objects LSM directory.
-		emptyShardOnDisk bool
-		wantDeferred     bool
+		// objectCount is the persisted index counter; 0 means the tenant has never
+		// held objects. It is written directly so the "loaded" branch is exercised
+		// even without flushed segments (mirrors the reused-WAL case).
+		objectCount  uint64
+		wantDeferred bool
 	}{
 		{
-			name:             "empty tenant with existing dir is deferred",
-			emptyShardOnDisk: true,
-			wantDeferred:     true,
+			name:         "empty tenant (counter 0) is deferred",
+			objectCount:  0,
+			wantDeferred: true,
 		},
 		{
-			name:             "tenant without on-disk dir is not deferred (safe fallback)",
-			emptyShardOnDisk: false,
-			wantDeferred:     false,
+			name:         "tenant with objects is loaded, not deferred",
+			objectCount:  10,
+			wantDeferred: false,
 		},
 	}
 
@@ -95,9 +98,14 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 			}
 			shardState.SetLocalName(nodeName)
 
-			if tt.emptyShardOnDisk {
-				objectsDir := filepath.Join(dirName, indexID(schema.ClassName(className)), tenant, "lsm", helpers.ObjectsBucketLSM)
-				require.NoError(t, os.MkdirAll(objectsDir, os.ModePerm))
+			if tt.objectCount > 0 {
+				// Persist an index counter as a real shard would, so the tenant reads
+				// as non-empty without needing flushed segments.
+				shardDir := filepath.Join(dirName, indexID(schema.ClassName(className)), tenant)
+				require.NoError(t, os.MkdirAll(shardDir, os.ModePerm))
+				var buf [8]byte
+				binary.LittleEndian.PutUint64(buf[:], tt.objectCount)
+				require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), buf[:], 0o644))
 			}
 
 			scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})

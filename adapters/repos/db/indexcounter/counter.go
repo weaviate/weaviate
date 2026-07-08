@@ -63,6 +63,40 @@ func New(shardPath string) (cr *Counter, rerr error) {
 	}, nil
 }
 
+// ReadOnDisk returns the persisted counter value for the shard at shardPath
+// without opening/creating the counter for use. It returns 0 when the counter
+// file is missing or empty.
+//
+// Because the counter is incremented and persisted on every write (see
+// GetAndInc), a zero value reliably means the shard has never held any objects —
+// including data still sitting in an unflushed/reused WAL, which segment metadata
+// would not yet reflect. This makes it a safe, cheap probe for deciding whether a
+// not-yet-loaded shard is empty.
+func ReadOnDisk(shardPath string) (uint64, error) {
+	f, err := os.Open(fmt.Sprintf("%s/indexcount", shardPath))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if stat.Size() == 0 {
+		return 0, nil
+	}
+
+	var count uint64
+	if err := binary.Read(f, binary.LittleEndian, &count); err != nil {
+		return 0, errors.Wrap(err, "read counter from file")
+	}
+	return count, nil
+}
+
 func (c *Counter) Get() uint64 {
 	c.Lock()
 	defer c.Unlock()

@@ -33,12 +33,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -578,11 +578,14 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	return nil
 }
 
-// unloadedShardIsEmpty reports whether a not-yet-loaded tenant shard has no
-// objects on disk. On any error it returns false so the shard is loaded normally.
+// unloadedShardIsEmpty reports whether a not-yet-loaded tenant shard has never
+// held any objects, read from the persisted index counter without materializing
+// the shard. The counter is incremented on every write, so it also accounts for
+// data still in an unflushed/reused WAL (unlike segment metadata). On any error it
+// returns false so the shard is loaded normally.
 func (i *Index) unloadedShardIsEmpty(shardName string) bool {
-	hasObjects, err := shardusage.UnloadedShardHasObjects(i.logger, i.path(), shardName)
-	return err == nil && !hasObjects
+	count, err := indexcounter.ReadOnDisk(shardPath(i.path(), shardName))
+	return err == nil && count == 0
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {
