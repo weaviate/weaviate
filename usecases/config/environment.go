@@ -58,6 +58,7 @@ const (
 	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+	DefaultHaltForTransferTimeout    = time.Hour
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
@@ -177,6 +178,15 @@ func FromEnv(config *Config) error {
 		config.TransferInactivityTimeout = timeout
 	} else {
 		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+	}
+
+	err := parsePositiveDuration(
+		"HALT_FOR_TRANSFER_TIMEOUT",
+		func(val time.Duration) { config.HaltForTransferTimeout = val },
+		DefaultHaltForTransferTimeout,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
