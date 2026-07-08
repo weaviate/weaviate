@@ -17,9 +17,7 @@ import (
 	"context"
 	"encoding/binary"
 	"math/rand"
-	"os"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -38,6 +36,13 @@ import (
 // reverted for mutating the shared filter. Under -race it asserts the shared
 // filter is never mutated (cardinality and full membership fixed), every result
 // stays within the filter, and nothing panics.
+//
+// Setup: seed alpha/beta/gamma posting lists over nDocs, then tombstone a subset
+// of alpha docs — one batch flushed into a segment, another left in the active
+// memtable — so every query folds both tombstone sources. The filter admits
+// every other doc. Then, concurrently: query workers run the folded search and
+// assert every returned id is in the filter; writer goroutines keep tombstoning
+// random alpha docs; a watcher asserts the shared filter bitmap never changes.
 func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// Surface a merge panic instead of letting createDiskTermFromCV's recover
 	// swallow it.
@@ -78,13 +83,17 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// concurrent phase: concurrent FlushAndSwitch races the query's memtable read
 	// on a pre-existing, merge-unrelated path, and the fold only needs tombstones
 	// present, not flushes in flight.
-	delKey := make([]byte, 8)
+	// Fresh key per delete: MapDeleteKey retains the key in the memtable's map,
+	// and the first batch is flushed below, so a reused buffer would persist stale
+	// keys into the segment.
 	for i := 0; i < nDocs; i += 5 {
+		delKey := make([]byte, 8)
 		binary.BigEndian.PutUint64(delKey, docID(i))
 		require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), delKey))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 	for i := 1; i < nDocs; i += 7 {
+		delKey := make([]byte, 8)
 		binary.BigEndian.PutUint64(delKey, docID(i))
 		require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), delKey))
 	}
@@ -100,11 +109,6 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	inFilter := func(id uint64) bool { return id%(1<<16) < nDocs && (id%(1<<16))%2 == 0 }
 
 	dur := 2 * time.Second
-	if v := os.Getenv("BMW_CONCURRENT_SECONDS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			dur = time.Duration(n) * time.Second
-		}
-	}
 
 	var stop atomic.Bool
 	var wg sync.WaitGroup
