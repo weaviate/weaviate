@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -70,6 +71,10 @@ type MutationGuard interface {
 	// conflict — callers must filter via
 	// [tenantsTransitioningAwayFromActive] before invoking.
 	CheckTenantMutation(className string, tenants []string) error
+
+	// CheckVectorConfigRemoval gates removal of dropped ("none") VectorConfig
+	// entries on a completed cleanup task. Returns non-nil to reject.
+	CheckVectorConfigRemoval(className string, removedVectors []string) error
 }
 
 // Narrow slice of *cluster/distributedtask.Manager so schema doesn't
@@ -441,6 +446,15 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
+		// Gate at apply time so the verdict is RAFT-deterministic.
+		if s.mutationGuard != nil {
+			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
+				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed); err != nil {
+					return fmt.Errorf("%w: %w", ErrBadRequest, err)
+				}
+			}
+		}
+
 		// Apply updates
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
@@ -473,6 +487,22 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// removedDroppedVectorConfigs returns the names of dropped ("none") VectorConfig
+// entries in prev that are absent from next. Only "none" entries: removing a live
+// entry is already rejected by the parser.
+func removedDroppedVectorConfigs(prev, next *models.Class) []string {
+	var removed []string
+	for name, cfg := range prev.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if _, ok := next.VectorConfig[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	return removed
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {

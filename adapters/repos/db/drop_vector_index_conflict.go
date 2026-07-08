@@ -96,6 +96,64 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 	return nil
 }
 
+// CheckVectorConfigRemoval implements distributedtask.VectorConfigRemovalGate:
+// a still-stripping drop on the vector blocks removal (epoch protection, even
+// against an older FINISHED voucher); otherwise a completed task must vouch.
+// SWAPPING vouches and never blocks: OnTaskCompleted — whose finalize is this
+// very removal — fires at SWAPPING, and the gate cannot recognize "self".
+func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*distributedtask.Task) error {
+	for _, vec := range removedVectors {
+		if id, active := p.dropCovers(className, vec, existingTasks, stillStrippingStatus); active {
+			return fmt.Errorf(
+				"cannot remove dropped vector %q on %s: cleanup task %q is still active for it",
+				vec, className, id)
+		}
+		if _, ok := p.dropCovers(className, vec, existingTasks, completedStatus); !ok {
+			return fmt.Errorf(
+				"cannot remove dropped vector %q on %s: no completed cleanup task covers it; "+
+					"the data may still be being stripped, or the completed task record has aged out — "+
+					"cleanup is re-enqueued automatically and the entry is removed once it completes",
+				vec, className)
+		}
+	}
+	return nil
+}
+
+// stillStrippingStatus matches pre-SWAPPING tasks; they block removal.
+func stillStrippingStatus(s distributedtask.TaskStatus) bool {
+	return s.IsActive() && s != distributedtask.TaskStatusSwapping
+}
+
+// completedStatus matches tasks with every unit succeeded; they vouch for removal.
+func completedStatus(s distributedtask.TaskStatus) bool {
+	return s == distributedtask.TaskStatusSwapping || s == distributedtask.TaskStatusFinished
+}
+
+// dropCovers reports whether a drop-vector task matching statusMatch covers vec
+// on className. Unparseable payloads warn and are skipped (fail-open).
+func (p *DropVectorIndexProvider) dropCovers(className, vec string, existingTasks []*distributedtask.Task,
+	statusMatch func(distributedtask.TaskStatus) bool,
+) (string, bool) {
+	for _, task := range existingTasks {
+		if !statusMatch(task.Status) {
+			continue
+		}
+		existP, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			p.logger.WithField("task", task.ID).
+				Warnf("drop-vector: skipping task with unparseable payload in removal gate: %v", err)
+			continue
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		if len(intersectTargets(existP.Targets, []string{vec})) > 0 {
+			return task.ID, true
+		}
+	}
+	return "", false
+}
+
 // LocalCallbacksDone implements distributedtask.RecoveryAwareProvider. It returns
 // false so the bootstrap pre-mark does not suppress OnGroupCompleted replay: the
 // file-removal safety net is idempotent, so re-firing it once after restart

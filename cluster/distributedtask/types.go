@@ -235,6 +235,19 @@ type SchemaMutationDetector interface {
 	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
 }
 
+// VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
+// implements to gate removal of a dropped ("none") VectorConfig entry: removal
+// is permitted only once a completed cleanup task covers it, so the marker can't
+// vanish before the on-disk vectors are stripped. Dispatched by type assertion
+// from the SchemaMutationDetector registry. Same FSM-determinism contract as
+// [SchemaMutationDetector]: a pure function of its arguments.
+type VectorConfigRemovalGate interface {
+	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
+	// UpdateClass apply; non-nil rejects. existingTasks is the namespace-scoped
+	// list at apply time.
+	CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*Task) error
+}
+
 // RecoveryAwareProvider is an optional interface providers implement to
 // participate in post-restart callback retry. The Scheduler's bootstrap
 // pre-mark (which normally suppresses replay of callbacks that fired

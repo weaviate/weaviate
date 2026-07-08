@@ -832,6 +832,112 @@ func TestCheckClassMutation_DoesNotBlockDeleteDuringDrop(t *testing.T) {
 	require.NoError(t, p.CheckClassMutation("Other", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
 }
 
+func finishedDropTask(id, collection string, targets ...string) *distributedtask.Task {
+	t := activeDropTask(id, collection, targets...)
+	t.Status = distributedtask.TaskStatusFinished
+	return t
+}
+
+func swappingDropTask(id, collection string, targets ...string) *distributedtask.Task {
+	t := activeDropTask(id, collection, targets...)
+	t.Status = distributedtask.TaskStatusSwapping
+	return t
+}
+
+func corruptDropTask(id string, status distributedtask.TaskStatus) *distributedtask.Task {
+	return &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
+		Payload:        []byte("not json"),
+		Status:         status,
+	}
+}
+
+func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
+	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+
+	t.Run("finished task covering the vector allows removal", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1", "v2")})
+		require.NoError(t, err)
+	})
+
+	t.Run("collection matches case-insensitively, target exact-case only", func(t *testing.T) {
+		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
+			"collection names are case-insensitive")
+		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
+			"a case-differing sibling is a DIFFERENT vector; a finished task for v1 must not vouch for V1")
+	})
+
+	t.Run("swapping task covering the vector allows removal", func(t *testing.T) {
+		// OnTaskCompleted fires at SWAPPING; rejecting it self-blocks the finalizer.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")})
+		require.NoError(t, err)
+	})
+
+	t.Run("corrupt finished task does not vouch", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{corruptDropTask("t1", distributedtask.TaskStatusFinished)})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no completed cleanup task")
+	})
+
+	t.Run("corrupt active task does not block a valid voucher", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{
+				corruptDropTask("t1", distributedtask.TaskStatusStarted),
+				finishedDropTask("t2", "C", "v1"),
+			})
+		require.NoError(t, err)
+	})
+
+	t.Run("active (not finished) task rejects removal", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{activeDropTask("t1", "C", "v1")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "still active")
+	})
+
+	t.Run("newer active task blocks a replayed old task's removal", func(t *testing.T) {
+		// Epoch-blindness: an old FINISHED task covers v1, but a newer drop of the
+		// re-used name is running — removal would free the name mid-cleanup.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1"), activeDropTask("t2", "C", "v1")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "still active")
+	})
+
+	t.Run("no task at all rejects removal (manual PATCH to skip cleanup)", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil)
+		require.Error(t, err)
+	})
+
+	t.Run("finished task on a different collection does not vouch", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "Other", "v1")})
+		require.Error(t, err)
+	})
+
+	t.Run("finished task not covering the vector does not vouch", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v9")})
+		require.Error(t, err)
+	})
+
+	t.Run("every removed vector must be covered", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"},
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")})
+		require.Error(t, err, "v2 has no finished task")
+	})
+
+	t.Run("empty removal list is a no-op", func(t *testing.T) {
+		require.NoError(t, p.CheckVectorConfigRemoval("C", nil, nil))
+	})
+}
+
 func TestCheckTenantMutation_BlocksDuringDrop(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 	require.Error(t, p.CheckTenantMutation("C", []string{"tenant1"}, []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
