@@ -120,6 +120,7 @@ type ShardLike interface {
 	AnalyzeObjectForMigrationWithOverlay(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+	HashTreeRoot() (root hashtree.Digest, ok bool)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
 	ConvertQueue(targetVector string) error
@@ -235,6 +236,9 @@ type ShardLike interface {
 type asyncReplicationController interface {
 	enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error
 	disableAsyncReplication(ctx context.Context) error
+	// hasActiveAsyncReplicationTargetOverrides reports whether the shard holds
+	// target-node overrides that force async replication on.
+	hasActiveAsyncReplicationTargetOverrides() bool
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error

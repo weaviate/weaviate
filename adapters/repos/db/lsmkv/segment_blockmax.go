@@ -671,9 +671,11 @@ func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 	if s.exhausted {
 		return 0
 	}
-	// for the fully decode blocks return the idf
+	// fully-decoded blocks have no per-block max metadata; bound the impact by
+	// idf*propertyBoost (tf<=1). propertyBoost must match Score and the paged
+	// path below, else boosted terms are under-counted and top-K docs pruned.
 	if len(s.blockEntries) == 0 {
-		return float32(s.idf)
+		return float32(s.idf * s.propertyBoost)
 	}
 	freq := float64(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
 	propLength := float64(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)
