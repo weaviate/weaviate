@@ -2303,11 +2303,15 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	filterBl, _ := filterDocIds.(*helpers.BitmapAllowList)
 	mergeThisQuery := false
 	if filterBl != nil && !deferTombstoneToScore {
-		var sumDf uint64
-		for _, n := range idfCounts {
-			sumDf += n
+		// An empty filter already admits nothing, so folding would only burn
+		// AndNots on a query that returns no results.
+		if filterCard := filterBl.Bm.GetCardinality(); filterCard > 0 {
+			var sumDf uint64
+			for _, n := range idfCounts {
+				sumDf += n
+			}
+			mergeThisQuery = float64(sumDf) >= bm25MergeGateRatio*float64(filterCard)
 		}
-		mergeThisQuery = float64(sumDf) >= bm25MergeGateRatio*float64(filterBl.Bm.GetCardinality())
 	}
 	// Loop-invariant: segments without their own tombstones share one
 	// (filter minus memtable tombstones) build.
@@ -2325,9 +2329,10 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 		}
 
-		// Fold this segment's tombstones into a private filter clone. sroar.AndNot
-		// (free function) returns a fresh filter \ tombstones and never mutates the
-		// shared filter — the in-place method did, causing the #10172 revert.
+		// Fold this segment's tombstones into a private filter clone. The free
+		// function sroar.AndNot returns a fresh filter \ tombstones and never
+		// mutates the shared filter, which concurrent readers depend on (unlike
+		// the in-place method).
 		segFilter, segTomb, segMemTomb := filterDocIds, segTombstones, memTombstones
 		if mergeThisQuery { // implies filterBl != nil
 			segHasTomb := segTombstones != nil && !segTombstones.IsEmpty()
