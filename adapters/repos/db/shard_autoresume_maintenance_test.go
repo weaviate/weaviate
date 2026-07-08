@@ -182,6 +182,28 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
+func TestShard_HaltForTransferZeroPreparationTimeout(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+
+	// a zeroed HaltForTransferTimeout must mean "no bound", not an
+	// immediately-expired preparation context
+	shd, idx := testShard(t, ctx, className, func(idx *Index) {
+		idx.Config.HaltForTransferTimeout = 0
+	})
+
+	obj := testObject(className)
+	require.NoError(t, shd.PutObject(ctx, obj))
+
+	err := shd.HaltForTransfer(ctx, false, 0)
+	require.NoError(t, err)
+
+	require.NoError(t, shd.resumeMaintenanceCycles(ctx))
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
 func TestShard_ConcurrentTransfers(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
