@@ -111,7 +111,7 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 	corpusN := len(commonDocs) + 1 // distinct documents
 	limit := len(commonDocs)       // forces the heap to fill before the rare doc
 
-	got := runBlockMaxWand(t, bucket, []string{commonTerm, rareTerm}, nil, corpusN, limit, nil)
+	got := runBlockMaxWand(t, bucket, []string{commonTerm, rareTerm}, nil, corpusN, limit)
 
 	_, found := got[rareDocID]
 	require.True(t, found,
@@ -128,13 +128,11 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 }
 
 // runBlockMaxWand runs the block-max WAND search the same way createDiskTermFromCV
-// feeds it in production and returns docID -> score across all segments/memtables.
-// runBlockMaxWand searches queries under an optional filter and returns
-// docID->score across all segments. inspect, if non-nil, sees the built disk
-// terms before scoring (for tests asserting per-term state).
-func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, filter helpers.AllowList, corpusN, limit int, inspect func([][]*SegmentBlockMax)) map[uint64]float32 {
+// feeds it in production, under an optional filter, and returns docID -> score
+// across all segments/memtables.
+func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, filter helpers.AllowList, corpusN, limit int) map[uint64]float32 {
 	t.Helper()
-	got, err := queryBlockMaxWand(bucket, queries, filter, corpusN, limit, inspect)
+	got, err := queryBlockMaxWand(bucket, queries, filter, corpusN, limit, nil)
 	require.NoError(t, err)
 	return got
 }
@@ -142,6 +140,8 @@ func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, filter help
 // queryBlockMaxWand is the require-free core of runBlockMaxWand: it returns an
 // error instead of failing the test, so it is safe to call from goroutines other
 // than the test's (require's FailNow must not run off the test goroutine).
+// inspect, if non-nil, sees the built disk terms before scoring (for tests
+// asserting per-term state).
 func queryBlockMaxWand(bucket *Bucket, queries []string, filter helpers.AllowList, corpusN, limit int, inspect func([][]*SegmentBlockMax)) (map[uint64]float32, error) {
 	ctx := context.Background()
 

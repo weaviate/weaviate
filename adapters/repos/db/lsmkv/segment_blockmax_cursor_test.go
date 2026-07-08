@@ -70,7 +70,7 @@ func TestBlockMaxWandCursorAdmissibility(t *testing.T) {
 	}
 
 	search := func(t *testing.T, bucket *Bucket, filter helpers.AllowList) map[uint64]float32 {
-		return runBlockMaxWand(t, bucket, queries, filter, corpusN, limit, nil)
+		return runBlockMaxWand(t, bucket, queries, filter, corpusN, limit)
 	}
 
 	// every 4th doc, from every band, so deletions hit all containers
@@ -84,8 +84,10 @@ func TestBlockMaxWandCursorAdmissibility(t *testing.T) {
 		tombstone        bool
 		flushAfterDelete bool // segment tombstones instead of memtable ones
 		filterEvery      int  // keep every n-th doc; 0 = no filter
+		wrapFilter       bool // wrap the filter so it is not a *BitmapAllowList, exercising filterContains' interface fallback instead of the cursor
 	}{
 		{name: "bitmap_filter", filterEvery: 2},
+		{name: "wrapped_filter", filterEvery: 2, wrapFilter: true},
 		{name: "memtable_tombstones", tombstone: true},
 		{name: "segment_tombstones", tombstone: true, flushAfterDelete: true},
 		{name: "filter_and_memtable_tombstones", tombstone: true, filterEvery: 2},
@@ -128,6 +130,9 @@ func TestBlockMaxWandCursorAdmissibility(t *testing.T) {
 					}
 				}
 				filter = helpers.NewAllowListFromBitmap(bm)
+				if tc.wrapFilter {
+					filter = filter.WrapOnWrite()
+				}
 			}
 
 			got := search(t, bucket, filter)

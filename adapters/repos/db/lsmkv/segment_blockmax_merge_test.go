@@ -54,7 +54,7 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 	// nil'd, so the identity assertion below can't pass vacuously on a merge that
 	// silently no-op'd.
 	search := func(t *testing.T, bucket *Bucket, filter helpers.AllowList, wantMerge bool) map[uint64]float32 {
-		return runBlockMaxWand(t, bucket, queries, filter, corpusN, limit, func(diskTerms [][]*SegmentBlockMax) {
+		got, err := queryBlockMaxWand(bucket, queries, filter, corpusN, limit, func(diskTerms [][]*SegmentBlockMax) {
 			folded := 0
 			for _, seg := range diskTerms {
 				for _, tm := range seg {
@@ -69,6 +69,8 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 				require.Zero(t, folded, "merge fired when the gate should have skipped it")
 			}
 		})
+		require.NoError(t, err)
+		return got
 	}
 
 	cases := []struct {
