@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const DEFAULT_POLICY_VERSION = "1.29.0"
@@ -154,6 +155,12 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
 // local config
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
+	if namespacesEnabled {
+		if err := rejectNamespacedRootSubjects(conf); err != nil {
+			return err
+		}
+	}
+
 	// Wipe all four built-in role policies before re-registering. The
 	// canonical shape lives in code; rebuilding from scratch on every boot
 	// keeps the on-disk policy CSV honest.
@@ -281,141 +288,68 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 }
 
 var (
-	schemaCollectionsPrefix  = authorization.SchemaDomain + "/collections/"
-	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
-	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
-	usersPrefix              = authorization.UsersDomain + "/"
-
 	// Operator-only domain prefixes; see operatorOnlyResource.
 	backupsPrefix    = authorization.BackupsDomain + "/"
 	nodesPrefix      = authorization.NodesDomain + "/"
 	replicatePrefix  = authorization.ReplicateDomain + "/"
 	clusterPrefix    = authorization.ClusterDomain + "/"
 	namespacesPrefix = authorization.NamespacesDomain + "/"
+	groupsPrefix     = authorization.GroupsDomain + "/"
 )
 
-const (
-	shardsMidSeg  = "/shards/"
-	aliasesMidSeg = "/aliases/"
-)
+// rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
+// is configured for the root role: a namespaced principal must never inherit
+// cluster-wide root. read-only has no static user list (groups only, deferred
+// to namespaced groups), so root users are the only static subject to guard.
+func rejectNamespacedRootSubjects(conf rbacconf.Config) error {
+	for _, u := range conf.RootUsers {
+		if strings.Contains(u, schema.NamespaceSeparator) {
+			return fmt.Errorf("RBAC root user %q is namespace-qualified; a namespaced principal cannot inherit the root role", u)
+		}
+	}
+	return nil
+}
 
 // anyNamespacePattern matches exactly one `<ns>:` prefix.
 var anyNamespacePattern = "[^/" + schema.NamespaceSeparator + "]+" + schema.NamespaceSeparator
 
-// findNamespaceSegments returns the [start, end) bounds of the collection-name
-// segment in path for the known shapes (schema/data/aliases). end == 0 means
-// path is not namespaceable. hasAlias reports whether path also has a 2nd
-// namespace-bearing alias segment, located at
-// [end + len(aliasesMidSeg), len(path)).
-func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
-	if rest, ok := strings.CutPrefix(path, schemaCollectionsPrefix); ok {
-		idx := strings.Index(rest, shardsMidSeg)
-		if idx == -1 {
-			return 0, 0, false
-		}
-		s := len(schemaCollectionsPrefix)
-		return s, s + idx, false
-	}
-	if rest, ok := strings.CutPrefix(path, dataCollectionsPrefix); ok {
-		idx := strings.Index(rest, shardsMidSeg)
-		if idx == -1 {
-			return 0, 0, false
-		}
-		s := len(dataCollectionsPrefix)
-		return s, s + idx, false
-	}
-	if rest, ok := strings.CutPrefix(path, aliasesCollectionsPrefix); ok {
-		idx := strings.Index(rest, aliasesMidSeg)
-		if idx == -1 {
-			return 0, 0, false
-		}
-		s := len(aliasesCollectionsPrefix)
-		return s, s + idx, true
-	}
-	// users/<id> is terminal — the id runs to end of string (no /shards/ or
-	// /aliases/ delimiter like the collection shapes above).
-	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
-		return len(usersPrefix), len(path), false
-	}
-	// groups/ is intentionally not registered: a colon-bearing group id is
-	// matched literally. Don't add it without also short-circuiting groups/
-	// in globalCallerNeedsNoWidening, or such ids would wrongly widen.
-	return 0, 0, false
-}
-
-// segmentHasSeparator reports whether path[start:end] contains the namespace separator.
-func segmentHasSeparator(path string, start, end int) bool {
-	return strings.IndexByte(path[start:end], schema.NamespaceSeparator[0]) >= 0
-}
-
-// rewriteSegment appends prefix+seg to b (unqualified policy segment) or seg
-// verbatim (already-qualified). In fixedNs mode an already-qualified segment
-// must start with prefix exactly, otherwise ok=false.
-func rewriteSegment(b *strings.Builder, policy string, start, end int, prefix string, fixedNs bool) (ok bool) {
-	if segmentHasSeparator(policy, start, end) {
-		if fixedNs && !strings.HasPrefix(policy[start:end], prefix) {
-			return false
-		}
-		b.WriteString(policy[start:end])
-		return true
-	}
-	b.WriteString(prefix)
-	b.WriteString(policy[start:end])
-	return true
-}
+// errForeignSegment aborts a fixed-ns rewrite when an already-qualified policy
+// segment names a different namespace; it maps to a cross-namespace deny.
+var errForeignSegment = errors.New("policy segment names a different namespace")
 
 // rewritePolicy specializes (fixedNs=true, prefix=`<ns>:`) or widens
 // (fixedNs=false, prefix=anyNamespacePattern) the namespace-bearing segments
 // of policy. Returns ok=false in fixedNs mode if any already-qualified
 // segment names a different namespace.
-func rewritePolicy(policy string, colStart, colEnd int, hasAlias bool, prefix string, fixedNs bool) (string, bool) {
-	segCount := 1
-	if hasAlias {
-		segCount = 2
-	}
-	var b strings.Builder
-	b.Grow(len(policy) + segCount*len(prefix))
-
-	b.WriteString(policy[:colStart])
-	if !rewriteSegment(&b, policy, colStart, colEnd, prefix, fixedNs) {
+func rewritePolicy(policy, prefix string, fixedNs bool) (string, bool) {
+	rewritten, err := namespacing.RewriteNamespaceSegments(policy, func(segment string) (string, error) {
+		if strings.Contains(segment, schema.NamespaceSeparator) {
+			if fixedNs && !strings.HasPrefix(segment, prefix) {
+				return "", errForeignSegment
+			}
+			return segment, nil
+		}
+		return prefix + segment, nil
+	})
+	if err != nil {
 		return "", false
 	}
-	if !hasAlias {
-		b.WriteString(policy[colEnd:])
-		return b.String(), true
-	}
-
-	aliasStart := colEnd + len(aliasesMidSeg)
-	aliasEnd := len(policy)
-	b.WriteString(policy[colEnd:aliasStart])
-	if !rewriteSegment(&b, policy, aliasStart, aliasEnd, prefix, fixedNs) {
-		return "", false
-	}
-	return b.String(), true
-}
-
-// globalCallerNeedsNoWidening reports whether a global caller's (ns == "")
-// request matches the policy literally rather than widening: true when it has
-// no ':', or is a users/<id> resource (a user id may contain ':', which is
-// part of the id, not a namespace prefix).
-func globalCallerNeedsNoWidening(reqObj string) bool {
-	if strings.HasPrefix(reqObj, usersPrefix) {
-		return true
-	}
-	return strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) < 0
+	return rewritten, true
 }
 
 // operatorOnlyResource reports whether path addresses an operator-only domain
-// (backups, nodes, replicate, cluster, namespaces). A namespaced caller is
-// denied these regardless of any role granting them. roles and groups are
-// excluded: their resources are namespace-bearing via qualified names, so a
-// blanket prefix-deny would be wrong for them.
+// (backups, nodes, replicate, cluster, namespaces, groups). A namespaced caller
+// is denied these regardless of any role granting them. Groups are global:
+// their ids are not namespace-bearing, so a namespaced caller must never reach
+// them. roles is excluded: role resources are namespace-bearing via qualified
+// names, so a blanket prefix-deny would be wrong for them.
 func operatorOnlyResource(path string) bool {
 	return strings.HasPrefix(path, backupsPrefix) ||
 		strings.HasPrefix(path, nodesPrefix) ||
 		strings.HasPrefix(path, replicatePrefix) ||
 		strings.HasPrefix(path, clusterPrefix) ||
-		strings.HasPrefix(path, namespacesPrefix)
+		strings.HasPrefix(path, namespacesPrefix) ||
+		strings.HasPrefix(path, groupsPrefix)
 }
 
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
@@ -439,16 +373,17 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 //     non-namespaceable shape: no rewrite.
 //
 // Namespaced callers are denied the operator-only domains (backups, nodes,
-// replicate, cluster, namespaces) outright.
+// replicate, cluster, namespaces, groups) outright.
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	// Namespaced callers have no access to operator-only domains, whatever the policy.
 	if ns != "" && operatorOnlyResource(reqObj) {
 		return false
 	}
 
-	// Trivial passthrough (see globalCallerNeedsNoWidening). Only
-	// collection/data/aliases segments treat ':' as a namespace boundary.
-	if ns == "" && globalCallerNeedsNoWidening(reqObj) {
+	// Trivial passthrough: a global caller that needs no widening matches the
+	// policy literally. Only collection/data/aliases/roles segments treat ':'
+	// as a namespace boundary.
+	if ns == "" && !namespacing.GlobalCallerWidens(reqObj) {
 		return weaviateKeyMatch(reqObj, polObj)
 	}
 
@@ -477,13 +412,13 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	//   - ns=""          → policy becomes "schema/collections/[^/:]+:Movies.*/shards/#"
 	//     (widen);       KeyMatch5 matches any namespace prefix.
 
-	// 1. Locate the collection segment in each path. findNamespaceSegments
+	// 1. Locate the collection segment in each path. FindNamespaceSegments
 	//    returns its [start, end) bounds and a flag set on aliases paths,
 	//    which carry a *second* namespace-bearing segment after "/aliases/".
 	//    The request side only needs end+hasAlias (for the shape check
 	//    below); we don't rewrite the request, so its start is discarded.
-	polColStart, polColEnd, polHasAlias := findNamespaceSegments(polObj)
-	_, reqColEnd, reqHasAlias := findNamespaceSegments(reqObj)
+	_, polColEnd, polHasAlias := namespacing.FindNamespaceSegments(polObj)
+	_, reqColEnd, reqHasAlias := namespacing.FindNamespaceSegments(reqObj)
 
 	// 2. Shape check. If either path isn't a namespaceable shape (end==0),
 	//    or the two disagree on alias-ness (one is schema/data, the other
@@ -499,7 +434,7 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	//     namespace and rewritePolicy returns ok=false → cross-namespace
 	//     deny.
 	if ns != "" {
-		rewritten, ok := rewritePolicy(polObj, polColStart, polColEnd, polHasAlias, ns+schema.NamespaceSeparator, true)
+		rewritten, ok := rewritePolicy(polObj, ns+schema.NamespaceSeparator, true)
 		if !ok {
 			return false
 		}
@@ -512,7 +447,7 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	//
 	// 4.  Final KeyMatch5, with the /shards/# carve-out so a
 	//     collection-level request doesn't satisfy a per-tenant policy.
-	rewritten, _ := rewritePolicy(polObj, polColStart, polColEnd, polHasAlias, anyNamespacePattern, false)
+	rewritten, _ := rewritePolicy(polObj, anyNamespacePattern, false)
 	return weaviateKeyMatch(reqObj, rewritten)
 }
 

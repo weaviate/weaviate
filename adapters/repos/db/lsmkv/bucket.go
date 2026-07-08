@@ -605,7 +605,10 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+	// logger nil-guard: test buckets are built as bare literals without one, and
+	// under load this slow-lock branch can fire (RLock timed >100ms) where it never
+	// would in production; a nil FieldLogger would then panic on WithFields.
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond && b.logger != nil {
 		b.logger.WithFields(logrus.Fields{
 			"duration": duration,
 			"action":   "lsm_bucket_get_acquire_flush_lock",
@@ -775,6 +778,23 @@ func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, s
 		return nil, buffer, nil
 	}
 	return v, allocBuf, err
+}
+
+// SecondaryViewLookup acquires a single consistent view and returns a lookup
+// function bound to it, together with a release function. Reusing one view
+// across many secondary-key lookups avoids acquiring a fresh view (flush lock,
+// segment snapshot, and per-segment refcount churn) for every lookup. The
+// returned lookup is safe for concurrent use; call release exactly once, after
+// all lookups are done.
+func (b *Bucket) SecondaryViewLookup() (
+	func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error),
+	func(),
+) {
+	view := b.GetConsistentView()
+	lookup := func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error) {
+		return b.GetBySecondaryWithBufferAndView(ctx, pos, seckey, buffer, view)
+	}
+	return lookup, view.ReleaseView
 }
 
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
@@ -1549,6 +1569,27 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
+// CountApproximate is a cheap O(#segments) alternative to Count: exact
+// per-segment counts plus each memtable's approximate counter (see
+// Memtable.netCountAdditions for the drift bounds).
+func (b *Bucket) CountApproximate() (int, error) {
+	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
+		return 0, fmt.Errorf("Bucket::CountApproximate(): %w", err)
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	count := b.disk.countWithSegmentList(view.Disk) + view.Active.netCount()
+	if view.Flushing != nil {
+		count += view.Flushing.netCount()
+	}
+	if count < 0 {
+		count = 0
+	}
+	return count, nil
+}
+
 func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
 	segments []Segment,
 ) (int, error) {
@@ -2319,15 +2360,18 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 
 		// we can only know the full n after we have checked all segments and all memtables
-		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
+		idfs[i] = terms.Idf(float64(n), N) * float64(duplicateTextBoosts[i])
 
+		// currentBlockImpact is a max-score upper bound, so it must carry
+		// propertyBoost like Score and computeCurrentBlockImpact; bare idf
+		// under-counts boosted terms and prunes genuine top-K docs.
 		if active != nil {
 			active.idf = idfs[i]
-			active.currentBlockImpact = float32(idfs[i])
+			active.currentBlockImpact = float32(idfs[i] * active.propertyBoost)
 		}
 		if flushing != nil {
 			flushing.idf = idfs[i]
-			flushing.currentBlockImpact = float32(idfs[i])
+			flushing.currentBlockImpact = float32(idfs[i] * flushing.propertyBoost)
 		}
 
 		idfCounts[queryTerm] = n

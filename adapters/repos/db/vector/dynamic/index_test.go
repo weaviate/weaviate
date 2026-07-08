@@ -13,7 +13,9 @@ package dynamic
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -32,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -355,6 +358,166 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("upgrade callback was not called")
 	}
+}
+
+// newUpgradeTestDynamic builds a minimal dynamic index with vectorsSize indexed
+// vectors and ShouldUpgrade()==true, for exercising Upgrade's retry/re-entrancy paths.
+func newUpgradeTestDynamic(t *testing.T, vectorsSize int) *dynamic {
+	t.Helper()
+	ctx := context.Background()
+	dimensions := 4
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	dyn, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:              t.TempDir(),
+		ID:                    "upgrade-retry-test",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      dist,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}, ent.UserConfig{
+		Threshold: uint64(vectorsSize),
+		Distance:  dist.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	for i, v := range vectors {
+		require.NoError(t, dyn.Add(ctx, uint64(i), v))
+	}
+
+	shouldUpgrade, _ := dyn.ShouldUpgrade()
+	require.True(t, shouldUpgrade)
+	require.False(t, dyn.Upgraded())
+
+	return dyn
+}
+
+// Regression test (weaviate/0-weaviate-issues#296): a failed or panicked
+// upgrade attempt (GoWrapper recovers the panic) must still fire the callback
+// and re-arm status so a later Upgrade call can retry.
+func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
+	cases := []struct {
+		name string
+		hook func() error
+	}{
+		{"error", func() error { return errors.New("injected upgrade failure") }},
+		{"panic", func() error { panic("injected upgrade panic") }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "panic" && entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				// without GoWrapper's recover the panic kills the process by
+				// design; retry-after-panic only exists in recovery mode.
+				t.Skip("panic recovery disabled")
+			}
+			dyn := newUpgradeTestDynamic(t, 10)
+			realUpgrade := dyn.upgradeFn
+			dyn.upgradeFn = tc.hook
+
+			firstCallback := make(chan struct{})
+			require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
+			select {
+			case <-firstCallback:
+			case <-time.After(5 * time.Second):
+				t.Fatal("first upgrade callback was not invoked")
+			}
+			require.False(t, dyn.IsUpgraded(), "a failed attempt must not report as upgraded")
+
+			// restore the real rebuild so the retry can actually complete.
+			dyn.upgradeFn = realUpgrade
+
+			secondCallback := make(chan struct{})
+			require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
+			select {
+			case <-secondCallback:
+			case <-time.After(5 * time.Second):
+				t.Fatal("second upgrade callback was not invoked -- status stuck, retry never ran")
+			}
+			require.True(t, dyn.IsUpgraded(), "the retried upgrade must actually complete")
+		})
+	}
+}
+
+// Regression test: a mid-upgrade Upgrade call must invoke its own callback
+// immediately instead of blocking on the in-flight attempt.
+func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
+	dyn := newUpgradeTestDynamic(t, 10)
+
+	block := make(chan struct{})
+	dyn.upgradeFn = func() error {
+		<-block
+		return nil
+	}
+
+	firstCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
+	// TryUpgrading flips status synchronously, so this is guaranteed "mid-upgrade".
+	require.True(t, dyn.status.IsUpgrading())
+
+	secondCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
+
+	select {
+	case <-secondCallback:
+	default:
+		t.Fatal("a mid-upgrade Upgrade call must invoke its own callback synchronously")
+	}
+
+	select {
+	case <-firstCallback:
+		t.Fatal("the in-flight attempt's callback must not have fired yet")
+	default:
+	}
+
+	close(block)
+	select {
+	case <-firstCallback:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first upgrade callback was never invoked after unblocking")
+	}
+}
+
+// Regression test: Upgrade after Shutdown must invoke the callback inline,
+// since no goroutine is spawned to do it later.
+func TestDynamicUpgradeAfterShutdownInvokesCallbackSynchronously(t *testing.T) {
+	dyn := newUpgradeTestDynamic(t, 10)
+
+	require.NoError(t, dyn.Shutdown(context.Background()))
+
+	called := false
+	err := dyn.Upgrade(func() { called = true })
+	require.Error(t, err)
+	require.True(t, called, "Upgrade must invoke the callback even when it short-circuits on a closed context")
 }
 
 func TestDynamicUpgradeCompression(t *testing.T) {

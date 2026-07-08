@@ -1088,6 +1088,9 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "No role found."
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -12050,6 +12053,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "No role found."
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",

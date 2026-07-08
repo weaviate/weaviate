@@ -273,6 +273,25 @@ func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTree
 	return &pb.HashTreeLevelResponse{DigestsData: data}, nil
 }
 
+func (s *ReplicationService) CompareHashTreeRoots(ctx context.Context, req *pb.CompareHashTreeRootsRequest) (*pb.CompareHashTreeRootsResponse, error) {
+	shards := req.GetShardRootDigests()
+	if len(shards) > replica.CompareHashTreeRootsMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument, "too many shards: %d exceeds maximum %d",
+			len(shards), replica.CompareHashTreeRootsMaxShardsPerRequest)
+	}
+	roots := make(map[string]hashtree.Digest, len(shards))
+	for _, sr := range shards {
+		roots[sr.GetShard()] = hashtree.Digest{sr.GetRootHashHigh(), sr.GetRootHashLow()}
+	}
+
+	diverging, err := s.server.CompareHashTreeRoots(ctx, req.GetIndex(), roots)
+	if err != nil {
+		return nil, replicationErrorToGRPC(err)
+	}
+
+	return &pb.CompareHashTreeRootsResponse{DivergingShards: diverging}, nil
+}
+
 func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {
 	count, err := s.server.CountObjects(ctx, req.GetIndex(), req.GetShard())
 	if err != nil {

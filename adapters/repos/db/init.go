@@ -175,6 +175,7 @@ func (db *DB) init(ctx context.Context) error {
 				}(),
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
+				HaltForTransferTimeout:                       db.config.HaltForTransferTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
 				SkipWriteClassNameOnDisk:                     db.config.LSMSkipWriteClassNameEnabled,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,

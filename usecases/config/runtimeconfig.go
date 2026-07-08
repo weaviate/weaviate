@@ -50,6 +50,7 @@ type WeaviateRuntimeConfig struct {
 	AsyncReplicationPropagationConcurrency    *runtime.DynamicValue[int]           `json:"async_replication_propagation_concurrency" yaml:"async_replication_propagation_concurrency"`
 	AsyncReplicationPropagationBatchSize      *runtime.DynamicValue[int]           `json:"async_replication_propagation_batch_size" yaml:"async_replication_propagation_batch_size"`
 	AsyncReplicationPropagationDelay          *runtime.DynamicValue[time.Duration] `json:"async_replication_propagation_delay" yaml:"async_replication_propagation_delay"`
+	AsyncReplicationRootPrefilterBatchSize    *runtime.DynamicValue[int]           `json:"async_replication_root_prefilter_batch_size" yaml:"async_replication_root_prefilter_batch_size"`
 	RevectorizeCheckDisabled                  *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
 	TenantActivityReadLogLevel                *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
 	TenantActivityWriteLogLevel               *runtime.DynamicValue[string]        `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
@@ -62,7 +63,7 @@ type WeaviateRuntimeConfig struct {
 	UsageS3Bucket                             *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
 	UsageS3Prefix                             *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
 	UsageScrapeInterval                       *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
-	UsageShardJitterInterval                  *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
+	UsageShardConcurrency                     *runtime.DynamicValue[int]           `json:"usage_shard_concurrency" yaml:"usage_shard_concurrency"`
 	UsagePolicyVersion                        *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 	UsageVerifyPermissions                    *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 	ReplicationGRPCEnabled                    *runtime.DynamicValue[bool]          `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
@@ -74,6 +75,8 @@ type WeaviateRuntimeConfig struct {
 	AllowedCompressionTypes                   *runtime.DynamicValue[[]string]      `yaml:"allowed_compression_types" json:"allowed_compression_types"`
 	RestrictionsErrorMessage                  *runtime.DynamicValue[string]        `yaml:"restrictions_error_message" json:"restrictions_error_message"`
 	DebugEndpointsEnabled                     *runtime.DynamicValue[bool]          `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
+	GRPCWebEnabled                            *runtime.DynamicValue[bool]          `json:"grpc_web_enabled" yaml:"grpc_web_enabled"`
+	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
 

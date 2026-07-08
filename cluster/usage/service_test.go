@@ -85,6 +85,8 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
@@ -212,6 +214,8 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(className).Return(len(shardingState.Physical), nil)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 

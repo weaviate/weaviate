@@ -24,7 +24,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,39 +57,24 @@ const (
 
 type replicationClient struct {
 	retryClient
-	zstdEncoderPool sync.Pool
+	// Shared instance: EncodeAll is concurrency-safe and internally multiplexes GOMAXPROCS sub-encoders.
+	zstdEncoder *zstd.Encoder
 }
 
 var _ replica.Client = (*replicationClient)(nil)
 
 func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
-	// Verify encoder creation works at startup before returning the client.
 	enc, err := zstd.NewWriter(nil)
 	if err != nil {
 		return nil, fmt.Errorf("create zstd encoder: %w", err)
 	}
-	c := &replicationClient{
+	return &replicationClient{
 		retryClient: retryClient{
 			client:  httpClient,
 			retryer: newRetryer(),
 		},
-	}
-	// zstdEncoderPool amortizes *zstd.Encoder creation cost across calls.
-	// EncodeAll is safe for concurrent use on a single encoder, but allocating
-	// a fresh encoder on every RPC has measurable overhead; the pool reuses
-	// instances instead. New returns nil on failure; call sites guard with an
-	// ok+nil check and fall back to creating a fresh encoder.
-	c.zstdEncoderPool = sync.Pool{
-		New: func() any {
-			e, err := zstd.NewWriter(nil)
-			if err != nil {
-				return nil
-			}
-			return e
-		},
-	}
-	c.zstdEncoderPool.Put(enc)
-	return c, nil
+		zstdEncoder: enc,
+	}, nil
 }
 
 // FetchObject fetches one object it exits
@@ -308,15 +292,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
 	}
 
-	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
-	if !ok || enc == nil {
-		enc, err = zstd.NewWriter(nil)
-		if err != nil {
-			return nil, fmt.Errorf("create zstd encoder: %w", err)
-		}
-	}
-	bodyBytes := enc.EncodeAll(body, make([]byte, 0, len(body)))
-	c.zstdEncoderPool.Put(enc)
+	bodyBytes := c.zstdEncoder.EncodeAll(body, make([]byte, 0, len(body)))
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
 	defer cancel()
@@ -350,6 +326,49 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	var result []hashtree.Digest
 	err = json.NewDecoder(res.Body).Decode(&result)
 	return result, err
+}
+
+func (c *replicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	wireRoots := make(map[string][2]uint64, len(roots))
+	for shard, root := range roots {
+		wireRoots[shard] = [2]uint64(root)
+	}
+	body, err := json.Marshal(replica.CompareHashTreeRootsReq{Roots: wireRoots})
+	if err != nil {
+		return nil, fmt.Errorf("marshal compare hashtree roots request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
+	defer cancel()
+
+	req, err := newHttpReplicaIndexRequest(ctx, http.MethodPost, host, index,
+		"_compareHashTreeRoots", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusNotFound {
+		// Older peers don't expose this route; fall back to the per-shard path.
+		return nil, replica.ErrCompareHashTreeRootsUnsupported
+	}
+	if code := res.StatusCode; !successCode(code) {
+		errBody, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
+	}
+
+	var resp replica.CompareHashTreeRootsResp
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode compare hashtree roots response: %w", err)
+	}
+	return resp.DivergingShards, nil
 }
 
 func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
@@ -514,15 +533,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
 
-	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
-	if !ok || enc == nil {
-		enc, err = zstd.NewWriter(nil)
-		if err != nil {
-			return nil, fmt.Errorf("create zstd encoder: %w", err)
-		}
-	}
-	bodyCompressed := enc.EncodeAll(body, make([]byte, 0, len(body)))
-	c.zstdEncoderPool.Put(enc)
+	bodyCompressed := c.zstdEncoder.EncodeAll(body, make([]byte, 0, len(body)))
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,
@@ -759,6 +770,16 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 	}
 	u.RawQuery = urlValues.Encode()
 
+	return http.NewRequestWithContext(ctx, method, u.String(), body)
+}
+
+// newHttpReplicaIndexRequest builds an index-level (shard-less) replica request.
+func newHttpReplicaIndexRequest(ctx context.Context, method, host, index, suffix string, body io.Reader) (*http.Request, error) {
+	u := url.URL{
+		Scheme: "http",
+		Host:   host,
+		Path:   fmt.Sprintf("/replicas/indices/%s/objects/%s", index, suffix),
+	}
 	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }
 

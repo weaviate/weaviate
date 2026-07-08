@@ -34,7 +34,7 @@ func setupRestartDuringReindex(
 
 	uri := restURIOf(compose, 1)
 	trueVal := true
-	createCollection(t, uri, className, 3, 3, []*models.Property{
+	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
 		{
 			Name:            "path",
 			DataType:        []string{"text"},
@@ -162,7 +162,7 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	className := "RollingRestart"
 	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() {
