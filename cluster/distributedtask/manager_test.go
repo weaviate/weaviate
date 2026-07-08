@@ -1576,7 +1576,7 @@ func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed []s
 	return f.gateReject
 }
 
-// TestManager_CheckVectorConfigRemoval_DispatchToGates pins the S15 dispatch:
+// TestManager_CheckVectorConfigRemoval_DispatchToGates pins the dispatch:
 // CheckVectorConfigRemoval consults only detectors that also implement
 // VectorConfigRemovalGate, passes the namespace-scoped task list, propagates the
 // gate's rejection, and is a no-op for an empty removal list.

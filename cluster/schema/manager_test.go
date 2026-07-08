@@ -798,7 +798,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	})
 }
 
-// TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the S15 gate wiring
+// TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
 // on the UpdateClass apply path: when an update removes a dropped ("none")
 // VectorConfig entry, the MutationGuard MUST be consulted with the removed names
 // and its rejection MUST propagate; an update that removes no dropped entry must

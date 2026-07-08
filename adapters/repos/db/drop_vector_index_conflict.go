@@ -109,12 +109,12 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 	for _, vec := range removedVectors {
 		// Epoch protection: a still-stripping NEWER drop of the same name blocks a
 		// replayed old task's removal. SWAPPING doesn't block (self-block).
-		if id, active := stripInFlightDropCovers(className, vec, existingTasks); active {
+		if id, active := p.dropCovers(className, vec, existingTasks, stillStrippingStatus); active {
 			return fmt.Errorf(
 				"cannot remove dropped vector %q on %s: cleanup task %q is still active for it",
 				vec, className, id)
 		}
-		if !completedDropCovers(className, vec, existingTasks) {
+		if _, ok := p.dropCovers(className, vec, existingTasks, completedStatus); !ok {
 			return fmt.Errorf(
 				"cannot remove dropped vector %q on %s: no completed cleanup task covers it; "+
 					"the data may still be being stripped, or the completed task record has aged out — "+
@@ -125,16 +125,33 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 	return nil
 }
 
-// stripInFlightDropCovers reports whether a still-stripping (pre-SWAPPING)
-// drop-vector task covers vec on className, returning its ID. Unparseable
-// payloads are skipped (fail-open, consistent with the other detectors).
-func stripInFlightDropCovers(className, vec string, existingTasks []*distributedtask.Task) (string, bool) {
+// stillStrippingStatus matches tasks whose data work is still in flight
+// (pre-SWAPPING); these block removal.
+func stillStrippingStatus(s distributedtask.TaskStatus) bool {
+	return s.IsActive() && s != distributedtask.TaskStatusSwapping
+}
+
+// completedStatus matches tasks whose every unit succeeded (data stripped);
+// these vouch for removal.
+func completedStatus(s distributedtask.TaskStatus) bool {
+	return s == distributedtask.TaskStatusSwapping || s == distributedtask.TaskStatusFinished
+}
+
+// dropCovers reports whether a drop-vector task matching statusMatch covers vec
+// on className, returning its ID. An unparseable payload is skipped with a warn
+// (fail-open, consistent with the other detectors), so a corrupt task can
+// neither vouch nor block.
+func (p *DropVectorIndexProvider) dropCovers(className, vec string, existingTasks []*distributedtask.Task,
+	statusMatch func(distributedtask.TaskStatus) bool,
+) (string, bool) {
 	for _, task := range existingTasks {
-		if !task.Status.IsActive() || task.Status == distributedtask.TaskStatusSwapping {
+		if !statusMatch(task.Status) {
 			continue
 		}
 		existP, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
+			p.logger.WithField("task", task.ID).
+				Warnf("drop-vector: skipping task with unparseable payload in removal gate: %v", err)
 			continue
 		}
 		if !strings.EqualFold(existP.Collection, className) {
@@ -145,29 +162,6 @@ func stripInFlightDropCovers(className, vec string, existingTasks []*distributed
 		}
 	}
 	return "", false
-}
-
-// completedDropCovers reports whether a SWAPPING or FINISHED drop-vector task
-// (all units succeeded — data stripped) covers vec on className. An unparseable
-// payload is skipped, so a corrupt task can't vouch for an unrelated removal.
-func completedDropCovers(className, vec string, existingTasks []*distributedtask.Task) bool {
-	for _, task := range existingTasks {
-		if task.Status != distributedtask.TaskStatusFinished &&
-			task.Status != distributedtask.TaskStatusSwapping {
-			continue
-		}
-		existP, err := decodeDropVectorIndexPayload(task.Payload)
-		if err != nil {
-			continue
-		}
-		if !strings.EqualFold(existP.Collection, className) {
-			continue
-		}
-		if len(intersectTargets(existP.Targets, []string{vec})) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // LocalCallbacksDone implements distributedtask.RecoveryAwareProvider. It returns
