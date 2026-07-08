@@ -18,7 +18,7 @@ jobs:
         env:
           REL_TAG: ${{ github.event.release.tag_name }}
           REL_URL: ${{ github.event.release.html_url }}
-          REL_BODY: ${{ github.event.release.body }}          
+          REL_BODY: ${{ github.event.release.body }}
           CC_USER_ID: ${{ secrets.SLACK_CC_USER_ID }}
         run: |
           set -euo pipefail
@@ -56,8 +56,13 @@ jobs:
               # All-whitespace body (spaces, tabs, newlines) counts as empty.
               (if ($changes | test("[^[:space:]]")) then $changes else "_(see release notes below)_" end) as $c
               | (if ($c | length) > 2500 then ($c[0:2500] + "…") else $c end) as $c
+              # $cc holds a bare Slack ID. Pick the mrkdwn wrapper from its prefix:
+              # a user group (S…) mentions as <!subteam^ID>, a user (U…/W…) as <@ID>.
+              | (if ($cc | length) == 0 then ""
+                 elif ($cc | startswith("S")) then "\n\ncc: <!subteam^\($cc)>"
+                 else "\n\ncc: <@\($cc)>" end) as $mention
               | ":tada: Weaviate Core `\($number)` release :tada:\n\nThis release contains:\n\n\($c)\n\nRelease notes: \($url)"
-                + (if ($cc | length) > 0 then "\n\ncc: <@\($cc)>" else "" end)
+                + $mention
               | { blocks: [ { type: "section", text: { type: "mrkdwn", text: . } } ] }
             ' > payload.json
 
