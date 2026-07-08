@@ -13,11 +13,8 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"hash/crc32"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -282,11 +279,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			// updateIndexShards' add/remove/keep behavior and the eager⇒*Shard /
 			// lazy⇒*LazyLoadShard contract rather than the empty-tenant deferral.
 			for _, shardName := range tt.initialShards {
-				shardDir := filepath.Join(rootPath, indexID(schema.ClassName("TestClass")), shardName)
-				require.NoError(t, os.MkdirAll(shardDir, 0o755))
-				var buf [8]byte
-				binary.LittleEndian.PutUint64(buf[:], 1)
-				require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), buf[:], 0o644))
+				seedShardObjectCounter(t, rootPath, "TestClass", shardName)
 			}
 
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
