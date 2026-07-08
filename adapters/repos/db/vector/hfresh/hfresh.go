@@ -83,10 +83,6 @@ type HFresh struct {
 	muveraEncoder   *multivector.MuveraEncoder
 	trackMuveraOnce sync.Once
 
-	// docToPostings is a reverse map from document IDs to their associated posting IDs.
-	// It is built lazily on first MUVERA search and used for posting expansion.
-	docToPostings *DocToPostings
-
 	// Internal components
 	Centroids     *HNSWIndex          // Provides access to the centroids.
 	PostingStore  *PostingStore       // Used for managing persistence of postings.
@@ -172,7 +168,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 			}).Warnf("muvera config exceeds the allowed bounds; the index will load, but encoding may exhaust memory: %v", err)
 		}
 		h.muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
-		h.docToPostings = NewDocToPostings()
 		if err = store.CreateOrLoadBucket(
 			context.Background(),
 			cfg.ID+"_muvera_vectors",
