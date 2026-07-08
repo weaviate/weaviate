@@ -76,7 +76,9 @@ func TestMuveraSearchBudgets(t *testing.T) {
 // concentrates in the postings nearest the query, so a lower probe often
 // returns the same top-k even though it scans a fraction of the data —
 // top-k equality is a property of the dataset, coverage is a property of
-// the budget.
+// the budget. Any future recall-recovery step that re-widens a narrow
+// probe (e.g. posting expansion) must be disabled here, since masking
+// narrow-probe misses is precisely such a feature's job.
 func TestSearchProbeChangesResults(t *testing.T) {
 	const (
 		nDocs  = 2500
@@ -94,10 +96,6 @@ func TestSearchProbeChangesResults(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return tf.Index.taskQueue.Size() == 0
 	}, 60*time.Second, 100*time.Millisecond, "background tasks did not drain")
-
-	// disable posting expansion: its purpose is to recover candidates a
-	// narrow probe missed, which would mask the routing budget under test
-	tf.Index.docToPostings = nil
 
 	probe := randomMultiVector(rng, tokens, dim)
 	queryFDE := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))

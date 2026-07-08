@@ -7,7 +7,7 @@ Audience: whoever rebases `hfresh-muvera-decouple-routing-rescore` onto
 Files BOTH branches modify (guaranteed conflicts):
 `adapters/repos/db/vector/hfresh/{search.go, insert.go, hfresh.go, helper_for_test.go}`.
 The decouple branch additionally touches `multivector/muvera.go`,
-`index_metadata.go`, `reassign.go`, `posting_expansion.go` (new), and
+`index_metadata.go`, `reassign.go`, and
 `shard_init_vector.go` — no conflicts expected there, but see the semantic
 notes below.
 
@@ -47,7 +47,7 @@ small tolerance for approximate centroid retrieval; don't tighten it).
   query tokens once per query; `maxSimScore` dispatches cosine to
   `maxSimScoreCosine`, which FOLDS the document token inverse norms into the
   dot product instead of normalizing (perf: a normalization pass per
-  candidate costs ~+40% p50). If `searchByFDE`/posting-expansion re-plumb the
+  candidate costs ~+40% p50). If `searchByFDE` re-plumbs the
   rescore, keep `maxSimScoreCosine` as the cosine scorer.
 - `ResultSet.Insert`/`searchByDistance` tie-break by `(distance, id)`
   ascending. `searchByFDE` duplicates the posting-scan loop over `ResultSet`
@@ -97,8 +97,7 @@ at schema parse time (SetDefaults) — "not sent" never reaches the index as
 asserts it). Tests: `TestMuveraSearchBudgets`,
 `TestSearchProbeChangesResults` (asserts candidate COVERAGE changes with the
 probe — top-k equality is data-dependent under IVF concentration, coverage
-is not; posting expansion must stay disabled in that test since recovering
-narrow-probe misses is precisely its job).
+is not).
 
 **Open design question for PR review — expose rerankBudget per query?**
 Today rerankBudget derives from the collection-level `rq.rescoreLimit`
@@ -108,6 +107,15 @@ latency. searchProbe is tunable per collection; rerankBudget arguably
 deserves per-query (or at least independent) exposure so operators can pick
 the trade-off per workload without schema updates. Not implemented —
 decision pending.
+
+**Future investigation:** the exploratory posting-expansion work (a
+recall-recovery step scanning the top candidates' other postings) was
+extracted from this PR and lives on
+`hfresh-muvera-posting-expansion-exploration` (see
+`adapters/repos/db/vector/hfresh/POSTING_EXPANSION_README.md` on that
+branch for its state and open questions — notably its interaction with the
+searchProbe contract: an always-on recall-recovery step and a narrow-probe
+latency knob pull in opposite directions).
 
 ## 5. #281 — bounds are create/update-only (no conflict, semantic note)
 
