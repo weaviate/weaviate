@@ -453,17 +453,7 @@ func (b *Bucket) EditOpQuarantined(opID string) ([]string, error) {
 	if !b.HasEditOps() {
 		return nil, fmt.Errorf("edit ops not enabled for this bucket")
 	}
-	all, err := b.disk.editOps.Quarantined()
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for _, q := range all {
-		if q.OpID == opID {
-			ids = append(ids, q.SegmentID)
-		}
-	}
-	return ids, nil
+	return b.disk.editOps.QuarantinedFor(opID)
 }
 
 func (b *Bucket) GetStrategy() string {

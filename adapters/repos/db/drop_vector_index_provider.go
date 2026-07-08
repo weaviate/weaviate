@@ -337,7 +337,7 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 			// persistent errors fail the unit.
 			consecutiveErrors++
 			if consecutiveErrors >= maxConsecutivePollErrors {
-				return fmt.Errorf("read pending after %d consecutive errors: %w", consecutiveErrors, err)
+				return fmt.Errorf("read pending/quarantine set after %d consecutive errors: %w", consecutiveErrors, err)
 			}
 			p.unitLogger(task, nil, unitID).Warnf("drop-vector: pending read failed (%d/%d), retrying: %v",
 				consecutiveErrors, maxConsecutivePollErrors, err)
