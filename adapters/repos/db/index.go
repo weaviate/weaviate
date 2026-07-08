@@ -922,7 +922,9 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
 	cfg := i.Config.AsyncReplicationConfig
 
-	return i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	// iterate concurrently so one shard's fault can't skip the rest (errors are
+	// accumulated, not first-error abort).
+	return i.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
 		// Stop the per-shard walk if the caller's context (e.g. server
 		// shutdown) was cancelled — the apply below does synchronous disk I/O.
 		if err := ctx.Err(); err != nil {
@@ -1068,6 +1070,7 @@ type IndexConfig struct {
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
+	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool

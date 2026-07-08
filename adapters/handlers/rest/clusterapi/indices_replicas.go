@@ -50,13 +50,16 @@ type replicatedIndices struct {
 	nodeReady func() bool
 }
 
+// maxDecompressedReplicaBody caps decompressed REST replica bodies (matching the gRPC 2 GiB cap) so a zstd bomb can't OOM the receiver.
+const maxDecompressedReplicaBody = 2 << 30 // 2 GiB
+
 // zstdDecoderPool pools *zstd.Decoder instances to avoid the allocation cost
 // of zstd.NewReader on every compressed request. New returns nil only when
 // zstd.NewReader fails during construction; the call site detects this and
 // falls back to newZstdDecoder() to surface the error explicitly.
 var zstdDecoderPool = sync.Pool{
 	New: func() any {
-		dec, err := zstd.NewReader(nil)
+		dec, err := newZstdDecoder()
 		if err != nil {
 			return nil
 		}
@@ -65,12 +68,12 @@ var zstdDecoderPool = sync.Pool{
 }
 
 func newZstdDecoder() (*zstd.Decoder, error) {
-	return zstd.NewReader(nil)
+	return zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecompressedReplicaBody))
 }
 
 var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)(\/[0-9]{1,64})?`)
+		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)(\/[0-9]{1,18})?`)
 	regxOverwriteObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
 	regxCountObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
@@ -498,8 +501,9 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 		defer r.Body.Close()
 
 		reqPayload, err := readRequestBodyWithOptionalCompression(
-			r.Body,
+			http.MaxBytesReader(w, r.Body, maxDecompressedReplicaBody),
 			r.Header.Get("X-Request-Compression"),
+			maxDecompressedReplicaBody,
 		)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -536,12 +540,23 @@ func (i *replicatedIndices) postCompareHashTreeRoots() http.Handler {
 		defer r.Body.Close()
 
 		var req replica.CompareHashTreeRootsReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		body := http.MaxBytesReader(w, r.Body, maxDecompressedReplicaBody)
+		if err := json.NewDecoder(body).Decode(&req); err != nil {
 			http.Error(w, "unmarshal compare hashtree roots request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if len(req.Roots) > replica.CompareHashTreeRootsMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards: %d exceeds maximum %d",
+				len(req.Roots), replica.CompareHashTreeRootsMaxShardsPerRequest), http.StatusBadRequest)
+			return
+		}
 
-		diverging, err := i.replicator.CompareHashTreeRoots(r.Context(), index, req.Roots)
+		roots := make(map[string]hashtree.Digest, len(req.Roots))
+		for shard, root := range req.Roots {
+			roots[shard] = hashtree.Digest(root)
+		}
+
+		diverging, err := i.replicator.CompareHashTreeRoots(r.Context(), index, roots)
 		if err != nil {
 			http.Error(w, "compare hashtree roots: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -624,10 +639,11 @@ func writeHashTreeLevelResponse(w http.ResponseWriter, r *http.Request, results 
 func readRequestBodyWithOptionalCompression(
 	body io.ReadCloser,
 	compressionHeader string,
+	maxDecodedBytes int64,
 ) ([]byte, error) {
 	if compressionHeader == "" {
 		// No compression header – read raw body (backward compatibility)
-		return io.ReadAll(body)
+		return readAllCapped(body, maxDecodedBytes)
 	}
 
 	if compressionHeader != "zstd" {
@@ -656,11 +672,23 @@ func readRequestBodyWithOptionalCompression(
 		}
 	}()
 
-	b, err := io.ReadAll(zstdr)
+	b, err := readAllCapped(zstdr, maxDecodedBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read decompressed body: %w", err)
 	}
 
+	return b, nil
+}
+
+// readAllCapped reads r fully but errors if it yields more than maxBytes, bounding decompressed (or raw) body size.
+func readAllCapped(r io.Reader, maxBytes int64) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > maxBytes {
+		return nil, fmt.Errorf("body exceeds maximum allowed size of %d bytes", maxBytes)
+	}
 	return b, nil
 }
 
@@ -676,8 +704,9 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 
 		defer r.Body.Close()
 		reqPayload, err := readRequestBodyWithOptionalCompression(
-			r.Body,
+			http.MaxBytesReader(w, r.Body, maxDecompressedReplicaBody),
 			r.Header.Get("X-Request-Compression"),
+			maxDecompressedReplicaBody,
 		)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusBadRequest)
@@ -840,6 +869,7 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 			deletionTimeUnixMilli, err := strconv.ParseInt(args[4][1:], 10, 64)
 			if err != nil {
 				http.Error(w, "invalid URI", http.StatusBadRequest)
+				return
 			}
 			deletionTime = time.UnixMilli(deletionTimeUnixMilli)
 		}
