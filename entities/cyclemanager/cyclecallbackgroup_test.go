@@ -117,14 +117,12 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			executedCounter3++
 			return true
 		}
-		// due to async calls of shouldAbort callback by main for loop
-		// and goroutines reading from shared channel it is hard to
-		// establish order of calls.
-		// with 3 callbacks and shouldAbort returning true on 6th call
-		// 1 or 2 callbacks should be executed, but not all 3.
+		// each due callback triggers one shouldAbort check in its worker before
+		// running; with 3 due callbacks and abort tripping after the 2nd check,
+		// the callback picked up third is skipped, so some run but not all 3.
 		shouldAbortCounter := uint32(0)
 		shouldAbort := func() bool {
-			return atomic.AddUint32(&shouldAbortCounter, 1) > 5
+			return atomic.AddUint32(&shouldAbortCounter, 1) > 2
 		}
 		var executed bool
 		var d time.Duration
@@ -250,7 +248,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		executed := callbacks.CycleCallback(shouldNotAbort)
 
 		assert.False(t, executed)
-		assert.Empty(t, callbacks.(*cycleCallbackGroup).callbackIds)
+		assert.Empty(t, callbacks.(*cycleCallbackGroup).dueHeap)
 	})
 
 	t.Run("run with intervals", func(T *testing.T) {
@@ -1209,7 +1207,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		assert.GreaterOrEqual(t, d, 25*time.Millisecond)
 	})
 
-	t.Run("register new while executing", func(t *testing.T) {
+	t.Run("register new while executing runs it on the next tick", func(t *testing.T) {
 		executedCounter1 := 0
 		callback1 := func(shouldAbort ShouldAbortCallback) bool {
 			time.Sleep(50 * time.Millisecond)
@@ -1230,6 +1228,8 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 1)
 		callbacks.Register("c1", callback1)
 
+		// register 2nd callback while the 1st is executing. The tick dispatches
+		// the callbacks due when it started (c1), so the 2nd is not part of it.
 		go func() {
 			chStarted <- struct{}{}
 			start := time.Now()
@@ -1244,8 +1244,12 @@ func TestCycleCallback_Sequential(t *testing.T) {
 
 		assert.True(t, executed)
 		assert.Equal(t, 1, executedCounter1)
+		assert.Equal(t, 0, executedCounter2)
+		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
+
+		// the next tick picks up the 2nd callback
+		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, 1, executedCounter2)
-		assert.GreaterOrEqual(t, d, 100*time.Millisecond)
 	})
 
 	t.Run("run with intervals", func(T *testing.T) {
@@ -1736,7 +1740,7 @@ func TestCycleCallback_Parallel_DueDispatch(t *testing.T) {
 		group.Lock()
 		defer group.Unlock()
 		assert.Len(t, group.callbacks, stable)
-		assert.Len(t, group.callbackIds, stable)
+		assert.Len(t, group.dueHeap, stable)
 	})
 }
 
@@ -2158,5 +2162,224 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 			assert.Greater(t, counter, max)
 			assert.GreaterOrEqual(t, d, 100*time.Millisecond)
 		})
+	})
+}
+
+// TestCycleCallback_DueHeap covers the due-heap scheduling behaviors in both
+// dispatch modes: nil-interval "always due" entries, running only the due
+// subset, the single-membership invariant across deactivate/activate, panic
+// containment, and restoring drained-but-un-run entries on abort.
+func TestCycleCallback_DueHeap(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	shouldNotAbort := func() bool { return false }
+
+	modes := []struct {
+		name     string
+		routines int
+	}{
+		{"sequential", 1},
+		{"parallel", 4},
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			t.Run("always-due entry runs every tick", func(t *testing.T) {
+				var counter int64
+				callbacks := NewCallbackGroup("id", logger, mode.routines)
+				callbacks.Register("always", func(shouldAbort ShouldAbortCallback) bool {
+					atomic.AddInt64(&counter, 1)
+					return true
+				})
+
+				// nil interval means always due; each tick runs it exactly once,
+				// never re-popped within the same tick
+				for tick := int64(1); tick <= 3; tick++ {
+					assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+					assert.Equal(t, tick, atomic.LoadInt64(&counter))
+				}
+			})
+
+			t.Run("only due entries run", func(t *testing.T) {
+				var alwaysCounter, longCounter int64
+				callbacks := NewCallbackGroup("id", logger, mode.routines)
+				callbacks.Register("always", func(shouldAbort ShouldAbortCallback) bool {
+					atomic.AddInt64(&alwaysCounter, 1)
+					return true
+				})
+				callbacks.Register("long", func(shouldAbort ShouldAbortCallback) bool {
+					atomic.AddInt64(&longCounter, 1)
+					return true
+				}, WithIntervals(NewFixedIntervals(time.Hour)))
+
+				// 1st tick: both due (registration allows immediate execution)
+				assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+				assert.Equal(t, int64(1), atomic.LoadInt64(&alwaysCounter))
+				assert.Equal(t, int64(1), atomic.LoadInt64(&longCounter))
+
+				// 2nd tick: only the always-due entry runs, long interval not elapsed
+				assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+				assert.Equal(t, int64(2), atomic.LoadInt64(&alwaysCounter))
+				assert.Equal(t, int64(1), atomic.LoadInt64(&longCounter))
+			})
+
+			t.Run("activate after deactivate runs once", func(t *testing.T) {
+				var counter int64
+				callbacks := NewCallbackGroup("id", logger, mode.routines)
+				ctrl := callbacks.Register("c", func(shouldAbort ShouldAbortCallback) bool {
+					atomic.AddInt64(&counter, 1)
+					return true
+				})
+				require.NoError(t, ctrl.Deactivate(context.Background()))
+				require.NoError(t, ctrl.Activate())
+
+				assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+				assert.Equal(t, int64(1), atomic.LoadInt64(&counter))
+
+				// exactly one heap entry afterwards - the activate push did not
+				// duplicate it
+				group := callbacks.(*cycleCallbackGroup)
+				group.Lock()
+				heapLen := group.dueHeap.Len()
+				group.Unlock()
+				assert.Equal(t, 1, heapLen)
+			})
+
+			t.Run("panicking callback is contained and rescheduled", func(t *testing.T) {
+				const siblings = 4
+				var okCounter, panicCounter int64
+				callbacks := NewCallbackGroup("id", logger, mode.routines)
+				for i := 0; i < siblings; i++ {
+					callbacks.Register(fmt.Sprintf("ok%d", i), func(shouldAbort ShouldAbortCallback) bool {
+						atomic.AddInt64(&okCounter, 1)
+						return true
+					})
+				}
+				callbacks.Register("panic", func(shouldAbort ShouldAbortCallback) bool {
+					atomic.AddInt64(&panicCounter, 1)
+					panic("boom")
+				})
+
+				// 1st tick: siblings all run, the panic is contained
+				callbacks.CycleCallback(shouldNotAbort)
+				assert.Equal(t, int64(siblings), atomic.LoadInt64(&okCounter))
+				assert.Equal(t, int64(1), atomic.LoadInt64(&panicCounter))
+
+				// 2nd tick: the panicking entry was rescheduled, so it runs again
+				callbacks.CycleCallback(shouldNotAbort)
+				assert.Equal(t, int64(2), atomic.LoadInt64(&panicCounter))
+			})
+
+			t.Run("abort restores un-run drained entries", func(t *testing.T) {
+				const total = 5
+				var counter int64
+				callbacks := NewCallbackGroup("id", logger, mode.routines)
+				for i := 0; i < total; i++ {
+					callbacks.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool {
+						atomic.AddInt64(&counter, 1)
+						return true
+					})
+				}
+
+				// abort the whole tick: every drained entry is restored, none run
+				assert.False(t, callbacks.CycleCallback(func() bool { return true }))
+				assert.Equal(t, int64(0), atomic.LoadInt64(&counter))
+
+				group := callbacks.(*cycleCallbackGroup)
+				group.Lock()
+				heapLen := group.dueHeap.Len()
+				group.Unlock()
+				assert.Equal(t, total, heapLen) // nothing orphaned outside the heap
+
+				// next tick runs exactly the restored entries
+				assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+				assert.Equal(t, int64(total), atomic.LoadInt64(&counter))
+			})
+
+			t.Run("abort then deactivate does not resurrect", func(t *testing.T) {
+				const total = 4
+				counters := make([]int64, total)
+				callbacks := NewCallbackGroup("id", logger, mode.routines)
+				ctrls := make([]CycleCallbackCtrl, total)
+				for i := 0; i < total; i++ {
+					idx := i
+					ctrls[i] = callbacks.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool {
+						atomic.AddInt64(&counters[idx], 1)
+						return true
+					})
+				}
+
+				// abort tick: all entries restored to the heap, none run
+				assert.False(t, callbacks.CycleCallback(func() bool { return true }))
+
+				// deactivate one restored entry
+				require.NoError(t, ctrls[0].Deactivate(context.Background()))
+
+				// next tick runs every entry but the deactivated one
+				assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+				assert.Equal(t, int64(0), atomic.LoadInt64(&counters[0]))
+				for i := 1; i < total; i++ {
+					assert.Equal(t, int64(1), atomic.LoadInt64(&counters[i]))
+				}
+			})
+		})
+	}
+
+	t.Run("activate during execution does not duplicate the heap entry", func(t *testing.T) {
+		started := make(chan struct{})
+		release := make(chan struct{})
+		callbacks := NewCallbackGroup("id", logger, 2)
+		ctrl := callbacks.Register("blocking", func(shouldAbort ShouldAbortCallback) bool {
+			started <- struct{}{}
+			<-release
+			return true
+		})
+
+		// run a tick concurrently: it drains the entry (heapIndex -1) and blocks
+		// inside the callback, holding it in flight
+		done := make(chan bool, 1)
+		go func() {
+			done <- callbacks.CycleCallback(shouldNotAbort)
+		}()
+		<-started
+
+		// activate the in-flight entry: activate re-queues it (its heapIndex -1
+		// guard passes), so the tick's repushDue must not push it a second time
+		require.NoError(t, ctrl.Activate())
+		close(release)
+		<-done
+
+		group := callbacks.(*cycleCallbackGroup)
+		group.Lock()
+		heapLen := group.dueHeap.Len()
+		group.Unlock()
+		assert.Equal(t, 1, heapLen)
+	})
+
+	t.Run("sequential abort after first execution restores the remainder", func(t *testing.T) {
+		const total = 4
+		var counter int64
+		callbacks := NewCallbackGroup("id", logger, 1)
+		for i := 0; i < total; i++ {
+			callbacks.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool {
+				atomic.AddInt64(&counter, 1)
+				return true
+			})
+		}
+
+		// abort once the first callback has run; the sequential loop stops
+		// executing but restores every remaining drained entry
+		shouldAbort := func() bool { return atomic.LoadInt64(&counter) >= 1 }
+		assert.True(t, callbacks.CycleCallback(shouldAbort))
+		assert.Equal(t, int64(1), atomic.LoadInt64(&counter))
+
+		group := callbacks.(*cycleCallbackGroup)
+		group.Lock()
+		heapLen := group.dueHeap.Len()
+		group.Unlock()
+		assert.Equal(t, total, heapLen) // executed one re-pushed, remainder restored
+
+		// next tick runs all four again
+		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+		assert.Equal(t, int64(1+total), atomic.LoadInt64(&counter))
 	})
 }
