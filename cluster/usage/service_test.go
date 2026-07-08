@@ -13,9 +13,11 @@ package usage
 
 import (
 	"context"
+	"fmt"
 	"runtime/debug"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -590,6 +592,109 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	assert.Nil(t, shard.NamedVectors)
 
 	mockSchema.AssertExpectations(t)
+	mockBackupProvider.AssertExpectations(t)
+}
+
+// TestService_Usage_MultipleCollectionsConcurrent verifies that with shard concurrency >=
+// collection count, all collections are processed at the same time: every per-collection
+// schemaReader.Read blocks on a barrier that only opens once all collections have entered it.
+// Serial processing would never open the barrier and fail the test via the Read timeout.
+func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node"
+	shardName := "shard1"
+	vectorName := "vec"
+
+	classNames := []string{"ColA", "ColB", "ColC", "ColD", "ColE", "ColF"}
+	classes := make([]*models.Class, len(classNames))
+	for i, name := range classNames {
+		classes[i] = &models.Class{
+			Class:             name,
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			VectorConfig:      map[string]models.VectorConfig{vectorName: {VectorIndexConfig: hnsw.UserConfig{}}},
+		}
+	}
+
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			shardName: {
+				Name:           shardName,
+				BelongsToNodes: []string{nodeName},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+	}
+	shardingState.SetLocalName(nodeName)
+
+	// the barrier only applies to Reads issued by service.Usage — startup paths also call Read
+	var (
+		usageStarted atomic.Bool
+		entered      atomic.Int64
+		barrier      = make(chan struct{})
+	)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			if usageStarted.Load() {
+				if entered.Add(1) == int64(len(classes)) {
+					close(barrier)
+				}
+				select {
+				case <-barrier:
+				case <-time.After(30 * time.Second):
+					return fmt.Errorf("collections are not processed concurrently: %d/%d in flight",
+						entered.Load(), len(classes))
+				}
+			}
+			return fn(nil, shardingState)
+		},
+	)
+
+	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{Classes: classes},
+	})
+	for _, class := range classes {
+		mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
+	}
+	mockSchemaGetter.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).Return(shardName)
+	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+	// createTestDb's startup already created an index per schema class
+	repo := createTestDb(t, mockSchemaGetter, shardingState, nil, nodeName)
+	logger, _ := logrus.NewNullLogger()
+	migrator := db.NewMigrator(repo, logger, nodeName)
+	for _, class := range classes {
+		require.NoError(t, migrator.LoadShard(ctx, class.Class, shardName))
+		putObjectAndFlush(t, repo, class.Class, "", map[string][]float32{vectorName: {0.1, 0.2, 0.3}})
+	}
+	repo.Shutdown(ctx)
+	repo.SetSchemaReader(mockSchemaReader)
+	require.Nil(t, repo.WaitForStartup(context.Background()))
+
+	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service.SetShardConcurrency(len(classes))
+
+	usageStarted.Store(true)
+	result, err := service.Usage(ctx, true)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Collections, len(classes))
+	for i, name := range classNames {
+		collection := result.Collections[i]
+		assert.Equal(t, name, collection.Name)
+		assert.Equal(t, 1, collection.UniqueShardCount)
+		require.Len(t, collection.Shards, 1)
+		assert.Equal(t, shardName, collection.Shards[0].Name)
+		assert.Equal(t, int64(1), collection.Shards[0].ObjectsCount)
+	}
+
+	mockSchemaGetter.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 }
 

@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
+
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -36,7 +38,34 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, shardConcurrency int, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+// ShardReadLimiter bounds the number of concurrent shard readers node-wide — parallel
+// UsageForIndex calls share the same limiter. Acquisition is FIFO.
+type ShardReadLimiter struct {
+	sem   *semaphore.Weighted
+	limit int
+}
+
+func NewShardReadLimiter(limit int) *ShardReadLimiter {
+	if limit < 1 {
+		limit = 1
+	}
+	return &ShardReadLimiter{sem: semaphore.NewWeighted(int64(limit)), limit: limit}
+}
+
+func (l *ShardReadLimiter) Acquire(ctx context.Context) error {
+	return l.sem.Acquire(ctx, 1)
+}
+
+func (l *ShardReadLimiter) Release() {
+	l.sem.Release(1)
+}
+
+func (l *ShardReadLimiter) Limit() int {
+	return l.limit
+}
+
+// UsageForIndex computes usage for a single collection.
+func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, shardReadLimiter *ShardReadLimiter, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -59,18 +88,19 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, sha
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, shardConcurrency, exactObjectCount, vectorsConfig)
+	return index.usageForCollection(ctx, shardReadLimiter, exactObjectCount, vectorsConfig)
 }
 
-func (i *Index) usageForCollection(ctx context.Context, shardConcurrency int, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (i *Index) usageForCollection(ctx context.Context, shardReadLimiter *ShardReadLimiter, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	collectionUsage := &types.CollectionUsage{
 		Name:              i.Config.ClassName.String(),
 		ReplicationFactor: int(i.Config.ReplicationFactor),
 	}
 
-	if shardConcurrency < 1 {
-		shardConcurrency = 1
+	if shardReadLimiter == nil {
+		shardReadLimiter = NewShardReadLimiter(1)
 	}
+	shardConcurrency := shardReadLimiter.Limit()
 
 	localShards := map[string]struct{}{}
 
@@ -115,9 +145,10 @@ func (i *Index) usageForCollection(ctx context.Context, shardConcurrency int, ex
 	eg.SetLimit(shardConcurrency)
 	for _, shardName := range shardNames {
 		eg.Go(func() error {
-			if err := egCtx.Err(); err != nil {
+			if err := shardReadLimiter.Acquire(egCtx); err != nil {
 				return err
 			}
+			defer shardReadLimiter.Release()
 
 			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, vectorConfig)
 			if err != nil {

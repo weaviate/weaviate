@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -83,28 +85,47 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		Backups:     make([]*types.BackupUsage, 0),
 	}
 
-	s.logger.Infof("Creating usage report with %d collections", len(collections))
-	// Collect usage for each collection
-	for _, collection := range collections {
-		vectorConfig, err := config.ExtractVectorConfigs(collection)
-		if err != nil {
-			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
-		}
-		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class), int(s.shardConcurrency.Load()), exactObjectCount, vectorConfig)
-		// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
-		// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
-		// as it is no longer relevant for the current node usage
-		if errors.Is(err, clusterSchema.ErrClassNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
-		}
-		if collectionUsage == nil {
-			continue
-		}
+	shardConcurrency := int(s.shardConcurrency.Load())
+	if shardConcurrency < 1 {
+		shardConcurrency = 1
+	}
+	// The limiter is shared by all collections, bounding concurrent shard readers node-wide at
+	// shardConcurrency. Up to shardConcurrency collections are in flight at once, so spare
+	// capacity left by one collection is used by the shards of the next.
+	shardReadLimiter := db.NewShardReadLimiter(shardConcurrency)
 
-		usage.Collections = append(usage.Collections, collectionUsage)
+	s.logger.Infof("Creating usage report with %d collections", len(collections))
+	var mu sync.Mutex
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
+	eg.SetLimit(shardConcurrency)
+	for _, collection := range collections {
+		eg.Go(func() error {
+			vectorConfig, err := config.ExtractVectorConfigs(collection)
+			if err != nil {
+				return fmt.Errorf("collection %s: %w", collection.Class, err)
+			}
+			collectionUsage, err := s.db.UsageForIndex(egCtx, entschema.ClassName(collection.Class), shardReadLimiter, exactObjectCount, vectorConfig)
+			// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
+			// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
+			// as it is no longer relevant for the current node usage
+			if errors.Is(err, clusterSchema.ErrClassNotFound) {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("collection %s: %w", collection.Class, err)
+			}
+			if collectionUsage == nil {
+				return nil
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			usage.Collections = append(usage.Collections, collectionUsage)
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 	sort.Sort(usage.Collections)
 
