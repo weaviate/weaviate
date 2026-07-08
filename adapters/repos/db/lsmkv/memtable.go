@@ -111,9 +111,12 @@ type memtable interface {
 
 type Memtable struct {
 	sync.RWMutex
-	key             *binarySearchTree
-	keyMulti        *binarySearchTreeMulti
-	keyMap          *binarySearchTreeMap
+	key      *binarySearchTree
+	keyMulti *binarySearchTreeMulti
+	keyMap   mapIndex
+	// keyMapLockFree is captured from useSkipListMemtable at construction: when set,
+	// keyMap is a skip list and getMap serves reads without the memtable RWMutex.
+	keyMapLockFree  bool
 	primaryIndex    *binarySearchTree
 	roaringSet      *roaringset.BinarySearchTree
 	roaringSetRange *roaringsetrange.Memtable
@@ -196,7 +199,8 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 	m := &Memtable{
 		key:                          &binarySearchTree{},
 		keyMulti:                     &binarySearchTreeMulti{},
-		keyMap:                       &binarySearchTreeMap{},
+		keyMap:                       newMapIndex(),
+		keyMapLockFree:               useSkipListMemtable,
 		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
@@ -514,6 +518,12 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 
 	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::getMap(): %w", err)
+	}
+
+	// The skip-list index serves reads lock-free; the red-black tree needs the
+	// memtable read lock to be safe against a concurrent insert.
+	if m.keyMapLockFree {
+		return m.keyMap.get(key)
 	}
 
 	m.RLock()

@@ -47,6 +47,11 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	bm25MergeGateRatio = 0 // force the merge on for every query
 	t.Cleanup(func() { bm25MergeGateRatio = prevRatio })
 
+	if os.Getenv("BMW_SKIPLIST") != "" {
+		useSkipListMemtable = true
+		t.Cleanup(func() { useSkipListMemtable = false })
+	}
+
 	ctx := context.Background()
 	logger := logrus.New()
 	logger.SetLevel(logrus.PanicLevel)
