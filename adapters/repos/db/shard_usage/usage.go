@@ -196,6 +196,40 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 	}, nil
 }
 
+// UnloadedShardHasObjects reports whether a not-yet-loaded shard has at least one
+// object on disk, read from the objects segment metadata without materializing the
+// shard. Unlike CalculateUnloadedObjectsMetrics it short-circuits on the first
+// segment with a positive count instead of summing every segment, since callers
+// deciding whether a shard is empty only need count > 0.
+func UnloadedShardHasObjects(logger logrus.FieldLogger, indexPath, shardName string) (bool, error) {
+	objectStore := shardPathObjectsLSM(indexPath, shardName)
+	files, _, err := diskio.GetFileWithSizes(objectStore)
+	if err != nil {
+		return false, err
+	}
+	for file := range files {
+		filePath := filepath.Join(objectStore, file)
+		var count int64
+		switch {
+		case strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix):
+			count, err = lsmkv.ReadCountNetAdditionsFile(filePath)
+		case strings.HasSuffix(file, lsmkv.MetadataFileSuffix):
+			count, err = lsmkv.ReadObjectCountFromMetadataFile(filePath)
+		default:
+			continue
+		}
+		if err != nil {
+			logger.WithField("path", filePath).WithField("shard", shardName).
+				Warnf("failed to read object count file: %v", err)
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // CalculateUnloadedIndicesSize calculates both object count and storage size for a cold tenant without loading it into memory
 func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64, error) {
 	totalSize := uint64(0)

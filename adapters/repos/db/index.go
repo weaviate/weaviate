@@ -471,38 +471,18 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
-	// Collect HOT shards up front so each has a stable index. toLoad[idx] then
-	// gives each goroutine its own slot to record whether its shard must be
-	// loaded, avoiding a lock on a shared slice.
-	hotShards := make([]string, 0, len(localShards))
-	for _, shard := range localShards {
-		if shard.activityStatus == models.TenantActivityStatusHOT {
-			hotShards = append(hotShards, shard.name)
-		}
-	}
+	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	// toLoad[idx] holds the shard name to load, or "" for a deferred empty tenant.
-	toLoad := make([]string, len(hotShards))
-	for idx, shardName := range hotShards {
+	for _, shard := range localShards {
+		if shard.activityStatus != models.TenantActivityStatusHOT {
+			continue
+		}
+		hotShardNames = append(hotShardNames, shard.name)
+		shardName := shard.name
 		eg.Go(func() error {
-			// Multi-tenant collections defer empty (e.g. pre-provisioned) tenants:
-			// read the on-disk object count without materializing the shard and, if
-			// empty, leave it as an unloaded wrapper until first accessed. Non-empty
-			// tenants (and non-MT collections) fall through to the normal load path.
-			if i.partitioningEnabled {
-				usage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName, true)
-				if err == nil && usage.Count == 0 {
-					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
-						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
-						i.shardReindexer, i.Config.EnableLazyLoadShards, i.bitmapBufPool))
-					return nil
-				}
-			}
-
-			toLoad[idx] = shardName
 			switch {
 			case i.Config.EnableLazyLoadShards:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
@@ -510,6 +490,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
+				// Defer empty (e.g. pre-provisioned) multi-tenant tenants: keep them
+				// unloaded until first accessed instead of paying the fixed per-shard
+				// footprint. Lazy mode defers in the background loader instead, so the
+				// check lives here to avoid probing the same shard twice.
+				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+						i.shardReindexer, false, i.bitmapBufPool))
+					return nil
+				}
 				// default behavior is to load all shards immediately
 				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
 					return fmt.Errorf("acquiring permit to load shard: %w", err)
@@ -534,14 +524,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 
-	// Compact out the deferred (empty) shards; the rest must be loaded.
-	shardsToLoad := make([]string, 0, len(toLoad))
-	for _, name := range toLoad {
-		if name != "" {
-			shardsToLoad = append(shardsToLoad, name)
-		}
-	}
-
 	if !i.Config.EnableLazyLoadShards {
 		i.allShardsReady.Store(true)
 		return nil
@@ -558,7 +540,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		now := time.Now()
 
-		for _, shardName := range shardsToLoad {
+		for _, shardName := range hotShardNames {
 			select {
 			case <-i.closingCtx.Done():
 				i.logger.
@@ -596,6 +578,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	return nil
 }
 
+// unloadedShardIsEmpty reports whether a not-yet-loaded tenant shard has no
+// objects on disk. On any error it returns false so the shard is loaded normally.
+func (i *Index) unloadedShardIsEmpty(shardName string) bool {
+	hasObjects, err := shardusage.UnloadedShardHasObjects(i.logger, i.path(), shardName)
+	return err == nil && !hasObjects
+}
+
 func (i *Index) loadLocalShardIfActive(shardName string) error {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -608,6 +597,11 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if ok {
+		// Leave empty (e.g. pre-provisioned) multi-tenant tenants unloaded until
+		// first accessed instead of force-loading them here.
+		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+			return nil
+		}
 		return lazyShard.Load(context.Background())
 	}
 
