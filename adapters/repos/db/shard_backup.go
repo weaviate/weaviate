@@ -98,7 +98,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("flush vector index queues: %w", err)
 	}
 	err = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
-		if err = q.PrepareForBackup(ctx); err != nil {
+		if err = q.PrepareForBackup(innerCtx); err != nil {
 			return fmt.Errorf("prepare for backup of geo index: %w", err)
 		}
 		return nil
