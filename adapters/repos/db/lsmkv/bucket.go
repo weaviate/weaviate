@@ -805,11 +805,11 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 }
 
 func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string) (v []byte, err error) {
-	metrics := b.metrics.readOp(readOpGet, component)
+	opMetrics := b.metrics.readOp(readOpGet, component)
 
 	start := time.Now()
-	metrics.incCount()
-	metrics.incOngoing()
+	opMetrics.incCount()
+	opMetrics.incOngoing()
 
 	defer func() {
 		if duration := time.Since(start); duration > 100*time.Millisecond {
@@ -819,12 +819,12 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 			}).Debug("Waited more than 100ms to retrieve object from memtable")
 		}
 
-		metrics.decOngoing()
+		opMetrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			metrics.incFailure()
+			opMetrics.incFailure()
 			return
 		}
-		metrics.observeDuration(time.Since(start))
+		opMetrics.observeDuration(time.Since(start))
 	}()
 
 	return memtable.get(key)
@@ -832,11 +832,11 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 
 func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable memtable, component string,
 ) (k []byte, v []byte, err error) {
-	metrics := b.metrics.readOp(readOpGetBySecondary, component)
+	opMetrics := b.metrics.readOp(readOpGetBySecondary, component)
 
 	start := time.Now()
-	metrics.incCount()
-	metrics.incOngoing()
+	opMetrics.incCount()
+	opMetrics.incOngoing()
 
 	defer func() {
 		if duration := time.Since(start); duration > 100*time.Millisecond {
@@ -846,31 +846,31 @@ func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable mem
 			}).Debug("Waited more than 100ms to retrieve object from memtable")
 		}
 
-		metrics.decOngoing()
+		opMetrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			metrics.incFailure()
+			opMetrics.incFailure()
 			return
 		}
-		metrics.observeDuration(time.Since(start))
+		opMetrics.observeDuration(time.Since(start))
 	}()
 
 	return memtable.getBySecondary(pos, seckey)
 }
 
 func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, err error) {
-	metrics := b.metrics.readOp(readOpGet, componentSegmentGroup)
+	opMetrics := b.metrics.readOp(readOpGet, componentSegmentGroup)
 
 	start := time.Now()
-	metrics.incCount()
-	metrics.incOngoing()
+	opMetrics.incCount()
+	opMetrics.incOngoing()
 
 	defer func() {
-		metrics.decOngoing()
+		opMetrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			metrics.incFailure()
+			opMetrics.incFailure()
 			return
 		}
-		metrics.observeDuration(time.Since(start))
+		opMetrics.observeDuration(time.Since(start))
 	}()
 
 	return b.disk.getWithSegmentList(key, segments)
@@ -878,19 +878,19 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
 ) (k, v []byte, buf []byte, segmentId int, err error) {
-	metrics := b.metrics.readOp(readOpGetBySecondary, componentSegmentGroup)
+	opMetrics := b.metrics.readOp(readOpGetBySecondary, componentSegmentGroup)
 
 	start := time.Now()
-	metrics.incCount()
-	metrics.incOngoing()
+	opMetrics.incCount()
+	opMetrics.incOngoing()
 
 	defer func() {
-		metrics.decOngoing()
+		opMetrics.decOngoing()
 		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
-			metrics.incFailure()
+			opMetrics.incFailure()
 			return
 		}
-		metrics.observeDuration(time.Since(start))
+		opMetrics.observeDuration(time.Since(start))
 	}()
 
 	return b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, segments)
