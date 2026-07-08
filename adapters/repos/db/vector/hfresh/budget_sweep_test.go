@@ -338,7 +338,7 @@ func (ih *InstrumentedHFresh) SearchByMultiVectorInstrumented(
 	queryFDE := h.muveraEncoder.EncodeQuery(vectors)
 
 	// Use the REAL production searchByFDE (not the instrumented copy)
-	// to ensure we're testing actual decoupled behavior including posting expansion
+	// to ensure we are testing actual decoupled behavior
 	ih.mu.Lock()
 	ih.routingStart = time.Now()
 	ih.mu.Unlock()
