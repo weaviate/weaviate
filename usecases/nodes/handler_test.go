@@ -106,6 +106,8 @@ func TestGetNodeStatus_VerboseFiltersCrossClassStats(t *testing.T) {
 		}}
 	}
 
+	// BatchStats is node-wide queue/throughput telemetry with no per-class data,
+	// so it is always preserved regardless of how many shards the caller can see.
 	tests := []struct {
 		name             string
 		rbacEnabled      bool
@@ -113,7 +115,6 @@ func TestGetNodeStatus_VerboseFiltersCrossClassStats(t *testing.T) {
 		wantShardClasses []string
 		wantObjectCount  int64
 		wantShardCount   int64
-		wantBatchNil     bool
 	}{
 		{
 			name:             "rbac disabled leaves everything untouched",
@@ -122,25 +123,22 @@ func TestGetNodeStatus_VerboseFiltersCrossClassStats(t *testing.T) {
 			wantShardClasses: []string{"Mine", "Other"},
 			wantObjectCount:  102,
 			wantShardCount:   2,
-			wantBatchNil:     false,
 		},
 		{
-			name:             "confined caller sees only own class in shards, stats and batch",
+			name:             "confined caller sees only own class in shards and stats, keeps batch",
 			rbacEnabled:      true,
 			allowed:          []string{nodeResource("Mine")},
 			wantShardClasses: []string{"Mine"},
 			wantObjectCount:  2,
 			wantShardCount:   1,
-			wantBatchNil:     true,
 		},
 		{
-			name:             "caller with no access sees zeroed stats and no batch",
+			name:             "caller with no access sees zeroed stats, keeps batch",
 			rbacEnabled:      true,
 			allowed:          []string{},
 			wantShardClasses: []string{},
 			wantObjectCount:  0,
 			wantShardCount:   0,
-			wantBatchNil:     true,
 		},
 		{
 			name:             "caller with full access keeps cluster-wide stats",
@@ -149,7 +147,6 @@ func TestGetNodeStatus_VerboseFiltersCrossClassStats(t *testing.T) {
 			wantShardClasses: []string{"Mine", "Other"},
 			wantObjectCount:  102,
 			wantShardCount:   2,
-			wantBatchNil:     false,
 		},
 	}
 
@@ -174,11 +171,8 @@ func TestGetNodeStatus_VerboseFiltersCrossClassStats(t *testing.T) {
 			require.Equal(t, tt.wantObjectCount, status[0].Stats.ObjectCount)
 			require.Equal(t, tt.wantShardCount, status[0].Stats.ShardCount)
 
-			if tt.wantBatchNil {
-				require.Nil(t, status[0].BatchStats)
-			} else {
-				require.NotNil(t, status[0].BatchStats)
-			}
+			require.NotNil(t, status[0].BatchStats,
+				"node-wide batch stats leak no per-class data and must always be preserved")
 		})
 	}
 }

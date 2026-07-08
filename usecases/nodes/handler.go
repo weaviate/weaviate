@@ -84,14 +84,14 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 			if len(filtered) == len(nodeS.Shards) {
 				continue // caller is authorized for every shard on this node
 			}
-			// Hidden shards mean the node-wide Stats and BatchStats still cover
-			// classes the caller can't see. Rebuild Stats from the visible shards;
-			// BatchStats can't be rebuilt from per-shard data, so drop it.
+			// Hidden shards mean the node-wide Stats still aggregate classes the
+			// caller can't see, so rebuild them from the visible shards. BatchStats
+			// is node-wide queue/throughput telemetry with no per-class data, so it
+			// leaks nothing and is left intact for the caller's dynamic batching.
 			status[i].Shards = filtered
 			if status[i].Stats != nil {
 				status[i].Stats = statsFromShards(filtered)
 			}
-			status[i].BatchStats = nil
 		}
 	}
 

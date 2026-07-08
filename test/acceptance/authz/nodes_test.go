@@ -54,8 +54,9 @@ func TestAuthzNodesFilter(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 
 	// Confined caller sees only its own class. The node-wide Stats must be rebuilt
-	// from the visible shard (ShardCount is 1, not the cluster's 2) and the
-	// non-reconstructable BatchStats dropped, so neither leaks the hidden class.
+	// from the visible shard (ShardCount is 1, not the cluster's 2) so it doesn't
+	// leak the hidden class. BatchStats is node-wide queue/throughput telemetry
+	// with no per-class data, so it stays intact for the caller's dynamic batching.
 	// ObjectCount is a disk-async counter that lags unflushed writes, so it is not
 	// asserted.
 	resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(String(verbosity.OutputVerbose)), helper.CreateAuth(customKey))
@@ -65,7 +66,7 @@ func TestAuthzNodesFilter(t *testing.T) {
 	require.Equal(t, clsA.Class, node.Shards[0].Class)
 	require.NotNil(t, node.Stats)
 	require.Equal(t, int64(1), node.Stats.ShardCount, "shard count must reflect only the visible shard")
-	require.Nil(t, node.BatchStats, "cluster-wide batch stats must be dropped for a confined caller")
+	require.NotNil(t, node.BatchStats, "node-wide batch stats leak no per-class data and must be preserved")
 
 	// Admin sees both classes with untouched cluster-wide Stats and BatchStats.
 	resp, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(String(verbosity.OutputVerbose)), helper.CreateAuth(adminKey))
