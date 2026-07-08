@@ -1940,12 +1940,13 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	filteredDigests := scratch.filteredDigests
 	localDigestsByUUID := scratch.localDigestsByUUID
 
-	for limit > 0 && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
+	for len(objectsToPropagate) < limit && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
 			return localObjectsCount, objectsToPropagate, ctx.Err()
 		}
 
-		currBatchSize := min(limit, config.diffBatchSize)
+		// Scan/compare at the full diff batch size, not the remaining budget, so a nearly-exhausted limit can't degrade a leaf into one CompareDigests RPC per object; limit only caps how many results get queued (below).
+		currBatchSize := config.diffBatchSize
 
 		allLocalDigests, err := collectObjectDigests(ctx, cursor, currLocalUUIDBytes, finalUUIDBytes, currBatchSize)
 		if err != nil {
@@ -2003,7 +2004,6 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			return localObjectsCount, objectsToPropagate, fmt.Errorf("comparing digests with remote: %w", err)
 		}
 
-		batchActionCount := 0
 		for _, stale := range staleDigests {
 			key, err := uuid.Parse(stale.ID)
 			if err != nil {
@@ -2026,7 +2026,10 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 				lastUpdateTime:        localUT,
 				remoteStaleUpdateTime: stale.UpdateTime, // 0 when missing-or-tombstoned on target
 			})
-			batchActionCount++
+			// Budget reached; leftover eligible objects are picked up next hashbeat.
+			if len(objectsToPropagate) >= limit {
+				break
+			}
 		}
 
 		if len(allLocalDigests) < currBatchSize {
@@ -2039,8 +2042,6 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 		}
 
 		currLocalUUIDBytes = lastLocalUUIDBytes
-		// Charge the budget only for queued propagations, not for scanned-but-current objects.
-		limit -= batchActionCount
 	}
 
 	// Note: propagations == 0 means local shard is laying behind remote shard,
