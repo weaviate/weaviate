@@ -21,12 +21,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	dbqueue "github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -186,6 +188,91 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 		err := shd.resumeMaintenanceCycles(ctx)
 		require.NoError(t, err)
 	})
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_HaltForTransferZeroPreparationTimeout(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+
+	// a zeroed HaltForTransferTimeout must mean "no bound", not an
+	// immediately-expired preparation context
+	shd, idx := testShard(t, ctx, className, func(idx *Index) {
+		idx.Config.HaltForTransferTimeout = 0
+	})
+
+	obj := testObject(className)
+	require.NoError(t, shd.PutObject(ctx, obj))
+
+	err := shd.HaltForTransfer(ctx, false, 0)
+	require.NoError(t, err)
+
+	require.NoError(t, shd.resumeMaintenanceCycles(ctx))
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_HaltForTransferTimeoutBoundsGeoQueuePreparation(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+
+	shd, idx := testShard(t, ctx, className, func(idx *Index) {
+		idx.Config.HaltForTransferTimeout = 10 * time.Millisecond
+	})
+	s := shd.(*Shard)
+
+	taskStarted := make(chan struct{})
+	releaseTask := make(chan struct{})
+	defer close(releaseTask)
+
+	scheduler := dbqueue.NewScheduler(dbqueue.SchedulerOptions{
+		Logger:           s.index.logger,
+		Workers:          1,
+		ScheduleInterval: time.Millisecond,
+	})
+	scheduler.Start()
+	defer scheduler.Close(t.Context())
+
+	q, err := dbqueue.NewDiskQueue(dbqueue.DiskQueueOptions{
+		ID:           "geo-backup-timeout",
+		Scheduler:    scheduler,
+		Logger:       s.index.logger,
+		Dir:          t.TempDir(),
+		TaskDecoder:  &blockingBackupTaskDecoder{started: taskStarted, release: releaseTask},
+		StaleTimeout: time.Millisecond,
+		ChunkSize:    50,
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+	scheduler.RegisterQueue(q)
+
+	s.propertyIndicesLock.Lock()
+	s.geoQueues["location"] = &VectorIndexQueue{DiskQueue: q}
+	s.propertyIndicesLock.Unlock()
+
+	require.NoError(t, q.Push([]byte{1}))
+	require.NoError(t, q.Flush())
+
+	<-taskStarted
+
+	outerCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- shd.HaltForTransfer(outerCtx, false, 0)
+	}()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(100 * time.Millisecond):
+		cancel()
+		require.FailNow(t, "HaltForTransfer did not respect HaltForTransferTimeout for geo queue preparation")
+	}
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
@@ -463,6 +550,40 @@ func TestShard_BackupPostFlushWritesAreLostWithoutLateFlush(t *testing.T) {
 			"expected marker to appear in at least one compressed-bucket SST after the late flush; "+
 				"the fix must persist writes made between the early flush and list-files")
 	})
+}
+
+type blockingBackupTaskDecoder struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (d *blockingBackupTaskDecoder) DecodeTask([]byte) (dbqueue.Task, error) {
+	return &blockingBackupTask{started: d.started, release: d.release, once: &d.once}, nil
+}
+
+type blockingBackupTask struct {
+	started chan struct{}
+	release chan struct{}
+	once    *sync.Once
+}
+
+func (t *blockingBackupTask) Op() uint8 {
+	return 1
+}
+
+func (t *blockingBackupTask) Key() uint64 {
+	return 0
+}
+
+func (t *blockingBackupTask) Execute(ctx context.Context) error {
+	t.once.Do(func() { close(t.started) })
+	select {
+	case <-t.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func TestShard_ListBackupFilesExtendsInactivityDeadline(t *testing.T) {

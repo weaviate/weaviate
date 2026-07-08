@@ -52,6 +52,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
@@ -475,6 +476,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
@@ -505,6 +507,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
 			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
+			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
 		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -1475,6 +1478,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
+	if err != nil {
+		appState.Logger.WithField("action", "grpc_web_startup").
+			Fatalf("init grpc-web handler: %v", err)
+	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1603,7 +1611,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	startGrpcServer(grpcServer, appState)
 	setupMCPHandlers(api, appState, objectsManager)
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+
+	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
+	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
+		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
@@ -2655,6 +2667,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
 		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
 		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
+		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
@@ -2686,6 +2699,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
@@ -2730,7 +2744,7 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})
