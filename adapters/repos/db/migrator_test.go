@@ -13,13 +13,15 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"hash/crc32"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -268,11 +270,30 @@ func TestUpdateIndexShards(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, initialState)
 			}).Maybe()
+
+			rootPath := t.TempDir()
+
+			// Seed a non-zero on-disk index counter for each initial shard BEFORE
+			// NewIndex runs. NewIndex→initAndStoreShards defers loading of empty HOT
+			// multi-tenant shards, storing them as unloaded *LazyLoadShard wrappers.
+			// "Empty" is decided via indexcounter.ReadOnDisk (a counter of 0 / missing
+			// indexcount file). Writing a counter of 1 makes each initial shard read as
+			// non-empty so the deferral does not apply, keeping this test focused on
+			// updateIndexShards' add/remove/keep behavior and the eager⇒*Shard /
+			// lazy⇒*LazyLoadShard contract rather than the empty-tenant deferral.
+			for _, shardName := range tt.initialShards {
+				shardDir := filepath.Join(rootPath, indexID(schema.ClassName("TestClass")), shardName)
+				require.NoError(t, os.MkdirAll(shardDir, 0o755))
+				var buf [8]byte
+				binary.LittleEndian.PutUint64(buf[:], 1)
+				require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), buf[:], 0o644))
+			}
+
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
 				ClassName:            schema.ClassName("TestClass"),
-				RootPath:             t.TempDir(),
+				RootPath:             rootPath,
 				ReplicationFactor:    1,
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
@@ -285,29 +306,6 @@ func TestUpdateIndexShards(t *testing.T) {
 			for _, shardName := range tt.initialShards {
 				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false)
 				require.NoError(t, err)
-			}
-
-			// In eager (non-lazy) mode, empty HOT multi-tenant shards are deferred
-			// at startup as unloaded *LazyLoadShard wrappers to save memory (see
-			// Index.initAndStoreShards). These cases exercise updateIndexShards'
-			// add/remove/keep behavior against the "eager ⇒ *Shard" contract, which
-			// only holds for shards that actually hold data. Write one object into
-			// each initial shard so it is materialized (and stays) a raw *Shard
-			// rather than a deferred wrapper. Lazy-load mode is intentionally left
-			// out: it keeps every shard as an unloaded wrapper regardless of
-			// emptiness, and those cases assert exactly that below.
-			if !tt.lazyLoading {
-				for shardIdx, shardName := range tt.initialShards {
-					err := index.IncomingPutObject(ctx, shardName, &storobj.Object{
-						MarshallerVersion: 1,
-						DocID:             uint64(shardIdx),
-						Object: models.Object{
-							ID:    strfmt.UUID(uuid.New().String()),
-							Class: "TestClass",
-						},
-					}, 0)
-					require.NoError(t, err)
-				}
 			}
 
 			migrator := &Migrator{
