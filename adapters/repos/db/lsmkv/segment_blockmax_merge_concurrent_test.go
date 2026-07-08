@@ -129,8 +129,10 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	for w := 0; w < 4; w++ {
 		guard(func() {
 			r := rand.New(rand.NewSource(int64(1000 + w)))
-			mapKey := make([]byte, 8)
 			for !stop.Load() {
+				// fresh key per delete: MapDeleteKey retains it by reference, so
+				// reusing the buffer races concurrent readers of a prior key's bytes.
+				mapKey := make([]byte, 8)
 				binary.BigEndian.PutUint64(mapKey, docID(r.Intn(nDocs)))
 				if err := bucket.MapDeleteKey([]byte("alpha"), mapKey); err != nil {
 					t.Errorf("MapDeleteKey: %v", err)
