@@ -293,19 +293,53 @@ func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*DB,
 // importRefAdmissionObjects writes numAuthors Author objects (names all contain
 // "a", so the Like "*a*" ref filter matches every one) plus one Article per
 // author referencing it via writtenBy.
+//
+// The import builds a real per-class HNSW graph, so every object gets a
+// distinct, non-collinear vector (see admissionObjectVector). A batch of
+// identical vectors collapses the graph into a near-complete graph and makes
+// construction super-linear; that pathology stalled this test past the
+// 50-minute suite timeout in CI (fast locally, but coverage + race on a shared
+// 4-vCPU runner inflated it enough to tip over). With distinct vectors the
+// import finishes in a second or two, and the watchdog below turns any future
+// regression into a fast, clearly-labelled failure instead of a 50-minute hang.
 func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 	t.Helper()
+
+	// Generous relative to a healthy (near-linear) import of a few seconds, but
+	// an order of magnitude below the suite timeout, so a degenerate-vector
+	// regression fails here in minutes instead of stalling the whole suite.
+	const importDeadline = 5 * time.Minute
+
+	done := make(chan error, 1)
+	go func() { done <- writeRefAdmissionObjects(repo, numAuthors) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(importDeadline):
+		t.Fatalf("ref-admission import of %d authors + %d articles did not finish within %s; "+
+			"the imported vectors are most likely degenerate (identical or collinear), which "+
+			"makes HNSW graph construction pathologically slow", numAuthors, numAuthors, importDeadline)
+	}
+}
+
+// writeRefAdmissionObjects performs the batched import and returns the first
+// error. It runs on its own goroutine under importRefAdmissionObjects'
+// watchdog, so it must not touch *testing.T.
+func writeRefAdmissionObjects(repo *DB, numAuthors int) error {
 	const chunk = 1000
 
 	authorIDs := make([]strfmt.UUID, numAuthors)
 	batch := make(objects.BatchObjects, 0, chunk)
-	flush := func() {
+	flush := func() error {
 		if len(batch) == 0 {
-			return
+			return nil
 		}
-		_, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
-		require.NoError(t, err)
+		if _, err := repo.BatchPutObjects(context.Background(), batch, nil, 0); err != nil {
+			return err
+		}
 		batch = batch[:0]
+		return nil
 	}
 
 	for i := 0; i < numAuthors; i++ {
@@ -318,14 +352,18 @@ func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 				Class:      "Author",
 				ID:         id,
 				Properties: map[string]interface{}{"name": fmt.Sprintf("author alpha %d", i)},
-				Vector:     []float32{0.1, 0.2, 0.3},
+				Vector:     admissionObjectVector(i),
 			},
 		})
 		if len(batch) == chunk {
-			flush()
+			if err := flush(); err != nil {
+				return err
+			}
 		}
 	}
-	flush()
+	if err := flush(); err != nil {
+		return err
+	}
 
 	for i := 0; i < numAuthors; i++ {
 		id := strfmt.UUID(fmt.Sprintf("c%07x-0000-0000-0000-%012d", i, i))
@@ -341,14 +379,30 @@ func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 						&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/Author/%s", authorIDs[i]))},
 					},
 				},
-				Vector: []float32{0.1, 0.2, 0.3},
+				Vector: admissionObjectVector(i),
 			},
 		})
 		if len(batch) == chunk {
-			flush()
+			if err := flush(); err != nil {
+				return err
+			}
 		}
 	}
-	flush()
+	return flush()
+}
+
+// admissionObjectVector returns a distinct, non-collinear 3-d vector for the
+// i-th imported object. The first component (i+1) is unique per object, so no
+// two vectors are identical and, because the remaining components move
+// independently, none are scalar multiples of one another. That keeps HNSW
+// graph construction close to linear; a batch of identical vectors would
+// degenerate the graph and make construction super-linear.
+func admissionObjectVector(i int) []float32 {
+	return []float32{
+		float32(i) + 1,
+		float32((i*3)%251) + 1,
+		float32((i*7)%241) + 1,
+	}
 }
 
 // TestObjectVectorSearchReleasesGrantBeforeVectorPhase pins that the
@@ -406,8 +460,8 @@ func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 		}
 	}()
 
-	// limit<0 forces a distance search over all numAuthors vectors (all equal
-	// the query), so the vector phase runs long enough to be sampled.
+	// limit<0 forces a brute-force distance search over every matched Article
+	// vector, so the vector phase runs long enough to be sampled.
 	_, _, err := shard.ObjectVectorSearch(ctx, searchVec, []string{""}, 100, -1,
 		filter, nil, nil, additional.Properties{}, nil, []string{"title"})
 	close(searchDone)
