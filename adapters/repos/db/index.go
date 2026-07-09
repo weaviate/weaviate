@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -505,6 +506,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	}
 
 	hotShardNames := make([]string, 0, len(localShards))
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -522,6 +524,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
+				// avoid footprint of empty shards
+				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+						i.shardReindexer, false, i.bitmapBufPool))
+					return nil
+				}
 				// default behavior is to load all shards immediately
 				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
 					return fmt.Errorf("acquiring permit to load shard: %w", err)
@@ -540,7 +549,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				return nil
 			}
 		}, shardName)
-
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -601,6 +609,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	return nil
 }
 
+// unloadedShardIsEmpty reports whether a not-yet-loaded tenant shard has never
+// held any objects, read from the persisted index counter without materializing
+// the shard. The counter is incremented on every write, so it also accounts for
+// data still in an unflushed/reused WAL (unlike segment metadata). On any error it
+// returns false so the shard is loaded normally.
+func (i *Index) unloadedShardIsEmpty(shardName string) bool {
+	count, err := indexcounter.Read(shardPath(i.path(), shardName))
+	return err == nil && count == 0
+}
+
 func (i *Index) loadLocalShardIfActive(shardName string) error {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -613,6 +631,10 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if ok {
+		// avoid footprint of empty shards
+		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+			return nil
+		}
 		return lazyShard.Load(context.Background())
 	}
 
