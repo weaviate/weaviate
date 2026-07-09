@@ -123,6 +123,11 @@ type Memtable struct {
 	commitlog       memtableCommitLogger
 	allocChecker    memwatch.AllocChecker
 	size            uint64
+	// indexOverhead accumulates the value-log backing the skip-list keyMap
+	// allocates on top of the logical bytes counted in size. Size() adds it so the
+	// flush trigger sees real memory; the skip list's chunks are otherwise invisible
+	// to size. Always 0 for the red-black tree index.
+	indexOverhead uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
 	// top of the rest of the LSM tree. Whether a key already exists further
 	// down is unknown at write time: updates of flushed keys over-count,
@@ -196,11 +201,12 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		return nil, fmt.Errorf("init memtable metrics: %w", err)
 	}
 
+	lockFree := useSkipListMemtable // read the global once so both fields agree
 	m := &Memtable{
 		key:                          &binarySearchTree{},
 		keyMulti:                     &binarySearchTreeMulti{},
-		keyMap:                       newMapIndex(),
-		keyMapLockFree:               useSkipListMemtable,
+		keyMap:                       newMapIndex(lockFree),
+		keyMapLockFree:               lockFree,
 		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
@@ -598,7 +604,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	m.keyMap.insert(key, pair)
+	m.indexOverhead += uint64(m.keyMap.insert(key, pair))
 	m.size += uint64(len(key) + len(valuesForCommitLog))
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
@@ -623,7 +629,9 @@ func (m *Memtable) Size() uint64 {
 	m.RLock()
 	defer m.RUnlock()
 
-	return m.size
+	// include the skip-list value-log backing so the flush trigger budgets real
+	// memory, not just logical bytes (indexOverhead is 0 for the red-black tree).
+	return m.size + m.indexOverhead
 }
 
 func (m *Memtable) Path() string {

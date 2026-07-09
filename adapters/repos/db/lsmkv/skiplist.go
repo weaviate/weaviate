@@ -27,48 +27,72 @@ import (
 // a consistent prefix, never a torn node.
 const (
 	skipListMaxHeight = 16
-	valueChunkSize    = 16
+	// A value log is a chain of chunks whose backing arrays grow geometrically
+	// (firstValueChunkSize -> ... -> maxValueChunkSize), each sized once and never
+	// resized. BM25 vocabularies are ~99% single-posting, so a small first chunk
+	// keeps the common case near the red-black tree's footprint — a fixed 16-slot
+	// first chunk allocated a full ~1KB size class on the first insert of every key.
+	// Later chunks are larger to amortize allocation and pointer-chasing for hot terms.
+	firstValueChunkSize = 2
+	maxValueChunkSize   = 16
 )
 
 // valueChunk is a single-producer append block: the writer fills entries[n] then
 // stores n+1 to publish it, so a reader that loads n sees entries[:n] complete.
+// entries is sized once at construction and never resized, so its backing array
+// never moves — that immutability is what keeps entries[:n] safe for a lock-free reader.
 type valueChunk[V any] struct {
-	entries [valueChunkSize]V
+	entries []V
 	n       atomic.Int32
 	next    atomic.Pointer[valueChunk[V]]
 }
 
+func newValueChunk[V any](capacity int, first V) *valueChunk[V] {
+	c := &valueChunk[V]{entries: make([]V, capacity)}
+	c.entries[0] = first
+	c.n.Store(1)
+	return c
+}
+
 type valueLog[V any] struct {
-	head *valueChunk[V] // immutable after creation
-	tail *valueChunk[V] // writer-only
+	head  *valueChunk[V] // immutable after creation
+	tail  *valueChunk[V] // writer-only
+	count atomic.Int32   // total entries; lets a reader pre-size snapshot() to one alloc
 }
 
 func newValueLog[V any](first V) *valueLog[V] {
-	c := &valueChunk[V]{}
-	c.entries[0] = first
-	c.n.Store(1)
-	return &valueLog[V]{head: c, tail: c}
+	c := newValueChunk(firstValueChunkSize, first)
+	vl := &valueLog[V]{head: c, tail: c}
+	vl.count.Store(1)
+	return vl
 }
 
-// writer-only
-func (vl *valueLog[V]) append(v V) {
+// append adds v to the log and returns the number of value slots newly allocated
+// (0 unless the chunk was full and a new one had to be created). writer-only.
+func (vl *valueLog[V]) append(v V) int {
 	t := vl.tail
 	n := t.n.Load()
-	if int(n) < valueChunkSize {
+	if int(n) < len(t.entries) {
 		t.entries[n] = v
-		t.n.Store(n + 1) // publish
-		return
+		t.n.Store(n + 1) // publish the entry...
+		vl.count.Add(1)  // ...then bump count, so count never exceeds published entries
+		return 0
 	}
-	c := &valueChunk[V]{}
-	c.entries[0] = v
-	c.n.Store(1)
-	t.next.Store(c) // publish new chunk
+	nextCap := len(t.entries) * 2
+	if nextCap > maxValueChunkSize {
+		nextCap = maxValueChunkSize
+	}
+	c := newValueChunk(nextCap, v)
+	t.next.Store(c) // publish the new chunk (its first entry is already published)
 	vl.tail = c
+	vl.count.Add(1)
+	return nextCap
 }
 
-// snapshot returns a consistent prefix of the log. Lock-free.
+// snapshot returns a consistent prefix of the log, pre-sized from count so the
+// common (quiescent) read is a single right-sized allocation. Lock-free.
 func (vl *valueLog[V]) snapshot() []V {
-	var out []V
+	out := make([]V, 0, int(vl.count.Load()))
 	for c := vl.head; c != nil; c = c.next.Load() {
 		n := int(c.n.Load())
 		out = append(out, c.entries[:n]...)
@@ -111,8 +135,9 @@ func (s *skipList[V]) randomHeight() int {
 	return h
 }
 
-// writer-only
-func (s *skipList[V]) insert(key []byte, v V) {
+// insert adds v under key and returns the number of value slots newly allocated,
+// so the caller can account the value-log backing growth. writer-only.
+func (s *skipList[V]) insert(key []byte, v V) int {
 	var preds [skipListMaxHeight]*skipListNode[V]
 	x := s.head
 	for lvl := s.height - 1; lvl >= 0; lvl-- {
@@ -127,8 +152,7 @@ func (s *skipList[V]) insert(key []byte, v V) {
 	}
 
 	if nxt := x.next[0].Load(); nxt != nil && bytes.Equal(nxt.key, key) {
-		nxt.vlog.append(v) // existing key: no topology change
-		return
+		return nxt.vlog.append(v) // existing key: no topology change
 	}
 
 	h := s.randomHeight()
@@ -151,6 +175,7 @@ func (s *skipList[V]) insert(key []byte, v V) {
 	for lvl := 0; lvl < h; lvl++ {
 		preds[lvl].next[lvl].Store(n)
 	}
+	return firstValueChunkSize // the new node's first value chunk
 }
 
 // get is lock-free. It descends from the max height (unused upper levels are

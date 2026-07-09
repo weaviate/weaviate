@@ -76,7 +76,7 @@ func TestSkipListMapValueLogChunks(t *testing.T) {
 	sl := newSkipListMap()
 	key := []byte("k")
 	const nDocs = 30
-	writes := valueChunkSize*10 + 3 // force many chunks
+	writes := maxValueChunkSize*10 + 3 // force many chunks
 	for i := 0; i < writes; i++ {
 		sl.insert(key, MapPair{Key: slDocKey(uint64(i % nDocs)), Value: []byte(fmt.Sprintf("v%d", i))})
 	}

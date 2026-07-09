@@ -11,12 +11,18 @@
 
 package lsmkv
 
-import "github.com/weaviate/weaviate/entities/lsmkv"
+import (
+	"unsafe"
+
+	"github.com/weaviate/weaviate/entities/lsmkv"
+)
 
 // mapIndex is the memtable's ordered rowKey -> []MapPair index, implemented by
 // both the red-black tree (locked reads) and the skip list (lock-free reads).
+// insert returns the bytes of index backing newly allocated by the call, so the
+// memtable can keep its flush-size budget honest about that overhead.
 type mapIndex interface {
-	insert(key []byte, pair MapPair)
+	insert(key []byte, pair MapPair) int
 	get(key []byte) ([]MapPair, error)
 	flattenInOrder() []*binarySearchNodeMap
 }
@@ -24,8 +30,11 @@ type mapIndex interface {
 // var, not const, so benchmarks can A/B it; captured per memtable at construction.
 var useSkipListMemtable = true
 
-func newMapIndex() mapIndex {
-	if useSkipListMemtable {
+// shallow size of one MapPair (two slice headers + bool), i.e. one value-log slot.
+var mapPairSize = int(unsafe.Sizeof(MapPair{}))
+
+func newMapIndex(lockFree bool) mapIndex {
+	if lockFree {
 		return newSkipListMap()
 	}
 	return &binarySearchTreeMap{}
@@ -41,8 +50,8 @@ func newSkipListMap() *skipListMap {
 	return &skipListMap{sl: newSkipList[MapPair]()}
 }
 
-func (m *skipListMap) insert(key []byte, pair MapPair) {
-	m.sl.insert(key, pair)
+func (m *skipListMap) insert(key []byte, pair MapPair) int {
+	return m.sl.insert(key, pair) * mapPairSize
 }
 
 func (m *skipListMap) get(key []byte) ([]MapPair, error) {
@@ -50,7 +59,9 @@ func (m *skipListMap) get(key []byte) ([]MapPair, error) {
 	if !ok {
 		return nil, lsmkv.NotFound
 	}
-	return sortAndDedupValues(raw), nil
+	// raw is a fresh snapshot owned by this call and never aliased to the log, so
+	// it can be sorted/deduped in place — no second copy.
+	return sortAndDedupValuesInPlace(raw), nil
 }
 
 func (m *skipListMap) flattenInOrder() []*binarySearchNodeMap {
@@ -58,7 +69,7 @@ func (m *skipListMap) flattenInOrder() []*binarySearchNodeMap {
 	m.sl.forEach(func(key []byte, values []MapPair) {
 		out = append(out, &binarySearchNodeMap{
 			key:    key,
-			values: sortAndDedupValues(values),
+			values: sortAndDedupValuesInPlace(values), // values is a fresh per-node snapshot
 		})
 	})
 	return out
