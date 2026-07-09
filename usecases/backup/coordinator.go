@@ -76,6 +76,13 @@ type Selector interface {
 	Backupable(_ context.Context, classes []string) error
 }
 
+// UserLister resolves includeUsers selectors. ListAllUsers returns qualified
+// "namespace:userId" ids (apikey.MakeUserKey) — the form selectors match
+// against. Nil when dynamic DB users are disabled.
+type UserLister interface {
+	ListAllUsers() []string
+}
+
 // coordinator coordinates a distributed backup and restore operation (DBRO):
 //
 // - It determines what request to send to which shard.
@@ -189,6 +196,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		Leader:          leader,
 		CompressionType: compressionType,
 		BaseBackupID:    req.BaseBackupID,
+		Users:           req.Users,
 	}
 
 	for key := range c.Participants {
@@ -430,7 +438,7 @@ func (c *coordinator) restoreClasses(
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
-		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
+		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias, !c.schema.NamespacesEnabled()); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			restoreErrors = append(restoreErrors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
@@ -533,6 +541,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				ID:                c.descriptor.ID,
 				Backend:           req.Backend,
 				Classes:           gr.Classes,
+				Users:             req.Users,
 				Duration:          _BookingPeriod,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
