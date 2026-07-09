@@ -14,6 +14,7 @@ package roaringsetrange
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/concurrency/testinghelpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -362,6 +364,9 @@ func (r *cloningInnerReader) Read(ctx context.Context, value uint64, operator fi
 // the outer layer merges, so hammering the reader can't inflate the live
 // goroutine count.
 func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
+	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
+		t.Skip("budget cap disabled via kill switch")
+	}
 	if concurrency.SROAR_MERGE < 2 {
 		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
 			concurrency.SROAR_MERGE)
