@@ -809,12 +809,9 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 		return nil, noopRelease, nil
 	}
 
-	// acquired frees the first layer's pooled buffer (all following segments
-	// merge into it). The defer releases it on any error after we've taken it,
-	// so a mid-merge disk read error can't leak the buffer back into the pool.
-	// It is a dedicated variable rather than the named release return because
-	// error paths overwrite the return with noopRelease for the caller; the
-	// defer must still see the real release.
+	// acquired (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a mid-merge disk read error
+	// can't leak the first layer's pooled buffer.
 	acquired := noopRelease
 	// use bigger buffer for first layer, to make space for further merges
 	// with following layers

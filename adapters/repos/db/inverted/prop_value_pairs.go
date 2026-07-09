@@ -100,9 +100,8 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 	resultCh := make(chan *docBitmap, 1) // merge result
 	var err error
 
-	// merge runs alongside child resolution, which already splits the ctx
-	// budget across children: deliberate mild overshoot, as in
-	// roaringsetrange/reader.go
+	// merge runs alongside child resolution, which already splits the budget
+	// across children: deliberate mild overshoot (mirrors roaringsetrange/reader.go).
 	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
 	// merge subresults in separate goroutine using dbmCh (in) and resultCh (out)

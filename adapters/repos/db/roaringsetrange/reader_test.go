@@ -350,14 +350,9 @@ func TestCombinedReaderInnerReaders(t *testing.T) {
 // concurrent CombinedReader.Read calls never mutate a shared bitmap.
 type cloningInnerReader struct {
 	additions *sroar.Bitmap
-	// readDelay makes each Read take a bounded, sustained amount of time. The
-	// concurrency bound is enforced by the errgroup's SetLimit(conc): at most
-	// conc inner reads run at once. Without a sustained read, those workers are
-	// too short-lived for the 1ms goroutine sampler to catch, so an ignored
-	// budget (kill switch on) produces a red-control margin that is thin at
-	// small SROAR_MERGE — the sampler simply misses the extra workers. Holding
-	// each read open for a few sampler ticks makes the live-worker count reflect
-	// conc reliably, so the red control fails decisively even at SROAR_MERGE=2.
+	// readDelay keeps each Read alive across a few goroutine-sampler ticks, so
+	// a disabled budget (kill switch) overshoots the ceiling decisively
+	// instead of its short-lived workers being missed by the sampler.
 	readDelay time.Duration
 }
 
@@ -397,10 +392,8 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 		values[i] = uint64(i) << 16
 	}
 
-	const numReaders = 8 // several outer merges per Read
-	// hold each inner read open for a few sampler ticks so the SetLimit(conc)
-	// fan-out is observable regardless of SROAR_MERGE (see cloningInnerReader).
-	const readDelay = 2 * time.Millisecond
+	const numReaders = 8                   // several outer merges per Read
+	const readDelay = 2 * time.Millisecond // see cloningInnerReader.readDelay
 	newReader := func() *CombinedReader {
 		readers := make([]InnerReader, numReaders)
 		for i := range readers {
@@ -427,12 +420,9 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, arrDefault, arr1)
 
 	// each in-flight Read holds <=3 goroutines: its own worker, the errgroup
-	// driver, and the one eg.Go worker budget=1 allows via eg.SetLimit(1).
-	// Sharing one reader across goroutines is safe since cloningInnerReader
-	// clones its bitmap per Read. The sustained readDelay pins the budget=1 peak
-	// deterministically at 3/worker, so a slack of 8 keeps the green margin at
-	// +8 while the kill-switch red control overshoots by >=8 even at the
-	// smallest fan-out this test runs at (SROAR_MERGE=2 => conc=2).
+	// driver, and the one eg.Go worker budget=1 allows. Sharing one reader is
+	// safe since cloningInnerReader clones per Read. readDelay pins that peak
+	// so slack=8 still lets the kill-switch red control overshoot decisively.
 	shared := newReader()
 	testinghelpers.AssertGoroutineCeiling(t, 16, 3, 8, 200*time.Millisecond, func() error {
 		bm, release, err := shared.Read(budget1, 0, filters.OperatorGreaterThanEqual)

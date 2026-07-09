@@ -221,13 +221,9 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 	require.Greater(t, segAB.getCounter, 0, "new segment should have received calls")
 }
 
-// TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError pins the fix for a
-// pooled-buffer leak: roaringSetGet acquires the first layer's buffer (returning
-// its real release), then merges every following segment into it. If a later
-// merge fails, the error path returns noopRelease to the caller, so the deferred
-// cleanup — not the caller — must free the first layer's buffer. A regression
-// that overwrites the release the defer reads would leak that buffer on every
-// mid-merge disk error.
+// TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError pins a
+// pooled-buffer leak when a later segment's merge fails after the first
+// layer's buffer was already acquired.
 func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 	t.Parallel()
 
@@ -252,13 +248,9 @@ func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 		require.Nil(t, out)
 		require.NotNil(t, release)
 
-		// the first layer's pooled buffer must have been released exactly once by
-		// the deferred cleanup, despite the error path returning noopRelease.
 		require.Equal(t, 1, seg0.roaringSetReleases,
 			"first layer's release must fire on merge error")
 
-		// the returned release must be the caller-safe noop; calling it must not
-		// double-release the first layer.
 		release()
 		require.Equal(t, 1, seg0.roaringSetReleases,
 			"returned release must be a noop; buffer already freed by defer")
@@ -279,11 +271,9 @@ func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, out)
 
-		// no error => the defer must not fire; the caller still holds the buffer.
 		require.Equal(t, 0, seg0.roaringSetReleases,
 			"success path must not release before the caller does")
 
-		// the returned release frees the first layer's buffer exactly once.
 		release()
 		require.Equal(t, 1, seg0.roaringSetReleases,
 			"caller's release must free the first layer exactly once")

@@ -85,11 +85,9 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 	if err != nil {
 		return nil, noopRelease, err
 	}
-	// diskRelease frees the disk layers' pooled buffer. The defer releases it on
-	// any error path so a failed flushing/active read can't leak it back into
-	// the pool. It is a dedicated variable rather than the named release return
-	// because error paths overwrite the return with noopRelease for the caller;
-	// the defer must still see the real release.
+	// diskRelease (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a failed flushing/active
+	// read can't leak the disk layer's pooled buffer.
 	defer func() {
 		if err != nil {
 			diskRelease()

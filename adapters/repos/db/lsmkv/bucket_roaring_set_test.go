@@ -76,13 +76,9 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 	require.Equal(t, []uint64{1, 3, 4, 5, 6, 7}, v.ToArray())
 }
 
-// TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError pins the
-// fix for a pooled-buffer leak in the bucket-level assembly: the disk layers are
-// acquired first (returning their real release), then the flushing and active
-// memtables are read. If one of those reads fails, the error path returns
-// noopRelease to the caller, so the deferred cleanup — not the caller — must
-// free the disk buffer. A regression that overwrites the release the defer reads
-// would leak the disk buffer on every failed flushing/active read.
+// TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError pins a
+// pooled-buffer leak when a flushing/active read fails after the disk layer's
+// buffer was already acquired.
 func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *testing.T) {
 	t.Parallel()
 
@@ -110,13 +106,9 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		require.Nil(t, bm)
 		require.NotNil(t, release)
 
-		// the disk layer's pooled buffer must have been released exactly once by
-		// the deferred cleanup, despite the error path returning noopRelease.
 		require.Equal(t, 1, diskSeg.roaringSetReleases,
 			"disk layer's release must fire when the active read errors")
 
-		// the returned release must be the caller-safe noop; calling it must not
-		// double-release the disk layer.
 		release()
 		require.Equal(t, 1, diskSeg.roaringSetReleases,
 			"returned release must be a noop; buffer already freed by defer")
@@ -158,7 +150,6 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		require.NoError(t, err)
 		require.NotNil(t, bm)
 
-		// no error => the defer must not fire; the caller still holds the buffer.
 		require.Equal(t, 0, diskSeg.roaringSetReleases,
 			"success path must not release before the caller does")
 
