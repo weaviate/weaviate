@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
@@ -499,6 +500,13 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	return func() (interface{}, error) {
 		result, err := resolver.GetClass(p.Context, principal, params)
 		if err != nil {
+			if errors.Is(err, queryadmission.ErrOverloaded) {
+				// Node-level admission shed. GraphQL has no typed status code, so
+				// surface it the same way the global rate limiter does — a
+				// "429 Too many requests" message — so clients can distinguish
+				// overload/backpressure from other errors.
+				err = enterrors.NewErrRateLimit()
+			}
 			return result, enterrors.NewErrGraphQLUser(err, "Get", params.ClassName)
 		}
 		return result, nil

@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -326,6 +327,10 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
+		case errors.Is(err, queryadmission.ErrOverloaded):
+			// Node-level admission shed: surface as 429 so REST clients see
+			// backpressure instead of a generic 500.
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusTooManyRequests, Err: err}
 		default:
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 		}

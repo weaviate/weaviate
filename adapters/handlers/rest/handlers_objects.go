@@ -300,6 +300,11 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(rerr))
+		case uco.StatusTooManyRequests:
+			// No generated 429 responder exists for this operation, so write the
+			// status directly. Mirrors the 429 backpressure signal the query
+			// path already emits on gRPC (ResourceExhausted) and GraphQL.
+			return tooManyRequestsResponder(rerr)
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(rerr))
