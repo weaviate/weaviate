@@ -28,17 +28,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
-// TestExplorer_AdmissionShedIdentitySurvivesWrapping pins that every Explorer
-// entrypoint preserves the admission shed identity when the underlying searcher
-// returns an error wrapping queryadmission.ErrOverloaded. The searcher errors
-// are re-wrapped with %w at each site (getClassKeywordBased, getClassVectorSearch
-// via searchForTargets, and CrossClassVectorSearch); if any of those regressed to
-// %v the shed would look like a generic 500 and the GraphQL/REST ingress could no
-// longer classify it as a 429. This is the container-free counterpart to the
-// docker acceptance journey that guards the same behavior end to end.
+// TestExplorer_AdmissionShedIdentitySurvivesWrapping pins that Explorer's %w
+// re-wraps preserve errors.Is(err, queryadmission.ErrOverloaded) at every entrypoint.
 func TestExplorer_AdmissionShedIdentitySurvivesWrapping(t *testing.T) {
-	// Mirror how the DB/searcher layer surfaces an overloaded node: a domain
-	// error that wraps ErrOverloaded rather than ErrOverloaded itself.
+	// Wrapped, not the raw sentinel, to also exercise errors.Is traversal.
 	shed := fmt.Errorf("shard search: %w", queryadmission.ErrOverloaded)
 
 	newExplorer := func(searcher *fakeVectorSearcher) *Explorer {

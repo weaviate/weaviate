@@ -179,8 +179,8 @@ func setupAdmissionCollection(t *testing.T, httpURI, grpcURI string, shards int)
 	return grpcClient
 }
 
-// filteredBM25Request builds a filter+BM25 search, the admission-gated shard
-// path (filters != nil && keywordRanking != nil).
+// filteredBM25Request builds a filter+BM25 search that exercises the
+// admission-gated shard path (filters != nil && keywordRanking != nil).
 func filteredBM25Request() *pb.SearchRequest {
 	return &pb.SearchRequest{
 		Collection: className,

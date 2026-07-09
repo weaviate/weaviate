@@ -22,13 +22,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
-// TestGetClass_AdmissionShedMapsToRateLimit pins the GraphQL ingress mapping in
-// resolveGet: when the resolver returns an error wrapping
-// queryadmission.ErrOverloaded (how the DB layer sheds an overloaded node), the
-// Get resolver must surface it as the rate-limit error ("429 Too many requests")
-// rather than a generic 500, so clients can detect overload and back off. This is
-// the automated counterpart to the docker acceptance journey that exercises the
-// same mapping end to end.
+// TestGetClass_AdmissionShedMapsToRateLimit pins that ErrOverloaded maps to
+// "429 Too many requests" (not a generic 500) at the GraphQL Get ingress.
 func TestGetClass_AdmissionShedMapsToRateLimit(t *testing.T) {
 	t.Parallel()
 	resolver := newMockResolver()
@@ -38,8 +33,7 @@ func TestGetClass_AdmissionShedMapsToRateLimit(t *testing.T) {
 		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
 
-	// Mirror the real shed: a domain error that wraps ErrOverloaded rather than
-	// ErrOverloaded itself, so we also exercise errors.Is traversal.
+	// Wrapped, not the raw sentinel, to also exercise errors.Is traversal.
 	shed := fmt.Errorf("shard search: %w", queryadmission.ErrOverloaded)
 	resolver.On("GetClass", expectedParams).
 		Return(test_helper.EmptyList(), shed).Once()
