@@ -2337,13 +2337,24 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			for _, n := range idfCounts {
 				sumDf += n
 			}
-			// nSeg (>=1) prices the per-segment clone into the gate. It uses the
-			// total disk-segment count as an upper bound on the folds: the actual
-			// fold runs an AndNot only for segments that carry tombstones, so on a
-			// mostly-tombstone-free workload this over-prices and may skip a fold
-			// that would have been cheap (see follow-up to price by tombstone-
-			// carrying segments only).
-			nSeg := float64(len(view.Disk))
+			// nSeg (>=1) prices the per-segment clone into the gate: the fold runs
+			// an AndNot only where a segment's tombstones shadow the next-older one
+			// (Disk[1:], never the oldest), so count tombstone-carrying segments —
+			// not len(view.Disk), which over-prices a broad filter over many
+			// tombstone-free segments and skips folds that would have been cheap.
+			// These reads warm the snapshot cache the fold loop reads again below.
+			tombSegs := 0
+			for k := 1; k < len(view.Disk); k++ {
+				segTomb, tombErr := view.Disk[k].ReadOnlyTombstones()
+				if tombErr != nil {
+					view.ReleaseView()
+					return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", tombErr)
+				}
+				if !segTomb.IsEmpty() { // IsEmpty is nil-safe
+					tombSegs++
+				}
+			}
+			nSeg := float64(tombSegs)
 			if nSeg < 1 {
 				nSeg = 1
 			}
