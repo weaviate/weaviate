@@ -831,8 +831,8 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 // distinct backup entities (usecases/schema.Handler.RestoreClass and the
 // dynamic-user snapshot restore strip at apply time).
 //
-// Everything is validated from the per-node descriptors — the payload nodes
-// actually restore — filtered down to the selected classes.
+// Everything is validated from the per-node descriptors (the payload nodes
+// actually restore) filtered down to the selected classes.
 func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors []backup.ClassDescriptor, userBlobs [][]byte, selectedClasses []string, userRestoreOption string) error {
 	if s.schema.NamespacesEnabled() {
 		return nil // restore does not strip namespaces
@@ -848,7 +848,7 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 		short    string
 		stripped bool
 	}
-	classes := make(map[string]*group, len(descriptors)) // fold key -> post-strip identity
+	classes := make(map[string]*group, len(descriptors))
 	aliases := make(map[string]*group, 8)
 	collect := func(m map[string]*group, source, short string) *group {
 		key := strings.ToLower(short)
@@ -894,11 +894,7 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 	}
 
 	// A stripped class may also take the name of an entity already in the
-	// cluster. ClassEqual is the predicate the RAFT pre-apply gate rejects
-	// RESTORE_CLASS with — folding over live classes AND live aliases — so
-	// this reproduces exactly the rejection that would otherwise fire
-	// mid-restore, per class, after earlier classes had already committed.
-	// Unqualified names are skipped: those keep the pre-existing lazy
+	// cluster. Unqualified names are skipped: those keep the pre-existing lazy
 	// per-class semantics, so namespace-free restores behave as before.
 	for _, g := range classes {
 		if !g.stripped {
@@ -910,13 +906,8 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 		}
 	}
 
-	// A stripped alias landing on a live class hard-errors in CreateAlias
-	// after its class's data is already committed — this bites the
-	// recommended one-namespace-at-a-time workflow, where an earlier
-	// restore's class takes the name a later namespace's alias strips to.
-	// Live classes are the only conflict that matters here (alias-vs-live-
-	// alias completes under the overwriteAlias semantics), so the check
-	// reads ListClasses, and only when an alias actually stripped.
+	// A stripped alias landing on a live class errors in CreateAlias
+	// after its class's data is already committed
 	if anyAliasStripped {
 		live := s.restorer.selector.ListClasses(ctx)
 		liveByFold := make(map[string]string, len(live))
@@ -937,11 +928,7 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 	// Without the checks below, two aliases stripping to the same name make
 	// the later CreateAlias silently skip (or overwrite, with overwriteAlias),
 	// and an alias stripping onto a restored class name fails that class
-	// mid-restore after its data is already committed. Collisions with live
-	// ALIASES are deliberately not checked: those complete without a partial
-	// commit under the pre-existing overwriteAlias semantics (skip or
-	// delete-and-recreate), and failing them would block the legitimate
-	// overwrite workflow.
+	// mid-restore after its data is already committed.
 	for key, g := range aliases {
 		if len(g.sources) > 1 {
 			slices.Sort(g.sources)
@@ -956,9 +943,6 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 	// The user snapshot blobs are opaque here; the dry-run reuses the exact
 	// strip-and-collide logic the real restore runs, covering every id-keyed
 	// field and both filtered (includeUsers) and whole-cluster snapshots.
-	// Gated only on the opt-out, mirroring the restorer: participants apply
-	// a present snapshot even when dynamic users are disabled on the target,
-	// so s.userLister being nil must not skip this.
 	if userRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
 		for _, blob := range userBlobs {
 			if err := apikey.ValidateNamespaceStrip(blob); err != nil {
