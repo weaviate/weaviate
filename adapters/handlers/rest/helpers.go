@@ -13,6 +13,10 @@ package rest
 
 import (
 	"fmt"
+	"net/http"
+
+	"github.com/go-openapi/runtime"
+	middleware "github.com/go-openapi/runtime/middleware"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -36,4 +40,19 @@ func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
 		Message: fmt.Sprintf("%s", err),
 	}}}
+}
+
+// tooManyRequestsResponder writes an HTTP 429 with the standard error payload.
+// The generated go-swagger operations do not declare a 429 response, so it is
+// written directly here. It is the REST analog of the 429 backpressure signal
+// the query path already emits on gRPC (ResourceExhausted) and GraphQL, used
+// when a node-level admission shed (queryadmission.ErrOverloaded) reaches the
+// user-facing search handlers.
+func tooManyRequestsResponder(err error) middleware.Responder {
+	return middleware.ResponderFunc(func(rw http.ResponseWriter, producer runtime.Producer) {
+		rw.WriteHeader(http.StatusTooManyRequests)
+		if perr := producer.Produce(rw, errPayloadFromSingleErr(err)); perr != nil {
+			panic(perr) // let the recovery middleware deal with this
+		}
+	})
 }
