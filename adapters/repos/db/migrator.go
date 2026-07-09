@@ -208,6 +208,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
+			QueryAdmission:                               m.db.queryAdmission,
 			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
 			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
 			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,
