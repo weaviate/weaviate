@@ -59,7 +59,7 @@ func ContextWithFractionalBudget(ctx context.Context, factor, fallback int) cont
 func BudgetFromCtxCapped(ctx context.Context, limit int) int {
 	if budgetCapDisabled {
 		// even disabled, floor at 1: limit=0 means "unlimited" to sroar's *Conc
-		// ops and would hang errgroup.SetLimit(0) — a kill-switch footgun.
+		// ops and would hang an error group with SetLimit(0) — a kill-switch footgun.
 		return max(limit, 1)
 	}
 	return clampBudget(BudgetFromCtx(ctx, limit), limit)
