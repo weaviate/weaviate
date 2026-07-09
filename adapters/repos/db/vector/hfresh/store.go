@@ -58,9 +58,6 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 		cfg.MakeBucketOptions(
 			lsmkv.StrategySetCollection,
 			lsmkv.WithForceCompaction(true),
-			// postings are point lookups at random offsets; read-ahead only
-			// wastes disk throughput
-			lsmkv.WithRandomAccess(true),
 			lsmkv.WithShouldSkipKeyFunction(
 				func(key []byte, ctx context.Context) (bool, error) {
 					if len(key) != 10 {

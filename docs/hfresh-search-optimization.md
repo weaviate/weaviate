@@ -226,10 +226,16 @@ cache was full of read-ahead junk while the true hot set fit easily.
 Fix on this branch: `lsmkv.WithRandomAccess` — `FADV_RANDOM` on the segment
 file descriptor (pread path) plus `MADV_RANDOM` on the mmap (index descent
 faults), the mirror image of the existing `WithSequentialAccess`. Wired for
-the objects bucket and the HFresh posting/shared buckets. Trade-off: cursor
-scans over these buckets (exports, reindexes) lose read-ahead; acceptable
-for point-lookup-dominated buckets, revisit with per-operation hints if it
-bites. Quick system-level equivalent for A/B: `blockdev --setra 16 <dev>`.
+the **objects bucket only**: that is where the measured cost lives (rescore
+secondary-index descents). It was initially also applied to the HFresh
+posting/shared buckets and reverted: the shared bucket's startup restore
+scans (version map, posting sizes/maps) are large sequential cursor reads
+over the same mmap, and MADV_RANDOM turned them into millions of single-page
+faults (startup went from ~40s to tens of minutes). Lesson: per-file advice
+is too blunt for files serving both random point reads and sequential
+maintenance scans; a production version needs per-operation hints. Objects
+compactions carry the same theoretical penalty — acceptable on this branch,
+revisit if compaction throughput becomes a problem.
 
 ## Phase 1 — Recall-invariant wins (land as ready, no gating)
 
