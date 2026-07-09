@@ -135,103 +135,110 @@ func (b *Batch[T]) batchWorker() {
 
 	// the total batch should not take longer than 60s to avoid timeouts. We will only use 40s here to be safe
 	for job := range b.jobQueueCh {
-		// observe how long the batch was in the queue waiting for processing
-		durWaiting := time.Since(job.startTime).Seconds()
-		monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "waiting_for_processing").
-			Observe(durWaiting)
-
-		startProcessingTime := time.Now()
-
-		// check if we already have rate limits for the current api key and reuse them if possible
-		// Note that the rateLimit is a pointer and should only be updated in place and not replaced with a new object
-		//  as otherwise any changes are lost
-		rateLimit, ok := rateLimitPerApiKey[job.apiKeyHash]
-		if !ok {
-			rateLimit = b.client.GetVectorizerRateLimit(job.ctx, job.cfg)
-			rateLimitPerApiKey[job.apiKeyHash] = rateLimit
-		}
-		rateLimit.CheckForReset()
-
-		objCounter := 0
-
-		// If the user does not supply rate limits, and we do not have defaults for the provider we don't know the
-		// rate limits without a request => send a small one. This currently only affects OpenAI.
-		for objCounter < len(job.texts) && rateLimit.IsInitialized() {
-			var err error
-			if !job.skipObject[objCounter] {
-				_, err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter}, rateLimit, job.tokens[objCounter])
-				if err != nil {
-					job.errs[objCounter] = err
-					objCounter++
-					continue
-				}
-			}
-			objCounter++
-		}
-
-		// if we have a high rate limit we can send multiple batches in parallel.
-		//
-		// If the rate limit is high enough to "fit" the current batch, we send it concurrently. If not, we wait for
-		// either
-		//   - the rate limit to refresh, so we can schedule another concurrent batch
-		//   - the current batch to finish, so the next batch can be sent sequentially
-		//
-		// While using the same code both modes are working slightly different:
-		// 	- For concurrent batching, the amount of used tokens/requests is reserved as long as the batch is running
-		//	  and is cleared when it finishes. This ensures that we never exceed the rate limit and don't need to check
-		//	  the rate limit in the sendBatch function (we use a dummy that never fails a check). All updates happen
-		//	  in the main loop.
-		//  - For sequential batching, the rate limit  will be passed into the sendBatch function and is observed and
-		//    updated there. This allows to use the rate-limit in an optimal way, but also requires more checks. No
-		//    concurrent batch can be started while a sequential batch is running.
-		repeats := 0
-		for {
-			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
-			expectedNumRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
-
-			stats := monitoring.GetMetrics().T2VRateLimitStats
-			stats.WithLabelValues(b.Label, "token_limit").Set(float64(rateLimit.LimitTokens))
-			stats.WithLabelValues(b.Label, "token_remaining").Set(float64(rateLimit.RemainingTokens))
-			stats.WithLabelValues(b.Label, "token_reserved").Set(float64(rateLimit.ReservedTokens))
-			stats.WithLabelValues(b.Label, "request_limit").Set(float64(rateLimit.LimitRequests))
-			stats.WithLabelValues(b.Label, "request_remaining").Set(float64(rateLimit.RemainingRequests))
-			stats.WithLabelValues(b.Label, "request_reserved").Set(float64(rateLimit.ReservedRequests))
-			stats.WithLabelValues(b.Label, "estimated_requests_needed").Set(float64(expectedNumRequests))
-			stats.WithLabelValues(b.Label, "tokens_needed").Set(float64(job.tokenSum))
-			stats.WithLabelValues(b.Label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
-			stats.WithLabelValues(b.Label, "repeats_for_scheduling").Set(float64(repeats))
-
-			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum, repeats > 0, b.Label) {
-				b.concurrentBatches.Add(1)
-				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Inc()
-				jobCopy := job.copy()
-				rateLimit.ReservedRequests += expectedNumRequests
-				rateLimit.ReservedTokens += job.tokenSum
-
-				// necessary, because the outer loop can modify these values through b.updateState while the goroutine
-				// is accessing them => race
-				timePerToken := timePerToken
-				expectedNumRequests := expectedNumRequests
-				enterrors.GoWrapper(func() {
-					b.sendBatch(jobCopy, objCounter, dummyRateLimit(), timePerToken, expectedNumRequests, true)
-					monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "processing_async").
-						Observe(time.Since(startProcessingTime).Seconds())
-				}, b.logger)
-				break
-			} else if b.concurrentBatches.Load() < 1 {
-				b.concurrentBatches.Add(1)
-
-				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Inc()
-				// block so no concurrent batch can be sent
-				b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
-				monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "processing_sync").
-					Observe(time.Since(startProcessingTime).Seconds())
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-			repeats++
-		}
+		timePerToken, objectsPerBatch = b.processJob(job, timePerToken, objectsPerBatch, rateLimitPerApiKey)
 	}
+}
+
+// processJob schedules and sends a single batch job, returning the updated pacing
+// state (time-per-token and objects-per-batch) for the next job.
+func (b *Batch[T]) processJob(job BatchJob[T], timePerToken float64, objectsPerBatch int, rateLimitPerApiKey map[[32]byte]*modulecomponents.RateLimits) (float64, int) {
+	// observe how long the batch was in the queue waiting for processing
+	durWaiting := time.Since(job.startTime).Seconds()
+	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "waiting_for_processing").
+		Observe(durWaiting)
+
+	startProcessingTime := time.Now()
+
+	// check if we already have rate limits for the current api key and reuse them if possible
+	// Note that the rateLimit is a pointer and should only be updated in place and not replaced with a new object
+	//  as otherwise any changes are lost
+	rateLimit, ok := rateLimitPerApiKey[job.apiKeyHash]
+	if !ok {
+		rateLimit = b.client.GetVectorizerRateLimit(job.ctx, job.cfg)
+		rateLimitPerApiKey[job.apiKeyHash] = rateLimit
+	}
+	rateLimit.CheckForReset()
+
+	objCounter := 0
+
+	// If the user does not supply rate limits, and we do not have defaults for the provider we don't know the
+	// rate limits without a request => send a small one. This currently only affects OpenAI.
+	for objCounter < len(job.texts) && rateLimit.IsInitialized() {
+		var err error
+		if !job.skipObject[objCounter] {
+			_, err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter}, rateLimit, job.tokens[objCounter])
+			if err != nil {
+				job.errs[objCounter] = err
+				objCounter++
+				continue
+			}
+		}
+		objCounter++
+	}
+
+	// if we have a high rate limit we can send multiple batches in parallel.
+	//
+	// If the rate limit is high enough to "fit" the current batch, we send it concurrently. If not, we wait for
+	// either
+	//   - the rate limit to refresh, so we can schedule another concurrent batch
+	//   - the current batch to finish, so the next batch can be sent sequentially
+	//
+	// While using the same code both modes are working slightly different:
+	// 	- For concurrent batching, the amount of used tokens/requests is reserved as long as the batch is running
+	//	  and is cleared when it finishes. This ensures that we never exceed the rate limit and don't need to check
+	//	  the rate limit in the sendBatch function (we use a dummy that never fails a check). All updates happen
+	//	  in the main loop.
+	//  - For sequential batching, the rate limit  will be passed into the sendBatch function and is observed and
+	//    updated there. This allows to use the rate-limit in an optimal way, but also requires more checks. No
+	//    concurrent batch can be started while a sequential batch is running.
+	repeats := 0
+	for {
+		timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
+		expectedNumRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
+
+		stats := monitoring.GetMetrics().T2VRateLimitStats
+		stats.WithLabelValues(b.Label, "token_limit").Set(float64(rateLimit.LimitTokens))
+		stats.WithLabelValues(b.Label, "token_remaining").Set(float64(rateLimit.RemainingTokens))
+		stats.WithLabelValues(b.Label, "token_reserved").Set(float64(rateLimit.ReservedTokens))
+		stats.WithLabelValues(b.Label, "request_limit").Set(float64(rateLimit.LimitRequests))
+		stats.WithLabelValues(b.Label, "request_remaining").Set(float64(rateLimit.RemainingRequests))
+		stats.WithLabelValues(b.Label, "request_reserved").Set(float64(rateLimit.ReservedRequests))
+		stats.WithLabelValues(b.Label, "estimated_requests_needed").Set(float64(expectedNumRequests))
+		stats.WithLabelValues(b.Label, "tokens_needed").Set(float64(job.tokenSum))
+		stats.WithLabelValues(b.Label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
+		stats.WithLabelValues(b.Label, "repeats_for_scheduling").Set(float64(repeats))
+
+		if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum, repeats > 0, b.Label) {
+			b.concurrentBatches.Add(1)
+			monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Inc()
+			jobCopy := job.copy()
+			rateLimit.ReservedRequests += expectedNumRequests
+			rateLimit.ReservedTokens += job.tokenSum
+
+			// necessary, because the outer loop can modify these values through b.updateState while the goroutine
+			// is accessing them => race
+			timePerToken := timePerToken
+			expectedNumRequests := expectedNumRequests
+			enterrors.GoWrapper(func() {
+				b.sendBatch(jobCopy, objCounter, dummyRateLimit(), timePerToken, expectedNumRequests, true)
+				monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "processing_async").
+					Observe(time.Since(startProcessingTime).Seconds())
+			}, b.logger)
+			break
+		} else if b.concurrentBatches.Load() < 1 {
+			b.concurrentBatches.Add(1)
+
+			monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Inc()
+			// block so no concurrent batch can be sent
+			b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
+			monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "processing_sync").
+				Observe(time.Since(startProcessingTime).Seconds())
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+		repeats++
+	}
+	return timePerToken, objectsPerBatch
 }
 
 // updateState collects the latest updates from finished batches
