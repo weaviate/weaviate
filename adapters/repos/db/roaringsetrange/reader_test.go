@@ -358,11 +358,9 @@ func (r *cloningInnerReader) Read(ctx context.Context, value uint64, operator fi
 	}, noopRelease, nil
 }
 
-// TestCombinedReader_RespectsConcurrencyBudget proves the per-query budget
-// threaded into CombinedReader.Read caps sroar's merge fan-out. With a budget
-// of 1 the outer layer merges run single-threaded, so hammering the reader
-// from many callers cannot inflate the live goroutine count. Without the
-// budget each of the (readers-1) merges would fan out ~SROAR_MERGE workers.
+// TestCombinedReader_RespectsConcurrencyBudget: a budget of 1 must serialize
+// the outer layer merges, so hammering the reader can't inflate the live
+// goroutine count.
 func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	if concurrency.SROAR_MERGE < 2 {
 		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
@@ -371,9 +369,8 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	// one value per sroar container (stride 2^16). Many containers so each
-	// *Conc op spreads real work across min(n/24, SROAR_MERGE) workers that
-	// live long enough for the sampler to observe when the budget is ignored.
+	// one value per sroar container (stride 2^16); enough real work per
+	// *Conc op that the sampler can observe an ignored budget
 	const numContainers = 8192
 	values := make([]uint64, numContainers)
 	for i := range values {
@@ -406,14 +403,10 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// bounding leg. CombinedReader always drives its inner readers through an
-	// errgroup, so each in-flight Read keeps at most 3 goroutines alive: its
-	// own worker, the errgroup driver, and (because budget=1 forces
-	// eg.SetLimit(1)) a single limited eg.Go worker. The merge ops spawn zero
-	// workers at conc=1. Without the budget, conc=SROAR_MERGE lifts the eg
-	// limit and every Conc op fans out ~SROAR_MERGE-1 merge workers, blowing
-	// past the ceiling. Sharing one reader is safe: cloningInnerReader clones
-	// its bitmap on every Read.
+	// each in-flight Read holds <=3 goroutines: its own worker, the errgroup
+	// driver, and the one eg.Go worker budget=1 allows via eg.SetLimit(1).
+	// Sharing one reader across goroutines is safe since cloningInnerReader
+	// clones its bitmap per Read.
 	shared := newReader()
 	testinghelpers.AssertGoroutineCeiling(t, 16, 3, 12, 200*time.Millisecond, func() error {
 		bm, release, err := shared.Read(budget1, 0, filters.OperatorGreaterThanEqual)
