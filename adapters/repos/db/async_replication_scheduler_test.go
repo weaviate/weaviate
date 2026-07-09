@@ -1871,6 +1871,108 @@ func TestClassifyBatchExcludesIneligible(t *testing.T) {
 	}
 }
 
+// TestPrefilterCtxCancelledByIndexClose pins the deadlock regression: a pre-filter
+// rooted only at sched.ctx outlives index.drop() and blocks every replica.
+func TestPrefilterCtxCancelledByIndexClose(t *testing.T) {
+	newIndex := func() (*Index, context.CancelFunc) {
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+		return idx, idx.closingCancel
+	}
+
+	tests := []struct {
+		name     string
+		stop     func(sched *AsyncReplicationScheduler, closeIndex context.CancelFunc)
+		wantDone bool
+	}{
+		{
+			name:     "index closes",
+			stop:     func(_ *AsyncReplicationScheduler, closeIndex context.CancelFunc) { closeIndex() },
+			wantDone: true,
+		},
+		{
+			name:     "scheduler shuts down",
+			stop:     func(sched *AsyncReplicationScheduler, _ context.CancelFunc) { sched.cancel() },
+			wantDone: true,
+		},
+		{
+			name:     "nothing stops",
+			stop:     func(*AsyncReplicationScheduler, context.CancelFunc) {},
+			wantDone: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			sched.ctx, sched.cancel = context.WithCancel(context.Background())
+			defer sched.cancel()
+
+			idx, closeIndex := newIndex()
+			defer closeIndex()
+			// time.Hour: a done ctx can only mean a stop signal propagated.
+			ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+			defer cancel()
+			require.NoError(t, ctx.Err())
+
+			tc.stop(sched, closeIndex)
+
+			if !tc.wantDone {
+				time.Sleep(50 * time.Millisecond)
+				assert.NoError(t, ctx.Err(), "ctx must stay live while the index is open")
+				return
+			}
+
+			select {
+			case <-ctx.Done():
+				assert.ErrorIs(t, ctx.Err(), context.Canceled)
+			case <-time.After(5 * time.Second):
+				t.Fatal("pre-filter ctx was not cancelled; index.drop() would deadlock the replicas")
+			}
+		})
+	}
+}
+
+func TestPrefilterCtxHonoursTimeout(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx, sched.cancel = context.WithCancel(context.Background())
+	defer sched.cancel()
+
+	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+	defer idx.closingCancel()
+
+	ctx, cancel := sched.prefilterCtx(idx, 50*time.Millisecond)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		assert.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+	case <-time.After(5 * time.Second):
+		t.Fatal("pre-filter ctx ignored its timeout")
+	}
+}
+
+// TestPrefilterCtxNilIndex: unit-test shards carry no index.
+func TestPrefilterCtxNilIndex(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx, sched.cancel = context.WithCancel(context.Background())
+	defer sched.cancel()
+
+	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+
+	ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+	defer cancel()
+	require.NoError(t, ctx.Err())
+
+	sched.cancel()
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("a nil index must fall back to the scheduler context")
+	}
+}
+
 func TestEffectiveBatchSize(t *testing.T) {
 	t.Run("configured value is used", func(t *testing.T) {
 		sched := newBareScheduler(256, 1)
