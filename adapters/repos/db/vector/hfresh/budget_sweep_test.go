@@ -42,19 +42,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // SearchMetrics captures detailed metrics from a single search operation
@@ -63,11 +52,11 @@ type SearchMetrics struct {
 	RecallAtK float64
 
 	// Latency
-	TotalLatencyMs    float64
-	RoutingLatencyMs  float64
-	PostingScanMs     float64
-	MaxSimFetchMs     float64
-	MaxSimComputeMs   float64
+	TotalLatencyMs   float64
+	RoutingLatencyMs float64
+	PostingScanMs    float64
+	MaxSimFetchMs    float64
+	MaxSimComputeMs  float64
 
 	// Routing/posting cost
 	CentroidsSearched    int
@@ -266,7 +255,7 @@ func (ih *InstrumentedHFresh) computeLateInteractionInstrumented(
 
 	for _, id := range candidateIDs {
 		fetchStart := time.Now()
-		docVectors, err := h.multivectorForIdThunk(ctx, id)
+		docVectors, err := h.multiVectorForID(ctx, id)
 		fetchDuration += time.Since(fetchStart)
 
 		if err != nil {
@@ -363,34 +352,6 @@ func (ih *InstrumentedHFresh) SearchByMultiVectorInstrumented(
 }
 
 // computeRecall calculates recall@k
-func computeRecall(results []uint64, groundTruth []uint64, k int) float64 {
-	if len(groundTruth) == 0 || len(results) == 0 {
-		return 0.0
-	}
-
-	truthSet := make(map[uint64]bool)
-	limit := k
-	if limit > len(groundTruth) {
-		limit = len(groundTruth)
-	}
-	for i := 0; i < limit; i++ {
-		truthSet[groundTruth[i]] = true
-	}
-
-	hits := 0
-	resultLimit := k
-	if resultLimit > len(results) {
-		resultLimit = len(results)
-	}
-	for i := 0; i < resultLimit; i++ {
-		if truthSet[results[i]] {
-			hits++
-		}
-	}
-
-	return float64(hits) / float64(limit)
-}
-
 // generateSyntheticMultiVectorData creates test data
 func generateSyntheticMultiVectorData(
 	numDocs int,
@@ -531,50 +492,8 @@ func TestBudgetSweep(t *testing.T) {
 
 	// Create index
 	fmt.Println("Creating HFresh+MUVERA index...")
-	logger, _ := test.NewNullLogger()
-	logger.SetLevel(logrus.WarnLevel)
-
-	store := testinghelpers.NewDummyStore(t)
-	cfg := DefaultConfig()
-	cfg.RootPath = t.TempDir()
-	cfg.ID = "budget_sweep"
-
-	distProvider := distancer.NewL2SquaredProvider()
-	cfg.DistanceProvider = distProvider
-
-	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger})
-	cfg.Scheduler = scheduler
-	scheduler.Start()
-	defer scheduler.Close(context.Background())
-
-	cfg.Centroids.HNSWConfig = &hnsw.Config{
-		RootPath:              t.TempDir(),
-		ID:                    "budget_sweep_centroids",
-		MakeCommitLoggerThunk: makeNoopCommitLogger,
-		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
-		DistanceProvider:      distProvider,
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-	}
-	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
-	cfg.Logger = logger
-
-	// Create multi-vector store
-	mvStore := newMuveraTestStore()
-	cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
-		return mvStore.getMultiVector(id)
-	}
-
-	uc := ent.NewDefaultUserConfig()
-	uc.Multivector.Enabled = true
-	uc.Multivector.MuveraConfig.Enabled = true
-	uc.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
-	uc.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
-	uc.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
-
-	index, err := New(cfg, uc, store)
-	require.NoError(t, err)
-	index.multivectorForIdThunk = cfg.MultiVectorForIDThunk
+	tf := createMuveraHFreshIndex(t, withDistanceProvider(distancer.NewL2SquaredProvider()))
+	index, mvStore := tf.Index, tf.mvStore
 	defer index.Shutdown(context.Background())
 
 	// Index documents

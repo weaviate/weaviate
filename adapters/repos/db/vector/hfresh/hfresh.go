@@ -68,6 +68,12 @@ type HFresh struct {
 	rescoreLimit     uint32
 	store            *lsmkv.Store
 
+	// needsNormalization is precomputed at construction from the configured
+	// distance: cosine-dot only equals the cosine distance on unit vectors,
+	// so inputs must be normalized on insert, query, and rescore. L2 (and
+	// dot) must NOT normalize.
+	needsNormalization bool
+
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
 	// received
@@ -102,8 +108,8 @@ type HFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	vectorForId           common.VectorForID[float32]
-	multivectorForIdThunk common.VectorForID[[]float32]
+	vectorForID      common.VectorForID[float32]
+	multiVectorForID common.VectorForID[[]float32]
 
 	rootPath string
 }
@@ -130,29 +136,30 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
-		id:                    cfg.ID,
-		logger:                logger,
-		config:                cfg,
-		scheduler:             cfg.Scheduler,
-		store:                 store,
-		metrics:               metrics,
-		PostingStore:          postingStore,
-		vectorForId:           cfg.VectorForIDThunk,
-		multivectorForIdThunk: cfg.MultiVectorForIDThunk,
-		VersionMap:            NewVersionMap(bucket),
-		PostingMap:            NewPostingMap(bucket),
-		PostingSizes:          NewPostingSizes(bucket, metrics),
-		IndexMetadata:         NewIndexMetadataStore(bucket),
-		postingLocks:          common.NewDefaultShardedRWLocks(),
+		id:               cfg.ID,
+		logger:           logger,
+		config:           cfg,
+		scheduler:        cfg.Scheduler,
+		store:            store,
+		metrics:          metrics,
+		PostingStore:     postingStore,
+		vectorForID:      cfg.VectorForIDThunk,
+		multiVectorForID: cfg.MultiVectorForIDThunk,
+		VersionMap:       NewVersionMap(bucket),
+		PostingMap:       NewPostingMap(bucket),
+		PostingSizes:     NewPostingSizes(bucket, metrics),
+		IndexMetadata:    NewIndexMetadataStore(bucket),
+		postingLocks:     common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:      visited.NewPool(512),
-		maxPostingSizeKB: uc.MaxPostingSizeKB,
-		replicas:         uc.Replicas,
-		rngFactor:        DefaultRNGFactor,
-		searchProbe:      uc.SearchProbe,
-		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
-		rootPath:         cfg.RootPath,
+		visitedPool:        visited.NewPool(512),
+		maxPostingSizeKB:   uc.MaxPostingSizeKB,
+		replicas:           uc.Replicas,
+		rngFactor:          DefaultRNGFactor,
+		searchProbe:        uc.SearchProbe,
+		rescoreLimit:       uint32(uc.RQ.RescoreLimit),
+		rootPath:           cfg.RootPath,
+		needsNormalization: cfg.DistanceProvider.Type() == "cosine-dot",
 	}
 
 	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
@@ -229,13 +236,13 @@ func (h *HFresh) Delete(ids ...uint64) error {
 
 func (h *HFresh) DeleteMulti(ids ...uint64) error {
 	if !h.muvera.Load() {
-		h.logger.Error(ErrMuveraNotEnabled)
 		return ErrMuveraNotEnabled
 	}
 	var idBytes [8]byte
+	bucket := h.store.Bucket(h.id + "_muvera_vectors")
 	for _, id := range ids {
 		binary.BigEndian.PutUint64(idBytes[:], id)
-		if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes[:]); err != nil {
+		if err := bucket.Delete(idBytes[:]); err != nil {
 			h.logger.WithFields(logrus.Fields{
 				"action": "muvera_delete",
 				"id":     id,
@@ -431,7 +438,7 @@ func (h *HFresh) Iterate(fn func(id uint64) bool) {
 // provider computes 1-dot, which only equals the cosine distance on unit
 // vectors, so every token must be normalized before encoding or scoring.
 func (h *HFresh) normalizeMultiVec(vecs [][]float32) [][]float32 {
-	if h.config.DistanceProvider.Type() != "cosine-dot" {
+	if !h.needsNormalization {
 		return vecs
 	}
 	normalized := make([][]float32, len(vecs))
@@ -444,7 +451,7 @@ func (h *HFresh) normalizeMultiVec(vecs [][]float32) [][]float32 {
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	queryVector = h.normalizeVec(queryVector)
 	distFunc := func(id uint64) (float32, error) {
-		vector, err := h.vectorForId(h.ctx, id)
+		vector, err := h.vectorForID(h.ctx, id)
 		if err != nil {
 			return 0, err
 		}

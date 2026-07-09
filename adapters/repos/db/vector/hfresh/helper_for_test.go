@@ -76,7 +76,11 @@ func withDistanceProvider(provider distancer.Provider) testIndexOption {
 	}
 }
 
-func createHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
+// newTestIndex is the single index constructor behind every test fixture in
+// this package: it wires an HFresh index on top of a dummy LSM store and a
+// noop-bucket centroid HNSW. Pass a non-nil mvStore to wire the
+// multi-vector-for-id thunk (muvera indexes need it for the MaxSim rescore).
+func newTestIndex(t *testing.T, uc ent.UserConfig, mvStore *muveraTestStore, opts ...testIndexOption) TestHFresh {
 	t.Helper()
 
 	logger, hook := test.NewNullLogger()
@@ -104,6 +108,11 @@ func createHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
 
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	cfg.Logger = logger
+	if mvStore != nil {
+		cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
+			return mvStore.getMultiVector(id)
+		}
+	}
 
 	for _, opt := range opts {
 		opt(cfg)
@@ -114,16 +123,36 @@ func createHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
 		scheduler.Close(t.Context())
 	})
 
-	uc := ent.NewDefaultUserConfig()
 	store := testinghelpers.NewDummyStore(t)
 
 	index, err := New(cfg, uc, store)
 	require.NoError(t, err)
+	if mvStore != nil {
+		index.multiVectorForID = cfg.MultiVectorForIDThunk
+	}
 
 	return TestHFresh{
-		Index: index,
-		Logs:  hook,
+		Index:   index,
+		Logs:    hook,
+		mvStore: mvStore,
 	}
+}
+
+// muveraUserConfig returns a user config with muvera enabled using the
+// default multivector parameters.
+func muveraUserConfig() ent.UserConfig {
+	uc := ent.NewDefaultUserConfig()
+	uc.Multivector.Enabled = true
+	uc.Multivector.MuveraConfig.Enabled = true
+	uc.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
+	uc.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
+	uc.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+	return uc
+}
+
+func createHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
+	t.Helper()
+	return newTestIndex(t, ent.NewDefaultUserConfig(), nil, opts...)
 }
 
 // createTestVectors creates a set of test vectors with the specified dimensions
@@ -200,64 +229,34 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 
 func createMuveraHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
 	t.Helper()
+	return newTestIndex(t, muveraUserConfig(), newMuveraTestStore(), opts...)
+}
 
-	logger, hook := test.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
+// createMuveraHFreshIndexWithConfig creates a muvera index with explicit
+// search budgets, using L2 for both the index and its centroid HNSW.
+func createMuveraHFreshIndexWithConfig(t *testing.T, searchProbe, rescoreLimit int) TestHFresh {
+	t.Helper()
+	uc := muveraUserConfig()
+	uc.SearchProbe = uint32(searchProbe)
+	uc.RQ.RescoreLimit = rescoreLimit
+	return newTestIndex(t, uc, newMuveraTestStore(),
+		withDistanceProvider(distancer.NewL2SquaredProvider()))
+}
 
-	cfg := DefaultConfig()
-	mvStore := newMuveraTestStore()
-
-	scheduler := queue.NewScheduler(
-		queue.SchedulerOptions{
-			Logger: logger,
-		},
-	)
-	cfg.Scheduler = scheduler
-	cfg.RootPath = t.TempDir()
-
-	cfg.Centroids.HNSWConfig = &hnsw.Config{
-		RootPath:              t.TempDir(),
-		ID:                    "hfresh_muvera",
-		MakeCommitLoggerThunk: makeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
-	}
-
-	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
-	cfg.Logger = logger
-	cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
-		return mvStore.getMultiVector(id)
-	}
-
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	scheduler.Start()
-	t.Cleanup(func() {
-		scheduler.Close(t.Context())
+// createHFreshIndexWithVectorStore creates a non-muvera index whose
+// VectorForIDThunk serves the provided vectors, as the shard does in
+// production.
+func createHFreshIndexWithVectorStore(t *testing.T, vectors [][]float32) TestHFresh {
+	t.Helper()
+	return createHFreshIndex(t, func(cfg *Config) {
+		cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+			func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+				if int(indexID) < len(vectors) {
+					return vectors[indexID], nil
+				}
+				return nil, nil
+			})
 	})
-
-	uc := ent.NewDefaultUserConfig()
-	uc.Multivector.Enabled = true
-	uc.Multivector.MuveraConfig.Enabled = true
-	uc.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
-	uc.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
-	uc.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
-
-	store := testinghelpers.NewDummyStore(t)
-
-	index, err := New(cfg, uc, store)
-	require.NoError(t, err)
-	index.multivectorForIdThunk = cfg.MultiVectorForIDThunk
-
-	return TestHFresh{
-		Index:   index,
-		Logs:    hook,
-		mvStore: mvStore,
-	}
 }
 
 func addMultiVectorToIndex(t *testing.T, tf *TestHFresh, docID uint64, vectors [][]float32) {
