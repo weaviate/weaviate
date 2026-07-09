@@ -49,6 +49,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}
+	q = h.normalizeVec(q)
 
 	replicas, needsReassign, err := h.RNGSelect(q, op.PostingID)
 	if err != nil {
