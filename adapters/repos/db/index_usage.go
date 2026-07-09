@@ -38,8 +38,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// ShardReadLimiter bounds the number of concurrent shard readers node-wide — parallel
-// UsageForIndex calls share the same limiter. Acquisition is FIFO.
+// ShardReadLimiter bounds the number of concurrent shard readers within a single usage
+// report — parallel UsageForIndex calls share the same limiter. Acquisition is FIFO.
 type ShardReadLimiter struct {
 	sem   *semaphore.Weighted
 	limit int

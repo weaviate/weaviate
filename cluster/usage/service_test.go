@@ -698,6 +698,82 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 	mockBackupProvider.AssertExpectations(t)
 }
 
+// TestService_Usage_MultipleCollectionsError verifies that a failing collection fails the whole
+// report with a wrapped error, also when collections are processed concurrently.
+func TestService_Usage_MultipleCollectionsError(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node"
+	shardName := "shard1"
+	vectorName := "vec"
+
+	classNames := []string{"ColA", "ColB", "ColC"}
+	classes := make([]*models.Class, len(classNames))
+	for i, name := range classNames {
+		classes[i] = &models.Class{
+			Class:             name,
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			VectorConfig:      map[string]models.VectorConfig{vectorName: {VectorIndexConfig: hnsw.UserConfig{}}},
+		}
+	}
+
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			shardName: {
+				Name:           shardName,
+				BelongsToNodes: []string{nodeName},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+	}
+	shardingState.SetLocalName(nodeName)
+
+	var usageStarted atomic.Bool
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(className string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			if usageStarted.Load() && className == "ColB" {
+				return fmt.Errorf("schema read exploded")
+			}
+			return fn(nil, shardingState)
+		},
+	)
+
+	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{Classes: classes},
+	})
+	for _, class := range classes {
+		mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
+	}
+	mockSchemaGetter.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).Return(shardName)
+	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+
+	repo := createTestDb(t, mockSchemaGetter, shardingState, nil, nodeName)
+	logger, _ := logrus.NewNullLogger()
+	migrator := db.NewMigrator(repo, logger, nodeName)
+	for _, class := range classes {
+		require.NoError(t, migrator.LoadShard(ctx, class.Class, shardName))
+		putObjectAndFlush(t, repo, class.Class, "", map[string][]float32{vectorName: {0.1, 0.2, 0.3}})
+	}
+	repo.Shutdown(ctx)
+	repo.SetSchemaReader(mockSchemaReader)
+	require.Nil(t, repo.WaitForStartup(context.Background()))
+
+	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service.SetShardConcurrency(len(classes))
+
+	usageStarted.Store(true)
+	result, err := service.Usage(ctx, true)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "collection ColB")
+	assert.ErrorContains(t, err, "schema read exploded")
+	assert.Nil(t, result)
+}
+
 func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *sharding.State, class *models.Class, nodeName string) *db.DB {
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return(nodeName).Maybe()

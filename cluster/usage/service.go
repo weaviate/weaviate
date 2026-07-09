@@ -85,14 +85,11 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		Backups:     make([]*types.BackupUsage, 0),
 	}
 
-	shardConcurrency := int(s.shardConcurrency.Load())
-	if shardConcurrency < 1 {
-		shardConcurrency = 1
-	}
-	// The limiter is shared by all collections, bounding concurrent shard readers node-wide at
-	// shardConcurrency. Up to shardConcurrency collections are in flight at once, so spare
+	// The limiter is shared by all collections of this report, bounding concurrent shard readers
+	// at shardConcurrency. Up to shardConcurrency collections are in flight at once, so spare
 	// capacity left by one collection is used by the shards of the next.
-	shardReadLimiter := db.NewShardReadLimiter(shardConcurrency)
+	shardReadLimiter := db.NewShardReadLimiter(int(s.shardConcurrency.Load()))
+	shardConcurrency := shardReadLimiter.Limit()
 
 	s.logger.Infof("Creating usage report with %d collections", len(collections))
 	var mu sync.Mutex
