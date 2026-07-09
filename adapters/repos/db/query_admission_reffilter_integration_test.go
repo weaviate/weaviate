@@ -44,7 +44,7 @@ import (
 // With the ctx dropped, the nested Author search re-enters Admit as a FRESH
 // acquirer (the re-entrancy marker is lost), so a single ref-filter query needs
 // two grants. Under a small node budget the parents hold every unit while their
-// nested children park on a never-expiring context.TODO() — the parents can
+// nested children park on a never-expiring context.TODO(); the parents can
 // never release, capacity is stuck forever, and only a restart recovers.
 //
 // The test bursts many ref-filter queries against a budget-2 node and asserts
@@ -102,7 +102,7 @@ func TestQueryAdmissionRefFilterSingleGrant(t *testing.T) {
 		numQueries = 16
 	)
 	// Enough budget for 2*numQueries acquirers to each take a full grant, so the
-	// buggy build cannot park (and thus cannot wedge) — it just doubles grants.
+	// buggy build cannot park (and thus cannot wedge); it just doubles grants.
 	want := concurrency.TimesGOMAXPROCS(2)
 	budget := 3 * numQueries * want
 

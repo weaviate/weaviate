@@ -186,7 +186,7 @@ func TestFIFOWakeOnRelease(t *testing.T) {
 		rel()
 	}
 
-	// Enqueue W1, wait until it is parked, then W2 — deterministic FIFO order.
+	// Enqueue W1, wait until it is parked, then W2, for deterministic FIFO order.
 	go start(1)
 	waitFor(t, func() bool { return l.waitersLenForTest() == 1 })
 	go start(2)
