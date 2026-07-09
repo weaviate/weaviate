@@ -14,24 +14,13 @@ package hfresh
 import (
 	"context"
 	"math/rand"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // TestSearchByFDEBudgetSeparation verifies that routingBudget and rerankBudget
@@ -261,123 +250,107 @@ func TestSearchByVectorUnchanged(t *testing.T) {
 	t.Logf("Single-vector SearchByVector returned %d results", len(ids))
 }
 
-// Helper function to create a MUVERA HFresh index with specific config
-func createMuveraHFreshIndexWithConfig(t *testing.T, searchProbe, rescoreLimit int) TestHFresh {
+func updateSearchProbe(t *testing.T, tf *TestHFresh, probe uint32) {
 	t.Helper()
-
-	logger, hook := test.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-
-	cfg := DefaultConfig()
-	mvStore := newMuveraTestStore()
-
-	scheduler := queue.NewScheduler(
-		queue.SchedulerOptions{
-			Logger: logger,
-		},
-	)
-	cfg.Scheduler = scheduler
-	cfg.RootPath = t.TempDir()
-
-	cfg.Centroids.HNSWConfig = &hnsw.Config{
-		RootPath:              t.TempDir(),
-		ID:                    "hfresh_muvera_budget_test",
-		MakeCommitLoggerThunk: makeNoopCommitLogger,
-		DistanceProvider:      distancer.NewL2SquaredProvider(),
-		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
-	}
-
-	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
-	cfg.Logger = logger
-	cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
-		return mvStore.getMultiVector(id)
-	}
-
-	scheduler.Start()
-	t.Cleanup(func() {
-		scheduler.Close(t.Context())
-	})
-
 	uc := ent.NewDefaultUserConfig()
-	uc.SearchProbe = uint32(searchProbe)
-	uc.RQ.RescoreLimit = rescoreLimit
-	uc.Multivector.Enabled = true
-	uc.Multivector.MuveraConfig.Enabled = true
-	uc.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
-	uc.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
-	uc.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+	uc.SearchProbe = probe
+	require.NoError(t, tf.Index.UpdateUserConfig(uc, func() {}))
+}
 
-	store := testinghelpers.NewDummyStore(t)
+// TestMuveraSearchBudgets pins the budget semantics of the decoupled
+// routing/rerank search: searchProbe steers routing in BOTH directions (a
+// low explicit probe is not floored by rescoreLimit), rescoreLimit floors
+// only the rerank depth, and the user-requested k floors both.
+//
+// An earlier version used routingBudget = max(k, searchProbe, rescoreLimit),
+// which silently ignored any searchProbe below rescoreLimit (350) and broke
+// the low-probe latency/recall trade-off.
+func TestMuveraSearchBudgets(t *testing.T) {
+	tests := []struct {
+		name        string
+		searchProbe uint32 // 0 = leave the parse-time default (256)
+		k           int
+		wantRouting int
+		wantRerank  int
+	}{
+		{name: "defaults", k: 10, wantRouting: 256, wantRerank: 350},
+		{name: "low probe respected below rescoreLimit", searchProbe: 16, k: 10, wantRouting: 16, wantRerank: 350},
+		{name: "high probe respected above rescoreLimit", searchProbe: 512, k: 10, wantRouting: 512, wantRerank: 350},
+		{name: "k wins over low probe", searchProbe: 16, k: 600, wantRouting: 600, wantRerank: 600},
+		{name: "k wins over defaults", k: 400, wantRouting: 400, wantRerank: 400},
+	}
 
-	index, err := New(cfg, uc, store)
-	require.NoError(t, err)
-	index.multivectorForIdThunk = cfg.MultiVectorForIDThunk
-
-	// Set the config values on the index
-	atomic.StoreUint32(&index.searchProbe, uint32(searchProbe))
-	atomic.StoreUint32(&index.rescoreLimit, uint32(rescoreLimit))
-
-	return TestHFresh{
-		Index:   index,
-		Logs:    hook,
-		mvStore: mvStore,
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tf := createMuveraHFreshIndex(t)
+			if tt.searchProbe > 0 {
+				updateSearchProbe(t, &tf, tt.searchProbe)
+			}
+			routing, rerank := tf.Index.muveraSearchBudgets(tt.k)
+			require.Equal(t, tt.wantRouting, routing, "routingBudget")
+			require.Equal(t, tt.wantRerank, rerank, "rerankBudget")
+		})
 	}
 }
 
-// createHFreshIndexWithVectorStore creates a non-MUVERA HFresh index with
-// VectorForIDThunk properly configured to return vectors from the provided store.
-func createHFreshIndexWithVectorStore(t *testing.T, vectors [][]float32) TestHFresh {
-	t.Helper()
-
-	logger, hook := test.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-
-	cfg := DefaultConfig()
-
-	scheduler := queue.NewScheduler(
-		queue.SchedulerOptions{
-			Logger: logger,
-		},
+// TestSearchProbeChangesResults is the behavioral half: an explicit low
+// searchProbe must actually reduce routing work. This is the test that
+// would have caught the rescoreLimit floor silently swallowing low probes:
+// with the floor, probe 16 scanned exactly the same postings as the
+// default, so the candidate coverage — and every downstream result — was
+// bit-identical.
+//
+// The observable is candidate COVERAGE (rerank budget above the corpus
+// size), not the rescored top-k: on IVF-style routing the true top-k
+// concentrates in the postings nearest the query, so a lower probe often
+// returns the same top-k even though it scans a fraction of the data —
+// top-k equality is a property of the dataset, coverage is a property of
+// the budget. Any future recall-recovery step that re-widens a narrow
+// probe (e.g. posting expansion) must be disabled here, since masking
+// narrow-probe misses is precisely such a feature's job.
+func TestSearchProbeChangesResults(t *testing.T) {
+	const (
+		nDocs  = 2500
+		tokens = 2
+		dim    = 16
 	)
-	cfg.Scheduler = scheduler
-	cfg.RootPath = t.TempDir()
-
-	cfg.Centroids.HNSWConfig = &hnsw.Config{
-		RootPath:              t.TempDir(),
-		ID:                    "hfresh_vector_store_test",
-		MakeCommitLoggerThunk: makeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
+	tf := createMuveraHFreshIndex(t, withDistanceProvider(distancer.NewCosineDistanceProvider()))
+	rng := rand.New(rand.NewSource(21))
+	for i := 0; i < nDocs; i++ {
+		addMultiVectorToIndex(t, &tf, uint64(i), randomMultiVector(rng, tokens, dim))
 	}
 
-	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
-	cfg.Logger = logger
+	// wait for background splits so the posting layout is stable and wide
+	// enough (>16 postings) for the routing budget to matter
+	require.Eventually(t, func() bool {
+		return tf.Index.taskQueue.Size() == 0
+	}, 60*time.Second, 100*time.Millisecond, "background tasks did not drain")
 
-	// Set VectorForIDThunk to return vectors from our store
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
-		if int(indexID) < len(vectors) {
-			return vectors[indexID], nil
-		}
-		return nil, nil
-	})
+	probe := randomMultiVector(rng, tokens, dim)
+	queryFDE := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
 
-	scheduler.Start()
-	t.Cleanup(func() {
-		scheduler.Close(t.Context())
-	})
+	// rerank budget above the corpus size so the candidate set reflects
+	// coverage, not the RQ1 top-N cut
+	wideOpen := nDocs * 2
 
-	uc := ent.NewDefaultUserConfig()
-	store := testinghelpers.NewDummyStore(t)
-
-	index, err := New(cfg, uc, store)
+	fullCandidates, err := tf.Index.searchByFDE(t.Context(), queryFDE, 1000, wideOpen, nil)
 	require.NoError(t, err)
+	require.Equal(t, nDocs, len(fullCandidates),
+		"a routing budget above the posting count must cover the whole corpus")
 
-	return TestHFresh{
-		Index: index,
-		Logs:  hook,
-	}
+	lowProbeCandidates, err := tf.Index.searchByFDE(t.Context(), queryFDE, 16, wideOpen, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, lowProbeCandidates)
+	require.Less(t, len(lowProbeCandidates), len(fullCandidates),
+		"routingBudget=16 must scan fewer postings than full routing; "+
+			"equal coverage means the probe is being silently floored")
+
+	// end to end: the collection-level searchProbe drives the same budgets
+	updateSearchProbe(t, &tf, 16)
+	routing, rerank := tf.Index.muveraSearchBudgets(10)
+	require.Equal(t, 16, routing)
+	require.Equal(t, 350, rerank)
+	ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 10, nil)
+	require.NoError(t, err)
+	require.Len(t, ids, 10)
 }

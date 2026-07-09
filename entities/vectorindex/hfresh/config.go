@@ -149,7 +149,7 @@ func (u *UserConfig) validate() error {
 		// enforced here — validate() also runs when parsing schemas restored
 		// at startup or replayed from the RAFT log, where an out-of-range
 		// persisted class must not prevent the node from starting. They are
-		// enforced on create/update by ValidateMuveraUpperBounds (issue #281).
+		// enforced on create/update by ValidateMuveraUpperBounds.
 		if u.Multivector.MuveraConfig.DProjections <= 0 {
 			errs = append(errs, fmt.Errorf("muvera dprojections must be greater than 0"))
 		}

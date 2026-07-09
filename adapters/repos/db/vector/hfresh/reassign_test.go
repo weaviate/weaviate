@@ -188,8 +188,9 @@ func TestReassignReenqueuesWhenSelectedPostingDisappears(t *testing.T) {
 }
 
 func TestReassignNormalizesFetchedVectorForCosineDistance(t *testing.T) {
-	tf := createHFreshIndex(t)
-	tf.Index.config.DistanceProvider = distancer.NewCosineDistanceProvider()
+	// the distance must be set at construction: the index precomputes its
+	// needs-normalization decision from the validated config in New
+	tf := createHFreshIndex(t, withDistanceProvider(distancer.NewCosineDistanceProvider()))
 
 	rawVector := []float32{3.0, 4.0, 0.0, 0.0}
 	normalizedVector := distancer.Normalize(rawVector)

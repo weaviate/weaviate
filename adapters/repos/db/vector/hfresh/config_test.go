@@ -118,3 +118,18 @@ func TestComputeMaxPostingSize(t *testing.T) {
 		})
 	}
 }
+
+// TestOutOfBoundsMuveraConfigStillLoads pins the startup-safety half of the
+// muvera parameter bounds: ValidateMuveraUpperBounds runs on schema
+// create/update only. A class persisted before the bounds existed may exceed
+// them, and loading it must not fail — the node has to start. (New logs a
+// warning in that case, but the guarantee under test is the successful
+// load, not the log line.)
+func TestOutOfBoundsMuveraConfigStillLoads(t *testing.T) {
+	uc := muveraUserConfig()
+	uc.Multivector.MuveraConfig.Repetitions = ent.MaximumAllowedMuveraRepetitions + 1
+
+	// newTestIndex fails the test if New returns an error
+	tf := newTestIndex(t, uc, newMuveraTestStore())
+	require.NotNil(t, tf.Index)
+}

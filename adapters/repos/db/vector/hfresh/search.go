@@ -42,7 +42,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		return nil, nil, nil
 	}
 
-
 	if !h.muvera.Load() && allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
@@ -50,7 +49,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// The candidate pool must be at least as large as the requested k:
 	// rescoreLimit is a quality floor for the RQ1 candidate depth, not a cap
 	// on results. Using rescoreLimit alone silently capped searches with
-	// k > rescoreLimit at rescoreLimit results (issue #277). Any rework of
+	// k > rescoreLimit at rescoreLimit results. Any rework of
 	// this path (e.g. decoupled routing/rerank budgets) must preserve
 	// max(k, rescoreLimit) semantics for the candidate depth.
 	rescoreLimit := max(k, int(h.rescoreLimit))
@@ -170,7 +169,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	rescored := NewResultSet(k)
 	for id := range q.Iter() {
-		vec, err := h.vectorForId(ctx, id)
+		vec, err := h.vectorForID(ctx, id)
 		if err != nil {
 			// The object may have been deleted between the posting scan and the
 			// rescore step (race condition). Skip stale entries gracefully.
@@ -355,7 +354,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 
 	// The muvera encoder is initialized by the first AddMulti (or restored
 	// from persisted metadata at startup). Until then its projection
-	// matrices are nil and EncodeQuery would panic (issue #275). dims is
+	// matrices are nil and EncodeQuery would panic. dims is
 	// only set after the encoder is initialized and persisted — atomically,
 	// unlike muveraEncoder.Dimensions() — so a non-zero value guarantees the
 	// encoder is ready without racing a concurrent first insert.
@@ -364,7 +363,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	}
 
 	// cosine requires normalized tokens for both the FDE encoding and the
-	// MaxSim rescore (issue #276)
+	// MaxSim rescore
 	vectors = h.normalizeMultiVec(vectors)
 
 	// Encode query vectors into FDE (Fast Dense Encoding) representation
@@ -394,7 +393,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 // Both budgets must include the user-requested k: rescoreLimit is a quality
 // floor for the RQ1 candidate depth, not a cap on results. Budgets below k
 // silently capped searches with k > rescoreLimit at rescoreLimit results
-// (issue #277). Any further rework of this path must preserve max(k, ...)
+// . Any further rework of this path must preserve max(k, ...)
 // semantics for both budgets.
 func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
 	searchProbe := int(atomic.LoadUint32(&h.searchProbe))
@@ -598,7 +597,7 @@ func (h *HFresh) QueryMultiVectorDistancer(queryVectors [][]float32) common.Quer
 
 	queryVectors = h.normalizeMultiVec(queryVectors)
 	distFunc := func(id uint64) (float32, error) {
-		docVectors, err := h.multivectorForIdThunk(h.ctx, id)
+		docVectors, err := h.multiVectorForID(h.ctx, id)
 		if err != nil {
 			return 0, errors.Wrapf(err, "get multi-vector for id %d", id)
 		}
@@ -612,7 +611,7 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 	results := NewResultSet(k)
 
 	for _, id := range candidateIDs {
-		docVectors, err := h.multivectorForIdThunk(ctx, id)
+		docVectors, err := h.multiVectorForID(ctx, id)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "get multi-vector for id %d", id)
 		}
@@ -641,7 +640,8 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 // Callers must pass query tokens already normalized (normalizeMultiVec) when
 // the configured distance is cosine; document tokens are handled here.
 func (h *HFresh) maxSimScore(queryVectors, docVectors [][]float32) (float32, error) {
-	if h.config.DistanceProvider.Type() == "cosine-dot" {
+	if h.needsNormalization {
+		// cosine: use the folded-norm scorer (see maxSimScoreCosine)
 		return h.maxSimScoreCosine(queryVectors, docVectors)
 	}
 
@@ -663,17 +663,18 @@ func (h *HFresh) maxSimScore(queryVectors, docVectors [][]float32) (float32, err
 	return score, nil
 }
 
-var dotProvider = distancer.NewDotProductProvider()
-
 // maxSimScoreCosine computes the cosine MaxSim by folding each document
 // token's inverse norm into the dot product: dist(q̂, d) = 1 - dot(q̂, d)/‖d‖,
 // with query tokens pre-normalized by the caller. This avoids materializing
 // normalized copies of every candidate's tokens on the rescore hot path,
 // which visits ~rescoreLimit documents per query — a separate normalization
-// pass measurably regressed query latency (issue #276 follow-up). Zero-norm
+// pass measurably regressed query latency. Zero-norm
 // tokens keep an inverse norm of 0, matching distancer.Normalize, which
 // leaves zero vectors untouched (distance 1).
 func (h *HFresh) maxSimScoreCosine(queryVectors [][]float32, docVectors [][]float32) (float32, error) {
+	// empty struct, costs nothing to create per call
+	dotProvider := distancer.NewDotProductProvider()
+
 	invNorms := make([]float32, len(docVectors))
 	for j, docToken := range docVectors {
 		negNormSq, err := dotProvider.SingleDist(docToken, docToken)

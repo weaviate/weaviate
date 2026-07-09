@@ -52,7 +52,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	if h.muvera.Load() {
 		// A single vector inserted into a muvera index would initialize the
 		// index with the token dimensionality instead of the FDE
-		// dimensionality, corrupting every subsequent AddMulti (issue #278).
+		// dimensionality, corrupting every subsequent AddMulti.
 		// AddMulti encodes documents into FDEs and inserts them via add.
 		return errors.New("collection is configured as multi-vector: single vectors are not supported")
 	}
@@ -149,7 +149,7 @@ func (h *HFresh) initDimensions(vector []float32) error {
 }
 
 func (h *HFresh) normalizeVec(vec []float32) []float32 {
-	if h.config.DistanceProvider.Type() == "cosine-dot" {
+	if h.needsNormalization {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		return distancer.Normalize(vec)
@@ -270,7 +270,6 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {
 	if !h.muvera.Load() {
-		h.logger.Error(ErrMuveraNotEnabled)
 		return ErrMuveraNotEnabled
 	}
 	if err := ctx.Err(); err != nil {
@@ -314,7 +313,6 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 
 func (h *HFresh) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
 	if !h.muvera.Load() {
-		h.logger.Error(ErrMuveraNotEnabled)
 		return ErrMuveraNotEnabled
 	}
 	if len(docIDs) != len(vectors) {
@@ -377,7 +375,7 @@ func (m *muveraDataCapture) AddMuvera(data compression.MuveraData) error {
 
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
 	if h.muvera.Load() {
-		// see Add: single vectors must never reach a muvera index (issue #278)
+		// see Add: single vectors must never reach a muvera index
 		return errors.New("collection is configured as multi-vector: single vectors are not supported")
 	}
 

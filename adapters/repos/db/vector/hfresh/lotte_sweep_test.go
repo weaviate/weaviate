@@ -26,29 +26,15 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
-	"io"
-	"math"
 	"os"
 	"sort"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const (
@@ -194,50 +180,8 @@ func TestLOTTESweep(t *testing.T) {
 
 	// Create index
 	fmt.Println("Creating HFresh+MUVERA index...")
-	logger, _ := test.NewNullLogger()
-	logger.SetLevel(logrus.WarnLevel)
-
-	store := testinghelpers.NewDummyStore(t)
-	cfg := DefaultConfig()
-	cfg.RootPath = t.TempDir()
-	cfg.ID = "lotte_sweep"
-
-	distProvider := distancer.NewL2SquaredProvider()
-	cfg.DistanceProvider = distProvider
-
-	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger})
-	cfg.Scheduler = scheduler
-	scheduler.Start()
-	defer scheduler.Close(context.Background())
-
-	cfg.Centroids.HNSWConfig = &hnsw.Config{
-		RootPath:              t.TempDir(),
-		ID:                    "lotte_sweep_centroids",
-		MakeCommitLoggerThunk: makeNoopCommitLogger,
-		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
-		DistanceProvider:      distProvider,
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-	}
-	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
-	cfg.Logger = logger
-
-	// Multi-vector store
-	mvStore := newMuveraTestStore()
-	cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
-		return mvStore.getMultiVector(id)
-	}
-
-	uc := ent.NewDefaultUserConfig()
-	uc.Multivector.Enabled = true
-	uc.Multivector.MuveraConfig.Enabled = true
-	uc.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
-	uc.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
-	uc.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
-
-	index, err := New(cfg, uc, store)
-	require.NoError(t, err)
-	index.multivectorForIdThunk = cfg.MultiVectorForIDThunk
+	tf := createMuveraHFreshIndex(t, withDistanceProvider(distancer.NewL2SquaredProvider()))
+	index, mvStore := tf.Index, tf.mvStore
 	defer index.Shutdown(context.Background())
 
 	// Index documents
@@ -368,7 +312,7 @@ func runSingleConfig(t *testing.T, index *HFresh, data *LOTTEData, k, routingBud
 			t.Fatalf("Search failed for query %d: %v", qi, err)
 		}
 
-		recall := computeRecallLOTTE(ids, data.GroundTruth[qi], k)
+		recall := computeRecall(ids, data.GroundTruth[qi], k)
 		totalRecall += recall
 	}
 
@@ -407,7 +351,7 @@ func runSweepConfig(t *testing.T, index *HFresh, data *LOTTEData, k, routingBudg
 		tokensLoaded := 0
 		bytesLoaded := int64(0)
 		for _, id := range candidateIDs {
-			docVecs, err := index.multivectorForIdThunk(context.Background(), id)
+			docVecs, err := index.multiVectorForID(context.Background(), id)
 			if err != nil {
 				continue
 			}
@@ -437,7 +381,7 @@ func runSweepConfig(t *testing.T, index *HFresh, data *LOTTEData, k, routingBudg
 			ids = append(ids, id)
 		}
 
-		recall := computeRecallLOTTE(ids, data.GroundTruth[qi], k)
+		recall := computeRecall(ids, data.GroundTruth[qi], k)
 		totalRecall += recall
 
 		latencies = append(latencies, float64(totalDuration.Microseconds())/1000.0)
@@ -482,7 +426,7 @@ func runSearchWithBudgets(index *HFresh, query [][]float32, k, routingBudget, re
 
 	results := NewResultSet(k)
 	for _, id := range candidateIDs {
-		docVecs, err := index.multivectorForIdThunk(context.Background(), id)
+		docVecs, err := index.multiVectorForID(context.Background(), id)
 		if err != nil {
 			continue
 		}
@@ -496,36 +440,3 @@ func runSearchWithBudgets(index *HFresh, query [][]float32, k, routingBudget, re
 	}
 	return ids, nil
 }
-
-func computeRecallLOTTE(results []uint64, groundTruth []uint64, k int) float64 {
-	if len(groundTruth) == 0 || len(results) == 0 {
-		return 0.0
-	}
-
-	truthSet := make(map[uint64]bool)
-	limit := k
-	if limit > len(groundTruth) {
-		limit = len(groundTruth)
-	}
-	for i := 0; i < limit; i++ {
-		truthSet[groundTruth[i]] = true
-	}
-
-	hits := 0
-	resultLimit := k
-	if resultLimit > len(results) {
-		resultLimit = len(results)
-	}
-	for i := 0; i < resultLimit; i++ {
-		if truthSet[results[i]] {
-			hits++
-		}
-	}
-
-	return float64(hits) / float64(limit)
-}
-
-// Unused import suppression
-var _ = io.EOF
-var _ = math.MaxFloat32
-var _ sync.Mutex
