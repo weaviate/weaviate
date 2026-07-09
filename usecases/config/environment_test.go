@@ -1615,12 +1615,7 @@ func assertNonNegativeIntEnv(t *testing.T, envName string, get func(*Config) int
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.value) == 1 {
-				t.Setenv(envName, tt.value[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
-
+			conf, err := setEnvAndParse(t, envName, tt.value)
 			if tt.expectedErr {
 				require.NotNil(t, err)
 			} else {
@@ -1629,6 +1624,18 @@ func assertNonNegativeIntEnv(t *testing.T, envName string, get func(*Config) int
 			}
 		})
 	}
+}
+
+// setEnvAndParse optionally sets envName (only when value holds a single
+// element, so a nil/empty slice models "unset"), then parses a fresh Config
+// from the environment and returns it alongside any parse error.
+func setEnvAndParse(t *testing.T, envName string, value []string) (Config, error) {
+	t.Helper()
+	if len(value) == 1 {
+		t.Setenv(envName, value[0])
+	}
+	conf := Config{}
+	return conf, FromEnv(&conf)
 }
 
 func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
@@ -1645,12 +1652,7 @@ func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.value) == 1 {
-				t.Setenv("QUERY_ADMISSION_CONTROL_DISABLED", tt.value[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
-
+			conf, err := setEnvAndParse(t, "QUERY_ADMISSION_CONTROL_DISABLED", tt.value)
 			require.Nil(t, err)
 			require.NotNil(t, conf.QueryAdmissionControlDisabled)
 			require.Equal(t, tt.expected, conf.QueryAdmissionControlDisabled.Get())

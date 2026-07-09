@@ -42,16 +42,8 @@ const (
 // both classes occur.
 func TestQueryAdmissionShedsUnderSaturation(t *testing.T) {
 	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithWeaviateEnv("QUERY_ADMISSION_BUDGET", "1").
-		WithWeaviateEnv("QUERY_ADMISSION_MAX_QUEUE", "1").
-		Start(ctx)
-	require.NoError(t, err)
+	compose, grpcClient := bootAdmission(t, ctx, false, 1, nil)
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
-
-	grpcClient := setupAdmissionCollection(t, compose.GetWeaviate().URI(),
-		compose.GetWeaviate().GrpcURI(), 1)
 
 	res := burst(ctx, grpcClient, filteredBM25Request(), 50)
 	t.Logf("journey1 saturation: success=%d shed=%d unexpected=%d of 50", res.success, res.shed, res.other)
@@ -65,17 +57,9 @@ func TestQueryAdmissionShedsUnderSaturation(t *testing.T) {
 // with the kill switch engaged must never shed — admission is a passthrough.
 func TestQueryAdmissionDisabledNeverSheds(t *testing.T) {
 	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithWeaviateEnv("QUERY_ADMISSION_BUDGET", "1").
-		WithWeaviateEnv("QUERY_ADMISSION_MAX_QUEUE", "1").
-		WithWeaviateEnv("QUERY_ADMISSION_CONTROL_DISABLED", "true").
-		Start(ctx)
-	require.NoError(t, err)
+	compose, grpcClient := bootAdmission(t, ctx, false, 1,
+		map[string]string{"QUERY_ADMISSION_CONTROL_DISABLED": "true"})
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
-
-	grpcClient := setupAdmissionCollection(t, compose.GetWeaviate().URI(),
-		compose.GetWeaviate().GrpcURI(), 1)
 
 	res := burst(ctx, grpcClient, filteredBM25Request(), 50)
 	t.Logf("journey2 disabled: success=%d shed=%d unexpected=%d of 50", res.success, res.shed, res.other)
@@ -93,18 +77,10 @@ func TestQueryAdmissionDisabledNeverSheds(t *testing.T) {
 // the coordinator's ingress.
 func TestQueryAdmissionCrossNodeShed(t *testing.T) {
 	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviateClusterWithGRPC(). // 3 nodes
-		WithWeaviateEnv("QUERY_ADMISSION_BUDGET", "1").
-		WithWeaviateEnv("QUERY_ADMISSION_MAX_QUEUE", "1").
-		Start(ctx)
-	require.NoError(t, err)
+	// A 3-node cluster with desiredCount=3 spreads the shards across all nodes,
+	// so every query on the coordinator (node 1) fans out to remote shards.
+	compose, grpcClient := bootAdmission(t, ctx, true, 3, nil)
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
-
-	// The coordinator is node 1; desiredCount=3 spreads the shards across all
-	// nodes so every query fans out to remote shards.
-	grpcClient := setupAdmissionCollection(t, compose.GetWeaviate().URI(),
-		compose.GetWeaviate().GrpcURI(), 3)
 
 	// Moderate cross-node contention: the coordinator's bounded remote-retry
 	// backoff absorbs it, so queries still succeed.
@@ -124,6 +100,36 @@ func TestQueryAdmissionCrossNodeShed(t *testing.T) {
 }
 
 // --- helpers ----------------------------------------------------------------
+
+// bootAdmission starts a Weaviate with the tiny admission budget/queue every
+// journey shares (BUDGET=1, MAX_QUEUE=1) plus any extraEnv, creates a
+// `shards`-way admission collection, and returns the running compose (the
+// caller owns Terminate) and a ready gRPC client. When cluster is true it boots
+// a 3-node topology so queries fan out to remote shards; otherwise a single
+// node.
+func bootAdmission(t *testing.T, ctx context.Context, cluster bool, shards int,
+	extraEnv map[string]string,
+) (*docker.DockerCompose, pb.WeaviateClient) {
+	t.Helper()
+	builder := docker.New()
+	if cluster {
+		builder = builder.WithWeaviateClusterWithGRPC()
+	} else {
+		builder = builder.WithWeaviateWithGRPC()
+	}
+	builder = builder.
+		WithWeaviateEnv("QUERY_ADMISSION_BUDGET", "1").
+		WithWeaviateEnv("QUERY_ADMISSION_MAX_QUEUE", "1")
+	for name, value := range extraEnv {
+		builder = builder.WithWeaviateEnv(name, value)
+	}
+	compose, err := builder.Start(ctx)
+	require.NoError(t, err)
+
+	grpcClient := setupAdmissionCollection(t, compose.GetWeaviate().URI(),
+		compose.GetWeaviate().GrpcURI(), shards)
+	return compose, grpcClient
+}
 
 func setupAdmissionCollection(t *testing.T, httpURI, grpcURI string, shards int) pb.WeaviateClient {
 	t.Helper()
