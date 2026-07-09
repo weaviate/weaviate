@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -82,6 +83,8 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	helper.CreateClass(t, paragraphClass)
 
 	var id strfmt.UUID
+	req := getRequest(t, paragraphClass.Class)
+
 	t.Run("get collection sharding state", func(t *testing.T) {
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class), nil)
 		require.NoError(t, err, "failed to get sharding state for collection %s: %+v", paragraphClass.Class, err)
@@ -98,7 +101,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get collection and shard sharding state", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).Shard
+		shard := req.Shard
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
 		require.NoError(t, err, "failed to get sharding state for collection %s and shard %s: %+v", paragraphClass.Class, *shard, err)
 		require.NotNil(t, shardingState)
@@ -134,7 +137,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("create replication operation", func(t *testing.T) {
-		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), nil)
 		var unprocessableErr *replication.ReplicateUnprocessableEntity
 		if errors.As(err, &unprocessableErr) {
 			t.Logf("replication operation could not be created: %s", unprocessableErr.Payload.Error[0].Message)
@@ -181,7 +184,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by collection and shard", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).Shard
+		shard := req.Shard
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
 		require.NoError(t, err, "failed to list replication operations by collection and shard %+v", err)
 		found := false
@@ -195,7 +198,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by target node", func(t *testing.T) {
-		nodeID := getRequest(t, paragraphClass.Class).TargetNode
+		nodeID := req.TargetNode
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(nodeID), nil)
 		require.NoError(t, err, "failed to list replication operations by target node %+v", err)
 		found := false
@@ -259,7 +262,8 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("create one op and immediately delete all replication ops", func(t *testing.T) {
-		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		secondReq := getRequest(t, paragraphClass.Class, *req.TargetNode)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(secondReq), nil)
 		var unprocessableErr *replication.ReplicateUnprocessableEntity
 		if errors.As(err, &unprocessableErr) {
 			t.Logf("replication operation could not be created: %s", unprocessableErr.Payload.Error[0].Message)
@@ -303,7 +307,12 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 }
 
-func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {
+// getRequest builds a replication request for className: the first node (the
+// nodes endpoint sorts them by name) is the source, its first shard is the
+// shard, and the target is the first other node not listed in
+// excludeTargetNodes. Pass a previous op's target as an exclusion when that op
+// may have already materialized a replica there.
+func getRequest(t *testing.T, className string, excludeTargetNodes ...string) *models.ReplicationReplicateReplicaRequest {
 	verbose := verbosity.OutputVerbose
 	var nodesResp *nodes.NodesGetClassOK
 	var err error
@@ -326,10 +335,19 @@ func getRequest(t *testing.T, className string) *models.ReplicationReplicateRepl
 	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes), 2, "should have at least 2 nodes")
 	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
 
+	var targetNode string
+	for _, node := range nodesResp.Payload.Nodes[1:] {
+		if !slices.Contains(excludeTargetNodes, node.Name) {
+			targetNode = node.Name
+			break
+		}
+	}
+	require.NotEmpty(t, targetNode, "no eligible target node for class %s excluding %v", className, excludeTargetNodes)
+
 	return &models.ReplicationReplicateReplicaRequest{
 		Collection: &className,
 		SourceNode: &nodesResp.Payload.Nodes[0].Name,
-		TargetNode: &nodesResp.Payload.Nodes[1].Name,
+		TargetNode: &targetNode,
 		Shard:      &nodesResp.Payload.Nodes[0].Shards[0].Name,
 	}
 }
