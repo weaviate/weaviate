@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"golang.org/x/sync/semaphore"
 )
 
 // DefaultShardConcurrency is the default number of shards processed concurrently while collecting usage.
@@ -85,11 +86,11 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		Backups:     make([]*types.BackupUsage, 0),
 	}
 
-	// The limiter is shared by all collections of this report, bounding concurrent shard readers
-	// at shardConcurrency. Up to shardConcurrency collections are in flight at once, so spare
-	// capacity left by one collection is used by the shards of the next.
-	shardReadLimiter := db.NewShardReadLimiter(int(s.shardConcurrency.Load()))
-	shardConcurrency := shardReadLimiter.Limit()
+	// The semaphore is shared by all collections of this report, bounding concurrent shard
+	// readers at shardConcurrency. Up to shardConcurrency collections are in flight at once,
+	// so spare capacity left by one collection is used by the shards of the next.
+	shardConcurrency := int(s.shardConcurrency.Load())
+	shardReadSem := semaphore.NewWeighted(int64(shardConcurrency))
 
 	s.logger.Infof("Creating usage report with %d collections", len(collections))
 	var mu sync.Mutex
@@ -101,7 +102,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 			if err != nil {
 				return fmt.Errorf("collection %s: %w", collection.Class, err)
 			}
-			collectionUsage, err := s.db.UsageForIndex(egCtx, entschema.ClassName(collection.Class), shardReadLimiter, exactObjectCount, vectorConfig)
+			collectionUsage, err := s.db.UsageForIndex(egCtx, entschema.ClassName(collection.Class), shardReadSem, exactObjectCount, vectorConfig)
 			// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
 			// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
 			// as it is no longer relevant for the current node usage

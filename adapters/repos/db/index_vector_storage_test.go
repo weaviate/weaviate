@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -884,7 +885,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
 	// Compare active and inactive metrics
-	collectionUsage, err := newIndex.usageForCollection(ctx, NewShardReadLimiter(4), true, class.VectorConfig)
+	collectionUsage, err := newIndex.usageForCollection(ctx, semaphore.NewWeighted(4), true, class.VectorConfig)
 	require.NoError(t, err)
 	for _, tenant := range collectionUsage.Shards {
 		if tenant.Name == tenantNamePopulated {

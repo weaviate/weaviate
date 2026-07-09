@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -105,7 +106,7 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 			require.DirExists(t, shardDir, "precondition: shard dir must exist")
 			require.NoError(t, os.RemoveAll(filepath.Join(shardDir, tt.removeRelPath)))
 
-			usage, err := index.usageForCollection(ctx, NewShardReadLimiter(4), true, nil)
+			usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, nil)
 			require.NoError(t, err, "one disappearing shard must not fail the whole report")
 			require.NotNil(t, usage)
 

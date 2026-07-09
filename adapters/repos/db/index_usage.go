@@ -38,34 +38,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// ShardReadLimiter bounds the number of concurrent shard readers within a single usage
-// report — parallel UsageForIndex calls share the same limiter. Acquisition is FIFO.
-type ShardReadLimiter struct {
-	sem   *semaphore.Weighted
-	limit int
-}
-
-func NewShardReadLimiter(limit int) *ShardReadLimiter {
-	if limit < 1 {
-		limit = 1
-	}
-	return &ShardReadLimiter{sem: semaphore.NewWeighted(int64(limit)), limit: limit}
-}
-
-func (l *ShardReadLimiter) Acquire(ctx context.Context) error {
-	return l.sem.Acquire(ctx, 1)
-}
-
-func (l *ShardReadLimiter) Release() {
-	l.sem.Release(1)
-}
-
-func (l *ShardReadLimiter) Limit() int {
-	return l.limit
-}
-
-// UsageForIndex computes usage for a single collection.
-func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, shardReadLimiter *ShardReadLimiter, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+// UsageForIndex computes usage for a single collection. shardReadSem bounds the number of
+// concurrent shard readers within a single usage report — parallel UsageForIndex calls share
+// the same semaphore. Acquisition is FIFO.
+func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, shardReadSem *semaphore.Weighted, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -88,19 +64,18 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, sha
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, shardReadLimiter, exactObjectCount, vectorsConfig)
+	return index.usageForCollection(ctx, shardReadSem, exactObjectCount, vectorsConfig)
 }
 
-func (i *Index) usageForCollection(ctx context.Context, shardReadLimiter *ShardReadLimiter, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.Weighted, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	collectionUsage := &types.CollectionUsage{
 		Name:              i.Config.ClassName.String(),
 		ReplicationFactor: int(i.Config.ReplicationFactor),
 	}
 
-	if shardReadLimiter == nil {
-		shardReadLimiter = NewShardReadLimiter(1)
+	if shardReadSem == nil {
+		shardReadSem = semaphore.NewWeighted(1)
 	}
-	shardConcurrency := shardReadLimiter.Limit()
 
 	localShards := map[string]struct{}{}
 
@@ -123,18 +98,16 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadLimiter *ShardR
 		return nil, fmt.Errorf("schemareader: %w", err)
 	}
 
-	i.logger.WithFields(
-		logrus.Fields{
-			"class":             i.Config.ClassName.String(),
-			"shard_concurrency": shardConcurrency,
-		}).Infof("creating usage report with %d shards", len(localShards))
+	i.logger.WithField("class", i.Config.ClassName.String()).
+		Infof("creating usage report with %d shards", len(localShards))
 
 	shardNames := make([]string, 0, len(localShards))
 	for shardName := range localShards {
 		shardNames = append(shardNames, shardName)
 	}
 
-	// process the local shards with a bounded number of concurrent readers
+	// Acquiring the semaphore before spawning bounds both the concurrent shard readers and the
+	// number of goroutines: a goroutine only exists while it holds a permit.
 	var (
 		mu        sync.Mutex
 		processed atomic.Int64
@@ -142,13 +115,12 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadLimiter *ShardR
 	start := time.Now()
 
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
-	eg.SetLimit(shardConcurrency)
 	for _, shardName := range shardNames {
+		if err := shardReadSem.Acquire(egCtx, 1); err != nil {
+			break
+		}
 		eg.Go(func() error {
-			if err := shardReadLimiter.Acquire(egCtx); err != nil {
-				return err
-			}
-			defer shardReadLimiter.Release()
+			defer shardReadSem.Release(1)
 
 			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, vectorConfig)
 			if err != nil {
@@ -167,10 +139,9 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadLimiter *ShardR
 			if count%1000 == 0 {
 				i.logger.WithFields(
 					logrus.Fields{
-						"class":             i.Config.ClassName.String(),
-						"shard_concurrency": shardConcurrency,
-						"processed_shards":  count,
-						"took":              time.Since(start).Seconds(),
+						"class":            i.Config.ClassName.String(),
+						"processed_shards": count,
+						"took":             time.Since(start).Seconds(),
 					}).Debugf("processed %d/%d shards for usage report", count, len(shardNames))
 			}
 			return nil
@@ -179,14 +150,17 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadLimiter *ShardR
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
+	// the loop may have stopped early on a cancelled parent context without any shard error
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	uniqueShardCount := int(processed.Load())
 	i.logger.WithFields(
 		logrus.Fields{
-			"class":             i.Config.ClassName.String(),
-			"shard_concurrency": shardConcurrency,
-			"processed_shards":  uniqueShardCount,
-			"took":              time.Since(start).Seconds(),
+			"class":            i.Config.ClassName.String(),
+			"processed_shards": uniqueShardCount,
+			"took":             time.Since(start).Seconds(),
 		}).Infof("finished processing %d/%d shards for usage report", uniqueShardCount, len(shardNames))
 
 	collectionUsage.UniqueShardCount = uniqueShardCount
