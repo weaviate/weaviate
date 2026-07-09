@@ -322,7 +322,7 @@ func (s *Searcher) extractPropValuePair(
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		return s.extractReferenceFilter(property, filter, class)
+		return s.extractReferenceFilter(ctx, property, filter, class)
 	}
 
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
@@ -406,10 +406,16 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	return children, nil
 }
 
-func (s *Searcher) extractReferenceFilter(prop *models.Property,
+// extractReferenceFilter runs the nested cross-reference search for a ref
+// filter. It threads the caller's ctx through the nested search so that (1) an
+// admission grant already held on this node is inherited by the nested search
+// (re-entrancy) instead of the nested search re-entering admission as a fresh
+// acquirer, and (2) the per-query merge budget and any deadline/cancellation
+// propagate. Passing a fresh context here previously caused a permanent
+// admission wedge under a saturated node budget.
+func (s *Searcher) extractReferenceFilter(ctx context.Context, prop *models.Property,
 	filter *filters.Clause, class *models.Class,
 ) (*propValuePair, error) {
-	ctx := context.TODO()
 	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit).
 		Do(ctx)
 }
