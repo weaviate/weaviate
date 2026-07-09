@@ -162,14 +162,21 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 // TestBucket_RoaringSetGet_RespectsConcurrencyBudget pins RoaringSetGet's
 // merge fan-out to the per-query budget without blowing the goroutine ceiling.
 func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
-	// CI implication: the kill-switch CI leg (DISABLE_SROAR_MERGE_BUDGET=true)
-	// skips this bound by design and serves as the red control instead.
+	// The kill switch (DISABLE_SROAR_MERGE_BUDGET=true) is this bound's red
+	// control, but it is a manual/local check: run with the env var set and
+	// this skip bypassed, and the ceiling assertion below must fail. No CI job
+	// sets the kill switch, so CI exercises only the green (budget-enforced) leg.
 	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 		t.Skip("budget cap disabled via kill switch")
 	}
-	// CI implication: 2-vCPU runners have SROAR_MERGE=1 and skip this entirely;
-	// the bound is only exercised on >=4-vCPU runners (SROAR_MERGE>=2).
+	// Merge fan-out only exists at SROAR_MERGE>=2 (GOMAXPROCS>=4). Skipping on a
+	// <4-vCPU runner would silently evaporate the guard, so fail loudly on CI
+	// and only skip on dev machines.
 	if concurrency.SROAR_MERGE < 2 {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("bounding tests require GOMAXPROCS>=4, refusing to skip silently on CI (SROAR_MERGE=%d)",
+				concurrency.SROAR_MERGE)
+		}
 		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
 			concurrency.SROAR_MERGE)
 	}
@@ -188,18 +195,27 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	// never auto-flush; we flush explicitly to control the disk segment count
 	b.SetMemtableThreshold(1e9)
 
-	// one value per sroar container (stride 2^16); enough that merge ops
-	// actually want >1 worker (min(200/24, SROAR_MERGE))
-	const numContainers = 200
-	values := make([]uint64, numContainers)
-	for i := range values {
-		values[i] = uint64(i) << 16
+	// numContainers sroar containers (stride 2^16), each holding
+	// valuesPerContainer values. Enough containers that merge ops want >1
+	// worker (min(numContainers/24, SROAR_MERGE)); dense containers make every
+	// OrConc real work, so the extra worker an ignored budget spawns lives
+	// across several 1ms sampler ticks instead of finishing between them.
+	const (
+		numContainers      = 128
+		valuesPerContainer = 128
+	)
+	values := make([]uint64, 0, numContainers*valuesPerContainer)
+	for c := 0; c < numContainers; c++ {
+		for j := 0; j < valuesPerContainer; j++ {
+			values = append(values, uint64(c)<<16+uint64(j))
+		}
 	}
 
 	key := []byte("key")
 
-	// >= 8 disk segments so each Get runs several segment merges
-	const numSegments = 8
+	// many disk segments so each Get runs several sequential segment merges,
+	// keeping each worker inside a live merge across most of the sampler window
+	const numSegments = 12
 	for s := 0; s < numSegments; s++ {
 		require.NoError(t, b.RoaringSetAddList(key, values))
 		require.NoError(t, b.FlushAndSwitch())
@@ -222,7 +238,7 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, arrDefault, arr1)
 
 	// budget=1 spawns no extra workers; slack absorbs sampler/GC noise
-	testinghelpers.AssertGoroutineCeiling(t, 16, 1, 8, 200*time.Millisecond, func() error {
+	testinghelpers.AssertGoroutineCeiling(t, 24, 1, 8, 200*time.Millisecond, func() error {
 		bm, release, err := b.RoaringSetGet(budget1, key)
 		if err != nil {
 			return err

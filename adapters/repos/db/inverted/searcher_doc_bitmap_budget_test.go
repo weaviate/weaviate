@@ -57,21 +57,28 @@ func TestDocBitmapInvertedRoaringSet_RowMergeBudget(t *testing.T) {
 	require.Len(t, defaultIDs, numRoaringRows*idsPerRow)
 
 	t.Run("goroutine ceiling under budget-1", func(t *testing.T) {
-		// CI implication: the kill-switch CI leg (DISABLE_SROAR_MERGE_BUDGET=true)
-		// skips this bound by design and serves as the red control instead.
+		// The kill switch (DISABLE_SROAR_MERGE_BUDGET=true) is this bound's red
+		// control, but it is a manual/local check: run with the env var set and
+		// this skip bypassed, and the ceiling assertion below must fail. No CI job
+		// sets the kill switch, so CI exercises only the green (budget-enforced) leg.
 		if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 			t.Skip("budget cap disabled via kill switch")
 		}
-		// CI implication: 2-vCPU runners have SROAR_MERGE=1 and skip this entirely;
-		// the bound is only exercised on >=4-vCPU runners (SROAR_MERGE>=2).
+		// Merge fan-out only exists at SROAR_MERGE>=2 (GOMAXPROCS>=4). Skipping on a
+		// <4-vCPU runner would silently evaporate the guard, so fail loudly on CI
+		// and only skip on dev machines.
 		if concurrency.SROAR_MERGE < 2 {
+			if os.Getenv("CI") != "" {
+				t.Fatalf("bounding tests require GOMAXPROCS>=4, refusing to skip silently on CI (SROAR_MERGE=%d)",
+					concurrency.SROAR_MERGE)
+			}
 			t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
 				concurrency.SROAR_MERGE)
 		}
 
 		budget1 := concurrency.CtxWithBudget(ctx, 1)
 		// budget=1 spawns no extra workers; slack absorbs sampler/GC noise
-		testinghelpers.AssertGoroutineCeiling(t, 8, 1, 8, 200*time.Millisecond, func() error {
+		testinghelpers.AssertGoroutineCeiling(t, numMergeWorkers, 1, 8, 200*time.Millisecond, func() error {
 			s := &Searcher{}
 			bm, err := s.docBitmapInvertedRoaringSet(budget1, b, 0, pv)
 			if err != nil {
@@ -84,8 +91,11 @@ func TestDocBitmapInvertedRoaringSet_RowMergeBudget(t *testing.T) {
 }
 
 const (
-	numRoaringRows = 32
-	idsPerRow      = 200
+	numRoaringRows     = 32
+	containersPerRow   = 128
+	valuesPerContainer = 128
+	idsPerRow          = containersPerRow * valuesPerContainer
+	numMergeWorkers    = 24
 )
 
 // buildMultiRowRoaringSetBucket builds a bucket with enough rows and
@@ -105,10 +115,18 @@ func buildMultiRowRoaringSetBucket(t *testing.T, ctx context.Context) *lsmkv.Buc
 
 	b.SetMemtableThreshold(1e9) // no auto-flush; keep the fixture deterministic
 
+	// Each row spans containersPerRow sroar containers (stride 2^16), each
+	// holding valuesPerContainer values. Dense containers make every OrConc
+	// merge real work, so the extra worker an ignored budget spawns lives
+	// across several 1ms sampler ticks instead of finishing between them.
+	// Low-16 bits are blocked per row (row*valuesPerContainer + j) so every
+	// value across the whole fixture is distinct: cardinality == rows*idsPerRow.
 	for row := 0; row < numRoaringRows; row++ {
-		values := make([]uint64, idsPerRow)
-		for i := range values {
-			values[i] = uint64(i)<<16 + uint64(row)
+		values := make([]uint64, 0, idsPerRow)
+		for c := 0; c < containersPerRow; c++ {
+			for j := 0; j < valuesPerContainer; j++ {
+				values = append(values, uint64(c)<<16+uint64(row*valuesPerContainer+j))
+			}
 		}
 		require.NoError(t, b.RoaringSetAddList([]byte(fmt.Sprintf("k%03d", row)), values))
 	}
