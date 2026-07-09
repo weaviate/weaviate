@@ -1314,6 +1314,12 @@ func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, 
 //	}
 //
 // MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
+//
+// The memtable retains rowKey and kv (its Key and Value) by reference; with the
+// skip-list index it serves them to queries lock-free. Do not mutate those buffers
+// after the call returns — pass a fresh buffer per call. (The memtable RWMutex
+// orders index access, not an out-of-band mutation of a caller's buffer, so this
+// holds for the red-black tree index too.)
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	active, release, err := b.getActiveMemtableForWrite()
 	if err != nil {
@@ -1325,7 +1331,8 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 }
 
 // MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
-// [MapPair] objects at the same time.
+// [MapPair] objects at the same time. As with [Bucket.MapSet], rowKey and every kv
+// are retained by reference and read lock-free — do not mutate their buffers afterwards.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 	active, release, err := b.getActiveMemtableForWrite()
 	if err != nil {
@@ -1353,6 +1360,10 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 //
 // MapDeleteKey is specific to the Map Strategy. For Replace, you can use
 // [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
+//
+// rowKey and mapKey are retained by reference (mapKey becomes the tombstone
+// [MapPair]'s Key, read lock-free) — pass a fresh mapKey per call and do not reuse
+// the buffer, or a concurrent reader races your next mutation of it.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	active, release, err := b.getActiveMemtableForWrite()
 	if err != nil {

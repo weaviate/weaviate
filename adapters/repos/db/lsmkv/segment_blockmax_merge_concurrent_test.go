@@ -48,8 +48,9 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	t.Cleanup(func() { bm25MergeGateRatio = prevRatio })
 
 	if os.Getenv("BMW_SKIPLIST") != "" {
+		prevSkipList := useSkipListMemtable
 		useSkipListMemtable = true
-		t.Cleanup(func() { useSkipListMemtable = false })
+		t.Cleanup(func() { useSkipListMemtable = prevSkipList })
 	}
 
 	ctx := context.Background()
@@ -83,13 +84,16 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// concurrent phase: concurrent FlushAndSwitch races the query's memtable read
 	// on a pre-existing, merge-unrelated path, and the fold only needs tombstones
 	// present, not flushes in flight.
-	delKey := make([]byte, 8)
+	// fresh key per delete: MapDeleteKey retains it by reference, so reusing one
+	// buffer would collapse all tombstones onto the last key via keep-last dedup.
 	for i := 0; i < nDocs; i += 5 {
+		delKey := make([]byte, 8)
 		binary.BigEndian.PutUint64(delKey, docID(i))
 		require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), delKey))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 	for i := 1; i < nDocs; i += 7 {
+		delKey := make([]byte, 8)
 		binary.BigEndian.PutUint64(delKey, docID(i))
 		require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), delKey))
 	}
