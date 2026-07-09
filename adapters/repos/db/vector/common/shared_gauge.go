@@ -74,6 +74,10 @@ func (sc *SharedGauge) Wait(ctx context.Context) error {
 			sc.mu.Unlock()
 			return nil
 		}
+		if err := ctx.Err(); err != nil {
+			sc.mu.Unlock()
+			return err
+		}
 		if sc.done == nil {
 			sc.done = make(chan struct{})
 		}
