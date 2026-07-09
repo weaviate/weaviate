@@ -2347,17 +2347,20 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 	}
 
-	// Memtable tombstones are loop-invariant, so fold them into the filter once
-	// (filter \ memTombstones) and share the result read-only: segments without
-	// their own tombstones use it directly, segments with tombstones subtract
-	// those from it.
+	// Memtable tombstones are loop-invariant, so fold them out of the filter once
+	// (filter \ memTombstones) and reuse that as the base every segment subtracts
+	// its own tombstones from (or uses directly when it has none).
 	memHasTomb := mergeFilterAndTombstones && !memTombstones.IsEmpty()
-	var filterMinusMem *sroar.Bitmap
-	var filterMinusMemList helpers.AllowList
-	if memHasTomb {
-		filterMinusMem = sroar.AndNot(filterBl.Bm, memTombstones)
-		filterMinusMemList = helpers.NewAllowListFromBitmap(filterMinusMem)
+	var filterBase *sroar.Bitmap
+	if mergeFilterAndTombstones {
+		filterBase = filterBl.Bm
+		if memHasTomb {
+			filterBase = sroar.AndNot(filterBl.Bm, memTombstones)
+		}
 	}
+	// Wraps filterBase for segments with no tombstones of their own; built lazily
+	// so it costs nothing when every segment has tombstones.
+	var filterBaseList helpers.AllowList
 
 	var segTombstones *sroar.Bitmap
 	for j := len(view.Disk) - 1; j >= 0; j-- {
@@ -2379,19 +2382,17 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		if mergeFilterAndTombstones { // implies filterBl != nil
 			switch {
 			case !segTombstones.IsEmpty(): // IsEmpty is nil-safe
-				// filter \ memTombstones \ segTombstones; start from the shared
-				// filterMinusMem when the memtable had tombstones so they are
-				// folded only once.
-				base := filterBl.Bm
-				if memHasTomb {
-					base = filterMinusMem
-				}
-				segFilter = helpers.NewAllowListFromBitmap(sroar.AndNot(base, segTombstones))
-				segTomb, segMemTomb = nil, nil
+				// filter \ memTombstones \ segTombstones, off the shared base.
+				segFilter = helpers.NewAllowListFromBitmap(sroar.AndNot(filterBase, segTombstones))
 			case memHasTomb:
-				segFilter = filterMinusMemList
-				segTomb, segMemTomb = nil, nil
+				if filterBaseList == nil {
+					filterBaseList = helpers.NewAllowListFromBitmap(filterBase)
+				}
+				segFilter = filterBaseList
 			}
+			// The fold moved tombstones into segFilter, so the term no longer
+			// checks them separately.
+			segTomb, segMemTomb = nil, nil
 		}
 
 		for i, key := range query {
