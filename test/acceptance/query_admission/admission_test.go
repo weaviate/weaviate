@@ -52,7 +52,7 @@ func TestQueryAdmissionShedsUnderSaturation(t *testing.T) {
 }
 
 // TestQueryAdmissionDisabledNeverSheds is journey 2: the same tiny-budget burst
-// with the kill switch engaged must never shed — admission is a passthrough.
+// with the kill switch engaged must never shed; admission is a passthrough.
 func TestQueryAdmissionDisabledNeverSheds(t *testing.T) {
 	ctx := context.Background()
 	compose, grpcClient := bootAdmission(t, ctx, false, 1,
@@ -68,7 +68,7 @@ func TestQueryAdmissionDisabledNeverSheds(t *testing.T) {
 }
 
 // TestQueryAdmissionCrossNodeShed is journey 3: a 3-node, 3-shard cluster
-// exercises the cross-node retry+shed path — moderate bursts succeed via
+// exercises the cross-node retry+shed path: moderate bursts succeed via
 // retry, sustained bursts exhaust retries and surface ResourceExhausted.
 func TestQueryAdmissionCrossNodeShed(t *testing.T) {
 	ctx := context.Background()
@@ -179,7 +179,7 @@ func setupAdmissionCollection(t *testing.T, httpURI, grpcURI string, shards int)
 	return grpcClient
 }
 
-// filteredBM25Request builds a filter+BM25 search — the admission-gated shard
+// filteredBM25Request builds a filter+BM25 search, the admission-gated shard
 // path (filters != nil && keywordRanking != nil).
 func filteredBM25Request() *pb.SearchRequest {
 	return &pb.SearchRequest{

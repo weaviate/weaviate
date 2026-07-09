@@ -80,7 +80,7 @@ type waiter struct {
 // (admissionKey), so they can't deadlock locally. A grant IS held while
 // fanning out to a REMOTE node's admission; liveness there rests on the
 // bounded wait queue, the coordinator's bounded retry backoff, and request
-// deadlines — not on releasing the grant, so the cost is latency, not
+// deadlines, not on releasing the grant, so the cost is latency, not
 // deadlock. The fan-out itself is bounded by a count (QueryNestedRefLimit),
 // not a deadline.
 type Limiter struct {
