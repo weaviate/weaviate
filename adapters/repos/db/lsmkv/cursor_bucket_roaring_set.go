@@ -55,13 +55,6 @@ func (b *Bucket) CursorRoaringSet() CursorRoaringSet {
 	return b.cursorRoaringSet(false, concurrency.SROAR_MERGE)
 }
 
-// CursorRoaringSetKey is the equivalent of [CursorRoaringSet], but only
-// returns keys. See [Cursor] for details on snapshot isolation. Needs to be
-// closed using .Close() to free references to the underlying disk segments.
-func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
-	return b.cursorRoaringSet(true, concurrency.SROAR_MERGE)
-}
-
 // CursorRoaringSetCtx is like [Bucket.CursorRoaringSet] but caps the per-key
 // merge concurrency to the query's budget carried in ctx.
 func (b *Bucket) CursorRoaringSetCtx(ctx context.Context) CursorRoaringSet {
