@@ -1130,8 +1130,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
-		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
+		// stop the gRPC server gracefully, but cap the wait so a stuck
+		// request can't block shutdown.
+		grpcStopped := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			grpcServer.GracefulStop()
+			close(grpcStopped)
+		}, appState.Logger)
+		select {
+		case <-grpcStopped:
+		case <-time.After(20 * time.Second):
+			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
+			grpcServer.Stop()
+		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
