@@ -469,7 +469,26 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	}
 
 	// The global candidate is not usable, we need to find a new one.
+	// First, attempt to repair the global entrypoint proactively
 	localDeny := n.denyList.WrapOnWrite()
+	localDeny.Insert(candidate)
+
+	if ok := n.graph.repairGlobalEntrypoint(localDeny); ok {
+		// Repair succeeded, try the new global entrypoint
+		newCandidate := n.graph.getEntrypoint()
+		success, err := n.tryEpCandidate(newCandidate)
+		if err != nil {
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return err
+			}
+		}
+		if success {
+			return nil
+		}
+		// Repair didn't produce a usable candidate, add it to deny list
+		localDeny.Insert(newCandidate)
+	}
 
 	// make sure the loop cannot block forever. In most cases, results should be
 	// found within micro to milliseconds, this is just a last resort to handle
@@ -482,6 +501,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		"duration": 60 * time.Second,
 	}).Debug("context.WithTimeout")
 
+	lastCandidate := candidate
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -511,11 +531,21 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		if err != nil {
 			return err
 		}
+
+		// Check for no progress: if we get the same candidate back, we've exhausted options
+		if alternative == lastCandidate {
+			return fmt.Errorf("unable to find a usable entrypoint after exhausting candidates")
+		}
+
+		lastCandidate = candidate
 		candidate = alternative
 	}
 }
 
-func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
+// tryEpCandidateIgnoreDeleted checks if a candidate is usable as an entrypoint,
+// ignoring ErrNotFound errors (treating deleted nodes as non-viable). Returns
+// (success, error) where success indicates the candidate is usable.
+func (n *neighborFinderConnector) tryEpCandidateIgnoreDeleted(candidate uint64) (bool, error) {
 	node := n.graph.nodeByID(candidate)
 	if node == nil {
 		return false, nil
@@ -535,7 +565,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			n.graph.handleDeletedNode(e.DocID, "tryEpCandidate")
+			n.graph.handleDeletedNode(e.DocID, "tryEpCandidateIgnoreDeleted")
 			return false, nil
 		}
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
@@ -545,4 +575,8 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	n.entryPointDist = dist
 	n.entryPointID = candidate
 	return true, nil
+}
+
+func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
+	return n.tryEpCandidateIgnoreDeleted(candidate)
 }

@@ -709,6 +709,48 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	return nil
 }
 
+// repairGlobalEntrypoint attempts to repair the global entrypoint when it becomes
+// unusable. It builds a denial list and finds a new valid entrypoint using
+// compare-and-swap semantics to prevent race conditions. Returns true if a repair
+// was performed, false otherwise.
+func (h *hnsw) repairGlobalEntrypoint(denyList helpers.AllowList) bool {
+	currentEP := h.getEntrypoint()
+
+	// Get the current maximum layer without holding the write lock
+	h.RLock()
+	currentMaxLayer := h.currentMaximumLayer
+	h.RUnlock()
+
+	// Try to find a new entrypoint (this doesn't require holding the main lock)
+	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, currentMaxLayer, currentEP)
+	if !ok {
+		// No better entrypoint found
+		return false
+	}
+
+	// Now acquire the write lock to update the entrypoint atomically
+	h.Lock()
+	defer h.Unlock()
+
+	// Double-check that the entrypoint hasn't changed since we started
+	if h.entryPointID != currentEP {
+		return false
+	}
+
+	// Update the entrypoint atomically
+	h.entryPointID = newEntrypoint
+	h.currentMaximumLayer = level
+
+	// Persist the change to commit log
+	if err := h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level); err != nil {
+		h.logger.WithField("action", "repair_global_entrypoint").
+			Warnf("failed to persist entrypoint repair: %v", err)
+		// Even if persistence fails, we've updated in-memory state
+	}
+
+	return true
+}
+
 // returns entryPointID, level and whether a change occurred
 func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel int,
 	oldEntrypoint uint64,
