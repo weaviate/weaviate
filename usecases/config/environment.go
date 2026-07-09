@@ -993,6 +993,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
+	config.DisableRESTSearch = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_REST_SEARCH")))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {

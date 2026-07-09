@@ -6494,6 +6494,84 @@ func init() {
         ]
       }
     },
+    "/search/{collection}/near-text": {
+      "post": {
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Part of the REST Search API (design notes: docs/rest-search-api.md in the Weaviate repository); can be turned off with ` + "`" + `DISABLE_REST_SEARCH=true` + "`" + `, in which case requests are rejected with 422.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-text",
+        "operationId": "search.nearText",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-text search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearTextRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request body or an invalid parameter value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or the REST Search API is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -10247,6 +10325,186 @@ func init() {
         }
       }
     },
+    "SearchCommon": {
+      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "type": "object",
+      "properties": {
+        "auto_limit": {
+          "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "consistency_level": {
+          "description": "The consistency level for the read.",
+          "type": "string",
+          "enum": [
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ]
+        },
+        "group_by": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "grouped_task": {
+          "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "limit": {
+          "description": "The maximum number of objects to return.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "number_of_groups": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "object_limit": {
+          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objects_per_group": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "offset": {
+          "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "over": {
+          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "rerank_property": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "rerank_query": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "return_metadata": {
+          "description": "The retrieval metadata to return under the ` + "`" + `metadata` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "id",
+              "distance",
+              "certainty",
+              "score",
+              "explain_score",
+              "creation_time",
+              "last_update_time"
+            ]
+          }
+        },
+        "return_metrics": {
+          "description": "Reserved for aggregation metrics. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "return_properties": {
+          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "single_prompt": {
+          "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "tenant": {
+          "description": "The tenant to search in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter in the same JSON shape as the GraphQL ` + "`" + `where` + "`" + ` filter.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "SearchNearTextRequest": {
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The concept(s) to search for, as an array of strings. Multiple entries perform a multi-concept search. A single concept is a one-element array, e.g. ` + "`" + `[\"space opera\"]` + "`" + `.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "target_vector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchResponse": {
+      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Shared by all REST search endpoints.",
+      "type": "object",
+      "properties": {
+        "results": {
+          "description": "The matched objects, ordered by relevance.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchResultObject"
+          },
+          "x-omitempty": false
+        },
+        "took_ms": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "SearchResultObject": {
+      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `metadata` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
+      "type": "object"
+    },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
       "type": "object",
@@ -10965,6 +11223,10 @@ func init() {
     },
     {
       "name": "graphql"
+    },
+    {
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
+      "name": "search"
     },
     {
       "name": "meta"
@@ -17570,6 +17832,84 @@ func init() {
         ]
       }
     },
+    "/search/{collection}/near-text": {
+      "post": {
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Part of the REST Search API (design notes: docs/rest-search-api.md in the Weaviate repository); can be turned off with ` + "`" + `DISABLE_REST_SEARCH=true` + "`" + `, in which case requests are rejected with 422.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-text",
+        "operationId": "search.nearText",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-text search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearTextRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request body or an invalid parameter value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or the REST Search API is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -21698,6 +22038,186 @@ func init() {
         }
       }
     },
+    "SearchCommon": {
+      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "type": "object",
+      "properties": {
+        "auto_limit": {
+          "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "consistency_level": {
+          "description": "The consistency level for the read.",
+          "type": "string",
+          "enum": [
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ]
+        },
+        "group_by": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "grouped_task": {
+          "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "limit": {
+          "description": "The maximum number of objects to return.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "number_of_groups": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "object_limit": {
+          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objects_per_group": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "offset": {
+          "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "over": {
+          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "rerank_property": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "rerank_query": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "return_metadata": {
+          "description": "The retrieval metadata to return under the ` + "`" + `metadata` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "id",
+              "distance",
+              "certainty",
+              "score",
+              "explain_score",
+              "creation_time",
+              "last_update_time"
+            ]
+          }
+        },
+        "return_metrics": {
+          "description": "Reserved for aggregation metrics. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "return_properties": {
+          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "single_prompt": {
+          "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "tenant": {
+          "description": "The tenant to search in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter in the same JSON shape as the GraphQL ` + "`" + `where` + "`" + ` filter.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "SearchNearTextRequest": {
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The concept(s) to search for, as an array of strings. Multiple entries perform a multi-concept search. A single concept is a one-element array, e.g. ` + "`" + `[\"space opera\"]` + "`" + `.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "target_vector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchResponse": {
+      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Shared by all REST search endpoints.",
+      "type": "object",
+      "properties": {
+        "results": {
+          "description": "The matched objects, ordered by relevance.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchResultObject"
+          },
+          "x-omitempty": false
+        },
+        "took_ms": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "SearchResultObject": {
+      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `metadata` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
+      "type": "object"
+    },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
       "type": "object",
@@ -22428,6 +22948,10 @@ func init() {
     },
     {
       "name": "graphql"
+    },
+    {
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
+      "name": "search"
     },
     {
       "name": "meta"

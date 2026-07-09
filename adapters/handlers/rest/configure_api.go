@@ -1416,6 +1416,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
+	setupSearchHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
@@ -2671,6 +2672,10 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
+		// No hook: the REST search handler reads DisableRESTSearch.Get() per
+		// request, so a runtime flip takes effect immediately without any
+		// rebuild (unlike DisableGraphQL, which drops/rebuilds the schema).
+		registered.DisableRESTSearch = appState.ServerConfig.Config.DisableRESTSearch
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

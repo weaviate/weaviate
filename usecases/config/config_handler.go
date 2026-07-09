@@ -211,6 +211,7 @@ type Config struct {
 	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig        `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                        `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      *runtime.DynamicValue[bool] `json:"disable_graphql" yaml:"disable_graphql"`
+	DisableRESTSearch                   *runtime.DynamicValue[bool] `json:"disable_rest_search" yaml:"disable_rest_search"`
 	AvoidMmap                           bool                        `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                        `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                        `json:"disable_telemetry" yaml:"disable_telemetry"`
