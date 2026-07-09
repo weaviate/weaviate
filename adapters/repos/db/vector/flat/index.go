@@ -422,6 +422,16 @@ func (index *flat) searchTimeRescore(k int) int {
 }
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// Preserve flat BQ dot ranking with zero rescore: use exact flat search path
+	// instead of quantized path to avoid dropping top-k candidates due to
+	// compression sign-bit differences where many positive vectors tie in
+	// compressed space while their exact inner products differ.
+	if index.compressionType == CompressionBQ &&
+		int(atomic.LoadInt64(&index.rescore)) == 0 &&
+		index.distancerProvider.Type() == "dot" {
+		return index.searchByVector(ctx, vector, k, allow)
+	}
+
 	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		return index.searchByVectorQuantized(ctx, vector, k, allow)

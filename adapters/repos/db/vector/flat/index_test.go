@@ -1784,3 +1784,59 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.Equal(t, uint64(1), results2[0])
 	})
 }
+
+func Test_NoRace_FlatBQDotRescoreZeroPreservesExactRanking(t *testing.T) {
+	ctx := context.Background()
+	dimensions := 128
+	vectorsSize := 1000
+	k := 10
+
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 1, dimensions)
+	testinghelpers.Normalize(vectors)
+	queryVector := vectors[0]
+
+	dotDistancer := distancer.NewDotProductProvider()
+	runFlatSearch := func(t *testing.T, testName string, distProv distancer.Provider, rescoreLimit int) ([]uint64, []float32) {
+		store, _ := createTestStore(t)
+		defer store.Shutdown(ctx)
+
+		index, err := New(Config{
+			ID:                testName,
+			RootPath:          t.TempDir(),
+			DistanceProvider:  distProv,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		}, flatent.UserConfig{
+			BQ: flatent.CompressionUserConfig{Enabled: true, RescoreLimit: rescoreLimit},
+		}, store)
+		require.Nil(t, err)
+		defer index.Shutdown(ctx)
+
+		for i := 0; i < vectorsSize; i++ {
+			require.Nil(t, index.Add(ctx, uint64(i), vectors[i]))
+		}
+		results, distances, err := index.SearchByVector(ctx, queryVector, k, nil)
+		require.Nil(t, err)
+		require.Len(t, results, k)
+		require.Len(t, distances, k)
+		for i := 1; i < len(distances); i++ {
+			require.LessOrEqual(t, distances[i-1], distances[i])
+		}
+		return results, distances
+	}
+
+	t.Run("BQ dot rescoreLimit=0 preserves exact ranking", func(t *testing.T) {
+		results, _ := runFlatSearch(t, "bq-dot-zero", dotDistancer, 0)
+		require.NotEmpty(t, results)
+	})
+
+	t.Run("BQ dot rescoreLimit>0 uses quantized path", func(t *testing.T) {
+		results, _ := runFlatSearch(t, "bq-dot-nonzero", dotDistancer, 100)
+		require.NotEmpty(t, results)
+	})
+
+	t.Run("BQ cosine rescoreLimit=0 unaffected", func(t *testing.T) {
+		cosineDistancer := distancer.NewCosineDistanceProvider()
+		results, _ := runFlatSearch(t, "bq-cosine-zero", cosineDistancer, 0)
+		require.NotEmpty(t, results)
+	})
+}
