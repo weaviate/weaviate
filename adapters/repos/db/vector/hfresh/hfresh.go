@@ -83,6 +83,12 @@ type HFresh struct {
 	muveraEncoder   *multivector.MuveraEncoder
 	trackMuveraOnce sync.Once
 
+	// disableIntermediateRescore is a test-only seam that restores the
+	// pre-intermediate-rescore pipeline shape (RQ1 top-rerankBudget straight
+	// to MaxSim) for A/B comparisons. Never set in production; checked once
+	// per search.
+	disableIntermediateRescore bool
+
 	// Internal components
 	Centroids     *HNSWIndex          // Provides access to the centroids.
 	PostingStore  *PostingStore       // Used for managing persistence of postings.

@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	"iter"
 	"math"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -29,6 +31,15 @@ const (
 	// minimum max distance to use when pruning
 	pruningMinMaxDistance = 0.1
 	flatSearchCutoff      = 5_000
+
+	// The intermediate rescore stage re-ranks the RQ1 top-M against the
+	// full stored FDEs before the MaxSim rescore. M is derived from
+	// rerankBudget rather than exposed as a knob: the recall study's
+	// cascade sensitivity (X5) shows M = 6 x the default rerankBudget
+	// (~2048) sits within ~0.3pp of re-ranking the whole scanned pool,
+	// while 1024 is the smallest pool measured to stay within ~0.7pp.
+	intermediateRescoreFactor  = 6
+	intermediateRescoreMinPool = 1024
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
@@ -475,8 +486,15 @@ func (h *HFresh) searchByFDE(
 
 	// Step 4: RQ1 approximate ranking - controlled by rerankBudget only
 	// This is the key decoupling: routingBudget affects centroid count,
-	// rerankBudget affects how many candidates we keep after RQ1 scoring
-	q := NewResultSet(rerankBudget)
+	// rerankBudget affects how many candidates we keep after RQ1 scoring.
+	// With the intermediate rescore stage the RQ1 pool is widened to M so
+	// that 1-bit ranking errors can be corrected against the full FDEs
+	// before the top-rerankBudget cut (see docs/hfresh-intermediate-rescore.md).
+	poolSize := rerankBudget
+	if !h.disableIntermediateRescore {
+		poolSize = max(intermediateRescoreFactor*rerankBudget, intermediateRescoreMinPool)
+	}
+	q := NewResultSet(poolSize)
 
 	var decompressBuf []uint64
 
@@ -523,13 +541,105 @@ func (h *HFresh) searchByFDE(
 		}
 	}
 
-	// Step 5: Return top rerankBudget candidates for late interaction
-	ids := make([]uint64, 0, q.Len())
-	for id := range q.Iter() {
-		ids = append(ids, id)
+	if h.disableIntermediateRescore {
+		// test seam: previous pipeline shape, RQ1 top-rerankBudget straight
+		// to MaxSim
+		ids := make([]uint64, 0, q.Len())
+		for id := range q.Iter() {
+			ids = append(ids, id)
+		}
+		return ids, nil
 	}
 
+	// Step 5: intermediate rescore - re-rank the RQ1 top-M against the full
+	// stored FDEs and keep the top rerankBudget for late interaction
+	return h.rescoreFDECandidates(queryFDE, q, rerankBudget)
+}
+
+// rescoreFDECandidates re-ranks RQ1 candidates against the full FDEs stored
+// in the muvera bucket, mirroring the single-vector path's rescore step.
+// The query FDE arrives normalized (cosine) or raw (l2); stored FDEs are
+// the raw encoder output, so the cosine case folds the document norm into
+// the dot product instead of materializing normalized copies (same pattern
+// as maxSimScoreCosine, two SIMD dot products per candidate, allocation-free
+// apart from the bucket read).
+//
+// Extension point for the pending RQn-as-truth decision: only this method
+// changes (a code bucket read plus an RQ distancer instead of the float
+// bucket plus the fold); the pipeline shape stays as is.
+func (h *HFresh) rescoreFDECandidates(queryFDE []float32, candidates *ResultSet, rerankBudget int) ([]uint64, error) {
+	bucket := h.store.Bucket(h.id + "_muvera_vectors")
+	if bucket == nil {
+		return nil, errors.New("intermediate rescore: muvera vectors bucket not found")
+	}
+
+	cosine := h.config.DistanceProvider.Type() == "cosine-dot"
+	rescored := NewResultSet(rerankBudget)
+	keyBuf := make([]byte, 8)
+	var fdeBuf []float32
+
+	for id := range candidates.Iter() {
+		binary.BigEndian.PutUint64(keyBuf, id)
+		raw, err := bucket.Get(keyBuf)
+		if err != nil {
+			return nil, errors.Wrapf(err, "intermediate rescore: fde for vector %d", id)
+		}
+		if len(raw) == 0 {
+			// deleted between the posting scan and this stage; skip stale
+			// entries gracefully, like the single-vector rescore does
+			continue
+		}
+		fdeBuf = float32SliceInto(fdeBuf, raw)
+
+		var dist float32
+		if cosine {
+			negDot, err := dotProvider.SingleDist(queryFDE, fdeBuf)
+			if err != nil {
+				return nil, errors.Wrapf(err, "intermediate rescore: distance for vector %d", id)
+			}
+			negNormSq, err := dotProvider.SingleDist(fdeBuf, fdeBuf)
+			if err != nil {
+				return nil, errors.Wrapf(err, "intermediate rescore: norm for vector %d", id)
+			}
+			if negNormSq < 0 {
+				inv := float32(1 / math.Sqrt(float64(-negNormSq)))
+				dist = 1 + negDot*inv
+				if dist < 0 {
+					// mirror the cosine-dot provider's clamp of negative
+					// rounding artifacts
+					dist = 0
+				}
+			} else {
+				dist = 1 // zero-norm FDE: orthogonal by convention
+			}
+		} else {
+			dist, err = h.config.DistanceProvider.SingleDist(queryFDE, fdeBuf)
+			if err != nil {
+				return nil, errors.Wrapf(err, "intermediate rescore: distance for vector %d", id)
+			}
+		}
+
+		rescored.Insert(id, dist)
+	}
+
+	ids := make([]uint64, 0, rescored.Len())
+	for id := range rescored.Iter() {
+		ids = append(ids, id)
+	}
 	return ids, nil
+}
+
+// float32SliceInto decodes little-endian float32 bytes into dst, reusing its
+// capacity when possible.
+func float32SliceInto(dst []float32, raw []byte) []float32 {
+	n := len(raw) / 4
+	if cap(dst) < n {
+		dst = make([]float32, n)
+	} else {
+		dst = dst[:n]
+	}
+	byteops.CopyBytesToSlice(dst, raw)
+	return dst
 }
 
 func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
