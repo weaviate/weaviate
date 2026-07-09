@@ -85,6 +85,10 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		return layer.Additions, release, nil
 	}
 
+	// resolve the per-query merge/fan-out budget once, capped at the reader's
+	// configured concurrency, so all readers for this query share it
+	conc := concurrency.BudgetFromCtxCapped(ctx, r.concurrency)
+
 	lock := new(sync.Mutex)
 	addReadTime := func(d time.Duration) {
 		lock.Lock()
@@ -101,9 +105,14 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// the readers run concurrently (up to conc inner readers plus readers[0]),
+	// so hand each a fractional slice of the budget to bound the inner fan-out
+	// instead of letting every reader spawn conc merge goroutines of its own
+	innerCtx := concurrency.ContextWithFractionalBudget(ctx, min(count-1, conc), r.concurrency)
+
 	errors.GoWrapper(func() {
-		eg, gctx := errors.NewErrorGroupWithContextWrapper(r.logger, ctx)
-		eg.SetLimit(r.concurrency)
+		eg, gctx := errors.NewErrorGroupWithContextWrapper(r.logger, innerCtx)
+		eg.SetLimit(conc)
 
 		for i := 1; i < count; i++ {
 			i := i
@@ -118,7 +127,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	}, r.logger)
 
 	t := time.Now()
-	layer, release, err := r.readers[0].Read(ctx, value, operator)
+	layer, release, err := r.readers[0].Read(innerCtx, value, operator)
 	addReadTime(time.Since(t))
 
 	ec := errorcompounder.New()
@@ -130,8 +139,8 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 
 		if ec.Len() == 0 {
 			t := time.Now()
-			layer.Additions.AndNotConc(response.layer.Deletions, concurrency.SROAR_MERGE)
-			layer.Additions.OrConc(response.layer.Additions, concurrency.SROAR_MERGE)
+			layer.Additions.AndNotConc(response.layer.Deletions, conc)
+			layer.Additions.OrConc(response.layer.Additions, conc)
 			mergingSum += time.Since(t)
 		}
 		response.release()
