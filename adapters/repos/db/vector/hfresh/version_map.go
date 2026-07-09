@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 
@@ -194,6 +195,29 @@ func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVe
 	return newVersion, nil
 }
 
+// Restore bulk-loads every persisted vector version into the in-memory paged
+// array and returns how many were loaded. It must run at startup, before the
+// index serves queries: the map is otherwise populated lazily, and on a
+// freshly started node every first access of a vector ID during the posting
+// scan falls back to an LSM point read — thousands of random disk reads per
+// query until the full ID space has been touched.
+//
+// Restore writes to the pages without locking; callers must not use the map
+// concurrently until it returns.
+func (v *VersionMap) Restore(ctx context.Context) (int64, error) {
+	var count int64
+	err := v.store.Iter(ctx, func(vectorID uint64, version VectorVersion) error {
+		if version == 0 {
+			return nil
+		}
+		page, slot := v.data.EnsurePageFor(vectorID)
+		page[slot] = version
+		count++
+		return nil
+	})
+	return count, err
+}
+
 func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, error) {
 	version, err := v.Get(ctx, vectorID)
 	if err != nil {
@@ -238,4 +262,29 @@ func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion,
 func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorVersion) error {
 	key := v.key(vectorID)
 	return v.bucket.Put(key[:], []byte{byte(version)})
+}
+
+// Iter calls fn for every persisted vector version.
+func (v *VersionStore) Iter(ctx context.Context, fn func(uint64, VectorVersion) error) error {
+	c := v.bucket.Cursor()
+	defer c.Close()
+
+	var i int
+	for k, val := c.Seek(versionMapBucketPrefix); len(k) > 0 && bytes.HasPrefix(k, versionMapBucketPrefix); k, val = c.Next() {
+		i++
+		if len(val) == 0 {
+			continue
+		}
+
+		if i%1000 == 0 && ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		vectorID := binary.LittleEndian.Uint64(k[len(versionMapBucketPrefix):])
+		if err := fn(vectorID, VectorVersion(val[0])); err != nil {
+			return err
+		}
+	}
+
+	return ctx.Err()
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
@@ -186,6 +187,16 @@ func (h *HFresh) restoreMetadata() error {
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
+
+	// bulk-load vector versions: without this, the posting scan pays one LSM
+	// point read per never-touched vector ID, which on a large freshly
+	// started index turns every query into thousands of random disk reads
+	start := time.Now()
+	count, err := h.VersionMap.Restore(h.ctx)
+	if err != nil {
+		return errors.Wrap(err, "restore version map")
+	}
+	h.logger.Infof("restored %d vector versions in %s", count, time.Since(start))
 
 	return h.restoreMetrics()
 }

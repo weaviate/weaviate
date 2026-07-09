@@ -28,6 +28,57 @@ func makeVersionMap(t *testing.T) *VersionMap {
 	return NewVersionMap(bucket)
 }
 
+// Restore must bulk-load every persisted version into the in-memory paged
+// array at startup. Without it, every first access of a vector ID during the
+// posting scan falls back to an LSM point read — thousands of random disk
+// reads per query on a freshly started node.
+func TestVersionMapRestore(t *testing.T) {
+	ctx := t.Context()
+
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+
+	// persist versions, simulating a previous run
+	vm := NewVersionMap(bucket)
+	require.NoError(t, vm.store.Set(ctx, 1, VectorVersion(3)))
+	require.NoError(t, vm.store.Set(ctx, 42, VectorVersion(tombstoneMask|5))) // deleted
+	require.NoError(t, vm.store.Set(ctx, 1_000_000, VectorVersion(7)))
+
+	// unrelated data under a different prefix in the same shared bucket must
+	// not be picked up
+	sizes := NewPostingSizesStore(bucket, postingSizesBucketPrefix)
+	require.NoError(t, sizes.Set(ctx, 42, 123))
+
+	// fresh map over the same bucket, as after a restart
+	vm2 := NewVersionMap(bucket)
+	count, err := vm2.Restore(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
+	// the versions are in memory: pages exist and hold the right values
+	for _, tc := range []struct {
+		id   uint64
+		want VectorVersion
+	}{
+		{1, 3},
+		{42, tombstoneMask | 5},
+		{1_000_000, 7},
+	} {
+		page, slot := vm2.data.GetPageFor(tc.id)
+		require.NotNil(t, page, "id %d not restored into memory", tc.id)
+		require.Equal(t, tc.want, page[slot], "id %d", tc.id)
+	}
+
+	// and the public API agrees
+	v, err := vm2.Get(ctx, 42)
+	require.NoError(t, err)
+	require.True(t, v.Deleted())
+	v, err = vm2.Get(ctx, 1_000_000)
+	require.NoError(t, err)
+	require.Equal(t, uint8(7), v.Version())
+}
+
 func TestVectorVersion(t *testing.T) {
 	var ve VectorVersion
 
