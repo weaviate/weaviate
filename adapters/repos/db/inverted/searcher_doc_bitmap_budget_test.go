@@ -57,16 +57,13 @@ func TestDocBitmapInvertedRoaringSet_RowMergeBudget(t *testing.T) {
 	require.Len(t, defaultIDs, numRoaringRows*idsPerRow)
 
 	t.Run("goroutine ceiling under budget-1", func(t *testing.T) {
-		// The kill switch (DISABLE_SROAR_MERGE_BUDGET=true) is this bound's red
-		// control, but it is a manual/local check: run with the env var set and
-		// this skip bypassed, and the ceiling assertion below must fail. No CI job
-		// sets the kill switch, so CI exercises only the green (budget-enforced) leg.
+		// Kill switch is this bound's red control, but no CI job sets it: CI
+		// only ever runs the green (budget-enforced) path.
 		if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 			t.Skip("budget cap disabled via kill switch")
 		}
-		// Merge fan-out only exists at SROAR_MERGE>=2 (GOMAXPROCS>=4). Skipping on a
-		// <4-vCPU runner would silently evaporate the guard, so fail loudly on CI
-		// and only skip on dev machines.
+		// Merge fan-out only exists at SROAR_MERGE>=2 (GOMAXPROCS>=4); skipping
+		// here silently would hide the guard, so CI fails loudly instead.
 		if concurrency.SROAR_MERGE < 2 {
 			if os.Getenv("CI") != "" {
 				t.Fatalf("bounding tests require GOMAXPROCS>=4, refusing to skip silently on CI (SROAR_MERGE=%d)",
@@ -115,12 +112,9 @@ func buildMultiRowRoaringSetBucket(t *testing.T, ctx context.Context) *lsmkv.Buc
 
 	b.SetMemtableThreshold(1e9) // no auto-flush; keep the fixture deterministic
 
-	// Each row spans containersPerRow sroar containers (stride 2^16), each
-	// holding valuesPerContainer values. Dense containers make every OrConc
-	// merge real work, so the extra worker an ignored budget spawns lives
-	// across several 1ms sampler ticks instead of finishing between them.
-	// Low-16 bits are blocked per row (row*valuesPerContainer + j) so every
-	// value across the whole fixture is distinct: cardinality == rows*idsPerRow.
+	// Values are unique across the whole fixture (cardinality ==
+	// rows*idsPerRow, checked above); dense containers keep each merge
+	// running long enough for the sampler to catch an ignored budget.
 	for row := 0; row < numRoaringRows; row++ {
 		values := make([]uint64, 0, idsPerRow)
 		for c := 0; c < containersPerRow; c++ {

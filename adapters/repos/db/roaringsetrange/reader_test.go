@@ -370,16 +370,13 @@ func (r *cloningInnerReader) Read(ctx context.Context, value uint64, operator fi
 // TestCombinedReader_RespectsConcurrencyBudget pins the outer layer merge to
 // the per-query budget without inflating the live goroutine count.
 func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
-	// The kill switch (DISABLE_SROAR_MERGE_BUDGET=true) is this bound's red
-	// control, but it is a manual/local check: run with the env var set and
-	// this skip bypassed, and the ceiling assertion below must fail. No CI job
-	// sets the kill switch, so CI exercises only the green (budget-enforced) leg.
+	// Kill switch is this bound's red control, but no CI job sets it: CI
+	// only ever runs the green (budget-enforced) path.
 	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 		t.Skip("budget cap disabled via kill switch")
 	}
-	// Merge fan-out only exists at SROAR_MERGE>=2 (GOMAXPROCS>=4). Skipping on a
-	// <4-vCPU runner would silently evaporate the guard, so fail loudly on CI
-	// and only skip on dev machines.
+	// Merge fan-out only exists at SROAR_MERGE>=2 (GOMAXPROCS>=4); skipping
+	// here silently would hide the guard, so CI fails loudly instead.
 	if concurrency.SROAR_MERGE < 2 {
 		if os.Getenv("CI") != "" {
 			t.Fatalf("bounding tests require GOMAXPROCS>=4, refusing to skip silently on CI (SROAR_MERGE=%d)",
