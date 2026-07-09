@@ -88,6 +88,12 @@ func (fb *fakeBackend) getMetaStatus() (backup.Status, string) {
 	return fb.meta.Status, fb.meta.Error
 }
 
+func (fb *fakeBackend) getMetaBaseBackupID() string {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.meta.BaseBackupID
+}
+
 func newFakeBackend() *fakeBackend {
 	return &fakeBackend{
 		doneChan: make(chan bool),

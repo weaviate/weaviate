@@ -24,6 +24,7 @@ service ReplicationService {
   rpc OverwriteObjects (OverwriteObjectsRequest) returns (OverwriteObjectsResponse);
   rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
   rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
+  rpc CompareHashTreeRoots (CompareHashTreeRootsRequest) returns (CompareHashTreeRootsResponse);
   rpc CountObjects (CountObjectsRequest) returns (CountObjectsResponse);
 
   // Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
@@ -228,6 +229,10 @@ message OverwriteObjectsRequest {
   string index = 1;
   string shard = 2;
   bytes vobjects_data = 3; // versionedObjectListPayload.Marshal output
+  // Encoding of vobjects_data. 0 (default, used by older senders) = JSON
+  // VObject list; 1 = raw on-disk object bytes (MarshalRaw). Decoding both is
+  // always supported; senders only emit 1 when the runtime flag is enabled.
+  uint32 encoding = 4;
 }
 
 message OverwriteObjectsResponse {
@@ -257,6 +262,24 @@ message HashTreeLevelRequest {
 // HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
 message HashTreeLevelResponse {
   bytes digests_data = 1; // JSON-encoded []hashtree.Digest
+}
+
+// CompareHashTreeRoots pre-filters shards by bulk-comparing hashtree roots: the
+// target returns only shards whose roots differ, letting the source skip the rest.
+message ShardRootDigest {
+  string shard = 1;
+  // The 128-bit hashtree root digest, split into two 64-bit words.
+  fixed64 root_hash_high = 2; // Digest[0] (high 64 bits)
+  fixed64 root_hash_low = 3; // Digest[1] (low 64 bits)
+}
+
+message CompareHashTreeRootsRequest {
+  string index = 1;
+  repeated ShardRootDigest shard_root_digests = 2;
+}
+
+message CompareHashTreeRootsResponse {
+  repeated string diverging_shards = 1;
 }
 
 // CountObjects fetches hash tree level digests.

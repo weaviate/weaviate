@@ -330,6 +330,10 @@ func (f *fakeSchemaManager) NamespacesEnabled() bool {
 	return false
 }
 
+func (f *fakeSchemaManager) ClassEqual(string) string {
+	return ""
+}
+
 type nodeResolver struct {
 	cluster.NodeSelector
 	nodes *[]*node

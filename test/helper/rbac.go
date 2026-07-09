@@ -274,7 +274,14 @@ func WaitForOwnRole(t *testing.T, apikey, roleName string) {
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		_, err := Client(t).Users.GetUserInfo(
 			users.NewGetUserInfoParams().WithUserID(selfID), CreateAuth(apikey))
-		assert.NoError(c, err, "self GetUserInfo still 403s — role %q not yet locally applied", roleName)
+		// getUser authorizes the read before looking up the record, so a 404 for a
+		// static non-root caller that has no DB record proves the grouping is applied.
+		// Only a 403 means it is not yet locally visible.
+		var notFound *users.GetUserInfoNotFound
+		if err == nil || errors.As(err, &notFound) {
+			return
+		}
+		assert.NoError(c, err, "self GetUserInfo for role %q not yet locally applied (last err: %v)", roleName, err)
 	}, 10*time.Second, 50*time.Millisecond, "role %q grouping not visible to local Authorize for caller %q", roleName, selfID)
 }
 

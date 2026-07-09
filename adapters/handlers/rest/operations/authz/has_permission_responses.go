@@ -182,6 +182,31 @@ func (o *HasPermissionForbidden) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// HasPermissionNotFoundCode is the HTTP code returned for type HasPermissionNotFound
+const HasPermissionNotFoundCode int = 404
+
+/*
+HasPermissionNotFound No role found.
+
+swagger:response hasPermissionNotFound
+*/
+type HasPermissionNotFound struct {
+}
+
+// NewHasPermissionNotFound creates HasPermissionNotFound with default headers values
+func NewHasPermissionNotFound() *HasPermissionNotFound {
+
+	return &HasPermissionNotFound{}
+}
+
+// WriteResponse to the client
+func (o *HasPermissionNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(404)
+}
+
 // HasPermissionUnprocessableEntityCode is the HTTP code returned for type HasPermissionUnprocessableEntity
 const HasPermissionUnprocessableEntityCode int = 422
 

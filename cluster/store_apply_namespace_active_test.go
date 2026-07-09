@@ -22,13 +22,14 @@ import (
 	clusternamespaces "github.com/weaviate/weaviate/cluster/namespaces"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // This file tests the namespace check at the top of store.Apply. The
-// check rejects any command that would create a class, alias, or user
-// inside a namespace that does not exist or is being deleted.
+// check rejects any command that would create a class, alias, user, or
+// role inside a namespace that does not exist or is being deleted.
 //
 // The two maps below split every ApplyRequest type into the commands the
 // check must reject and the commands it must let through (including the
@@ -37,12 +38,14 @@ import (
 // placed in one of the two maps, so the author has to pick a side.
 
 // Commands the namespace check rejects when the namespace is gone or deleting.
-var namespaceTouchingCreateLikeApplyTypes = map[api.ApplyRequest_Type]struct{}{
-	api.ApplyRequest_TYPE_ADD_CLASS:     {},
-	api.ApplyRequest_TYPE_RESTORE_CLASS: {},
-	api.ApplyRequest_TYPE_CREATE_ALIAS:  {},
-	api.ApplyRequest_TYPE_REPLACE_ALIAS: {},
-	api.ApplyRequest_TYPE_UPSERT_USER:   {},
+var namespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
+	api.ApplyRequest_TYPE_ADD_CLASS:                {},
+	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
+	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
+	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
+	api.ApplyRequest_TYPE_UPSERT_USER:              {},
+	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
+	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
 }
 
 // Commands the namespace check always lets through.
@@ -59,10 +62,8 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DELETE_TENANT:                                              {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
 	api.ApplyRequest_TYPE_DELETE_ALIAS:                                               {},
-	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:                                   {},
 	api.ApplyRequest_TYPE_DELETE_ROLES:                                               {},
 	api.ApplyRequest_TYPE_REMOVE_PERMISSIONS:                                         {},
-	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:                                         {},
 	api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:                                      {},
 	api.ApplyRequest_TYPE_DELETE_USER:                                                {},
 	api.ApplyRequest_TYPE_ROTATE_USER_API_KEY:                                        {},
@@ -112,7 +113,7 @@ func TestApplyTypeNamespaceGateClassification(t *testing.T) {
 		if applyType == api.ApplyRequest_TYPE_UNSPECIFIED {
 			continue
 		}
-		_, gated := namespaceTouchingCreateLikeApplyTypes[applyType]
+		_, gated := namespaceTouchingApplyTypes[applyType]
 		_, nonGated := nonNamespaceTouchingApplyTypes[applyType]
 		assert.True(t, gated != nonGated,
 			"unclassified or double-classified apply type %s: must appear in exactly one of the two lists in store_apply_namespace_active_test.go",
@@ -126,7 +127,7 @@ func TestRequireNamespaceActive(t *testing.T) {
 	require.NoError(t, controller.Create(api.Namespace{Name: "active1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, controller.Create(api.Namespace{Name: "deleting1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, controller.ChangeState("deleting1", api.NamespaceStateDeleting))
-	exister := clusternamespaces.NewManager(controller, emptySchemaLister{}, nil, logger)
+	exister := clusternamespaces.NewManager(controller, emptySchemaLister{}, nil, nil, logger)
 
 	tests := []struct {
 		name      string
@@ -254,6 +255,207 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 	require.True(t, ok)
 	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
 	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+}
+
+// TestApplyGate_RejectsRoleCreationIntoInactiveNamespace drives the role-
+// upsert gate through the live apply switch: a namespaced role can't be minted
+// into a deleting or missing namespace. Permission-only upserts
+// (RoleCreation=false) re-mint the role row too, so they're gated as well;
+// global (unqualified) roles always pass.
+func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
+	roleCmd := func(name string, creation bool) []byte {
+		return cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
+			api.CreateRolesRequest{
+				Roles:        map[string][]authorization.Policy{name: nil},
+				RoleCreation: creation,
+			}, nil)
+	}
+
+	tests := []struct {
+		name     string
+		seed     func(*namespaces.Controller)
+		role     string
+		creation bool
+		wantErr  error
+	}{
+		{
+			name: "create into deleting namespace rejected",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
+			},
+			role:     "alpha:editor",
+			creation: true,
+			wantErr:  namespaces.ErrNamespaceDeleting,
+		},
+		{
+			name:     "create into missing namespace rejected",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "alpha:editor",
+			creation: true,
+			wantErr:  namespaces.ErrNamespaceGone,
+		},
+		{
+			name: "create into active namespace passes gate",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+			},
+			role:     "alpha:editor",
+			creation: true,
+		},
+		{
+			name:     "global role create passes gate",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "editor",
+			creation: true,
+		},
+		{
+			name: "non-creation upsert into deleting namespace rejected",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
+			},
+			role:     "alpha:editor",
+			creation: false,
+			wantErr:  namespaces.ErrNamespaceDeleting,
+		},
+		{
+			name:     "non-creation upsert into missing namespace rejected",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "alpha:editor",
+			creation: false,
+			wantErr:  namespaces.ErrNamespaceGone,
+		},
+		{
+			name: "non-creation upsert into active namespace passes gate",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+			},
+			role:     "alpha:editor",
+			creation: false,
+		},
+		{
+			name:     "global non-creation upsert passes gate",
+			seed:     func(c *namespaces.Controller) {},
+			role:     "editor",
+			creation: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ms, log := setupApplyTest(t)
+			tc.seed(ms.cfg.NamespacesController)
+			log.Data = roleCmd(tc.role, tc.creation)
+
+			result := ms.store.Apply(log)
+			resp, ok := result.(Response)
+			require.True(t, ok)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, resp.Error, tc.wantErr)
+				return
+			}
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+		})
+	}
+}
+
+// TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace verifies the gate
+// loops over every name in a multi-role upsert: a single namespaced-inactive
+// name rejects the whole batch even when other names are global or active.
+func TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
+	ms, log := setupApplyTest(t)
+	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, ms.cfg.NamespacesController.ChangeState("alpha", api.NamespaceStateDeleting))
+
+	log.Data = cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
+		api.CreateRolesRequest{
+			Roles: map[string][]authorization.Policy{
+				"editor":       nil,
+				"alpha:editor": nil,
+			},
+			RoleCreation: false,
+		}, nil)
+
+	resp, ok := ms.store.Apply(log).(Response)
+	require.True(t, ok)
+	require.ErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
+}
+
+// TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace drives the role-
+// assignment gate through the live apply switch: a role can't be assigned to a
+// subject in a deleting or missing namespace, otherwise a late assignment would
+// leave a grouping row behind after the cleanup cascade emptied the namespace.
+// OIDC subjects are gated too (their handler-side existence check is a no-op),
+// and global (unqualified) subjects are not gated.
+func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
+	assignCmd := func(user string) []byte {
+		return cmdAsBytes("", api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER,
+			api.AddRolesForUsersRequest{User: user, Roles: []string{"editor"}}, nil)
+	}
+
+	tests := []struct {
+		name    string
+		seed    func(*namespaces.Controller)
+		user    string
+		wantErr error
+	}{
+		{
+			name: "assign into deleting namespace rejected",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
+			},
+			user:    "db:alpha:bob",
+			wantErr: namespaces.ErrNamespaceDeleting,
+		},
+		{
+			name:    "assign into missing namespace rejected",
+			seed:    func(c *namespaces.Controller) {},
+			user:    "db:alpha:bob",
+			wantErr: namespaces.ErrNamespaceGone,
+		},
+		{
+			name: "assign to oidc subject in deleting namespace rejected",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
+			},
+			user:    "oidc:alpha:carol",
+			wantErr: namespaces.ErrNamespaceDeleting,
+		},
+		{
+			name: "assign into active namespace passes gate",
+			seed: func(c *namespaces.Controller) {
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+			},
+			user: "db:alpha:bob",
+		},
+		{
+			name: "global subject passes gate",
+			seed: func(c *namespaces.Controller) {},
+			user: "db:bob",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ms, log := setupApplyTest(t)
+			tc.seed(ms.cfg.NamespacesController)
+			log.Data = assignCmd(tc.user)
+
+			result := ms.store.Apply(log)
+			resp, ok := result.(Response)
+			require.True(t, ok)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, resp.Error, tc.wantErr)
+				return
+			}
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
+			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
+		})
+	}
 }
 
 type emptySchemaLister struct{}

@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -106,7 +105,7 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 			require.DirExists(t, shardDir, "precondition: shard dir must exist")
 			require.NoError(t, os.RemoveAll(filepath.Join(shardDir, tt.removeRelPath)))
 
-			usage, err := index.usageForCollection(ctx, time.Nanosecond, true, nil)
+			usage, err := index.usageForCollection(ctx, 4, true, nil)
 			require.NoError(t, err, "one disappearing shard must not fail the whole report")
 			require.NotNil(t, usage)
 
@@ -251,7 +250,11 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 	shard, release, err := index.GetShard(ctx, tenantName)
 	require.NoError(t, err)
 	require.NotNil(t, shard)
-	require.NoError(t, shard.Store().Bucket(helpers.ObjectsBucketLSM).FlushMemtable())
+	// FlushMemtables deactivates the background flush cycle before flushing, so
+	// it cannot race with the cycle's own FlushAndSwitch (which would nil out
+	// b.flushing under the other goroutine and panic). Poking a single bucket's
+	// FlushMemtable directly skips that guard.
+	require.NoError(t, shard.Store().FlushMemtables(ctx))
 	release()
 
 	vectorConfigs := index.GetVectorIndexConfigs()

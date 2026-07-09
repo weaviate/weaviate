@@ -62,14 +62,14 @@ func (b *BM25Searcher) wandBlock(
 		return []*storobj.Object{}, []float32{}, false, nil
 	}
 
-	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
+	stats, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, false, err
 	}
 
 	// fallback to the old search process if not all buckets are inverted
-	if !allBucketsAreInverted {
-		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
+	if !stats.allBucketsAreInverted {
+		objects, scores, err := b.wandFromStats(ctx, filterDocIds, params, limit, additional, stats, start)
 		return objects, scores, true, err
 	}
 
@@ -93,10 +93,10 @@ func (b *BM25Searcher) wandBlock(
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
-	for tokenization, propNames := range propNamesByTokenization {
+	for tokenization, propNames := range stats.propNamesByTokenization {
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
-			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
+			queryTerms, duplicateBoosts := stats.queryTermsByTokenization[tokenization], stats.duplicateBoostsByTokenization[tokenization]
 			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
 			for i, term := range queryTerms {
 				duplicateBoostsByTerm[term] = duplicateBoosts[i]
@@ -104,7 +104,7 @@ func (b *BM25Searcher) wandBlock(
 			globalIdfCounts := make(map[string]uint64, len(queryTerms))
 			nonZeroTerms := make(map[string]uint64, len(queryTerms))
 			for _, propName := range propNames {
-				results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, b.config, ctx)
+				results, idfCounts, release, err := b.createBlockTerm(stats.N, filterDocIds, queryTerms, propName, stats.propertyBoosts[propName], duplicateBoosts, b.config, ctx)
 				if err != nil {
 					return nil, nil, false, err
 				}
@@ -136,7 +136,7 @@ func (b *BM25Searcher) wandBlock(
 				}
 				n := globalIdfCounts[term] / nonZeroTerms[term]
 
-				globalIdfs[term] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoostsByTerm[term])
+				globalIdfs[term] = terms.Idf(float64(n), stats.N) * float64(duplicateBoostsByTerm[term])
 			}
 			for _, result := range allResults[lenAllResults:] {
 				if len(result) == 0 {
@@ -225,9 +225,9 @@ func (b *BM25Searcher) wandBlock(
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
 				if params.SearchOperator == common_filters.SearchOperatorAnd {
-					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
-					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				}
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
@@ -253,7 +253,10 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
 
-	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	objects, scores, err := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	if err != nil {
+		return nil, nil, false, err
+	}
 
 	combineTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
@@ -262,7 +265,7 @@ func (b *BM25Searcher) wandBlock(
 	return objects, scores, false, nil
 }
 
-func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// Preallocate by the real upper bound (total result rows across
 	// properties/segments), not limit*len(allIds): for unlimited (limit==0)
 	// queries the caller inflates limit to the sum of all term counts, which
@@ -303,9 +306,9 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
-	return combinedObjects, combinedScores
+	return combinedObjects, combinedScores, nil
 }
 
 type aggregate func(float32, float32) float32

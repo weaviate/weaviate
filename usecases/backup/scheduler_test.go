@@ -28,9 +28,11 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -714,6 +716,41 @@ func TestSchedulerRestoration(t *testing.T) {
 		assert.Contains(t, fs.backend.glMeta.Error, "")
 	})
 
+	t.Run("SuccessWithBaseBackup", func(t *testing.T) {
+		baseID := "base-1"
+		metaWithBase := meta
+		metaWithBase.CompressionType = backup.CompressionGZIP
+		metaWithBase.BaseBackupID = baseID
+		baseMeta := backup.DistributedBackupDescriptor{
+			ID:              baseID,
+			Status:          backup.Success,
+			CompressionType: backup.CompressionGZIP,
+		}
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
+		bytes := marshalCoordinatorMeta(metaWithBase)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, baseID, GlobalBackupFile).Return(marshalCoordinatorMeta(baseMeta), nil)
+		fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
+		fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
+		fs.client.On("CanCommit", any, nodeA, any).Return(cResp, nil)
+		fs.client.On("Commit", any, nodeA, sReq).Return(nil)
+		fs.client.On("Status", any, nodeA, sReq).Return(sresp, nil)
+		fs.client.On("CanCommit", any, nodeB, any).Return(cResp, nil)
+		fs.client.On("Commit", any, nodeB, sReq).Return(nil)
+		fs.client.On("Status", any, nodeB, sReq).Return(sresp, nil)
+
+		s := fs.scheduler()
+		req := BackupRequest{ID: backupID, Include: []string{cls}, Backend: backendName}
+		resp, err := s.Restore(ctx, nil, &req, false)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+	})
+
 	t.Run("NodeMappingPassedCorrectly", func(t *testing.T) {
 		oldNodeA := "Old-Node-A"
 		oldNodeB := "Old-Node-B"
@@ -977,6 +1014,39 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}}, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), cls)
+	})
+
+	t.Run("MissingBaseBackup", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		metaWithBase := meta
+		metaWithBase.CompressionType = backup.CompressionGZIP
+		metaWithBase.BaseBackupID = "base-1"
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(metaWithBase), nil)
+		fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.ErrorContains(t, err, "resolve base backup chain")
+	})
+
+	t.Run("BaseBackupNotSuccessful", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		metaWithBase := meta
+		metaWithBase.CompressionType = backup.CompressionGZIP
+		metaWithBase.BaseBackupID = "base-1"
+		baseMeta := backup.DistributedBackupDescriptor{
+			ID:              "base-1",
+			Status:          backup.Failed,
+			CompressionType: backup.CompressionGZIP,
+		}
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(metaWithBase), nil)
+		fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(marshalCoordinatorMeta(baseMeta), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.ErrorContains(t, err, "resolve base backup chain")
 	})
 }
 
@@ -2029,4 +2099,498 @@ func TestSchedulerRestoreAuthorizesUsers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// classDesc builds a per-node class descriptor, optionally carrying aliases.
+// makeUserSnapshot builds a real dynamic-user snapshot blob containing the
+// given qualified ids, so validation exercises the exact apply-time
+// strip-and-collide logic rather than a stand-in.
+func makeUserSnapshot(t *testing.T, ids ...string) []byte {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	dbu, err := apikey.NewDBUser(t.TempDir(), true, logger)
+	require.NoError(t, err)
+	for _, id := range ids {
+		require.NoError(t, dbu.CreateUser(id, "hash-"+id, "ident-"+id, "", namespacing.NamespaceFromQualified(id), time.Now()))
+	}
+	snap, err := dbu.Snapshot()
+	require.NoError(t, err)
+	return snap
+}
+
+func classDesc(t *testing.T, name string, aliases ...string) backup.ClassDescriptor {
+	t.Helper()
+	d := backup.ClassDescriptor{Name: name}
+	if len(aliases) == 0 {
+		return d
+	}
+	xs := make([]*models.Alias, len(aliases))
+	for i, a := range aliases {
+		xs[i] = &models.Alias{Alias: a}
+	}
+	b, err := json.Marshal(xs)
+	require.NoError(t, err)
+	d.Aliases = b
+	d.AliasesIncluded = true
+	return d
+}
+
+// TestValidateNamespaceStripping pins the fail-fast collision check for
+// restores into a namespace-disabled cluster: entities that strip to the
+// same identity must reject the whole restore before any node stages data.
+// Everything is judged from the per-node descriptors — the payload nodes
+// actually restore. Class and alias comparisons fold case; user snapshots
+// are dry-run through the UserLister so the collision semantics are exactly
+// the apply-time ones.
+func TestValidateNamespaceStripping(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Real snapshot blobs, so validation exercises the exact apply-time
+	// strip-and-collide logic rather than a stand-in.
+	collidingUsers := makeUserSnapshot(t, "ns1:alice", "ns2:alice")
+	cleanUsers := makeUserSnapshot(t, "ns1:alice", "ns2:bob")
+
+	tests := []struct {
+		name              string
+		descriptors       func(t *testing.T) []backup.ClassDescriptor
+		selected          []string
+		userBlobs         [][]byte
+		liveEntities      []string // live class/alias names served by the fake's ClassEqual
+		liveClasses       []string // nil means ListClasses must not be called (it only serves stripped aliases)
+		namespacesEnabled bool
+		userRestoreOption string
+		nilUserLister     bool
+		wantErr           []string // substrings; empty means no error
+	}{
+		{
+			name: "NamespacedTargetSkipsValidation",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies"), classDesc(t, "ns2:Movies")}
+			},
+			selected:          []string{"ns1:Movies", "ns2:Movies"},
+			namespacesEnabled: true,
+		},
+		{
+			// A backup without qualified names must not even read the live
+			// schema: plain restores keep their pre-existing semantics. The
+			// unstubbed ListClasses mock panics if this regresses.
+			name: "PlainBackupBypassesLiveSchemaRead",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "Movies"), classDesc(t, "Books")}
+			},
+			selected: []string{"Movies", "Books"},
+		},
+		{
+			name: "TwoNamespacesSameClass",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies"), classDesc(t, "ns2:Movies")}
+			},
+			selected: []string{"ns1:Movies", "ns2:Movies"},
+			wantErr:  []string{"ns1:Movies", "ns2:Movies", `"Movies"`},
+		},
+		{
+			name: "CaseVariantClassesCollide",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:MOVIES"), classDesc(t, "ns2:Movies")}
+			},
+			selected: []string{"ns1:MOVIES", "ns2:Movies"},
+			wantErr:  []string{"ns1:MOVIES", "ns2:Movies"},
+		},
+		{
+			name: "QualifiedCollidesWithUnqualified",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "Movies"), classDesc(t, "ns1:Movies")}
+			},
+			selected: []string{"Movies", "ns1:Movies"},
+			wantErr:  []string{"[Movies ns1:Movies]"},
+		},
+		{
+			name: "SingleNamespaceIsCollisionFree",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies"), classDesc(t, "ns1:Books")}
+			},
+			selected: []string{"ns1:Movies", "ns1:Books"},
+		},
+		{
+			// The request's include/exclude selection governs: a colliding
+			// class left out of the restore must not block it.
+			name: "UnselectedDescriptorsIgnored",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies"), classDesc(t, "ns2:Movies")}
+			},
+			selected: []string{"ns1:Movies"},
+		},
+		{
+			name: "StrippedNameTakenByLiveClass",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies")}
+			},
+			selected:     []string{"ns1:Movies"},
+			liveEntities: []string{"Movies"},
+			wantErr:      []string{"already exists in the cluster"},
+		},
+		{
+			name: "StrippedNameTakenByLiveCaseVariant",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies")}
+			},
+			selected:     []string{"ns1:Movies"},
+			liveEntities: []string{"MOVIES"},
+			wantErr:      []string{`"MOVIES"`},
+		},
+		{
+			// ClassEqual spans live classes AND live aliases — the same
+			// predicate the RAFT gate rejects with — so a stripped class
+			// landing on a live alias fails fast instead of partially
+			// committing mid-restore. The class/alias distinction inside
+			// the predicate is pinned at the gate's own test
+			// (TestSchemaManager_PreApplyFilterRestoreClassCollision).
+			name: "StrippedClassTakenByLiveAlias",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies")}
+			},
+			selected:     []string{"ns1:Movies"},
+			liveEntities: []string{"Movies"},
+			wantErr:      []string{`already exists in the cluster as "Movies"`},
+		},
+		{
+			// An unqualified backup class colliding with a live class keeps
+			// the pre-existing lazy per-class RAFT rejection; only names
+			// changed by stripping fail fast here.
+			name: "UnqualifiedKeepsLazyPerClassSemantics",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "Movies"), classDesc(t, "ns1:Books")}
+			},
+			selected:     []string{"Movies", "ns1:Books"},
+			liveEntities: []string{"Movies"},
+		},
+		{
+			name: "AliasesMergeAcrossNamespaces",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{
+					classDesc(t, "ns1:Movies", "ns1:Films"),
+					classDesc(t, "ns2:Books", "ns2:Films"),
+				}
+			},
+			selected:    []string{"ns1:Movies", "ns2:Books"},
+			liveClasses: []string{},
+			wantErr:     []string{"ns1:Films", "ns2:Films", `"Films"`},
+		},
+		{
+			name: "CaseVariantAliasesCollide",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{
+					classDesc(t, "ns1:Movies", "ns1:FILMS"),
+					classDesc(t, "ns2:Books", "ns2:Films"),
+				}
+			},
+			selected:    []string{"ns1:Movies", "ns2:Books"},
+			liveClasses: []string{},
+			wantErr:     []string{"ns1:FILMS", "ns2:Films"},
+		},
+		{
+			name: "AliasCollidesWithClass",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{
+					classDesc(t, "ns1:Movies"),
+					classDesc(t, "ns2:Books", "ns2:Movies"),
+				}
+			},
+			selected:    []string{"ns1:Movies", "ns2:Books"},
+			liveClasses: []string{},
+			wantErr:     []string{"ns2:Movies", "collides with backup class [ns1:Movies]"},
+		},
+		{
+			// A stripped alias landing on a live class hard-errors in
+			// CreateAlias only after its class's data is committed — the
+			// one-namespace-at-a-time workflow hits this when an earlier
+			// restore's class owns the name the alias strips to.
+			name: "StrippedAliasTakenByLiveClass",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns2:Books", "ns2:Movies")}
+			},
+			selected:    []string{"ns2:Books"},
+			liveClasses: []string{"Movies"},
+			wantErr:     []string{"ns2:Movies", `already exists as class "Movies"`},
+		},
+		{
+			name: "StrippedAliasTakenByLiveCaseVariantClass",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns2:Books", "ns2:movies")}
+			},
+			selected:    []string{"ns2:Books"},
+			liveClasses: []string{"MOVIES"},
+			wantErr:     []string{`already exists as class "MOVIES"`},
+		},
+		{
+			// A stripped alias alone must trigger the live-schema read even
+			// when no selected class name changes.
+			name: "AliasStripAloneTriggersLiveCheck",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "Books", "ns2:Movies")}
+			},
+			selected:    []string{"Books"},
+			liveClasses: []string{"Movies"},
+			wantErr:     []string{"ns2:Movies", `already exists as class "Movies"`},
+		},
+		{
+			name: "DistinctAliasesPass",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{
+					classDesc(t, "ns1:Movies", "ns1:Films"),
+					classDesc(t, "ns2:Books", "ns2:Novels"),
+				}
+			},
+			selected:    []string{"ns1:Movies", "ns2:Books"},
+			liveClasses: []string{},
+		},
+		{
+			name: "AliasesNotIncludedSkipped",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				d := classDesc(t, "ns1:Movies", "ns1:Films")
+				d.AliasesIncluded = false
+				e := classDesc(t, "ns2:Books", "ns2:Films")
+				e.AliasesIncluded = false
+				return []backup.ClassDescriptor{d, e}
+			},
+			selected: []string{"ns1:Movies", "ns2:Books"},
+		},
+		{
+			name: "MalformedAliasBlobErrors",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{
+					{Name: "ns1:Movies", Aliases: []byte("{"), AliasesIncluded: true},
+				}
+			},
+			selected: []string{"ns1:Movies"},
+			wantErr:  []string{"unmarshal aliases", "ns1:Movies"},
+		},
+		{
+			// The user snapshot is validated by dry-running the apply-time
+			// strip, so implicit whole-cluster snapshots are covered even
+			// though no user ids appear in any descriptor.
+			name:      "UserSnapshotCollisionRejects",
+			userBlobs: [][]byte{collidingUsers},
+			wantErr:   []string{"dynamic users:", `"alice"`},
+		},
+		{
+			name:      "CleanUserSnapshotPasses",
+			userBlobs: [][]byte{cleanUsers},
+		},
+		{
+			name:      "EachUserSnapshotValidated",
+			userBlobs: [][]byte{cleanUsers, collidingUsers},
+			wantErr:   []string{"dynamic users:"},
+		},
+		{
+			name:              "UserOptOutSkipsUserCheck",
+			userBlobs:         [][]byte{collidingUsers},
+			userRestoreOption: models.RestoreConfigUsersOptionsNoRestore,
+		},
+		{
+			// Participants apply a present user snapshot even when dynamic
+			// users are disabled on the target (userLister nil), so the
+			// collision must still fail fast.
+			name:          "NilUserListerStillValidates",
+			userBlobs:     [][]byte{collidingUsers},
+			nilUserLister: true,
+			wantErr:       []string{"dynamic users:", `"alice"`},
+		},
+		{
+			name: "AllCollisionsReported",
+			descriptors: func(t *testing.T) []backup.ClassDescriptor {
+				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies"), classDesc(t, "ns2:Movies")}
+			},
+			selected:  []string{"ns1:Movies", "ns2:Movies"},
+			userBlobs: [][]byte{collidingUsers},
+			wantErr:   []string{`"Movies"`, `"alice"`},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			fs.schema.namespacesEnabled = tc.namespacesEnabled
+			fs.schema.liveEntities = tc.liveEntities
+			if tc.liveClasses != nil {
+				fs.selector.On("ListClasses", mock.Anything).Return(tc.liveClasses)
+			}
+			s := fs.scheduler()
+			if tc.nilUserLister {
+				s.userLister = nil
+			}
+			var descriptors []backup.ClassDescriptor
+			if tc.descriptors != nil {
+				descriptors = tc.descriptors(t)
+			}
+
+			err := s.validateNamespaceStripping(ctx, descriptors, tc.userBlobs, tc.selected, tc.userRestoreOption)
+
+			if len(tc.wantErr) == 0 {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, want := range tc.wantErr {
+				assert.Contains(t, err.Error(), want)
+			}
+		})
+	}
+}
+
+// TestRestoreNamespaceStrippingCollisionFailsFast proves the whole restore
+// is rejected at the scheduler, before any participant node is contacted:
+// no staging, no state mutation, terminal Unprocessable error.
+func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx         = context.Background()
+		backendName = "gcs"
+		backupID    = "stripping-collision"
+		nodeName    = "Node-A"
+		nodeKey     = backupID + "/" + nodeName
+	)
+	meta := backup.DistributedBackupDescriptor{
+		ID:            backupID,
+		StartedAt:     time.Now().UTC(),
+		Version:       "1",
+		ServerVersion: "1",
+		Status:        backup.Success,
+		Leader:        nodeName,
+		Nodes: map[string]*backup.NodeDescriptor{
+			nodeName: {Classes: []string{"ns1:Movies", "ns2:Movies"}},
+		},
+	}
+	nodeMeta := backup.BackupDescriptor{
+		ID:     backupID,
+		Status: backup.Success,
+		Classes: []backup.ClassDescriptor{
+			{Name: "ns1:Movies"},
+			{Name: "ns2:Movies"},
+		},
+	}
+	nodeMetaBytes, err := json.Marshal(nodeMeta)
+	require.NoError(t, err)
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	fs.backend.On("GetObject", ctx, nodeKey, BackupFile).Return(nodeMetaBytes, nil)
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+	// ListClasses is deliberately unstubbed: class collisions are judged via
+	// ClassEqual, so the selector must not be consulted here.
+
+	s := fs.scheduler()
+	resp, err := s.Restore(ctx, nil, &BackupRequest{
+		ID:      backupID,
+		Backend: backendName,
+		Include: []string{"ns1:Movies", "ns2:Movies"},
+	}, false)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.IsType(t, backup.ErrUnprocessable{}, err)
+	assert.Contains(t, err.Error(), "strip to the same name")
+	fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestRestoreSecondNamespaceAliasCollisionFailsFast pins the sequential
+// one-namespace-at-a-time workflow: an earlier restore's class already owns
+// the name a later namespace's alias strips to. Without fail-fast validation
+// the second restore would commit its class via RAFT and only then fail in
+// CreateAlias, leaving a partial commit behind a Failed status.
+func TestRestoreSecondNamespaceAliasCollisionFailsFast(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx      = context.Background()
+		backupID = "second-namespace-alias-collision"
+		nodeName = "Node-A"
+		nodeKey  = backupID + "/" + nodeName
+	)
+	meta := backup.DistributedBackupDescriptor{
+		ID:            backupID,
+		StartedAt:     time.Now().UTC(),
+		Version:       "1",
+		ServerVersion: "1",
+		Status:        backup.Success,
+		Leader:        nodeName,
+		Nodes: map[string]*backup.NodeDescriptor{
+			nodeName: {Classes: []string{"ns2:Books"}},
+		},
+	}
+	nodeMeta := backup.BackupDescriptor{
+		ID:      backupID,
+		Status:  backup.Success,
+		Classes: []backup.ClassDescriptor{classDesc(t, "ns2:Books", "ns2:Movies")},
+	}
+	nodeMetaBytes, err := json.Marshal(nodeMeta)
+	require.NoError(t, err)
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+	fs.backend.On("GetObject", ctx, nodeKey, BackupFile).Return(nodeMetaBytes, nil)
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+	// "Movies" is live from the previous namespace's restore.
+	fs.selector.On("ListClasses", mock.Anything).Return([]string{"Movies"})
+
+	s := fs.scheduler()
+	resp, err := s.Restore(ctx, nil, &BackupRequest{
+		ID:      backupID,
+		Backend: "gcs",
+		Include: []string{"ns2:Books"},
+	}, false)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.IsType(t, backup.ErrUnprocessable{}, err)
+	assert.Contains(t, err.Error(), `already exists as class "Movies"`)
+	fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestFetchSchemaFailsClosed pins the union path's error handling: a node
+// meta that cannot be read must fail the fetch instead of silently returning
+// a partial descriptor set, which would skip the missing node's classes at
+// restore time and blind the strip validation.
+func TestFetchSchemaFailsClosed(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx      = context.Background()
+		backupID = "fetch-schema-fails-closed"
+		nodeA    = "Node-A"
+		nodeB    = "Node-B"
+	)
+	meta := backup.DistributedBackupDescriptor{
+		ID:     backupID,
+		Status: backup.Success,
+		// No Leader: the pre-RAFT union path reads every node's meta.
+		Nodes: map[string]*backup.NodeDescriptor{
+			nodeA: {Classes: []string{"ClassA"}},
+			nodeB: {Classes: []string{"ClassB"}},
+		},
+	}
+	nodeMeta := backup.BackupDescriptor{
+		ID:      backupID,
+		Status:  backup.Success,
+		Classes: []backup.ClassDescriptor{{Name: "ClassA"}},
+	}
+	nodeMetaBytes, err := json.Marshal(nodeMeta)
+	require.NoError(t, err)
+
+	fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+	fs.backend.On("GetObject", ctx, backupID+"/"+nodeA, BackupFile).Return(nodeMetaBytes, nil)
+	fs.backend.On("GetObject", ctx, backupID+"/"+nodeB, BackupFile).Return(nil, ErrAny)
+	// The node-meta read falls back to the pre-node-dir legacy layout on
+	// error; deny it so the original failure surfaces.
+	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+
+	s := fs.scheduler()
+	schema, userBlobs, err := s.fetchSchema(ctx, "gcs", "", "", &meta)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fetch meta of node")
+	assert.Nil(t, schema)
+	assert.Nil(t, userBlobs)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -623,4 +624,26 @@ func GetUserAndPrefix(name string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid name: %s", name)
 	}
 	return user, prefix, nil
+}
+
+// SubjectNamespace returns a grouping subject's user identifier, auth type, and
+// namespace (e.g. "db:customer1:bob" -> "customer1"). A global principal
+// ("db:bob") and a group subject both yield no namespace; a group additionally
+// yields a zero auth type. An unparseable key returns an error so callers can
+// fail closed rather than treat it as global.
+func SubjectNamespace(subject string) (user string, authType authentication.AuthType, namespace string, err error) {
+	user, prefix, err := GetUserAndPrefix(subject)
+	if err != nil {
+		return "", "", "", err
+	}
+	switch prefix {
+	case string(authentication.AuthTypeDb):
+		authType = authentication.AuthTypeDb
+	case string(authentication.AuthTypeOIDC):
+		authType = authentication.AuthTypeOIDC
+	default:
+		// Group subjects are global; no namespace.
+		return user, "", "", nil
+	}
+	return user, authType, namespacing.NamespaceFromQualified(user), nil
 }

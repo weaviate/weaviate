@@ -282,8 +282,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
-		if err != nil {
+		var objBinary []byte
+		if obj.PrecomputedDiskBinary != nil {
+			// raw path: persist source bytes verbatim, only patching our docID.
+			objBinary = obj.PrecomputedDiskBinary
+			if err := storobj.PatchDocID(objBinary, status.docID); err != nil {
+				return errors.Wrapf(err, "patch docID for object %s", obj.ID())
+			}
+		} else if objBinary, err = obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk); err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}
 
@@ -347,32 +353,6 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
-	return nil
-}
-
-// upsertHashTreeLeaf updates the hashtree leaf for a single object identified
-// by its raw UUID bytes and update timestamp. Unlike upsertObjectHashTree it
-// accepts the two primitive values directly, avoiding the storobj.Object
-// allocation that would otherwise be needed on the initHashtree hot path.
-// Acquires asyncReplicationRWMux.RLock internally so the height read by
-// hashtreeLeafFor is consistent with the live hashtree pointer.
-func (s *Shard) upsertHashTreeLeaf(uuidBytes []byte, updateTime int64) error {
-	if len(uuidBytes) != 16 {
-		return fmt.Errorf("invalid object uuid")
-	}
-	if updateTime < 1 {
-		return fmt.Errorf("invalid object last update time")
-	}
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-	if s.hashtree == nil {
-		return nil
-	}
-	leaf := s.hashtreeLeafFor(uuidBytes)
-	var objectDigest [16 + 8]byte
-	copy(objectDigest[:], uuidBytes)
-	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
-	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 	return nil
 }
 
@@ -442,6 +422,14 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// any update of geo property needs new docID for updating geo index.
 	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
 		out.docID = prevObj.DocID
+		// Content unchanged, but if the update time advanced, take the docID-preserved
+		// path instead of skipping: it refreshes the object row, hashtree leaf and
+		// inverted index (incl. timestamp postings) while leaving the unchanged vector
+		// index alone. Skipping would persist a stale update time and break
+		// timestamp-based reconciliation (async replication, read-repair).
+		if skip && nextObj.LastUpdateTimeUnix() > prevObj.LastUpdateTimeUnix() {
+			preserve, skip = true, false
+		}
 		out.docIDPreserved = preserve
 		out.skipUpsert = skip
 		return out, nil

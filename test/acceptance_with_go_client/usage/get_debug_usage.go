@@ -29,8 +29,11 @@ func getDebugUsage() (*usagetypes.Report, error) {
 }
 
 // Get the debug usage report from the endpoint
-func getDebugUsageWithPort(host string) (*usagetypes.Report, error) {
+func getDebugUsageWithPort(host string, shardConcurrency ...int) (*usagetypes.Report, error) {
 	url := fmt.Sprintf("http://%s/debug/usage?exactObjectCount=true", host)
+	if len(shardConcurrency) > 0 {
+		url += fmt.Sprintf("&shardConcurrency=%d", shardConcurrency[0])
+	}
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call endpoint: %w", err)

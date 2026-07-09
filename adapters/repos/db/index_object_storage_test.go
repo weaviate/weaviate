@@ -482,7 +482,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
-	usage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true, class.VectorConfig)
+	usage, err := newIndex.usageForCollection(ctx, 4, true, class.VectorConfig)
 	require.NoError(t, err)
 
 	for _, shardUsage := range usage.Shards {

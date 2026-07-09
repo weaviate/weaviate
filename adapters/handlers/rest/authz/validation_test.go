@@ -20,10 +20,11 @@ import (
 
 func TestValidatePermissions(t *testing.T) {
 	tests := []struct {
-		name        string
-		permissions []*models.Permission
-		allowEmpty  bool
-		expectedErr string
+		name              string
+		permissions       []*models.Permission
+		allowEmpty        bool
+		namespacesEnabled bool
+		expectedErr       string
 	}{
 		{
 			name:        "no permissions - not allowed",
@@ -216,11 +217,84 @@ func TestValidatePermissions(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:              "namespace-qualified collection valid when namespaces enabled",
+			namespacesEnabled: true,
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("customer1:Movies")}},
+			},
+		},
+		{
+			name:              "namespace-qualified wildcard valid when namespaces enabled",
+			namespacesEnabled: true,
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("customer1:*")}},
+			},
+		},
+		{
+			name:              "namespace-qualified collection rejected when namespaces disabled",
+			namespacesEnabled: false,
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("customer1:Movies")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			name:              "invalid namespace prefix rejected when namespaces enabled",
+			namespacesEnabled: true,
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("Bad_NS:Movies")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			// The tolerance is shared across collection fields, not just Collections.
+			name:              "namespace-qualified data collection valid when namespaces enabled",
+			namespacesEnabled: true,
+			permissions: []*models.Permission{
+				{Data: &models.PermissionData{Collection: String("customer1:Movies")}},
+			},
+		},
+		{
+			name: "namespace-qualified data collection rejected when namespaces disabled",
+			permissions: []*models.Permission{
+				{Data: &models.PermissionData{Collection: String("customer1:Movies")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			// A valid namespace does not exempt the class part from its rules.
+			name:              "valid namespace with invalid class part rejected",
+			namespacesEnabled: true,
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("customer1:invalid name")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			name:              "namespace qualifier with empty class part rejected",
+			namespacesEnabled: true,
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("customer1:")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			// An invalid earlier field must not be cleared by a valid later one.
+			name: "invalid collection is not masked by a valid data collection",
+			permissions: []*models.Permission{
+				{
+					Collections: &models.PermissionCollections{Collection: String("Invalid class name")},
+					Data:        &models.PermissionData{Collection: String("ValidCollectionName")},
+				},
+			},
+			expectedErr: "not a valid class name",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePermissions(tt.allowEmpty, tt.permissions...)
+			err := validatePermissions(tt.namespacesEnabled, tt.allowEmpty, tt.permissions...)
 			if tt.expectedErr != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)

@@ -13,6 +13,7 @@ package replication
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -134,6 +135,10 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 	t.Run("create replication operation", func(t *testing.T) {
 		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		var unprocessableErr *replication.ReplicateUnprocessableEntity
+		if errors.As(err, &unprocessableErr) {
+			t.Logf("replication operation could not be created: %s", unprocessableErr.Payload.Error[0].Message)
+		}
 		require.NoError(t, err, "failed to create replication operation %+v", err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)
@@ -255,6 +260,10 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 	t.Run("create one op and immediately delete all replication ops", func(t *testing.T) {
 		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		var unprocessableErr *replication.ReplicateUnprocessableEntity
+		if errors.As(err, &unprocessableErr) {
+			t.Logf("replication operation could not be created: %s", unprocessableErr.Payload.Error[0].Message)
+		}
 		require.NoError(t, err, "failed to create replication operation %+v", err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)

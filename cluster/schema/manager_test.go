@@ -912,3 +912,49 @@ func TestSchemaManager_SetMutationGuard(t *testing.T) {
 	sm.SetMutationGuard(nil)
 	require.Nil(t, sm.mutationGuard, "nil clears the guard")
 }
+
+// TestPreApplyFilterRestoreClassCollision pins the pre-commit gate for
+// TYPE_RESTORE_CLASS. Class creation compares names case-insensitively
+// (ClassEqual) and index directories are lowercased on disk, so the restore
+// gate must reject fold-similar classes and aliases too — an exact-name
+// check would let a case-variant restore land its data in the existing
+// class's directory.
+func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
+	newManager := func(t *testing.T) *SchemaManager {
+		t.Helper()
+		sm := NewSchemaManager("testNode", nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: "Movies"},
+			&sharding.State{Physical: make(map[string]sharding.Physical)}, 0))
+		require.NoError(t, sm.schema.createAlias("Movies", "Films"))
+		return sm
+	}
+
+	tests := []struct {
+		name    string
+		class   string
+		wantErr string // "" means the restore is allowed through
+	}{
+		// The exact-match message is asserted verbatim elsewhere (e.g.
+		// cluster/raft_test.go) and must not change.
+		{name: "ExactClassNameRejected", class: "Movies", wantErr: "class name Movies already exists"},
+		{name: "CaseVariantClassRejected", class: "MOVIES", wantErr: `found similar class "Movies"`},
+		{name: "ExactAliasNameRejected", class: "Films", wantErr: "alias name Films already exists"},
+		{name: "CaseVariantAliasRejected", class: "FILMS", wantErr: `found similar alias "Films"`},
+		{name: "DistinctNameAllowed", class: "Books", wantErr: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sm := newManager(t)
+			err := sm.PreApplyFilter(&cmd.ApplyRequest{
+				Type:  cmd.ApplyRequest_TYPE_RESTORE_CLASS,
+				Class: tc.class,
+			})
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}

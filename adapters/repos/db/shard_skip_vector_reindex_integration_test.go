@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -808,14 +809,21 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				require.NoError(t, err)
 			})
 
-			t.Run("verify same docID, same timestamps", func(t *testing.T) {
+			t.Run("verify same docID, advanced timestamps", func(t *testing.T) {
 				expectedNextDocID := uint64(1)
 				require.Equal(t, expectedNextDocID, shard.Counter().Get())
 
 				found := search(t, shard, filterId)
 				require.Len(t, found, 1)
-				require.Equal(t, origCreateTimeUnix, found[0].CreationTimeUnix())
-				require.Equal(t, origUpdateTimeUnix, found[0].LastUpdateTimeUnix())
+				require.Equal(t, updCreateTimeUnix, found[0].CreationTimeUnix())
+				require.Equal(t, updUpdateTimeUnix, found[0].LastUpdateTimeUnix())
+			})
+
+			t.Run("timestamp inverted index reflects advanced update time", func(t *testing.T) {
+				filterNew := filterEqual[string](fmt.Sprint(updUpdateTimeUnix), schema.DataTypeText, class.Class, "_lastUpdateTimeUnix")
+				require.Len(t, search(t, shard, filterNew), 1)
+				filterOld := filterEqual[string](fmt.Sprint(origUpdateTimeUnix), schema.DataTypeText, class.Class, "_lastUpdateTimeUnix")
+				require.Empty(t, search(t, shard, filterOld))
 			})
 
 			t.Run("verify search after put same as add", verifySearchAfterAdd(shard))
@@ -916,14 +924,14 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				require.NoError(t, err)
 			})
 
-			t.Run("verify same docID, same timestamps", func(t *testing.T) {
+			t.Run("verify same docID, advanced update timestamp", func(t *testing.T) {
 				expectedNextDocID := uint64(1)
 				require.Equal(t, expectedNextDocID, shard.Counter().Get())
 
 				found := search(t, shard, filterId)
 				require.Len(t, found, 1)
 				require.Equal(t, origCreateTimeUnix, found[0].CreationTimeUnix())
-				require.Equal(t, origUpdateTimeUnix, found[0].LastUpdateTimeUnix())
+				require.Equal(t, updUpdateTimeUnix, found[0].LastUpdateTimeUnix())
 			})
 
 			t.Run("verify search after merge same as add", verifySearchAfterAdd(shard))
@@ -1194,14 +1202,14 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					require.NoError(t, queue.Wait(t.Context()))
 				})
 
-				t.Run("verify same docID, same timestamps", func(t *testing.T) {
+				t.Run("verify same docID, advanced timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(1)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
 
 					found := search(t, shard, filterId)
 					require.Len(t, found, 1)
-					require.Equal(t, origCreateTimeUnix, found[0].CreationTimeUnix())
-					require.Equal(t, origUpdateTimeUnix, found[0].LastUpdateTimeUnix())
+					require.Equal(t, updCreateTimeUnix, found[0].CreationTimeUnix())
+					require.Equal(t, updUpdateTimeUnix, found[0].LastUpdateTimeUnix())
 				})
 
 				t.Run("verify search after 2nd batch same as 1st", verifySearchAfterAdd(shard))

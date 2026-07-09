@@ -261,6 +261,13 @@ func TestQualifyClass(t *testing.T) {
 			want:              "customer1:Movies",
 		},
 		{
+			testName:          "operator with stray namespace stays unconfined",
+			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			namespacesEnabled: true,
+			input:             "movies",
+			want:              "Movies",
+		},
+		{
 			testName:          "ns disabled lowercase input still uppercased",
 			principal:         &models.Principal{Username: "u"},
 			namespacesEnabled: false,

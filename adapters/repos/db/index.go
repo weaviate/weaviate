@@ -283,6 +283,16 @@ type Index struct {
 	// non-hardlink backups only occur on niche filesystems so this is not a hot path
 	backupProtectedShards sync.Map
 
+	// Release uses this to decide whether to resume the shard (halt-for-duration
+	// fallback) or skip resume (snapshot already resumed at create time).
+	replicaSnapshotsMu sync.Mutex
+	replicaSnapshots   map[string]replicaSnapshotState
+
+	// Serializes create/release per opID against target retries. Read RPCs
+	// skip it on purpose — locking them would queue downloads behind any
+	// concurrent Release and tank throughput.
+	replicaSnapshotOpLocks *esync.KeyRWLocker
+
 	metrics          *Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
@@ -418,6 +428,7 @@ func NewIndex(
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyRWLocker(),
+		replicaSnapshotOpLocks:  esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,
@@ -911,7 +922,9 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
 	cfg := i.Config.AsyncReplicationConfig
 
-	return i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	// iterate concurrently so one shard's fault can't skip the rest (errors are
+	// accumulated, not first-error abort).
+	return i.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
 		// Stop the per-shard walk if the caller's context (e.g. server
 		// shutdown) was cancelled — the apply below does synchronous disk I/O.
 		if err := ctx.Err(); err != nil {
@@ -928,6 +941,11 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		} else {
+			// An active target-node override (e.g. in-progress movement) forces async
+			// replication on; don't tear it down (removeTargetNodeOverride handles it).
+			if ctrl.hasActiveAsyncReplicationTargetOverrides() {
+				return nil
+			}
 			if err := ctrl.disableAsyncReplication(ctx); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
@@ -1052,6 +1070,7 @@ type IndexConfig struct {
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
+	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
@@ -3280,6 +3299,25 @@ func (i *Index) drop() error {
 		spawnAsyncDelete(deleted, i.logger)
 	}
 	return nil
+}
+
+// withCloseRLockGuard runs fn under i.closeLock.RLock, returning
+// context.Canceled WITHOUT running fn if the index is closing/closed. fn
+// must be short and must not acquire i.closeLock for writing or any lock
+// drop() holds in an inverting order.
+//
+// Covers whole-index drops only: dropShards never sets i.closed, so tenant
+// deletes are invisible to the guard. Tracked in
+// https://github.com/weaviate/0-weaviate-issues/issues/288.
+func (i *Index) withCloseRLockGuard(fn func() error) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return context.Canceled
+	}
+
+	return fn()
 }
 
 func (i *Index) dropShards(names []string) error {

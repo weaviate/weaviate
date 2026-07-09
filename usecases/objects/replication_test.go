@@ -749,3 +749,51 @@ func TestVObjectMarshalBinaryV2ConcurrentRace(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestVObjectMarshalBinaryRawRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name            string
+		staleUpdateTime int64
+		raw             []byte
+	}{
+		{"typical", 1234567890, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
+		{"negative stale time", -1, []byte{0x42}},
+		{"zero stale time", 0, []byte("some on-disk bytes")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := VObject{StaleUpdateTime: tc.staleUpdateTime, RawBytes: tc.raw}
+
+			data, err := in.MarshalBinaryRaw()
+			require.NoError(t, err)
+
+			var out VObject
+			require.NoError(t, out.UnmarshalBinaryRaw(data))
+			assert.Equal(t, tc.staleUpdateTime, out.StaleUpdateTime)
+			assert.Equal(t, tc.raw, out.RawBytes)
+			assert.Nil(t, out.LatestObject)
+		})
+	}
+}
+
+func TestVObjectMarshalBinaryRawErrors(t *testing.T) {
+	t.Run("missing raw bytes", func(t *testing.T) {
+		_, err := (&VObject{StaleUpdateTime: 1}).MarshalBinaryRaw()
+		require.Error(t, err)
+	})
+
+	t.Run("data too short", func(t *testing.T) {
+		require.Error(t, (&VObject{}).UnmarshalBinaryRaw([]byte{1, 2, 3}))
+	})
+
+	t.Run("empty raw bytes", func(t *testing.T) {
+		data, err := (&VObject{StaleUpdateTime: 5, RawBytes: []byte{}}).MarshalBinaryRaw()
+		require.NoError(t, err)
+
+		var out VObject
+		require.NoError(t, out.UnmarshalBinaryRaw(data))
+		assert.Equal(t, int64(5), out.StaleUpdateTime)
+		assert.Empty(t, out.RawBytes)
+	})
+}

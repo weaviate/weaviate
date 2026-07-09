@@ -70,6 +70,7 @@ type schemaManger interface {
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
 	NodeName() string
 	NamespacesEnabled() bool
+	ClassEqual(name string) string
 }
 
 type NodeResolver interface {

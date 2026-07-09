@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func validatePermissions(allowEmpty bool, permissions ...*models.Permission) error {
+func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*models.Permission) error {
 	if !allowEmpty && len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
 	}
@@ -36,17 +36,13 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 			nodesInput       = perm.Nodes
 			replicateInput   = perm.Replicate
 		)
-		if collectionsInput != nil {
-			if collectionsInput.Collection != nil {
-				_, err := schema.ValidateClassNameIncludesRegex(*collectionsInput.Collection)
-				multiErr = errors.Join(multiErr, err)
-			}
+		if collectionsInput != nil && collectionsInput.Collection != nil {
+			multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *collectionsInput.Collection))
 		}
 
 		if tenantsInput != nil {
 			if tenantsInput.Collection != nil {
-				_, classErr := schema.ValidateClassNameIncludesRegex(*tenantsInput.Collection)
-				multiErr = errors.Join(multiErr, classErr)
+				multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *tenantsInput.Collection))
 			}
 			if tenantsInput.Tenant != nil {
 				multiErr = errors.Join(multiErr, schema.ValidateTenantNameIncludesRegex(*tenantsInput.Tenant))
@@ -55,8 +51,7 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 
 		if dataInput != nil {
 			if dataInput.Collection != nil {
-				_, err := schema.ValidateClassNameIncludesRegex(*dataInput.Collection)
-				multiErr = errors.Join(multiErr, err)
+				multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *dataInput.Collection))
 			}
 
 			if dataInput.Tenant != nil {
@@ -71,8 +66,7 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 					fmt.Errorf("backups permission cannot set both 'collection' and 'user'"))
 			}
 			if backupsInput.Collection != nil {
-				_, err := schema.ValidateClassNameIncludesRegex(*backupsInput.Collection)
-				multiErr = errors.Join(multiErr, err)
+				multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *backupsInput.Collection))
 			}
 			if backupsInput.User != nil && strings.Contains(*backupsInput.User, "/") {
 				multiErr = errors.Join(multiErr,
@@ -81,13 +75,11 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 		}
 
 		if nodesInput != nil && nodesInput.Collection != nil {
-			_, err := schema.ValidateClassNameIncludesRegex(*nodesInput.Collection)
-			multiErr = errors.Join(multiErr, err)
+			multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *nodesInput.Collection))
 		}
 
 		if replicateInput != nil && replicateInput.Collection != nil {
-			_, err := schema.ValidateClassNameIncludesRegex(*replicateInput.Collection)
-			multiErr = errors.Join(multiErr, err)
+			multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *replicateInput.Collection))
 		}
 
 		if multiErr != nil {
@@ -96,4 +88,23 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 	}
 
 	return nil
+}
+
+// validatePermissionClassName validates a class-name field in a permission. On
+// namespace-enabled clusters it tolerates an optional "<namespace>:" qualifier so
+// a global operator can check a namespace-local role's qualified rows; whether a
+// given caller may submit a qualified name is enforced separately by
+// validateNoQualifiedNamespaceInPolicies. The class part always follows the
+// regular permission class-name rules.
+func validatePermissionClassName(namespacesEnabled bool, name string) error {
+	if namespacesEnabled {
+		if ns, cls, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
+			if err := schema.ValidateNamespaceNameSyntax(ns); err != nil {
+				return fmt.Errorf("'%s' is not a valid class name", name)
+			}
+			name = cls
+		}
+	}
+	_, err := schema.ValidateClassNameIncludesRegex(name)
+	return err
 }

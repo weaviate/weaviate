@@ -15,15 +15,55 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
+
+func TestSearchTreatsPartiallyInitializedDimensionsAsEmptyIndex(t *testing.T) {
+	tf := createHFreshIndex(t)
+	vector := createTestVectors(32, 1)[0]
+
+	atomic.StoreUint32(&tf.Index.dims, uint32(len(vector)))
+
+	ids, dists, err := tf.Index.SearchByVector(t.Context(), vector, 10, nil)
+	require.NoError(t, err)
+	require.Empty(t, ids)
+	require.Empty(t, dists)
+}
+
+func TestFlatSearchTreatsPartiallyInitializedIndexAsEmptyIndex(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	vectors, _ := testinghelpers.RandomVecs(1, 0, 32)
+
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+		if indexID == 0 {
+			return vectors[0], nil
+		}
+		return nil, fmt.Errorf("vector not found for ID %d", indexID)
+	})
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	atomic.StoreUint32(&index.dims, uint32(len(vectors[0])))
+
+	// a small allow list routes the search through flatSearch, which must
+	// also treat the partially initialized index as empty
+	allowList := helpers.NewAllowList(0)
+	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, allowList)
+	require.NoError(t, err)
+	require.Empty(t, ids)
+	require.Empty(t, dists)
+}
 
 func TestSearchWithEmptyIndex(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)

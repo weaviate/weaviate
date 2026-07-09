@@ -213,7 +213,19 @@ func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.Compare
 }
 
 func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
-	vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
+	var (
+		vobjs []*objects.VObject
+		err   error
+	)
+	switch req.GetEncoding() {
+	case shared.OverwriteEncodingRaw:
+		var raw []byte
+		if raw, err = shared.DecompressOverwriteRaw(req.GetVobjectsData()); err == nil {
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalRaw(raw)
+		}
+	default:
+		vobjs, err = shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal vobjects: %v", err)
 	}
@@ -259,6 +271,25 @@ func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTree
 		return nil, status.Errorf(codes.Internal, "marshal digests: %v", err)
 	}
 	return &pb.HashTreeLevelResponse{DigestsData: data}, nil
+}
+
+func (s *ReplicationService) CompareHashTreeRoots(ctx context.Context, req *pb.CompareHashTreeRootsRequest) (*pb.CompareHashTreeRootsResponse, error) {
+	shards := req.GetShardRootDigests()
+	if len(shards) > replica.CompareHashTreeRootsMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument, "too many shards: %d exceeds maximum %d",
+			len(shards), replica.CompareHashTreeRootsMaxShardsPerRequest)
+	}
+	roots := make(map[string]hashtree.Digest, len(shards))
+	for _, sr := range shards {
+		roots[sr.GetShard()] = hashtree.Digest{sr.GetRootHashHigh(), sr.GetRootHashLow()}
+	}
+
+	diverging, err := s.server.CompareHashTreeRoots(ctx, req.GetIndex(), roots)
+	if err != nil {
+		return nil, replicationErrorToGRPC(err)
+	}
+
+	return &pb.CompareHashTreeRootsResponse{DivergingShards: diverging}, nil
 }
 
 func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {

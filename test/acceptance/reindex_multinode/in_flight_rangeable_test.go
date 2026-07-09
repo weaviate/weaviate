@@ -86,7 +86,7 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	scoreFor := func(i int) int { return 10_000 + i*5 }
 
 	trueVal, falseVal := true, false
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{Name: "name", DataType: []string{"text"}},
 		{
 			Name:              "score",

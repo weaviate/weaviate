@@ -56,6 +56,10 @@ type Object struct {
 	DocID             uint64
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
+
+	// PrecomputedDiskBinary, when set, is persisted verbatim (after a docID patch)
+	// instead of re-marshalling. Set on the raw-propagation write path.
+	PrecomputedDiskBinary []byte `json:"-"`
 }
 
 func New(docID uint64) *Object {
@@ -383,6 +387,12 @@ func AllPropertiesExtraction(class *models.Class) *PropertyExtraction {
 	return pe
 }
 
+// secondaryLookup fetches a value by secondary key into the given buffer,
+// returning the value and the (possibly regrown) buffer.
+type secondaryLookup = func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error)
+
+// bucket is the objects LSM bucket needed to fetch objects by their doc-id
+// secondary key.
 type bucket interface {
 	GetBySecondary(context.Context, int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
@@ -393,6 +403,20 @@ type bucket interface {
 	// non-objects buckets); the helpers propagate that error rather than fall
 	// back to the on-disk class name.
 	ClassName() (string, error)
+	// SecondaryViewLookup returns a doc-id lookup bound to a single consistent
+	// view for the whole batch, plus a release func to call when done.
+	SecondaryViewLookup() (lookup secondaryLookup, release func())
+}
+
+// withBatchLookup runs fn with a doc-id lookup that shares one consistent view
+// for the whole batch, releasing the view once fn returns.
+func withBatchLookup(bucket bucket, fn func(secondaryLookup) ([]*Object, error)) ([]*Object, error) {
+	if bucket == nil {
+		return nil, fmt.Errorf("objects bucket not found")
+	}
+	lookup, release := bucket.SecondaryViewLookup()
+	defer release()
+	return fn(lookup)
 }
 
 // ObjectsByDocID resolves a batch of doc IDs against the given bucket and
@@ -403,11 +427,7 @@ type bucket interface {
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
-	}
-
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
+	return objectsByDocID(bucket, ids, additional, properties, logger, false)
 }
 
 // ObjectsByDocIDWithEmpty is like ObjectsByDocID but preserves nil entries at
@@ -417,20 +437,33 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
-	}
+	return objectsByDocID(bucket, ids, additional, properties, logger, true)
+}
 
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
+func objectsByDocID(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+	includeEmpty bool,
+) ([]*Object, error) {
+	if len(ids) == 0 { // avoid acquiring a consistent view for an empty batch
+		return []*Object{}, nil
+	}
+	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
+		if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
+			return objectsByDocIDSequentialInner(bucket, lookup, ids, additional, properties, includeEmpty)
+		}
+		return objectsByDocIDParallelInner(bucket, lookup, ids, additional, properties, logger, includeEmpty)
+	})
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
+	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
+		return objectsByDocIDParallelInner(bucket, lookup, ids, addProp, properties, logger, false)
+	})
 }
 
-func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
+func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
@@ -458,7 +491,7 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty)
+			objs, err := objectsByDocIDSequentialInner(bucket, lookup, ids[start:end], addProp, properties, includeEmpty)
 			if err != nil {
 				return err
 			}
@@ -491,10 +524,12 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
-	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
+		return objectsByDocIDSequentialInner(bucket, lookup, ids, additional, properties, false)
+	})
 }
 
-func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
+func objectsByDocIDSequentialInner(bucket bucket, lookup secondaryLookup, ids []uint64,
 	additional additional.Properties, properties []string,
 	includeEmpty bool,
 ) ([]*Object, error) {
@@ -533,7 +568,7 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
-		res, newBuf, err := bucket.GetBySecondaryWithBuffer(context.TODO(), 0, docIDBuf, lsmBuf) // TODO: pass through context instead of spawning new one
+		res, newBuf, err := lookup(context.TODO(), 0, docIDBuf, lsmBuf) // TODO: pass through context instead of spawning new one
 		if err != nil {
 			return nil, err
 		}
@@ -815,6 +850,19 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	}
 	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+// PatchDocID overwrites the docID in a marshalled (version 1) object binary in
+// place, so a target can store propagated raw bytes under its own docID.
+func PatchDocID(in []byte, docID uint64) error {
+	if len(in) < 9 {
+		return errors.Errorf("binary data too short")
+	}
+	if in[0] != 1 {
+		return errors.Errorf("unsupported binary marshaller version %d", in[0])
+	}
+	binary.LittleEndian.PutUint64(in[1:9], docID)
+	return nil
 }
 
 func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {

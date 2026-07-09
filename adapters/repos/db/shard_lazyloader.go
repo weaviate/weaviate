@@ -328,6 +328,17 @@ func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
 	return l.shard.disableAsyncReplication(ctx)
 }
 
+func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		// An unloaded shard holds no in-memory overrides.
+		return false
+	}
+	return l.shard.hasActiveAsyncReplicationTargetOverrides()
+}
+
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if err := l.Load(ctx); err != nil {
 		return err
@@ -575,6 +586,16 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
+// Skips Load: a never-loaded shard can't be halted, so there's no timer.
+func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if l.shard == nil {
+		return
+	}
+	l.shard.MayResetTransferInactivityTimer()
+}
+
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -587,6 +608,20 @@ func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.Sha
 		return nil, err
 	}
 	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+}
+
+func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CreateReplicaSnapshot(ctx, stagingRoot)
+}
+
+func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -778,6 +813,13 @@ func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.
 // distinguish unloaded shards from "loaded but inactive".
 func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
 	return l.isLoaded()
+}
+
+func (l *LazyLoadShard) HashTreeRoot() (root hashtree.Digest, ok bool) {
+	if !l.isLoaded() {
+		return hashtree.Digest{}, false
+	}
+	return l.shard.HashTreeRoot()
 }
 
 func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {

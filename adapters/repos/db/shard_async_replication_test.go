@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,6 +119,19 @@ func (c *fixedDigestsClient) CompareDigests(
 	return out, nil
 }
 
+// countingDigestsClient wraps fixedDigestsClient and counts CompareDigests calls, letting tests assert RPC round-trip counts.
+type countingDigestsClient struct {
+	*fixedDigestsClient
+	compareCalls atomic.Int64
+}
+
+func (c *countingDigestsClient) CompareDigests(
+	ctx context.Context, index, shard, host string, source []routerTypes.RepairResponse,
+) ([]routerTypes.RepairResponse, error) {
+	c.compareCalls.Add(1)
+	return c.fixedDigestsClient.CompareDigests(ctx, index, shard, host, source)
+}
+
 // withReplicationClient returns an indexOpt that replaces the index's
 // replicator with a new one backed by the given client. This allows tests to
 // control what CompareDigests returns without modifying production code.
@@ -200,7 +214,8 @@ func (s *Shard) propagateWithinRangeForTest(t *testing.T, ctx context.Context,
 	t.Helper()
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
 	defer cursor.Close()
-	return s.objectsToPropagateWithinRange(ctx, cfg, cursor, addr, node, initialLeaf, finalLeaf, limit, overrides, asyncCheckpointCutoff)
+	scratch := newPropagationScratch(cfg.diffBatchSize)
+	return s.objectsToPropagateWithinRange(ctx, cfg, cursor, scratch, addr, node, initialLeaf, finalLeaf, limit, overrides, asyncCheckpointCutoff)
 }
 
 // ─── objectsToPropagateWithinRange ───────────────────────────────────────────
@@ -298,6 +313,37 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		_ = idx
 	})
 
+	// FetchBatchDecoupledFromBudget guards the perf fix: a small propagation
+	// limit must not shrink the scan/compare batch. With three in-sync objects
+	// and limit=1, the whole leaf must be scanned in a single CompareDigests RPC
+	// (diffBatchSize=100), not one round-trip per object.
+	t.Run("FetchBatchDecoupledFromBudget", func(t *testing.T) {
+		remoteDigests := []routerTypes.RepairResponse{
+			{ID: string(uuidLow), UpdateTime: tsFarPast},
+			{ID: string(uuidMid), UpdateTime: tsFarPast},
+			{ID: string(uuidHigh), UpdateTime: tsFarPast},
+		}
+		client := &countingDigestsClient{fixedDigestsClient: &fixedDigestsClient{digests: remoteDigests}}
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, client))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidMid, tsFarPast)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
+
+		s := concreteShard(t, sl)
+		require.NoError(t, s.store.FlushMemtables(ctx))
+		cfg := fullRangeConfig(100)
+
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 1, nil, 0,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 3, local, "all three in-sync objects must be scanned despite limit=1")
+		assert.Empty(t, objs, "in-sync objects produce no propagations")
+		assert.Equal(t, int64(1), client.compareCalls.Load(),
+			"leaf must be scanned in one CompareDigests RPC, not one per object")
+		_ = idx
+	})
+
 	// PropagationDelayExcludesRecentObjects verifies that objects whose UpdateTime
 	// falls within [now - propagationDelay, now] are excluded from the propagation
 	// batch. This exercises the getHashBeatMaxUpdateTime filter in
@@ -390,6 +436,33 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		assert.Contains(t, err.Error(), "simulated rpc unavailable",
 			"original error must be preserved via %w wrapping")
 		assert.Empty(t, objs, "no objects must be queued when CompareDigests fails")
+		_ = idx
+	})
+
+	// ScratchReusedAcrossRanges guards the per-beat buffer reuse: a second call on the same scratch must not leak the first's queued objects.
+	t.Run("ScratchReusedAcrossRanges", func(t *testing.T) {
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{}))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
+
+		s := concreteShard(t, sl)
+		require.NoError(t, s.store.FlushMemtables(ctx))
+		cfg := fullRangeConfig(100)
+
+		cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+		defer cursor.Close()
+		scratch := newPropagationScratch(cfg.diffBatchSize)
+
+		local1, objs1, err := s.objectsToPropagateWithinRange(ctx, cfg, cursor, scratch, "http://fake", "node2", 0, 1, 100, nil, 0)
+		require.NoError(t, err)
+		require.Len(t, objs1, 2)
+		want := []strfmt.UUID{objs1[0].uuid, objs1[1].uuid}
+
+		local2, objs2, err := s.objectsToPropagateWithinRange(ctx, cfg, cursor, scratch, "http://fake", "node2", 0, 1, 100, nil, 0)
+		require.NoError(t, err)
+		require.Len(t, objs2, 2, "reused scratch must not leak the prior range's queued objects")
+		assert.Equal(t, local1, local2)
+		assert.Equal(t, want, []strfmt.UUID{objs2[0].uuid, objs2[1].uuid})
 		_ = idx
 	})
 }
@@ -1257,6 +1330,192 @@ func TestConcurrentEnableDisable(t *testing.T) {
 	_ = s.disableAsyncReplication(ctx)
 }
 
+// TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping guards against the recursive-RLock deadlock where the merge paths called waitForMinimalHashTreeInitialization while holding asyncReplicationRWMux.RLock(); pre-fix it hangs (watchdog fires), post-fix it completes. Run with -race.
+func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
+	const (
+		writers    = 8
+		iterations = 150
+		watchdog   = 30 * time.Second
+	)
+
+	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
+
+	tests := []struct {
+		name  string
+		write func(s *Shard, id strfmt.UUID, updateTime int64) error
+	}{
+		{
+			// Exercises mergeObjectInStorage via the public MergeObject entry point.
+			name: "MergeObject",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				return s.MergeObject(context.Background(), objects.MergeDocument{
+					Class:      s.class.Class,
+					ID:         id,
+					UpdateTime: updateTime,
+				})
+			},
+		},
+		{
+			// Exercises mutableMergeObjectLSM directly (the AddReferencesBatch path).
+			name: "mutableMergeObjectLSM",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				idBytes, err := bytesFromUUID(id)
+				if err != nil {
+					return err
+				}
+				_, err = s.mutableMergeObjectLSM(context.Background(), objects.MergeDocument{
+					Class:      s.class.Class,
+					ID:         id,
+					UpdateTime: updateTime,
+				}, idBytes)
+				return err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			sl, _ := testShard(t, ctx, "MergeDeadlock"+tc.name, withAsyncScheduler(t))
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			for _, id := range ids {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(s.class.Class, id, tsFarPast)))
+			}
+			require.NoError(t, s.store.FlushMemtables(ctx))
+
+			cfg := minAsyncReplicationConfig()
+			require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+			awaitHashtreeInitialized(t, s)
+
+			var (
+				clock      atomic.Int64
+				writeErrs  atomic.Int64
+				toggleErrs atomic.Int64
+				wg         sync.WaitGroup
+			)
+			clock.Store(tsFarPast)
+
+			// Writers: hammer the merge path.
+			for w := range writers {
+				wg.Add(1)
+				go func(w int) {
+					defer wg.Done()
+					for range iterations {
+						id := ids[w%len(ids)]
+						if err := tc.write(s, id, clock.Add(1)); err != nil {
+							writeErrs.Add(1)
+						}
+					}
+				}(w)
+			}
+
+			// Toggler: flap async replication so a write-lock acquisition is frequently pending — the precondition for the deadlock.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for range iterations {
+					if err := s.disableAsyncReplication(ctx); err != nil {
+						toggleErrs.Add(1)
+					}
+					if err := s.enableAsyncReplication(ctx, cfg); err != nil {
+						toggleErrs.Add(1)
+					}
+				}
+			}()
+
+			done := make(chan struct{})
+			go func() { wg.Wait(); close(done) }()
+
+			select {
+			case <-done:
+			case <-time.After(watchdog):
+				t.Fatalf("merge writes deadlocked under async-replication flapping "+
+					"(recursive RLock in %s path): workload did not finish within %s", tc.name, watchdog)
+			}
+
+			// Write/toggle errors during flapping are benign (write lands while momentarily disabled); log, do not fail.
+			if n := writeErrs.Load(); n > 0 {
+				t.Logf("%d/%d merge writes returned a non-fatal error during flapping", n, writers*iterations)
+			}
+			if n := toggleErrs.Load(); n > 0 {
+				t.Logf("%d enable/disable toggles returned a non-fatal error during flapping", n)
+			}
+
+			require.NoError(t, s.disableAsyncReplication(ctx))
+		})
+	}
+}
+
+// TestMergeUnblocksWhenInitBailsBeforeHashtreeScan deterministically drives the
+// deadlock that TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping only hits
+// under load: holding the single init slot parks the init goroutine before
+// initHashtree, then disableAsyncReplication cancels its context so it exits
+// without ever running the scan that closes minimalHashtreeInitializationCh.
+// Without the fix the channel leaks and the in-flight merge blocks forever.
+func TestMergeUnblocksWhenInitBailsBeforeHashtreeScan(t *testing.T) {
+	ctx := context.Background()
+
+	// Scheduler with a single hashtree-init slot so the test can starve the scan.
+	logger, _ := test.NewNullLogger()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), entreplication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers:        configRuntime.NewDynamicValue(1),
+		AsyncReplicationHashtreeInitConcurrency: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:                configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	t.Cleanup(sched.Close)
+
+	sl, _ := testShard(t, ctx, "MergeUnblocksInitBail", func(idx *Index) {
+		idx.asyncReplicationScheduler = sched
+	})
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(s.class.Class, id, tsFarPast)))
+	}
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	// Occupy the only init slot so the shard's init goroutine blocks in
+	// acquireHashtreeInitSlot before it reaches initHashtree.
+	require.NoError(t, sched.hashtreeInitSem.Acquire(context.Background(), 1))
+	defer sched.hashtreeInitSem.Release(1)
+
+	// Spawns the init goroutine, which parks on the held slot with the hashtree
+	// set but not yet initialized.
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+
+	// The merge captures the open init channel and blocks in
+	// waitForMinimalHashTreeInitialization.
+	mergeDone := make(chan error, 1)
+	go func() {
+		mergeDone <- s.MergeObject(ctx, objects.MergeDocument{
+			Class:      s.class.Class,
+			ID:         uuidLow,
+			UpdateTime: tsFarPast + 1,
+		})
+	}()
+
+	// Precondition: the merge must actually be parked while init is stalled.
+	select {
+	case <-mergeDone:
+		t.Fatal("merge completed while hashtree init was stalled — precondition not met")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Disable cancels the shard's async context; the init goroutine returns from
+	// acquireHashtreeInitSlot and exits without running initHashtree.
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	select {
+	case <-mergeDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("merge did not unblock after async replication was disabled — init channel leaked")
+	}
+}
+
 // TestDisableRacingInitLeavesNoRegistration is a targeted test for the TOCTOU
 // window between the init goroutine's WLock release and Register() returning.
 //
@@ -1451,4 +1710,195 @@ func TestLoadHashtreeIgnoresTmpFile(t *testing.T) {
 	assert.NoError(t, statErr, ".ht.tmp file must remain untouched (ignored, not consumed)")
 
 	require.NoError(t, s.disableAsyncReplication(ctx))
+}
+
+// TestResolveObjectConflictTimeBasedNoClobber pins that a TimeBased repair keeps a live local object at least as new as the remote deletion, even when the stale pre-RPC snapshot said it was older.
+func TestResolveObjectConflictTimeBasedNoClobber(t *testing.T) {
+	ctx := context.Background()
+	const (
+		class      = "TimeBasedNoClobber"
+		targetNode = "node-B"
+		snapshot   = int64(100) // stale digest-time snapshot; always < remoteDel so the outer gate passes
+		remoteDel  = int64(150)
+	)
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	tests := []struct {
+		name        string
+		liveTime    int64
+		wantDeleted bool
+		wantExists  bool
+	}{
+		{"live newer than remote deletion is kept", 200, false, true},
+		{"live older than remote deletion is deleted", 100, true, false},
+		{"live equal to remote deletion is kept", 150, false, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sl, _ := testShard(t, ctx, class)
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tc.liveTime)))
+
+			deleted, notResolved, err := s.resolveObjectConflict(
+				ctx,
+				routerTypes.RepairResponse{ID: id.String(), Deleted: true, UpdateTime: remoteDel},
+				models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+				targetNode, nil,
+				map[strfmt.UUID]int64{id: snapshot},
+			)
+			require.NoError(t, err)
+			assert.False(t, notResolved, "notResolved")
+			assert.Equal(t, tc.wantDeleted, deleted, "deleted")
+
+			obj, err := s.ObjectByID(ctx, id, nil, additional.Properties{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantExists, obj != nil, "object exists")
+		})
+	}
+}
+
+// TestDisableConcurrentReEnableConsistency is a deadlock + consistency guard for disable Deregistering under the write lock: hammer concurrent enable/disable and assert the enabled<=>registered invariant holds (see PR for why it is not a deterministic reproduction).
+func TestDisableConcurrentReEnableConsistency(t *testing.T) {
+	ctx := context.Background()
+	const class = "DisableRacesReEnable"
+	const iterations = 100
+
+	sl, _ := testShard(t, ctx, class, withAsyncSchedulerDispatchDisabled(t))
+	s := concreteShard(t, sl)
+	sched := s.index.asyncReplicationScheduler
+
+	cfg := minAsyncReplicationConfig()
+
+	awaitWg := func() {
+		t.Helper()
+		done := make(chan struct{})
+		go func() { s.asyncRepWg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("asyncRepWg did not drain within timeout — goroutine leak or deadlock")
+		}
+	}
+
+	for i := range iterations {
+		require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+		awaitHashtreeInitialized(t, s)
+		awaitWg()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = s.disableAsyncReplication(ctx) }()
+		go func() { defer wg.Done(); _ = s.enableAsyncReplication(ctx, cfg) }()
+		wg.Wait()
+
+		awaitWg()
+
+		s.asyncReplicationRWMux.RLock()
+		enabled := s.hashtree != nil
+		s.asyncReplicationRWMux.RUnlock()
+
+		sched.mu.Lock()
+		_, registered := sched.entries[s]
+		sched.mu.Unlock()
+
+		require.Equalf(t, enabled, registered,
+			"enabled<=>registered invariant violated at iteration %d: hashtree!=nil=%v registered=%v "+
+				"(enabled-but-unregistered means a disable Deregister orphaned a concurrent re-enable's registration)",
+			i, enabled, registered)
+
+		require.NoError(t, s.disableAsyncReplication(ctx))
+		awaitWg()
+	}
+}
+
+// TestUpdateReplicationConfigKeepsAsyncReplicationWhileOverridesActive verifies a config-disable does not tear down async replication while the shard holds an active target-node override.
+func TestUpdateReplicationConfigKeepsAsyncReplicationWhileOverridesActive(t *testing.T) {
+	ctx := context.Background()
+	const class = "UpdateCfgKeepsOverride"
+
+	sl, _ := testShard(t, ctx, class, withAsyncSchedulerDispatchDisabled(t))
+	s := concreteShard(t, sl)
+	sched := s.index.asyncReplicationScheduler
+
+	s.index.replicationConfigLock.Lock()
+	s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+	s.index.replicationConfigLock.Unlock()
+
+	override := additional.AsyncReplicationTargetNodeOverride{
+		CollectionID:   class,
+		ShardID:        s.name,
+		SourceNode:     "nodeA",
+		TargetNode:     "nodeB",
+		UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+	}
+	require.NoError(t, s.addTargetNodeOverride(ctx, override))
+	awaitHashtreeInitialized(t, s)
+
+	requireRegistered := func(want bool) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			sched.mu.Lock()
+			_, ok := sched.entries[s]
+			sched.mu.Unlock()
+			return ok == want
+		}, 10*time.Second, 10*time.Millisecond, "registered=%v not reached", want)
+	}
+	hashtreePresent := func() bool {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+		return s.hashtree != nil
+	}
+
+	requireRegistered(true)
+	require.True(t, hashtreePresent(), "hashtree must be present while override is active")
+
+	require.NoError(t, s.index.updateReplicationConfig(ctx,
+		&models.ReplicationConfig{Factor: 1}))
+
+	require.True(t, hashtreePresent(),
+		"hashtree must NOT be torn down by a config-disable while an override is active")
+	requireRegistered(true)
+	require.True(t, s.hasActiveAsyncReplicationTargetOverrides(),
+		"override must still be active after config-disable")
+
+	require.NoError(t, s.removeAllTargetNodeOverrides(ctx))
+	require.False(t, hashtreePresent(),
+		"hashtree must be torn down once the last override is gone and the class is disabled")
+	requireRegistered(false)
+}
+
+// TestUpdateReplicationConfigDisablesWhenNoActiveOverrides verifies the override guard does not break normal config-driven teardown when no override is held.
+func TestUpdateReplicationConfigDisablesWhenNoActiveOverrides(t *testing.T) {
+	ctx := context.Background()
+	const class = "UpdateCfgDisablesNoOverride"
+
+	sl, _ := testShard(t, ctx, class, withAsyncSchedulerDispatchDisabled(t))
+	s := concreteShard(t, sl)
+	sched := s.index.asyncReplicationScheduler
+
+	require.NoError(t, s.index.updateReplicationConfig(ctx,
+		&models.ReplicationConfig{Factor: 2}))
+	awaitHashtreeInitialized(t, s)
+	require.Eventually(t, func() bool {
+		sched.mu.Lock()
+		_, ok := sched.entries[s]
+		sched.mu.Unlock()
+		return ok
+	}, 10*time.Second, 10*time.Millisecond, "shard must be registered after config-enable")
+
+	require.NoError(t, s.index.updateReplicationConfig(ctx,
+		&models.ReplicationConfig{Factor: 1}))
+
+	require.Eventually(t, func() bool {
+		s.asyncReplicationRWMux.RLock()
+		ht := s.hashtree
+		s.asyncReplicationRWMux.RUnlock()
+		sched.mu.Lock()
+		_, ok := sched.entries[s]
+		sched.mu.Unlock()
+		return ht == nil && !ok
+	}, 10*time.Second, 10*time.Millisecond, "shard must be disabled and deregistered after config-disable with no override")
 }

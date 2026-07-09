@@ -382,6 +382,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		MaxImportGoroutinesFactor: 1,
 		EnableLazyLoadShards:      boolPtr(true),
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
+		HaltForTransferTimeout:    config.DefaultHaltForTransferTimeout,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -450,11 +451,12 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
-			EnableLazyLoadShards: true,
-			RootPath:             tmpDir,
-			ClassName:            schema.ClassName(class.Class),
-			QueryMaximumResults:  maxResults,
-			ReplicationFactor:    1,
+			EnableLazyLoadShards:   true,
+			RootPath:               tmpDir,
+			ClassName:              schema.ClassName(class.Class),
+			QueryMaximumResults:    maxResults,
+			ReplicationFactor:      1,
+			HaltForTransferTimeout: config.DefaultHaltForTransferTimeout,
 		},
 		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
