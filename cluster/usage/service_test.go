@@ -657,6 +657,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -745,6 +746,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 			return fn(nil, shardingState)
 		},
 	)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
