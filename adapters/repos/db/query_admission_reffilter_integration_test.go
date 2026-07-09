@@ -419,3 +419,82 @@ func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 	}
 	flush()
 }
+
+// TestObjectVectorSearchReleasesGrantBeforeVectorPhase pins that the filtered
+// vector search gates ONLY the allow-list (filter) phase: the admission grant
+// is released before the vector-search phase runs, so a slow vector search
+// never holds node budget. It samples the real used-budget gauge and requires
+// that used returns to zero while ObjectVectorSearch is still in flight. No
+// production seam is used — the ordering is observed purely through the gauge.
+func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
+	const (
+		budget     = 4
+		maxQueue   = 8
+		numAuthors = 10000 // wide allow-list + enough vectors to make the vector phase samplable
+	)
+
+	ctx := context.Background()
+	repo, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
+	defer repo.Shutdown(ctx)
+
+	// Matches every Article, so the allow-list phase does real work (its grant is
+	// observable) and the vector phase that follows is the bulk of the query.
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorLike,
+			On: &filters.Path{
+				Class:    schema.ClassName("Article"),
+				Property: schema.PropertyName("title"),
+			},
+			Value: &filters.Value{Value: "*article*", Type: schema.DataTypeText},
+		},
+	}
+	searchVec := []models.Vector{[]float32{0.1, 0.2, 0.3}}
+
+	var sawPositive, sawZeroWhileRunning atomic.Bool
+	searchDone := make(chan struct{})
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(100 * time.Microsecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if readAdmissionGauge(reg, "query_admission_used_budget") > 0 {
+					sawPositive.Store(true)
+					continue
+				}
+				// used == 0: only meaningful after we saw the allow-list grant,
+				// and only if the search has not returned yet.
+				if sawPositive.Load() {
+					select {
+					case <-searchDone:
+					default:
+						sawZeroWhileRunning.Store(true)
+					}
+				}
+			}
+		}
+	}()
+
+	// A distance-based search (limit < 0) that admits every object: all vectors
+	// equal the query, so the vector phase must read and materialise all
+	// numAuthors objects. That makes the post-allow-list phase take clearly
+	// longer than one sampler tick, so used==0 is observable while it runs.
+	_, _, err := shard.ObjectVectorSearch(ctx, searchVec, []string{""}, 100, -1,
+		filter, nil, nil, additional.Properties{}, nil, []string{"title"})
+	close(searchDone)
+	close(stop)
+	require.NoError(t, err)
+
+	require.True(t, sawPositive.Load(),
+		"expected the allow-list phase to hold an admission grant (used_budget > 0)")
+	require.True(t, sawZeroWhileRunning.Load(),
+		"used_budget must return to zero while ObjectVectorSearch is still running: "+
+			"the allow-list grant must be released before the vector phase")
+	require.Eventually(t, func() bool {
+		return readAdmissionGauge(reg, "query_admission_used_budget") == 0
+	}, 2*time.Second, 5*time.Millisecond, "used budget did not drain to zero")
+}
