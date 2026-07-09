@@ -187,6 +187,31 @@ HFRESH_SEARCH_PROFILE=1 weaviate ... &
 grep hfresh_search_profile weaviate.log | tail -1   # phase/IO breakdown
 ```
 
+### First rig findings (GCP, 1B × 256d, n2-highmem-32, 4TB pd-ssd)
+
+The first profiled run surfaced a bottleneck none of the local runs could
+see, plus two data points that reshape the model:
+
+1. **Lazy version-map population dominated everything** (fixed on this
+   branch). `scan_mean=2.7s` for ~14.5k candidates at probe=16 — ~190µs per
+   candidate vs ~90ns local. Cause: `VersionMap` filled its in-memory paged
+   array lazily, so every first-touched vector ID during the scan fell back
+   to a random LSM point read (~14.5k hidden IOs/query, dwarfing the ~85
+   posting + 350 rescore IOs). At 1B IDs the lazy cache takes hours to warm.
+   Fix: `VersionMap.Restore` bulk-loads versions at startup (mirrors
+   `PostingSizes.Restore`). Note: main has the same flaw, so main-vs-branch
+   comparisons before this fix mostly measured version-map misses.
+2. **`duplicate_pct=3` on uniform random data** vs 58.6 on dbpedia-1M:
+   replica IO waste is a property of clustered real-world data, not of the
+   algorithm. Random-data rigs understate it; dbpedia-style data overstates
+   nothing — both numbers are real, per workload.
+3. **`segments_per_posting=3.84`** on the restored 1B index (vs 1.78 on a
+   fresh local build) — compaction state on big indexes is worth ~2× on
+   posting-read IO. Compaction-cadence work (Phase 3) gains priority.
+4. Healthy signals: `read_mean=7.6ms` (pipeline hides posting IO even here),
+   `rescore_mean=145ms` ≈ 350 fetches ÷ 16 workers × real disk latency —
+   the phase behaves as modeled and is the next IO target (adaptive rescore).
+
 ## Phase 1 — Recall-invariant wins (land as ready, no gating)
 
 1. **Concurrent posting reads**: bounded-parallelism `MultiGet`
