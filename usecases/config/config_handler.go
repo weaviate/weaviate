@@ -118,39 +118,45 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
-	Backup                           Backup                   `json:"backup" yaml:"backup"`
-	Name                             string                   `json:"name" yaml:"name"`
-	Debug                            bool                     `json:"debug" yaml:"debug"`
-	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults              int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
-	QueryHybridMaximumResults        int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
-	QueryNestedCrossReferenceLimit   int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
-	QueryCrossReferenceDepthLimit    int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
-	Contextionary                    Contextionary            `json:"contextionary" yaml:"contextionary"`
-	Authentication                   Authentication           `json:"authentication" yaml:"authentication"`
-	Authorization                    Authorization            `json:"authorization" yaml:"authorization"`
-	Origin                           string                   `json:"origin" yaml:"origin"`
-	Persistence                      Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule          string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric      string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
-	EnableModules                    string                   `json:"enable_modules" yaml:"enable_modules"`
-	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
-	ModulesPath                      string                   `json:"modules_path" yaml:"modules_path"`
-	ModuleHttpClientTimeout          time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
-	AutoSchema                       AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                          cluster.Config           `json:"cluster" yaml:"cluster"`
-	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`
-	Monitoring                       monitoring.Config        `json:"monitoring" yaml:"monitoring"`
-	GRPC                             GRPC                     `json:"grpc" yaml:"grpc"`
-	Profiling                        Profiling                `json:"profiling" yaml:"profiling"`
-	ResourceUsage                    ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
-	MaxImportGoroutinesFactor        float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	MaximumConcurrentGetRequests     int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
-	MaximumConcurrentShardLoads      int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
-	MaximumConcurrentBucketLoads     int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
-	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
-	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	Backup                         Backup                   `json:"backup" yaml:"backup"`
+	Name                           string                   `json:"name" yaml:"name"`
+	Debug                          bool                     `json:"debug" yaml:"debug"`
+	QueryDefaults                  QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults            int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults      int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
+	QueryNestedCrossReferenceLimit int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	QueryCrossReferenceDepthLimit  int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
+	Contextionary                  Contextionary            `json:"contextionary" yaml:"contextionary"`
+	Authentication                 Authentication           `json:"authentication" yaml:"authentication"`
+	Authorization                  Authorization            `json:"authorization" yaml:"authorization"`
+	Origin                         string                   `json:"origin" yaml:"origin"`
+	Persistence                    Persistence              `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule        string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric    string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+	EnableModules                  string                   `json:"enable_modules" yaml:"enable_modules"`
+	EnableApiBasedModules          bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
+	ModulesPath                    string                   `json:"modules_path" yaml:"modules_path"`
+	ModuleHttpClientTimeout        time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
+	AutoSchema                     AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                        cluster.Config           `json:"cluster" yaml:"cluster"`
+	Replication                    replication.GlobalConfig `json:"replication" yaml:"replication"`
+	Monitoring                     monitoring.Config        `json:"monitoring" yaml:"monitoring"`
+	GRPC                           GRPC                     `json:"grpc" yaml:"grpc"`
+	Profiling                      Profiling                `json:"profiling" yaml:"profiling"`
+	ResourceUsage                  ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
+	MaxImportGoroutinesFactor      float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests   int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
+	MaximumConcurrentShardLoads    int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
+	MaximumConcurrentBucketLoads   int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
+	// QueryAdmissionBudget / QueryAdmissionMaxQueue size the node-level query
+	// admission limiter. 0 means auto (16x / 10x GOMAXPROCS respectively).
+	// QueryAdmissionControlDisabled is a runtime kill switch; enabled by default.
+	QueryAdmissionBudget             int                         `json:"query_admission_budget" yaml:"query_admission_budget"`
+	QueryAdmissionMaxQueue           int                         `json:"query_admission_max_queue" yaml:"query_admission_max_queue"`
+	QueryAdmissionControlDisabled    *runtime.DynamicValue[bool] `json:"query_admission_control_disabled" yaml:"query_admission_control_disabled"`
+	TrackVectorDimensions            bool                        `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	TrackVectorDimensionsInterval    time.Duration               `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
+	ReindexVectorDimensionsAtStartup bool                        `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.

@@ -398,6 +398,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
+		QueryAdmissionBudget:                         appState.ServerConfig.Config.QueryAdmissionBudget,
+		QueryAdmissionMaxQueue:                       appState.ServerConfig.Config.QueryAdmissionMaxQueue,
+		QueryAdmissionControlDisabled:                appState.ServerConfig.Config.QueryAdmissionControlDisabled,
 		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
 		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
@@ -2092,6 +2095,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.QueryAdmissionControlDisabled = appState.ServerConfig.Config.QueryAdmissionControlDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep

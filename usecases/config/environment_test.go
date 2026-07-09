@@ -1586,3 +1586,75 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentQueryAdmissionBudget(t *testing.T) {
+	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_BUDGET",
+		func(c *Config) int { return c.QueryAdmissionBudget })
+}
+
+func TestEnvironmentQueryAdmissionMaxQueue(t *testing.T) {
+	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_MAX_QUEUE",
+		func(c *Config) int { return c.QueryAdmissionMaxQueue })
+}
+
+// assertNonNegativeIntEnv exercises the shared parse contract of the query
+// admission integer knobs: a positive value is taken, unset/explicit zero mean
+// "auto" (0), and negatives/garbage are rejected.
+func assertNonNegativeIntEnv(t *testing.T, envName string, get func(*Config) int) {
+	t.Helper()
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"512"}, 512, false},
+		{"not given defaults to auto", []string{}, 0, false},
+		{"explicit zero means auto", []string{"0"}, 0, false},
+		{"negative rejected", []string{"-1"}, 0, true},
+		{"not parsable", []string{"nope"}, 0, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv(envName, tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				require.Equal(t, tt.expected, get(&conf))
+			}
+		})
+	}
+}
+
+func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: 0", []string{"0"}, false},
+		{"not given defaults to enabled (not disabled)", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("QUERY_ADMISSION_CONTROL_DISABLED", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			require.Nil(t, err)
+			require.NotNil(t, conf.QueryAdmissionControlDisabled)
+			require.Equal(t, tt.expected, conf.QueryAdmissionControlDisabled.Get())
+		})
+	}
+}
