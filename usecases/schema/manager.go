@@ -212,6 +212,7 @@ func NewManager(validator validator,
 	parser Parser,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 	namespacesExister namespaces.Exister,
+	dropVectorEnqueuer DropVectorIndexEnqueuer,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -222,6 +223,7 @@ func NewManager(validator validator,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 		namespacesExister,
+		dropVectorEnqueuer,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)

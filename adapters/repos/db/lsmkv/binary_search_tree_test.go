@@ -36,7 +36,7 @@ func TestInsertNetAdditions_Replace(t *testing.T) {
 		rand.Read(key)
 		rand.Read(val)
 
-		n, _ := tree.insert(key, val, nil)
+		n, _, _ := tree.insert(key, val, nil)
 		require.Equal(t, len(key)+len(val), n)
 	})
 
@@ -54,7 +54,7 @@ func TestInsertNetAdditions_Replace(t *testing.T) {
 			rand.Read(key)
 			rand.Read(val)
 
-			newAdditions, _ := tree.insert(key, val, nil)
+			newAdditions, _, _ := tree.insert(key, val, nil)
 			n += newAdditions
 		}
 
@@ -88,7 +88,7 @@ func TestInsertNetAdditions_Replace(t *testing.T) {
 
 		// make initial inserts
 		for i := range keys {
-			currentNetAddition, _ := tree.insert(keys[i], vals[i], nil)
+			currentNetAddition, _, _ := tree.insert(keys[i], vals[i], nil)
 			netAdditions += currentNetAddition
 		}
 
@@ -102,7 +102,7 @@ func TestInsertNetAdditions_Replace(t *testing.T) {
 		}
 
 		for i := 0; i < amount; i++ {
-			currentNetAddition, _ := tree.insert(keys[i], vals[i], nil)
+			currentNetAddition, _, _ := tree.insert(keys[i], vals[i], nil)
 			netAdditions += currentNetAddition
 		}
 

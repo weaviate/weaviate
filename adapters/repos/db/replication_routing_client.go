@@ -258,6 +258,15 @@ func (c *routingReplicationClient) Abort(ctx context.Context, host, index, shard
 	return c.remote.Abort(ctx, host, index, shard, requestID)
 }
 
+func (c *routingReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) (divergingShards []string, err error) {
+	if c.isLocal(host) {
+		return c.local.CompareHashTreeRoots(ctx, index, roots)
+	}
+	return c.remote.CompareHashTreeRoots(ctx, host, index, roots)
+}
+
 // assignCommitResponse copies a local CommitReplication result into the caller's
 // container (*replica.SimpleResponse for most writes, *replica.DeleteBatchResponse
 // for DeleteObjects). A nil result means the request id was not found.

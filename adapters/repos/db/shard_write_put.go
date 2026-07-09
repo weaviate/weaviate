@@ -363,32 +363,6 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	return nil
 }
 
-// upsertHashTreeLeaf updates the hashtree leaf for a single object identified
-// by its raw UUID bytes and update timestamp. Unlike upsertObjectHashTree it
-// accepts the two primitive values directly, avoiding the storobj.Object
-// allocation that would otherwise be needed on the initHashtree hot path.
-// Acquires asyncReplicationRWMux.RLock internally so the height read by
-// hashtreeLeafFor is consistent with the live hashtree pointer.
-func (s *Shard) upsertHashTreeLeaf(uuidBytes []byte, updateTime int64) error {
-	if len(uuidBytes) != 16 {
-		return fmt.Errorf("invalid object uuid")
-	}
-	if updateTime < 1 {
-		return fmt.Errorf("invalid object last update time")
-	}
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-	if s.hashtree == nil {
-		return nil
-	}
-	leaf := s.hashtreeLeafFor(uuidBytes)
-	var objectDigest [16 + 8]byte
-	copy(objectDigest[:], uuidBytes)
-	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
-	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
-	return nil
-}
-
 func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
 	ht := s.hashtree
 	if ht == nil {

@@ -27,17 +27,29 @@ import (
 // Re-marshal always writes the class name (MarshalBinaryDisk(false)): readers stamp
 // the bucket class name regardless, so the on-disk class-name field is not load-bearing.
 func dropVectorTransformer(className string, ops []editops.ActiveOp) func([]byte) ([]byte, error) {
+	// Last-line guard at the moment of destruction: strip only targets STILL
+	// marked dropped (see SetDroppedTargetCheck). Filtered per pass, so a stale
+	// op that outlived its drop no-ops instead of stripping a re-created vector.
+	var targets []string
+	for _, op := range ops {
+		for _, targetVector := range op.Descriptor.Targets {
+			if stillDropped(className, targetVector) {
+				targets = append(targets, targetVector)
+			}
+		}
+	}
+	if len(targets) == 0 {
+		return func(value []byte) ([]byte, error) { return value, nil }
+	}
 	return func(value []byte) ([]byte, error) {
 		obj, err := storobj.FromBinaryDisk(value, className)
 		if err != nil {
 			return nil, fmt.Errorf("decode object for vector drop: %w", err)
 		}
 		changed := false
-		for _, op := range ops {
-			for _, targetVector := range op.Descriptor.Targets {
-				if obj.RemoveTargetVector(targetVector) {
-					changed = true
-				}
+		for _, targetVector := range targets {
+			if obj.RemoveTargetVector(targetVector) {
+				changed = true
 			}
 		}
 		if !changed {

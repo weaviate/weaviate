@@ -52,6 +52,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
@@ -66,7 +67,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -75,6 +78,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -472,6 +476,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
@@ -502,6 +507,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
 			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
+			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
 		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -651,7 +657,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace: db.ExtractReindexTaskCollection,
+			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
 		},
 		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -716,6 +723,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger,
 	)
 
+	// Created here (not in the DTM wiring) so it can be injected into the schema
+	// manager at construction, and so the edit-op liveness provider is installed
+	// before ClusterService.Open drives restore-time shard loads.
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft, appState.Logger)
+	editops.SetLivenessProvider(dropVectorEnqueuer.LiveOpIDs)
+
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -726,6 +739,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
+		dropVectorEnqueuer,
 	)
 	if err != nil {
 		appState.Logger.
@@ -735,6 +749,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.SchemaManager = schemaManager
+
+	// Last-line transformer guard: strip only targets the local schema still marks
+	// dropped, so an edit op that outlived its drop (failed delete, missed sweep)
+	// no-ops instead of stripping a re-created vector. Installed before
+	// ClusterService.Open so restore-time compactions are covered.
+	transformers.SetDroppedTargetCheck(func(className, targetVector string) bool {
+		class := schemaManager.ReadOnlyClass(className)
+		if class == nil {
+			return false
+		}
+		return modelsext.IsVectorIndexDropped(class.VectorConfig[targetVector])
+	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
@@ -973,7 +999,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1130,6 +1156,7 @@ func initReindexAndDistributedTasks(
 	recoveredReindexes []db.RecoveredReindex,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
+	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
 		repo, appState.SchemaManager, appState.Logger,
@@ -1143,6 +1170,24 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Drop-vector-index distributed-task provider. Added to the providers map so the
+	// conflict/schema-mutation detector loops below auto-register it.
+	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
+		repo,
+		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		appState.ClusterService.Raft,
+		appState.Logger,
+		appState.Cluster.LocalName(),
+		serverShutdownCtx,
+	)
+	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
+	// is missing (crash, upgrade, or restore).
+	enterrors.GoWrapper(func() {
+		runDropVectorIndexReconciliation(
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
+			dropVectorReconcileInterval)
+	}, appState.Logger)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1433,6 +1478,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
+	if err != nil {
+		appState.Logger.WithField("action", "grpc_web_startup").
+			Fatalf("init grpc-web handler: %v", err)
+	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1561,7 +1611,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	startGrpcServer(grpcServer, appState)
 	setupMCPHandlers(api, appState, objectsManager)
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+
+	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
+	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
+		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
@@ -2613,6 +2667,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
 		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
 		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
+		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
@@ -2644,6 +2699,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
@@ -2688,7 +2744,7 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})
