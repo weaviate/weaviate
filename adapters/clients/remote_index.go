@@ -397,10 +397,8 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
 	if err != nil {
-		// After the retryer exhausts its attempts on a remote node that keeps
-		// shedding (HTTP 429), rehydrate queryadmission.ErrOverloaded so the
-		// shed keeps its identity up to the coordinator's ingress mapping
-		// (429 / gRPC ResourceExhausted) instead of degrading to a generic 500.
+		// Rehydrate the shed's identity (429) past retry exhaustion so it
+		// reaches the ingress mapping instead of a generic 500.
 		var sce *statusCodeError
 		if errors.As(err, &sce) && sce.StatusCode() == http.StatusTooManyRequests {
 			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)

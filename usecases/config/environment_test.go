@@ -1626,9 +1626,8 @@ func assertNonNegativeIntEnv(t *testing.T, envName string, get func(*Config) int
 	}
 }
 
-// setEnvAndParse optionally sets envName (only when value holds a single
-// element, so a nil/empty slice models "unset"), then parses a fresh Config
-// from the environment and returns it alongside any parse error.
+// setEnvAndParse sets envName when value has exactly one element (empty/nil
+// models "unset"), then parses a fresh Config and returns it with any error.
 func setEnvAndParse(t *testing.T, envName string, value []string) (Config, error) {
 	t.Helper()
 	if len(value) == 1 {

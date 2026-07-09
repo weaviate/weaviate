@@ -36,10 +36,8 @@ const (
 	numCategories = 10
 )
 
-// TestQueryAdmissionShedsUnderSaturation is journey 1: a single node with a tiny
-// admission budget under a burst of concurrent filtered BM25 searches must shed
-// cleanly. Every gRPC response is either success or ResourceExhausted (429), and
-// both classes occur.
+// TestQueryAdmissionShedsUnderSaturation is journey 1: a saturated node under
+// concurrent filtered BM25 searches must shed via ResourceExhausted (429).
 func TestQueryAdmissionShedsUnderSaturation(t *testing.T) {
 	ctx := context.Background()
 	compose, grpcClient := bootAdmission(t, ctx, false, 1, nil)
@@ -69,29 +67,20 @@ func TestQueryAdmissionDisabledNeverSheds(t *testing.T) {
 	require.Equal(t, 50, res.success, "every query must succeed with admission disabled")
 }
 
-// TestQueryAdmissionCrossNodeShed is journey 3 (multi-node): a 3-shard
-// collection on a 3-node cluster means every query fans out to remote shards, so
-// the coordinator exercises the cross-node retry + shed path. A moderate burst
-// is absorbed by the coordinator's bounded retries (success), while a sustained
-// burst exhausts retries and surfaces the remote shed as ResourceExhausted at
-// the coordinator's ingress.
+// TestQueryAdmissionCrossNodeShed is journey 3: a 3-node, 3-shard cluster
+// exercises the cross-node retry+shed path — moderate bursts succeed via
+// retry, sustained bursts exhaust retries and surface ResourceExhausted.
 func TestQueryAdmissionCrossNodeShed(t *testing.T) {
 	ctx := context.Background()
-	// A 3-node cluster with desiredCount=3 spreads the shards across all nodes,
-	// so every query on the coordinator (node 1) fans out to remote shards.
 	compose, grpcClient := bootAdmission(t, ctx, true, 3, nil)
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
 
-	// Moderate cross-node contention: the coordinator's bounded remote-retry
-	// backoff absorbs it, so queries still succeed.
 	moderate := burst(ctx, grpcClient, filteredBM25Request(), 2)
 	t.Logf("journey3 moderate: success=%d shed=%d unexpected=%d of 2", moderate.success, moderate.shed, moderate.other)
 	require.NoError(t, moderate.otherErr)
 	require.Zero(t, moderate.other, "no unexpected error codes allowed")
 	require.Equal(t, 2, moderate.success, "moderate cross-node burst must succeed via the retry path")
 
-	// Sustained cross-node saturation: retries exhaust and the remote shed
-	// surfaces as ResourceExhausted at the coordinator.
 	sustained := burst(ctx, grpcClient, filteredBM25Request(), 60)
 	t.Logf("journey3 sustained: success=%d shed=%d unexpected=%d of 60", sustained.success, sustained.shed, sustained.other)
 	require.NoError(t, sustained.otherErr)
@@ -101,12 +90,9 @@ func TestQueryAdmissionCrossNodeShed(t *testing.T) {
 
 // --- helpers ----------------------------------------------------------------
 
-// bootAdmission starts a Weaviate with the tiny admission budget/queue every
-// journey shares (BUDGET=1, MAX_QUEUE=1) plus any extraEnv, creates a
-// `shards`-way admission collection, and returns the running compose (the
-// caller owns Terminate) and a ready gRPC client. When cluster is true it boots
-// a 3-node topology so queries fan out to remote shards; otherwise a single
-// node.
+// bootAdmission starts Weaviate with the shared tiny budget (BUDGET=1,
+// MAX_QUEUE=1) plus extraEnv. cluster selects a 3-node topology so queries
+// fan out to remote shards; otherwise a single node.
 func bootAdmission(t *testing.T, ctx context.Context, cluster bool, shards int,
 	extraEnv map[string]string,
 ) (*docker.DockerCompose, pb.WeaviateClient) {
@@ -163,9 +149,8 @@ func setupAdmissionCollection(t *testing.T, httpURI, grpcURI string, shards int)
 		},
 		ShardingConfig: map[string]interface{}{"desiredCount": float64(shards)},
 	}
-	// No DeleteClass cleanup: each test uses its own ephemeral container that the
-	// test body's deferred compose.Terminate throws away, and that defer runs
-	// before any t.Cleanup — a DeleteClass here would race a dead container.
+	// No DeleteClass cleanup: the deferred compose.Terminate runs before any
+	// t.Cleanup and destroys the container, so DeleteClass would race a dead one.
 	helper.CreateClass(t, class)
 
 	const chunk = 500

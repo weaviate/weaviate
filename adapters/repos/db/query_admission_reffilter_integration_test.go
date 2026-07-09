@@ -168,15 +168,10 @@ func readAdmissionGauge(reg *prometheus.Registry, name string) float64 {
 	return 0
 }
 
-// burstRefFilterSearches fires numQueries concurrent ref-filter ObjectSearch
-// calls against shard, each bounded by a 60s per-query deadline derived from
-// qctx. That deadline cannot interrupt the buggy build's nested-Admit wedge
-// (the parent parks on a never-expiring ctx), so the wedge surfaces only via
-// the outer 30s timeout here: the function returns true once every query
-// returns nil / overloaded / deadline, or false if they do not all complete in
-// time. It fails the test if any query returns an error outside that expected
-// set. Callers own the timeout response so each test keeps its own wedge
-// diagnostics and cleanup (releasing waiters, stopping samplers).
+// burstRefFilterSearches fires numQueries concurrent ref-filter searches and
+// reports whether all complete within 30s; the per-query 60s deadline alone
+// can't interrupt the buggy build's nested-Admit wedge, so callers handle a
+// false return with their own wedge diagnostics.
 func burstRefFilterSearches(t *testing.T, qctx context.Context, shard ShardLike,
 	refFilter *filters.LocalFilter, numQueries int,
 ) bool {
@@ -356,12 +351,9 @@ func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 	flush()
 }
 
-// TestObjectVectorSearchReleasesGrantBeforeVectorPhase pins that the filtered
-// vector search gates ONLY the allow-list (filter) phase: the admission grant
-// is released before the vector-search phase runs, so a slow vector search
-// never holds node budget. It samples the real used-budget gauge and requires
-// that used returns to zero while ObjectVectorSearch is still in flight. No
-// production seam is used — the ordering is observed purely through the gauge.
+// TestObjectVectorSearchReleasesGrantBeforeVectorPhase pins that the
+// allow-list grant is released before the vector-search phase runs, so a
+// slow vector search never holds node budget.
 func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 	const (
 		budget     = 4
@@ -373,8 +365,8 @@ func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 	repo, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
 	defer repo.Shutdown(ctx)
 
-	// Matches every Article, so the allow-list phase does real work (its grant is
-	// observable) and the vector phase that follows is the bulk of the query.
+	// Matches every Article, so the allow-list grant is observable and the
+	// vector phase after it dominates the query.
 	filter := &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: filters.OperatorLike,
@@ -402,8 +394,7 @@ func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 					sawPositive.Store(true)
 					continue
 				}
-				// used == 0: only meaningful after we saw the allow-list grant,
-				// and only if the search has not returned yet.
+				// used==0 only counts once we've seen the grant, before the search returns.
 				if sawPositive.Load() {
 					select {
 					case <-searchDone:
@@ -415,10 +406,8 @@ func TestObjectVectorSearchReleasesGrantBeforeVectorPhase(t *testing.T) {
 		}
 	}()
 
-	// A distance-based search (limit < 0) that admits every object: all vectors
-	// equal the query, so the vector phase must read and materialise all
-	// numAuthors objects. That makes the post-allow-list phase take clearly
-	// longer than one sampler tick, so used==0 is observable while it runs.
+	// limit<0 forces a distance search over all numAuthors vectors (all equal
+	// the query), so the vector phase runs long enough to be sampled.
 	_, _, err := shard.ObjectVectorSearch(ctx, searchVec, []string{""}, 100, -1,
 		filter, nil, nil, additional.Properties{}, nil, []string{"title"})
 	close(searchDone)

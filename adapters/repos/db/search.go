@@ -276,10 +276,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	wg.Wait()
 
 	if len(searchErrors) > 0 {
-		// Join (rather than stringify) so per-index error identity survives:
-		// errors.Is/As still traverse the individual errors, e.g. a node-level
-		// admission shed (queryadmission.ErrOverloaded) keeps its 429 identity
-		// up to the ingress mapping instead of being flattened to a bare string.
+		// Join (not stringify) so errors.Is/As still traverse the set, e.g.
+		// an admission shed keeps its ErrOverloaded identity.
 		return nil, stderrors.Join(searchErrors...)
 	}
 
@@ -328,8 +326,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
 		case errors.Is(err, queryadmission.ErrOverloaded):
-			// Node-level admission shed: surface as 429 so REST clients see
-			// backpressure instead of a generic 500.
+			// Admission shed: surface as 429, not a generic 500.
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusTooManyRequests, Err: err}
 		default:
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}

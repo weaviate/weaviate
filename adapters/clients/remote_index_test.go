@@ -378,11 +378,9 @@ func TestRemoteIndexRemoveAsyncReplicationTargetNode(t *testing.T) {
 	})
 }
 
-// TestRemoteIndexSearchShardShedRehydratesOverloaded pins M2: when a remote node
-// sheds every shard-search attempt with HTTP 429 and the retryer exhausts its
-// attempts, SearchShard must rehydrate queryadmission.ErrOverloaded so the shed
-// keeps its identity (429 / gRPC ResourceExhausted) at the coordinator ingress
-// mapping instead of degrading to a generic 500.
+// TestRemoteIndexSearchShardShedRehydratesOverloaded pins M2: retry
+// exhaustion on a 429-shedding remote node must rehydrate
+// queryadmission.ErrOverloaded, not collapse to a generic 500.
 func TestRemoteIndexSearchShardShedRehydratesOverloaded(t *testing.T) {
 	t.Parallel()
 
