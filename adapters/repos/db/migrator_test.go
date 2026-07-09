@@ -359,6 +359,13 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 			},
 		},
 		{
+			name: "GetShardsQueueSize",
+			call: func() error {
+				_, err := migrator.GetShardsQueueSize(context.Background(), "DoesNotExist", "")
+				return err
+			},
+		},
+		{
 			name: "UpdateShardStatus",
 			call: func() error {
 				return migrator.UpdateShardStatus(context.Background(), "DoesNotExist", "shard1", models.TenantActivityStatusHOT, 0)

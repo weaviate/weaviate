@@ -528,7 +528,8 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return nil, fmt.Errorf("cannot get shards queue size for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.getShardsQueueSize(ctx, tenant)
