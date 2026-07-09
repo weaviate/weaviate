@@ -1597,9 +1597,8 @@ func TestEnvironmentQueryAdmissionMaxQueue(t *testing.T) {
 		func(c *Config) int { return c.QueryAdmissionMaxQueue })
 }
 
-// assertNonNegativeIntEnv exercises the shared parse contract of the query
-// admission integer knobs: a positive value is taken, unset/explicit zero mean
-// "auto" (0), and negatives/garbage are rejected.
+// assertNonNegativeIntEnv checks: positive value taken, unset/0 means "auto",
+// negative/garbage rejected.
 func assertNonNegativeIntEnv(t *testing.T, envName string, get func(*Config) int) {
 	t.Helper()
 	factors := []struct {

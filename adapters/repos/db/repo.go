@@ -108,9 +108,8 @@ type DB struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
-	// queryAdmission bounds the aggregate concurrency of the fan-out phases of
-	// searches on this node (filter/keyword ranking), covering both local and
-	// remote (coordinator) ingress.
+	// queryAdmission bounds aggregate search fan-out concurrency on this node,
+	// covering both local and coordinator ingress.
 	queryAdmission *queryadmission.Limiter
 
 	reindexer      ShardReindexerV3

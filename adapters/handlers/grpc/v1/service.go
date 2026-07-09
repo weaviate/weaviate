@@ -287,9 +287,8 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	return result, errInner
 }
 
-// admissionToGRPCError maps a node-level admission shed to a gRPC
-// ResourceExhausted status so the coordinator's retryer backs off. It returns
-// nil for any other error, leaving the original error to be returned as-is.
+// admissionToGRPCError maps an admission shed to gRPC ResourceExhausted so
+// the coordinator's retryer backs off.
 func admissionToGRPCError(err error) error {
 	if errors.Is(err, queryadmission.ErrOverloaded) {
 		return status.Error(codes.ResourceExhausted, err.Error())

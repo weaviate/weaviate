@@ -37,10 +37,8 @@ func CtxWithBudget(ctx context.Context, budget int) context.Context {
 	return context.WithValue(ctx, budgetKey{}, budget)
 }
 
-// CtxWithBudgetIfAbsent seeds a concurrency budget only if the ctx does not
-// already carry one. It exists so that a budget established upstream (e.g. an
-// admission grant from usecases/queryadmission) is preserved rather than
-// overwritten by a per-call-site default further down the read path.
+// CtxWithBudgetIfAbsent seeds a budget only if ctx doesn't already carry one,
+// so an upstream admission grant isn't overwritten by a downstream default.
 func CtxWithBudgetIfAbsent(ctx context.Context, budget int) context.Context {
 	if _, ok := ctx.Value(budgetKey{}).(int); ok {
 		return ctx

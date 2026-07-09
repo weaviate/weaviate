@@ -399,10 +399,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 	s.activityTrackerRead.Add(1)
 
-	// Admit the fan-out phases (filter evaluation, keyword/BM25 ranking) through
-	// the node-level budget so the aggregate concurrency of concurrent searches
-	// stays bounded. Pure-vector search (filters == nil && keywordRanking == nil)
-	// is not gated here. The grant is held for the whole method.
+	// Admit filter/BM25 fan-out through the node budget; pure-vector search is
+	// not gated. The grant is held for the whole method.
 	if filters != nil || keywordRanking != nil {
 		admittedCtx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
 		if err != nil {
@@ -523,9 +521,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	var allowList helpers.AllowList
 	if filters != nil {
 		beforeFilter := time.Now()
-		// Admit only the filter (allow-list) phase through the node budget. The
-		// closure releases the grant via defer (panic-safe) before the vector
-		// phase below, which must not hold budget.
+		// Admit only the filter phase; the closure releases the grant
+		// (panic-safe) before the vector phase, which must not hold budget.
 		list, err := func() (helpers.AllowList, error) {
 			admittedCtx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
 			if err != nil {
