@@ -453,8 +453,8 @@ func TestObjectTTLUpdateTTL(t *testing.T) {
 
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		objs, err = helper.GetObjects(t, class.Class)
-		require.NoError(t, err)
-		require.Len(t, objs, numNotExpiredObjects)
+		require.NoError(ct, err)
+		require.Len(ct, objs, numNotExpiredObjects)
 	}, time.Second*5, 500*time.Millisecond)
 }
 

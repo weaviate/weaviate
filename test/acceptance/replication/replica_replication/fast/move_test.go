@@ -55,7 +55,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 	// Wait until the replication operation is READY
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-		require.Nil(t, err)
+		require.Nil(ct, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
 	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
