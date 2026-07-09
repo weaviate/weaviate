@@ -440,9 +440,6 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 		return ActionMergeSorted
 	}
 
-	log.WithField("reason", "sorted ratio below threshold and only one sorted file").
-		Debugf("decision: no action (ratio %.1f%% <= threshold %.1f%%, only %d sorted file)",
-			sortedRatio*100, c.config.SnapshotThreshold*100, sortedCount)
 	return ActionNone
 }
 
