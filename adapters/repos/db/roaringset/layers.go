@@ -84,9 +84,8 @@ type BitmapLayers []BitmapLayer
 //     layer 2 adds X, whereas layer 3 removes X, it is should not be contained
 //     in the final map.
 //
-// maxConc caps the concurrency of the underlying sroar merge ops: pass the
-// per-query budget on read paths (concurrency.BudgetFromCtxCapped) or
-// concurrency.SROAR_MERGE for background work.
+// maxConc caps sroar merge concurrency; pass the per-query budget on read
+// paths, or concurrency.SROAR_MERGE for background work.
 func (bml BitmapLayers) Flatten(clone bool, maxConc int) *sroar.Bitmap {
 	if len(bml) == 0 {
 		return sroar.NewBitmap()

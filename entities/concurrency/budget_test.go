@@ -94,12 +94,11 @@ func TestClampBudget(t *testing.T) {
 }
 
 func TestBudgetCapDisabled_KillSwitch(t *testing.T) {
-	// flip the package var directly and restore it, so sibling tests are unaffected
 	prev := budgetCapDisabled
 	budgetCapDisabled = true
 	defer func() { budgetCapDisabled = prev }()
 
-	// kill switch on: the limit is returned verbatim; the ctx budget is ignored
+	// kill switch on: limit is returned verbatim, ctx budget is ignored
 	assert.Equal(t, 8, BudgetFromCtxCapped(CtxWithBudget(context.Background(), 1), 8))
 	assert.True(t, BudgetCapDisabled())
 }

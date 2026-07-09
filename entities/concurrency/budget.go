@@ -23,8 +23,7 @@ import (
 // Escape hatch only; to be removed once the fix has soaked.
 var budgetCapDisabled = entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET"))
 
-// BudgetCapDisabled reports whether the sroar merge budget cap kill switch is
-// set, so read paths can leave ctx budgets untouched when the cap is disabled.
+// BudgetCapDisabled reports whether the sroar merge budget kill switch is set.
 func BudgetCapDisabled() bool {
 	return budgetCapDisabled
 }

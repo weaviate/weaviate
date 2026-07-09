@@ -136,8 +136,8 @@ func TestRoaringSetCursorCtxBudgetEquivalence(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	// overlapping keys across layers so the per-key Flatten merges several
-	// bitmaps: that merge is the one whose concurrency the ctx budget caps
+	// overlapping keys force a multi-layer Flatten merge, which is what the
+	// ctx budget caps
 	diskSegments := &SegmentGroup{
 		logger: logger,
 		segments: []Segment{
@@ -168,8 +168,7 @@ func TestRoaringSetCursorCtxBudgetEquivalence(t *testing.T) {
 
 	defaultRows := scan(b.CursorRoaringSet())
 
-	// a budget-1 ctx cursor bounds merge concurrency to a single worker; it must
-	// still return byte-identical rows to the unconstrained cursor
+	// budget-1 must still return byte-identical rows to the unconstrained cursor
 	budget1 := concurrency.CtxWithBudget(context.Background(), 1)
 	budget1Rows := scan(b.CursorRoaringSetCtx(budget1))
 

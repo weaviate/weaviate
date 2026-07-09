@@ -42,9 +42,8 @@ type innerCursorState struct {
 // When keyOnly flag is set, only keys are returned by First/Next/Seek access methods,
 // 2nd value returned is expected to be nil
 // When keyOnly is not set, 2nd value is always bitmap. Returned bitmap can be empty (e.g. for Next call after last element was already returned)
-// maxConc caps the concurrency of the underlying sroar merge ops: pass the
-// per-query budget on read paths (concurrency.BudgetFromCtxCapped) or
-// concurrency.SROAR_MERGE for background work.
+// maxConc caps sroar merge concurrency; pass the per-query budget on read
+// paths, or concurrency.SROAR_MERGE for background work.
 func NewCombinedCursor(innerCursors []InnerCursor, keyOnly bool, maxConc int) *CombinedCursor {
 	return &CombinedCursor{cursors: innerCursors, keyOnly: keyOnly, maxConc: maxConc}
 }

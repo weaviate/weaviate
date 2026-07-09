@@ -29,19 +29,13 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-// TestDocBitmapInvertedRoaringSet_RowMergeBudget pins the row-merge path in
-// docBitmapInvertedRoaringSet: a >= filter that spans many rows unions each
-// row bitmap via OrConc(_, mergeConc). Two guarantees:
-//   - equivalence: a budget-1 query returns the exact same docIDs as an
-//     unconstrained one (the budget bounds merge concurrency, never the result)
-//   - ceiling: under budget-1 the per-row merge spawns no workers, so the path
-//     holds only its own goroutine
+// TestDocBitmapInvertedRoaringSet_RowMergeBudget pins docBitmap row-merges to
+// the per-query budget without changing results.
 func TestDocBitmapInvertedRoaringSet_RowMergeBudget(t *testing.T) {
 	ctx := context.Background()
 	b := buildMultiRowRoaringSetBucket(t, ctx)
 
-	// GreaterThanEqual from the lowest key walks every row, so the readFn runs
-	// numKeys-1 OrConc merges into the accumulated result
+	// spans every row, so readFn accumulates via numKeys-1 OrConc merges
 	pv := &propValuePair{
 		operator: filters.OperatorGreaterThanEqual,
 		value:    []byte("k000"),
@@ -72,8 +66,7 @@ func TestDocBitmapInvertedRoaringSet_RowMergeBudget(t *testing.T) {
 		}
 
 		budget1 := concurrency.CtxWithBudget(ctx, 1)
-		// budget=1 => each OrConc spawns no workers, so an in-flight query holds
-		// only its own goroutine; slack absorbs sampler and runtime/GC noise
+		// budget=1 spawns no extra workers; slack absorbs sampler/GC noise
 		testinghelpers.AssertGoroutineCeiling(t, 8, 1, 8, 200*time.Millisecond, func() error {
 			s := &Searcher{}
 			bm, err := s.docBitmapInvertedRoaringSet(budget1, b, 0, pv)
@@ -91,10 +84,8 @@ const (
 	idsPerRow      = 200
 )
 
-// buildMultiRowRoaringSetBucket creates a real RoaringSet bucket with
-// numRoaringRows keys, each carrying idsPerRow docIDs spread across as many
-// sroar containers (stride 2^16). Distinct docIDs per row so the union grows,
-// enough containers that an unconstrained merge would want >1 worker.
+// buildMultiRowRoaringSetBucket builds a bucket with enough rows and
+// containers that an unconstrained merge would want more than one worker.
 func buildMultiRowRoaringSetBucket(t *testing.T, ctx context.Context) *lsmkv.Bucket {
 	t.Helper()
 
