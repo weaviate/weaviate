@@ -14,8 +14,6 @@ package roaringsetrange
 import (
 	"context"
 	"fmt"
-	"runtime"
-	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +24,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/concurrency/testinghelpers"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -407,81 +406,24 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// bounding leg
-	const (
-		numWorkers = 16
-		runFor     = 200 * time.Millisecond
-		// CombinedReader always drives its inner readers through an errgroup, so
-		// each in-flight Read keeps at most 3 goroutines alive: its own worker,
-		// the errgroup driver, and (because budget=1 forces eg.SetLimit(1)) a
-		// single limited eg.Go worker. The merge ops spawn zero workers at conc=1.
-		// Without the budget, conc=SROAR_MERGE lifts the eg limit and every Conc
-		// op fans out ~SROAR_MERGE-1 merge workers, blowing past this ceiling.
-		maxGoroutinesPerRead = 3
-		// absorbs the sampler goroutine and transient runtime/GC workers
-		noiseSlack = 12
-	)
-
-	stop := make(chan struct{})
-	samplerDone := make(chan struct{})
-	var maxSeen int // written only by the sampler, read after samplerDone closes
-
-	go func() {
-		defer close(samplerDone)
-		ticker := time.NewTicker(1 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				if n := runtime.NumGoroutine(); n > maxSeen {
-					maxSeen = n
-				}
-			}
+	// bounding leg. CombinedReader always drives its inner readers through an
+	// errgroup, so each in-flight Read keeps at most 3 goroutines alive: its
+	// own worker, the errgroup driver, and (because budget=1 forces
+	// eg.SetLimit(1)) a single limited eg.Go worker. The merge ops spawn zero
+	// workers at conc=1. Without the budget, conc=SROAR_MERGE lifts the eg
+	// limit and every Conc op fans out ~SROAR_MERGE-1 merge workers, blowing
+	// past the ceiling. Sharing one reader is safe: cloningInnerReader clones
+	// its bitmap on every Read.
+	shared := newReader()
+	testinghelpers.AssertGoroutineCeiling(t, 16, 3, 12, 200*time.Millisecond, func() error {
+		bm, release, err := shared.Read(budget1, 0, filters.OperatorGreaterThanEqual)
+		if err != nil {
+			return err
 		}
-	}()
-
-	time.Sleep(5 * time.Millisecond)
-	base := runtime.NumGoroutine()
-
-	firstErr := make(chan error, 1)
-	var wg sync.WaitGroup
-	deadline := time.Now().Add(runFor)
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			r := newReader()
-			for time.Now().Before(deadline) {
-				bm, release, err := r.Read(budget1, 0, filters.OperatorGreaterThanEqual)
-				if err != nil {
-					select {
-					case firstErr <- err:
-					default:
-					}
-					return
-				}
-				_ = bm
-				release()
-			}
-		}()
-	}
-	wg.Wait()
-	close(stop)
-	<-samplerDone
-
-	select {
-	case err := <-firstErr:
-		require.NoError(t, err)
-	default:
-	}
-
-	ceiling := base + numWorkers*maxGoroutinesPerRead + noiseSlack
-	assert.LessOrEqualf(t, maxSeen, ceiling,
-		"live goroutines peaked at %d, above base(%d)+workers(%d)*perRead(%d)+noise(%d)=%d; "+
-			"a budget of 1 must not fan out sroar merge workers",
-		maxSeen, base, numWorkers, maxGoroutinesPerRead, noiseSlack, ceiling)
+		_ = bm
+		release()
+		return nil
+	})
 }
 
 func createTestMemtables(logger logrus.FieldLogger) (*Memtable, *Memtable, *Memtable) {

@@ -13,17 +13,15 @@ package lsmkv
 
 import (
 	"context"
-	"runtime"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/concurrency/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -135,73 +133,16 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// bounding leg
-	const (
-		numWorkers = 16
-		runFor     = 200 * time.Millisecond
-		// slack absorbs the sampler goroutine and transient runtime/GC workers
-		slack = 8
-	)
-
-	stop := make(chan struct{})
-	samplerDone := make(chan struct{})
-	var maxSeen int // written only by the sampler, read after samplerDone closes
-
-	go func() {
-		defer close(samplerDone)
-		ticker := time.NewTicker(1 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				if n := runtime.NumGoroutine(); n > maxSeen {
-					maxSeen = n
-				}
-			}
+	// bounding leg: with a budget of 1 each in-flight Get keeps only its own
+	// worker goroutine alive (the merge ops spawn zero workers at conc=1);
+	// noise slack of 8 absorbs the sampler and transient runtime/GC workers
+	testinghelpers.AssertGoroutineCeiling(t, 16, 1, 8, 200*time.Millisecond, func() error {
+		bm, release, err := b.RoaringSetGet(budget1, key)
+		if err != nil {
+			return err
 		}
-	}()
-
-	// let the sampler settle, then baseline (includes the sampler, excludes the
-	// workers we are about to launch)
-	time.Sleep(5 * time.Millisecond)
-	base := runtime.NumGoroutine()
-
-	firstErr := make(chan error, 1)
-	var wg sync.WaitGroup
-	deadline := time.Now().Add(runFor)
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for time.Now().Before(deadline) {
-				bm, release, err := b.RoaringSetGet(budget1, key)
-				if err != nil {
-					select {
-					case firstErr <- err:
-					default:
-					}
-					return
-				}
-				_ = bm
-				release()
-			}
-		}()
-	}
-	wg.Wait()
-	close(stop)
-	<-samplerDone
-
-	select {
-	case err := <-firstErr:
-		require.NoError(t, err)
-	default:
-	}
-
-	ceiling := base + numWorkers + slack
-	assert.LessOrEqualf(t, maxSeen, ceiling,
-		"live goroutines peaked at %d, above base(%d)+workers(%d)+slack(%d)=%d; "+
-			"a budget of 1 must not fan out sroar merge workers",
-		maxSeen, base, numWorkers, slack, ceiling)
+		_ = bm
+		release()
+		return nil
+	})
 }
