@@ -1,0 +1,269 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build integrationTest
+
+package db
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+)
+
+// TestQueryAdmissionConcurrency exercises the node-level admission limiter end
+// to end under a burst of concurrent filtered+BM25 shard searches. It asserts
+// three properties: (1) under load the limiter sheds cleanly (429), never
+// returning a corrupt or unexpected error; (2) admission bounds the aggregate
+// goroutine fan-out of the search internals; (3) the runtime kill switch turns
+// the limiter into a passthrough (no shedding).
+func TestQueryAdmissionConcurrency(t *testing.T) {
+	const (
+		className   = "AdmissionClass"
+		numObjects  = 20000
+		concurrency = 200
+		budget      = 32
+		maxQueue    = 8
+	)
+
+	ctx := context.Background()
+	disabled := configRuntime.NewDynamicValue(false)
+	repo, shard := setupAdmissionRepo(t, className, budget, maxQueue, disabled)
+	defer repo.Shutdown(ctx)
+
+	importAdmissionObjects(t, repo, className, numObjects)
+
+	// filters != nil && keywordRanking != nil -> the admitted (filter + BM25)
+	// path. category is filterable and evenly spread over 10 values, so the
+	// filter matches ~10% of objects; body contains "alpha" in every object.
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On: &filters.Path{
+				Class:    schema.ClassName(className),
+				Property: "category",
+			},
+			Value: &filters.Value{Value: 0, Type: schema.DataTypeInt},
+		},
+	}
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"body"}, Query: "alpha"}
+	props := []string{"body", "category"}
+
+	// burst fires `concurrency` searches at once and returns how many were shed
+	// plus the peak goroutine count observed above the pre-burst baseline.
+	burst := func(t *testing.T) (shed int, peakDelta int) {
+		baseline := runtime.NumGoroutine()
+		var peak atomic.Int64
+		peak.Store(int64(baseline))
+		stop := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(200 * time.Microsecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					if g := int64(runtime.NumGoroutine()); g > peak.Load() {
+						peak.Store(g)
+					}
+				}
+			}
+		}()
+
+		var (
+			wg        sync.WaitGroup
+			shedCount atomic.Int64
+			badErr    atomic.Value
+		)
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				_, _, err := shard.ObjectSearch(cctx, 100, filter, kwr, nil, nil, additional.Properties{}, props)
+				switch {
+				case err == nil:
+				case errors.Is(err, queryadmission.ErrOverloaded):
+					shedCount.Add(1)
+				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+				default:
+					badErr.Store(err.Error())
+				}
+			}()
+		}
+		wg.Wait()
+		close(stop)
+
+		if v := badErr.Load(); v != nil {
+			t.Fatalf("unexpected search error (not nil/overloaded/deadline): %v", v)
+		}
+		return int(shedCount.Load()), int(peak.Load()) - baseline
+	}
+
+	// Enabled: the limiter sheds most of the burst (only ~budget+queue can be
+	// in flight) and never surfaces an unexpected error.
+	shedEnabled, peakEnabled := burst(t)
+	t.Logf("enabled:  shed=%d/%d peakGoroutineDelta=%d gomaxprocs=%d",
+		shedEnabled, concurrency, peakEnabled, runtime.GOMAXPROCS(0))
+	require.Positive(t, shedEnabled, "expected shedding at %d concurrent vs budget %d / queue %d",
+		concurrency, budget, maxQueue)
+
+	// Disabled: the kill switch turns Admit into a passthrough — no shedding at
+	// all, proving the runtime override takes effect live on an already-built
+	// limiter.
+	require.NoError(t, disabled.SetValue(true))
+	shedDisabled, peakDisabled := burst(t)
+	require.NoError(t, disabled.SetValue(false))
+	t.Logf("disabled: shed=%d/%d peakGoroutineDelta=%d",
+		shedDisabled, concurrency, peakDisabled)
+	require.Zero(t, shedDisabled, "disabled admission must never shed")
+
+	// Goroutine bounding: admission caps the number of concurrently admitted
+	// queries, so the aggregate search-internal fan-out (dominated by BM25F's
+	// per-query GOMAXPROCS term parallelism) stays below the unbounded
+	// passthrough baseline. Only meaningful with real parallelism; on a single
+	// proc there is no fan-out to bound.
+	if runtime.GOMAXPROCS(0) >= 2 {
+		require.Less(t, peakEnabled, peakDisabled,
+			"admission should bound goroutine fan-out below the unbounded baseline")
+	}
+}
+
+func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
+	disabled *configRuntime.DynamicValue[bool],
+) (*DB, ShardLike) {
+	t.Helper()
+	logger := logrus.New()
+	logger.SetLevel(logrus.PanicLevel) // keep the burst quiet
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(cn string, retry bool, readFunc func(*models.Class, *sharding.State) error) error {
+			return readFunc(&models.Class{Class: cn}, shardState)
+		}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:      60,
+		RootPath:                      t.TempDir(),
+		QueryMaximumResults:           10000,
+		MaxImportGoroutinesFactor:     1,
+		QueryAdmissionBudget:          budget,
+		QueryAdmissionMaxQueue:        maxQueue,
+		QueryAdmissionControlDisabled: disabled,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+
+	vFalse, vTrue := false, true
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(1.2, 0.75, "none"),
+		Properties: []*models.Property{
+			{
+				Name:            "body",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+			},
+			{
+				Name:            "category",
+				DataType:        schema.DataTypeInt.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+			},
+		},
+	}
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	migrator := NewMigrator(repo, logger, "node1")
+	require.NoError(t, migrator.AddClass(context.Background(), class))
+
+	idx := repo.GetIndex(schema.ClassName(className))
+	require.NotNil(t, idx)
+	var shard ShardLike
+	require.NoError(t, idx.ForEachShard(func(_ string, s ShardLike) error {
+		shard = s
+		return nil
+	}))
+	require.NotNil(t, shard)
+	return repo, shard
+}
+
+func importAdmissionObjects(t *testing.T, repo *DB, className string, count int) {
+	t.Helper()
+	const chunk = 2000
+	for start := 0; start < count; start += chunk {
+		end := min(start+chunk, count)
+		batch := make(objects.BatchObjects, 0, end-start)
+		for i := start; i < end; i++ {
+			id := strfmt.UUID(fmt.Sprintf("%08x-0000-0000-0000-%012d", i, i))
+			batch = append(batch, objects.BatchObject{
+				OriginalIndex: i - start,
+				UUID:          id,
+				Object: &models.Object{
+					Class: className,
+					ID:    id,
+					Properties: map[string]interface{}{
+						"body":     fmt.Sprintf("alpha beta gamma object number %d", i),
+						"category": int64(i % 10),
+					},
+					Vector: []float32{0.1, 0.2, 0.3},
+				},
+			})
+		}
+		_, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
+		require.NoError(t, err)
+	}
+}
