@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 	assertWriterRefs()
 
 	// sanity check, final state:
-	v, releaseBufPol, err := b.RoaringSetGet([]byte("key1"))
+	v, releaseBufPol, err := b.RoaringSetGet(context.Background(), []byte("key1"))
 	defer releaseBufPol()
 	require.NoError(t, err)
 	require.Equal(t, []uint64{1, 3, 4, 5, 6, 7}, v.ToArray())

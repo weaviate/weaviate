@@ -12,10 +12,12 @@
 package lsmkv
 
 import (
+	"context"
 	"time"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 type CursorRoaringSet interface {
@@ -50,17 +52,29 @@ func (c *cursorRoaringSet) Close() {
 // needs to be closed using .Close() to free references to the underlying
 // segments.
 func (b *Bucket) CursorRoaringSet() CursorRoaringSet {
-	return b.cursorRoaringSet(false)
+	return b.cursorRoaringSet(false, concurrency.SROAR_MERGE)
 }
 
 // CursorRoaringSetKey is the equivalent of [CursorRoaringSet], but only
 // returns keys. See [Cursor] for details on snapshot isolation. Needs to be
 // closed using .Close() to free references to the underlying disk segments.
 func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
-	return b.cursorRoaringSet(true)
+	return b.cursorRoaringSet(true, concurrency.SROAR_MERGE)
 }
 
-func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
+// CursorRoaringSetCtx is like [Bucket.CursorRoaringSet] but caps the per-key
+// merge concurrency to the query's budget carried in ctx.
+func (b *Bucket) CursorRoaringSetCtx(ctx context.Context) CursorRoaringSet {
+	return b.cursorRoaringSet(false, concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE))
+}
+
+// CursorRoaringSetKeyOnlyCtx is like [Bucket.CursorRoaringSetKeyOnly] but caps
+// the per-key merge concurrency to the query's budget carried in ctx.
+func (b *Bucket) CursorRoaringSetKeyOnlyCtx(ctx context.Context) CursorRoaringSet {
+	return b.cursorRoaringSet(true, concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE))
+}
+
+func (b *Bucket) cursorRoaringSet(keyOnly bool, maxConc int) CursorRoaringSet {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
 	cursorOpenedAt := time.Now()
@@ -84,7 +98,7 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	// cursors are in order from oldest to newest, with the memtable cursor
 	// being at the very top
 	return &cursorRoaringSet{
-		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly),
+		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly, maxConc),
 		unlock: func() {
 			unlockSegmentGroup()
 

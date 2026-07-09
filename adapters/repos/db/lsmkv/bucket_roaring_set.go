@@ -12,9 +12,11 @@
 package lsmkv
 
 import (
+	"context"
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -62,7 +64,7 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return active.roaringSetAddBitmap(key, bm)
 }
 
-func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), err error) {
+func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitmap, release func(), err error) {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return nil, noopRelease, err
 	}
@@ -70,13 +72,17 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	return b.roaringSetGetFromConsistentView(view, key)
+	return b.roaringSetGetFromConsistentView(ctx, view, key)
 }
 
 func (b *Bucket) roaringSetGetFromConsistentView(
-	view BucketConsistentView, key []byte,
+	ctx context.Context, view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
-	layers, release, err := b.disk.roaringSetGet(key, view.Disk)
+	// resolve the sroar merge concurrency once so every layer merge for this
+	// key shares the same per-query budget instead of the old per-site constant
+	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
+	layers, release, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -106,5 +112,5 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		layers = append(layers, activeBM)
 	}
 
-	return layers.Flatten(false), release, nil
+	return layers.Flatten(false, maxConc), release, nil
 }

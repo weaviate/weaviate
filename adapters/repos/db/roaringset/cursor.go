@@ -24,6 +24,7 @@ type CombinedCursor struct {
 	cursors []InnerCursor
 	states  []innerCursorState
 	keyOnly bool
+	maxConc int
 }
 
 type InnerCursor interface {
@@ -41,8 +42,8 @@ type innerCursorState struct {
 // When keyOnly flag is set, only keys are returned by First/Next/Seek access methods,
 // 2nd value returned is expected to be nil
 // When keyOnly is not set, 2nd value is always bitmap. Returned bitmap can be empty (e.g. for Next call after last element was already returned)
-func NewCombinedCursor(innerCursors []InnerCursor, keyOnly bool) *CombinedCursor {
-	return &CombinedCursor{cursors: innerCursors, keyOnly: keyOnly}
+func NewCombinedCursor(innerCursors []InnerCursor, keyOnly bool, maxConc int) *CombinedCursor {
+	return &CombinedCursor{cursors: innerCursors, keyOnly: keyOnly, maxConc: maxConc}
 }
 
 func (c *CombinedCursor) First() ([]byte, *sroar.Bitmap) {
@@ -111,7 +112,7 @@ func (c *CombinedCursor) getResultFromStates(states []innerCursorState) ([]byte,
 			return nil, nil
 		}
 
-		bm := layers.Flatten(true)
+		bm := layers.Flatten(true, c.maxConc)
 		if key == nil {
 			return nil, bm
 		}

@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -137,10 +138,10 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	// control before segment changes
 	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
-	v, _, err := sg.roaringSetGet([]byte("key1"), segments)
+	v, _, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected := []uint64{1}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "k==v on initial state")
+	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on initial state")
 
 	// append new segment
 	segment2Data := map[string]*sroar.Bitmap{
@@ -149,18 +150,18 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	sg.addInitializedSegment(newFakeRoaringSetSegment(segment2Data))
 
 	// prove that our consistent view still shows the old value
-	v, _, err = sg.roaringSetGet([]byte("key1"), segments)
+	v, _, err = sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected = []uint64{1}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "k==v after segment addition on old view")
+	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v after segment addition on old view")
 
 	// prove that new readers will see the most recent view
 	segments, release = sg.getConsistentViewOfSegments()
 	defer release()
-	v, _, err = sg.roaringSetGet([]byte("key1"), segments)
+	v, _, err = sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected = []uint64{1, 2}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "k==v on new view after segment addition")
+	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on new view after segment addition")
 }
 
 func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
@@ -185,15 +186,15 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 
 	// On the original view, key1 should be {1} (from segA), key2 should be {2} (from segB)
 	validateView := func(t *testing.T, segments []Segment) {
-		v, _, err := sg.roaringSetGet([]byte("key1"), segments)
+		v, _, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 		expected := []uint64{1}
-		require.Equal(t, expected, v.Flatten(true).ToArray(), "key1 on initial state")
+		require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key1 on initial state")
 
-		v, _, err = sg.roaringSetGet([]byte("key2"), segments)
+		v, _, err = sg.roaringSetGet([]byte("key2"), segments, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 		expected = []uint64{2}
-		require.Equal(t, expected, v.Flatten(true).ToArray(), "key2 on initial state")
+		require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key2 on initial state")
 	}
 	validateView(t, segments)
 

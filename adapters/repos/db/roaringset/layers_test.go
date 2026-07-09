@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 func Test_BitmapLayers_Flatten(t *testing.T) {
@@ -106,7 +107,7 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
-			res := input.Flatten(false)
+			res := input.Flatten(false, concurrency.SROAR_MERGE)
 			for _, x := range test.expectedContained {
 				assert.True(t, res.Contains(x))
 			}

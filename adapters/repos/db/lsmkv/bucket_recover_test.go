@@ -251,7 +251,7 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 			require.NoError(t, err)
 			require.Equal(t, val, get[0])
 		case StrategyRoaringSet:
-			get, release, err := b.RoaringSetGet(key)
+			get, release, err := b.RoaringSetGet(context.Background(), key)
 			require.NoError(t, err)
 			func() {
 				require.True(t, get.Contains(uint64(i)))

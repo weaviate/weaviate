@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -351,7 +350,7 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	return roaringset.BitmapLayer{}, nil, lsmkv.NotFound
 }
 
-func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error {
+func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
 	f.getCounter++
 	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
 	if err != nil {
@@ -361,8 +360,8 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	}
 
 	input.Additions.
-		AndNotConc(layer.Deletions, concurrency.SROAR_MERGE).
-		OrConc(layer.Additions, concurrency.SROAR_MERGE)
+		AndNotConc(layer.Deletions, maxConc).
+		OrConc(layer.Additions, maxConc)
 
 	return nil
 }

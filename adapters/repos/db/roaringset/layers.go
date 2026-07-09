@@ -83,7 +83,7 @@ type BitmapLayers []BitmapLayer
 //     should be represented in the final bitmap. If the order is reversed and
 //     layer 2 adds X, whereas layer 3 removes X, it is should not be contained
 //     in the final map.
-func (bml BitmapLayers) Flatten(clone bool) *sroar.Bitmap {
+func (bml BitmapLayers) Flatten(clone bool, maxConc int) *sroar.Bitmap {
 	if len(bml) == 0 {
 		return sroar.NewBitmap()
 	}
@@ -94,8 +94,8 @@ func (bml BitmapLayers) Flatten(clone bool) *sroar.Bitmap {
 	}
 
 	for i := 1; i < len(bml); i++ {
-		merged.AndNotConc(bml[i].Deletions, concurrency.SROAR_MERGE)
-		merged.OrConc(bml[i].Additions, concurrency.SROAR_MERGE)
+		merged.AndNotConc(bml[i].Deletions, maxConc)
+		merged.OrConc(bml[i].Additions, maxConc)
 	}
 
 	return merged

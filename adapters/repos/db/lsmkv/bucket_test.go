@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -987,7 +988,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	}
 
 	// validate initial data before making any changes
-	value, releaseBuffers, err := b.RoaringSetGet([]byte("key1"))
+	value, releaseBuffers, err := b.RoaringSetGet(context.Background(), []byte("key1"))
 	require.NoError(t, err)
 	require.Equal(t, bitmapFromSlice([]uint64{1, 2}).ToArray(), value.ToArray())
 	releaseBuffers()
@@ -1003,7 +1004,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
@@ -1032,7 +1033,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
@@ -1052,8 +1053,8 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	defer view3.ReleaseView()
 
 	// the original memtable was flushed to disk
-	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk)
-	assert.Equal(t, []uint64{1, 2}, v.Flatten(true).ToArray())
+	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk, concurrency.SROAR_MERGE)
+	assert.Equal(t, []uint64{1, 2}, v.Flatten(true, concurrency.SROAR_MERGE).ToArray())
 	require.NoError(t, err)
 	release()
 }
@@ -1120,9 +1121,9 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk)
+	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
-	assert.Equal(t, []uint64{1, 2, 3}, bm.Flatten(true).ToArray())
+	assert.Equal(t, []uint64{1, 2, 3}, bm.Flatten(true, concurrency.SROAR_MERGE).ToArray())
 	release()
 }
 

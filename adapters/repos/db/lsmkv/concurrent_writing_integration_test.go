@@ -276,7 +276,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 	t.Run("verify get", func(t *testing.T) {
 		for i := range keys {
 			func() {
-				value, release, err := bucket.RoaringSetGet(keys[i])
+				value, release, err := bucket.RoaringSetGet(context.Background(), keys[i])
 				require.NoError(t, err)
 				defer release()
 

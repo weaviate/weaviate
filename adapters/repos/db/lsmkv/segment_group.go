@@ -803,7 +803,7 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayers, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil
@@ -834,7 +834,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roari
 	}()
 
 	for ; i < ln; i++ {
-		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); err != nil {
 			return nil, noopRelease, err
 		}
 	}
