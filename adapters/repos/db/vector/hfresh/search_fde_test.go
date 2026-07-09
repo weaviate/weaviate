@@ -152,10 +152,13 @@ func TestSearchByFDEBudgetSeparation(t *testing.T) {
 // TestSearchByMultiVectorBackwardCompatibility verifies that the default behavior
 // of SearchByMultiVector remains equivalent to the old behavior.
 //
-// Old behavior: candidateCentroidNum = max(rescoreLimit, searchProbe)
-// New behavior: routingBudget = max(searchProbe, rescoreLimit), rerankBudget = rescoreLimit
+// Old behavior: a single candidate budget of max(k, rescoreLimit) drove both
+// routing breadth and rerank depth.
+// New behavior (muveraSearchBudgets): routingBudget = max(k, searchProbe),
+// rerankBudget = max(k, rescoreLimit).
 //
-// These should produce identical results for the same inputs.
+// These should produce identical results for the same inputs under the
+// default configuration.
 func TestSearchByMultiVectorBackwardCompatibility(t *testing.T) {
 	ctx := context.Background()
 
@@ -205,9 +208,9 @@ func TestSearchByMultiVectorBackwardCompatibility(t *testing.T) {
 	assert.LessOrEqual(t, len(ids), k)
 	assert.Equal(t, len(ids), len(dists))
 
-	// The effective routing budget should be max(64, 350) = 350
-	// This matches the old behavior where rescoreLimit was passed to SearchByVector
-	// and candidateCentroidNum = max(k, searchProbe) = max(350, 64) = 350
+	// With k=10, searchProbe=64, rescoreLimit=350, muveraSearchBudgets yields
+	// routingBudget = max(10, 64) = 64 and rerankBudget = max(10, 350) = 350
+	// (TestMuveraSearchBudgets covers the production function directly).
 
 	t.Logf("SearchByMultiVector returned %d results with default config", len(ids))
 }
@@ -256,66 +259,6 @@ func TestSearchByVectorUnchanged(t *testing.T) {
 	assert.Equal(t, len(ids), len(dists))
 
 	t.Logf("Single-vector SearchByVector returned %d results", len(ids))
-}
-
-// TestEffectiveRoutingBudgetCalculation verifies that the effective routing budget
-// is calculated correctly as max(searchProbe, rescoreLimit) for backward compatibility.
-func TestEffectiveRoutingBudgetCalculation(t *testing.T) {
-	testCases := []struct {
-		name                  string
-		searchProbe           int
-		rescoreLimit          int
-		expectedRoutingBudget int
-		expectedRerankBudget  int
-	}{
-		{
-			name:                  "rescoreLimit dominates (default)",
-			searchProbe:           64,
-			rescoreLimit:          350,
-			expectedRoutingBudget: 350, // max(64, 350)
-			expectedRerankBudget:  350,
-		},
-		{
-			name:                  "searchProbe dominates",
-			searchProbe:           512,
-			rescoreLimit:          128,
-			expectedRoutingBudget: 512, // max(512, 128)
-			expectedRerankBudget:  128,
-		},
-		{
-			name:                  "equal values",
-			searchProbe:           256,
-			rescoreLimit:          256,
-			expectedRoutingBudget: 256,
-			expectedRerankBudget:  256,
-		},
-		{
-			name:                  "low searchProbe",
-			searchProbe:           16,
-			rescoreLimit:          1024,
-			expectedRoutingBudget: 1024, // max(16, 1024)
-			expectedRerankBudget:  1024,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			tf := createMuveraHFreshIndexWithConfig(t, tc.searchProbe, tc.rescoreLimit)
-
-			// Verify config
-			assert.Equal(t, uint32(tc.searchProbe), tf.Index.searchProbe)
-			assert.Equal(t, uint32(tc.rescoreLimit), tf.Index.rescoreLimit)
-
-			// Calculate expected budgets (matching the logic in SearchByMultiVector)
-			searchProbe := int(tf.Index.searchProbe)
-			rescoreLimit := int(tf.Index.rescoreLimit)
-			routingBudget := max(searchProbe, rescoreLimit)
-			rerankBudget := rescoreLimit
-
-			assert.Equal(t, tc.expectedRoutingBudget, routingBudget, "routing budget mismatch")
-			assert.Equal(t, tc.expectedRerankBudget, rerankBudget, "rerank budget mismatch")
-		})
-	}
 }
 
 // Helper function to create a MUVERA HFresh index with specific config

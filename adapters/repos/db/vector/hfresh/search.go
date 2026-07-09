@@ -413,11 +413,6 @@ func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
 // This separation allows independent tuning of routing breadth vs reranking depth.
 // The routing stage (centroid selection, posting scan) is controlled only by routingBudget.
 // The ranking stage (RQ1 top-N, candidates for late interaction) is controlled only by rerankBudget.
-//
-// Posting Expansion:
-// After the initial RQ1 ranking, the top candidates' associated postings are identified
-// using a reverse map (docID -> postingIDs). Additional postings are scanned to discover
-// more candidates that may have been missed by the initial centroid selection.
 func (h *HFresh) searchByFDE(
 	ctx context.Context,
 	queryFDE []float32,
