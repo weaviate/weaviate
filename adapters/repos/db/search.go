@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -274,15 +275,11 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	wg.Wait()
 
 	if len(searchErrors) > 0 {
-		var msg strings.Builder
-		for i, err := range searchErrors {
-			if i != 0 {
-				msg.WriteString(", ")
-			}
-			errorMessage := fmt.Sprintf("%v", err)
-			msg.WriteString(errorMessage)
-		}
-		return nil, errors.New(msg.String())
+		// Join (rather than stringify) so per-index error identity survives:
+		// errors.Is/As still traverse the individual errors, e.g. a node-level
+		// admission shed (queryadmission.ErrOverloaded) keeps its 429 identity
+		// up to the ingress mapping instead of being flattened to a bare string.
+		return nil, stderrors.Join(searchErrors...)
 	}
 
 	sort.Slice(found, func(i, j int) bool {
