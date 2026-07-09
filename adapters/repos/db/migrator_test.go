@@ -267,11 +267,26 @@ func TestUpdateIndexShards(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, initialState)
 			}).Maybe()
+
+			rootPath := t.TempDir()
+
+			// Seed a non-zero on-disk index counter for each initial shard BEFORE
+			// NewIndex runs. NewIndex→initAndStoreShards defers loading of empty HOT
+			// multi-tenant shards, storing them as unloaded *LazyLoadShard wrappers.
+			// "Empty" is decided via indexcounter.ReadOnDisk (a counter of 0 / missing
+			// indexcount file). Writing a counter of 1 makes each initial shard read as
+			// non-empty so the deferral does not apply, keeping this test focused on
+			// updateIndexShards' add/remove/keep behavior and the eager⇒*Shard /
+			// lazy⇒*LazyLoadShard contract rather than the empty-tenant deferral.
+			for _, shardName := range tt.initialShards {
+				seedShardObjectCounter(t, rootPath, "TestClass", shardName)
+			}
+
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
 				ClassName:            schema.ClassName("TestClass"),
-				RootPath:             t.TempDir(),
+				RootPath:             rootPath,
 				ReplicationFactor:    1,
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
