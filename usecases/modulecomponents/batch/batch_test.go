@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -84,9 +85,9 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "1. obj 1. batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "2. obj 1. batch"}},
 		}, skip: []bool{false, false, true}},
-		// The deadline expires while the first batch is still in flight, so the call
-		// is abandoned before any object is resolved: every non-skipped object gets
-		// the deadline error and no vectors are returned.
+		// The first batch waits 400ms, longer than the 200ms deadline, so the call is
+		// abandoned before any object resolves: every non-skipped object gets an error
+		// wrapping context.DeadlineExceeded and no vectors are returned.
 		{name: "deadline", deadline: 200 * time.Millisecond, objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 40"}}, // set limit so next two items are in a batch
 			{Class: "Car", Properties: map[string]interface{}{"test": "wait 400"}},
@@ -95,11 +96,11 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
 		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{
-			0: fmt.Errorf("context deadline exceeded"),
-			1: fmt.Errorf("context deadline exceeded"),
-			2: fmt.Errorf("context deadline exceeded"),
-			3: fmt.Errorf("context deadline exceeded"),
-			5: fmt.Errorf("context deadline exceeded"),
+			0: context.DeadlineExceeded,
+			1: context.DeadlineExceeded,
+			2: context.DeadlineExceeded,
+			3: context.DeadlineExceeded,
+			5: context.DeadlineExceeded,
 		}},
 		{name: "request error", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "ReqError something"}},
@@ -126,12 +127,16 @@ func TestBatch(t *testing.T) {
 			require.Len(t, vecs, len(tt.objects))
 
 			for i := range tt.objects {
-				if tt.wantErrors[i] != nil {
-					require.Equal(t, tt.wantErrors[i], errs[i])
-				} else if tt.skip[i] {
+				want := tt.wantErrors[i]
+				switch {
+				case want == nil && tt.skip[i]:
 					require.Nil(t, vecs[i])
-				} else {
+				case want == nil:
 					require.NotNil(t, vecs[i])
+				case errors.Is(want, context.DeadlineExceeded) || errors.Is(want, context.Canceled):
+					require.ErrorIs(t, errs[i], want)
+				default:
+					require.Equal(t, want, errs[i])
 				}
 			}
 			cancl()
@@ -174,12 +179,16 @@ func TestBatchNoRLreturn(t *testing.T) {
 			require.Len(t, vecs, len(tt.objects))
 
 			for i := range tt.objects {
-				if tt.wantErrors[i] != nil {
-					require.Equal(t, tt.wantErrors[i], errs[i])
-				} else if tt.skip[i] {
+				want := tt.wantErrors[i]
+				switch {
+				case want == nil && tt.skip[i]:
 					require.Nil(t, vecs[i])
-				} else {
+				case want == nil:
 					require.NotNil(t, vecs[i])
+				case errors.Is(want, context.DeadlineExceeded) || errors.Is(want, context.Canceled):
+					require.ErrorIs(t, errs[i], want)
+				default:
+					require.Equal(t, want, errs[i])
 				}
 			}
 			cancl()
@@ -608,7 +617,7 @@ func TestSubmitBatchAndWaitRespectsContext(t *testing.T) {
 	cases := []struct {
 		name    string
 		newCtx  func() (context.Context, context.CancelFunc)
-		wantErr string
+		wantErr error
 	}{
 		{
 			name: "cancel",
@@ -617,14 +626,14 @@ func TestSubmitBatchAndWaitRespectsContext(t *testing.T) {
 				cancel() // already cancelled so the escape must fire on ctx.Done
 				return ctx, cancel
 			},
-			wantErr: "context cancelled",
+			wantErr: context.Canceled,
 		},
 		{
 			name: "deadline",
 			newCtx: func() (context.Context, context.CancelFunc) {
 				return context.WithTimeout(context.Background(), 50*time.Millisecond)
 			},
-			wantErr: "context deadline exceeded",
+			wantErr: context.DeadlineExceeded,
 		},
 	}
 	for _, tt := range cases {
@@ -660,7 +669,7 @@ func TestSubmitBatchAndWaitRespectsContext(t *testing.T) {
 			}
 			require.Len(t, vecs, 2)
 			require.Nil(t, vecs[0])
-			require.EqualError(t, errs[0], tt.wantErr)
+			require.ErrorIs(t, errs[0], tt.wantErr)
 			_, skipped := errs[1]
 			require.False(t, skipped, "skipped object must not get an error")
 		})

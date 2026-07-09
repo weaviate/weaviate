@@ -35,18 +35,7 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 
 const BatchChannelSize = 100
 
-// contextError maps a cancelled context to the per-object error reported for
-// objects that could not be vectorized because of it.
-func contextError(ctx context.Context) error {
-	switch ctx.Err() {
-	case context.Canceled:
-		return fmt.Errorf("context cancelled")
-	case context.DeadlineExceeded:
-		return fmt.Errorf("context deadline exceeded")
-	default:
-		return fmt.Errorf("context error: %w", ctx.Err())
-	}
-}
+var errVectorizationAborted = errors.New("vectorization aborted after an internal error")
 
 type BatchJob[T dto.Embedding] struct {
 	texts      []string
@@ -317,7 +306,7 @@ func (b *Batch[T]) failUnresolved(job BatchJob[T]) {
 			continue
 		}
 		if job.errs[i] == nil && len(job.vecs[i]) == 0 {
-			job.errs[i] = errors.New("vectorization aborted after an internal error")
+			job.errs[i] = errVectorizationAborted
 		}
 	}
 }
@@ -340,6 +329,10 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 			objectsPerRequest = numSendObjects / numRequests
 		}
 		monitoring.GetMetrics().T2VRequestsPerBatch.WithLabelValues(b.Label).Observe(float64(numRequests))
+		// Blocking, not dropping: this entry releases the concurrent-batch reservation
+		// in updateState. The worker is the sole consumer and drains on every scheduling
+		// iteration; the buffer only backs up while the job queue is idle, cleared by
+		// the next scheduled job.
 		b.endOfBatchChannel <- endOfBatchJob{
 			timePerToken:      timePerToken,
 			objectsPerRequest: objectsPerRequest,
@@ -371,7 +364,7 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		if job.ctx.Err() != nil {
 			for j := objCounter; j < len(job.texts); j++ {
 				if !job.skipObject[j] {
-					job.errs[j] = contextError(job.ctx)
+					job.errs[j] = fmt.Errorf("context deadline exceeded or cancelled: %w", job.ctx.Err())
 				}
 			}
 			break
@@ -561,6 +554,8 @@ func (b *Batch[T]) SubmitBatchAndWait(ctx context.Context, cfg moduletools.Class
 	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "enqueue").
 		Observe(time.Since(beforeEnqueue).Seconds())
 
+	// On the ctx escape below this goroutine lives until the worker finishes the job.
+	// Safe because the worker always completes (panics recovered, slots released).
 	done := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		wg.Wait()
@@ -572,12 +567,13 @@ func (b *Batch[T]) SubmitBatchAndWait(ctx context.Context, cfg moduletools.Class
 	case <-ctx.Done():
 		// Abandon the job once the request is gone so a stuck worker cannot hang the
 		// caller forever. The worker keeps running and still owns the job's errs and
-		// vecs, so return neither: a fresh error map for every unresolved object, and
-		// a fresh vector slice it cannot mutate.
+		// vecs, so return neither: a fresh error map for every unresolved object, and a
+		// fresh vector slice it cannot mutate. Any already-vectorized objects are
+		// dropped - the request is gone, so partial results have nowhere to go.
 		ctxErrs := make(map[int]error)
 		for i := range skipObject {
 			if !skipObject[i] {
-				ctxErrs[i] = contextError(ctx)
+				ctxErrs[i] = fmt.Errorf("context deadline exceeded or cancelled: %w", ctx.Err())
 			}
 		}
 		return make([]T, len(skipObject)), ctxErrs
