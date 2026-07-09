@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 // Reassign a vector that has been deleted
@@ -184,6 +185,45 @@ func TestReassignReenqueuesWhenSelectedPostingDisappears(t *testing.T) {
 	require.True(t, requeued)
 	require.Equal(t, int64(1), tf.Index.taskQueue.reassignQueue.Size())
 	require.False(t, tf.Index.taskQueue.reassignList.TryAdd(vectorID))
+}
+
+func TestReassignNormalizesFetchedVectorForCosineDistance(t *testing.T) {
+	tf := createHFreshIndex(t)
+	tf.Index.config.DistanceProvider = distancer.NewCosineDistanceProvider()
+
+	rawVector := []float32{3.0, 4.0, 0.0, 0.0}
+	normalizedVector := distancer.Normalize(rawVector)
+	vectorID := uint64(700)
+	targetPostingID := uint64(1)
+	previousPostingID := uint64(2)
+
+	initializeDimensions(t, &tf, rawVector)
+
+	compressedCentroid := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(normalizedVector))
+	err := tf.Index.Centroids.Insert(targetPostingID, &Centroid{
+		Uncompressed: normalizedVector,
+		Compressed:   compressedCentroid,
+		Deleted:      false,
+	})
+	require.NoError(t, err)
+
+	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		require.Equal(t, vectorID, id)
+		return rawVector, nil
+	}
+
+	err = tf.Index.doReassign(t.Context(), reassignOperation{
+		PostingID: previousPostingID,
+		VectorID:  vectorID,
+	})
+	require.NoError(t, err)
+
+	posting, err := tf.Index.PostingStore.Get(t.Context(), targetPostingID)
+	require.NoError(t, err)
+	require.Len(t, posting, 1)
+
+	expected := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(normalizedVector))
+	require.Equal(t, expected, posting[0].Data())
 }
 
 // Reassign properly manages task queue
