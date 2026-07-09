@@ -294,20 +294,15 @@ func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*DB,
 // "a", so the Like "*a*" ref filter matches every one) plus one Article per
 // author referencing it via writtenBy.
 //
-// The import builds a real per-class HNSW graph, so every object gets a
-// distinct, non-collinear vector (see admissionObjectVector). A batch of
-// identical vectors collapses the graph into a near-complete graph and makes
-// construction super-linear; that pathology stalled this test past the
-// 50-minute suite timeout in CI (fast locally, but coverage + race on a shared
-// 4-vCPU runner inflated it enough to tip over). With distinct vectors the
-// import finishes in a second or two, and the watchdog below turns any future
-// regression into a fast, clearly-labelled failure instead of a 50-minute hang.
+// Vectors must be distinct and non-collinear (see admissionObjectVector):
+// identical vectors collapse the HNSW graph into a near-complete graph,
+// making construction super-linear and slow enough to hang CI. The watchdog
+// below turns any regression into a fast, labelled failure instead of a hang.
 func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 	t.Helper()
 
-	// Generous relative to a healthy (near-linear) import of a few seconds, but
-	// an order of magnitude below the suite timeout, so a degenerate-vector
-	// regression fails here in minutes instead of stalling the whole suite.
+	// Order-of-magnitude above a healthy import but well under the suite
+	// timeout, so a regression fails fast here instead of stalling the suite.
 	const importDeadline = 5 * time.Minute
 
 	done := make(chan error, 1)
@@ -323,9 +318,8 @@ func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 	}
 }
 
-// writeRefAdmissionObjects performs the batched import and returns the first
-// error. It runs on its own goroutine under importRefAdmissionObjects'
-// watchdog, so it must not touch *testing.T.
+// writeRefAdmissionObjects does the batched import and returns the first
+// error; it runs on its own goroutine, so it must not touch *testing.T.
 func writeRefAdmissionObjects(repo *DB, numAuthors int) error {
 	const chunk = 1000
 
@@ -391,12 +385,8 @@ func writeRefAdmissionObjects(repo *DB, numAuthors int) error {
 	return flush()
 }
 
-// admissionObjectVector returns a distinct, non-collinear 3-d vector for the
-// i-th imported object. The first component (i+1) is unique per object, so no
-// two vectors are identical and, because the remaining components move
-// independently, none are scalar multiples of one another. That keeps HNSW
-// graph construction close to linear; a batch of identical vectors would
-// degenerate the graph and make construction super-linear.
+// admissionObjectVector returns a distinct, non-collinear vector for object i
+// (see importRefAdmissionObjects for why that matters).
 func admissionObjectVector(i int) []float32 {
 	return []float32{
 		float32(i) + 1,
