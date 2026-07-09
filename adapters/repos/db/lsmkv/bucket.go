@@ -2322,9 +2322,11 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 
 	// Fold tombstones into the filter when it pays: one membership check per
 	// candidate instead of up to three, against an upfront AndNot per segment.
-	// Amortized only by scan volume, so gate on summed doc frequency vs filter
-	// cardinality. Skipped under deferTombstoneToScore, which deliberately keeps
-	// tombstones out of the advance-time checks the merge would fold into.
+	// The AndNot clones the whole filter once per disk segment, so amortize scan
+	// volume against the segment count, not a single clone — otherwise a broad
+	// filter over many segments merges for a marginal per-doc saving at a large
+	// per-query allocation. Skipped under deferTombstoneToScore, which deliberately
+	// keeps tombstones out of the advance-time checks the merge would fold into.
 	filterBl, _ := filterDocIds.(*helpers.BitmapAllowList)
 	mergeFilterAndTombstones := false
 	if filterBl != nil && !deferTombstoneToScore {
@@ -2335,7 +2337,13 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			for _, n := range idfCounts {
 				sumDf += n
 			}
-			mergeFilterAndTombstones = float64(sumDf) >= b.bm25FilterTombMergeGateRatio*float64(filterCard)
+			// nSeg (>=1) prices the per-segment clone into the gate: the fold runs
+			// an AndNot per disk segment that carries tombstones.
+			nSeg := float64(len(view.Disk))
+			if nSeg < 1 {
+				nSeg = 1
+			}
+			mergeFilterAndTombstones = float64(sumDf) >= b.bm25FilterTombMergeGateRatio*float64(filterCard)*nSeg
 		}
 	}
 
