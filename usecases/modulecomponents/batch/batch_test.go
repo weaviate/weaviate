@@ -361,6 +361,47 @@ func TestBatchRequestMissingRLValues(t *testing.T) {
 	require.Less(t, time.Since(start), time.Millisecond*900)
 }
 
+// fakeShortVectorClient returns fewer vectors than requested, mimicking a provider
+// that responds with a truncated result.
+type fakeShortVectorClient struct{}
+
+func (c *fakeShortVectorClient) Vectorize(ctx context.Context, text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Vector: make([][]float32, 0),
+		Errors: make([]error, len(text)),
+	}, nil, 0, nil
+}
+
+func (c *fakeShortVectorClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{}
+}
+
+func (c *fakeShortVectorClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
+// A provider returning fewer vectors than inputs must produce an error for the
+// missing objects instead of panicking on an out-of-range index.
+func TestMakeRequestFewerVectorsThanTexts(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	b := &Batch[[]float32]{
+		client:            &fakeShortVectorClient{},
+		rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+		endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+		logger:            logger,
+		Label:             "test",
+	}
+	job := BatchJob[[]float32]{ctx: context.Background(), cfg: cfg, errs: map[int]error{}, vecs: make([][]float32, 2)}
+
+	require.NotPanics(t, func() {
+		b.makeRequest(job, []string{"a", "b"}, cfg, []int{0, 1}, &modulecomponents.RateLimits{}, 2)
+	})
+	require.Error(t, job.errs[0])
+	require.Error(t, job.errs[1])
+}
+
 func TestEncoderCache(t *testing.T) {
 	cache := NewEncoderCache()
 

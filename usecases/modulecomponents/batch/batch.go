@@ -448,10 +448,12 @@ func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.
 		}
 	} else {
 		for j := 0; j < len(texts); j++ {
-			if res.Errors != nil && res.Errors[j] != nil {
+			if res.Errors != nil && j < len(res.Errors) && res.Errors[j] != nil {
 				job.errs[origIndex[j]] = res.Errors[j]
-			} else {
+			} else if j < len(res.Vector) {
 				job.vecs[origIndex[j]] = res.Vector[j]
+			} else {
+				job.errs[origIndex[j]] = errors.New("vectorizer returned fewer vectors than requested")
 			}
 		}
 	}
