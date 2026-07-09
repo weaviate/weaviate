@@ -111,12 +111,11 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				}
 				idx.dropIndex.RLock()
 				defer idx.dropIndex.RUnlock()
-				idx.closeLock.RLock()
-				defer idx.closeLock.RUnlock()
-				if idx.closed {
+				if err := idx.enterRead(); err != nil {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
+				defer idx.exitRead()
 				var classBaseDescr []*backup.ClassDescriptor
 				for _, b := range baseDescrs {
 					classbaseDescrTmp := b.GetClassDescriptor(c)

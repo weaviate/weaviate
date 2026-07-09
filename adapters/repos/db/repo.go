@@ -584,18 +584,18 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 
 	// drop index
 	db.indexLock.Lock()
-	defer db.indexLock.Unlock()
+	delete(db.indices, indexID(className))
+	db.indexLock.Unlock()
 
 	index.dropIndex.Lock()
 	defer index.dropIndex.Unlock()
 	if err := index.drop(); err != nil {
-		db.logger.WithField("action", "delete_index").WithField("class", className).Error(err)
+		db.logger.WithField("action", "delete_index").WithField("class", className).
+			Errorf("drop index: %v", err)
 	}
 
-	delete(db.indices, indexID(className))
-
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
-		db.logger.Error("can't delete prometheus metrics", err)
+		db.logger.Errorf("can't delete prometheus metrics: %v", err)
 	}
 	return nil
 }

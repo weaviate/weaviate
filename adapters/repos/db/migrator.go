@@ -259,11 +259,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	func() {
 		idx.dropIndex.RLock()
 		defer idx.dropIndex.RUnlock()
-		idx.closeLock.RLock()
-		defer idx.closeLock.RUnlock()
-		if idx.closed {
+		if err := idx.enterRead(); err != nil {
 			return
 		}
+		defer idx.exitRead()
 		if err := idx.reconcileAsyncReplication(ctx); err != nil {
 			m.logger.WithField("action", "add_class").WithField("class", class.Class).
 				Errorf("reconcile async replication for new index: %v", err)
@@ -630,12 +629,11 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
-	idx.closeLock.RLock()
-	defer idx.closeLock.RUnlock()
-	if idx.closed {
+	if err := idx.enterRead(); err != nil {
 		m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
-		return errAlreadyShutdown
+		return err
 	}
+	defer idx.exitRead()
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
