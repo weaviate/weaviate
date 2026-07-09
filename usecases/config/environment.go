@@ -633,7 +633,7 @@ func FromEnv(config *Config) error {
 	}
 
 	if err := parseFloatVerify(
-		"BM25_MERGE_GATE_RATIO",
+		"BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO",
 		DefaultBM25FilterTombMergeGateRatio,
 		func(val float64) { config.BM25FilterTombMergeGateRatio = val },
 		func(val float64, envName string) error {

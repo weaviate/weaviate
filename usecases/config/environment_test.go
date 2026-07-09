@@ -318,7 +318,7 @@ func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("BM25_MERGE_GATE_RATIO", tt.value)
+			t.Setenv("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO", tt.value)
 
 			conf := Config{}
 			err := FromEnv(&conf)
