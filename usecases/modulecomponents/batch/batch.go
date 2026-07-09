@@ -281,12 +281,36 @@ timeLoop:
 }
 
 func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
+	// Release the waiting submitter even on panic, so its handler cannot hang.
 	defer job.wg.Done()
+
 	maxTokensPerBatch := b.settings.MaxTokensPerBatch(job.cfg)
 	estimatedTokensInCurrentBatch := 0
 	numRequests := 0
 	numSendObjects := 0
 	actualTokensUsed := 0
+
+	// Release the concurrency slot and reserved budget even on panic; leaking either
+	// wedges the worker.
+	defer func() {
+		objectsPerRequest := 0
+		if numRequests > 0 {
+			objectsPerRequest = numSendObjects / numRequests
+		}
+		monitoring.GetMetrics().T2VRequestsPerBatch.WithLabelValues(b.Label).Observe(float64(numRequests))
+		b.endOfBatchChannel <- endOfBatchJob{
+			timePerToken:      timePerToken,
+			objectsPerRequest: objectsPerRequest,
+			reservedTokens:    job.tokenSum,
+			reservedReqs:      reservedReqs,
+			actualTokens:      actualTokensUsed,
+			actualReqs:        numRequests,
+			apiKeyHash:        job.apiKeyHash,
+			concurrentBatch:   concurrentBatch,
+		}
+		b.concurrentBatches.Add(-1)
+		monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Dec()
+	}()
 
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
@@ -409,23 +433,6 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		actualTokensUsedInReq, _ := b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, estimatedTokensInCurrentBatch)
 		actualTokensUsed += actualTokensUsedInReq
 	}
-	objectsPerRequest := 0
-	if numRequests > 0 {
-		objectsPerRequest = numSendObjects / numRequests
-	}
-	monitoring.GetMetrics().T2VRequestsPerBatch.WithLabelValues(b.Label).Observe(float64(numRequests))
-	b.endOfBatchChannel <- endOfBatchJob{
-		timePerToken:      timePerToken,
-		objectsPerRequest: objectsPerRequest,
-		reservedTokens:    job.tokenSum,
-		reservedReqs:      reservedReqs,
-		actualTokens:      actualTokensUsed,
-		actualReqs:        numRequests,
-		apiKeyHash:        job.apiKeyHash,
-		concurrentBatch:   concurrentBatch,
-	}
-	b.concurrentBatches.Add(-1)
-	monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Dec()
 }
 
 func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits, tokensInCurrentBatch int) (int, error) {
