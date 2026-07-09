@@ -80,12 +80,19 @@ func TestBatch(t *testing.T) {
 		}, skip: []bool{false, false, true}},
 		{name: "deadline", deadline: 400 * time.Millisecond, objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 15"}}, // set limit so next two items are in a batch
-			{Class: "Car", Properties: map[string]interface{}{"test": "wait 500"}},  // needs to be higher than deadline, so all remaining objects time out
+			{Class: "Car", Properties: map[string]interface{}{"test": "wait 500"}},  // higher than the deadline, so the job is still in flight when the request context expires
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "next batch, will be aborted due to context deadline"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
-		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded"), 5: fmt.Errorf("context deadline exceeded")}},
+			// The expired request context abandons the whole job, so every non-skipped object errors.
+		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{
+			0: fmt.Errorf("context deadline exceeded"),
+			1: fmt.Errorf("context deadline exceeded"),
+			2: fmt.Errorf("context deadline exceeded"),
+			3: fmt.Errorf("context deadline exceeded"),
+			5: fmt.Errorf("context deadline exceeded"),
+		}},
 		{name: "azure limit without total Limit", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "azure_tokens 20"}}, // set azure limit without total Limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long"}},

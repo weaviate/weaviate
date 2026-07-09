@@ -84,6 +84,9 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "1. obj 1. batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "2. obj 1. batch"}},
 		}, skip: []bool{false, false, true}},
+		// The deadline expires while the first batch is still in flight, so the call
+		// is abandoned before any object is resolved: every non-skipped object gets
+		// the deadline error and no vectors are returned.
 		{name: "deadline", deadline: 200 * time.Millisecond, objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 40"}}, // set limit so next two items are in a batch
 			{Class: "Car", Properties: map[string]interface{}{"test": "wait 400"}},
@@ -91,7 +94,13 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "next batch, will be aborted due to context deadline"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
-		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded"), 5: fmt.Errorf("context deadline exceeded")}},
+		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{
+			0: fmt.Errorf("context deadline exceeded"),
+			1: fmt.Errorf("context deadline exceeded"),
+			2: fmt.Errorf("context deadline exceeded"),
+			3: fmt.Errorf("context deadline exceeded"),
+			5: fmt.Errorf("context deadline exceeded"),
+		}},
 		{name: "request error", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "ReqError something"}},
 		}, skip: []bool{false}, wantErrors: map[int]error{0: fmt.Errorf("something")}},
@@ -538,6 +547,72 @@ func TestBatchWorkerSurvivesPanic(t *testing.T) {
 			vecs, errs := submitWithTimeout(t, v, cfg, []bool{false}, tokenCounts, texts)
 			require.Len(t, errs, 0)
 			require.NotNil(t, vecs[0])
+		})
+	}
+}
+
+// SubmitBatchAndWait must not hang forever when a job never signals completion:
+// once the request context is cancelled it returns, giving only unresolved
+// (non-skipped) objects the context error and no vectors.
+func TestSubmitBatchAndWaitRespectsContext(t *testing.T) {
+	cases := []struct {
+		name    string
+		newCtx  func() (context.Context, context.CancelFunc)
+		wantErr string
+	}{
+		{
+			name: "cancel",
+			newCtx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel() // already cancelled so the escape must fire on ctx.Done
+				return ctx, cancel
+			},
+			wantErr: "context cancelled",
+		},
+		{
+			name: "deadline",
+			newCtx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), 50*time.Millisecond)
+			},
+			wantErr: "context deadline exceeded",
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+			// No worker drains jobQueueCh, so the enqueued job never completes and
+			// wg.Done never fires - only the context escape can unblock the call.
+			b := &Batch[[]float32]{
+				client:            &fakeBatchClientWithRL[[]float32]{},
+				jobQueueCh:        make(chan BatchJob[[]float32], BatchChannelSize),
+				rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+				endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+				logger:            logger,
+				Label:             "test",
+			}
+
+			ctx, cancel := tt.newCtx()
+			defer cancel()
+
+			done := make(chan struct{})
+			var vecs [][]float32
+			var errs map[int]error
+			go func() {
+				vecs, errs = b.SubmitBatchAndWait(ctx, cfg, []bool{false, true}, []int{1, 1}, []string{"a", "b"})
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("SubmitBatchAndWait did not return after context cancellation")
+			}
+			require.Len(t, vecs, 2)
+			require.Nil(t, vecs[0])
+			require.EqualError(t, errs[0], tt.wantErr)
+			_, skipped := errs[1]
+			require.False(t, skipped, "skipped object must not get an error")
 		})
 	}
 }

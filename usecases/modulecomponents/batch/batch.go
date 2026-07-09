@@ -35,6 +35,19 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 
 const BatchChannelSize = 100
 
+// contextError maps a cancelled context to the per-object error reported for
+// objects that could not be vectorized because of it.
+func contextError(ctx context.Context) error {
+	switch ctx.Err() {
+	case context.Canceled:
+		return fmt.Errorf("context cancelled")
+	case context.DeadlineExceeded:
+		return fmt.Errorf("context deadline exceeded")
+	default:
+		return fmt.Errorf("context error: %w", ctx.Err())
+	}
+}
+
 type BatchJob[T dto.Embedding] struct {
 	texts      []string
 	tokens     []int
@@ -357,15 +370,7 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		if job.ctx.Err() != nil {
 			for j := objCounter; j < len(job.texts); j++ {
 				if !job.skipObject[j] {
-					switch job.ctx.Err() {
-					case context.Canceled:
-						job.errs[j] = fmt.Errorf("context cancelled")
-					case context.DeadlineExceeded:
-						job.errs[j] = fmt.Errorf("context deadline exceeded")
-					default:
-						// this should not happen but we need to handle it
-						job.errs[j] = fmt.Errorf("context error: %w", job.ctx.Err())
-					}
+					job.errs[j] = contextError(job.ctx)
 				}
 			}
 			break
@@ -555,7 +560,27 @@ func (b *Batch[T]) SubmitBatchAndWait(ctx context.Context, cfg moduletools.Class
 	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "enqueue").
 		Observe(time.Since(beforeEnqueue).Seconds())
 
-	wg.Wait()
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		wg.Wait()
+		close(done)
+	}, b.logger)
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		// Abandon the job once the request is gone so a stuck worker cannot hang the
+		// caller forever. The worker keeps running and still owns the job's errs and
+		// vecs, so return neither: a fresh error map for every unresolved object, and
+		// a fresh vector slice it cannot mutate.
+		ctxErrs := make(map[int]error)
+		for i := range skipObject {
+			if !skipObject[i] {
+				ctxErrs[i] = contextError(ctx)
+			}
+		}
+		return make([]T, len(skipObject)), ctxErrs
+	}
 
 	// observe total duration
 	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "total").
