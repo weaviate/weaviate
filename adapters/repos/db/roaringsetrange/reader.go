@@ -105,10 +105,14 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// the readers run concurrently (up to conc inner readers plus readers[0]),
-	// so hand each a fractional slice of the budget to bound the inner fan-out
-	// instead of letting every reader spawn conc merge goroutines of its own
-	innerCtx := concurrency.ContextWithFractionalBudget(ctx, min(count-1, conc), r.concurrency)
+	// hand inner readers a fractional slice of the budget so the concurrent
+	// fan-out stays bounded instead of each reader spawning conc merge workers.
+	// kill switch on: leave ctx budgets untouched so BudgetFromCtx consumers
+	// below the fan-out still see the caller's original budget.
+	innerCtx := ctx
+	if !concurrency.BudgetCapDisabled() {
+		innerCtx = concurrency.ContextWithFractionalBudget(ctx, min(count-1, conc), r.concurrency)
+	}
 
 	errors.GoWrapper(func() {
 		eg, gctx := errors.NewErrorGroupWithContextWrapper(r.logger, innerCtx)
@@ -138,6 +142,9 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		ec.Add(response.err)
 
 		if ec.Len() == 0 {
+			// this outer merge runs at the full budget while inner readers may still
+			// resolve at their fractional slice: a deliberate mild overshoot, as in
+			// prop_value_pairs.go
 			t := time.Now()
 			layer.Additions.AndNotConc(response.layer.Deletions, conc)
 			layer.Additions.OrConc(response.layer.Additions, conc)

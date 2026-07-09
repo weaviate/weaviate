@@ -23,6 +23,12 @@ import (
 // Escape hatch only; to be removed once the fix has soaked.
 var budgetCapDisabled = entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET"))
 
+// BudgetCapDisabled reports whether the sroar merge budget cap kill switch is
+// set, so read paths can leave ctx budgets untouched when the cap is disabled.
+func BudgetCapDisabled() bool {
+	return budgetCapDisabled
+}
+
 type budgetKey struct{}
 
 func (budgetKey) String() string {
@@ -50,20 +56,20 @@ func ContextWithFractionalBudget(ctx context.Context, factor, fallback int) cont
 }
 
 // BudgetFromCtxCapped returns the per-query concurrency budget from ctx,
-// clamped to [1, cap]. cap doubles as the fallback when ctx carries no
+// clamped to [1, limit]. limit doubles as the fallback when ctx carries no
 // budget (background callers: compaction, cursors, flush), which preserves
 // pre-budget behavior exactly. The floor of 1 is load-bearing: sroar's
 // *Conc merge ops treat maxConcurrency <= 0 as "unlimited".
-func BudgetFromCtxCapped(ctx context.Context, cap int) int {
+func BudgetFromCtxCapped(ctx context.Context, limit int) int {
 	if budgetCapDisabled {
-		return cap
+		return limit
 	}
-	return clampBudget(BudgetFromCtx(ctx, cap), cap)
+	return clampBudget(BudgetFromCtx(ctx, limit), limit)
 }
 
-func clampBudget(b, cap int) int {
-	if b > cap {
-		b = cap
+func clampBudget(b, limit int) int {
+	if b > limit {
+		b = limit
 	}
 	if b < 1 {
 		b = 1
