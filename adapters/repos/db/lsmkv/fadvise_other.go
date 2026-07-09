@@ -20,6 +20,16 @@ func fadviseSequential(_ *os.File) error {
 	return nil
 }
 
+// fadviseRandom is a no-op on non-Linux platforms.
+func fadviseRandom(_ *os.File) error {
+	return nil
+}
+
+// madviseRandom is a no-op on non-Linux platforms.
+func madviseRandom(_ []byte) error {
+	return nil
+}
+
 // fadviseDontNeed is a no-op on non-Linux platforms.
 func fadviseDontNeed(_ *os.File, _ int64) error {
 	return nil

@@ -174,6 +174,7 @@ type segmentConfig struct {
 	overwriteDerived             bool
 	enableChecksumValidation     bool
 	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
+	randomAccess                 bool // hint kernel to disable read-ahead (point-lookup buckets)
 	MinMMapSize                  int64
 	allocChecker                 memwatch.AllocChecker
 	fileList                     map[string]int64
@@ -211,6 +212,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		// Best-effort: hint the kernel to enable aggressive read-ahead.
 		// Errors are ignored — fadvise is purely advisory.
 		_ = fadviseSequential(file)
+	}
+	if cfg.randomAccess {
+		// Best-effort: disable read-ahead for point-lookup reads through the
+		// descriptor (pread path). Errors are ignored — fadvise is advisory.
+		_ = fadviseRandom(file)
 	}
 
 	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
@@ -264,6 +270,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		contents2, err := mmap.MapRegion(file, int(size), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		if cfg.randomAccess {
+			// Best-effort: disable read-ahead/fault-around for page faults on
+			// the mapping (index lookups fault the mapping rather than reading
+			// through the descriptor). Errors are ignored — madvise is advisory.
+			_ = madviseRandom(contents2)
 		}
 		contents = contents2
 		unMapContents = true

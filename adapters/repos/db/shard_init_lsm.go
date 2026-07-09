@@ -179,6 +179,11 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
 		lsmkv.WithClassName(s.index.Config.ClassName.String()),
+		// object reads are point lookups at random offsets (by UUID or by
+		// docID via the secondary index); kernel read-ahead drags a full
+		// window of useless neighbouring pages per read, which can saturate
+		// a cloud volume's throughput cap long before its IOPS limit
+		lsmkv.WithRandomAccess(true),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

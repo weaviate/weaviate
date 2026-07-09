@@ -63,7 +63,12 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmk
 	bName := sharedBucketName(indexID)
 	err := store.CreateOrLoadBucket(context.Background(),
 		bName,
-		cfg.MakeBucketOptions(lsmkv.StrategyReplace, lsmkv.WithForceCompaction(true))...,
+		cfg.MakeBucketOptions(lsmkv.StrategyReplace,
+			lsmkv.WithForceCompaction(true),
+			// versions/sizes/maps are point lookups at random offsets;
+			// read-ahead only wastes disk throughput
+			lsmkv.WithRandomAccess(true),
+		)...,
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)

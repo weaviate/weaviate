@@ -212,6 +212,25 @@ see, plus two data points that reshape the model:
    `rescore_mean=145ms` ≈ 350 fetches ÷ 16 workers × real disk latency —
    the phase behaves as modeled and is the next IO target (adaptive rescore).
 
+### Rig finding: kernel read-ahead saturated the disk's throughput cap
+
+Disk sampling during the benchmark showed 1.26 GB/s sustained reads (= the
+pd-ssd 1,200 MB/s cap) at only ~12k IOPS (of 60k available) — **~100KB per
+read** for a workload that requests 4KB index hops and ~37KB postings.
+Kernel read-ahead (default 128KB windows) inflated every random point read
+~6×, saturating the volume's *throughput* cap long before its IOPS limit and
+inflating per-hop latency to ~3-4ms via queueing. This is why rescore
+descents cost ~30ms/fetch and why warm/cold behavior looked identical: the
+cache was full of read-ahead junk while the true hot set fit easily.
+
+Fix on this branch: `lsmkv.WithRandomAccess` — `FADV_RANDOM` on the segment
+file descriptor (pread path) plus `MADV_RANDOM` on the mmap (index descent
+faults), the mirror image of the existing `WithSequentialAccess`. Wired for
+the objects bucket and the HFresh posting/shared buckets. Trade-off: cursor
+scans over these buckets (exports, reindexes) lose read-ahead; acceptable
+for point-lookup-dominated buckets, revisit with per-operation hints if it
+bites. Quick system-level equivalent for A/B: `blockdev --setra 16 <dev>`.
+
 ## Phase 1 — Recall-invariant wins (land as ready, no gating)
 
 1. **Concurrent posting reads**: bounded-parallelism `MultiGet`

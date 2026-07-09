@@ -109,6 +109,7 @@ type SegmentGroup struct {
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
 	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
+	randomAccess                   bool // hint kernel to disable read-ahead (point-lookup buckets)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// Store the average property length for segments in this sg,
@@ -139,6 +140,7 @@ type sgConfig struct {
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
 	sequentialAccess             bool
+	randomAccess                 bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 	className                    string
 }
@@ -173,6 +175,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
 		sequentialAccess:             cfg.sequentialAccess,
+		randomAccess:                 cfg.randomAccess,
 		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
@@ -266,6 +269,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
 					sequentialAccess:         sg.sequentialAccess,
+					randomAccess:             sg.randomAccess,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
@@ -391,6 +395,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			sequentialAccess:         sg.sequentialAccess,
+			randomAccess:             sg.randomAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
@@ -596,6 +601,7 @@ func (sg *SegmentGroup) add(path string) error {
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			sequentialAccess:         sg.sequentialAccess,
+			randomAccess:             sg.randomAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,

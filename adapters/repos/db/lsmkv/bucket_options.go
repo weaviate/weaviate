@@ -339,3 +339,17 @@ func WithSequentialAccess(v bool) BucketOption {
 		return nil
 	}
 }
+
+// WithRandomAccess hints the kernel (via fadvise on the descriptor and
+// madvise on the mapping) that segment files will be read at random offsets,
+// disabling read-ahead. Use for point-lookup-heavy buckets: without it every
+// random read drags in a full read-ahead window of useless neighbouring
+// pages, which can saturate a cloud volume's throughput cap long before its
+// IOPS limit. Trade-off: full-bucket cursor scans (exports, reindexes) lose
+// read-ahead on these buckets too.
+func WithRandomAccess(v bool) BucketOption {
+	return func(b *Bucket) error {
+		b.randomAccess = v
+		return nil
+	}
+}

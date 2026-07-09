@@ -249,6 +249,12 @@ type Bucket struct {
 	// sequentialAccess hints the kernel (via fadvise) that segment files will
 	// be read sequentially. Set via WithSequentialAccess for snapshot buckets.
 	sequentialAccess bool
+
+	// randomAccess hints the kernel (via fadvise/madvise) that segment files
+	// will be read at random offsets, disabling read-ahead. Set via
+	// WithRandomAccess for point-lookup-heavy buckets where read-ahead
+	// windows waste disk throughput.
+	randomAccess bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -358,6 +364,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
 			sequentialAccess:             b.sequentialAccess,
+			randomAccess:                 b.randomAccess,
 			shouldSkipKey:                b.shouldSkipKey,
 			className:                    b.className,
 		}, compactionCallbacks, b, files)
