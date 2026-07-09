@@ -24,24 +24,17 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TestQueryAdmissionConcurrency bursts concurrent filtered+BM25 shard
@@ -158,43 +151,6 @@ func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
 	disabled *configRuntime.DynamicValue[bool],
 ) (*DB, ShardLike) {
 	t.Helper()
-	logger := logrus.New()
-	logger.SetLevel(logrus.PanicLevel) // keep the burst quiet
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(cn string, retry bool, readFunc func(*models.Class, *sharding.State) error) error {
-			return readFunc(&models.Class{Class: cn}, shardState)
-		}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:      60,
-		RootPath:                      t.TempDir(),
-		QueryMaximumResults:           10000,
-		MaxImportGoroutinesFactor:     1,
-		QueryAdmissionBudget:          budget,
-		QueryAdmissionMaxQueue:        maxQueue,
-		QueryAdmissionControlDisabled: disabled,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(context.TODO()))
-
 	vFalse, vTrue := false, true
 	class := &models.Class{
 		Class:               className,
@@ -216,19 +172,11 @@ func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
 			},
 		},
 	}
-	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
-	migrator := NewMigrator(repo, logger, "node1")
-	require.NoError(t, migrator.AddClass(context.Background(), class))
-
-	idx := repo.GetIndex(schema.ClassName(className))
-	require.NotNil(t, idx)
-	var shard ShardLike
-	require.NoError(t, idx.ForEachShard(func(_ string, s ShardLike) error {
-		shard = s
-		return nil
-	}))
-	require.NotNil(t, shard)
-	return repo, shard
+	return newAdmissionRepo(t, admissionRepoParams{
+		budget:   budget,
+		maxQueue: maxQueue,
+		disabled: disabled,
+	}, className, class)
 }
 
 func importAdmissionObjects(t *testing.T, repo *DB, className string, count int) {

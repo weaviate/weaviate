@@ -24,24 +24,17 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TestQueryAdmissionRefFilterNoWedge is the regression guard for the admission
@@ -77,45 +70,11 @@ func TestQueryAdmissionRefFilterNoWedge(t *testing.T) {
 	qctx, qcancel := context.WithCancel(ctx)
 	defer qcancel()
 
-	var (
-		wg     sync.WaitGroup
-		badErr atomic.Value
-	)
-	for i := 0; i < numQueries; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// A generous per-query deadline: in the buggy build the parent that
-			// wedges is blocked inside a nested Admit on context.TODO(), which
-			// this deadline cannot interrupt — that is exactly the wedge we
-			// detect via the outer timeout below.
-			cctx, cancel := context.WithTimeout(qctx, 60*time.Second)
-			defer cancel()
-			_, _, err := shard.ObjectSearch(cctx, 100, refFilter, nil, nil, nil,
-				additional.Properties{}, []string{"title"})
-			switch {
-			case err == nil:
-			case errors.Is(err, queryadmission.ErrOverloaded):
-			case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-			default:
-				badErr.Store(err.Error())
-			}
-		}()
-	}
-
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
+	if !burstRefFilterSearches(t, qctx, shard, refFilter, numQueries) {
 		qcancel()
 		t.Fatalf("admission wedge: %d ref-filter queries did not complete within 30s; "+
 			"the nested cross-reference search re-entered Admit as a fresh acquirer and "+
 			"parked on a never-expiring ctx while the parent held its grant", numQueries)
-	}
-
-	if v := badErr.Load(); v != nil {
-		t.Fatalf("unexpected ref-filter search error (want nil / overloaded / deadline): %v", v)
 	}
 
 	// (b) No grant leak: once every query has returned, every unit must be back
@@ -170,41 +129,11 @@ func TestQueryAdmissionRefFilterSingleGrant(t *testing.T) {
 		}
 	}()
 
-	var (
-		wg     sync.WaitGroup
-		badErr atomic.Value
-	)
-	for i := 0; i < numQueries; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-			defer cancel()
-			_, _, err := shard.ObjectSearch(cctx, 100, refFilter, nil, nil, nil,
-				additional.Properties{}, []string{"title"})
-			switch {
-			case err == nil:
-			case errors.Is(err, queryadmission.ErrOverloaded):
-			case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-			default:
-				badErr.Store(err.Error())
-			}
-		}()
-	}
-
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
+	if !burstRefFilterSearches(t, ctx, shard, refFilter, numQueries) {
 		close(stop)
 		t.Fatalf("ref-filter queries did not complete within 30s under a generous budget")
 	}
 	close(stop)
-
-	if v := badErr.Load(); v != nil {
-		t.Fatalf("unexpected ref-filter search error (want nil / overloaded / deadline): %v", v)
-	}
 
 	// (c) One grant per query: peak in-flight grants must not exceed the number
 	// of concurrent queries. A value above numQueries means a query held both a
@@ -239,6 +168,55 @@ func readAdmissionGauge(reg *prometheus.Registry, name string) float64 {
 	return 0
 }
 
+// burstRefFilterSearches fires numQueries concurrent ref-filter ObjectSearch
+// calls against shard, each bounded by a 60s per-query deadline derived from
+// qctx. That deadline cannot interrupt the buggy build's nested-Admit wedge
+// (the parent parks on a never-expiring ctx), so the wedge surfaces only via
+// the outer 30s timeout here: the function returns true once every query
+// returns nil / overloaded / deadline, or false if they do not all complete in
+// time. It fails the test if any query returns an error outside that expected
+// set. Callers own the timeout response so each test keeps its own wedge
+// diagnostics and cleanup (releasing waiters, stopping samplers).
+func burstRefFilterSearches(t *testing.T, qctx context.Context, shard ShardLike,
+	refFilter *filters.LocalFilter, numQueries int,
+) bool {
+	t.Helper()
+	var (
+		wg     sync.WaitGroup
+		badErr atomic.Value
+	)
+	for i := 0; i < numQueries; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(qctx, 60*time.Second)
+			defer cancel()
+			_, _, err := shard.ObjectSearch(cctx, 100, refFilter, nil, nil, nil,
+				additional.Properties{}, []string{"title"})
+			switch {
+			case err == nil:
+			case errors.Is(err, queryadmission.ErrOverloaded):
+			case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+			default:
+				badErr.Store(err.Error())
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		return false
+	}
+
+	if v := badErr.Load(); v != nil {
+		t.Fatalf("unexpected ref-filter search error (want nil / overloaded / deadline): %v", v)
+	}
+	return true
+}
+
 // articleRefNameLike builds the ref-filter shape path:[writtenBy,Author,name]
 // Like <pattern> on the Article class.
 func articleRefNameLike(pattern string) *filters.LocalFilter {
@@ -264,28 +242,6 @@ func articleRefNameLike(pattern string) *filters.LocalFilter {
 // any test-only accessor on the limiter.
 func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*DB, ShardLike, *prometheus.Registry) {
 	t.Helper()
-	logger := logrus.New()
-	logger.SetLevel(logrus.PanicLevel) // keep the burst quiet
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(cn string, retry bool, readFunc func(*models.Class, *sharding.State) error) error {
-			return readFunc(&models.Class{Class: cn}, shardState)
-		}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
 	// Copy the global metrics struct (its metric vectors stay valid) but point
 	// the Registerer at a fresh registry: only the admission and load limiters
@@ -293,20 +249,6 @@ func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*DB,
 	reg := prometheus.NewRegistry()
 	pm := *monitoring.GetMetrics()
 	pm.Registerer = reg
-	promMetrics := &pm
-
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		QueryAdmissionBudget:      budget,
-		QueryAdmissionMaxQueue:    maxQueue,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, promMetrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(context.TODO()))
 
 	vTrue := true
 	author := &models.Class{
@@ -341,21 +283,15 @@ func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*DB,
 			},
 		},
 	}
-	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{author, article}}}
-	migrator := NewMigrator(repo, logger, "node1")
-	require.NoError(t, migrator.AddClass(context.Background(), author))
-	require.NoError(t, migrator.AddClass(context.Background(), article))
+
+	repo, shard := newAdmissionRepo(t, admissionRepoParams{
+		budget:      budget,
+		maxQueue:    maxQueue,
+		promMetrics: &pm,
+	}, "Article", author, article)
 
 	importRefAdmissionObjects(t, repo, numAuthors)
 
-	idx := repo.GetIndex(schema.ClassName("Article"))
-	require.NotNil(t, idx)
-	var shard ShardLike
-	require.NoError(t, idx.ForEachShard(func(_ string, s ShardLike) error {
-		shard = s
-		return nil
-	}))
-	require.NotNil(t, shard)
 	return repo, shard, reg
 }
 
