@@ -32,10 +32,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// admissionRepoParams carries the knobs that differ between the query-admission
-// integration repos. promMetrics may be nil (the limiter registers to the
-// global noop registerer, so its gauges are not isolated for reading); disabled
-// may be nil (the runtime kill switch is not wired for the test).
+// admissionRepoParams carries the knobs that differ per test. A nil
+// promMetrics registers to the global noop registerer, so its gauges are
+// not isolated for reading.
 type admissionRepoParams struct {
 	budget      int
 	maxQueue    int
@@ -43,13 +42,9 @@ type admissionRepoParams struct {
 	promMetrics *monitoring.PrometheusMetrics
 }
 
-// newAdmissionRepo builds a single-node DB wired for the query-admission
-// integration tests: a panic-level logger (bursts stay quiet), a single shard,
-// the standard schema/replication/node-selector mocks with every expectation
-// optional, and the given classes migrated in. It returns the repo and the
-// shard backing className. Callers keep the parts that genuinely differ per
-// test (budgets, class shapes, metrics wiring, object import) at their own call
-// site.
+// newAdmissionRepo builds a single-node DB wired for query-admission
+// integration tests, with the given classes migrated in. Callers own
+// whatever differs per test (budgets, class shapes, metrics, object import).
 func newAdmissionRepo(t *testing.T, p admissionRepoParams,
 	className string, classes ...*models.Class,
 ) (*DB, ShardLike) {

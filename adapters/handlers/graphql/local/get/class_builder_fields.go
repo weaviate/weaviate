@@ -501,10 +501,8 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		result, err := resolver.GetClass(p.Context, principal, params)
 		if err != nil {
 			if errors.Is(err, queryadmission.ErrOverloaded) {
-				// Node-level admission shed. GraphQL has no typed status code, so
-				// surface it the same way the global rate limiter does — a
-				// "429 Too many requests" message — so clients can distinguish
-				// overload/backpressure from other errors.
+				// GraphQL has no typed status code; mirror the global rate
+				// limiter's 429 message so clients can detect overload.
 				err = enterrors.NewErrRateLimit()
 			}
 			return result, enterrors.NewErrGraphQLUser(err, "Get", params.ClassName)

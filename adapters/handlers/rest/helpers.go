@@ -42,12 +42,8 @@ func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 	}}}
 }
 
-// tooManyRequestsResponder writes an HTTP 429 with the standard error payload.
-// The generated go-swagger operations do not declare a 429 response, so it is
-// written directly here. It is the REST analog of the 429 backpressure signal
-// the query path already emits on gRPC (ResourceExhausted) and GraphQL, used
-// when a node-level admission shed (queryadmission.ErrOverloaded) reaches the
-// user-facing search handlers.
+// tooManyRequestsResponder writes an HTTP 429 with the standard error
+// payload; the generated go-swagger operations declare no 429 response.
 func tooManyRequestsResponder(err error) middleware.Responder {
 	return middleware.ResponderFunc(func(rw http.ResponseWriter, producer runtime.Producer) {
 		rw.WriteHeader(http.StatusTooManyRequests)

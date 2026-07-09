@@ -553,10 +553,8 @@ func TestShedIncrementsShedTotalMetric(t *testing.T) {
 	require.Equal(t, int64(0), l.usedForTest())
 }
 
-// TestFlipToDisabledDrainsQueuedWaiters is the S3 guard: flipping the kill
-// switch to disabled does NOT actively wake already-parked waiters (DynamicValue
-// has no change hook), but they still drain via normal releases while new
-// arrivals bypass admission.
+// TestFlipToDisabledDrainsQueuedWaiters is the S3 guard: disabling admission
+// does not wake parked waiters, but they still drain via normal releases.
 func TestFlipToDisabledDrainsQueuedWaiters(t *testing.T) {
 	d := configRuntime.NewDynamicValue(false)
 	l := newLimiter(t, Config{Capacity: 2, MaxQueue: 8, Disabled: d})

@@ -28,13 +28,9 @@ type retryClient struct {
 	*retryer
 }
 
-// statusCodeError carries the HTTP status code of a failed remote request so
-// callers can rehydrate protocol-level semantics after the retryer has
-// exhausted its attempts and flattened the response to an error. In particular
-// the shard-search path uses it to map a final 429 back to
-// queryadmission.ErrOverloaded so a cross-node admission shed keeps its
-// identity (429 / ResourceExhausted) at the coordinator's ingress mapping
-// instead of degrading to a generic 500.
+// statusCodeError preserves the HTTP status of a failed remote request past
+// the retryer, so callers can distinguish e.g. a 429 admission shed from
+// other failures.
 type statusCodeError struct {
 	code int
 	body string
@@ -44,7 +40,6 @@ func (e *statusCodeError) Error() string {
 	return fmt.Sprintf("status code: %v, error: %s", e.code, e.body)
 }
 
-// StatusCode returns the HTTP status code of the failed remote response.
 func (e *statusCodeError) StatusCode() int { return e.code }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
